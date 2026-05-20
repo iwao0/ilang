@@ -319,11 +319,11 @@ pub enum Hint: string {
     /// Initialise the named subsystems. Must be called once before
     /// any other SDL routine in those subsystems.
     ///
-    /// Args:
-    ///   flags — bitwise-OR of `InitFlag.*` (e.g.
-    ///           `InitFlag.video | InitFlag.audio`).
+    /// **Args:**
+    /// - `flags` — bitwise-OR of `InitFlag.*` (e.g.
+    ///   `InitFlag.video | InitFlag.audio`).
     ///
-    /// Returns:
+    /// **Returns:**
     ///   `0` on success, `< 0` on failure (call `getError()`).
     pub fn init(flags: InitFlag): i32 {
         SDL_Init(flags as u32)
@@ -331,10 +331,10 @@ pub enum Hint: string {
 
     /// Initialise additional subsystems after the first `init` call.
     ///
-    /// Args:
-    ///   flags — subsystems to add.
+    /// **Args:**
+    /// - `flags` — subsystems to add.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   `0` on success, `< 0` on failure.
     pub fn initSubSystem(flags: InitFlag): i32 {
         SDL_InitSubSystem(flags as u32)
@@ -346,10 +346,10 @@ pub enum Hint: string {
         SDL_QuitSubSystem(flags as u32)
     }
 
-    /// Args:
-    ///   flags — mask to filter (`InitFlag.everything` for "all").
+    /// **Args:**
+    /// - `flags` — mask to filter (`InitFlag.everything` for "all").
     ///
-    /// Returns:
+    /// **Returns:**
     ///   bitmask of subsystems currently initialised among `flags`.
     pub fn wasInit(flags: InitFlag): u32 {
         SDL_WasInit(flags as u32)
@@ -361,7 +361,7 @@ pub enum Hint: string {
         SDL_Quit()
     }
 
-    /// Returns:
+    /// **Returns:**
     ///   the latest SDL error message (or empty string when no
     ///   error is recorded for this thread).
     pub fn getError(): string {
@@ -375,10 +375,10 @@ pub enum Hint: string {
 
     /// Set the per-thread error string.
     ///
-    /// Args:
-    ///   msg — message to record.
+    /// **Args:**
+    /// - `msg` — message to record.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   always `-1` (matches SDL's convention of "error path"
     ///   return values).
     pub fn setError(msg: string): i32 {
@@ -388,11 +388,11 @@ pub enum Hint: string {
     /// Set a hint at `Normal` priority — overrides defaults but
     /// not user-set values.
     ///
-    /// Args:
-    ///   name  — `"SDL_…"` hint name (use the `HINT_*` constants).
-    ///   value — hint value as a string.
+    /// **Args:**
+    /// - `name` — `"SDL_…"` hint name (use the `HINT_*` constants).
+    /// - `value` — hint value as a string.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   true when the hint was applied.
     pub fn setHint(name: string, value: string): bool {
         SDL_SetHint(cstrFromString(name), cstrFromString(value)) != 0
@@ -405,10 +405,10 @@ pub enum Hint: string {
         ) != 0
     }
 
-    /// Args:
-    ///   name — hint name.
+    /// **Args:**
+    /// - `name` — hint name.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   the current value, or empty when the hint isn't set.
     pub fn getHint(name: string): string {
         stringFromCstr(SDL_GetHint(cstrFromString(name)))
@@ -416,9 +416,9 @@ pub enum Hint: string {
 
     /// Boolean view of a hint.
     ///
-    /// Args:
-    ///   name          — hint name.
-    ///   defaultValue — fallback when the hint is unset / unparsed.
+    /// **Args:**
+    /// - `name` — hint name.
+    /// - `defaultValue` — fallback when the hint is unset / unparsed.
     pub fn getHintBoolean(name: string, defaultValue: bool): bool {
         let dv: i32 = if defaultValue { 1 } else { 0 }
         SDL_GetHintBoolean(cstrFromString(name), dv) != 0
@@ -450,7 +450,7 @@ pub enum Hint: string {
         SDL_LogSetPriority(category as i32, priority as i32)
     }
 
-    /// Returns:
+    /// **Returns:**
     ///   the priority threshold currently set for `category`.
     pub fn logGetPriority(category: LogCategory): LogPriority {
         SDL_LogGetPriority(category as i32) as LogPriority
@@ -466,20 +466,20 @@ pub enum Hint: string {
         SDL_LogMessage(category as i32, priority as i32, cstrFromString(msg))
     }
 
-    /// Returns:
+    /// **Returns:**
     ///   the SDL revision string (e.g. `"SDL2-2.30.1"`).
     pub fn getRevision(): string {
         stringFromCstr(SDL_GetRevision())
     }
 
-    /// Returns:
+    /// **Returns:**
     ///   the platform name (`"Mac OS X"`, `"Linux"`, `"Windows"`,
     ///   `"iOS"`, …).
     pub fn getPlatform(): string {
         stringFromCstr(SDL_GetPlatform())
     }
 
-    /// Returns:
+    /// **Returns:**
     ///   the linked SDL2 library's version (major.minor.patch).
     pub fn getVersion(): Version {
         let v = new Version()
@@ -487,7 +487,7 @@ pub enum Hint: string {
         v
     }
 
-    /// Returns:
+    /// **Returns:**
     ///   true when the OS clipboard contains text. Doesn't allocate
     ///   so it's cheap to poll.
     pub fn hasClipboardText(): bool {
@@ -496,7 +496,7 @@ pub enum Hint: string {
 
     /// Read the OS clipboard as text.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   clipboard contents, or empty string when the clipboard is
     ///   empty or holds non-text data.
     pub fn getClipboardText(): string {
@@ -507,29 +507,29 @@ pub enum Hint: string {
 
     /// Write `text` to the OS clipboard.
     ///
-    /// Args:
-    ///   text — UTF-8 string to copy.
+    /// **Args:**
+    /// - `text` — UTF-8 string to copy.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   `0` on success, `< 0` on failure (call `getError()`).
     pub fn setClipboardText(text: string): i32 {
         SDL_SetClipboardText(cstrFromString(text))
     }
 
-    /// Returns:
+    /// **Returns:**
     ///   number of CPU cores SDL sees. Includes hyperthreaded
     ///   logical cores.
     pub fn getCPUCount(): i32 {
         SDL_GetCPUCount()
     }
 
-    /// Returns:
+    /// **Returns:**
     ///   physical RAM in MiB.
     pub fn getSystemRAM(): i32 {
         SDL_GetSystemRAM()
     }
 
-    /// Returns:
+    /// **Returns:**
     ///   L1 cache line size in bytes — useful for laying out hot
     ///   structs to avoid false sharing.
     pub fn getCPUCacheLineSize(): i32 {
@@ -544,7 +544,7 @@ pub enum Hint: string {
     /// Compute `a ∩ b`. The intersection is written into a fresh
     /// `Rect` returned by the helper.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   `(rect, hadIntersection)` packed as a one-element array
     ///   plus a bool isn't ergonomic in ilang yet — instead the
     ///   helper returns the rect with `(w, h) == (0, 0)` when there
@@ -578,7 +578,7 @@ pub enum Hint: string {
     /// is non-null, only points falling inside `clip` are
     /// considered.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   the enclosing rect, or `(0, 0, 0, 0)` when no points
     ///   matched.
     pub fn enclosePoints(points: Point[], clip: Rect): Rect {
@@ -590,7 +590,7 @@ pub enum Hint: string {
 
     /// Battery / power-source snapshot.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   `state` — one of `PowerState.*`.
     ///   Pass `seconds` and `percent` as 1-element arrays to
     ///   receive the remaining battery time (seconds, `-1` on
@@ -612,7 +612,7 @@ pub enum Hint: string {
     /// Hand a URL to the OS — opens the user's default browser
     /// (or mailto / file handler, depending on the scheme).
     ///
-    /// Returns:
+    /// **Returns:**
     ///   `0` on success, `< 0` on failure (call `getError()`).
     pub fn openURL(url: string): i32 {
         SDL_OpenURL(cstrFromString(url))
@@ -620,7 +620,7 @@ pub enum Hint: string {
 
     /// Read the user's preferred UI locales, in priority order.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   array of `"lang"` or `"lang_country"` strings (e.g.
     ///   `"en_US"`, `"ja"`). Empty when SDL can't determine the
     ///   locale.

@@ -131,10 +131,10 @@ pub enum MixInitFlag: i32 {
 
         /// Initialise SDL2_mixer with the requested decoder set.
         ///
-        /// Args:
-        ///   flags — bitwise OR of `MixInitFlag.*` values.
+        /// **Args:**
+        /// - `flags` — bitwise OR of `MixInitFlag.*` values.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the subset of `flags` whose decoders actually loaded
         ///   (as another `MixInitFlag`). Compare against the
         ///   requested mask to detect missing optional deps
@@ -151,15 +151,15 @@ pub enum MixInitFlag: i32 {
 
         /// Open the mixer's audio device.
         ///
-        /// Args:
-        ///   frequency — sample rate (Hz).
-        ///   format    — sample format (`AudioFormat.*`).
-        ///   channels  — `1` mono, `2` stereo.
-        ///   chunksize — internal scratch buffer in samples per
-        ///               channel; smaller = lower latency, higher
-        ///               CPU.
+        /// **Args:**
+        /// - `frequency` — sample rate (Hz).
+        /// - `format` — sample format (`AudioFormat.*`).
+        /// - `channels` — `1` mono, `2` stereo.
+        /// - `chunksize` — internal scratch buffer in samples per
+        ///   channel; smaller = lower latency, higher
+        ///   CPU.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub static openAudio(
             frequency: i32, format: AudioFormat,
@@ -187,7 +187,7 @@ pub enum MixInitFlag: i32 {
         /// Allocate / resize the channel pool (default is 8).
         /// Pass `-1` to query without resizing.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the resulting channel count.
         pub static allocateChannels(numchans: i32): i32 {
             Mix_AllocateChannels(numchans)
@@ -195,7 +195,7 @@ pub enum MixInitFlag: i32 {
 
         /// Query the open device's spec.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `Some(MixerSpec)` with the negotiated frequency /
         ///   format / channels when the device is open, or `none`
         ///   if the mixer hasn't been opened yet.
@@ -227,7 +227,7 @@ pub enum MixInitFlag: i32 {
         /// Set the volume of `channel` (`-1` = all channels).
         /// `volume = -1` queries without changing.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the volume in effect after the call (or the average
         ///   when querying with `channel = -1`).
         pub static setChannelVolume(channel: i32, volume: i32): i32 {
@@ -283,7 +283,7 @@ pub enum MixInitFlag: i32 {
         /// `loops = 0` plays once; `loops = N > 0` plays N+1 times;
         /// `loops = -1` loops forever.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the channel actually used (`>= 0`), or `-1` on
         ///   failure.
         pub play(channel: i32, loops: i32): i32 {
@@ -300,7 +300,7 @@ pub enum MixInitFlag: i32 {
 
         /// Fade-in playback over `ms` milliseconds.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   chosen channel, or `-1` on failure.
         pub fadeIn(channel: i32, loops: i32, ms: i32): i32 {
             if this.handle == 0 { return -1 }
@@ -312,10 +312,10 @@ pub enum MixInitFlag: i32 {
         /// Per-chunk volume (`0..Mixer.maxVolume`). Multiplies
         /// against the channel volume at mix time.
         ///
-        /// Args:
-        ///   volume — `-1` to query without changing.
+        /// **Args:**
+        /// - `volume` — `-1` to query without changing.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the volume in effect after the call.
         pub volume(volume: i32): i32 {
             if this.handle == 0 { return 0 }
@@ -344,10 +344,10 @@ pub enum MixInitFlag: i32 {
 
         /// Start playback. Replaces any music currently playing.
         ///
-        /// Args:
-        ///   loops — `0` plays once, `-1` loops forever.
+        /// **Args:**
+        /// - `loops` — `0` plays once, `-1` loops forever.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub play(loops: i32): i32 {
             if this.handle == 0 { return -1 }

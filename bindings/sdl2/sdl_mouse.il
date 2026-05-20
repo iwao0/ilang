@@ -78,7 +78,7 @@ pub enum SystemCursor: i32 {
 
         /// The held-button bitmask (no position).
         ///
-        /// Returns:
+        /// **Returns:**
         ///   a `MouseButton` flag set. Use bit-and against
         ///   `MouseButton.left` / `.right` / ... to test specific
         ///   buttons, or compare against `0 as MouseButton` to
@@ -116,7 +116,7 @@ pub enum SystemCursor: i32 {
 
         /// Move the cursor in screen coordinates.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure (some platforms
         ///   forbid global warps).
         pub static warpGlobal(x: i32, y: i32): i32 {
@@ -128,7 +128,7 @@ pub enum SystemCursor: i32 {
         /// reports raw deltas. Used for first-person cameras /
         /// drag interactions.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` if not supported by the
         ///   platform.
         pub static setRelativeMode(enabled: bool): i32 {
@@ -136,7 +136,7 @@ pub enum SystemCursor: i32 {
             SDL_SetRelativeMouseMode(v)
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true when relative mode is active.
         pub static isRelativeMode(): bool {
             SDL_GetRelativeMouseMode() != 0
@@ -144,10 +144,10 @@ pub enum SystemCursor: i32 {
 
         /// Show or hide the system cursor.
         ///
-        /// Args:
-        ///   visible — true shows, false hides.
+        /// **Args:**
+        /// - `visible` — true shows, false hides.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the resulting visibility (`1` shown, `0` hidden), or
         ///   `< 0` on error.
         pub static showCursor(visible: bool): i32 {
@@ -155,14 +155,14 @@ pub enum SystemCursor: i32 {
             SDL_ShowCursor(v)
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the current visibility (true = shown, false = hidden)
         ///   without changing it.
         pub static isCursorVisible(): bool {
             SDL_ShowCursor(-1) == 1
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the raw `*SDL_Window` (cast to i64) of the window
         ///   currently under the mouse, or `0` when the mouse is
         ///   outside every SDL window. NOT wrapped in `Window`

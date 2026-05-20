@@ -108,14 +108,14 @@ pub enum HatPosition: u8 {
             }
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true while the device is still plugged in.
         pub get isAttached(): bool {
             if this.handle == 0 { return false }
             SDL_JoystickGetAttached(this.handle as *SDL_Joystick) != 0 as u8
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the device's reported name, or empty when no device is
         ///   open.
         pub get name(): string {
@@ -123,21 +123,21 @@ pub enum HatPosition: u8 {
             stringFromCstr(SDL_JoystickName(this.handle as *SDL_Joystick))
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   number of analog axes the device exposes.
         pub get numAxes(): i32 {
             if this.handle == 0 { return 0 }
             SDL_JoystickNumAxes(this.handle as *SDL_Joystick)
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   number of digital buttons the device exposes.
         pub get numButtons(): i32 {
             if this.handle == 0 { return 0 }
             SDL_JoystickNumButtons(this.handle as *SDL_Joystick)
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   number of D-pad / POV hats the device exposes.
         pub get numHats(): i32 {
             if this.handle == 0 { return 0 }
@@ -153,7 +153,7 @@ pub enum HatPosition: u8 {
 
         /// Read one button.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `1` while held, `0` otherwise.
         pub getButton(button: i32): u8 {
             if this.handle == 0 { return 0 as u8 }
@@ -171,12 +171,12 @@ pub enum HatPosition: u8 {
 
         /// Trigger a rumble effect.
         ///
-        /// Args:
-        ///   lowFreq    — left motor magnitude, `0..65535`.
-        ///   highFreq   — right motor magnitude, `0..65535`.
-        ///   durationMs — effect length in milliseconds.
+        /// **Args:**
+        /// - `lowFreq` — left motor magnitude, `0..65535`.
+        /// - `highFreq` — right motor magnitude, `0..65535`.
+        /// - `durationMs` — effect length in milliseconds.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` if the device doesn't support
         ///   rumble.
         pub rumble(lowFreq: u16, highFreq: u16, durationMs: u32): i32 {
@@ -187,7 +187,7 @@ pub enum HatPosition: u8 {
             )
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the device's stable 16-byte GUID, or all-zero when no
         ///   device is open. Use `Joystick.guidToString(...)` to
         ///   serialise.
@@ -200,7 +200,7 @@ pub enum HatPosition: u8 {
 
         // ─── static helpers ──────────────────────────────────────
 
-        /// Returns:
+        /// **Returns:**
         ///   number of joystick / game-controller devices SDL
         ///   currently sees. Pair with `Joystick.nameForIndex` /
         ///   `Joystick.deviceGUID` to identify each one.
@@ -208,10 +208,10 @@ pub enum HatPosition: u8 {
             SDL_NumJoysticks()
         }
 
-        /// Args:
-        ///   deviceIndex — `[0, Joystick.count())`.
+        /// **Args:**
+        /// - `deviceIndex` — `[0, Joystick.count())`.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   joystick name SDL would report at that index, or empty
         ///   when out of range.
         pub static nameForIndex(deviceIndex: i32): string {
@@ -221,12 +221,12 @@ pub enum HatPosition: u8 {
         /// Toggle whether `SDL_PollEvent` / `WaitEvent` deliver
         /// joystick events.
         ///
-        /// Args:
-        ///   state — `EventState.disable` / `.enable` to set,
-        ///           `.query` to read the current setting without
-        ///           changing it.
+        /// **Args:**
+        /// - `state` — `EventState.disable` / `.enable` to set,
+        ///   `.query` to read the current setting without
+        ///   changing it.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the resulting `EventState` (or, for `query`, the
         ///   current setting).
         pub static eventState(state: EventState): EventState {
@@ -240,7 +240,7 @@ pub enum HatPosition: u8 {
             SDL_JoystickUpdate()
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the 33-byte (32 hex chars + NUL) string SDL
         ///   canonicalises `guid` to. Stable across runs /
         ///   platforms — safe to write to disk for "remember last
@@ -266,10 +266,10 @@ pub enum HatPosition: u8 {
             SDL_JoystickGetGUIDFromString(cstrFromString(s))
         }
 
-        /// Args:
-        ///   deviceIndex — `[0, Joystick.count())`.
+        /// **Args:**
+        /// - `deviceIndex` — `[0, Joystick.count())`.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the device's GUID *without* opening it. Pair with
         ///   `guidToString` to identify the pad before deciding
         ///   whether to call `new Joystick(deviceIndex)`.

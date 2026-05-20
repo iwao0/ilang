@@ -129,15 +129,15 @@ pub enum PeepAction: i32 {
     /// Block the current thread for `ms` milliseconds. Granularity
     /// depends on the OS scheduler (typically 1 ms).
     ///
-    /// Args:
-    ///   ms — wait duration in milliseconds.
+    /// **Args:**
+    /// - `ms` — wait duration in milliseconds.
     pub fn delay(ms: u32) {
         SDL_Delay(ms)
     }
 
     /// Milliseconds elapsed since `SDL_Init`.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   ticks since init. Wraps after ~49 days — use `getTicks64()`
     ///   for monotonic playtime longer than that.
     pub fn getTicks(): u32 {
@@ -147,7 +147,7 @@ pub enum PeepAction: i32 {
     /// 64-bit version of `getTicks` — never wraps in any sane
     /// timescale.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   ms since init.
     pub fn getTicks64(): u64 {
         SDL_GetTicks64()
@@ -156,7 +156,7 @@ pub enum PeepAction: i32 {
     /// High-resolution counter — usually backed by RDTSC / mach
     /// time / clock_gettime.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   monotonic counter value. Combine with
     ///   `getPerformanceFrequency()` to convert deltas into seconds:
     ///   `(b - a) as f64 / getPerformanceFrequency() as f64`.
@@ -164,7 +164,7 @@ pub enum PeepAction: i32 {
         SDL_GetPerformanceCounter()
     }
 
-    /// Returns:
+    /// **Returns:**
     ///   ticks per second of the high-resolution counter.
     pub fn getPerformanceFrequency(): u64 {
         SDL_GetPerformanceFrequency()
@@ -178,13 +178,13 @@ pub enum PeepAction: i32 {
     /// obtains the fn pointer via `fnAddr(myFn)` (must be invoked
     /// inside the caller's own `@extern(C){}` block).
     ///
-    /// Args:
-    ///   interval — first-shot delay in ms.
-    ///   callback — fn pointer (use `fnAddr(myFn) as i64`).
-    ///   param    — raw `void*` shipped through to the callback;
-    ///              pass `0` when unused.
+    /// **Args:**
+    /// - `interval` — first-shot delay in ms.
+    /// - `callback` — fn pointer (use `fnAddr(myFn) as i64`).
+    /// - `param` — raw `void*` shipped through to the callback;
+    ///   pass `0` when unused.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   timer id (`> 0` on success, `0` on failure). Pass to
     ///   `removeTimer` to cancel.
     pub fn addTimer(interval: u32, callback: i64, param: i64): i32 {
@@ -197,10 +197,10 @@ pub enum PeepAction: i32 {
 
     /// Cancel a scheduled timer.
     ///
-    /// Args:
-    ///   id — value returned by `addTimer`.
+    /// **Args:**
+    /// - `id` — value returned by `addTimer`.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   `1` if the timer was found and removed, `0` otherwise.
     pub fn removeTimer(id: i32): i32 {
         SDL_RemoveTimer(id)
@@ -210,11 +210,11 @@ pub enum PeepAction: i32 {
     /// accounting for u32 wrap-around. Use with `getTicks()` for
     /// "has the deadline passed?" checks.
     ///
-    /// Args:
-    ///   a — current tick count (typically `getTicks()`).
-    ///   b — deadline tick count.
+    /// **Args:**
+    /// - `a` — current tick count (typically `getTicks()`).
+    /// - `b` — deadline tick count.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   true if `a >= b` modulo wrap.
     pub fn ticksPassed(a: u32, b: u32): bool {
         // Signed comparison after subtraction handles wrap.
@@ -228,10 +228,10 @@ pub enum PeepAction: i32 {
         SDL_PumpEvents()
     }
 
-    /// Args:
-    ///   eventType — variant to look for.
+    /// **Args:**
+    /// - `eventType` — variant to look for.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   true iff at least one event of that type is pending.
     ///   Doesn't remove it from the queue.
     pub fn hasEvent(eventType: EventType): bool {
@@ -240,9 +240,9 @@ pub enum PeepAction: i32 {
 
     /// Range version of `hasEvent`.
     ///
-    /// Args:
-    ///   minType — lower bound (inclusive).
-    ///   maxType — upper bound (inclusive).
+    /// **Args:**
+    /// - `minType` — lower bound (inclusive).
+    /// - `maxType` — upper bound (inclusive).
     pub fn hasEvents(minType: EventType, maxType: EventType): bool {
         SDL_HasEvents(minType as u32, maxType as u32) != 0
     }
@@ -259,10 +259,10 @@ pub enum PeepAction: i32 {
 
     /// Pull one event off the queue.
     ///
-    /// Args:
-    ///   event — buffer that SDL fills in.
+    /// **Args:**
+    /// - `event` — buffer that SDL fills in.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   true if `event` was populated, false if the queue was
     ///   empty. Caller looks at `event.eventType` to dispatch.
     pub fn pollEvent(event: Event): bool {
@@ -271,10 +271,10 @@ pub enum PeepAction: i32 {
 
     /// Push a synthetic event onto the queue.
     ///
-    /// Args:
-    ///   event — fully-populated event (set `event.eventType`).
+    /// **Args:**
+    /// - `event` — fully-populated event (set `event.eventType`).
     ///
-    /// Returns:
+    /// **Returns:**
     ///   `1` on success, `0` if the event was filtered, `< 0` on
     ///   error.
     pub fn pushEvent(event: Event): i32 {
@@ -283,11 +283,11 @@ pub enum PeepAction: i32 {
 
     /// Toggle delivery / query of an event class.
     ///
-    /// Args:
-    ///   eventType — class to control.
-    ///   state      — `enable`, `ignore`, or `query`.
+    /// **Args:**
+    /// - `eventType` — class to control.
+    /// - `state` — `enable`, `ignore`, or `query`.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   previous state for that class.
     pub fn eventState(eventType: EventType, state: EventState): u8 {
         SDL_EventState(eventType as u32, state as i32)
@@ -295,10 +295,10 @@ pub enum PeepAction: i32 {
 
     /// Read the current delivery state for an event class.
     ///
-    /// Args:
-    ///   eventType — class to query.
+    /// **Args:**
+    /// - `eventType` — class to query.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   current state (`0` = ignored, `1` = enabled).
     pub fn getEventState(eventType: EventType): u8 {
         SDL_EventState(eventType as u32, EventState.query as i32)
@@ -319,10 +319,10 @@ pub enum PeepAction: i32 {
 
     /// Block until an event is available, then return it.
     ///
-    /// Args:
-    ///   event — buffer that SDL fills in.
+    /// **Args:**
+    /// - `event` — buffer that SDL fills in.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   true on success, false on internal SDL error.
     pub fn waitEvent(event: Event): bool {
         SDL_WaitEvent(&event) != 0
@@ -330,12 +330,12 @@ pub enum PeepAction: i32 {
 
     /// Block up to `timeoutMs` for an event.
     ///
-    /// Args:
-    ///   event     — buffer to fill.
-    ///   timeoutMs — max wait in milliseconds. `0` returns
-    ///               immediately; negative is treated as block.
+    /// **Args:**
+    /// - `event` — buffer to fill.
+    /// - `timeoutMs` — max wait in milliseconds. `0` returns
+    ///   immediately; negative is treated as block.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   true if `event` was populated, false on timeout / error.
     pub fn waitEventTimeout(event: Event, timeoutMs: i32): bool {
         SDL_WaitEventTimeout(&event, timeoutMs) != 0
@@ -343,16 +343,16 @@ pub enum PeepAction: i32 {
 
     /// Peek / get / add events in bulk.
     ///
-    /// Args:
-    ///   events    — caller-allocated array; SDL fills the first
-    ///               `numEvents` entries on `peek` / `get`, and
-    ///               reads them on `add`.
-    ///   numEvents — how many slots in `events` are available.
-    ///   action    — `peek`, `get`, or `add`.
-    ///   minType   — lower event-type bound (inclusive).
-    ///   maxType   — upper event-type bound (inclusive).
+    /// **Args:**
+    /// - `events` — caller-allocated array; SDL fills the first
+    ///   `numEvents` entries on `peek` / `get`, and
+    ///   reads them on `add`.
+    /// - `numEvents` — how many slots in `events` are available.
+    /// - `action` — `peek`, `get`, or `add`.
+    /// - `minType` — lower event-type bound (inclusive).
+    /// - `maxType` — upper event-type bound (inclusive).
     ///
-    /// Returns:
+    /// **Returns:**
     ///   number of events actually copied / added, `< 0` on error.
     pub fn peepEvents(
         events: Event[], numEvents: i32, action: PeepAction,
@@ -369,10 +369,10 @@ pub enum PeepAction: i32 {
     /// post their own events via `pushEvent` should hold one such
     /// id rather than picking arbitrary numbers in `userEvent..`.
     ///
-    /// Args:
-    ///   numEvents — how many distinct ids to reserve.
+    /// **Args:**
+    /// - `numEvents` — how many distinct ids to reserve.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   the first id of the range, or `0xFFFFFFFF` if SDL has run
     ///   out of user event slots.
     pub fn registerEvents(numEvents: i32): u32 {

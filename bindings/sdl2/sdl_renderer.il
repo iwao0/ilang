@@ -485,10 +485,10 @@ pub enum RendererFlip: i32 {
 
         /// Set the draw colour used by `clear` / line / rect calls.
         ///
-        /// Args:
-        ///   r, g, b, a — 0..255 channels (a = 255 is opaque).
+        /// **Args:**
+        /// - `r`, `g`, `b`, `a` — 0..255 channels (a = 255 is opaque).
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub setColor(r: u8, g: u8, b: u8, a: u8): i32 {
             SDL_SetRenderDrawColor(this.handle as *SDL_Renderer, r, g, b, a)
@@ -525,10 +525,10 @@ pub enum RendererFlip: i32 {
         /// grid. SDL stretches the result to fit the actual window
         /// (with letterboxing when the aspect differs).
         ///
-        /// Args:
-        ///   w, h — virtual width / height.
+        /// **Args:**
+        /// - `w`, `h` — virtual width / height.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub setLogicalSize(w: i32, h: i32): i32 {
             SDL_RenderSetLogicalSize(this.handle as *SDL_Renderer, w, h)
@@ -629,7 +629,7 @@ pub enum RendererFlip: i32 {
         /// Fill the entire render target with the current draw
         /// colour. Typically called once per frame before drawing.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub clear(): i32 {
             SDL_RenderClear(this.handle as *SDL_Renderer)
@@ -678,11 +678,11 @@ pub enum RendererFlip: i32 {
         /// window pixels (or logical pixels when `setLogicalSize`
         /// is in effect); `(x, y)` is the top-left corner.
         ///
-        /// Args:
-        ///   x, y — top-left corner.
-        ///   w, h — rectangle size.
+        /// **Args:**
+        /// - `x`, `y` — top-left corner.
+        /// - `w`, `h` — rectangle size.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub fillRect(x: i32, y: i32, w: i32, h: i32): i32 {
             let rect = new Rect()
@@ -760,12 +760,12 @@ pub enum RendererFlip: i32 {
 
         /// Stretch the entire texture into the destination rect.
         ///
-        /// Args:
-        ///   tex   — source texture.
-        ///   x, y  — destination top-left.
-        ///   w, h  — destination size (texture is scaled to fit).
+        /// **Args:**
+        /// - `tex` — source texture.
+        /// - `x`, `y` — destination top-left.
+        /// - `w`, `h` — destination size (texture is scaled to fit).
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub drawTexture(tex: Texture, x: i32, y: i32, w: i32, h: i32): i32 {
             let dst = new Rect()
@@ -783,13 +783,13 @@ pub enum RendererFlip: i32 {
         /// Same as `drawTexture` but rotates around the dst rect's
         /// centre.
         ///
-        /// Args:
-        ///   tex   — source texture.
-        ///   x, y  — destination top-left.
-        ///   w, h  — destination size.
-        ///   angle — rotation in degrees, clockwise.
+        /// **Args:**
+        /// - `tex` — source texture.
+        /// - `x`, `y` — destination top-left.
+        /// - `w`, `h` — destination size.
+        /// - `angle` — rotation in degrees, clockwise.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub drawTextureRot(
             tex: Texture, x: i32, y: i32, w: i32, h: i32, angle: f64
@@ -810,13 +810,13 @@ pub enum RendererFlip: i32 {
         /// Verbose blit. `srcrect == 0` (`null`) draws the whole
         /// source; same for `dstrect`.
         ///
-        /// Args:
-        ///   tex     — source texture.
-        ///   srcrect — sub-rect within `tex` (or `0` for whole).
-        ///   dstrect — destination rect on the render target (or
-        ///             `0` to fill the target).
+        /// **Args:**
+        /// - `tex` — source texture.
+        /// - `srcrect` — sub-rect within `tex` (or `0` for whole).
+        /// - `dstrect` — destination rect on the render target (or
+        ///   `0` to fill the target).
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub copy(
             tex: Texture,
@@ -909,7 +909,7 @@ pub enum RendererFlip: i32 {
             SDL_RenderFlush(this.handle as *SDL_Renderer)
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true when the driver supports rendering into TARGET
         ///   textures.
         pub targetSupported(): bool {
@@ -920,7 +920,7 @@ pub enum RendererFlip: i32 {
         /// TARGET-access `Texture`, then `resetTarget()` to swap
         /// back to the window.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub setTarget(tex: Texture): i32 {
             SDL_SetRenderTarget(this.handle as *SDL_Renderer,
@@ -934,8 +934,8 @@ pub enum RendererFlip: i32 {
             )
         }
 
-        /// Args:
-        ///   vsync — `1` to enable vsync, `0` to disable.
+        /// **Args:**
+        /// - `vsync` — `1` to enable vsync, `0` to disable.
         pub setVSync(vsync: i32): i32 {
             SDL_RenderSetVSync(this.handle as *SDL_Renderer, vsync)
         }
@@ -974,15 +974,15 @@ pub enum RendererFlip: i32 {
         /// canned modes (`0` = none, `1` = blend, `2` = add,
         /// `4` = mod, `8` = mul).
         ///
-        /// Args:
-        ///   srcColor   — factor for the incoming RGB.
-        ///   dstColor   — factor for the existing-in-target RGB.
-        ///   colorOp    — combine operation for RGB.
-        ///   srcAlpha   — factor for the incoming alpha.
-        ///   dstAlpha   — factor for the existing-in-target alpha.
-        ///   alphaOp    — combine operation for alpha.
+        /// **Args:**
+        /// - `srcColor` — factor for the incoming RGB.
+        /// - `dstColor` — factor for the existing-in-target RGB.
+        /// - `colorOp` — combine operation for RGB.
+        /// - `srcAlpha` — factor for the incoming alpha.
+        /// - `dstAlpha` — factor for the existing-in-target alpha.
+        /// - `alphaOp` — combine operation for alpha.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the resulting `BlendMode` (a 32-bit opaque token —
         ///   feed it straight into `Renderer.blendMode = ...` /
         ///   `Texture.blendMode = ...`), or `BlendMode.invalid`
@@ -1015,14 +1015,14 @@ pub enum RendererFlip: i32 {
 
         /// RGBA8888 texture with the requested access mode.
         ///
-        /// Args:
-        ///   renderer — the parent `Renderer`.
-        ///   w, h     — texture dimensions in pixels.
-        ///   access   — `TextureAccess.streaming` for CPU-uploaded
-        ///              pixels via `update`; `TextureAccess.target`
-        ///              for a draw target (`Renderer.setTarget`);
-        ///              `TextureAccess.static` for a one-shot
-        ///              upload that won't change after creation.
+        /// **Args:**
+        /// - `renderer` — the parent `Renderer`.
+        /// - `w`, `h` — texture dimensions in pixels.
+        /// - `access` — `TextureAccess.streaming` for CPU-uploaded
+        ///   pixels via `update`; `TextureAccess.target`
+        ///   for a draw target (`Renderer.setTarget`);
+        ///   `TextureAccess.static` for a one-shot
+        ///   upload that won't change after creation.
         ///
         /// Pixel format is `SDL_PIXELFORMAT_ABGR8888` (= `0x16762004`,
         /// `R, G, B, A` on little-endian).
@@ -1043,12 +1043,12 @@ pub enum RendererFlip: i32 {
         /// Like the basic `init` but lets the caller pick the
         /// `SDL_PixelFormatEnum`.
         ///
-        /// Args:
-        ///   renderer — the parent `Renderer`.
-        ///   format   — `SDL_PIXELFORMAT_*` value.
-        ///   access   — `TextureAccess.streaming` / `target` /
-        ///              `static`.
-        ///   w, h     — texture dimensions.
+        /// **Args:**
+        /// - `renderer` — the parent `Renderer`.
+        /// - `format` — `SDL_PIXELFORMAT_*` value.
+        /// - `access` — `TextureAccess.streaming` / `target` /
+        ///   `static`.
+        /// - `w`, `h` — texture dimensions.
         pub init(
             renderer: Renderer, format: u32, access: TextureAccess,
             w: i32, h: i32
@@ -1110,11 +1110,11 @@ pub enum RendererFlip: i32 {
 
         /// Upload pixel data into a STREAMING texture.
         ///
-        /// Args:
-        ///   rgba — RGBA8 buffer, exactly `width * height * 4`
-        ///          bytes (4 bytes per pixel, row-major).
+        /// **Args:**
+        /// - `rgba` — RGBA8 buffer, exactly `width * height * 4`
+        ///   bytes (4 bytes per pixel, row-major).
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub update(rgba: u8[]): i32 {
             // pitch = bytes per row. For full-texture updates the
@@ -1137,8 +1137,8 @@ pub enum RendererFlip: i32 {
 
         /// Per-draw RGB tint multiplied against the texture pixels.
         ///
-        /// Args:
-        ///   r, g, b — `255` is "no tint" on each channel.
+        /// **Args:**
+        /// - `r`, `g`, `b` — `255` is "no tint" on each channel.
         pub setColorMod(r: u8, g: u8, b: u8): i32 {
             SDL_SetTextureColorMod(this.handle as *SDL_Texture, r, g, b)
         }

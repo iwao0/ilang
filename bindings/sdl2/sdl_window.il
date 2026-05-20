@@ -484,9 +484,9 @@ pub enum SubSystem: u32 {
         /// Convenience: undefined position on the default display,
         /// no flags.
         ///
-        /// Args:
-        ///   title — window caption (UTF-8).
-        ///   w, h  — initial size in pixels.
+        /// **Args:**
+        /// - `title` — window caption (UTF-8).
+        /// - `w`, `h` — initial size in pixels.
         pub init(title: string, w: i32, h: i32) {
             let flags: u32 = 0
             // SDL_WINDOWPOS_UNDEFINED = 0x1FFF0000. The module-level
@@ -502,14 +502,14 @@ pub enum SubSystem: u32 {
 
         /// Full `SDL_CreateWindow` surface.
         ///
-        /// Args:
-        ///   title — window caption.
-        ///   x, y  — initial position; use `WindowPos.undefined` /
-        ///           `WindowPos.centered` (cast to `i32`) for the
-        ///           "let SDL pick" sentinels.
-        ///   w, h  — initial size in pixels.
-        ///   flags — `WindowFlag` bitmask (resizable, hidden,
-        ///           fullscreen, …).
+        /// **Args:**
+        /// - `title` — window caption.
+        /// - `x`, `y` — initial position; use `WindowPos.undefined` /
+        ///   `WindowPos.centered` (cast to `i32`) for the "let SDL
+        ///   pick" sentinels.
+        /// - `w`, `h` — initial size in pixels.
+        /// - `flags` — `WindowFlag` bitmask (resizable, hidden,
+        ///   fullscreen, …).
         pub init(title: string, x: i32, y: i32, w: i32, h: i32, flags: WindowFlag) {
             let win = SDL_CreateWindow(
                 cstrFromString(title), x, y, w, h, flags as u32
@@ -740,7 +740,7 @@ pub enum SubSystem: u32 {
 
         /// Forcibly move keyboard focus to this window.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub setInputFocus(): i32 {
             SDL_SetWindowInputFocus(this.handle as *SDL_Window)
@@ -748,10 +748,10 @@ pub enum SubSystem: u32 {
 
         /// Flash the window / taskbar entry to attract attention.
         ///
-        /// Args:
-        ///   operation — `cancel`, `briefly`, or `untilFocused`.
+        /// **Args:**
+        /// - `operation` — `cancel`, `briefly`, or `untilFocused`.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` if unsupported on this platform.
         pub flash(operation: FlashOp): i32 {
             SDL_FlashWindow(this.handle as *SDL_Window, operation as i32)
@@ -792,7 +792,7 @@ pub enum SubSystem: u32 {
 
         // ─── on-screen keyboard ──────────────────────────────────
 
-        /// Returns:
+        /// **Returns:**
         ///   true when the OS's on-screen keyboard is currently
         ///   visible for this window (mainly relevant on touch
         ///   devices / iOS / Android — desktop platforms always
@@ -823,14 +823,14 @@ pub enum SubSystem: u32 {
         /// the resulting window can hold a non-rectangular
         /// silhouette once `setShape(...)` is called.
         ///
-        /// Args:
-        ///   title — window title.
-        ///   x, y  — top-left corner. `0x1FFF0000` =
-        ///           `SDL_WINDOWPOS_CENTERED`.
-        ///   w, h  — initial dimensions.
-        ///   flags — `WindowFlag.*` mask.
+        /// **Args:**
+        /// - `title` — window title.
+        /// - `x`, `y` — top-left corner. `0x1FFF0000` =
+        ///   `SDL_WINDOWPOS_CENTERED`.
+        /// - `w`, `h` — initial dimensions.
+        /// - `flags` — `WindowFlag.*` mask.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   a `Window` whose `handle` is `0` if creation failed.
         ///   ARC frees it with `SDL_DestroyWindow`.
         pub static createShaped(
@@ -842,7 +842,7 @@ pub enum SubSystem: u32 {
             Window.fromHandle(raw)
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true if this window was created via
         ///   `Window.createShaped(...)`. Plain `new Window(...)`
         ///   results are *not* shapeable.
@@ -853,14 +853,14 @@ pub enum SubSystem: u32 {
 
         /// Apply a shape mask.
         ///
-        /// Args:
-        ///   shape — surface whose pixels (filtered through
-        ///           `mode`) define which window pixels stay
-        ///           visible.
-        ///   mode  — see `WindowShape.binarize(...)` /
-        ///           `.reverseBinarize(...)` / `.colorKey(...)`.
+        /// **Args:**
+        /// - `shape` — surface whose pixels (filtered through
+        ///   `mode`) define which window pixels stay
+        ///   visible.
+        /// - `mode` — see `WindowShape.binarize(...)` /
+        ///   `.reverseBinarize(...)` / `.colorKey(...)`.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure (call
         ///   `sdl.getError()`).
         pub setShape(shape: Surface, mode: WindowShapeMode): i32 {
@@ -887,7 +887,7 @@ pub enum SubSystem: u32 {
         /// Initialises the `version` field with `2.0.0` so SDL
         /// agrees to populate the rest.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   a freshly populated `SysWMinfo`, or one with
         ///   `subsystem == SubSystem.unknown` if the call failed
         ///   (typically because the window's handle is `0` or
@@ -1019,13 +1019,13 @@ pub enum SubSystem: u32 {
             this.index = index
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   number of displays connected to the system.
         pub static count(): i32 {
             SDL_GetNumVideoDisplays()
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   human-readable display name.
         pub get name(): string {
             stringFromCstr(SDL_GetDisplayName(this.index))
@@ -1052,22 +1052,22 @@ pub enum SubSystem: u32 {
             d
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   `Orientation.*` value as a raw `i32`.
         pub get orientation(): i32 {
             SDL_GetDisplayOrientation(this.index)
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   number of distinct display modes the display supports.
         pub get numModes(): i32 {
             SDL_GetNumDisplayModes(this.index)
         }
 
-        /// Args:
-        ///   modeIndex — `0` is the largest / highest refresh.
+        /// **Args:**
+        /// - `modeIndex` — `0` is the largest / highest refresh.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the corresponding `DisplayMode`.
         pub mode(modeIndex: i32): DisplayMode {
             let raw = new SDL_DisplayMode()
@@ -1113,11 +1113,11 @@ pub enum SubSystem: u32 {
     pub class Video {
         /// Re-initialise the video subsystem with a different driver.
         ///
-        /// Args:
-        ///   driver — name as returned by `Video.driverName(idx)`
-        ///            (e.g. `"cocoa"`, `"x11"`, `"wayland"`).
+        /// **Args:**
+        /// - `driver` — name as returned by `Video.driverName(idx)`
+        ///   (e.g. `"cocoa"`, `"x11"`, `"wayland"`).
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub static init(driver: string): i32 {
             SDL_VideoInit(cstrFromString(driver))
@@ -1128,19 +1128,19 @@ pub enum SubSystem: u32 {
             SDL_VideoQuit()
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   name of the active video driver.
         pub static currentDriver(): string {
             stringFromCstr(SDL_GetCurrentVideoDriver())
         }
 
-        /// Args:
-        ///   index — `0`-based, `< Video.numDrivers()`.
+        /// **Args:**
+        /// - `index` — `0`-based, `< Video.numDrivers()`.
         pub static driverName(index: i32): string {
             stringFromCstr(SDL_GetVideoDriver(index))
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   number of compiled-in video drivers.
         pub static numDrivers(): i32 {
             SDL_GetNumVideoDrivers()
@@ -1157,7 +1157,7 @@ pub enum SubSystem: u32 {
             SDL_DisableScreenSaver()
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true when the screen saver is currently allowed.
         pub static isScreenSaverEnabled(): bool {
             SDL_IsScreenSaverEnabled() != 0
@@ -1181,11 +1181,11 @@ pub enum SubSystem: u32 {
             SDL_GL_UnloadLibrary()
         }
 
-        /// Args:
-        ///   name — extension name (e.g.
-        ///          `"GL_ARB_compute_shader"`).
+        /// **Args:**
+        /// - `name` — extension name (e.g.
+        ///   `"GL_ARB_compute_shader"`).
         ///
-        /// Returns:
+        /// **Returns:**
         ///   true when the extension is reported by the GL
         ///   driver.
         pub static extensionSupported(name: string): bool {
@@ -1200,10 +1200,10 @@ pub enum SubSystem: u32 {
 
         /// Set a GL attribute used at context creation.
         ///
-        /// Args:
-        ///   attr  — attribute key.
-        ///   value — attribute value (interpretation depends on
-        ///           `attr`).
+        /// **Args:**
+        /// - `attr` — attribute key.
+        /// - `value` — attribute value (interpretation depends on
+        ///   `attr`).
         pub static setAttribute(attr: GLAttr, value: i32): i32 {
             SDL_GL_SetAttribute(attr as i32, value)
         }
@@ -1215,14 +1215,14 @@ pub enum SubSystem: u32 {
             buf
         }
 
-        /// Args:
-        ///   interval — `0` = immediate, `1` = vsync,
-        ///              `-1` = adaptive vsync.
+        /// **Args:**
+        /// - `interval` — `0` = immediate, `1` = vsync,
+        ///   `-1` = adaptive vsync.
         pub static setSwapInterval(interval: i32): i32 {
             SDL_GL_SetSwapInterval(interval)
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the current swap-interval setting.
         pub static getSwapInterval(): i32 {
             SDL_GL_GetSwapInterval()
@@ -1231,7 +1231,7 @@ pub enum SubSystem: u32 {
         /// Look up a GL function pointer by name. Caller invokes
         /// the pointer through `fnAddr`-style FFI plumbing.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   raw `void *` cast to i64. `0` if the GL driver
         ///   doesn't expose `proc`.
         pub static getProcAddress(proc: string): i64 {
@@ -1241,7 +1241,7 @@ pub enum SubSystem: u32 {
         /// Create a GL context bound to `window`. The window must
         /// have been created with `WindowFlag.openGL`.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   raw `SDL_GLContext` cast to i64. `0` on failure.
         pub static createContext(window: Window): i64 {
             if window.handle == 0 { return 0 }
@@ -1252,7 +1252,7 @@ pub enum SubSystem: u32 {
         /// Call once per window after creation, and again whenever
         /// switching between contexts.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub static makeCurrent(window: Window, context: i64): i32 {
             if window.handle == 0 { return -1 }
@@ -1261,7 +1261,7 @@ pub enum SubSystem: u32 {
             )
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   `*SDL_Window` of the currently-bound GL context cast
         ///   to i64. `0` when no context is current on this
         ///   thread.
@@ -1276,10 +1276,10 @@ pub enum SubSystem: u32 {
         /// Read the drawable size in *pixels* — distinct from the
         /// window's logical size on HiDPI displays.
         ///
-        /// Args:
-        ///   window     — the GL window.
-        ///   wOut, hOut — 1-element i32 arrays to receive the
-        ///                width / height.
+        /// **Args:**
+        /// - `window` — the GL window.
+        /// - `wOut`, `hOut` — 1-element i32 arrays to receive the
+        ///   width / height.
         pub static drawableSize(window: Window, wOut: i32[], hOut: i32[]) {
             if window.handle == 0 { return }
             let pw: *i32 = wOut

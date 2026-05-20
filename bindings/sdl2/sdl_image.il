@@ -57,10 +57,10 @@ pub enum ImgInitFlag: i32 {
 
     /// Initialise SDL2_image with the requested decoder set.
     ///
-    /// Args:
-    ///   flags — bitwise OR of `ImgInitFlag.*` values.
+    /// **Args:**
+    /// - `flags` — bitwise OR of `ImgInitFlag.*` values.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   bitmask of decoders that actually initialised — should
     ///   match `flags as i32` on success. Mismatched bits indicate
     ///   missing optional dependencies (`call imgGetError()` for
@@ -74,7 +74,7 @@ pub enum ImgInitFlag: i32 {
         IMG_Quit()
     }
 
-    /// Returns:
+    /// **Returns:**
     ///   the latest SDL2_image error message. Most IMG fns route
     ///   through `SDL_SetError`, so `sdl.getError()` works too —
     ///   this exists for the namespaced form.
@@ -85,10 +85,10 @@ pub enum ImgInitFlag: i32 {
     /// Load an image file (PNG / JPEG / TIFF / WebP / JXL / AVIF)
     /// into a fresh CPU-side `Surface`.
     ///
-    /// Args:
-    ///   path — filesystem path.
+    /// **Args:**
+    /// - `path` — filesystem path.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   a `Surface` whose `handle` is `0` on failure (call
     ///   `imgGetError()` for the message).
     pub fn imgLoad(path: string): Surface {
@@ -99,11 +99,11 @@ pub enum ImgInitFlag: i32 {
     /// on `renderer` in one shot — skips the intermediate
     /// surface.
     ///
-    /// Args:
-    ///   renderer — the parent renderer.
-    ///   path     — filesystem path.
+    /// **Args:**
+    /// - `renderer` — the parent renderer.
+    /// - `path` — filesystem path.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   a `Texture` whose `handle` is `0` on failure.
     pub fn imgLoadTexture(renderer: Renderer, path: string): Texture {
         if renderer.handle == 0 {
@@ -117,11 +117,11 @@ pub enum ImgInitFlag: i32 {
 
     /// Encode `surface` as a PNG file on disk.
     ///
-    /// Args:
-    ///   surface — source surface.
-    ///   path    — output filesystem path.
+    /// **Args:**
+    /// - `surface` — source surface.
+    /// - `path` — output filesystem path.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   `0` on success, `< 0` on failure.
     pub fn imgSavePNG(surface: Surface, path: string): i32 {
         if surface.handle == 0 { return -1 }
@@ -130,12 +130,12 @@ pub enum ImgInitFlag: i32 {
 
     /// Encode `surface` as a JPEG file on disk.
     ///
-    /// Args:
-    ///   surface — source surface.
-    ///   path    — output filesystem path.
-    ///   quality — 0..100 (libjpeg scale; `90` is a sane default).
+    /// **Args:**
+    /// - `surface` — source surface.
+    /// - `path` — output filesystem path.
+    /// - `quality` — 0..100 (libjpeg scale; `90` is a sane default).
     ///
-    /// Returns:
+    /// **Returns:**
     ///   `0` on success, `< 0` on failure.
     pub fn imgSaveJPG(surface: Surface, path: string, quality: i32): i32 {
         if surface.handle == 0 { return -1 }

@@ -32,15 +32,15 @@ pub enum MessageBoxFlag: u32 {
     /// Show a single-button modal dialog and block until it
     /// closes.
     ///
-    /// Args:
-    ///   flags   — `MessageBoxFlag.*` (info / warning / error icon).
-    ///   title   — dialog title bar text.
-    ///   message — dialog body text.
-    ///   parent  — when `some(window)`, the dialog is modal to
-    ///             that window; when `none`, the dialog is
-    ///             system-modal with no parent.
+    /// **Args:**
+    /// - `flags` — `MessageBoxFlag.*` (info / warning / error icon).
+    /// - `title` — dialog title bar text.
+    /// - `message` — dialog body text.
+    /// - `parent` — when `some(window)`, the dialog is modal to
+    ///   that window; when `none`, the dialog is
+    ///   system-modal with no parent.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   `0` on success, `< 0` on failure (call `sdl.getError()`).
     pub fn showSimpleMessageBox(
         flags: MessageBoxFlag, title: string, message: string,

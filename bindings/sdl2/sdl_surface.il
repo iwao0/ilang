@@ -226,9 +226,9 @@ pub enum BlendMode: i32 {
         /// format. The depth (24 / 16 / 32) is picked from the
         /// format; uncommon formats default to 32-bit.
         ///
-        /// Args:
-        ///   w, h   — dimensions in pixels.
-        ///   format — `PixelFormat.argb8888` etc.
+        /// **Args:**
+        /// - `w`, `h` — dimensions in pixels.
+        /// - `format` — `PixelFormat.argb8888` etc.
         pub init(w: i32, h: i32, format: PixelFormat) {
             let depth: i32 = if format == PixelFormat.rgb24
                              || format == PixelFormat.bgr24 {
@@ -274,10 +274,10 @@ pub enum BlendMode: i32 {
 
         /// Load a BMP file into a fresh surface.
         ///
-        /// Args:
-        ///   path — filesystem path.
+        /// **Args:**
+        /// - `path` — filesystem path.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   a `Surface` whose `handle` is `0` on load failure.
         pub static loadBmp(path: string): Surface {
             let rw = SDL_RWFromFileLocal(
@@ -290,7 +290,7 @@ pub enum BlendMode: i32 {
 
         /// Save this surface to disk as a BMP file.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub saveBmp(path: string): i32 {
             if this.handle == 0 { return -1 }
@@ -303,12 +303,12 @@ pub enum BlendMode: i32 {
 
         /// Fill a sub-rect with `colour`.
         ///
-        /// Args:
-        ///   rect   — area to fill.
-        ///   colour — pre-mapped pixel value (`mapRGB` /
-        ///            `mapRGBA`).
+        /// **Args:**
+        /// - `rect` — area to fill.
+        /// - `colour` — pre-mapped pixel value (`mapRGB` /
+        ///   `mapRGBA`).
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub fillRect(rect: Rect, colour: u32): i32 {
             if this.handle == 0 { return -1 }
@@ -323,7 +323,7 @@ pub enum BlendMode: i32 {
 
         /// Blit a sub-rect of `this` onto `dst`.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub blit(srcRect: Rect, dst: Surface, dstRect: Rect): i32 {
             if this.handle == 0 || dst.handle == 0 { return -1 }
@@ -393,7 +393,7 @@ pub enum BlendMode: i32 {
 
         /// Lock the surface for direct pixel access.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub lock(): i32 {
             if this.handle == 0 { return -1 }
@@ -448,7 +448,7 @@ pub enum BlendMode: i32 {
             v
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the SDL canonical name for `format` (e.g.
         ///   `"SDL_PIXELFORMAT_RGBA8888"`).
         pub static pixelFormatName(format: PixelFormat): string {
@@ -476,7 +476,7 @@ pub enum BlendMode: i32 {
         /// `firstColor`. `firstColor + colors.length` must stay
         /// within the palette's allocated size.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub setColors(colors: Color[], firstColor: i32): i32 {
             if this.handle == 0 { return -1 }

@@ -115,7 +115,7 @@ pub class GlyphMetrics {
 
     /// Initialise SDL2_ttf. Call exactly once after `sdl.init(...)`.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   `0` on success, `< 0` on failure (call `ttfGetError()`).
     pub fn ttfInit(): i32 {
         TTF_Init()
@@ -126,14 +126,14 @@ pub class GlyphMetrics {
         TTF_Quit()
     }
 
-    /// Returns:
+    /// **Returns:**
     ///   true when `ttfInit()` has been called and `ttfQuit()`
     ///   hasn't undone it yet.
     pub fn ttfWasInit(): bool {
         TTF_WasInit() != 0
     }
 
-    /// Returns:
+    /// **Returns:**
     ///   the latest SDL2_ttf error message. SDL_ttf routes most of
     ///   its errors through `SDL_SetError`, so `sdl.getError()`
     ///   works too — this exists for callers that prefer the
@@ -150,9 +150,9 @@ pub class GlyphMetrics {
 
         /// Open a font from disk.
         ///
-        /// Args:
-        ///   path   — filesystem path to a .ttf / .otf file.
-        ///   ptsize — point size at which to rasterise.
+        /// **Args:**
+        /// - `path` — filesystem path to a .ttf / .otf file.
+        /// - `ptsize` — point size at which to rasterise.
         pub init(path: string, ptsize: i32) {
             this.handle = TTF_OpenFont(cstrFromString(path), ptsize) as i64
         }
@@ -163,28 +163,28 @@ pub class GlyphMetrics {
             }
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   pixel height of a tall character (`TTF_FontHeight`).
         pub height(): i32 {
             if this.handle == 0 { return 0 }
             TTF_FontHeight(this.handle as *TTF_Font)
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the ascent (positive distance above the baseline).
         pub ascent(): i32 {
             if this.handle == 0 { return 0 }
             TTF_FontAscent(this.handle as *TTF_Font)
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the descent (negative distance below the baseline).
         pub descent(): i32 {
             if this.handle == 0 { return 0 }
             TTF_FontDescent(this.handle as *TTF_Font)
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   recommended pixel distance between baselines for
         ///   stacked lines of text (`TTF_FontLineSkip`).
         pub lineSkip(): i32 {
@@ -192,7 +192,7 @@ pub class GlyphMetrics {
             TTF_FontLineSkip(this.handle as *TTF_Font)
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   number of font faces in the file (TTC collections can
         ///   carry multiple — use `TTF_OpenFontIndex` raw to pick
         ///   one). `1` for ordinary single-face fonts.
@@ -201,7 +201,7 @@ pub class GlyphMetrics {
             TTF_FontFaces(this.handle as *TTF_Font)
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true when every glyph in the font is the same width
         ///   (typewriter / monospace fonts).
         pub isFixedWidth(): bool {
@@ -209,7 +209,7 @@ pub class GlyphMetrics {
             TTF_FontFaceIsFixedWidth(this.handle as *TTF_Font) != 0
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the font's family name as embedded in the file
         ///   (e.g. `"DejaVu Sans"`).
         pub familyName(): string {
@@ -219,7 +219,7 @@ pub class GlyphMetrics {
             ))
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the font's style name (e.g. `"Regular"`, `"Bold Italic"`).
         pub styleName(): string {
             if this.handle == 0 { return "" }
@@ -228,22 +228,22 @@ pub class GlyphMetrics {
             ))
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   bitwise OR of `FontStyle` flags currently active.
         pub getStyle(): i32 {
             if this.handle == 0 { return 0 }
             TTF_GetFontStyle(this.handle as *TTF_Font)
         }
 
-        /// Args:
-        ///   style — bitwise OR of `FontStyle` flags.
+        /// **Args:**
+        /// - `style` — bitwise OR of `FontStyle` flags.
         pub setStyle(style: i32) {
             if this.handle != 0 {
                 TTF_SetFontStyle(this.handle as *TTF_Font, style)
             }
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   outline thickness in pixels. `0` = no outline.
         pub getOutline(): i32 {
             if this.handle == 0 { return 0 }
@@ -267,7 +267,7 @@ pub class GlyphMetrics {
             }
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true when kerning (per-pair spacing) is enabled.
         pub getKerning(): bool {
             if this.handle == 0 { return false }
@@ -281,7 +281,7 @@ pub class GlyphMetrics {
             }
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true if the font has a glyph for the given codepoint
         ///   (BMP only — `ch` is u16). False for `0` handle.
         pub hasGlyph(ch: u16): bool {
@@ -289,7 +289,7 @@ pub class GlyphMetrics {
             TTF_GlyphIsProvided(this.handle as *TTF_Font, ch) != 0
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   pixel-level glyph metrics for `ch`. All-zero on
         ///   missing glyph or no font.
         pub glyphMetrics(ch: u16): GlyphMetrics {
@@ -306,10 +306,10 @@ pub class GlyphMetrics {
         /// surface. Faster than rendering when you only need to lay
         /// out a UI.
         ///
-        /// Args:
-        ///   text — UTF-8 input.
+        /// **Args:**
+        /// - `text` — UTF-8 input.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `(w, h)` in pixels, both `0` on error or empty handle.
         pub size(text: string): Size {
             let s = new Size()
@@ -321,11 +321,11 @@ pub class GlyphMetrics {
         /// Render `text` as a fast, jaggy 8-bit-paletted surface
         /// (foreground only, no anti-aliasing).
         ///
-        /// Args:
-        ///   text — UTF-8 input.
-        ///   fg   — foreground colour.
+        /// **Args:**
+        /// - `text` — UTF-8 input.
+        /// - `fg` — foreground colour.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   raw `*SDL_Surface` cast to i64, ready for
         ///   `Texture.fromSurface(...)` or
         ///   `sdl_surface.Surface.fromHandle(...)`. `0` on failure
@@ -340,10 +340,10 @@ pub class GlyphMetrics {
         /// Render `text` as an anti-aliased, opaque-background
         /// surface — fastest of the AA modes.
         ///
-        /// Args:
-        ///   text — UTF-8 input.
-        ///   fg   — foreground colour.
-        ///   bg   — solid background colour painted under the text.
+        /// **Args:**
+        /// - `text` — UTF-8 input.
+        /// - `fg` — foreground colour.
+        /// - `bg` — solid background colour painted under the text.
         pub renderShaded(text: string, fg: Color, bg: Color): i64 {
             if this.handle == 0 { return 0 }
             TTF_RenderUTF8_Shaded(

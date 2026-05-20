@@ -173,13 +173,13 @@ pub enum AudioStatus: i32 {
 
         /// Open the default playback device.
         ///
-        /// Args:
-        ///   freq     — sample rate in Hz (e.g. 48000).
-        ///   format   — sample format (`AudioFormat.*`).
-        ///   channels — 1 = mono, 2 = stereo.
-        ///   samples  — device buffer size in samples (power of 2,
-        ///              e.g. 1024 / 2048 / 4096). Smaller = lower
-        ///              latency, higher CPU load.
+        /// **Args:**
+        /// - `freq` — sample rate in Hz (e.g. 48000).
+        /// - `format` — sample format (`AudioFormat.*`).
+        /// - `channels` — 1 = mono, 2 = stereo.
+        /// - `samples` — device buffer size in samples (power of 2,
+        ///   e.g. 1024 / 2048 / 4096). Smaller = lower
+        ///   latency, higher CPU load.
         ///
         /// After construction check `id == 0` to detect failure.
         pub init(freq: i32, format: AudioFormat, channels: u8, samples: u16) {
@@ -205,11 +205,11 @@ pub enum AudioStatus: i32 {
 
         /// Queue 16-bit signed PCM samples for playback.
         ///
-        /// Args:
-        ///   data — sample buffer. For stereo, two entries per frame
-        ///          (interleaved L, R, L, R, ...).
+        /// **Args:**
+        /// - `data` — sample buffer. For stereo, two entries per frame
+        ///   (interleaved L, R, L, R, ...).
         ///
-        /// Returns:
+        /// **Returns:**
         ///   0 on success, < 0 on failure (call `sdl.getError()`).
         pub queue(data: i16[]): i32 {
             // i16[] auto-coerces to *i16; reinterpret as *const void
@@ -234,7 +234,7 @@ pub enum AudioStatus: i32 {
         /// plays). Useful for "wait until the buffer drains" loops
         /// or for deciding when to refill.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   queued byte count.
         pub get queuedBytes(): u32 {
             SDL_GetQueuedAudioSize(this.id)
@@ -264,7 +264,7 @@ pub enum AudioStatus: i32 {
 
         // ─── static helpers ──────────────────────────────────────
 
-        /// Returns:
+        /// **Returns:**
         ///   number of available output devices when `capture` is
         ///   false, or capture devices when true. `-1` means
         ///   "unknown" (some backends can't enumerate without
@@ -274,11 +274,11 @@ pub enum AudioStatus: i32 {
             SDL_GetNumAudioDevices(cap)
         }
 
-        /// Args:
-        ///   index   — `[0, numDevices(capture))`.
-        ///   capture — true for capture devices, false for output.
+        /// **Args:**
+        /// - `index` — `[0, numDevices(capture))`.
+        /// - `capture` — true for capture devices, false for output.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   human-readable device name, or empty when out of
         ///   range.
         pub static deviceName(index: i32, capture: bool): string {
@@ -286,7 +286,7 @@ pub enum AudioStatus: i32 {
             stringFromCstr(SDL_GetAudioDeviceName(index, cap))
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the audio backend currently in use (e.g.
         ///   `"coreaudio"`, `"pulseaudio"`, `"wasapi"`), or empty
         ///   when audio isn't initialised.
@@ -294,16 +294,16 @@ pub enum AudioStatus: i32 {
             stringFromCstr(SDL_GetCurrentAudioDriver())
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   how many audio drivers SDL was built with.
         pub static numDrivers(): i32 {
             SDL_GetNumAudioDrivers()
         }
 
-        /// Args:
-        ///   index — `[0, numDrivers())`.
+        /// **Args:**
+        /// - `index` — `[0, numDrivers())`.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the driver name at that index.
         pub static driverName(index: i32): string {
             stringFromCstr(SDL_GetAudioDriver(index))
@@ -314,11 +314,11 @@ pub enum AudioStatus: i32 {
         /// Useful for callback-style devices that hand-roll their
         /// own mixer.
         ///
-        /// Args:
-        ///   dst, src — byte buffers (must be `len` bytes long).
-        ///   format   — sample format (`AudioFormat.*`).
-        ///   len      — byte count to mix.
-        ///   volume   — 0..128.
+        /// **Args:**
+        /// - `dst`, `src` — byte buffers (must be `len` bytes long).
+        /// - `format` — sample format (`AudioFormat.*`).
+        /// - `len` — byte count to mix.
+        /// - `volume` — 0..128.
         pub static mixFormat(
             dst: u8[], src: u8[], format: AudioFormat, len: u32, volume: i32
         ) {
@@ -340,13 +340,13 @@ pub enum AudioStatus: i32 {
         /// failed at construction time.
         pub handle: i64
 
-        /// Args:
-        ///   srcFormat   — input format (`AudioFormat.*`).
-        ///   srcChannels — 1 = mono, 2 = stereo.
-        ///   srcRate     — input sample rate (Hz).
-        ///   dstFormat   — output format.
-        ///   dstChannels — output channel count.
-        ///   dstRate     — output sample rate (Hz).
+        /// **Args:**
+        /// - `srcFormat` — input format (`AudioFormat.*`).
+        /// - `srcChannels` — 1 = mono, 2 = stereo.
+        /// - `srcRate` — input sample rate (Hz).
+        /// - `dstFormat` — output format.
+        /// - `dstChannels` — output channel count.
+        /// - `dstRate` — output sample rate (Hz).
         pub init(
             srcFormat: AudioFormat, srcChannels: u8, srcRate: i32,
             dstFormat: AudioFormat, dstChannels: u8, dstRate: i32
@@ -366,10 +366,10 @@ pub enum AudioStatus: i32 {
 
         /// Feed raw source-format bytes into the stream.
         ///
-        /// Args:
-        ///   bytes — input buffer in the stream's source format.
+        /// **Args:**
+        /// - `bytes` — input buffer in the stream's source format.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on failure.
         pub put(bytes: u8[]): i32 {
             if this.handle == 0 { return -1 }
@@ -383,10 +383,10 @@ pub enum AudioStatus: i32 {
         /// Drain converted bytes from the stream into `bytes`. The
         /// caller pre-allocates `bytes` to the desired pull size.
         ///
-        /// Args:
-        ///   bytes — output buffer (must already be sized).
+        /// **Args:**
+        /// - `bytes` — output buffer (must already be sized).
         ///
-        /// Returns:
+        /// **Returns:**
         ///   number of bytes actually written (`<= bytes.length`),
         ///   or `< 0` on error.
         pub get(bytes: u8[]): i32 {
@@ -398,7 +398,7 @@ pub enum AudioStatus: i32 {
             )
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   bytes of converted output ready to be pulled.
         pub get available(): i32 {
             if this.handle == 0 { return 0 }

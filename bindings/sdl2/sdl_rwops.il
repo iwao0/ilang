@@ -39,11 +39,11 @@
         /// Open a file as an RWops. Wraps `fopen` on most
         /// platforms.
         ///
-        /// Args:
-        ///   path — filesystem path.
-        ///   mode — fopen-style mode (`"rb"`, `"wb"`, `"r+b"`, …).
+        /// **Args:**
+        /// - `path` — filesystem path.
+        /// - `mode` — fopen-style mode (`"rb"`, `"wb"`, `"r+b"`, …).
         ///
-        /// Returns:
+        /// **Returns:**
         ///   an `RWops` whose `handle` is `0` on failure (call
         ///   `sdl.getError()` for the message).
         pub static fromFile(path: string, mode: string): RWops {
@@ -87,7 +87,7 @@
         /// Close the stream now, before this `RWops` goes out of
         /// scope. Subsequent reads / `deinit` are no-ops.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` on error.
         pub close(): i32 {
             if this.handle == 0 { return 0 }
@@ -102,7 +102,7 @@
         /// — the loader will close it; calling `deinit` on a
         /// detached `RWops` is a no-op.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the previous handle (or `0` if already detached).
         pub release(): i64 {
             let h = this.handle

@@ -13,7 +13,7 @@ use sdl_core { SDL_free }
     /// platform-specific separator (`"/"` on Unix, `"\\"` on
     /// Windows). On macOS this points inside the .app bundle.
     ///
-    /// Returns:
+    /// **Returns:**
     ///   absolute base path, or empty when the platform doesn't
     ///   support the lookup.
     pub fn getBasePath(): string {
@@ -31,11 +31,11 @@ use sdl_core { SDL_free }
     ///   - Linux:   `$XDG_DATA_HOME/<org>/<app>/`
     ///   - Windows: `%APPDATA%\<org>\<app>\`
     ///
-    /// Args:
-    ///   org — organisation name (e.g. `"acme"`).
-    ///   app — application name (e.g. `"breakout"`).
+    /// **Args:**
+    /// - `org` — organisation name (e.g. `"acme"`).
+    /// - `app` — application name (e.g. `"breakout"`).
     ///
-    /// Returns:
+    /// **Returns:**
     ///   absolute pref path with a trailing separator. Empty on
     ///   error (call `sdl.getError()`).
     pub fn getPrefPath(org: string, app: string): string {

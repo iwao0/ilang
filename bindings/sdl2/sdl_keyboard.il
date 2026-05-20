@@ -401,10 +401,10 @@ pub enum KeyMod: u16 {
 
         // ─── live state ──────────────────────────────────────────
 
-        /// Args:
-        ///   scancode — physical key code.
+        /// **Args:**
+        /// - `scancode` — physical key code.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   true while the key was held at the most recent
         ///   `pump()`. `false` when `pump()` hasn't been called
         ///   yet or when `scancode` is out of range.
@@ -416,7 +416,7 @@ pub enum KeyMod: u16 {
             this.curr[s as i64] != 0 as u8
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true on the single frame the key transitions from
         ///   "up" to "down" — rising edge.
         pub isPressed(scancode: Scancode): bool {
@@ -427,7 +427,7 @@ pub enum KeyMod: u16 {
             this.curr[s as i64] != 0 as u8 && this.prev[s as i64] == 0 as u8
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true on the single frame the key transitions from
         ///   "down" to "up" — falling edge.
         pub isReleased(scancode: Scancode): bool {
@@ -440,7 +440,7 @@ pub enum KeyMod: u16 {
 
         // ─── modifiers ───────────────────────────────────────────
 
-        /// Returns:
+        /// **Returns:**
         ///   bitmask of currently-held modifier keys.
         pub modState(): KeyMod {
             SDL_GetModState() as KeyMod
@@ -454,14 +454,14 @@ pub enum KeyMod: u16 {
 
         // ─── scancode <-> keycode ────────────────────────────────
 
-        /// Returns:
+        /// **Returns:**
         ///   the keycode (layout-dependent) corresponding to a
         ///   physical scancode in the current layout.
         pub keyFromScancode(scancode: Scancode): Keycode {
             SDL_GetKeyFromScancode(scancode as i32) as Keycode
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the scancode that produces `key` in the current
         ///   layout.
         pub scancodeFromKey(key: Keycode): Scancode {
@@ -470,33 +470,33 @@ pub enum KeyMod: u16 {
 
         // ─── name lookups ────────────────────────────────────────
 
-        /// Returns:
+        /// **Returns:**
         ///   human-readable name (e.g. `"Left Shift"`).
         pub scancodeName(scancode: Scancode): string {
             stringFromCstr(SDL_GetScancodeName(scancode as i32))
         }
 
-        /// Args:
-        ///   name — name as returned by `scancodeName`.
+        /// **Args:**
+        /// - `name` — name as returned by `scancodeName`.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the matching scancode, or `Scancode.unknown` for
         ///   unrecognised names.
         pub scancodeFromName(name: string): Scancode {
             SDL_GetScancodeFromName(cstrFromString(name)) as Scancode
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   localised key name (depends on layout — `"Q"` on
         ///   QWERTY but `"A"` on AZERTY).
         pub keyName(key: Keycode): string {
             stringFromCstr(SDL_GetKeyName(key as i32))
         }
 
-        /// Args:
-        ///   name — name as returned by `keyName`.
+        /// **Args:**
+        /// - `name` — name as returned by `keyName`.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the matching keycode, or `Keycode.unknown`.
         pub keyFromName(name: string): Keycode {
             SDL_GetKeyFromName(cstrFromString(name)) as Keycode
@@ -515,7 +515,7 @@ pub enum KeyMod: u16 {
             SDL_StopTextInput()
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true if `textInput` events are currently flowing.
         pub isTextInputActive(): bool {
             SDL_IsTextInputActive() != 0
@@ -526,13 +526,13 @@ pub enum KeyMod: u16 {
             SDL_ClearComposition()
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true when the on-screen text input UI is visible.
         pub isTextInputShown(): bool {
             SDL_IsTextInputShown() != 0
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true when the platform offers an on-screen keyboard
         ///   (mobile / tablet / game console).
         pub hasScreenKeyboardSupport(): bool {
@@ -555,26 +555,26 @@ pub enum KeyMod: u16 {
         /// Hint to IMEs / on-screen keyboards where the user is
         /// typing. `(x, y)` is in window pixels.
         ///
-        /// Args:
-        ///   x, y — top-left corner of the input rect.
-        ///   w, h — rectangle size in pixels.
+        /// **Args:**
+        /// - `x`, `y` — top-left corner of the input rect.
+        /// - `w`, `h` — rectangle size in pixels.
         pub setTextInputRect(x: i32, y: i32, w: i32, h: i32) {
             let r = new Rect()
             r.x = x; r.y = y; r.w = w; r.h = h
             SDL_SetTextInputRect(&r)
         }
 
-        /// Args:
-        ///   window — window to query.
+        /// **Args:**
+        /// - `window` — window to query.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   true when the on-screen keyboard is currently visible
         ///   for that window.
         pub isScreenKeyboardShown(window: Window): bool {
             SDL_IsScreenKeyboardShown(window.handle as *void) != 0
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   raw handle of the window that currently owns keyboard
         ///   focus, or `0` if no SDL window owns it. Compare against
         ///   `myWindow.handle` to test focus.

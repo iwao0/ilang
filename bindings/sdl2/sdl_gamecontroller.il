@@ -237,10 +237,10 @@ pub enum ControllerType: i32 {
 
         /// Read the current value of a stick / trigger axis.
         ///
-        /// Args:
-        ///   axis — the axis to read.
+        /// **Args:**
+        /// - `axis` — the axis to read.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   stick axes in `[-32768, 32767]`; trigger axes in
         ///   `[0, 32767]`. `0` when no controller is open.
         pub getAxis(axis: Axis): i16 {
@@ -250,7 +250,7 @@ pub enum ControllerType: i32 {
             )
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true while the button was held at the most recent
         ///   `pump()`. `false` before the first `pump()` or when
         ///   `button` is out of range.
@@ -262,7 +262,7 @@ pub enum ControllerType: i32 {
             this.curr[b as i64] != 0 as u8
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true on the single frame the button transitions from
         ///   "up" to "down" — rising edge.
         pub isPressed(button: Button): bool {
@@ -273,7 +273,7 @@ pub enum ControllerType: i32 {
             this.curr[b as i64] != 0 as u8 && this.prev[b as i64] == 0 as u8
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true on the single frame the button transitions from
         ///   "down" to "up" — falling edge.
         pub isReleased(button: Button): bool {
@@ -284,7 +284,7 @@ pub enum ControllerType: i32 {
             this.prev[b as i64] != 0 as u8 && this.curr[b as i64] == 0 as u8
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the controller name SDL has for this device (e.g.
         ///   `"Xbox 360 Controller"`), or empty when no device is
         ///   open.
@@ -295,7 +295,7 @@ pub enum ControllerType: i32 {
             ))
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true while the device is still plugged in. False after
         ///   the user unplugs the controller (the open handle becomes
         ///   stale, but `pump()` keeps returning zeros so it's safe
@@ -307,7 +307,7 @@ pub enum ControllerType: i32 {
             ) != 0 as u8
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true if SDL has a hardware mapping for this `button` on
         ///   this controller. Some pads (e.g. PS3 with no `guide`)
         ///   miss specific buttons — callers should gate visual
@@ -319,7 +319,7 @@ pub enum ControllerType: i32 {
             ) != 0 as u8
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true if SDL has a hardware mapping for this `axis`.
         pub hasAxis(axis: Axis): bool {
             if this.handle == 0 { return false }
@@ -328,7 +328,7 @@ pub enum ControllerType: i32 {
             ) != 0 as u8
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   true if the device supports rumble. Required for
         ///   `rumble()` to do anything visible.
         pub hasRumble(): bool {
@@ -340,13 +340,13 @@ pub enum ControllerType: i32 {
 
         /// Trigger a rumble effect.
         ///
-        /// Args:
-        ///   lowFreq      — left motor magnitude, `0..65535`.
-        ///   highFreq     — right motor magnitude, `0..65535`.
-        ///   durationMs   — effect length in milliseconds. `0` stops
-        ///                  rumble immediately.
+        /// **Args:**
+        /// - `lowFreq` — left motor magnitude, `0..65535`.
+        /// - `highFreq` — right motor magnitude, `0..65535`.
+        /// - `durationMs` — effect length in milliseconds. `0` stops
+        ///   rumble immediately.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` if the device doesn't support
         ///   rumble or no controller is open.
         pub rumble(lowFreq: u16, highFreq: u16, durationMs: u32): i32 {
@@ -372,10 +372,10 @@ pub enum ControllerType: i32 {
         /// Set the LED colour on devices that have one (DualShock 4,
         /// DualSense, etc.).
         ///
-        /// Args:
-        ///   r, g, b — colour components.
+        /// **Args:**
+        /// - `r`, `g`, `b` — colour components.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `0` on success, `< 0` if the device has no LED or no
         ///   controller is open.
         pub setLED(r: u8, g: u8, b: u8): i32 {
@@ -385,7 +385,7 @@ pub enum ControllerType: i32 {
             )
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the SDL-identified hardware family. `unknown` when the
         ///   pad isn't in SDL's database.
         pub get controllerType(): ControllerType {
@@ -396,7 +396,7 @@ pub enum ControllerType: i32 {
             raw as ControllerType
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the device's serial number (typically empty unless the
         ///   pad reports one — DualSense / Switch Pro do).
         pub get serial(): string {
@@ -406,7 +406,7 @@ pub enum ControllerType: i32 {
             ))
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   the SDL2_gamecontrollerdb-format mapping line for the
         ///   open device, or empty when no controller is attached.
         ///   The caller never frees — we copy through ilang and
@@ -424,10 +424,10 @@ pub enum ControllerType: i32 {
 
         // ─── static helpers ──────────────────────────────────────
 
-        /// Args:
-        ///   joystickIndex — `[0, sdl.numJoysticks())` index.
+        /// **Args:**
+        /// - `joystickIndex` — `[0, sdl.numJoysticks())` index.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the controller name SDL would report for that index,
         ///   or empty when the index is out of range.
         pub static nameForIndex(joystickIndex: i32): string {
@@ -439,18 +439,18 @@ pub enum ControllerType: i32 {
         /// to inject custom pads at runtime when SDL's bundled
         /// database doesn't cover them.
         ///
-        /// Args:
-        ///   mapping — full mapping line, e.g.
-        ///             `"<guid>,<name>,a:b0,b:b1,..."`.
+        /// **Args:**
+        /// - `mapping` — full mapping line, e.g.
+        ///   `"<guid>,<name>,a:b0,b:b1,..."`.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   `1` if a new mapping was added, `0` if an existing
         ///   mapping was replaced, `-1` on error.
         pub static addMapping(mapping: string): i32 {
             SDL_GameControllerAddMapping(cstrFromString(mapping))
         }
 
-        /// Returns:
+        /// **Returns:**
         ///   how many controller mappings are currently loaded
         ///   (built-in + any added via `addMapping`).
         pub static numMappings(): i32 {
@@ -463,7 +463,7 @@ pub enum ControllerType: i32 {
         /// (`numJoysticks()` → inspect each → open the one you
         /// want).
         ///
-        /// Returns:
+        /// **Returns:**
         ///   mapping string, or empty when the index doesn't
         ///   match a game controller. Internally `SDL_free`'s the
         ///   malloc'd buffer SDL hands us.
@@ -478,12 +478,12 @@ pub enum ControllerType: i32 {
         /// Toggle whether `SDL_PollEvent` / `WaitEvent` deliver
         /// controller events, or query the current state.
         ///
-        /// Args:
-        ///   state — `EventState.disable` / `.enable` to set,
-        ///           `.query` to read the current setting without
-        ///           changing it.
+        /// **Args:**
+        /// - `state` — `EventState.disable` / `.enable` to set,
+        ///   `.query` to read the current setting without
+        ///   changing it.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   the `EventState` in effect after the call.
         pub static eventState(state: EventState): EventState {
             SDL_GameControllerEventState(state as i32) as EventState
@@ -497,20 +497,20 @@ pub enum ControllerType: i32 {
             SDL_GameControllerUpdate()
         }
 
-        /// Args:
-        ///   axis — Axis variant.
+        /// **Args:**
+        /// - `axis` — Axis variant.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   SDL's canonical name for `axis` (`"leftx"`,
         ///   `"righty"`, …).
         pub static stringForAxis(axis: Axis): string {
             stringFromCstr(SDL_GameControllerGetStringForAxis(axis as i32))
         }
 
-        /// Args:
-        ///   button — Button variant.
+        /// **Args:**
+        /// - `button` — Button variant.
         ///
-        /// Returns:
+        /// **Returns:**
         ///   SDL's canonical name for `button` (`"a"`, `"dpup"`, …).
         pub static stringForButton(button: Button): string {
             stringFromCstr(SDL_GameControllerGetStringForButton(button as i32))
