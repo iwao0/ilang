@@ -21,6 +21,7 @@
 /// never calls are kept as no-arg `_slotN()` placeholders so the
 /// numbering stays anchored to the C++ COM ABI's positions.
 
+use windows { HANDLE }
 use d3d12 {
     GUID,
     D3D12_COMMAND_QUEUE_DESC,
@@ -96,7 +97,7 @@ use d3d12 {
     /// ID3D12Fence — CPU/GPU sync primitive.
     @com pub interface ID3D12Fence : ID3D12Pageable {
         GetCompletedValue(): u64
-        SetEventOnCompletion(Value: u64, hEvent: i64): i32
+        SetEventOnCompletion(Value: u64, hEvent: *HANDLE): i32
         Signal(Value: u64): i32
     }
 
@@ -120,11 +121,11 @@ use d3d12 {
     @com pub interface ID3D12CommandQueue : ID3D12Pageable {
         _slot8_UpdateTileMappings()
         _slot9_CopyTileMappings()
-        ExecuteCommandLists(NumCommandLists: u32, ppCommandLists: *const *void)
+        ExecuteCommandLists(NumCommandLists: u32, ppCommandLists: *const *ID3D12CommandList)
         _slot11_SetMarker()
         _slot12_BeginEvent()
         _slot13_EndEvent()
-        Signal(pFence: i64, Value: u64): i32
+        Signal(pFence: *ID3D12Fence, Value: u64): i32
         _slot15_Wait()
         _slot16_GetTimestampFrequency()
         _slot17_GetClockCalibration()
@@ -144,7 +145,7 @@ use d3d12 {
             ppCommandQueue: **void
         ): i32
         CreateCommandAllocator(
-            type_: u32,
+            type_: i32,
             riid: *const GUID,
             ppCommandAllocator: **void
         ): i32
@@ -156,9 +157,9 @@ use d3d12 {
         _slot11_CreateComputePipelineState()
         CreateCommandList(
             nodeMask: u32,
-            type_: u32,
-            pCommandAllocator: i64,
-            pInitialState: i64,
+            type_: i32,
+            pCommandAllocator: *ID3D12CommandAllocator,
+            pInitialState: *ID3D12PipelineState,
             riid: *const GUID,
             ppCommandList: **void
         ): i32
@@ -173,7 +174,7 @@ use d3d12 {
             nodeMask: u32,
             pBlobWithRootSignature: *const void,
             blobLengthInBytes: u64,
-            riid: *const void,
+            riid: *const GUID,
             ppvRootSignature: **void
         ): i32
         _slot17_CreateConstantBufferView()
@@ -224,7 +225,7 @@ use d3d12 {
     /// the SDK vtable; unused entries stay as `_slotN_Name`.
     @com pub interface ID3D12GraphicsCommandList : ID3D12CommandList {
         Close(): i32
-        Reset(pAllocator: i64, pInitialState: i64): i32
+        Reset(pAllocator: *ID3D12CommandAllocator, pInitialState: *ID3D12PipelineState): i32
         _slot11_ClearState()
         DrawInstanced(
             VertexCountPerInstance: u32,
@@ -244,7 +245,7 @@ use d3d12 {
         RSSetScissorRects(NumRects: u32, pRects: *const D3D12_RECT)
         _slot23_OMSetBlendFactor()
         _slot24_OMSetStencilRef()
-        SetPipelineState(pPipelineState: i64)
+        SetPipelineState(pPipelineState: *ID3D12PipelineState)
         ResourceBarrier(NumBarriers: u32, pBarriers: *const D3D12_RESOURCE_BARRIER)
         _slot27_ExecuteBundle()
         _slot28_SetDescriptorHeaps()

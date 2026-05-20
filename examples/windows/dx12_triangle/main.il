@@ -48,7 +48,7 @@ use directx12 {
     D3DFeatureLevel,
     GUID,
     IUnknown, ID3D12Device, ID3D12CommandQueue, ID3D12CommandAllocator,
-    ID3D12GraphicsCommandList, ID3D12Resource, ID3D12Fence,
+    ID3D12CommandList, ID3D12GraphicsCommandList, ID3D12Resource, ID3D12Fence,
     ID3D12DescriptorHeap, ID3D12RootSignature, ID3D12PipelineState,
     ID3DBlob,
     IID_ID3D12Device, IID_ID3D12CommandQueue, IID_ID3D12CommandAllocator,
@@ -90,8 +90,8 @@ use directx12 {
     pub fn run() {
         console.log("[dx12] start")
         // ── Constants ──────────────────────────────────────────────
-        let width:  u32 = 800
-        let height: u32 = 600
+        let width:  i32 = 800
+        let height: i32 = 600
 
         // ── Window setup ───────────────────────────────────────────
         let hInstance  = GetModuleHandleA(NULL)
@@ -120,7 +120,7 @@ use directx12 {
             title,
             WindowStyle.overlappedWindow,
             120, 120,
-            width as i32 + 16, height as i32 + 39,
+            width + 16, height + 39,
             NULL, NULL,
             hInstance as *HINSTANCE,
             NULL
@@ -184,25 +184,25 @@ use directx12 {
 
         // ── Swap chain ─────────────────────────────────────────────
         let scDesc = DXGI_SWAP_CHAIN_DESC1 {
-            Width:       width,
-            Height:      height,
-            Format:      DxgiFormat.r8g8b8a8_unorm as u32,
+            Width:       width as u32,
+            Height:      height as u32,
+            Format:      DxgiFormat.r8g8b8a8_unorm,
             Stereo:      0,
             SampleDesc:  DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
-            BufferUsage: DxgiUsage.renderTargetOutput as u32,
+            BufferUsage: DxgiUsage.renderTargetOutput,
             BufferCount: 2,
-            Scaling:     DxgiScaling.stretch as u32,
-            SwapEffect:  DxgiSwapEffect.flipDiscard as u32,
-            AlphaMode:   DxgiAlphaMode.unspecified as u32,
+            Scaling:     DxgiScaling.stretch,
+            SwapEffect:  DxgiSwapEffect.flipDiscard,
+            AlphaMode:   DxgiAlphaMode.unspecified,
             Flags:       0,
         }
         let rawSwap1: *void = NULL
         let rcSwap = factory.CreateSwapChainForHwnd(
-            cmdQueue as i64,
-            hwnd as i64,
+            &cmdQueue as *void,
+            hwnd,
             &scDesc,
             NULL,
-            0 as i64,
+            NULL,
             &rawSwap1
         )
         console.log("[dx12] CreateSwapChainForHwnd rc =", rcSwap)
@@ -214,9 +214,9 @@ use directx12 {
 
         // ── RTV descriptor heap ────────────────────────────────────
         let rtvHeapDesc = D3D12_DESCRIPTOR_HEAP_DESC {
-            Type:           D3D12DescriptorHeapType.rtv as u32,
+            Type:           D3D12DescriptorHeapType.rtv,
             NumDescriptors: 2,
-            Flags:          D3D12DescriptorHeapFlags.none as u32,
+            Flags:          D3D12DescriptorHeapFlags.none,
             NodeMask:       0,
         }
         let rawRtvHeap: *void = NULL
@@ -224,7 +224,7 @@ use directx12 {
         console.log("[dx12] CreateDescriptorHeap rc =", rcHeap)
         let rtvHeap = rawRtvHeap as ID3D12DescriptorHeap
         let rtvDescriptorSize = device.GetDescriptorHandleIncrementSize(
-            D3D12DescriptorHeapType.rtv as u32
+            D3D12DescriptorHeapType.rtv
         )
 
         let rtvBase = D3D12_CPU_DESCRIPTOR_HANDLE { ptr: 0 }
@@ -252,7 +252,7 @@ use directx12 {
         // ── Command allocator ──────────────────────────────────────
         let rawAlloc: *void = NULL
         device.CreateCommandAllocator(
-            D3D12CommandListType.direct as u32,
+            D3D12CommandListType.direct,
             &IID_ID3D12CommandAllocator,
             &rawAlloc
         )
@@ -274,7 +274,7 @@ use directx12 {
         let rawSigBlob:   *void = NULL
         let rawSigErrBlob: *void = NULL
         let rsDescVoid = &rsDesc as *const void
-        let rsVersion: u32 = D3D12RootSignatureVersion.version_1_0 as u32
+        let rsVersion: u32 = D3D12RootSignatureVersion.version_1_0
         let rcSerial = D3D12SerializeRootSignature(
             rsDescVoid,
             rsVersion,
@@ -310,9 +310,9 @@ use directx12 {
                 let scratch: u8[] = []
                 let fill: u64 = 0
                 loop {
-                    if fill >= 4096 as u64 { break }
-                    scratch.push(0 as u8)
-                    fill = fill + 1 as u64
+                    if fill >= 4096 { break }
+                    scratch.push(0)
+                    fill = fill + 1
                 }
                 let scratchPtrV = scratch as *void
                 let scratchPtr = scratchPtrV as *const void
@@ -322,17 +322,17 @@ use directx12 {
                     let lenSlot: u64 = 4096
                     let rcMsg = infoQueue.GetMessage(i, scratchPtrV, &lenSlot)
                     if rcMsg != 0 {
-                        console.log("[dx12]  msg", i as i64, "rc =", rcMsg)
+                        console.log("[dx12]  msg", i, "rc =", rcMsg)
                     } else {
                         // D3D12_MESSAGE { Category u32, Severity u32,
                         //                 ID u32, pad u32,
                         //                 pDescription ptr, Length u64 }
-                        let pDesc = readU64(scratchPtr, 16 as i64)
-                        let descLen = readU64(scratchPtr, 24 as i64)
+                        let pDesc = readU64(scratchPtr, 16)
+                        let descLen = readU64(scratchPtr, 24)
                         let descStr = stringFromCstr(pDesc as i64 as *const char)
-                        console.log("[dx12]  msg", i as i64, "len=", descLen as i64, "text=", descStr)
+                        console.log("[dx12]  msg", i, "len=", descLen, "text=", descStr)
                     }
-                    i = i + 1 as u64
+                    i = i + 1
                 }
                 let _ = infoQueue.Release()
             }
@@ -355,12 +355,12 @@ use directx12 {
         let rcVs = D3DCompile(
             hlslCstr as *const void, hlslLen as u64,
             srcName,
-            NULL as *const void as *const void,  // placeholder: zero pDefines
+            NULL,  // placeholder: zero pDefines
             NULL,
             vsEntry, vsProfile,
             0, 0,
-            &rawVs as **void as **ID3DBlob,
-            &rawVsErr as **void as **ID3DBlob
+            &rawVs as **ID3DBlob,
+            &rawVsErr as **ID3DBlob
         )
         console.log("[dx12] D3DCompile VS rc =", rcVs)
         let vsBlob = rawVs as ID3DBlob
@@ -370,12 +370,12 @@ use directx12 {
         let rcPs = D3DCompile(
             hlslCstr as *const void, hlslLen as u64,
             srcName,
-            NULL as *const void as *const void,
+            NULL,
             NULL,
             psEntry, psProfile,
             0, 0,
-            &rawPs as **void as **ID3DBlob,
-            &rawPsErr as **void as **ID3DBlob
+            &rawPs as **ID3DBlob,
+            &rawPsErr as **ID3DBlob
         )
         console.log("[dx12] D3DCompile PS rc =", rcPs)
         let psBlob = rawPs as ID3DBlob
@@ -387,23 +387,22 @@ use directx12 {
             D3D12_INPUT_ELEMENT_DESC {
                 SemanticName:         posSem,
                 SemanticIndex:        0,
-                Format:               DxgiFormat.r32g32b32_float as u32,
+                Format:               DxgiFormat.r32g32b32_float,
                 InputSlot:            0,
                 AlignedByteOffset:    0,
-                InputSlotClass:       D3D12InputClassification.perVertexData as u32,
+                InputSlotClass:       D3D12InputClassification.perVertexData,
                 InstanceDataStepRate: 0,
             },
             D3D12_INPUT_ELEMENT_DESC {
                 SemanticName:         colSem,
                 SemanticIndex:        0,
-                Format:               DxgiFormat.r32g32b32a32_float as u32,
+                Format:               DxgiFormat.r32g32b32a32_float,
                 InputSlot:            0,
                 AlignedByteOffset:    12,
-                InputSlotClass:       D3D12InputClassification.perVertexData as u32,
+                InputSlotClass:       D3D12InputClassification.perVertexData,
                 InstanceDataStepRate: 0,
             },
         ]
-        let inputElemsPtr = inputElems as *void
         // ── Graphics PSO ──────────────────────────────────────────
         let psoDesc = D3D12_GRAPHICS_PIPELINE_STATE_DESC {
             pRootSignature: rootSig as *void as i64,
@@ -425,25 +424,25 @@ use directx12 {
                 RasterizedStream: 0,
             },
             BlendState: defaultBlendDesc(),
-            SampleMask: 0xFFFFFFFF as u32,
+            SampleMask: 0xFFFFFFFF,
             RasterizerState: defaultRasterizerDesc(),
             DepthStencilState: defaultDepthStencilDesc(),
             InputLayout: D3D12_INPUT_LAYOUT_DESC {
-                pInputElementDescs: inputElemsPtr as *const D3D12_INPUT_ELEMENT_DESC,
+                pInputElementDescs: inputElems,
                 NumElements:        2,
                 _pad0:              0,
             },
-            IBStripCutValue:       D3D12IndexBufferStripCutValue.disabled as u32,
-            PrimitiveTopologyType: D3D12PrimitiveTopologyType.triangle as u32,
+            IBStripCutValue:       D3D12IndexBufferStripCutValue.disabled,
+            PrimitiveTopologyType: D3D12PrimitiveTopologyType.triangle,
             NumRenderTargets: 1,
-            RTVFormat0: DxgiFormat.r8g8b8a8_unorm as u32,
+            RTVFormat0: DxgiFormat.r8g8b8a8_unorm,
             RTVFormat1: 0, RTVFormat2: 0, RTVFormat3: 0,
             RTVFormat4: 0, RTVFormat5: 0, RTVFormat6: 0, RTVFormat7: 0,
             DSVFormat:        0,
             SampleDesc:       DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
             NodeMask:         0,
             CachedPSO:        D3D12_CACHED_PIPELINE_STATE { pCachedBlob: NULL, CachedBlobSizeInBytes: 0 },
-            Flags:            D3D12PipelineStateFlags.none as u32,
+            Flags:            D3D12PipelineStateFlags.none,
             _pad0:            0,
         }
         let rawPso: *void = NULL
@@ -467,9 +466,9 @@ use directx12 {
                 let buf: u8[] = []
                 let f: u64 = 0
                 loop {
-                    if f >= 8192 as u64 { break }
-                    buf.push(0 as u8)
-                    f = f + 1 as u64
+                    if f >= 8192 { break }
+                    buf.push(0)
+                    f = f + 1
                 }
                 let bv = buf as *void
                 let bc = bv as *const void
@@ -479,12 +478,12 @@ use directx12 {
                     let lenSlot: u64 = 8192
                     let rcM = iq.GetMessage(i, bv, &lenSlot)
                     if rcM == 0 {
-                        let pd  = readU64(bc, 16 as i64)
-                        let dl  = readU64(bc, 24 as i64)
+                        let pd  = readU64(bc, 16)
+                        let dl  = readU64(bc, 24)
                         let txt = stringFromCstr(pd as i64 as *const char)
-                        console.log("[dx12]  pso msg", i as i64, "len=", dl as i64, "text=", txt)
+                        console.log("[dx12]  pso msg", i, "len=", dl, "text=", txt)
                     }
-                    i = i + 1 as u64
+                    i = i + 1
                 }
                 let _ = iq.Release()
             }
@@ -495,9 +494,9 @@ use directx12 {
         let rawList: *void = NULL
         let rcList = device.CreateCommandList(
             0,
-            D3D12CommandListType.direct as u32,
-            allocator as i64,
-            pso as i64,
+            D3D12CommandListType.direct,
+            &allocator,
+            &pso,
             &IID_ID3D12GraphicsCommandList,
             &rawList
         )
@@ -508,14 +507,14 @@ use directx12 {
         // ── Vertex buffer (upload heap, 3 vertices) ───────────────
         let vbSize: u64 = 84   // 3 * (12 + 16)
         let uploadHeap = D3D12_HEAP_PROPERTIES {
-            Type:                 D3D12HeapType.upload as u32,
-            CPUPageProperty:      D3D12CpuPageProperty.unknown as u32,
-            MemoryPoolPreference: D3D12MemoryPool.unknown as u32,
+            Type:                 D3D12HeapType.upload,
+            CPUPageProperty:      D3D12CpuPageProperty.unknown,
+            MemoryPoolPreference: D3D12MemoryPool.unknown,
             CreationNodeMask:     1,
             VisibleNodeMask:      1,
         }
         let vbDesc = D3D12_RESOURCE_DESC {
-            Dimension:        D3D12ResourceDimension.buffer as u32,
+            Dimension:        D3D12ResourceDimension.buffer,
             Alignment:        0,
             Width:            vbSize,
             Height:           1,
@@ -523,15 +522,15 @@ use directx12 {
             MipLevels:        1,
             Format:           0,  // DxgiFormat.unknown — buffers carry no typed format
             SampleDesc:       DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
-            Layout:           D3D12TextureLayout.rowMajor as u32,
-            Flags:            D3D12ResourceFlags.none as u32,
+            Layout:           D3D12TextureLayout.rowMajor,
+            Flags:            D3D12ResourceFlags.none,
         }
         let rawVb: *void = NULL
         let rcVb = device.CreateCommittedResource(
             &uploadHeap,
-            D3D12HeapMiscFlags.none as u32,
+            D3D12HeapMiscFlags.none,
             &vbDesc,
-            D3D12ResourceStates.genericRead as u32,
+            D3D12ResourceStates.genericRead,
             NULL,
             &IID_ID3D12Resource,
             &rawVb
@@ -596,8 +595,8 @@ use directx12 {
         }
         let scissor = D3D12_RECT {
             left: 0, top: 0,
-            right:  width  as i32,
-            bottom: height as i32,
+            right:  width,
+            bottom: height,
         }
 
         // ── Render loop ───────────────────────────────────────────
@@ -623,24 +622,24 @@ use directx12 {
             // games drive this from idle / WM_PAINT; this is the
             // simplest "draw something" loop.
             let _ = allocator.Reset()
-            let _ = cmdList.Reset(allocator as i64, pso as i64)
+            let _ = cmdList.Reset(&allocator, &pso)
             cmdList.SetGraphicsRootSignature(&rootSig)
             cmdList.RSSetViewports(1, &viewport)
             cmdList.RSSetScissorRects(1, &scissor)
 
-            let frameIdx = frameCounter % 2 as u32
-            let backBuf = if frameIdx == 0 as u32 { backBuf0 } else { backBuf1 }
+            let frameIdx = frameCounter % 2
+            let backBuf = if frameIdx == 0 { backBuf0 } else { backBuf1 }
             let rtvHandle = D3D12_CPU_DESCRIPTOR_HANDLE {
                 ptr: rtvBase.ptr + (frameIdx as u64) * (rtvDescriptorSize as u64),
             }
 
             let toRT = D3D12_RESOURCE_BARRIER {
-                Type:        D3D12ResourceBarrierType.transition as u32,
-                Flags:       D3D12ResourceBarrierFlags.none as u32,
+                Type:        D3D12ResourceBarrierType.transition,
+                Flags:       D3D12ResourceBarrierFlags.none,
                 pResource:   &backBuf,
-                Subresource: 0xFFFFFFFF as u32,
-                StateBefore: D3D12ResourceStates.present as u32,
-                StateAfter:  D3D12ResourceStates.renderTarget as u32,
+                Subresource: 0xFFFFFFFF,
+                StateBefore: D3D12ResourceStates.present,
+                StateAfter:  D3D12ResourceStates.renderTarget,
                 _pad:        0,
             }
             cmdList.ResourceBarrier(1, &toRT)
@@ -648,35 +647,35 @@ use directx12 {
             cmdList.OMSetRenderTargets(1, &rtvHandle, 0, NULL)
             let clearColor: f32[] = [0.0, 0.2, 0.4, 1.0]
             cmdList.ClearRenderTargetView(rtvHandle.ptr, clearColor, 0, NULL)
-            cmdList.IASetPrimitiveTopology(D3DPrimitiveTopologyValue.triangleList as u32)
+            cmdList.IASetPrimitiveTopology(D3DPrimitiveTopologyValue.triangleList)
             cmdList.IASetVertexBuffers(0, 1, &vbView)
             cmdList.DrawInstanced(3, 1, 0, 0)
 
             let toPresent = D3D12_RESOURCE_BARRIER {
-                Type:        D3D12ResourceBarrierType.transition as u32,
-                Flags:       D3D12ResourceBarrierFlags.none as u32,
+                Type:        D3D12ResourceBarrierType.transition,
+                Flags:       D3D12ResourceBarrierFlags.none,
                 pResource:   &backBuf,
-                Subresource: 0xFFFFFFFF as u32,
-                StateBefore: D3D12ResourceStates.renderTarget as u32,
-                StateAfter:  D3D12ResourceStates.present as u32,
+                Subresource: 0xFFFFFFFF,
+                StateBefore: D3D12ResourceStates.renderTarget,
+                StateAfter:  D3D12ResourceStates.present,
                 _pad:        0,
             }
             cmdList.ResourceBarrier(1, &toPresent)
             let _ = cmdList.Close()
 
-            // Execute + present + wait. `&listPtr as *const *void`
-            // forms an array-of-one of `ID3D12CommandList*`.
-            let listPtr: i64 = cmdList as i64
-            cmdQueue.ExecuteCommandLists(1, &listPtr as *const *void)
+            // Execute + present + wait. Array-of-one of
+            // `ID3D12CommandList*`.
+            let listPtr: *ID3D12CommandList = &cmdList as *void as *ID3D12CommandList
+            cmdQueue.ExecuteCommandLists(1, &listPtr)
             let _ = swapChain.Present(1, 0)
 
-            let _ = cmdQueue.Signal(fence as i64, fenceValue)
+            let _ = cmdQueue.Signal(&fence, fenceValue)
             if fence.GetCompletedValue() < fenceValue {
-                let _ = fence.SetEventOnCompletion(fenceValue, fenceEvent as i64)
-                let _ = WaitForSingleObject(fenceEvent, 0xFFFFFFFF as u32)
+                let _ = fence.SetEventOnCompletion(fenceValue, fenceEvent)
+                let _ = WaitForSingleObject(fenceEvent, 0xFFFFFFFF)
             }
-            fenceValue = fenceValue + 1 as u64
-            frameCounter = frameCounter + 1 as u32
+            fenceValue = fenceValue + 1
+            frameCounter = frameCounter + 1
         }
 
         // ── Cleanup ───────────────────────────────────────────────
@@ -717,14 +716,14 @@ use directx12 {
         D3D12_RENDER_TARGET_BLEND_DESC {
             BlendEnable:           0,
             LogicOpEnable:         0,
-            SrcBlend:              D3D12Blend.one as u32,
-            DestBlend:             D3D12Blend.zero as u32,
-            BlendOp:               D3D12BlendOp.add as u32,
-            SrcBlendAlpha:         D3D12Blend.one as u32,
-            DestBlendAlpha:        D3D12Blend.zero as u32,
-            BlendOpAlpha:          D3D12BlendOp.add as u32,
-            LogicOp:               D3D12LogicOp.noop as u32,
-            RenderTargetWriteMask: D3D12ColorWriteEnable.all as u8,
+            SrcBlend:              D3D12Blend.one,
+            DestBlend:             D3D12Blend.zero,
+            BlendOp:               D3D12BlendOp.add,
+            SrcBlendAlpha:         D3D12Blend.one,
+            DestBlendAlpha:        D3D12Blend.zero,
+            BlendOpAlpha:          D3D12BlendOp.add,
+            LogicOp:               D3D12LogicOp.noop,
+            RenderTargetWriteMask: D3D12ColorWriteEnable.all,
             _pad0: 0, _pad1: 0,
         }
     }
@@ -747,8 +746,8 @@ use directx12 {
 
     pub fn defaultRasterizerDesc(): D3D12_RASTERIZER_DESC {
         D3D12_RASTERIZER_DESC {
-            FillMode:              D3D12FillMode.solid as u32,
-            CullMode:              D3D12CullMode.back as u32,
+            FillMode:              D3D12FillMode.solid,
+            CullMode:              D3D12CullMode.back,
             FrontCounterClockwise: 0,
             DepthBias:             0,
             DepthBiasClamp:        0.0,
@@ -764,23 +763,23 @@ use directx12 {
     pub fn defaultDepthStencilDesc(): D3D12_DEPTH_STENCIL_DESC {
         D3D12_DEPTH_STENCIL_DESC {
             DepthEnable:      0,
-            DepthWriteMask:   D3D12DepthWriteMask.all as u32,
-            DepthFunc:        D3D12ComparisonFunc.less as u32,
+            DepthWriteMask:   D3D12DepthWriteMask.all,
+            DepthFunc:        D3D12ComparisonFunc.less,
             StencilEnable:    0,
-            StencilReadMask:  0xFF as u8,
-            StencilWriteMask: 0xFF as u8,
+            StencilReadMask:  0xFF,
+            StencilWriteMask: 0xFF,
             _pad0:            0,
             FrontFace: D3D12_DEPTH_STENCILOP_DESC {
-                StencilFailOp:      D3D12StencilOp.keep as u32,
-                StencilDepthFailOp: D3D12StencilOp.keep as u32,
-                StencilPassOp:      D3D12StencilOp.keep as u32,
-                StencilFunc:        D3D12ComparisonFunc.always as u32,
+                StencilFailOp:      D3D12StencilOp.keep,
+                StencilDepthFailOp: D3D12StencilOp.keep,
+                StencilPassOp:      D3D12StencilOp.keep,
+                StencilFunc:        D3D12ComparisonFunc.always,
             },
             BackFace: D3D12_DEPTH_STENCILOP_DESC {
-                StencilFailOp:      D3D12StencilOp.keep as u32,
-                StencilDepthFailOp: D3D12StencilOp.keep as u32,
-                StencilPassOp:      D3D12StencilOp.keep as u32,
-                StencilFunc:        D3D12ComparisonFunc.always as u32,
+                StencilFailOp:      D3D12StencilOp.keep,
+                StencilDepthFailOp: D3D12StencilOp.keep,
+                StencilPassOp:      D3D12StencilOp.keep,
+                StencilFunc:        D3D12ComparisonFunc.always,
             },
         }
     }

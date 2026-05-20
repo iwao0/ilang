@@ -138,6 +138,8 @@ pub enum DxgiResult: i32 {
     accessLost       = -2005270504  // 0x887A0027
 }
 
+use user32 { HWND }
+
 @extern(C, "dxgi") {
     // ── DXGI_SAMPLE_DESC — 8 bytes ───────────────────────────────
 
@@ -356,11 +358,11 @@ pub enum DxgiResult: i32 {
     @com pub interface IDXGIFactory2 : IDXGIFactory1 {
         _slot14_IsWindowedStereoEnabled()
         CreateSwapChainForHwnd(
-            pDevice:               i64,                    // IUnknown* (the command queue for D3D12)
-            hWnd:                  i64,                    // HWND
+            pDevice:               *void,                  // IUnknown* (the command queue for D3D12)
+            hWnd:                  *HWND,
             pDesc:                 *const DXGI_SWAP_CHAIN_DESC1,
             pFullscreenDesc:       *const void,            // optional, NULL for windowed
-            pRestrictToOutput:     i64,                    // IDXGIOutput*, NULL = no restriction
+            pRestrictToOutput:     *void,                  // IDXGIOutput*, NULL = no restriction
             ppSwapChain:           **void
         ): i32
         _slot16_CreateSwapChainForCoreWindow()
