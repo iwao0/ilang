@@ -1094,10 +1094,32 @@ pub(crate) fn collect_external_classes(
     // class's parent chain and copy fields / methods / getters /
     // setters into the child, leaving existing keys alone so
     // direct overrides win.
-    let parents: HashMap<AstSymbol, AstSymbol> = classes
+    let mut parents: HashMap<AstSymbol, AstSymbol> = classes
         .iter()
         .filter_map(|c| c.parent.as_ref().map(|p| (c.name.clone(), p.clone())))
         .collect();
+    // COM / `@objc` interfaces (`interface ID3DBlob : IUnknown`) also
+    // express single-parent inheritance via the AST's `parent` field.
+    // Without this, hovering `blob.Release()` on an ID3DBlob receiver
+    // fails because `Release` is declared on the IUnknown parent
+    // interface — same shape as the class case above.
+    for item in &prog.items {
+        match item {
+            Item::Interface(i) => {
+                if let Some(p) = &i.parent {
+                    parents.entry(i.name.clone()).or_insert(p.clone());
+                }
+            }
+            Item::ExternC(b) => {
+                for iface in b.interfaces.iter() {
+                    if let Some(p) = &iface.parent {
+                        parents.entry(iface.name.clone()).or_insert(p.clone());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
     let class_names: Vec<AstSymbol> = out.keys().cloned().collect();
     for child_name in class_names {
         // Walk the parent chain. Each step looks the parent up
@@ -1389,14 +1411,22 @@ pub(crate) fn collect_external_signatures(
                 if !c.is_pub {
                     continue;
                 }
-                let ty = match c
+                let resolved_ty = c
                     .ty
                     .clone()
-                    .or_else(|| infer_expr_type_with_scope(&c.value, &[]))
-                {
+                    .or_else(|| infer_expr_type_with_scope(&c.value, &[]));
+                let ty = match &resolved_ty {
                     Some(t) => format!(": {t}"),
                     None => String::new(),
                 };
+                // Record the const's type alongside fn returns so a
+                // buffer-side `let x = ExternConst` can recover the
+                // type via the same external-returns fallback path.
+                if let Some(t) = resolved_ty {
+                    if c.name.as_str().contains('.') {
+                        rets.insert(c.name.clone(), t);
+                    }
+                }
                 let value = render_const_value(&c.value)
                     .map(|v| format!(" = {v}"))
                     .unwrap_or_default();

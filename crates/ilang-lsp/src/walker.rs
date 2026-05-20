@@ -1150,12 +1150,18 @@ impl<'a> Walker<'a> {
         match &e.kind {
             ExprKind::Var(name) => {
                 // Locals shadow consts — try scope first, then the
-                // module-level const map.
+                // module-level const map, then the cross-module
+                // returns/consts map (`pub const` imported via
+                // `use M { X }` lives there since the loader inlines
+                // the literal out of the merged program).
                 if let Some(b) = scope.iter().rev().find(|b| b.name == name.as_str())
                 {
                     return b.ty.clone();
                 }
-                self.consts.get(name).cloned()
+                self.consts
+                    .get(name)
+                    .cloned()
+                    .or_else(|| self.external_returns.get(name).cloned())
             }
             ExprKind::Call { callee, .. } => self
                 .fn_returns
