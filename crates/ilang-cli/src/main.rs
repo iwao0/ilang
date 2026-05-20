@@ -466,8 +466,60 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
         if let Some(vcpkg_lib) = find_vcpkg_lib_path() {
             cmd.arg(format!("/LIBPATH:{}", vcpkg_lib.display()));
         }
-        // MSVC import libs are named `<lib>.lib`.
-        for lib in &seen_libs {
+        // MSVC import libs are named `<lib>.lib`. The dlopen-based
+        // probe used above tells us which DLL the JIT loader would
+        // pick, but the SDK occasionally ships an import library
+        // under a *different* name than the DLL — e.g. the runtime
+        // DLL is `d3dcompiler_47.dll` but the Windows 10 SDK only
+        // installs `d3dcompiler.lib` (a forwarder). Rebuild the lib
+        // set against the LIB search paths the linker will actually
+        // use, walking each extern fn's `@lib(name1, name2, ...)`
+        // list left-to-right and picking the first `<name>.lib`
+        // that exists on disk. Falls back to the dlopen-probe winner
+        // when nothing on LIB matches (e.g. a system DLL that has
+        // no SDK-side import library at all — those resolve via
+        // /DEFAULTLIB records in the object).
+        let lib_dirs: Vec<std::path::PathBuf> = cl_env
+            .iter()
+            .find(|(k, _)| k.to_string_lossy().eq_ignore_ascii_case("LIB"))
+            .map(|(_, v)| std::env::split_paths(v).collect())
+            .unwrap_or_default();
+        let has_lib = |name: &str| -> bool {
+            lib_dirs
+                .iter()
+                .any(|d| d.join(format!("{name}.lib")).is_file())
+        };
+        let mut linker_libs: std::collections::BTreeSet<String> =
+            std::collections::BTreeSet::new();
+        for f in mir.functions.iter() {
+            if !matches!(f.kind, ilang_mir::FunctionKind::Extern { .. }) {
+                continue;
+            }
+            // Prefer an alternate whose .lib is locatable; fall back
+            // to the original dlopen-probe winner if every name fails
+            // the on-disk check.
+            let mut picked: Option<String> = None;
+            for sym in f.libs.iter() {
+                let n = sym.as_str();
+                if has_lib(n) {
+                    picked = Some(n.to_string());
+                    break;
+                }
+            }
+            if picked.is_none() {
+                for sym in f.libs.iter() {
+                    let n = sym.as_str().to_string();
+                    if seen_libs.contains(&n) {
+                        picked = Some(n);
+                        break;
+                    }
+                }
+            }
+            if let Some(n) = picked {
+                linker_libs.insert(n);
+            }
+        }
+        for lib in &linker_libs {
             cmd.arg(format!("{lib}.lib"));
         }
         // MSVC CRT and Win32 platform libs. Rust's staticlib objects
