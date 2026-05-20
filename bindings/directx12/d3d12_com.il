@@ -249,7 +249,7 @@ use d3d12 {
         _slot27_ExecuteBundle()
         _slot28_SetDescriptorHeaps()
         _slot29_SetComputeRootSignature()
-        SetGraphicsRootSignature(pRootSignature: i64)
+        SetGraphicsRootSignature(pRootSignature: *ID3D12RootSignature)
         _slot31_SetComputeRootDescriptorTable()
         _slot32_SetGraphicsRootDescriptorTable()
         _slot33_SetComputeRoot32BitConstant()

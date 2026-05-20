@@ -624,7 +624,7 @@ use directx12 {
             // simplest "draw something" loop.
             let _ = allocator.Reset()
             let _ = cmdList.Reset(allocator as i64, pso as i64)
-            cmdList.SetGraphicsRootSignature(rootSig as i64)
+            cmdList.SetGraphicsRootSignature(&rootSig)
             cmdList.RSSetViewports(1, &viewport)
             cmdList.RSSetScissorRects(1, &scissor)
 
