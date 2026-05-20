@@ -47,7 +47,7 @@ use directx12 {
             PostQuitMessage(0)
             return 0
         }
-        DefWindowProcA(hwnd as *HWND, msg, wParam, lParam)
+        DefWindowProcA(hwnd as HWND, msg, wParam, lParam)
     }
 
     pub fn run() {
@@ -61,10 +61,10 @@ use directx12 {
             lpfnWndProc:   wndProc,
             cbClsExtra:    0,
             cbWndExtra:    0,
-            hInstance:     hInstance as *HINSTANCE,
+            hInstance:     hInstance as HINSTANCE,
             hIcon:         NULL,
             hCursor:       NULL,
-            hbrBackground: 6 as *HBRUSH,
+            hbrBackground: 6 as HBRUSH,
             lpszMenuName:  NULL,
             lpszClassName: className,
             hIconSm:       NULL,
@@ -81,7 +81,7 @@ use directx12 {
             780, 200,
             NULL,
             NULL,
-            hInstance as *HINSTANCE,
+            hInstance as HINSTANCE,
             NULL
         )
         freeCstr(initialTitle)

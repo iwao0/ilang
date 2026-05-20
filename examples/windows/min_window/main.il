@@ -39,7 +39,7 @@ use windows {
             PostQuitMessage(0)
             return 0
         }
-        DefWindowProcA(hwnd as *HWND, msg, wParam, lParam)
+        DefWindowProcA(hwnd as HWND, msg, wParam, lParam)
     }
 
     pub fn run() {
@@ -55,13 +55,13 @@ use windows {
             lpfnWndProc:   wndProc,
             cbClsExtra:    0,
             cbWndExtra:    0,
-            hInstance:     hInstance as *HINSTANCE,
-            hIcon:         0 as *HICON,
-            hCursor:       0 as *HCURSOR,
-            hbrBackground: 6 as *HBRUSH,        // COLOR_WINDOW (5) + 1
+            hInstance:     hInstance as HINSTANCE,
+            hIcon:         0 as HICON,
+            hCursor:       0 as HCURSOR,
+            hbrBackground: 6 as HBRUSH,         // COLOR_WINDOW (5) + 1
             lpszMenuName:  0 as *const char,
             lpszClassName: className,
-            hIconSm:       0 as *HICON,
+            hIconSm:       0 as HICON,
         }
         RegisterClassExA(&wc)
 
@@ -72,16 +72,16 @@ use windows {
             WindowStyle.overlappedWindow as u32,
             100, 100,                           // X, Y
             640, 480,                           // W, H
-            0 as *HWND,                         // hWndParent
-            0 as *HMENU,
-            hInstance as *HINSTANCE,
+            0 as HWND,                          // hWndParent
+            0 as HMENU,
+            hInstance as HINSTANCE,
             0 as *void                          // lpParam
         )
         ShowWindow(hwnd, ShowCmd.show as i32)
         UpdateWindow(hwnd)
 
         let msg = MSG {
-            hwnd:     0 as *HWND,
+            hwnd:     0 as HWND,
             message:  0,
             wParam:   0,
             lParam:   0,
@@ -90,7 +90,7 @@ use windows {
             lPrivate: 0,
         }
         loop {
-            let r = GetMessageA(&msg, 0 as *HWND, 0, 0)
+            let r = GetMessageA(&msg, 0 as HWND, 0, 0)
             if r <= 0 { break }
             TranslateMessage(&msg)
             let _ = DispatchMessageA(&msg)
