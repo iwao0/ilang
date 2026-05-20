@@ -140,6 +140,12 @@ pub struct ClassLayout {
     /// no-ops; the user manages lifetime via `IUnknown::AddRef` /
     /// `Release()` explicitly.
     pub is_com_interface: bool,
+    /// `@handle pub struct Name {}` marker — Win32-style nominal
+    /// pointer-sized opaque handle (HWND, HINSTANCE, HMODULE, ...).
+    /// Treated like `@com interface` for retain/release purposes
+    /// (no rc header, no ARC plumbing) and accepts the same
+    /// `↔ *void` flow at the type-checker level.
+    pub is_handle: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

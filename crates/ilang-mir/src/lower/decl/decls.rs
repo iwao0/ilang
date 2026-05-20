@@ -222,6 +222,7 @@ impl Lower {
                     c_size: 0,
                     flex_elem_size: 0,
                     is_com_interface: false,
+                    is_handle: false,
                 });
                 id
             }

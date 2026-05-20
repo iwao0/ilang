@@ -30,6 +30,7 @@ impl TypeChecker {
                     name,
                     fields,
                     is_packed,
+                    is_handle,
                     span,
                     ..
                 } => {
@@ -48,6 +49,7 @@ impl TypeChecker {
                         extern_lib: None,
                         is_repr_c: true,
                         is_packed: *is_packed,
+                        is_handle: *is_handle,
                         is_union: false,
                         span: *span,
                     };
@@ -70,6 +72,7 @@ impl TypeChecker {
                         extern_lib: None,
                         is_repr_c: true,
                         is_packed: false,
+                        is_handle: false,
                         is_union: true,
                         span: *span,
                     };

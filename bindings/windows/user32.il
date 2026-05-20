@@ -545,7 +545,7 @@ pub enum SetWindowPosFlags: u32 {
 }
 
 // ─── Predefined cursor resource IDs (IDC_*) ───────────────────
-// Usage: `LoadCursorA(0 as *HINSTANCE, SystemCursor.arrow as u32 as *const char)`
+// Usage: `LoadCursorA(0 as HINSTANCE, SystemCursor.arrow as u32 as *const char)`
 pub enum SystemCursor: u32 {
     arrow       = 32512
     ibeam       = 32513
@@ -564,7 +564,7 @@ pub enum SystemCursor: u32 {
 }
 
 // ─── Predefined icon resource IDs (IDI_*) ────────────────────
-// Usage: `LoadIconA(0 as *HINSTANCE, SystemIcon.application as u32 as *const char)`
+// Usage: `LoadIconA(0 as HINSTANCE, SystemIcon.application as u32 as *const char)`
 pub enum SystemIcon: u32 {
     application = 32512
     error       = 32513   // IDI_HAND
@@ -881,28 +881,29 @@ pub enum SpiAction: u32 {
 @extern(C, "user32") {
     // ── Opaque handle types ───────────────────────────────────
 
-    /// Opaque window handle. Used as `*HWND` in `@lib` API;
-    /// use `i64` in `pub fn` signatures (same register on Win64).
-    pub struct HWND {}
+    /// Opaque window handle (`HWND` in win32). Pointer-sized, no
+    /// in-memory representation beyond the bare value — write
+    /// `hwnd: HWND` directly (no `*`) at every API boundary.
+    @handle pub struct HWND {}
 
     /// Executable / DLL image handle. Obtain via
-    /// `GetModuleHandleA(0 as *const char) as *HINSTANCE`.
-    pub struct HINSTANCE {}
+    /// `GetModuleHandleA(0 as *const char) as HINSTANCE`.
+    @handle pub struct HINSTANCE {}
 
     /// Icon handle — returned by `LoadIconA` / `LoadImageA`.
-    pub struct HICON {}
+    @handle pub struct HICON {}
 
     /// Cursor handle — returned by `LoadCursorA` / `LoadImageA`.
-    pub struct HCURSOR {}
+    @handle pub struct HCURSOR {}
 
-    /// GDI brush handle. Stock brush: `(COLOR_WINDOW + 1) as *HBRUSH`.
-    pub struct HBRUSH {}
+    /// GDI brush handle. Stock brush: `(COLOR_WINDOW + 1) as HBRUSH`.
+    @handle pub struct HBRUSH {}
 
     /// Menu handle — returned by `CreateMenu` / `LoadMenuA`.
-    pub struct HMENU {}
+    @handle pub struct HMENU {}
 
     /// Device-context handle for GDI drawing operations.
-    pub struct HDC {}
+    @handle pub struct HDC {}
 
     // ── Geometry structs ──────────────────────────────────────
 
@@ -927,7 +928,7 @@ pub enum SpiAction: u32 {
     /// `WindowMessage` because `RegisterWindowMessage` can
     /// deliver values in 0xC000–0xFFFF at runtime.
     pub struct MSG {
-        hwnd:     *HWND
+        hwnd:     HWND
         message:  u32
         // 4 bytes implicit padding so wParam aligns to 8.
         wParam:   u64
@@ -941,7 +942,7 @@ pub enum SpiAction: u32 {
     /// `EndPaint` to describe the area needing repainting.
     /// `hdc` is valid only between BeginPaint and EndPaint.
     pub struct PAINTSTRUCT {
-        hdc:        *HDC
+        hdc:        HDC
         fErase:     i32
         rcPaint:    RECT
         fRestore:   i32
@@ -972,9 +973,9 @@ pub enum SpiAction: u32 {
     /// arguments that were passed to `CreateWindowExA`.
     pub struct CREATESTRUCTA {
         lpCreateParams: i64
-        hInstance:      *HINSTANCE
-        hMenu:          *HMENU
-        hwndParent:     *HWND
+        hInstance:      HINSTANCE
+        hMenu:          HMENU
+        hwndParent:     HWND
         cy:             i32
         cx:             i32
         y:              i32
@@ -989,8 +990,8 @@ pub enum SpiAction: u32 {
     /// `WINDOWPOS` — lParam of `WM_WINDOWPOSCHANGED` /
     /// `WM_WINDOWPOSCHANGING`.
     pub struct WINDOWPOS {
-        hwnd:            *HWND
-        hwndInsertAfter: *HWND
+        hwnd:            HWND
+        hwndInsertAfter: HWND
         x:               i32
         y:               i32
         cx:              i32
@@ -1023,17 +1024,17 @@ pub enum SpiAction: u32 {
         // 4 bytes implicit padding before hInstance.
         /// EXE / DLL handle this class belongs to. Typically
         /// `GetModuleHandleA(0 as *const char)` for the main EXE.
-        hInstance:     *HINSTANCE
+        hInstance:     HINSTANCE
         /// Large window icon. `NULL` for the default app icon.
-        hIcon:         *HICON
+        hIcon:         HICON
         /// Mouse cursor used inside the client area. `NULL` leaves
         /// it undefined (cursor flickers); usually set to
         /// `LoadCursorA(NULL, IDC_ARROW)`.
-        hCursor:       *HCURSOR
+        hCursor:       HCURSOR
         /// Background brush. Pass `NULL` to handle `WM_ERASEBKGND`
-        /// yourself, or `(COLOR_WINDOW + 1) as *HBRUSH` (i.e.
-        /// `6 as *HBRUSH`) to fill with the system window colour.
-        hbrBackground: *HBRUSH
+        /// yourself, or `(COLOR_WINDOW + 1) as HBRUSH` (i.e.
+        /// `6 as HBRUSH`) to fill with the system window colour.
+        hbrBackground: HBRUSH
         /// Default menu resource name (`MAKEINTRESOURCEA(id)`).
         /// `NULL` when the window has no class-level menu.
         lpszMenuName:  *const char
@@ -1042,7 +1043,7 @@ pub enum SpiAction: u32 {
         lpszClassName: *const char
         /// Small (taskbar / titlebar) icon. `NULL` falls back to
         /// `hIcon`.
-        hIconSm:       *HICON
+        hIconSm:       HICON
     }
 
     /// Registers a window class. Returns 0 on failure.
@@ -1058,33 +1059,33 @@ pub enum SpiAction: u32 {
         Y:            i32,
         nWidth:       i32,
         nHeight:      i32,
-        hWndParent:   *HWND,
-        hMenu:        *HMENU,
-        hInstance:    *HINSTANCE,
+        hWndParent:   HWND,
+        hMenu:        HMENU,
+        hInstance:    HINSTANCE,
         lpParam:      *void
-    ): *HWND
+    ): HWND
 
     // ── Default message handling ──────────────────────────────
 
     /// Default window procedure; call for every unhandled message.
     @lib pub fn DefWindowProcA(
-        hwnd: *HWND, msg: u32, wParam: u64, lParam: i64
+        hwnd: HWND, msg: u32, wParam: u64, lParam: i64
     ): i64
 
     // ── Visibility / state ────────────────────────────────────
 
-    @lib pub fn ShowWindow(hwnd: *HWND, nCmdShow: i32): i32
-    @lib pub fn UpdateWindow(hwnd: *HWND): i32
-    @lib pub fn DestroyWindow(hwnd: *HWND): i32
-    @lib pub fn IsWindow(hwnd: *HWND): i32
-    @lib pub fn IsWindowVisible(hwnd: *HWND): i32
-    @lib pub fn EnableWindow(hwnd: *HWND, bEnable: i32): i32
-    @lib pub fn BringWindowToTop(hwnd: *HWND): i32
+    @lib pub fn ShowWindow(hwnd: HWND, nCmdShow: i32): i32
+    @lib pub fn UpdateWindow(hwnd: HWND): i32
+    @lib pub fn DestroyWindow(hwnd: HWND): i32
+    @lib pub fn IsWindow(hwnd: HWND): i32
+    @lib pub fn IsWindowVisible(hwnd: HWND): i32
+    @lib pub fn EnableWindow(hwnd: HWND, bEnable: i32): i32
+    @lib pub fn BringWindowToTop(hwnd: HWND): i32
 
     // ── Position / size ───────────────────────────────────────
 
     @lib pub fn MoveWindow(
-        hwnd:    *HWND,
+        hwnd:    HWND,
         X:       i32,
         Y:       i32,
         nWidth:  i32,
@@ -1093,13 +1094,13 @@ pub enum SpiAction: u32 {
     ): i32
 
     /// `hwndInsertAfter` special values (cast from integer):
-    ///   HWND_TOP     = `0 as *HWND`
-    ///   HWND_BOTTOM  = `1 as *HWND`
-    ///   HWND_TOPMOST = `-1 as i64 as *HWND`
-    ///   HWND_NOTOPMOST = `-2 as i64 as *HWND`
+    ///   HWND_TOP     = `0 as HWND`
+    ///   HWND_BOTTOM  = `1 as HWND`
+    ///   HWND_TOPMOST = `-1 as i64 as HWND`
+    ///   HWND_NOTOPMOST = `-2 as i64 as HWND`
     @lib pub fn SetWindowPos(
-        hwnd:            *HWND,
-        hwndInsertAfter: *HWND,
+        hwnd:            HWND,
+        hwndInsertAfter: HWND,
         X:               i32,
         Y:               i32,
         cx:              i32,
@@ -1107,8 +1108,8 @@ pub enum SpiAction: u32 {
         uFlags:          u32
     ): i32
 
-    @lib pub fn GetWindowRect(hwnd: *HWND, lpRect: *RECT): i32
-    @lib pub fn GetClientRect(hwnd: *HWND, lpRect: *RECT): i32
+    @lib pub fn GetWindowRect(hwnd: HWND, lpRect: *RECT): i32
+    @lib pub fn GetClientRect(hwnd: HWND, lpRect: *RECT): i32
 
     /// Computes the required window rect for a desired client rect.
     @lib pub fn AdjustWindowRectEx(
@@ -1120,32 +1121,32 @@ pub enum SpiAction: u32 {
 
     // ── Window text ───────────────────────────────────────────
 
-    @lib pub fn SetWindowTextA(hwnd: *HWND, lpString: *const char): i32
+    @lib pub fn SetWindowTextA(hwnd: HWND, lpString: *const char): i32
     /// Returns the number of characters copied (excluding NUL).
     @lib pub fn GetWindowTextA(
-        hwnd:       *HWND,
+        hwnd:       HWND,
         lpString:   *char,
         nMaxCount:  i32
     ): i32
-    @lib pub fn GetWindowTextLengthA(hwnd: *HWND): i32
+    @lib pub fn GetWindowTextLengthA(hwnd: HWND): i32
 
     // ── Z-order / focus / parent ──────────────────────────────
 
-    @lib pub fn SetFocus(hwnd: *HWND): *HWND
-    @lib pub fn GetFocus(): *HWND
-    @lib pub fn GetForegroundWindow(): *HWND
-    @lib pub fn SetForegroundWindow(hwnd: *HWND): i32
-    @lib pub fn GetDesktopWindow(): *HWND
-    @lib pub fn GetParent(hwnd: *HWND): *HWND
-    @lib pub fn SetParent(hwndChild: *HWND, hwndNewParent: *HWND): *HWND
+    @lib pub fn SetFocus(hwnd: HWND): HWND
+    @lib pub fn GetFocus(): HWND
+    @lib pub fn GetForegroundWindow(): HWND
+    @lib pub fn SetForegroundWindow(hwnd: HWND): i32
+    @lib pub fn GetDesktopWindow(): HWND
+    @lib pub fn GetParent(hwnd: HWND): HWND
+    @lib pub fn SetParent(hwndChild: HWND, hwndNewParent: HWND): HWND
     @lib pub fn FindWindowA(
         lpClassName:  *const char,
         lpWindowName: *const char
-    ): *HWND
+    ): HWND
 
     /// Returns the thread that owns `hwnd` and writes its process ID
     /// to `lpdwProcessId` (pass `0 as *u32` to skip).
-    @lib pub fn GetWindowThreadProcessId(hwnd: *HWND, lpdwProcessId: *u32): u32
+    @lib pub fn GetWindowThreadProcessId(hwnd: HWND, lpdwProcessId: *u32): u32
 
     // ── Message loop ─────────────────────────────────────────
 
@@ -1153,7 +1154,7 @@ pub enum SpiAction: u32 {
     /// or -1 (error).
     @lib pub fn GetMessageA(
         lpMsg:         *MSG,
-        hwnd:          *HWND,
+        hwnd:          HWND,
         wMsgFilterMin: u32,
         wMsgFilterMax: u32
     ): i32
@@ -1162,7 +1163,7 @@ pub enum SpiAction: u32 {
     /// 1=remove (PM_REMOVE).
     @lib pub fn PeekMessageA(
         lpMsg:         *MSG,
-        hwnd:          *HWND,
+        hwnd:          HWND,
         wMsgFilterMin: u32,
         wMsgFilterMax: u32,
         wRemoveMsg:    u32
@@ -1177,7 +1178,7 @@ pub enum SpiAction: u32 {
 
     /// Sends a message synchronously; blocks until the wndproc returns.
     @lib pub fn SendMessageA(
-        hwnd:   *HWND,
+        hwnd:   HWND,
         msg:    u32,
         wParam: u64,
         lParam: i64
@@ -1185,7 +1186,7 @@ pub enum SpiAction: u32 {
 
     /// Posts a message asynchronously; returns immediately.
     @lib pub fn PostMessageA(
-        hwnd:   *HWND,
+        hwnd:   HWND,
         msg:    u32,
         wParam: u64,
         lParam: i64
@@ -1195,24 +1196,24 @@ pub enum SpiAction: u32 {
 
     /// Begins painting; fills `lpPaint` and returns a DC.
     /// Must be paired with `EndPaint`.
-    @lib pub fn BeginPaint(hwnd: *HWND, lpPaint: *PAINTSTRUCT): *HDC
-    @lib pub fn EndPaint(hwnd: *HWND, lpPaint: *const PAINTSTRUCT): i32
+    @lib pub fn BeginPaint(hwnd: HWND, lpPaint: *PAINTSTRUCT): HDC
+    @lib pub fn EndPaint(hwnd: HWND, lpPaint: *const PAINTSTRUCT): i32
 
     /// Returns a DC for the client area. Release with `ReleaseDC`.
-    @lib pub fn GetDC(hwnd: *HWND): *HDC
-    @lib pub fn ReleaseDC(hwnd: *HWND, hDC: *HDC): i32
+    @lib pub fn GetDC(hwnd: HWND): HDC
+    @lib pub fn ReleaseDC(hwnd: HWND, hDC: HDC): i32
 
     /// Marks `lpRect` (or the whole client area if NULL) dirty.
     @lib pub fn InvalidateRect(
-        hwnd:   *HWND,
+        hwnd:   HWND,
         lpRect: *const RECT,
         bErase: i32
     ): i32
-    @lib pub fn ValidateRect(hwnd: *HWND, lpRect: *const RECT): i32
+    @lib pub fn ValidateRect(hwnd: HWND, lpRect: *const RECT): i32
 
     /// Fills `lprc` with `hbr`. `hbr` can be a colour index + 1
-    /// cast to `*HBRUSH`, e.g. `6 as *HBRUSH` for COLOR_WINDOW+1.
-    @lib pub fn FillRect(hDC: *HDC, lprc: *const RECT, hbr: *HBRUSH): i32
+    /// cast to `HBRUSH`, e.g. `6 as HBRUSH` for COLOR_WINDOW+1.
+    @lib pub fn FillRect(hDC: HDC, lprc: *const RECT, hbr: HBRUSH): i32
 
     // ── Timer ─────────────────────────────────────────────────
 
@@ -1220,12 +1221,12 @@ pub enum SpiAction: u32 {
     /// Pass `0 as *void` for `lpTimerFunc` to use the message queue.
     /// Returns the timer ID, or 0 on failure.
     @lib pub fn SetTimer(
-        hwnd:          *HWND,
+        hwnd:          HWND,
         nIDEvent:      u64,
         uElapse:       u32,
         lpTimerFunc:   *void
     ): u64
-    @lib pub fn KillTimer(hwnd: *HWND, uIDEvent: u64): i32
+    @lib pub fn KillTimer(hwnd: HWND, uIDEvent: u64): i32
 
     // ── Keyboard input ────────────────────────────────────────
 
@@ -1244,38 +1245,38 @@ pub enum SpiAction: u32 {
     @lib pub fn ShowCursor(bShow: i32): i32
 
     /// Converts screen coordinates to client-area coordinates.
-    @lib pub fn ScreenToClient(hwnd: *HWND, lpPoint: *POINT): i32
+    @lib pub fn ScreenToClient(hwnd: HWND, lpPoint: *POINT): i32
     /// Converts client-area coordinates to screen coordinates.
-    @lib pub fn ClientToScreen(hwnd: *HWND, lpPoint: *POINT): i32
+    @lib pub fn ClientToScreen(hwnd: HWND, lpPoint: *POINT): i32
 
     /// Captures all mouse input to `hwnd` until `ReleaseCapture`.
-    @lib pub fn SetCapture(hwnd: *HWND): *HWND
+    @lib pub fn SetCapture(hwnd: HWND): HWND
     @lib pub fn ReleaseCapture(): i32
-    @lib pub fn GetCapture(): *HWND
+    @lib pub fn GetCapture(): HWND
 
     // ── Resources ────────────────────────────────────────────
 
     /// Loads a predefined or application icon.
-    /// For system icons pass `0 as *HINSTANCE` and
+    /// For system icons pass `0 as HINSTANCE` and
     /// `SystemIcon.application as u32 as *const char`.
     @lib pub fn LoadIconA(
-        hInstance:  *HINSTANCE,
+        hInstance:  HINSTANCE,
         lpIconName: *const char
-    ): *HICON
+    ): HICON
 
     /// Loads a predefined or application cursor.
-    /// For system cursors pass `0 as *HINSTANCE` and
+    /// For system cursors pass `0 as HINSTANCE` and
     /// `SystemCursor.arrow as u32 as *const char`.
     @lib pub fn LoadCursorA(
-        hInstance:    *HINSTANCE,
+        hInstance:    HINSTANCE,
         lpCursorName: *const char
-    ): *HCURSOR
+    ): HCURSOR
 
     // ── Dialogs ──────────────────────────────────────────────
 
     /// Shows a modal message box. Returns a `MessageBoxResult`.
     @lib pub fn MessageBoxA(
-        hwnd:      *HWND,
+        hwnd:      HWND,
         lpText:    *const char,
         lpCaption: *const char,
         uType:     u32
@@ -1284,7 +1285,7 @@ pub enum SpiAction: u32 {
     // ── Multi-monitor ─────────────────────────────────────────────
 
     /// Opaque monitor handle. Returned by MonitorFromWindow etc.
-    pub struct HMONITOR {}
+    @handle pub struct HMONITOR {}
 
     /// `MONITORINFO` — 40 bytes. Fill `cbSize` = 40 before calling
     /// `GetMonitorInfoA`.
@@ -1297,12 +1298,12 @@ pub enum SpiAction: u32 {
 
     /// Returns the monitor that contains `hwnd`, or the nearest.
     /// `dwFlags`: 0=MONITOR_DEFAULTTONULL, 1=NEAREST, 2=PRIMARY.
-    @lib pub fn MonitorFromWindow(hwnd: *HWND, dwFlags: u32): *HMONITOR
+    @lib pub fn MonitorFromWindow(hwnd: HWND, dwFlags: u32): HMONITOR
 
-    @lib pub fn MonitorFromPoint(pt: i64, dwFlags: u32): *HMONITOR   // pt is packed POINT (lo=x, hi=y)
-    @lib pub fn MonitorFromRect(lprc: *const RECT, dwFlags: u32): *HMONITOR
+    @lib pub fn MonitorFromPoint(pt: i64, dwFlags: u32): HMONITOR   // pt is packed POINT (lo=x, hi=y)
+    @lib pub fn MonitorFromRect(lprc: *const RECT, dwFlags: u32): HMONITOR
 
-    @lib pub fn GetMonitorInfoA(hMonitor: *HMONITOR, lpmi: *MONITORINFO): i32
+    @lib pub fn GetMonitorInfoA(hMonitor: HMONITOR, lpmi: *MONITORINFO): i32
 
     /// Calls `lpfnEnum(hMonitor, hdcMonitor, lprcMonitor, dwData)`
     /// for every monitor; stops when the callback returns FALSE.
@@ -1322,7 +1323,7 @@ pub enum SpiAction: u32 {
     ): i32
 
     @lib pub fn EnumChildWindows(
-        hwndParent: *HWND,
+        hwndParent: HWND,
         lpEnumFunc: fn(i64, i64): i32,
         lParam:     i64
     ): i32
@@ -1331,15 +1332,15 @@ pub enum SpiAction: u32 {
 
     /// Reads a window attribute by index (WindowLongIndex.*).
     /// Use this for pointer-sized values; use GetWindowLongA for u32.
-    @lib pub fn GetWindowLongPtrA(hwnd: *HWND, nIndex: i32): i64
+    @lib pub fn GetWindowLongPtrA(hwnd: HWND, nIndex: i32): i64
 
-    @lib pub fn SetWindowLongPtrA(hwnd: *HWND, nIndex: i32, dwNewLong: i64): i64
+    @lib pub fn SetWindowLongPtrA(hwnd: HWND, nIndex: i32, dwNewLong: i64): i64
 
-    @lib pub fn GetWindowLongA(hwnd: *HWND, nIndex: i32): i32
-    @lib pub fn SetWindowLongA(hwnd: *HWND, nIndex: i32, dwNewLong: i32): i32
+    @lib pub fn GetWindowLongA(hwnd: HWND, nIndex: i32): i32
+    @lib pub fn SetWindowLongA(hwnd: HWND, nIndex: i32, dwNewLong: i32): i32
 
-    @lib pub fn GetClassLongPtrA(hwnd: *HWND, nIndex: i32): u64
-    @lib pub fn SetClassLongPtrA(hwnd: *HWND, nIndex: i32, dwNewLong: i64): u64
+    @lib pub fn GetClassLongPtrA(hwnd: HWND, nIndex: i32): u64
+    @lib pub fn SetClassLongPtrA(hwnd: HWND, nIndex: i32, dwNewLong: i64): u64
 
     // ── System metrics ────────────────────────────────────────────
 
@@ -1354,7 +1355,7 @@ pub enum SpiAction: u32 {
     pub struct TRACKMOUSEEVENT {
         cbSize:      u32
         dwFlags:     u32
-        hwndTrack:   *HWND
+        hwndTrack:   HWND
         dwHoverTime: u32
     }
 
@@ -1368,14 +1369,14 @@ pub enum SpiAction: u32 {
     /// `crKey`: transparent colour (COLORREF). `bAlpha`: 0=transparent.
     /// `dwFlags`: LayeredWindowFlags.*.
     @lib pub fn SetLayeredWindowAttributes(
-        hwnd:    *HWND,
+        hwnd:    HWND,
         crKey:   u32,
         bAlpha:  u8,
         dwFlags: u32
     ): i32
 
     @lib pub fn GetLayeredWindowAttributes(
-        hwnd:    *HWND,
+        hwnd:    HWND,
         pcrKey:  *u32,
         pbAlpha: *u8,
         pdwFlags: *u32
@@ -1383,7 +1384,7 @@ pub enum SpiAction: u32 {
 
     // ── Window animation ──────────────────────────────────────────
 
-    @lib pub fn AnimateWindow(hwnd: *HWND, dwTime: u32, dwFlags: u32): i32
+    @lib pub fn AnimateWindow(hwnd: HWND, dwTime: u32, dwFlags: u32): i32
 
     // ── Flashing ─────────────────────────────────────────────────
 
@@ -1393,21 +1394,21 @@ pub enum SpiAction: u32 {
     pub struct FLASHWINFO {
         cbSize:    u32
         // 4 bytes implicit padding before hwnd
-        hwnd:      *HWND
+        hwnd:      HWND
         dwFlags:   u32
         uCount:    u32
         dwTimeout: u32
     }
 
-    @lib pub fn FlashWindow(hwnd: *HWND, bInvert: i32): i32
+    @lib pub fn FlashWindow(hwnd: HWND, bInvert: i32): i32
     @lib pub fn FlashWindowEx(pfwi: *const FLASHWINFO): i32
 
     // ── Hot keys ─────────────────────────────────────────────────
 
     /// Registers a global hot key. `id`: app-defined identifier (1–49151).
     /// `fsModifiers`: MOD_ALT=1, MOD_CONTROL=2, MOD_SHIFT=4, MOD_WIN=8.
-    @lib pub fn RegisterHotKey(hwnd: *HWND, id: i32, fsModifiers: u32, vk: u32): i32
-    @lib pub fn UnregisterHotKey(hwnd: *HWND, id: i32): i32
+    @lib pub fn RegisterHotKey(hwnd: HWND, id: i32, fsModifiers: u32, vk: u32): i32
+    @lib pub fn UnregisterHotKey(hwnd: HWND, id: i32): i32
 
     // ── Virtual key mapping ───────────────────────────────────────
 
@@ -1465,7 +1466,7 @@ pub enum SpiAction: u32 {
         wCreatorVersion: u16
     }
 
-    @lib pub fn GetWindowInfo(hwnd: *HWND, pwi: *WINDOWINFO): i32
+    @lib pub fn GetWindowInfo(hwnd: HWND, pwi: *WINDOWINFO): i32
 
     // ── Window placement ─────────────────────────────────────────
 
@@ -1479,72 +1480,72 @@ pub enum SpiAction: u32 {
         rcNormalPosition: RECT
     }
 
-    @lib pub fn GetWindowPlacement(hwnd: *HWND, lpwndpl: *WINDOWPLACEMENT): i32
-    @lib pub fn SetWindowPlacement(hwnd: *HWND, lpwndpl: *const WINDOWPLACEMENT): i32
+    @lib pub fn GetWindowPlacement(hwnd: HWND, lpwndpl: *WINDOWPLACEMENT): i32
+    @lib pub fn SetWindowPlacement(hwnd: HWND, lpwndpl: *const WINDOWPLACEMENT): i32
 
     // ── Menu ──────────────────────────────────────────────────────
 
     /// Returns the window's menu handle (NULL if none).
-    @lib pub fn GetMenu(hwnd: *HWND): *HMENU
+    @lib pub fn GetMenu(hwnd: HWND): HMENU
 
     /// Attaches `hMenu` to `hwnd` as the menu bar.
-    @lib pub fn SetMenu(hwnd: *HWND, hMenu: *HMENU): i32
+    @lib pub fn SetMenu(hwnd: HWND, hMenu: HMENU): i32
 
-    @lib pub fn CreateMenu(): *HMENU
-    @lib pub fn CreatePopupMenu(): *HMENU
-    @lib pub fn DestroyMenu(hMenu: *HMENU): i32
+    @lib pub fn CreateMenu(): HMENU
+    @lib pub fn CreatePopupMenu(): HMENU
+    @lib pub fn DestroyMenu(hMenu: HMENU): i32
 
     /// Appends a menu item. `uFlags`: MenuFlags.*; `uIDNewItem`:
     /// command ID (for commands) or popup HMENU (for sub-menus);
     /// `lpNewItem`: label string (or bitmap/null per flags).
     @lib pub fn AppendMenuA(
-        hMenu:       *HMENU,
+        hMenu:       HMENU,
         uFlags:      u32,
-        uIDNewItem:  u64,    // UINT_PTR — command ID or *HMENU
+        uIDNewItem:  u64,    // UINT_PTR — command ID or HMENU
         lpNewItem:   *const char
     ): i32
 
     @lib pub fn InsertMenuA(
-        hMenu:       *HMENU,
+        hMenu:       HMENU,
         uPosition:   u32,
         uFlags:      u32,
         uIDNewItem:  u64,
         lpNewItem:   *const char
     ): i32
 
-    @lib pub fn DeleteMenu(hMenu: *HMENU, uPosition: u32, uFlags: u32): i32
-    @lib pub fn RemoveMenu(hMenu: *HMENU, uPosition: u32, uFlags: u32): i32
+    @lib pub fn DeleteMenu(hMenu: HMENU, uPosition: u32, uFlags: u32): i32
+    @lib pub fn RemoveMenu(hMenu: HMENU, uPosition: u32, uFlags: u32): i32
     @lib pub fn ModifyMenuA(
-        hMenu:       *HMENU,
+        hMenu:       HMENU,
         uPosition:   u32,
         uFlags:      u32,
         uIDNewItem:  u64,
         lpNewItem:   *const char
     ): i32
 
-    @lib pub fn EnableMenuItem(hMenu: *HMENU, uIDEnableItem: u32, uEnable: u32): i32
-    @lib pub fn CheckMenuItem(hMenu: *HMENU, uIDCheckItem: u32, uCheck: u32): u32
+    @lib pub fn EnableMenuItem(hMenu: HMENU, uIDEnableItem: u32, uEnable: u32): i32
+    @lib pub fn CheckMenuItem(hMenu: HMENU, uIDCheckItem: u32, uCheck: u32): u32
     @lib pub fn CheckMenuRadioItem(
-        hMenu:  *HMENU,
+        hMenu:  HMENU,
         first:  u32,
         last:   u32,
         check:  u32,
         flags:  u32
     ): i32
-    @lib pub fn GetMenuItemCount(hMenu: *HMENU): i32
-    @lib pub fn GetMenuItemID(hMenu: *HMENU, nPos: i32): u32
-    @lib pub fn GetSubMenu(hMenu: *HMENU, nPos: i32): *HMENU
-    @lib pub fn DrawMenuBar(hwnd: *HWND): i32
+    @lib pub fn GetMenuItemCount(hMenu: HMENU): i32
+    @lib pub fn GetMenuItemID(hMenu: HMENU, nPos: i32): u32
+    @lib pub fn GetSubMenu(hMenu: HMENU, nPos: i32): HMENU
+    @lib pub fn DrawMenuBar(hwnd: HWND): i32
 
     /// Shows a floating popup menu. `hwnd` receives WM_COMMAND.
     /// `uFlags`: TrackPopupMenuFlags.*. Returns selected cmd or 0.
     @lib pub fn TrackPopupMenu(
-        hMenu:  *HMENU,
+        hMenu:  HMENU,
         uFlags: u32,
         x:      i32,
         y:      i32,
         nReserved: i32,
-        hwnd:   *HWND,
+        hwnd:   HWND,
         prcRect: *const RECT
     ): i32
 
@@ -1555,7 +1556,7 @@ pub enum SpiAction: u32 {
     /// `type_`: ImageType.*; `cx`/`cy`: 0 = use embedded size;
     /// `fuLoad`: LoadImageFlags.*.
     @lib pub fn LoadImageA(
-        hInst:  *void,   // *HINSTANCE
+        hInst:  *void,   // HINSTANCE
         image:  *const char,
         type_:  u32,
         cx:     i32,
@@ -1582,7 +1583,7 @@ pub enum SpiAction: u32 {
     /// (typically the original procedure saved before subclassing).
     @lib pub fn CallWindowProcA(
         lpPrevWndFunc: fn(i64, u32, u64, i64): i64,
-        hwnd:          *HWND,
+        hwnd:          HWND,
         msg:           u32,
         wParam:        u64,
         lParam:        i64
@@ -1613,7 +1614,7 @@ pub enum SpiAction: u32 {
     /// Opens the clipboard for exclusive access by the caller.
     /// `hWndNewOwner`: 0 to associate with the calling task only.
     /// Pair with `CloseClipboard`.
-    @lib pub fn OpenClipboard(hWndNewOwner: *HWND): i32
+    @lib pub fn OpenClipboard(hWndNewOwner: HWND): i32
     @lib pub fn CloseClipboard(): i32
     @lib pub fn EmptyClipboard(): i32
 
@@ -1646,8 +1647,8 @@ pub enum SpiAction: u32 {
     ): i32
 
     @lib pub fn CountClipboardFormats(): i32
-    @lib pub fn GetClipboardOwner(): *HWND
-    @lib pub fn GetOpenClipboardWindow(): *HWND
+    @lib pub fn GetClipboardOwner(): HWND
+    @lib pub fn GetOpenClipboardWindow(): HWND
 
     // ── Dialog API ────────────────────────────────────────────────
 
@@ -1657,66 +1658,66 @@ pub enum SpiAction: u32 {
     /// `dwInitParam`: passed to the dialog as the lParam of WM_INITDIALOG.
     /// Returns the nResult passed to `EndDialog`.
     @lib pub fn DialogBoxParamA(
-        hInstance:      *HINSTANCE,
+        hInstance:      HINSTANCE,
         lpTemplateName: *const char,
-        hWndParent:     *HWND,
+        hWndParent:     HWND,
         lpDialogFunc:   fn(i64, u32, u64, i64): i64,
         dwInitParam:    i64
     ): i64
 
     /// Creates a modeless dialog.  Free with `DestroyWindow`.
     @lib pub fn CreateDialogParamA(
-        hInstance:      *HINSTANCE,
+        hInstance:      HINSTANCE,
         lpTemplateName: *const char,
-        hWndParent:     *HWND,
+        hWndParent:     HWND,
         lpDialogFunc:   fn(i64, u32, u64, i64): i64,
         dwInitParam:    i64
-    ): *HWND
+    ): HWND
 
     /// Closes a modal dialog. The value is returned from `DialogBoxParamA`.
-    @lib pub fn EndDialog(hDlg: *HWND, nResult: i64): i32
+    @lib pub fn EndDialog(hDlg: HWND, nResult: i64): i32
 
     /// Returns the HWND of a control by ID. Returns NULL if not found.
-    @lib pub fn GetDlgItem(hDlg: *HWND, nIDDlgItem: i32): *HWND
+    @lib pub fn GetDlgItem(hDlg: HWND, nIDDlgItem: i32): HWND
 
-    @lib pub fn GetDlgCtrlID(hwndCtl: *HWND): i32
+    @lib pub fn GetDlgCtrlID(hwndCtl: HWND): i32
 
     /// Sends a message to the named control.
     @lib pub fn SendDlgItemMessageA(
-        hDlg:       *HWND,
+        hDlg:       HWND,
         nIDDlgItem: i32,
         Msg:        u32,
         wParam:     u64,
         lParam:     i64
     ): i64
 
-    @lib pub fn SetDlgItemTextA(hDlg: *HWND, nIDDlgItem: i32, lpString: *const char): i32
+    @lib pub fn SetDlgItemTextA(hDlg: HWND, nIDDlgItem: i32, lpString: *const char): i32
     @lib pub fn GetDlgItemTextA(
-        hDlg:       *HWND,
+        hDlg:       HWND,
         nIDDlgItem: i32,
         lpString:   *char,
         nMaxCount:  i32
     ): u32
 
     @lib pub fn SetDlgItemInt(
-        hDlg:       *HWND,
+        hDlg:       HWND,
         nIDDlgItem: i32,
         uValue:     u32,
         bSigned:    i32
     ): i32
 
     @lib pub fn GetDlgItemInt(
-        hDlg:        *HWND,
+        hDlg:        HWND,
         nIDDlgItem:  i32,
         lpTranslated: *i32,
         bSigned:     i32
     ): u32
 
-    @lib pub fn CheckDlgButton(hDlg: *HWND, nIDButton: i32, uCheck: u32): i32
-    @lib pub fn IsDlgButtonChecked(hDlg: *HWND, nIDButton: i32): u32
+    @lib pub fn CheckDlgButton(hDlg: HWND, nIDButton: i32, uCheck: u32): i32
+    @lib pub fn IsDlgButtonChecked(hDlg: HWND, nIDButton: i32): u32
 
     @lib pub fn CheckRadioButton(
-        hDlg:           *HWND,
+        hDlg:           HWND,
         nIDFirstButton: i32,
         nIDLastButton:  i32,
         nIDCheckButton: i32
@@ -1724,17 +1725,17 @@ pub enum SpiAction: u32 {
 
     /// Returns the next/previous tab-stop control in a dialog.
     @lib pub fn GetNextDlgTabItem(
-        hDlg:        *HWND,
-        hCtl:        *HWND,
+        hDlg:        HWND,
+        hCtl:        HWND,
         bPrevious:   i32
-    ): *HWND
+    ): HWND
 
-    @lib pub fn IsDialogMessageA(hDlg: *HWND, lpMsg: *MSG): i32
+    @lib pub fn IsDialogMessageA(hDlg: HWND, lpMsg: *MSG): i32
 
     // ── Hooks ─────────────────────────────────────────────────────
 
     /// Opaque hook handle.
-    pub struct HHOOK {}
+    @handle pub struct HHOOK {}
 
     /// Installs a hook procedure that monitors system events.
     /// `idHook`: WH_KEYBOARD_LL=13, WH_MOUSE_LL=14, WH_CALLWNDPROC=4,
@@ -1745,17 +1746,17 @@ pub enum SpiAction: u32 {
     @lib pub fn SetWindowsHookExA(
         idHook:     i32,
         lpfn:       fn(i32, u64, i64): i64,
-        hMod:       *HINSTANCE,
+        hMod:       HINSTANCE,
         dwThreadId: u32
-    ): *HHOOK
+    ): HHOOK
 
     /// Removes a previously installed hook.
-    @lib pub fn UnhookWindowsHookEx(hhk: *HHOOK): i32
+    @lib pub fn UnhookWindowsHookEx(hhk: HHOOK): i32
 
     /// Passes a hook event to the next hook in the chain.
     /// Every hook procedure should call this for unhandled events.
     @lib pub fn CallNextHookEx(
-        hhk:    *HHOOK,
+        hhk:    HHOOK,
         nCode:  i32,
         wParam: u64,
         lParam: i64
@@ -1773,7 +1774,7 @@ pub enum SpiAction: u32 {
         usUsagePage: u16
         usUsage:     u16
         dwFlags:     u32
-        hwndTarget:  *HWND
+        hwndTarget:  HWND
     }
 
     /// `RAWINPUTHEADER` — 24 bytes. Common header at the start of
@@ -1781,7 +1782,7 @@ pub enum SpiAction: u32 {
     pub struct RAWINPUTHEADER {
         dwType:    u32      // 0=mouse, 1=keyboard, 2=HID
         dwSize:    u32
-        hDevice:   *void    // *HANDLE
+        hDevice:   *void    // HANDLE
         wParam:    u64
     }
 
@@ -1835,11 +1836,11 @@ pub enum SpiAction: u32 {
     }
 
     /// `fnBar`: 0=SB_HORZ, 1=SB_VERT, 2=SB_CTL, 3=SB_BOTH.
-    @lib pub fn GetScrollInfo(hwnd: *HWND, nBar: i32, lpsi: *SCROLLINFO): i32
-    @lib pub fn SetScrollInfo(hwnd: *HWND, nBar: i32, lpsi: *const SCROLLINFO, redraw: i32): i32
+    @lib pub fn GetScrollInfo(hwnd: HWND, nBar: i32, lpsi: *SCROLLINFO): i32
+    @lib pub fn SetScrollInfo(hwnd: HWND, nBar: i32, lpsi: *const SCROLLINFO, redraw: i32): i32
 
     @lib pub fn ScrollWindow(
-        hwnd:     *HWND,
+        hwnd:     HWND,
         xAmount:  i32,
         yAmount:  i32,
         prcScroll: *const RECT,
@@ -1847,7 +1848,7 @@ pub enum SpiAction: u32 {
     ): i32
 
     @lib pub fn ScrollWindowEx(
-        hwnd:     *HWND,
+        hwnd:     HWND,
         dx:       i32,
         dy:       i32,
         prcScroll: *const RECT,
@@ -1857,7 +1858,7 @@ pub enum SpiAction: u32 {
         flags:    u32
     ): i32
 
-    @lib pub fn ShowScrollBar(hwnd: *HWND, wBar: i32, bShow: i32): i32
+    @lib pub fn ShowScrollBar(hwnd: HWND, wBar: i32, bShow: i32): i32
 
     // ── Misc utility ──────────────────────────────────────────────
 
@@ -1866,9 +1867,9 @@ pub enum SpiAction: u32 {
     @lib pub fn MessageBeep(uType: u32): i32
 
     /// Returns the current cursor info: state and screen position.
-    @lib pub fn GetCursor(): *HCURSOR
+    @lib pub fn GetCursor(): HCURSOR
 
-    @lib pub fn SetCursor(hCursor: *HCURSOR): *HCURSOR
+    @lib pub fn SetCursor(hCursor: HCURSOR): HCURSOR
 
     /// Returns 1 if the user is currently active (typing/moving mouse).
     @lib pub fn GetLastInputInfo(plii: *void): i32
@@ -1876,7 +1877,7 @@ pub enum SpiAction: u32 {
     // ── Per-window DPI (Windows 10+) ─────────────────────────────
 
     /// Returns the DPI of `hwnd`. 96 = 100%.
-    @lib pub fn GetDpiForWindow(hwnd: *HWND): u32
+    @lib pub fn GetDpiForWindow(hwnd: HWND): u32
 
     /// Returns the DPI of the system as a whole.
     @lib pub fn GetDpiForSystem(): u32
@@ -1904,12 +1905,12 @@ pub enum SpiAction: u32 {
     pub struct GUITHREADINFO {
         cbSize:        u32
         flags:         u32     // GUI_* state flags
-        hwndActive:    *HWND
-        hwndFocus:     *HWND
-        hwndCapture:   *HWND
-        hwndMenuOwner: *HWND
-        hwndMoveSize:  *HWND
-        hwndCaret:     *HWND
+        hwndActive:    HWND
+        hwndFocus:     HWND
+        hwndCapture:   HWND
+        hwndMenuOwner: HWND
+        hwndMoveSize:  HWND
+        hwndCaret:     HWND
         rcCaret:       RECT
     }
 
@@ -1950,13 +1951,13 @@ pub enum SpiAction: u32 {
     /// Waits until the calling thread has no input to process.
     /// Useful at startup so dependent code waits for the main window
     /// to finish its WM_CREATE handler.
-    @lib pub fn WaitForInputIdle(hProcess: *HANDLE, dwMilliseconds: u32): u32
+    @lib pub fn WaitForInputIdle(hProcess: HANDLE, dwMilliseconds: u32): u32
 
     /// Waits for one of `pHandles` to signal OR for input on the
     /// calling thread's message queue.  `dwWakeMask`: QS_* flags.
     @lib pub fn MsgWaitForMultipleObjects(
         nCount:      u32,
-        pHandles:    *const *HANDLE,
+        pHandles:    *const HANDLE,
         fWaitAll:    i32,
         dwMilliseconds: u32,
         dwWakeMask:  u32

@@ -123,6 +123,27 @@ impl TypeChecker {
         {
             return Ok(ty.clone());
         }
+        // `@handle pub struct H {}` — same ABI shape as `@com
+        // interface` (a bare pointer-sized opaque handle), so allow
+        // the same set of escape-hatch casts. Lets the user lift an
+        // i64-typed `wndProc` arg into a real `HWND` value, and
+        // shuffle handles through `*void` FFI slots.
+        let is_handle_obj = |t: &Type| match t {
+            Type::Object(name) => self
+                .classes
+                .get(name)
+                .map(|s| s.is_handle)
+                .unwrap_or(false),
+            _ => false,
+        };
+        if (from == Type::I64 && is_handle_obj(ty))
+            || (is_handle_obj(&from) && *ty == Type::I64)
+            || (is_void_ptr(&from) && is_handle_obj(ty))
+            || (is_handle_obj(&from) && is_void_ptr(ty))
+            || (is_handle_obj(&from) && is_handle_obj(ty))  // HMODULE→HINSTANCE etc.
+        {
+            return Ok(ty.clone());
+        }
         // Raw C pointer ↔ i64 escape hatch — pointers are
         // bit-equivalent to a 64-bit address. Lets out-pointer
         // patterns work (read an opaque address from i64[],

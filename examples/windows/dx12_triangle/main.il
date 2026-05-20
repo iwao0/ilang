@@ -84,7 +84,7 @@ use directx12 {
             PostQuitMessage(0)
             return 0
         }
-        DefWindowProcA(hwnd as *HWND, msg, wParam, lParam)
+        DefWindowProcA(hwnd as HWND, msg, wParam, lParam)
     }
 
     pub fn run() {
@@ -104,7 +104,7 @@ use directx12 {
             lpfnWndProc:   wndProc,
             cbClsExtra:    0,
             cbWndExtra:    0,
-            hInstance:     hInstance as *HINSTANCE,
+            hInstance:     hInstance as HINSTANCE,
             hIcon:         NULL,
             hCursor:       NULL,
             hbrBackground: NULL,
@@ -122,9 +122,10 @@ use directx12 {
             120, 120,
             width + 16, height + 39,
             NULL, NULL,
-            hInstance as *HINSTANCE,
+            hInstance as HINSTANCE,
             NULL
         )
+        console.log("[dx12] hwnd =", hwnd as i64)
         ShowWindow(hwnd, ShowCmd.show)
         UpdateWindow(hwnd)
         console.log("[dx12] window shown")

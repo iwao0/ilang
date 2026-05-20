@@ -117,6 +117,7 @@ pub fn lower_program_with_slots(
                     c_size: 0,
                     flex_elem_size: 0,
                     is_com_interface: false,
+                    is_handle: false,
                 });
                 lower.class_meta.insert(id, ClassMeta::default());
             }
@@ -181,6 +182,7 @@ pub fn lower_program_with_slots(
                     c_size: 0,
                     flex_elem_size: 0,
                     is_com_interface: false,
+                    is_handle: false,
                 });
                 let mut meta = ClassMeta::default();
                 if i.is_objc {

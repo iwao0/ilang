@@ -2,7 +2,7 @@
 /// memory, synchronisation, timing, console, and DLL loading.
 ///
 /// Notes:
-///   INVALID_HANDLE_VALUE  = `0xFFFFFFFFFFFFFFFF as *HANDLE`
+///   INVALID_HANDLE_VALUE  = `0xFFFFFFFFFFFFFFFF as HANDLE`
 ///   INFINITE (no timeout) = `0xFFFFFFFF` as u32 for WaitForSingleObject
 
 // ─── Generic-access rights (GENERIC_*) ───────────────────────
@@ -99,16 +99,16 @@ pub enum StdHandle: u32 {
 @extern(C, "kernel32") {
     /// Generic kernel-object handle (`void *` in the SDK).
     /// Used for files, threads, mutexes, events, etc.
-    pub struct HANDLE {}
+    @handle pub struct HANDLE {}
 
     /// Module / executable image handle (`HMODULE == HINSTANCE`
-    /// in the SDK). Cast to `*HINSTANCE` when passing to user32.
-    pub struct HMODULE {}
+    /// in the SDK). Cast to `HINSTANCE` when passing to user32.
+    @handle pub struct HMODULE {}
 
     // ── Module ────────────────────────────────────────────────
     /// Returns the HMODULE of the running EXE when
     /// `lpModuleName` is `0 as *const char` (NULL).
-    @lib pub fn GetModuleHandleA(lpModuleName: *const char): *HMODULE
+    @lib pub fn GetModuleHandleA(lpModuleName: *const char): HMODULE
 
     // ── Error ─────────────────────────────────────────────────
     /// Returns the last Win32 error set on this thread.
@@ -117,7 +117,7 @@ pub enum StdHandle: u32 {
 
     // ── Handle ────────────────────────────────────────────────
     /// Closes a kernel object handle. Returns non-zero on success.
-    @lib pub fn CloseHandle(hObject: *HANDLE): i32
+    @lib pub fn CloseHandle(hObject: HANDLE): i32
 
     // ── Process / thread ──────────────────────────────────────
     /// Terminates the calling process with `uExitCode`.
@@ -135,13 +135,13 @@ pub enum StdHandle: u32 {
         lpParameter:        i64,
         dwCreationFlags:    u32,
         lpThreadId:         *u32
-    ): *HANDLE
+    ): HANDLE
 
     @lib pub fn ExitThread(dwExitCode: u32)
 
     /// Blocks until `hHandle` is signalled or the timeout expires.
     /// Pass `0xFFFFFFFF` (INFINITE) to wait forever.
-    @lib pub fn WaitForSingleObject(hHandle: *HANDLE, dwMilliseconds: u32): u32
+    @lib pub fn WaitForSingleObject(hHandle: HANDLE, dwMilliseconds: u32): u32
 
     // ── Synchronisation objects ───────────────────────────────
     /// Creates a mutex. Pass `0 as *const char` for an anonymous mutex.
@@ -149,8 +149,8 @@ pub enum StdHandle: u32 {
         lpMutexAttributes: *void,
         bInitialOwner:     i32,
         lpName:            *const char
-    ): *HANDLE
-    @lib pub fn ReleaseMutex(hMutex: *HANDLE): i32
+    ): HANDLE
+    @lib pub fn ReleaseMutex(hMutex: HANDLE): i32
 
     /// Creates a manual- or auto-reset event.
     @lib pub fn CreateEventA(
@@ -158,9 +158,9 @@ pub enum StdHandle: u32 {
         bManualReset:      i32,
         bInitialState:     i32,
         lpName:            *const char
-    ): *HANDLE
-    @lib pub fn SetEvent(hEvent: *HANDLE): i32
-    @lib pub fn ResetEvent(hEvent: *HANDLE): i32
+    ): HANDLE
+    @lib pub fn SetEvent(hEvent: HANDLE): i32
+    @lib pub fn ResetEvent(hEvent: HANDLE): i32
 
     // ── Time ──────────────────────────────────────────────────
     /// Suspends the calling thread for `dwMilliseconds` ms.
@@ -180,10 +180,10 @@ pub enum StdHandle: u32 {
 
     /// Returns the standard input/output/error handle.
     /// Pass `StdHandle.output as u32` etc.
-    @lib pub fn GetStdHandle(nStdHandle: u32): *HANDLE
+    @lib pub fn GetStdHandle(nStdHandle: u32): HANDLE
 
     @lib pub fn WriteConsoleA(
-        hConsoleOutput:         *HANDLE,
+        hConsoleOutput:         HANDLE,
         lpBuffer:               *const char,
         nNumberOfCharsToWrite:  u32,
         lpNumberOfCharsWritten: *u32,
@@ -197,27 +197,27 @@ pub enum StdHandle: u32 {
     @lib pub fn SetConsoleTitleA(lpConsoleTitle: *const char): i32
 
     // ── DLL loading ───────────────────────────────────────────
-    @lib pub fn LoadLibraryA(lpLibFileName: *const char): *HMODULE
-    @lib pub fn FreeLibrary(hLibModule: *HMODULE): i32
+    @lib pub fn LoadLibraryA(lpLibFileName: *const char): HMODULE
+    @lib pub fn FreeLibrary(hLibModule: HMODULE): i32
     /// Returns NULL if the export is not found.
     @lib pub fn GetProcAddress(
-        hModule:    *HMODULE,
+        hModule:    HMODULE,
         lpProcName: *const char
     ): *void
 
     // ── Memory ────────────────────────────────────────────────
     /// Returns the default heap for the current process.
-    @lib pub fn GetProcessHeap(): *HANDLE
+    @lib pub fn GetProcessHeap(): HANDLE
     /// `dwFlags`: 0 = default, 8 = HEAP_ZERO_MEMORY.
-    @lib pub fn HeapAlloc(hHeap: *HANDLE, dwFlags: u32, dwBytes: u64): *void
-    @lib pub fn HeapFree(hHeap: *HANDLE, dwFlags: u32, lpMem: *void): i32
+    @lib pub fn HeapAlloc(hHeap: HANDLE, dwFlags: u32, dwBytes: u64): *void
+    @lib pub fn HeapFree(hHeap: HANDLE, dwFlags: u32, lpMem: *void): i32
     @lib pub fn HeapReAlloc(
-        hHeap:   *HANDLE,
+        hHeap:   HANDLE,
         dwFlags: u32,
         lpMem:   *void,
         dwBytes: u64
     ): *void
-    @lib pub fn HeapSize(hHeap: *HANDLE, dwFlags: u32, lpMem: *const void): u64
+    @lib pub fn HeapSize(hHeap: HANDLE, dwFlags: u32, lpMem: *const void): u64
 
     /// Reserves and/or commits pages. Pass `0 as *void` for
     /// `lpAddress` to let the OS choose the base address.
@@ -238,7 +238,7 @@ pub enum StdHandle: u32 {
 
     // ── File I/O ──────────────────────────────────────────────
     /// Opens or creates a file. Returns `INVALID_HANDLE_VALUE`
-    /// (`0xFFFFFFFFFFFFFFFF as *HANDLE`) on failure.
+    /// (`0xFFFFFFFFFFFFFFFF as HANDLE`) on failure.
     /// `lpOverlapped`: pass `0 as *void` for synchronous I/O.
     @lib pub fn CreateFileA(
         lpFileName:            *const char,
@@ -247,11 +247,11 @@ pub enum StdHandle: u32 {
         lpSecurityAttributes:  *void,
         dwCreationDisposition: u32,
         dwFlagsAndAttributes:  u32,
-        hTemplateFile:         *HANDLE
-    ): *HANDLE
+        hTemplateFile:         HANDLE
+    ): HANDLE
 
     @lib pub fn ReadFile(
-        hFile:                *HANDLE,
+        hFile:                HANDLE,
         lpBuffer:             *void,
         nNumberOfBytesToRead: u32,
         lpNumberOfBytesRead:  *u32,
@@ -259,7 +259,7 @@ pub enum StdHandle: u32 {
     ): i32
 
     @lib pub fn WriteFile(
-        hFile:                  *HANDLE,
+        hFile:                  HANDLE,
         lpBuffer:               *const void,
         nNumberOfBytesToWrite:  u32,
         lpNumberOfBytesWritten: *u32,
@@ -267,14 +267,14 @@ pub enum StdHandle: u32 {
     ): i32
 
     /// Writes the file size as a 64-bit signed integer to `lpFileSize`.
-    @lib pub fn GetFileSizeEx(hFile: *HANDLE, lpFileSize: *i64): i32
+    @lib pub fn GetFileSizeEx(hFile: HANDLE, lpFileSize: *i64): i32
     @lib pub fn SetFilePointerEx(
-        hFile:            *HANDLE,
+        hFile:            HANDLE,
         liDistanceToMove: i64,
         lpNewFilePointer: *i64,
         dwMoveMethod:     u32
     ): i32
-    @lib pub fn FlushFileBuffers(hFile: *HANDLE): i32
+    @lib pub fn FlushFileBuffers(hFile: HANDLE): i32
     @lib pub fn DeleteFileA(lpFileName: *const char): i32
     @lib pub fn CopyFileA(
         lpExistingFileName: *const char,
@@ -348,16 +348,16 @@ pub enum StdHandle: u32 {
         wShowWindow:     u16
         cbReserved2:     u16
         lpReserved2:     *u8
-        hStdInput:       *HANDLE
-        hStdOutput:      *HANDLE
-        hStdError:       *HANDLE
+        hStdInput:       HANDLE
+        hStdOutput:      HANDLE
+        hStdError:       HANDLE
     }
 
     /// `PROCESS_INFORMATION` — 24 bytes.
     /// CloseHandle both `hProcess` and `hThread` when done.
     pub struct PROCESS_INFORMATION {
-        hProcess:    *HANDLE
-        hThread:     *HANDLE
+        hProcess:    HANDLE
+        hThread:     HANDLE
         dwProcessId: u32
         dwThreadId:  u32
     }
@@ -384,11 +384,11 @@ pub enum StdHandle: u32 {
         dwDesiredAccess: u32,
         bInheritHandle:  i32,
         dwProcessId:     u32
-    ): *HANDLE
+    ): HANDLE
 
-    @lib pub fn TerminateProcess(hProcess: *HANDLE, uExitCode: u32): i32
+    @lib pub fn TerminateProcess(hProcess: HANDLE, uExitCode: u32): i32
 
-    @lib pub fn GetExitCodeProcess(hProcess: *HANDLE, lpExitCode: *u32): i32
+    @lib pub fn GetExitCodeProcess(hProcess: HANDLE, lpExitCode: *u32): i32
 
     // ── String / text utilities ───────────────────────────────────
 
@@ -513,7 +513,7 @@ pub enum StdHandle: u32 {
     // ── Path utilities ────────────────────────────────────────────
 
     @lib pub fn GetModuleFileNameA(
-        hModule:  *HMODULE,
+        hModule:  HMODULE,
         lpFilename: *char,
         nSize:    u32
     ): u32
@@ -543,13 +543,13 @@ pub enum StdHandle: u32 {
     // ── Pipe / anonymous IPC ──────────────────────────────────────
 
     @lib pub fn CreatePipe(
-        hReadPipe:        **HANDLE,
-        hWritePipe:       **HANDLE,
+        hReadPipe:        *HANDLE,
+        hWritePipe:       *HANDLE,
         lpPipeAttributes: *void,
         nSize:            u32
     ): i32
 
-    @lib pub fn ConnectNamedPipe(hNamedPipe: *HANDLE, lpOverlapped: *void): i32
+    @lib pub fn ConnectNamedPipe(hNamedPipe: HANDLE, lpOverlapped: *void): i32
 
     @lib pub fn CreateNamedPipeA(
         lpName:               *const char,
@@ -560,12 +560,12 @@ pub enum StdHandle: u32 {
         nInBufferSize:        u32,
         nDefaultTimeOut:      u32,
         lpSecurityAttributes: *void
-    ): *HANDLE
+    ): HANDLE
 
     // ── Console extended ──────────────────────────────────────────
 
     @lib pub fn ReadConsoleA(
-        hConsoleInput:          *HANDLE,
+        hConsoleInput:          HANDLE,
         lpBuffer:               *void,
         nNumberOfCharsToRead:   u32,
         lpNumberOfCharsRead:    *u32,
@@ -573,12 +573,12 @@ pub enum StdHandle: u32 {
     ): i32
 
     @lib pub fn SetConsoleTextAttribute(
-        hConsoleOutput: *HANDLE,
+        hConsoleOutput: HANDLE,
         wAttributes:    u16
     ): i32
 
     @lib pub fn GetConsoleScreenBufferInfo(
-        hConsoleOutput:       *HANDLE,
+        hConsoleOutput:       HANDLE,
         lpConsoleScreenBufferInfo: *void
     ): i32
 
@@ -678,15 +678,15 @@ pub enum StdHandle: u32 {
     @lib pub fn FindFirstFileA(
         lpFileName:  *const char,
         lpFindFileData: *WIN32_FIND_DATAA
-    ): *HANDLE
+    ): HANDLE
 
     /// Advances to the next matching entry. Returns 0 when no more.
     @lib pub fn FindNextFileA(
-        hFindFile:   *HANDLE,
+        hFindFile:   HANDLE,
         lpFindFileData: *WIN32_FIND_DATAA
     ): i32
 
-    @lib pub fn FindClose(hFindFile: *HANDLE): i32
+    @lib pub fn FindClose(hFindFile: HANDLE): i32
 
     // ── Date / time ───────────────────────────────────────────────
 
@@ -745,14 +745,14 @@ pub enum StdHandle: u32 {
     ): i32
 
     @lib pub fn GetFileTime(
-        hFile:             *HANDLE,
+        hFile:             HANDLE,
         lpCreationTime:    *FILETIME,
         lpLastAccessTime:  *FILETIME,
         lpLastWriteTime:   *FILETIME
     ): i32
 
     @lib pub fn SetFileTime(
-        hFile:            *HANDLE,
+        hFile:            HANDLE,
         lpCreationTime:   *const FILETIME,
         lpLastAccessTime: *const FILETIME,
         lpLastWriteTime:  *const FILETIME
@@ -761,28 +761,28 @@ pub enum StdHandle: u32 {
     // ── File mapping / shared memory ──────────────────────────────
 
     /// Creates or opens a named or anonymous file-backed mapping.
-    /// `hFile`: use `0xFFFFFFFFFFFFFFFF as *HANDLE` for a pagefile-
+    /// `hFile`: use `0xFFFFFFFFFFFFFFFF as HANDLE` for a pagefile-
     /// backed mapping. `dwMaximumSize*`: combined 64-bit size.
     @lib pub fn CreateFileMappingA(
-        hFile:                *HANDLE,
+        hFile:                HANDLE,
         lpFileMappingAttributes: *void,
         flProtect:            u32,
         dwMaximumSizeHigh:    u32,
         dwMaximumSizeLow:     u32,
         lpName:               *const char
-    ): *HANDLE
+    ): HANDLE
 
     @lib pub fn OpenFileMappingA(
         dwDesiredAccess: u32,
         bInheritHandle:  i32,
         lpName:          *const char
-    ): *HANDLE
+    ): HANDLE
 
     /// Maps the file/pagefile into the address space.
     /// `dwFileOffsetHigh/Low`: start offset (usually 0).
     /// `dwNumberOfBytesToMap`: 0 = map the whole thing.
     @lib pub fn MapViewOfFile(
-        hFileMappingObject:  *HANDLE,
+        hFileMappingObject:  HANDLE,
         dwDesiredAccess:     u32,
         dwFileOffsetHigh:    u32,
         dwFileOffsetLow:     u32,
@@ -799,16 +799,16 @@ pub enum StdHandle: u32 {
         lInitialCount:         i32,
         lMaximumCount:         i32,
         lpName:                *const char
-    ): *HANDLE
+    ): HANDLE
 
     @lib pub fn OpenSemaphoreA(
         dwDesiredAccess: u32,
         bInheritHandle:  i32,
         lpName:          *const char
-    ): *HANDLE
+    ): HANDLE
 
     @lib pub fn ReleaseSemaphore(
-        hSemaphore:      *HANDLE,
+        hSemaphore:      HANDLE,
         lReleaseCount:   i32,
         lpPreviousCount: *i32
     ): i32
@@ -821,7 +821,7 @@ pub enum StdHandle: u32 {
     /// or 0x80..0x9F for abandoned mutexes, 0x102 for timeout.
     @lib pub fn WaitForMultipleObjects(
         nCount:         u32,
-        lpHandles:      **HANDLE,
+        lpHandles:      *HANDLE,
         bWaitAll:       i32,
         dwMilliseconds: u32
     ): u32
@@ -1008,21 +1008,21 @@ pub enum StdHandle: u32 {
 
     /// Sets the priority class of a process (e.g. 0x20 = NORMAL,
     /// 0x40 = IDLE, 0x80 = HIGH, 0x100 = REALTIME).
-    @lib pub fn SetPriorityClass(hProcess: *HANDLE, dwPriorityClass: u32): i32
-    @lib pub fn GetPriorityClass(hProcess: *HANDLE): u32
+    @lib pub fn SetPriorityClass(hProcess: HANDLE, dwPriorityClass: u32): i32
+    @lib pub fn GetPriorityClass(hProcess: HANDLE): u32
 
     /// Per-thread priority (-15..+15 typical; THREAD_PRIORITY_*).
-    @lib pub fn SetThreadPriority(hThread: *HANDLE, nPriority: i32): i32
-    @lib pub fn GetThreadPriority(hThread: *HANDLE): i32
+    @lib pub fn SetThreadPriority(hThread: HANDLE, nPriority: i32): i32
+    @lib pub fn GetThreadPriority(hThread: HANDLE): i32
 
     /// Restricts a thread to the CPUs in `dwThreadAffinityMask`.
-    @lib pub fn SetThreadAffinityMask(hThread: *HANDLE, dwThreadAffinityMask: u64): u64
+    @lib pub fn SetThreadAffinityMask(hThread: HANDLE, dwThreadAffinityMask: u64): u64
 
-    @lib pub fn SuspendThread(hThread: *HANDLE): u32
-    @lib pub fn ResumeThread(hThread: *HANDLE): u32
+    @lib pub fn SuspendThread(hThread: HANDLE): u32
+    @lib pub fn ResumeThread(hThread: HANDLE): u32
 
-    @lib pub fn GetCurrentProcess(): *HANDLE
-    @lib pub fn GetCurrentThread(): *HANDLE
+    @lib pub fn GetCurrentProcess(): HANDLE
+    @lib pub fn GetCurrentThread(): HANDLE
 
     // ── Library loading (extended) ───────────────────────────────
 
@@ -1034,9 +1034,9 @@ pub enum StdHandle: u32 {
     ///   0x00000100 (LOAD_LIBRARY_SEARCH_DEFAULT_DIRS) — secure
     @lib pub fn LoadLibraryExA(
         lpLibFileName: *const char,
-        hFile:         *HANDLE,
+        hFile:         HANDLE,
         dwFlags:       u32
-    ): *HMODULE
+    ): HMODULE
 
     // ── Precise time ─────────────────────────────────────────────
 
@@ -1047,13 +1047,13 @@ pub enum StdHandle: u32 {
     // ── Timer queue (light-weight kernel timers) ─────────────────
 
     /// Creates a timer queue.  Free with `DeleteTimerQueueEx`.
-    @lib pub fn CreateTimerQueue(): *HANDLE
+    @lib pub fn CreateTimerQueue(): HANDLE
 
     /// Adds a timer to the queue.  `Period`: 0 = one-shot timer,
     /// otherwise the period in ms after the first fire.
     @lib pub fn CreateTimerQueueTimer(
-        phNewTimer:   **HANDLE,
-        TimerQueue:   *HANDLE,
+        phNewTimer:   *HANDLE,
+        TimerQueue:   HANDLE,
         Callback:     fn(*void, i32),
         Parameter:    *void,
         DueTime:      u32,
@@ -1062,9 +1062,9 @@ pub enum StdHandle: u32 {
     ): i32
 
     @lib pub fn DeleteTimerQueueTimer(
-        TimerQueue:        *HANDLE,
-        Timer:             *HANDLE,
-        CompletionEvent:   *HANDLE
+        TimerQueue:        HANDLE,
+        Timer:             HANDLE,
+        CompletionEvent:   HANDLE
     ): i32
 
     // ── Virtual memory query ─────────────────────────────────────
@@ -1093,7 +1093,7 @@ pub enum StdHandle: u32 {
 
     /// Same but for an arbitrary process.
     @lib pub fn VirtualQueryEx(
-        hProcess:  *HANDLE,
+        hProcess:  HANDLE,
         lpAddress: *const void,
         lpBuffer:  *MEMORY_BASIC_INFORMATION,
         dwLength:  u64
@@ -1113,14 +1113,14 @@ pub enum StdHandle: u32 {
 
     /// Returns 1 in `*Wow64Process` if `hProcess` is a 32-bit process
     /// running on 64-bit Windows.
-    @lib pub fn IsWow64Process(hProcess: *HANDLE, Wow64Process: *i32): i32
+    @lib pub fn IsWow64Process(hProcess: HANDLE, Wow64Process: *i32): i32
 
     // ── Process times ────────────────────────────────────────────
 
     /// Returns the kernel / user CPU time consumed by `hProcess`
     /// plus its creation and exit FILETIMEs.
     @lib pub fn GetProcessTimes(
-        hProcess:       *HANDLE,
+        hProcess:       HANDLE,
         lpCreationTime: *FILETIME,
         lpExitTime:     *FILETIME,
         lpKernelTime:   *FILETIME,
@@ -1128,7 +1128,7 @@ pub enum StdHandle: u32 {
     ): i32
 
     @lib pub fn GetThreadTimes(
-        hThread:        *HANDLE,
+        hThread:        HANDLE,
         lpCreationTime: *FILETIME,
         lpExitTime:     *FILETIME,
         lpKernelTime:   *FILETIME,

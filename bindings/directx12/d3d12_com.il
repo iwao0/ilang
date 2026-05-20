@@ -97,7 +97,7 @@ use d3d12 {
     /// ID3D12Fence — CPU/GPU sync primitive.
     @com pub interface ID3D12Fence : ID3D12Pageable {
         GetCompletedValue(): u64
-        SetEventOnCompletion(Value: u64, hEvent: *HANDLE): i32
+        SetEventOnCompletion(Value: u64, hEvent: HANDLE): i32
         Signal(Value: u64): i32
     }
 

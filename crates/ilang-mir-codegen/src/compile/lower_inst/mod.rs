@@ -537,8 +537,9 @@ pub(super) fn lower_inst<M: Module>(
                     // `com_ptr + 8`, inside whatever real data
                     // structure D3D12 / etc. parks there. Lifetime
                     // is the user's responsibility through
-                    // `IUnknown::Release`.
-                    if layout.is_com_interface {
+                    // `IUnknown::Release`. `@handle pub struct` is
+                    // the same shape, same rule.
+                    if layout.is_com_interface || layout.is_handle {
                         return Ok(());
                     }
                     if matches!(
@@ -635,8 +636,10 @@ pub(super) fn lower_inst<M: Module>(
                     // `com_ptr + 8`, which on a real COM resource is
                     // private data the foreign runtime owns. Skip;
                     // user code uses `IUnknown::AddRef` for the COM
-                    // lifetime contract.
-                    if layout.is_com_interface {
+                    // lifetime contract. Same applies to
+                    // `@handle pub struct H {}` — Win32-style raw
+                    // pointer handle, no rc plumbing.
+                    if layout.is_com_interface || layout.is_handle {
                         return Ok(());
                     }
                     let av = vmap[value];

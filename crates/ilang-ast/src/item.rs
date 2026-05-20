@@ -106,6 +106,11 @@ pub struct ClassDecl {
     /// and the struct size is the maximum field size. C union
     /// semantics: writing one field overwrites the others.
     pub is_union: bool,
+    /// `@handle pub struct Name {}` — see the matching field on
+    /// `ExternCItem::Struct`. Propagated through every monomorph
+    /// hop so the type checker / lowering see it on the final
+    /// `ClassDecl`.
+    pub is_handle: bool,
     /// `pub class` — the class is referenceable as `module.ClassName`
     /// from other modules. Default `false` = module-private; the
     /// class still exists in the merged Program but cross-module
@@ -375,6 +380,16 @@ pub enum ExternCItem {
         fields: Box<[FieldDecl]>,
         is_packed: bool,
         restrict_c_types: bool,
+        /// `@handle pub struct Name {}` — declares a nominal,
+        /// pointer-sized opaque handle (Win32 `HWND` /
+        /// `HINSTANCE`-style). The struct itself has no fields and
+        /// no in-memory representation beyond the handle value;
+        /// uses spell the name bare (`hwnd: HWND`, not `hwnd:
+        /// *HWND`). Two distinct `@handle` declarations are
+        /// nominally distinct — `HWND` and `HBRUSH` do not
+        /// interconvert — but every handle flows freely into and
+        /// out of `*void` at the FFI boundary.
+        is_handle: bool,
         span: Span,
     },
     /// C union — every field at offset 0, size = max field size.

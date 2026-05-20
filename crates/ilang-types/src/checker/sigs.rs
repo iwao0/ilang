@@ -813,6 +813,7 @@ pub(super) fn class_signature(
         vtable_len,
         extern_lib: c.extern_lib.clone(),
         is_repr_c: c.is_repr_c,
+        is_handle: c.is_handle,
         is_union: c.is_union,
         has_fam: c.is_repr_c
             && c.fields.last().map_or(false, |f| matches!(

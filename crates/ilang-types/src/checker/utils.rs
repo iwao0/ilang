@@ -165,6 +165,25 @@ impl TypeChecker {
                 }
             }
         }
+        // `@handle pub struct H {}` is C-style "pointer-sized
+        // opaque" — values flow freely between `H` and `*void` /
+        // `*const void` (and vice versa), mirroring how a C
+        // function returning `HWND` can be stored in `void *` and
+        // back. Two distinct `@handle` types stay nominally
+        // distinct under the equal-name check above.
+        let is_void_ptr = |t: &Type| matches!(
+            t,
+            Type::RawPtr { inner, .. } if matches!(**inner, Type::CVoid)
+        );
+        let is_handle_obj = |t: &Type| matches!(
+            t,
+            Type::Object(name) if self.classes.get(name).map(|s| s.is_handle).unwrap_or(false)
+        );
+        if (is_handle_obj(vt) && is_void_ptr(target))
+            || (is_void_ptr(vt) && is_handle_obj(target))
+        {
+            return true;
+        }
         false
     }
 

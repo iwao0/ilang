@@ -325,17 +325,21 @@ impl<'a> Parser<'a> {
         // `@extern(C) struct` is redundant (and rejected). Only `@packed` is
         // accepted, marking the layout as packed (no padding).
         let mut is_packed = false;
+        let mut is_handle = false;
         for a in &attrs {
             match (a.name.as_str(), &*a.args) {
                 ("packed", []) => {
                     is_packed = true;
+                }
+                ("handle", []) => {
+                    is_handle = true;
                 }
                 _ => {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
                         found: t.kind.clone(),
                         expected:
-                            "@packed only (no other attributes on struct inside @extern(C))".into(),
+                            "@packed / @handle only (no other attributes on struct inside @extern(C))".into(),
                         span: t.span,
                     });
                 }
@@ -386,12 +390,20 @@ impl<'a> Parser<'a> {
             fields.push(FieldDecl { is_pub: false, name: f_name, ty: f_ty, span: f_span, bits });
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
+        if is_handle && !fields.is_empty() {
+            return Err(ParseError::Unexpected {
+                found: TokenKind::Ident(name.to_string()),
+                expected: "@handle struct must have no fields (it's a pointer-sized opaque handle)".into(),
+                span,
+            });
+        }
         Ok(ilang_ast::ExternCItem::Struct {
             is_pub: false,
             name,
             fields: fields.into(),
             is_packed,
             restrict_c_types,
+            is_handle,
             span,
         })
     }

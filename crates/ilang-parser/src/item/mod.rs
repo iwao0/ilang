@@ -844,6 +844,7 @@ impl<'a> Parser<'a> {
             extern_lib: None,
             is_repr_c: false,
             is_packed: false,
+        is_handle: false,
             is_union: false,
             name,
             parent,

@@ -123,6 +123,29 @@ impl<'a> BodyCx<'a> {
                 return Ok(dst);
             }
         }
+        // `@handle pub struct H {}` ↔ `i64` / `*void` — pointer-sized
+        // opaque, retag via PtrIntCast (identity at the clif level) so
+        // the print-kind machinery sees I64 instead of Object(H). Must
+        // precede the heap-erasure rule below, which would otherwise
+        // return the Object-tagged ValueId unchanged.
+        let is_handle = |t: &MirTy| match t {
+            MirTy::Object(cid) => self.classes[cid.0 as usize].is_handle,
+            _ => false,
+        };
+        let is_void_ptr_pre = |t: &MirTy| matches!(
+            t,
+            MirTy::RawPtr { inner, .. } if matches!(**inner, MirTy::CVoid)
+        );
+        if (matches!(from, MirTy::I64 | MirTy::U64) && is_handle(to))
+            || (is_handle(from) && matches!(to, MirTy::I64 | MirTy::U64))
+            || (is_void_ptr_pre(from) && is_handle(to))
+            || (is_handle(from) && is_void_ptr_pre(to))
+            || (is_handle(from) && is_handle(to))
+        {
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrIntCast, src: v });
+            return Ok(dst);
+        }
         // Heap-typed value → `i64` cell. This shows up when a heap
         // value flows into a slot whose declared MirTy is i64 (e.g.
         // the built-in `Result<T, E>` payload, where T / E erase to
@@ -312,6 +335,22 @@ impl<'a> BodyCx<'a> {
             || (is_com(from) && matches!(to, MirTy::I64 | MirTy::U64))
             || (is_void_ptr(from) && is_com(to))
             || (is_com(from) && is_void_ptr(to))
+        {
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrIntCast, src: v });
+            return Ok(dst);
+        }
+        // `@handle pub struct H {}` ↔ `i64` / `*void` / other
+        // handle — pointer-sized opaque, bit-identical reinterpret.
+        let is_handle = |t: &MirTy| match t {
+            MirTy::Object(cid) => self.classes[cid.0 as usize].is_handle,
+            _ => false,
+        };
+        if (matches!(from, MirTy::I64 | MirTy::U64) && is_handle(to))
+            || (is_handle(from) && matches!(to, MirTy::I64 | MirTy::U64))
+            || (is_void_ptr(from) && is_handle(to))
+            || (is_handle(from) && is_void_ptr(to))
+            || (is_handle(from) && is_handle(to))
         {
             let dst = self.fb.new_value(to.clone());
             self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrIntCast, src: v });

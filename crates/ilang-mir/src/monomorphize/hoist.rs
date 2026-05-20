@@ -229,6 +229,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
             extern_lib: c.extern_lib.clone(),
             is_repr_c: c.is_repr_c,
             is_packed: c.is_packed,
+        is_handle: c.is_handle,
             is_union: c.is_union,
             name: c.name.clone(),
             parent: c.parent.clone(),

@@ -158,6 +158,7 @@ pub fn gen_state_ref_class(
         extern_lib: None,
         is_repr_c: false,
         is_packed: false,
+        is_handle: false,
         is_union: false,
         is_pub: false,
         name: class_name,

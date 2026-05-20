@@ -169,7 +169,7 @@ use user32 { HWND }
         SampleDesc:    DXGI_SAMPLE_DESC
         BufferUsage:   u32
         BufferCount:   u32
-        OutputWindow:  i64    // *HWND
+        OutputWindow:  i64    // HWND
         Windowed:      i32
         SwapEffect:    u32
         Flags:         u32
@@ -359,7 +359,7 @@ use user32 { HWND }
         _slot14_IsWindowedStereoEnabled()
         CreateSwapChainForHwnd(
             pDevice:               *void,                  // IUnknown* (the command queue for D3D12)
-            hWnd:                  *HWND,
+            hWnd:                  HWND,
             pDesc:                 *const DXGI_SWAP_CHAIN_DESC1,
             pFullscreenDesc:       *const void,            // optional, NULL for windowed
             pRestrictToOutput:     *void,                  // IDXGIOutput*, NULL = no restriction

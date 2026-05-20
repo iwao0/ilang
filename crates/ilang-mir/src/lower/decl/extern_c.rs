@@ -45,6 +45,7 @@ impl Lower {
                     c_size: 0,
                     flex_elem_size: 0,
                     is_com_interface: false,
+                    is_handle: false,
                         });
                         self.class_meta.insert(id, ClassMeta::default());
                     }
@@ -56,7 +57,7 @@ impl Lower {
         // layouts.
         for item in blk.items.iter() {
             match item {
-                ast::ExternCItem::Struct { name, fields, is_packed, .. } => {
+                ast::ExternCItem::Struct { name, fields, is_packed, is_handle, .. } => {
                     let id = *self.class_ids.get(name).expect("struct registered in pass 1");
                     let mut meta = ClassMeta::default();
                     let mut field_decls = Vec::with_capacity(fields.len());
@@ -84,6 +85,7 @@ impl Lower {
                     let layout = &mut self.classes[id.0 as usize];
                     layout.fields = field_decls;
                     layout.repr = repr;
+                    layout.is_handle = *is_handle;
                     self.class_meta.insert(id, meta);
                 }
                 ast::ExternCItem::Union { name, fields, .. } => {
@@ -266,6 +268,13 @@ impl Lower {
             }
             MirTy::Object(cid) => {
                 let layout = &self.classes[cid.0 as usize];
+                // `@handle pub struct H {}` — pointer-sized opaque,
+                // regardless of (empty) field list. Must precede the
+                // CRepr branch below; an empty CRepr would otherwise
+                // report size 0 and collapse downstream layout.
+                if layout.is_handle {
+                    return (8, 8);
+                }
                 if matches!(
                     layout.repr,
                     crate::program::ClassRepr::CRepr

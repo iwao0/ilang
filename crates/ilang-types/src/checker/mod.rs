@@ -301,6 +301,11 @@ pub(super) struct ClassSig {
     /// (primitives + repr_c only) and embedded-struct layout depend
     /// on this flag.
     pub(super) is_repr_c: bool,
+    /// `true` for `@handle pub struct Name {}` — Win32-style nominal
+    /// opaque handle. Values are pointer-sized and the type accepts
+    /// implicit conversion to / from `*void` at the FFI boundary,
+    /// but two different `@handle` types stay nominally distinct.
+    pub(super) is_handle: bool,
     /// `true` for `union Foo { ... }` (top-level or inside
     /// `@extern(C) { ... }`). Distinguishes the "exactly one field
     /// must be initialized" rule for union literals from the
