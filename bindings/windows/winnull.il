@@ -4,8 +4,8 @@
 // hWnd / hInstance / hIcon / hCursor / hMenu / lpMenuName etc.
 // where the meaning is "no value provided". Spelling it `0 as *void`
 // at every call site is noisy; this binding exposes a typed `NULL`
-// that the user can re-cast (`NULL as *HWND`) for slot-specific
-// pointer types — saving the repeated `0 as ...` boilerplate.
+// that flows into any `*T` slot through the void-pointer coercion
+// — no explicit `as *HWND` / `as *HMENU` at the call site.
 //
 // Declared inside `@extern(C) { ... }` because `*void` is a C-only
 // type that's only nameable in FFI scope. Use sites in user code
@@ -14,7 +14,8 @@
 // on a legal cast.
 
 @extern(C) {
-    /// Win32 / COM null pointer. Cast to the specific handle type
-    /// at the call site (`NULL as *HWND`, `NULL as *HMENU`, etc.).
+    /// Win32 / COM null pointer. Pass directly to any `*T`
+    /// parameter (HWND / HMENU / lpParam / ...) — the `*void`
+    /// → `*T` coercion at the FFI boundary handles the retag.
     pub const NULL: *void = 0 as *void
 }
