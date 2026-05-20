@@ -1710,7 +1710,10 @@ mod tests {
         let mut out: HashMap<AstSymbol, String> = HashMap::new();
         let mut sources: ExternalSources = HashMap::new();
         let mut docs: HashMap<AstSymbol, String> = HashMap::new();
-        harvest_imported_consts(&actions_il, &src, &mut out, &mut sources, &mut docs);
+        let mut const_types: HashMap<AstSymbol, Type> = HashMap::new();
+        harvest_imported_consts(
+            &actions_il, &src, &mut out, &mut sources, &mut docs, &mut const_types,
+        );
         // `NSObject` is imported via `use foundation { NSObject, ... }`
         // — without the sibling-root augmentation the harvest can't
         // find foundation/mod.il and the symbol stays unresolved.
