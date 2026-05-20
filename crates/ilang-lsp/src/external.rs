@@ -439,7 +439,9 @@ pub(crate) fn walk_module(
             }
             Item::Class(c) => {
                 let key = format!("{prefix}.{}", c.name);
-                out.insert(AstSymbol::intern(&key), format!("class {key}"));
+                let bases = render_class_bases(c.parent.as_ref(), &c.interfaces);
+                let attrs = render_user_attrs(&c.attrs);
+                out.insert(AstSymbol::intern(&key), format!("{attrs}class {key}{bases}"));
                 track(&key, c.span, c.name.as_str().len() as u32, sources, &module_path);
                 if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
@@ -536,11 +538,15 @@ pub(crate) fn walk_module(
                             *span,
                             format!("union {prefix}.{name}"),
                         ),
-                        ilang_ast::ExternCItem::Class(c) => (
-                            c.name.into(),
-                            c.span,
-                            format!("class {prefix}.{}", c.name),
-                        ),
+                        ilang_ast::ExternCItem::Class(c) => {
+                            let bases = render_class_bases(c.parent.as_ref(), &c.interfaces);
+                            let attrs = render_user_attrs(&c.attrs);
+                            (
+                                c.name.into(),
+                                c.span,
+                                format!("{attrs}class {prefix}.{}{bases}", c.name),
+                            )
+                        }
                     };
                     let key = format!("{prefix}.{n}");
                     out.insert(AstSymbol::intern(&key), sig);
@@ -575,11 +581,16 @@ pub(crate) fn walk_module(
                         })
                         .collect();
                     let header = if iface.is_objc { "@objc interface" } else { "interface" };
+                    let parent = iface
+                        .parent
+                        .as_ref()
+                        .map(|p| format!(" : {p}"))
+                        .unwrap_or_default();
                     let sig = if methods.is_empty() {
-                        format!("{header} {prefix}.{} {{}}", iface.name)
+                        format!("{header} {prefix}.{}{parent} {{}}", iface.name)
                     } else {
                         format!(
-                            "{header} {prefix}.{} {{\n{}\n}}",
+                            "{header} {prefix}.{}{parent} {{\n{}\n}}",
                             iface.name,
                             methods.join("\n")
                         )
@@ -751,7 +762,9 @@ pub(crate) fn walk_module_aliased(
             }
             Item::Class(c) => {
                 let key = format!("{alias_prefix}.{}", c.name);
-                out.insert(AstSymbol::intern(&key), format!("class {key}"));
+                let bases = render_class_bases(c.parent.as_ref(), &c.interfaces);
+                let attrs = render_user_attrs(&c.attrs);
+                out.insert(AstSymbol::intern(&key), format!("{attrs}class {key}{bases}"));
                 put(&key, c.span, c.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
@@ -837,11 +850,15 @@ pub(crate) fn walk_module_aliased(
                             *span,
                             format!("union {alias_prefix}.{name}"),
                         )),
-                        ilang_ast::ExternCItem::Class(c) => Some((
-                            c.name.into(),
-                            c.span,
-                            format!("class {alias_prefix}.{}", c.name),
-                        )),
+                        ilang_ast::ExternCItem::Class(c) => {
+                            let bases = render_class_bases(c.parent.as_ref(), &c.interfaces);
+                            let attrs = render_user_attrs(&c.attrs);
+                            Some((
+                                c.name.into(),
+                                c.span,
+                                format!("{attrs}class {alias_prefix}.{}{bases}", c.name),
+                            ))
+                        }
                     };
                     if let Some((n, span, sig)) = entry {
                         let len = n.as_str().len() as u32;
@@ -877,11 +894,16 @@ pub(crate) fn walk_module_aliased(
                         })
                         .collect();
                     let header = if iface.is_objc { "@objc interface" } else { "interface" };
+                    let parent = iface
+                        .parent
+                        .as_ref()
+                        .map(|p| format!(" : {p}"))
+                        .unwrap_or_default();
                     let sig = if methods.is_empty() {
-                        format!("{header} {alias_prefix}.{} {{}}", iface.name)
+                        format!("{header} {alias_prefix}.{}{parent} {{}}", iface.name)
                     } else {
                         format!(
-                            "{header} {alias_prefix}.{} {{\n{}\n}}",
+                            "{header} {alias_prefix}.{}{parent} {{\n{}\n}}",
                             iface.name,
                             methods.join("\n")
                         )
@@ -1537,9 +1559,10 @@ pub(crate) fn collect_external_signatures(
                 if !c.is_pub {
                     continue;
                 }
+                let bases = render_class_bases(c.parent.as_ref(), &c.interfaces);
                 put_dotted(
                     c.name.as_str(),
-                    format!("{}class {}", render_user_attrs(&c.attrs), c.name),
+                    format!("{}class {}{bases}", render_user_attrs(&c.attrs), c.name),
                     &mut out,
                 );
             }
@@ -1618,9 +1641,14 @@ pub(crate) fn collect_external_signatures(
                             put_dotted(name.as_str(), format!("union {}", name), &mut out);
                         }
                         ExternCItem::Class(c) => {
+                            let bases = render_class_bases(c.parent.as_ref(), &c.interfaces);
                             put_dotted(
                                 c.name.as_str(),
-                                format!("{}class {}", render_user_attrs(&c.attrs), c.name),
+                                format!(
+                                    "{}class {}{bases}",
+                                    render_user_attrs(&c.attrs),
+                                    c.name
+                                ),
                                 &mut out,
                             );
                         }
@@ -1632,9 +1660,14 @@ pub(crate) fn collect_external_signatures(
                         continue;
                     }
                     let header = if iface.is_objc { "@objc interface" } else { "interface" };
+                    let parent = iface
+                        .parent
+                        .as_ref()
+                        .map(|p| format!(" : {p}"))
+                        .unwrap_or_default();
                     put_dotted(
                         iface.name.as_str(),
-                        format!("{header} {}", iface.name),
+                        format!("{header} {}{parent}", iface.name),
                         &mut out,
                     );
                 }

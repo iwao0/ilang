@@ -776,14 +776,27 @@ impl<'a> Walker<'a> {
                 // sits after `new ` so locate it explicitly. Without
                 // this, our ref entries would land on the keyword
                 // (and the dotted-name suffix wouldn't be found).
+                //
+                // When `new ClassName` isn't actually present in the
+                // source (e.g. a synth `new NSUserActivity(...)` the
+                // @objc desugar drops into the alloc method body),
+                // locate fails and the AST span points at the user's
+                // declaration line — which would hijack hover on
+                // unrelated tokens like the return-type colon. Walk
+                // the args (still useful for nested type refs) then
+                // skip the class ref entirely.
                 let class_str = class.as_str();
-                let class_start = locate_let_name_with_kw(
+                let Some(class_start) = locate_let_name_with_kw(
                     self.text,
                     e.span,
                     "new",
                     class_str.split('.').next().unwrap_or(class_str),
-                )
-                .unwrap_or(e.span);
+                ) else {
+                    for a in args {
+                        self.walk_expr(a, scope, this_class);
+                    }
+                    return;
+                };
                 // F12 jumps to init when there is one; otherwise to the
                 // class declaration itself. `init_member` is `None` for
                 // classes without a defined init.
@@ -1335,6 +1348,14 @@ impl<'a> Walker<'a> {
             Some(l) if prefix_uri.is_some() => (l.span, l.name_len, false),
             _ => (receiver_span, prefix.len() as u32, true),
         };
+        // Module-level doc — top-of-file `///` block surfaced via
+        // `external_docs[prefix]`, set by `walk_module`. Lets the
+        // dotted `sdl.Window` form's hover on `sdl` show the same
+        // module description as the `use sdl` import line.
+        let prefix_doc = self
+            .external_docs
+            .get(&AstSymbol::intern(prefix))
+            .cloned();
         self.refs.push(RefEntry {
             line: receiver_span.line,
             start_col: receiver_span.col,
@@ -1344,7 +1365,7 @@ impl<'a> Walker<'a> {
             signature: format!("(module) {prefix}"),
             no_definition: prefix_no_def,
             target_uri: prefix_uri,
-            doc: None,
+            doc: prefix_doc,
         });
         if let Some((line, col)) = locate_dot_name(self.text, receiver_span, suffix) {
             // F12 on the suffix (e.g. `.sqrt` in `math.sqrt`) navigates
@@ -1382,6 +1403,16 @@ impl<'a> Walker<'a> {
         signature: String,
         doc: Option<String>,
     ) {
+        // Synthesised desugar names (`__cached_sel`,
+        // `__objc_b<line>c<col>_sel_cache`, the `_ilang_impl_<name>`
+        // pair from the @objc subclass IMP rename, …) borrow user
+        // source spans from the surrounding declaration, so their
+        // refs hijack hover at unrelated tokens. Filter through
+        // `is_synthesized_objc_helper` so every desugar-emitted name
+        // is rejected uniformly, not just the `__`-prefixed subset.
+        if crate::symbols::is_synthesized_objc_helper(name) {
+            return;
+        }
         self.refs.push(RefEntry {
             line: span.line,
             start_col: span.col,

@@ -28,15 +28,17 @@ use crate::*;
 /// this filter hovering on the class name picks one up as a ref and
 /// shows its synthetic signature.
 pub(crate) fn is_synthesized_objc_helper(name: &str) -> bool {
-    name.starts_with("__objc_")
-        || name.starts_with("ilang_objc_imp__")
+    // Any `__`-prefixed name is reserved for internal synthesis
+    // (the @objc desugar emits `__objc_<...>`, `__super_<...>`,
+    // `__w_<arg>` wrappers, `__cached_sel`, `__wrap_handle`,
+    // `__bind_handle`, `__owns`, etc.). Catch the whole namespace
+    // up front so individual prefix entries below are kept only
+    // for documentation.
+    if name.starts_with("__") {
+        return true;
+    }
+    name.starts_with("ilang_objc_imp__")
         || name.starts_with("_ilang_impl_")
-        || name.starts_with("__super_")
-        || name == "__wrap_handle"
-        || name == "__wrap_handle_unowned"
-        || name == "__bind_handle"
-        || name == "__bind_handle_unowned"
-        || name == "__owns"
 }
 
 pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
@@ -60,7 +62,12 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
         match item {
             Item::Fn(f) => put_fn(f, &mut out),
             Item::Class(c) => {
-                let signature = format!("{}class {}", render_user_attrs(&c.attrs), c.name);
+                let bases = render_class_bases(c.parent.as_ref(), &c.interfaces);
+                let signature = format!(
+                    "{}class {}{bases}",
+                    render_user_attrs(&c.attrs),
+                    c.name
+                );
                 out.insert(
                     c.name.into(),
                     Symbol {
@@ -72,7 +79,12 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                 );
             }
             Item::Interface(i) => {
-                let signature = format!("interface {}", i.name);
+                let parent = i
+                    .parent
+                    .as_ref()
+                    .map(|p| format!(" : {p}"))
+                    .unwrap_or_default();
+                let signature = format!("interface {}{parent}", i.name);
                 out.insert(
                     i.name.into(),
                     Symbol {
@@ -214,13 +226,17 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                             if is_synthesized_objc_helper(c.name.as_str()) {
                                 continue;
                             }
+                            let bases = render_class_bases(
+                                c.parent.as_ref(),
+                                &c.interfaces,
+                            );
                             out.insert(
                                 c.name.into(),
                                 Symbol {
                                     name: c.name.as_str().to_string(),
                                     span: c.span,
                                     signature: format!(
-                                        "{}class {}",
+                                        "{}class {}{bases}",
                                         render_user_attrs(&c.attrs),
                                         c.name
                                     ),
@@ -253,10 +269,19 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                         })
                         .collect();
                     let header = if iface.is_objc { "@objc interface" } else { "interface" };
+                    let parent = iface
+                        .parent
+                        .as_ref()
+                        .map(|p| format!(" : {p}"))
+                        .unwrap_or_default();
                     let signature = if methods.is_empty() {
-                        format!("{header} {} {{}}", iface.name)
+                        format!("{header} {}{parent} {{}}", iface.name)
                     } else {
-                        format!("{header} {} {{\n{}\n}}", iface.name, methods.join("\n"))
+                        format!(
+                            "{header} {}{parent} {{\n{}\n}}",
+                            iface.name,
+                            methods.join("\n")
+                        )
                     };
                     out.insert(
                         iface.name.into(),

@@ -20,6 +20,72 @@ use ilang_types::{check, TypeError};
 
 use crate::*;
 
+/// Walk past `@attr` lines (and their `@attr(args)` form) that
+/// `render_user_attrs` emits at the top of a signature, returning
+/// the slice starting at the first real content line. A line is
+/// treated as a pure-attr line only when it's `@name` /
+/// `@name(...)` and nothing else — `@objc interface Foo` keeps
+/// its leading `@objc` because the kind classifier needs that
+/// structural prefix.
+pub(crate) fn sig_body_skip_attrs(sig: &str) -> &str {
+    let mut rest = sig;
+    loop {
+        let line_end = rest.find('\n').unwrap_or(rest.len());
+        let first = rest[..line_end].trim_end();
+        if !first.starts_with('@') {
+            return rest;
+        }
+        // Skip past `@name` / `@name(...)`. If there's any non-paren
+        // content after that, this isn't a pure attr line — leave it.
+        let after_at = &first[1..];
+        let name_end = after_at
+            .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .unwrap_or(after_at.len());
+        let mut tail = &after_at[name_end..];
+        if tail.starts_with('(') {
+            // Find the matching closing paren on the same line.
+            let close = match tail.find(')') {
+                Some(p) => p,
+                None => return rest,
+            };
+            tail = &tail[close + 1..];
+        }
+        if !tail.trim().is_empty() {
+            // Structural prefix like `@objc interface Foo` — content
+            // begins here.
+            return rest;
+        }
+        if line_end < rest.len() {
+            rest = &rest[line_end + 1..];
+        } else {
+            return "";
+        }
+    }
+}
+
+/// Render a class declaration's inheritance list as a hover suffix.
+/// `parent` is the single inherited base class (if any); `interfaces`
+/// is the trailing `: P, I1, I2` slot for the interface list.
+/// Returns the empty string when there are no bases — otherwise
+/// `" : <bases>"` ready to concatenate onto a `class Name` line.
+pub(crate) fn render_class_bases(
+    parent: Option<&AstSymbol>,
+    interfaces: &[AstSymbol],
+) -> String {
+    let mut bases: Vec<&str> = Vec::new();
+    if let Some(p) = parent {
+        bases.push(p.as_str());
+    }
+    for i in interfaces {
+        bases.push(i.as_str());
+    }
+    if bases.is_empty() {
+        String::new()
+    } else {
+        format!(" : {}", bases.join(", "))
+    }
+}
+
 /// Extract the dotted (or bare) name an `Var` carries when it stands
 /// in for an enum receiver — e.g. `Var("InitFlag")` →
 /// `Some("InitFlag")`, `Var("sdl.InitFlag")` → `Some("sdl.InitFlag")`.

@@ -227,6 +227,14 @@ pub(crate) fn build_doc(
                             Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
                             _ => (name_span, u.module.as_str().len() as u32, target_uri.is_none()),
                         };
+                        // Module-level doc — top-of-file `///` block
+                        // harvested into `external_docs[u.module]` by
+                        // `walk_module`. Surfaces on hover over the
+                        // module name in `use foundation` etc.
+                        let mod_doc = walker
+                            .external_docs
+                            .get(&u.module)
+                            .cloned();
                         walker.refs.push(RefEntry {
                             line: name_span.line,
                             start_col: name_span.col,
@@ -236,7 +244,7 @@ pub(crate) fn build_doc(
                             signature: format!("(module) {}", u.module),
                             no_definition: no_def,
                             target_uri,
-                            doc: None,
+                            doc: mod_doc,
                         });
                     }
                     // `use module { name1, name2 }` — push a hover /

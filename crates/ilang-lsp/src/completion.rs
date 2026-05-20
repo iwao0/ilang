@@ -16,6 +16,7 @@ use tower_lsp::lsp_types::{
 };
 
 use super::builtins::ffi_helper_signature;
+use super::helpers::sig_body_skip_attrs;
 use super::text;
 use super::Doc;
 
@@ -628,15 +629,17 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
         });
     }
     let is_type_sig = |sig: &str| -> bool {
-        sig.starts_with("class ")
-            || sig.starts_with("struct ")
-            || sig.starts_with("union ")
-            || sig.starts_with("enum ")
-            || sig.starts_with("interface ")
-            || sig.starts_with("@objc interface ")
+        let body = sig_body_skip_attrs(sig);
+        body.starts_with("class ")
+            || body.starts_with("struct ")
+            || body.starts_with("union ")
+            || body.starts_with("enum ")
+            || body.starts_with("interface ")
+            || body.starts_with("@objc interface ")
     };
     let is_interface_sig = |sig: &str| -> bool {
-        sig.starts_with("interface ") || sig.starts_with("@objc interface ")
+        let body = sig_body_skip_attrs(sig);
+        body.starts_with("interface ") || body.starts_with("@objc interface ")
     };
     for (name, sym) in doc.symbols.iter() {
         if !is_type_sig(&sym.signature) {
@@ -852,14 +855,15 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         if name.as_str().starts_with("__") {
             continue;
         }
-        let kind = if sym.signature.starts_with("class ")
-            || sym.signature.starts_with("struct ")
-            || sym.signature.starts_with("union ")
+        let body = sig_body_skip_attrs(&sym.signature);
+        let kind = if body.starts_with("class ")
+            || body.starts_with("struct ")
+            || body.starts_with("union ")
         {
             CompletionItemKind::CLASS
-        } else if sym.signature.starts_with("enum ") {
+        } else if body.starts_with("enum ") {
             CompletionItemKind::ENUM
-        } else if sym.signature.starts_with("const ") {
+        } else if body.starts_with("const ") {
             CompletionItemKind::CONSTANT
         } else {
             CompletionItemKind::FUNCTION
@@ -919,14 +923,15 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         if s.starts_with("__") {
             continue;
         }
-        let kind = if sig.starts_with("class ")
-            || sig.starts_with("struct ")
-            || sig.starts_with("union ")
+        let body = sig_body_skip_attrs(sig);
+        let kind = if body.starts_with("class ")
+            || body.starts_with("struct ")
+            || body.starts_with("union ")
         {
             CompletionItemKind::CLASS
-        } else if sig.starts_with("enum ") {
+        } else if body.starts_with("enum ") {
             CompletionItemKind::ENUM
-        } else if sig.starts_with("const ") {
+        } else if body.starts_with("const ") {
             CompletionItemKind::CONSTANT
         } else {
             CompletionItemKind::FUNCTION

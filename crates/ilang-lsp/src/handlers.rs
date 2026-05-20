@@ -398,14 +398,19 @@ impl LanguageServer for Backend {
                         if crate::symbols::is_synthesized_objc_helper(suffix) {
                             return None;
                         }
-                        let kind = if sig.starts_with("class ")
-                            || sig.starts_with("struct ")
-                            || sig.starts_with("union ")
+                        // Strip leading `@attr` lines (e.g. `@objc\n`,
+                        // `@flags\n`) so the kind classifier can still
+                        // see the `class` / `enum` keyword on the
+                        // first content line.
+                        let body = sig_body_skip_attrs(sig);
+                        let kind = if body.starts_with("class ")
+                            || body.starts_with("struct ")
+                            || body.starts_with("union ")
                         {
                             CompletionItemKind::CLASS
-                        } else if sig.starts_with("enum ") {
+                        } else if body.starts_with("enum ") {
                             CompletionItemKind::ENUM
-                        } else if sig.starts_with("const ") {
+                        } else if body.starts_with("const ") {
                             CompletionItemKind::CONSTANT
                         } else {
                             CompletionItemKind::FUNCTION
@@ -608,14 +613,15 @@ impl LanguageServer for Backend {
                     if crate::symbols::is_synthesized_objc_helper(suffix) {
                         return None;
                     }
-                    let kind = if sig.starts_with("class ")
-                        || sig.starts_with("struct ")
-                        || sig.starts_with("union ")
+                    let body = sig_body_skip_attrs(sig);
+                    let kind = if body.starts_with("class ")
+                        || body.starts_with("struct ")
+                        || body.starts_with("union ")
                     {
                         CompletionItemKind::CLASS
-                    } else if sig.starts_with("enum ") {
+                    } else if body.starts_with("enum ") {
                         CompletionItemKind::ENUM
-                    } else if sig.starts_with("const ") {
+                    } else if body.starts_with("const ") {
                         CompletionItemKind::CONSTANT
                     } else {
                         CompletionItemKind::FUNCTION
