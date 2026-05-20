@@ -90,11 +90,10 @@ use directx12 {
 
         // ── (1) D3D12CreateDevice (flat) ─────────────────────────
         let rawDevice: *void = NULL
-        let iidDevice = IID_ID3D12Device
         let rc = D3D12CreateDevice(
             NULL,
             D3DFeatureLevel.level_11_0,
-            &iidDevice,
+            &IID_ID3D12Device,
             &rawDevice
         )
 
@@ -111,8 +110,7 @@ use directx12 {
                 Flags:    D3D12CommandQueueFlags.none,
                 NodeMask: 0,
             }
-            let iidQueue = IID_ID3D12CommandQueue
-            let qhr = device.CreateCommandQueue(&queueDesc, &iidQueue, &rawQueue)
+            let qhr = device.CreateCommandQueue(&queueDesc, &IID_ID3D12CommandQueue, &rawQueue)
             if qhr == 0 {
                 cstrFromString("ilang DX12: device + queue ready - close window to release")
             } else {

@@ -157,6 +157,47 @@ impl<'a> BodyCx<'a> {
                 });
                 return Ok((dst, ptr_ty));
             }
+            // Top-level `pub const` whose RHS couldn't compile-time
+            // fold (e.g. an `@extern(C)` struct literal like
+            // `pub const IID_X: GUID = GUID { ... }`) gets demoted by
+            // the loader into a runtime module-level `let`, which
+            // shows up here as a `repl_slot` reference rather than a
+            // function-scope binding. Load the slot once into a fresh
+            // SSA value and reuse the CRepr fast path so `&CONST`
+            // works at FFI call sites without a manual
+            // `let tmp = CONST` dance. Currently only CRepr Objects
+            // are handled — other slot shapes would need a real
+            // stack-slot copy, see HANDOFF note.
+            if let Some((idx, slot_ty)) = self.repl_slots.get(&root_name).cloned() {
+                if let MirTy::Object(cid) = &slot_ty {
+                    if matches!(
+                        self.classes[cid.0 as usize].repr,
+                        crate::program::ClassRepr::CRepr
+                            | crate::program::ClassRepr::CPacked
+                            | crate::program::ClassRepr::CUnion
+                    ) {
+                        let idx_v = self.const_int(MirTy::I64, idx as i64);
+                        let raw = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(raw),
+                            callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                            args: Box::new([idx_v]),
+                        });
+                        let src_v = self.i64_to_slot_value(raw, &slot_ty)?;
+                        let ptr_ty = MirTy::RawPtr {
+                            is_const: false,
+                            inner: Box::new(slot_ty),
+                        };
+                        let dst = self.fb.new_value(ptr_ty.clone());
+                        self.fb.push_inst(Inst::Cast {
+                            dst,
+                            kind: crate::inst::CastKind::PtrCast,
+                            src: src_v,
+                        });
+                        return Ok((dst, ptr_ty));
+                    }
+                }
+            }
             let (lid, root_ty) = match self.env.lookup_binding(root_name) {
                 Some(Binding::Local(lid, t)) => (lid, t),
                 Some(_) => {
