@@ -342,33 +342,24 @@ pub enum D3D12Result: i32 {
         Data4hi: u32
     }
 
-    pub struct ID3D12Object {}
-    pub struct ID3D12DeviceChild {}
-    pub struct ID3D12Device {}
+    // Most ID3D12* handles are now declared as `@com pub interface`
+    // in d3d12_com.il (re-exported via directx12.il). Only the few
+    // that we haven't lifted to typed COM interfaces yet stay here
+    // as opaque-pointer placeholders so existing flat call sites can
+    // still hold them in raw-pointer / i64 slots.
     pub struct ID3D12Device1 {}
     pub struct ID3D12Device2 {}
     pub struct ID3D12Device5 {}    // ray tracing
     pub struct ID3D12Device7 {}
-    pub struct ID3D12CommandQueue {}
-    pub struct ID3D12CommandList {}
-    pub struct ID3D12GraphicsCommandList {}
     pub struct ID3D12GraphicsCommandList4 {}    // ray tracing
-    pub struct ID3D12CommandAllocator {}
-    pub struct ID3D12Resource {}
     pub struct ID3D12Heap {}
-    pub struct ID3D12DescriptorHeap {}
-    pub struct ID3D12Fence {}
     pub struct ID3D12Fence1 {}
-    pub struct ID3D12RootSignature {}
     pub struct ID3D12RootSignatureDeserializer {}
-    pub struct ID3D12PipelineState {}
     pub struct ID3D12PipelineLibrary {}
     pub struct ID3D12StateObject {}    // ray tracing pipeline
-    pub struct ID3D12Debug {}
     pub struct ID3D12Debug1 {}
     pub struct ID3D12Debug3 {}
     pub struct ID3D12DebugDevice {}
-    pub struct ID3D12InfoQueue {}
     pub struct ID3D12QueryHeap {}
 
     // ── D3D12_HEAP_PROPERTIES — 20 bytes ─────────────────────────
@@ -887,4 +878,3 @@ pub enum D3DPrimitiveTopologyValue: u32 {
     lineStrip = 3
     pointList = 1
 }
-

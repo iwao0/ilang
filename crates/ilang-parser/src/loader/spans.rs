@@ -131,6 +131,17 @@ fn tag_extern_c(b: &mut ExternCBlock, file: Symbol) {
             }
         }
     }
+    // `@com interface` and `const` live in dedicated ExternCBlock
+    // fields rather than the generic `items` vector, so the loop
+    // above misses them. Without tagging here the duplicate-pub
+    // diagnostic for COM interfaces reports the entry file path
+    // instead of the binding that actually declared the dup.
+    for iface in b.interfaces.iter_mut() {
+        tag_interface(iface, file);
+    }
+    for c in b.consts.iter_mut() {
+        tag_const(c, file);
+    }
 }
 
 fn tag_block(b: &mut Block, file: Symbol) {

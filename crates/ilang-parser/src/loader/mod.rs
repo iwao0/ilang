@@ -117,6 +117,29 @@ pub enum LoadError {
     },
 }
 
+impl LoadError {
+    /// Source file path that best identifies where this error
+    /// occurred — used by the CLI to prefix the diagnostic. Returns
+    /// `None` for module-level errors that don't tie to a single
+    /// file (read failures, circular imports), in which case the
+    /// caller should fall back to the entry path.
+    pub fn source_file(&self) -> Option<&str> {
+        let s = match self {
+            LoadError::BadConst { span, .. }
+            | LoadError::PrivateItemRef { span, .. }
+            | LoadError::AsyncLowerError { span, .. } => span,
+            LoadError::DuplicatePubDeclaration { second_span, .. } => second_span,
+            LoadError::ReadError { .. }
+            | LoadError::LexError(_)
+            | LoadError::ParseError(_)
+            | LoadError::CircularImport { .. }
+            | LoadError::UnknownImport { .. } => return None,
+        };
+        let s = s.source_file.as_str();
+        if s.is_empty() { None } else { Some(s) }
+    }
+}
+
 impl std::fmt::Display for LoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

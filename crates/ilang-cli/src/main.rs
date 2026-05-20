@@ -133,7 +133,9 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     let prog = match ilang_parser::loader::load_program_with_paths(path, &extra_paths) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("{}: {e}", path.display());
+            let display_path = path.display().to_string();
+            let prefix = e.source_file().unwrap_or(&display_path);
+            eprintln!("{prefix}: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -692,7 +694,9 @@ fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
     let prog = match ilang_parser::loader::load_program_with_paths(path, &extra_paths) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("{}: {e}", path.display());
+            let display_path = path.display().to_string();
+            let prefix = e.source_file().unwrap_or(&display_path);
+            eprintln!("{prefix}: {e}");
             return ExitCode::FAILURE;
         }
     };
