@@ -107,15 +107,26 @@ impl<'a> BodyCx<'a> {
             // `&s` is a bitcast from `Object(N)` to `*N` (not a
             // stack-slot pin). Works for both `let`-bound locals
             // and SSA bindings (fn params, returned values).
+            // `@com interface` Object values are bare 8-byte COM
+            // pointers — the same shape as a CRepr struct's storage
+            // pointer — so they qualify for the bitcast short-circuit
+            // too. Without this, `&backBuf0` on an ID3D12Resource
+            // would give the slot address (where the COM ptr is
+            // stored), not the COM ptr itself, and the callee would
+            // dereference twice.
+            let is_crepr_or_com = |cid: crate::types::ClassId, classes: &[crate::program::ClassLayout], com_set: &std::collections::HashSet<Symbol>| -> bool {
+                let layout = &classes[cid.0 as usize];
+                matches!(
+                    layout.repr,
+                    crate::program::ClassRepr::CRepr
+                        | crate::program::ClassRepr::CPacked
+                        | crate::program::ClassRepr::CUnion
+                ) || com_set.contains(&layout.name)
+            };
             let crepr_short = match self.env.lookup_binding(root_name) {
                 Some(Binding::Local(lid, t)) => {
                     if let MirTy::Object(cid) = &t {
-                        if matches!(
-                            self.classes[cid.0 as usize].repr,
-                            crate::program::ClassRepr::CRepr
-                                | crate::program::ClassRepr::CPacked
-                                | crate::program::ClassRepr::CUnion
-                        ) {
+                        if is_crepr_or_com(*cid, self.classes, self.com_interfaces) {
                             let v = self.fb.new_value(t.clone());
                             self.fb.push_inst(Inst::UseLocal { dst: v, local: lid });
                             Some((v, t))
@@ -128,12 +139,7 @@ impl<'a> BodyCx<'a> {
                 }
                 Some(Binding::Ssa(v, t)) => {
                     if let MirTy::Object(cid) = &t {
-                        if matches!(
-                            self.classes[cid.0 as usize].repr,
-                            crate::program::ClassRepr::CRepr
-                                | crate::program::ClassRepr::CPacked
-                                | crate::program::ClassRepr::CUnion
-                        ) {
+                        if is_crepr_or_com(*cid, self.classes, self.com_interfaces) {
                             Some((v, t))
                         } else {
                             None

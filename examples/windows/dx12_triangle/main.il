@@ -236,7 +236,7 @@ use directx12 {
         console.log("[dx12] GetBuffer(0) rc =", rcBuf0)
         let backBuf0 = rawBackBuf0 as ID3D12Resource
         device.CreateRenderTargetView(
-            backBuf0 as i64,
+            &backBuf0,
             NULL,
             rtvBase.ptr
         )
@@ -244,7 +244,7 @@ use directx12 {
         swapChain.GetBuffer(1, &IID_ID3D12Resource as *const void, &rawBackBuf1)
         let backBuf1 = rawBackBuf1 as ID3D12Resource
         device.CreateRenderTargetView(
-            backBuf1 as i64,
+            &backBuf1,
             NULL,
             rtvBase.ptr + rtvDescriptorSize as u64
         )
@@ -637,7 +637,7 @@ use directx12 {
             let toRT = D3D12_RESOURCE_BARRIER {
                 Type:        D3D12ResourceBarrierType.transition as u32,
                 Flags:       D3D12ResourceBarrierFlags.none as u32,
-                pResource:   backBuf as i64 as *ID3D12Resource,
+                pResource:   &backBuf,
                 Subresource: 0xFFFFFFFF as u32,
                 StateBefore: D3D12ResourceStates.present as u32,
                 StateAfter:  D3D12ResourceStates.renderTarget as u32,
@@ -655,7 +655,7 @@ use directx12 {
             let toPresent = D3D12_RESOURCE_BARRIER {
                 Type:        D3D12ResourceBarrierType.transition as u32,
                 Flags:       D3D12ResourceBarrierFlags.none as u32,
-                pResource:   backBuf as i64 as *ID3D12Resource,
+                pResource:   &backBuf,
                 Subresource: 0xFFFFFFFF as u32,
                 StateBefore: D3D12ResourceStates.renderTarget as u32,
                 StateAfter:  D3D12ResourceStates.present as u32,

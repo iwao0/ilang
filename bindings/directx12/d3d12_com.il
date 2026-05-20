@@ -184,7 +184,7 @@ use d3d12 {
         // u64 in rcx. Take the raw `.ptr` to sidestep ilang's
         // CRepr-struct value-vs-ptr mismatch on the call site.
         CreateRenderTargetView(
-            pResource: i64,
+            pResource: *ID3D12Resource,
             pDesc: *const void,
             DestDescriptorPtr: u64
         )
