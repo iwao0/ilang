@@ -588,6 +588,38 @@ pub(crate) fn walk_module(
                         docs.insert(AstSymbol::intern(&key), d);
                     }
                 }
+                // `pub const` declarations hoisted into the block
+                // (e.g. `windows.NULL = 0 as *void` in `winnull.il`).
+                // They aren't part of `b.items` — the AST keeps them
+                // on `b.consts` so the loader can lift them out as
+                // top-level consts with raw-pointer types still
+                // legal. Mirror the same harvest as a top-level
+                // `Item::Const` so hover finds them.
+                for c in b.consts.iter() {
+                    if !c.is_pub {
+                        continue;
+                    }
+                    let resolved_ty = c
+                        .ty
+                        .clone()
+                        .or_else(|| infer_expr_type_with_scope(&c.value, &[]));
+                    let ty = match &resolved_ty {
+                        Some(t) => format!(": {t}"),
+                        None => String::new(),
+                    };
+                    let value = render_const_value_with_src(&c.value, Some(&module_src))
+                        .map(|v| format!(" = {v}"))
+                        .unwrap_or_default();
+                    let key = format!("{prefix}.{}", c.name);
+                    out.insert(AstSymbol::intern(&key), format!("const {key}{ty}{value}"));
+                    if let Some(t) = resolved_ty {
+                        const_types.insert(AstSymbol::intern(&key), t);
+                    }
+                    track(&key, c.span, c.name.as_str().len() as u32, sources, &module_path);
+                    if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
+                        docs.insert(AstSymbol::intern(&key), d);
+                    }
+                }
             }
             // Follow `pub use` chains so umbrella modules
             // (e.g. `sdl.il` re-exporting `sdl_renderer.il`) flow the
@@ -850,6 +882,35 @@ pub(crate) fn walk_module_aliased(
                     out.insert(AstSymbol::intern(&key), sig);
                     put(&key, iface.span, len, sources);
                     if let Some(d) = text::extract_doc_above(&module_src, iface.span.line) {
+                        docs.insert(AstSymbol::intern(&key), d);
+                    }
+                }
+                // `pub const` declarations on `b.consts` (e.g.
+                // `windows.NULL`). See `walk_module`'s matching arm
+                // — keep the alias-prefix in the key so the
+                // umbrella's `windows.NULL` hover still works.
+                for c in b.consts.iter() {
+                    if !c.is_pub {
+                        continue;
+                    }
+                    let resolved_ty = c
+                        .ty
+                        .clone()
+                        .or_else(|| infer_expr_type_with_scope(&c.value, &[]));
+                    let ty = match &resolved_ty {
+                        Some(t) => format!(": {t}"),
+                        None => String::new(),
+                    };
+                    let value = render_const_value_with_src(&c.value, Some(&module_src))
+                        .map(|v| format!(" = {v}"))
+                        .unwrap_or_default();
+                    let key = format!("{alias_prefix}.{}", c.name);
+                    out.insert(AstSymbol::intern(&key), format!("const {key}{ty}{value}"));
+                    if let Some(t) = resolved_ty {
+                        const_types.insert(AstSymbol::intern(&key), t);
+                    }
+                    put(&key, c.span, c.name.as_str().len() as u32, sources);
+                    if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
                         docs.insert(AstSymbol::intern(&key), d);
                     }
                 }
