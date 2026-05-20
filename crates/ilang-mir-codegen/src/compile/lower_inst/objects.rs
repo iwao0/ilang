@@ -18,8 +18,8 @@ use ilang_mir::{
 
 
 use super::super::abi::{
-    celem_clif_type_with_enum, elem_clif_type, extend_to_i64, ireduce_or_pass,
-    reduce_from_i64,
+    celem_clif_type_with_enum, elem_byte_stride, elem_clif_type, extend_to_i64,
+    ireduce_or_pass, reduce_from_i64,
 };
 use super::super::{
     CompileError, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds,
@@ -412,6 +412,89 @@ pub(super) fn lower_store_field<M: Module>(
                 }
                 return Ok(());
             }
+        }
+        // Fixed-length array field (`pos: f32[3]` etc.) — the
+        // source SSA value is the base pointer over the array's
+        // inline data (header-less; `lower_array_literal_with_hint`
+        // returned this for `MirTy::Array { len: Some(_), .. }`).
+        // Copy the static `len * elem_stride` bytes into the
+        // field's embedded slot rather than storing the pointer as
+        // an i64. Element strides we know how to handle here are
+        // the scalar widths `elem_byte_stride` covers — nested
+        // CRepr-struct elements would need the per-class `c_size`
+        // and aren't exercised yet, so leave that for the future
+        // and assert against it.
+        if let MirTy::Array { elem, len: Some(n) } = &val_ty_mir {
+            let stride = elem_byte_stride(elem);
+            let total = (*n as i64) * stride;
+            let dst_addr = if c_off == 0 {
+                obj_v
+            } else {
+                let off_v = fb.ins().iconst(types::I64, c_off);
+                fb.ins().iadd(obj_v, off_v)
+            };
+            let mut copied = 0i64;
+            while copied + 8 <= total {
+                let v = fb.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    raw,
+                    copied as i32,
+                );
+                fb.ins().store(
+                    MemFlags::trusted(),
+                    v,
+                    dst_addr,
+                    copied as i32,
+                );
+                copied += 8;
+            }
+            while copied + 4 <= total {
+                let v = fb.ins().load(
+                    types::I32,
+                    MemFlags::trusted(),
+                    raw,
+                    copied as i32,
+                );
+                fb.ins().store(
+                    MemFlags::trusted(),
+                    v,
+                    dst_addr,
+                    copied as i32,
+                );
+                copied += 4;
+            }
+            while copied + 2 <= total {
+                let v = fb.ins().load(
+                    types::I16,
+                    MemFlags::trusted(),
+                    raw,
+                    copied as i32,
+                );
+                fb.ins().store(
+                    MemFlags::trusted(),
+                    v,
+                    dst_addr,
+                    copied as i32,
+                );
+                copied += 2;
+            }
+            while copied < total {
+                let v = fb.ins().load(
+                    types::I8,
+                    MemFlags::trusted(),
+                    raw,
+                    copied as i32,
+                );
+                fb.ins().store(
+                    MemFlags::trusted(),
+                    v,
+                    dst_addr,
+                    copied as i32,
+                );
+                copied += 1;
+            }
+            return Ok(());
         }
         // Unit-only enum field: the SSA value is a heap-box
         // pointer; the C struct slot wants the underlying

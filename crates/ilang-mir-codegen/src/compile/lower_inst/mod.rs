@@ -1170,11 +1170,39 @@ pub(super) fn lower_inst<M: Module>(
             // Inline fixed-size array (`u8[4]` field of an @extern(C)
             // struct, etc) — base ptr is the start of the elements,
             // no header. Use the static elem stride from the type.
+            // For CRepr-struct elements the stride is the class's
+            // `c_size` (not the 8-byte default in `elem_byte_stride`)
+            // and the element value *is* the inline address — the
+            // same convention LoadField uses for nested CRepr fields.
             let arr_ty = func.ty_of(*arr).clone();
-            let inline_info = match &arr_ty {
-                MirTy::Array { elem, len: Some(n) } => {
-                    Some((elem_byte_stride(elem), *n as i64))
+            let crepr_elem_size: Option<i64> = if let MirTy::Array {
+                elem,
+                len: Some(_),
+            } = &arr_ty
+            {
+                if let MirTy::Object(cid) = &**elem {
+                    let cls = &prog.classes[cid.0 as usize];
+                    use ilang_mir::ClassRepr;
+                    if matches!(
+                        cls.repr,
+                        ClassRepr::CRepr | ClassRepr::CPacked | ClassRepr::CUnion
+                    ) && cls.c_size > 0
+                    {
+                        Some(cls.c_size)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
                 }
+            } else {
+                None
+            };
+            let inline_info = match &arr_ty {
+                MirTy::Array { elem, len: Some(n) } => Some((
+                    crepr_elem_size.unwrap_or_else(|| elem_byte_stride(elem)),
+                    *n as i64,
+                )),
                 _ => None,
             };
             let (data_ptr, stride) = if let Some((s, n)) = inline_info {
@@ -1198,25 +1226,32 @@ pub(super) fn lower_inst<M: Module>(
             let off = fb.ins().imul(i, stride);
             let addr = fb.ins().iadd(data_ptr, off);
             let dst_ty_mir = func.ty_of(*dst);
-            let v = match elem_clif_type(dst_ty_mir) {
-                Some(elem_ct) if elem_ct == types::I8 => {
-                    fb.ins().load(types::I8, MemFlags::trusted(), addr, 0)
-                }
-                Some(elem_ct) if elem_ct == types::I16 => {
-                    fb.ins().load(types::I16, MemFlags::trusted(), addr, 0)
-                }
-                Some(elem_ct) if elem_ct == types::I32 => {
-                    fb.ins().load(types::I32, MemFlags::trusted(), addr, 0)
-                }
-                Some(elem_ct) if elem_ct == types::F32 => {
-                    fb.ins().load(types::F32, MemFlags::trusted(), addr, 0)
-                }
-                Some(elem_ct) if elem_ct == types::F64 => {
-                    fb.ins().load(types::F64, MemFlags::trusted(), addr, 0)
-                }
-                _ => {
-                    let raw = fb.ins().load(types::I64, MemFlags::trusted(), addr, 0);
-                    reduce_from_i64(fb, dst_ty_mir, raw)
+            // CRepr struct element: hand back the inline address as-is
+            // (no load) so downstream LoadField sees `addr` and applies
+            // its own `c_field_offsets` arithmetic.
+            let v = if crepr_elem_size.is_some() {
+                addr
+            } else {
+                match elem_clif_type(dst_ty_mir) {
+                    Some(elem_ct) if elem_ct == types::I8 => {
+                        fb.ins().load(types::I8, MemFlags::trusted(), addr, 0)
+                    }
+                    Some(elem_ct) if elem_ct == types::I16 => {
+                        fb.ins().load(types::I16, MemFlags::trusted(), addr, 0)
+                    }
+                    Some(elem_ct) if elem_ct == types::I32 => {
+                        fb.ins().load(types::I32, MemFlags::trusted(), addr, 0)
+                    }
+                    Some(elem_ct) if elem_ct == types::F32 => {
+                        fb.ins().load(types::F32, MemFlags::trusted(), addr, 0)
+                    }
+                    Some(elem_ct) if elem_ct == types::F64 => {
+                        fb.ins().load(types::F64, MemFlags::trusted(), addr, 0)
+                    }
+                    _ => {
+                        let raw = fb.ins().load(types::I64, MemFlags::trusted(), addr, 0);
+                        reduce_from_i64(fb, dst_ty_mir, raw)
+                    }
                 }
             };
             vmap.insert(*dst, v);

@@ -880,7 +880,34 @@ impl<'a> BodyCx<'a> {
                         }
                     }
                     let value_is_fresh = self.is_fresh_object_expr(fval);
-                    let (vv, vty) = self.lower_expr(fval)?;
+                    // Fixed-length array field (`pos: f32[3]` etc.) with
+                    // an array literal on the RHS: lower the literal
+                    // with the field's element type + length as hints so
+                    // the result has the inline (header-less) layout
+                    // `StoreField` will memcpy from below. Without this
+                    // the literal would lower as a dynamic array (48-
+                    // byte header + data buffer) and the store would
+                    // bit-cast the header pointer into the field's
+                    // first 8 bytes, leaving the rest at whatever the
+                    // fresh-alloc left there.
+                    let (vv, vty) = if let (
+                        ExprKind::Array(items),
+                        MirTy::Array { elem: e_ty, len: Some(_) },
+                    ) = (&fval.kind, &fty)
+                    {
+                        let len = if let MirTy::Array { len, .. } = &fty {
+                            *len
+                        } else {
+                            None
+                        };
+                        self.lower_array_literal_with_hint(
+                            items,
+                            Some((**e_ty).clone()),
+                            len,
+                        )?
+                    } else {
+                        self.lower_expr(fval)?
+                    };
                     let coerced = if vty == fty {
                         vv
                     } else {
