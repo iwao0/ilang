@@ -35,6 +35,7 @@ use windows {
     PostQuitMessage,
     SetWindowTextA,
     CreateEventA, WaitForSingleObject, CloseHandle,
+    RtlMoveMemory,
     CreateDXGIFactory2,
     DXGI_SAMPLE_DESC, DXGI_SWAP_CHAIN_DESC1,
     DxgiFormat, DxgiUsage, DxgiSwapEffect, DxgiAlphaMode, DxgiScaling,
@@ -79,6 +80,13 @@ use directx12 {
 }
 
 @extern(C) {
+    // Triangle vertex layout — position (xyz) + color (rgba),
+    // 28 bytes total, matches the input-element desc below.
+    struct Vertex {
+        pos:   f32[3]
+        color: f32[4]
+    }
+
     pub fn wndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         if msg == WindowMessage.destroy {
             PostQuitMessage(0)
@@ -529,35 +537,15 @@ use directx12 {
         let vb = rawVb as ID3D12Resource
 
         // Write the triangle (3 vertices, position + color).
-        // Numeric suffix `_f32` is required — bare `0.0` is f64 and
-        // the writeF32 host helper rejects the wider operand.
+        let vertices: Vertex[3] = [
+            Vertex { pos: [ 0.0,   0.25, 0.0], color: [1.0, 0.0, 0.0, 1.0] },
+            Vertex { pos: [ 0.25, -0.25, 0.0], color: [0.0, 1.0, 0.0, 1.0] },
+            Vertex { pos: [-0.25, -0.25, 0.0], color: [0.0, 0.0, 1.0, 1.0] },
+        ]
         let mapped: *void = NULL
         let readNone = D3D12_RANGE { Begin: 0, End: 0 }
         vb.Map(0, &readNone, &mapped)
-        // v0 — top, red
-        writeF32(mapped,  0,  0.0_f32)
-        writeF32(mapped,  4,  0.25_f32)
-        writeF32(mapped,  8,  0.0_f32)
-        writeF32(mapped, 12,  1.0_f32)
-        writeF32(mapped, 16,  0.0_f32)
-        writeF32(mapped, 20,  0.0_f32)
-        writeF32(mapped, 24,  1.0_f32)
-        // v1 — bottom right, green
-        writeF32(mapped, 28,  0.25_f32)
-        writeF32(mapped, 32, -0.25_f32)
-        writeF32(mapped, 36,  0.0_f32)
-        writeF32(mapped, 40,  0.0_f32)
-        writeF32(mapped, 44,  1.0_f32)
-        writeF32(mapped, 48,  0.0_f32)
-        writeF32(mapped, 52,  1.0_f32)
-        // v2 — bottom left, blue
-        writeF32(mapped, 56, -0.25_f32)
-        writeF32(mapped, 60, -0.25_f32)
-        writeF32(mapped, 64,  0.0_f32)
-        writeF32(mapped, 68,  0.0_f32)
-        writeF32(mapped, 72,  0.0_f32)
-        writeF32(mapped, 76,  1.0_f32)
-        writeF32(mapped, 80,  1.0_f32)
+        RtlMoveMemory(mapped, vertices, vbSize)
         vb.Unmap(0, NULL)
 
         let vbView = D3D12_VERTEX_BUFFER_VIEW {
