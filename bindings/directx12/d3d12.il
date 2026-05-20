@@ -1101,6 +1101,537 @@ pub enum D3D12Result: i32 {
     pub struct D3D12_FEATURE_DATA_SHADER_MODEL {
         HighestShaderModel: u32
     }
+
+    /// `D3D12_FEATURE_DATA_ROOT_SIGNATURE` — caller writes the desired
+    /// `HighestVersion` on input.
+    pub struct D3D12_FEATURE_DATA_ROOT_SIGNATURE {
+        HighestVersion: u32   // D3D12RootSignatureVersion
+    }
+
+    /// `D3D12_FEATURE_DATA_ARCHITECTURE`.
+    pub struct D3D12_FEATURE_DATA_ARCHITECTURE {
+        NodeIndex:         u32
+        TileBasedRenderer: i32
+        UMA:               i32
+        CacheCoherentUMA:  i32
+    }
+
+    /// `D3D12_FEATURE_DATA_ARCHITECTURE1` — adds `IsolatedMMU`.
+    pub struct D3D12_FEATURE_DATA_ARCHITECTURE1 {
+        NodeIndex:         u32
+        TileBasedRenderer: i32
+        UMA:               i32
+        CacheCoherentUMA:  i32
+        IsolatedMMU:       i32
+    }
+
+    /// `D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT`.
+    pub struct D3D12_FEATURE_DATA_GPU_VIRTUAL_ADDRESS_SUPPORT {
+        MaxGPUVirtualAddressBitsPerResource: u32
+        MaxGPUVirtualAddressBitsPerProcess:  u32
+    }
+
+    /// `D3D12_FEATURE_DATA_FEATURE_LEVELS`.
+    pub struct D3D12_FEATURE_DATA_FEATURE_LEVELS {
+        NumFeatureLevels:        u32
+        _pad0:                   u32
+        pFeatureLevelsRequested: *const u32
+        MaxSupportedFeatureLevel: u32
+        _pad1:                   u32
+    }
+
+    /// `D3D12_FEATURE_DATA_FORMAT_SUPPORT`.
+    pub struct D3D12_FEATURE_DATA_FORMAT_SUPPORT {
+        Format:    u32   // DXGI_FORMAT
+        Support1:  u32   // D3D12FormatSupport1
+        Support2:  u32   // D3D12FormatSupport2
+    }
+
+    /// `D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS`.
+    pub struct D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS {
+        Format:           u32
+        SampleCount:      u32
+        Flags:            u32
+        NumQualityLevels: u32
+    }
+
+    // ── Subresource data (used by UpdateSubresources helper) ─────
+
+    /// `D3D12_SUBRESOURCE_DATA` — CPU-side init data for a subresource.
+    pub struct D3D12_SUBRESOURCE_DATA {
+        pData:      *const void
+        RowPitch:   i64
+        SlicePitch: i64
+    }
+
+    // ── Enhanced barriers (Agility SDK / DirectX 12 Ultimate) ────
+
+    /// `D3D12_GLOBAL_BARRIER` — coarse memory barrier covering every
+    /// resource of compatible access bits.
+    pub struct D3D12_GLOBAL_BARRIER {
+        SyncBefore:   u32   // D3D12BarrierSync
+        SyncAfter:    u32
+        AccessBefore: u32   // D3D12BarrierAccess
+        AccessAfter:  u32
+    }
+
+    /// `D3D12_BUFFER_BARRIER`.
+    pub struct D3D12_BUFFER_BARRIER {
+        SyncBefore:   u32
+        SyncAfter:    u32
+        AccessBefore: u32
+        AccessAfter:  u32
+        pResource:    *ID3D12Resource
+        Offset:       u64
+        Size:         u64
+    }
+
+    /// `D3D12_BARRIER_SUBRESOURCE_RANGE` — used inside texture barriers.
+    pub struct D3D12_BARRIER_SUBRESOURCE_RANGE {
+        IndexOrFirstMipLevel: u32
+        NumMipLevels:         u32
+        FirstArraySlice:      u32
+        NumArraySlices:       u32
+        FirstPlane:           u32
+        NumPlanes:            u32
+    }
+
+    /// `D3D12_TEXTURE_BARRIER`.
+    pub struct D3D12_TEXTURE_BARRIER {
+        SyncBefore:    u32
+        SyncAfter:     u32
+        AccessBefore:  u32
+        AccessAfter:   u32
+        LayoutBefore:  u32   // D3D12BarrierLayout
+        LayoutAfter:   u32
+        pResource:     *ID3D12Resource
+        Subresources:  D3D12_BARRIER_SUBRESOURCE_RANGE
+        Flags:         u32   // D3D12TextureBarrierFlags
+        _pad0:         u32
+    }
+
+    /// `D3D12_BARRIER_GROUP` — pass an array of these to
+    /// `ID3D12GraphicsCommandList7::Barrier`. `Type` discriminates
+    /// the union; only one of `pGlobalBarriers` / `pTextureBarriers`
+    /// / `pBufferBarriers` is meaningful per group.
+    pub struct D3D12_BARRIER_GROUP {
+        Type:          u32   // D3D12BarrierType
+        NumBarriers:   u32
+        // union { GLOBAL_BARRIER*; TEXTURE_BARRIER*; BUFFER_BARRIER* }
+        pBarriers:     *const void
+    }
+
+    // ── Render passes (List4) ────────────────────────────────────
+
+    /// `D3D12_RENDER_PASS_BEGINNING_ACCESS_CLEAR_PARAMETERS`.
+    pub struct D3D12_RENDER_PASS_BEGINNING_ACCESS_CLEAR_PARAMETERS {
+        ClearValue: D3D12_CLEAR_VALUE
+    }
+
+    /// `D3D12_RENDER_PASS_BEGINNING_ACCESS_PRESERVE_LOCAL_PARAMETERS`
+    /// — TBR-style preserve to local memory.
+    pub struct D3D12_RENDER_PASS_BEGINNING_ACCESS_PRESERVE_LOCAL_PARAMETERS {
+        AdditionalWidth:  u32
+        AdditionalHeight: u32
+    }
+
+    /// `D3D12_RENDER_PASS_BEGINNING_ACCESS` — tagged union over
+    /// CLEAR / PRESERVE_LOCAL parameter blocks. `Clear` variant is
+    /// 24 bytes (D3D12_CLEAR_VALUE) — laid out flat so the call site
+    /// can poke either form.
+    pub struct D3D12_RENDER_PASS_BEGINNING_ACCESS {
+        Type:    u32   // D3D12RenderPassBeginningAccessType
+        _pad0:   u32
+        u0:      u64
+        u1:      u64
+        u2:      u64
+    }
+
+    /// `D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS`.
+    pub struct D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS {
+        SrcSubresource:    u32
+        DstSubresource:    u32
+        DstX:              u32
+        DstY:              u32
+        SrcRect:           D3D12_RECT
+    }
+
+    /// `D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_PARAMETERS`.
+    pub struct D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_PARAMETERS {
+        pSrcResource:               *ID3D12Resource
+        pDstResource:               *ID3D12Resource
+        SubresourceCount:           u32
+        _pad0:                      u32
+        pSubresourceParameters:     *const D3D12_RENDER_PASS_ENDING_ACCESS_RESOLVE_SUBRESOURCE_PARAMETERS
+        Format:                     u32
+        ResolveMode:                u32   // D3D12ResolveMode
+        PreserveResolveSource:      i32
+        _pad1:                      u32
+    }
+
+    /// `D3D12_RENDER_PASS_ENDING_ACCESS` — tagged union over the
+    /// RESOLVE / PRESERVE_LOCAL parameter blocks. Resolve variant is
+    /// the larger; flatten as 6 × u64.
+    pub struct D3D12_RENDER_PASS_ENDING_ACCESS {
+        Type:    u32   // D3D12RenderPassEndingAccessType
+        _pad0:   u32
+        u0:      u64
+        u1:      u64
+        u2:      u64
+        u3:      u64
+        u4:      u64
+        u5:      u64
+    }
+
+    /// `D3D12_RENDER_PASS_RENDER_TARGET_DESC`.
+    pub struct D3D12_RENDER_PASS_RENDER_TARGET_DESC {
+        cpuDescriptorPtr:  u64                                 // D3D12_CPU_DESCRIPTOR_HANDLE by value
+        BeginningAccess:   D3D12_RENDER_PASS_BEGINNING_ACCESS
+        EndingAccess:      D3D12_RENDER_PASS_ENDING_ACCESS
+    }
+
+    /// `D3D12_RENDER_PASS_DEPTH_STENCIL_DESC`.
+    pub struct D3D12_RENDER_PASS_DEPTH_STENCIL_DESC {
+        cpuDescriptorPtr:         u64
+        DepthBeginningAccess:     D3D12_RENDER_PASS_BEGINNING_ACCESS
+        StencilBeginningAccess:   D3D12_RENDER_PASS_BEGINNING_ACCESS
+        DepthEndingAccess:        D3D12_RENDER_PASS_ENDING_ACCESS
+        StencilEndingAccess:      D3D12_RENDER_PASS_ENDING_ACCESS
+    }
+
+    // ── Indirect drawing / command signatures ────────────────────
+
+    /// `D3D12_INDIRECT_ARGUMENT_DESC` — one entry in a command
+    /// signature. `Type` is the discriminator; only the matching
+    /// payload fields are read. CONSTANT / VERTEX_BUFFER_VIEW /
+    /// INDEX_BUFFER_VIEW / ROOT_*_VIEW carry small integer payloads
+    /// flattened into `u0` / `u1`.
+    pub struct D3D12_INDIRECT_ARGUMENT_DESC {
+        Type:   u32   // D3D12IndirectArgumentType
+        _pad0:  u32
+        u0:     u64
+        u1:     u64
+    }
+
+    /// `D3D12_COMMAND_SIGNATURE_DESC`.
+    pub struct D3D12_COMMAND_SIGNATURE_DESC {
+        ByteStride:        u32
+        NumArgumentDescs:  u32
+        pArgumentDescs:    *const D3D12_INDIRECT_ARGUMENT_DESC
+        NodeMask:          u32
+        _pad0:             u32
+    }
+
+    /// Built-in indirect-arg shapes — sizes for ByteStride pickers.
+    pub struct D3D12_DRAW_ARGUMENTS {
+        VertexCountPerInstance: u32
+        InstanceCount:          u32
+        StartVertexLocation:    u32
+        StartInstanceLocation:  u32
+    }
+
+    pub struct D3D12_DRAW_INDEXED_ARGUMENTS {
+        IndexCountPerInstance: u32
+        InstanceCount:         u32
+        StartIndexLocation:    u32
+        BaseVertexLocation:    i32
+        StartInstanceLocation: u32
+    }
+
+    pub struct D3D12_DISPATCH_ARGUMENTS {
+        ThreadGroupCountX: u32
+        ThreadGroupCountY: u32
+        ThreadGroupCountZ: u32
+    }
+
+    // ── State object subobjects (DXR / collection support) ───────
+
+    /// `D3D12_STATE_SUBOBJECT` — one row of a `STATE_OBJECT_DESC`.
+    /// `pDesc` points at the per-`Type` payload struct.
+    pub struct D3D12_STATE_SUBOBJECT {
+        Type:  u32   // D3D12StateSubobjectType
+        _pad0: u32
+        pDesc: *const void
+    }
+
+    /// `D3D12_STATE_OBJECT_DESC`.
+    pub struct D3D12_STATE_OBJECT_DESC {
+        Type:         u32   // D3D12StateObjectType
+        NumSubobjects: u32
+        pSubobjects:  *const D3D12_STATE_SUBOBJECT
+    }
+
+    /// `D3D12_EXPORT_DESC` — name / rename / flags for a DXIL export.
+    pub struct D3D12_EXPORT_DESC {
+        Name:           *const u16
+        ExportToRename: *const u16
+        Flags:          u32   // D3D12ExportFlags
+        _pad0:          u32
+    }
+
+    /// `D3D12_DXIL_LIBRARY_DESC`.
+    pub struct D3D12_DXIL_LIBRARY_DESC {
+        DXILLibrary:   D3D12_SHADER_BYTECODE
+        NumExports:    u32
+        _pad0:         u32
+        pExports:      *D3D12_EXPORT_DESC
+    }
+
+    /// `D3D12_EXISTING_COLLECTION_DESC`.
+    pub struct D3D12_EXISTING_COLLECTION_DESC {
+        pExistingCollection: *ID3D12StateObject
+        NumExports:          u32
+        _pad0:               u32
+        pExports:            *D3D12_EXPORT_DESC
+    }
+
+    /// `D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION`.
+    pub struct D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION {
+        SubobjectToAssociate: *const u16
+        NumExports:           u32
+        _pad0:                u32
+        pExports:             *const *const u16
+    }
+
+    /// `D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION` — non-DXIL variant.
+    pub struct D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION {
+        pSubobjectToAssociate: *const D3D12_STATE_SUBOBJECT
+        NumExports:            u32
+        _pad0:                 u32
+        pExports:              *const *const u16
+    }
+
+    /// `D3D12_HIT_GROUP_DESC` — bundles a hit-group's intersection /
+    /// any-hit / closest-hit shaders.
+    pub struct D3D12_HIT_GROUP_DESC {
+        HitGroupExport:                *const u16
+        Type:                          u32   // D3D12HitGroupType
+        _pad0:                         u32
+        AnyHitShaderImport:            *const u16
+        ClosestHitShaderImport:        *const u16
+        IntersectionShaderImport:      *const u16
+    }
+
+    /// `D3D12_RAYTRACING_SHADER_CONFIG`.
+    pub struct D3D12_RAYTRACING_SHADER_CONFIG {
+        MaxPayloadSizeInBytes:   u32
+        MaxAttributeSizeInBytes: u32
+    }
+
+    /// `D3D12_RAYTRACING_PIPELINE_CONFIG`.
+    pub struct D3D12_RAYTRACING_PIPELINE_CONFIG {
+        MaxTraceRecursionDepth: u32
+    }
+
+    /// `D3D12_RAYTRACING_PIPELINE_CONFIG1` — adds Flags.
+    pub struct D3D12_RAYTRACING_PIPELINE_CONFIG1 {
+        MaxTraceRecursionDepth: u32
+        Flags:                  u32   // D3D12RaytracingPipelineFlags
+    }
+
+    /// `D3D12_LOCAL_ROOT_SIGNATURE` / `_GLOBAL_ROOT_SIGNATURE` — both
+    /// wrap an `ID3D12RootSignature*`. Use the same struct for either
+    /// subobject `Type`; the discriminator is the subobject's Type
+    /// field, not a tag on the payload.
+    pub struct D3D12_ROOT_SIGNATURE_REFERENCE {
+        pRootSignature: *ID3D12RootSignature
+    }
+
+    /// `D3D12_NODE_MASK` — used as a `STATE_SUBOBJECT_TYPE_NODE_MASK`
+    /// payload.
+    pub struct D3D12_NODE_MASK {
+        NodeMask: u32
+    }
+
+    // ── Protected sessions (Agility SDK) ─────────────────────────
+
+    /// `D3D12_PROTECTED_RESOURCE_SESSION_DESC`.
+    pub struct D3D12_PROTECTED_RESOURCE_SESSION_DESC {
+        NodeMask: u32
+        Flags:    u32   // D3D12ProtectedResourceSessionFlags
+    }
+
+    // ── Sample position (List1) ──────────────────────────────────
+
+    /// `D3D12_SAMPLE_POSITION` — programmable sample patterns.
+    pub struct D3D12_SAMPLE_POSITION {
+        X: i8
+        Y: i8
+    }
+
+    // ── DRED (Device-Removed Extended Data) ──────────────────────
+
+    /// `D3D12_AUTO_BREADCRUMB_NODE` (singly-linked list) — surfaced
+    /// for completeness; consumers walk it via raw pointer arith.
+    pub struct D3D12_AUTO_BREADCRUMB_NODE {
+        pCommandListDebugNameA:      *const char
+        pCommandListDebugNameW:      *const u16
+        pCommandQueueDebugNameA:     *const char
+        pCommandQueueDebugNameW:     *const u16
+        pCommandList:                *void   // ID3D12GraphicsCommandList*
+        pCommandQueue:               *void   // ID3D12CommandQueue*
+        BreadcrumbCount:             u32
+        _pad0:                       u32
+        pLastBreadcrumbValue:        *const u32
+        pCommandHistory:             *const u32   // D3D12_AUTO_BREADCRUMB_OP[]
+        pNext:                       *const D3D12_AUTO_BREADCRUMB_NODE
+    }
+
+    /// `D3D12_DEVICE_REMOVED_EXTENDED_DATA` (DRED) — top-level
+    /// payload for `ID3D12DeviceRemovedExtendedData::GetAutoBreadcrumbsOutput`.
+    pub struct D3D12_DEVICE_REMOVED_EXTENDED_DATA {
+        Flags:                      u32   // D3D12DredFlags
+        _pad0:                      u32
+        pHeadAutoBreadcrumbNode:    *const D3D12_AUTO_BREADCRUMB_NODE
+    }
+
+    /// `D3D12_DRED_ALLOCATION_NODE` — singly-linked.
+    pub struct D3D12_DRED_ALLOCATION_NODE {
+        ObjectNameA:    *const char
+        ObjectNameW:    *const u16
+        AllocationType: u32   // D3D12DredAllocationType
+        _pad0:          u32
+        pNext:          *const D3D12_DRED_ALLOCATION_NODE
+    }
+
+    /// `D3D12_DRED_PAGE_FAULT_OUTPUT`.
+    pub struct D3D12_DRED_PAGE_FAULT_OUTPUT {
+        PageFaultVA:                       u64
+        pHeadExistingAllocationNode:       *const D3D12_DRED_ALLOCATION_NODE
+        pHeadRecentFreedAllocationNode:    *const D3D12_DRED_ALLOCATION_NODE
+    }
+
+    // ── DirectX Raytracing (DXR) ─────────────────────────────────
+
+    /// `D3D12_GPU_VIRTUAL_ADDRESS_AND_STRIDE` — used for AS build /
+    /// shader table inputs.
+    pub struct D3D12_GPU_VIRTUAL_ADDRESS_AND_STRIDE {
+        StartAddress:  u64
+        StrideInBytes: u64
+    }
+
+    /// `D3D12_GPU_VIRTUAL_ADDRESS_RANGE`.
+    pub struct D3D12_GPU_VIRTUAL_ADDRESS_RANGE {
+        StartAddress:  u64
+        SizeInBytes:   u64
+    }
+
+    /// `D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE`.
+    pub struct D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE {
+        StartAddress:  u64
+        SizeInBytes:   u64
+        StrideInBytes: u64
+    }
+
+    /// `D3D12_RAYTRACING_AABB`.
+    pub struct D3D12_RAYTRACING_AABB {
+        MinX: f32
+        MinY: f32
+        MinZ: f32
+        MaxX: f32
+        MaxY: f32
+        MaxZ: f32
+    }
+
+    /// `D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC`.
+    pub struct D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC {
+        Transform3x4:           u64    // GPU VA of 3x4 row-major matrix
+        IndexFormat:            u32
+        VertexFormat:           u32
+        IndexCount:             u32
+        VertexCount:            u32
+        IndexBuffer:            u64
+        VertexBuffer:           D3D12_GPU_VIRTUAL_ADDRESS_AND_STRIDE
+    }
+
+    /// `D3D12_RAYTRACING_GEOMETRY_AABBS_DESC`.
+    pub struct D3D12_RAYTRACING_GEOMETRY_AABBS_DESC {
+        AABBCount: u64
+        AABBs:     D3D12_GPU_VIRTUAL_ADDRESS_AND_STRIDE
+    }
+
+    /// `D3D12_RAYTRACING_GEOMETRY_DESC` — tagged union over triangles /
+    /// aabbs. Triangles variant is the larger; flatten as 7 × u64
+    /// after the (Type, Flags, pad) header.
+    pub struct D3D12_RAYTRACING_GEOMETRY_DESC {
+        Type:    u32   // D3D12RaytracingGeometryType
+        Flags:   u32   // D3D12RaytracingGeometryFlags
+        u0:      u64
+        u1:      u64
+        u2:      u64
+        u3:      u64
+        u4:      u64
+        u5:      u64
+        u6:      u64
+    }
+
+    /// `D3D12_RAYTRACING_INSTANCE_DESC` — TLAS instance entry.
+    /// `_pack0..23` encodes the 4×3 transform, instance id (24-bit),
+    /// instance mask (8-bit), instance contribution to hit-group index
+    /// (24-bit), flags (8-bit). See the SDK header for bit layout.
+    pub struct D3D12_RAYTRACING_INSTANCE_DESC {
+        Transform0_0: f32
+        Transform0_1: f32
+        Transform0_2: f32
+        Transform0_3: f32
+        Transform1_0: f32
+        Transform1_1: f32
+        Transform1_2: f32
+        Transform1_3: f32
+        Transform2_0: f32
+        Transform2_1: f32
+        Transform2_2: f32
+        Transform2_3: f32
+        InstanceIDAndMask:               u32   // 24-bit ID | 8-bit mask
+        InstanceContributionAndFlags:    u32   // 24-bit contribution | 8-bit flags
+        AccelerationStructure: u64
+    }
+
+    /// `D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS`.
+    pub struct D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS {
+        Type:          u32   // D3D12RaytracingAccelerationStructureType
+        Flags:         u32   // D3D12RaytracingAccelerationStructureBuildFlags
+        NumDescs:      u32
+        DescsLayout:   u32   // D3D12ElementsLayout
+        // union { InstanceDescs: u64; pGeometryDescs: *...; ppGeometryDescs: ** }
+        u0:            u64
+    }
+
+    /// `D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO`.
+    pub struct D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO {
+        ResultDataMaxSizeInBytes:  u64
+        ScratchDataSizeInBytes:    u64
+        UpdateScratchDataSizeInBytes: u64
+    }
+
+    /// `D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC` —
+    /// the full argument bundle passed to BuildRaytracingAccelerationStructure.
+    pub struct D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC {
+        DestAccelerationStructureData:   u64
+        Inputs:                          D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS
+        SourceAccelerationStructureData: u64
+        ScratchAccelerationStructureData: u64
+    }
+
+    /// `D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC`.
+    pub struct D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC {
+        DestBuffer: u64
+        InfoType:   u32   // D3D12RaytracingAccelerationStructurePostbuildInfoType
+        _pad0:      u32
+    }
+
+    /// `D3D12_DISPATCH_RAYS_DESC` — argument bundle for
+    /// `DispatchRays` (and the SDF tables for shader binding).
+    pub struct D3D12_DISPATCH_RAYS_DESC {
+        RayGenerationShaderRecord: D3D12_GPU_VIRTUAL_ADDRESS_RANGE
+        MissShaderTable:           D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE
+        HitGroupTable:             D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE
+        CallableShaderTable:       D3D12_GPU_VIRTUAL_ADDRESS_RANGE_AND_STRIDE
+        Width:   u32
+        Height:  u32
+        Depth:   u32
+        _pad0:   u32
+    }
 }
 
 // ─── Additional enum families for the structs above ────────────────
@@ -1449,3 +1980,560 @@ pub const D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES: u32 = 0xFFFFFFFF
 
 /// `D3D12_APPEND_ALIGNED_ELEMENT` sentinel used in input layouts.
 pub const D3D12_APPEND_ALIGNED_ELEMENT: u32 = 0xFFFFFFFF
+
+// ─── Enhanced barrier enums (List7 / Agility SDK) ────────────────
+
+/// D3D12_BARRIER_LAYOUT — texture layout tracked by enhanced barriers.
+pub enum D3D12BarrierLayout: u32 {
+    undefined           = 0xFFFFFFFF
+    common              = 0
+    present             = 0
+    genericRead         = 1
+    renderTarget        = 2
+    unorderedAccess     = 3
+    depthStencilWrite   = 4
+    depthStencilRead    = 5
+    shaderResource      = 6
+    copySource          = 7
+    copyDest            = 8
+    resolveSource       = 9
+    resolveDest         = 10
+    shadingRateSource   = 11
+    videoDecodeRead     = 12
+    videoDecodeWrite    = 13
+    videoProcessRead    = 14
+    videoProcessWrite   = 15
+    videoEncodeRead     = 16
+    videoEncodeWrite    = 17
+    directQueueCommon   = 18
+    directQueueGenericRead     = 19
+    directQueueUnorderedAccess = 20
+    directQueueShaderResource  = 21
+    directQueueCopySource      = 22
+    directQueueCopyDest        = 23
+    computeQueueCommon         = 24
+    computeQueueGenericRead    = 25
+    computeQueueUnorderedAccess = 26
+    computeQueueShaderResource = 27
+    computeQueueCopySource     = 28
+    computeQueueCopyDest       = 29
+    videoQueueCommon           = 30
+}
+
+/// D3D12_BARRIER_SYNC — pipeline-stage scope of an enhanced barrier.
+@flags
+pub enum D3D12BarrierSync: u32 {
+    none                              = 0x0
+    all                               = 0x1
+    draw                              = 0x2
+    indexInput                        = 0x4
+    vertexShading                     = 0x8
+    pixelShading                      = 0x10
+    depthStencil                      = 0x20
+    renderTarget                      = 0x40
+    computeShading                    = 0x80
+    raytracing                        = 0x100
+    copy                              = 0x200
+    resolve                           = 0x400
+    executeIndirect                   = 0x800
+    predication                       = 0x800
+    allShading                        = 0x1000
+    nonPixelShading                   = 0x2000
+    emitRaytracingAccelerationStructurePostbuildInfo = 0x4000
+    clearUnorderedAccessView          = 0x8000
+    videoDecode                       = 0x100000
+    videoProcess                      = 0x200000
+    videoEncode                       = 0x400000
+    buildRaytracingAccelerationStructure = 0x800000
+    copyRaytracingAccelerationStructure  = 0x1000000
+    splitBegin                        = 0x80000000
+}
+
+/// D3D12_BARRIER_ACCESS — memory access scope of an enhanced barrier.
+@flags
+pub enum D3D12BarrierAccess: u32 {
+    common                                = 0x0
+    vertexBuffer                          = 0x1
+    constantBuffer                        = 0x2
+    indexBuffer                           = 0x4
+    renderTarget                          = 0x8
+    unorderedAccess                       = 0x10
+    depthStencilWrite                     = 0x20
+    depthStencilRead                      = 0x40
+    shaderResource                        = 0x80
+    streamOutput                          = 0x100
+    indirectArgument                      = 0x200
+    predication                           = 0x200
+    copyDest                              = 0x400
+    copySource                            = 0x800
+    resolveDest                           = 0x1000
+    resolveSource                         = 0x2000
+    raytracingAccelerationStructureRead   = 0x4000
+    raytracingAccelerationStructureWrite  = 0x8000
+    shadingRateSource                     = 0x10000
+    videoDecodeRead                       = 0x20000
+    videoDecodeWrite                      = 0x40000
+    videoProcessRead                      = 0x80000
+    videoProcessWrite                     = 0x100000
+    videoEncodeRead                       = 0x200000
+    videoEncodeWrite                      = 0x400000
+    noAccess                              = 0x80000000
+}
+
+/// D3D12_BARRIER_TYPE — which variant of `D3D12_BARRIER_GROUP`.
+pub enum D3D12BarrierType: u32 {
+    global  = 0
+    texture = 1
+    buffer  = 2
+}
+
+/// D3D12_TEXTURE_BARRIER_FLAGS.
+@flags
+pub enum D3D12TextureBarrierFlags: u32 {
+    none    = 0
+    discard = 1
+}
+
+// ─── Render-pass enums (List4 / Agility SDK) ─────────────────────
+
+/// D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE.
+pub enum D3D12RenderPassBeginningAccessType: u32 {
+    discard             = 0
+    preserve            = 1
+    clear               = 2
+    noAccess            = 3
+    preserveLocalRender = 4
+    preserveLocalSrv    = 5
+    preserveLocalUav    = 6
+}
+
+/// D3D12_RENDER_PASS_ENDING_ACCESS_TYPE.
+pub enum D3D12RenderPassEndingAccessType: u32 {
+    discard             = 0
+    preserve            = 1
+    resolve             = 2
+    noAccess            = 3
+    preserveLocalRender = 4
+    preserveLocalSrv    = 5
+    preserveLocalUav    = 6
+}
+
+@flags
+pub enum D3D12RenderPassFlags: u32 {
+    none                = 0
+    allowUavWrites      = 1
+    suspendingPass      = 2
+    resumingPass        = 4
+    bindReadOnlyDepth   = 8
+    bindReadOnlyStencil = 16
+}
+
+/// D3D12_RESOLVE_MODE.
+pub enum D3D12ResolveMode: u32 {
+    decompress             = 0
+    min                    = 1
+    max                    = 2
+    average                = 3
+    encodeSamplerFeedback  = 4
+    decodeSamplerFeedback  = 5
+}
+
+// ─── Indirect-arg / command-signature enums ──────────────────────
+
+pub enum D3D12IndirectArgumentType: u32 {
+    draw                          = 0
+    drawIndexed                   = 1
+    dispatch                      = 2
+    vertexBufferView              = 3
+    indexBufferView               = 4
+    constant                      = 5
+    constantBufferView            = 6
+    shaderResourceView            = 7
+    unorderedAccessView           = 8
+    dispatchRays                  = 9
+    dispatchMesh                  = 10
+}
+
+// ─── State-object subobject enums ────────────────────────────────
+
+pub enum D3D12StateSubobjectType: u32 {
+    stateObjectConfig                   = 0
+    globalRootSignature                 = 1
+    localRootSignature                  = 2
+    nodeMask                            = 3
+    dxilLibrary                         = 5
+    existingCollection                  = 6
+    subobjectToExportsAssociation       = 7
+    dxilSubobjectToExportsAssociation   = 8
+    raytracingShaderConfig              = 9
+    raytracingPipelineConfig            = 10
+    hitGroup                            = 11
+    raytracingPipelineConfig1           = 12
+    workGraph                           = 13
+    streamOutput                        = 14
+    blend                               = 15
+    sampleMask                          = 16
+    rasterizer                          = 17
+    depthStencil                        = 18
+    inputLayout                         = 19
+    indexBufferStripCutValue            = 20
+    primitiveTopology                   = 21
+    renderTargetFormats                 = 22
+    depthStencilFormat                  = 23
+    sampleDesc                          = 24
+    flags                               = 25
+    cachedPSO                           = 26
+    viewInstancing                      = 27
+}
+
+@flags
+pub enum D3D12ExportFlags: u32 {
+    none = 0
+}
+
+pub enum D3D12HitGroupType: u32 {
+    triangles         = 0
+    proceduralPrimitive = 1
+}
+
+// ─── PSO subobject stream enums ──────────────────────────────────
+
+pub enum D3D12PipelineStateSubobjectType: u32 {
+    rootSignature        = 0
+    vs                   = 1
+    ps                   = 2
+    ds                   = 3
+    hs                   = 4
+    gs                   = 5
+    cs                   = 6
+    streamOutput         = 7
+    blend                = 8
+    sampleMask           = 9
+    rasterizer           = 10
+    depthStencil         = 11
+    inputLayout          = 12
+    ibStripCutValue      = 13
+    primitiveTopology    = 14
+    renderTargetFormats  = 15
+    depthStencilFormat   = 16
+    sampleDesc           = 17
+    nodeMask             = 18
+    cachedPSO            = 19
+    flags                = 20
+    depthStencil1        = 21
+    viewInstancing       = 22
+    as_                  = 24
+    ms                   = 25
+}
+
+// ─── Tier / option enums ─────────────────────────────────────────
+
+pub enum D3D12ResourceBindingTier: u32 {
+    tier_1 = 1
+    tier_2 = 2
+    tier_3 = 3
+}
+
+pub enum D3D12TiledResourcesTier: u32 {
+    notSupported = 0
+    tier_1       = 1
+    tier_2       = 2
+    tier_3       = 3
+    tier_4       = 4
+}
+
+pub enum D3D12ConservativeRasterizationTier: u32 {
+    notSupported = 0
+    tier_1       = 1
+    tier_2       = 2
+    tier_3       = 3
+}
+
+pub enum D3D12CrossNodeSharingTier: u32 {
+    notSupported     = 0
+    tier_1Emulated   = 1
+    tier_1           = 2
+    tier_2           = 3
+    tier_3           = 4
+}
+
+pub enum D3D12ResourceHeapTier: u32 {
+    tier_1 = 1
+    tier_2 = 2
+}
+
+@flags
+pub enum D3D12ShaderMinPrecisionSupport: u32 {
+    none = 0
+    bit10 = 1
+    bit16 = 2
+}
+
+@flags
+pub enum D3D12FormatSupport1: u32 {
+    none                       = 0
+    buffer                     = 0x1
+    iaVertexBuffer             = 0x2
+    iaIndexBuffer              = 0x4
+    soBuffer                   = 0x8
+    texture1d                  = 0x10
+    texture2d                  = 0x20
+    texture3d                  = 0x40
+    textureCube                = 0x80
+    shaderLoad                 = 0x100
+    shaderSample               = 0x200
+    shaderSampleComparison     = 0x400
+    shaderSampleMonoText       = 0x800
+    mip                        = 0x1000
+    renderTarget               = 0x4000
+    blendable                  = 0x8000
+    depthStencil               = 0x10000
+    cpuLockable                = 0x20000
+    multisampleResolve         = 0x40000
+    display                    = 0x80000
+    castWithinBitLayout        = 0x100000
+    multisampleRenderTarget    = 0x200000
+    multisampleLoad            = 0x400000
+    shaderGather               = 0x800000
+    backBufferCast             = 0x1000000
+    typedUnorderedAccessView   = 0x2000000
+    shaderGatherComparison     = 0x4000000
+    decoderOutput              = 0x8000000
+    videoProcessorOutput       = 0x10000000
+    videoProcessorInput        = 0x20000000
+    videoEncoder               = 0x40000000
+}
+
+@flags
+pub enum D3D12FormatSupport2: u32 {
+    none                       = 0
+    uavAtomicAdd               = 0x1
+    uavAtomicBitwiseOps        = 0x2
+    uavAtomicCompareStoreOrCompareExchange = 0x4
+    uavAtomicExchange          = 0x8
+    uavAtomicSignedMinOrMax    = 0x10
+    uavAtomicUnsignedMinOrMax  = 0x20
+    uavTypedLoad               = 0x40
+    uavTypedStore              = 0x80
+    outputMergerLogicOp        = 0x100
+    tiled                      = 0x200
+    multiplaneOverlay          = 0x4000
+    samplerFeedback            = 0x8000
+}
+
+// ─── Protected session ───────────────────────────────────────────
+
+@flags
+pub enum D3D12ProtectedResourceSessionFlags: u32 {
+    none                = 0
+    protectedContent    = 1
+}
+
+pub enum D3D12ProtectedSessionStatus: u32 {
+    ok        = 0
+    invalid   = 1
+}
+
+// ─── Residency / lifetime ────────────────────────────────────────
+
+pub enum D3D12ResidencyPriority: u32 {
+    minimum = 0x28000000
+    low     = 0x50000000
+    normal  = 0x78000000
+    high    = 0xa0010000
+    maximum = 0xc8000000
+}
+
+pub enum D3D12LifetimeState: u32 {
+    inUse       = 0
+    notInUse    = 1
+}
+
+// ─── DRED (Device-Removed Extended Data) ─────────────────────────
+
+@flags
+pub enum D3D12DredFlags: u32 {
+    none                       = 0
+    forceEnable                = 1
+    disableAutobreadcrumbs     = 2
+    disablePageFaultReporting  = 4
+    disableWatson              = 8
+}
+
+pub enum D3D12DredEnablement: u32 {
+    systemControlled = 0
+    forcedOff        = 1
+    forcedOn         = 2
+}
+
+pub enum D3D12DredAllocationType: u32 {
+    commandQueue       = 19
+    commandAllocator   = 20
+    pipelineState      = 21
+    commandList        = 22
+    fence              = 23
+    descriptorHeap     = 24
+    heap               = 25
+    queryHeap          = 27
+    commandSignature   = 28
+    pipelineLibrary    = 29
+    resource           = 34
+    invalid            = 0xFFFFFFFF
+}
+
+@flags
+pub enum D3D12AutoBreadcrumbOp: u32 {
+    setMarker                            = 0
+    beginEvent                           = 1
+    endEvent                             = 2
+    drawInstanced                        = 3
+    drawIndexedInstanced                 = 4
+    executeIndirect                      = 5
+    dispatch                             = 6
+    copyBufferRegion                     = 7
+    copyTextureRegion                    = 8
+    copyResource                         = 9
+    copyTiles                            = 10
+    resolveSubresource                   = 11
+    clearRenderTargetView                = 12
+    clearUnorderedAccessView             = 13
+    clearDepthStencilView                = 14
+    resourceBarrier                      = 15
+    executeBundle                        = 16
+    present                              = 17
+    resolveQueryData                     = 18
+    beginSubmission                      = 19
+    endSubmission                        = 20
+    decodeFrame                          = 21
+    processFrames                        = 22
+    atomicCopyBufferUint                 = 23
+    atomicCopyBufferUint64               = 24
+    resolveSubresourceRegion             = 25
+    writeBufferImmediate                 = 26
+    dispatchRays                         = 27
+    dispatchMesh                         = 30
+}
+
+// ─── Shader cache support ────────────────────────────────────────
+
+@flags
+pub enum D3D12ShaderCacheSupportFlags: u32 {
+    none                              = 0
+    singlePso                         = 1
+    library                           = 2
+    automaticInprocCache              = 4
+    automaticDiskCache                = 8
+    driverManagedCache                = 16
+    shaderControlClear                = 32
+    shaderSessionDelete               = 64
+}
+
+// ─── Clear flags (depth-stencil) ─────────────────────────────────
+
+@flags
+pub enum D3D12ClearFlags: u32 {
+    none    = 0
+    depth   = 1
+    stencil = 2
+}
+
+// ─── Pipeline state flags 1 (Agility SDK) ────────────────────────
+
+@flags
+pub enum D3D12PipelineStateFlags1: u32 {
+    none                       = 0
+    toolDebug                  = 1
+    dynamicDepthBias           = 4
+    dynamicIndexBufferStripCut = 8
+}
+
+// ─── Shading rate (VRS, List5) ───────────────────────────────────
+
+pub enum D3D12ShadingRate: u32 {
+    rate_1x1   = 0
+    rate_1x2   = 0x1
+    rate_2x1   = 0x4
+    rate_2x2   = 0x5
+    rate_2x4   = 0x6
+    rate_4x2   = 0x9
+    rate_4x4   = 0xa
+}
+
+pub enum D3D12ShadingRateCombiner: u32 {
+    passthrough = 0
+    override    = 1
+    min         = 2
+    max         = 3
+    sum         = 4
+}
+
+// ─── DirectX Raytracing enums ────────────────────────────────────
+
+pub enum D3D12RaytracingGeometryType: u32 {
+    triangles                = 0
+    proceduralPrimitiveAabbs = 1
+}
+
+@flags
+pub enum D3D12RaytracingGeometryFlags: u32 {
+    none                                = 0
+    opaque                              = 1
+    noDuplicateAnyHitInvocation         = 2
+}
+
+pub enum D3D12RaytracingAccelerationStructureType: u32 {
+    topLevel    = 0
+    bottomLevel = 1
+}
+
+@flags
+pub enum D3D12RaytracingAccelerationStructureBuildFlags: u32 {
+    none            = 0
+    allowUpdate     = 1
+    allowCompaction = 2
+    preferFastTrace = 4
+    preferFastBuild = 8
+    minimizeMemory  = 16
+    performUpdate   = 32
+}
+
+pub enum D3D12RaytracingAccelerationStructureCopyMode: u32 {
+    clone                              = 0
+    compact                            = 1
+    visualizationDecodeForTools        = 2
+    serialize                          = 3
+    deserialize                        = 4
+}
+
+pub enum D3D12RaytracingAccelerationStructurePostbuildInfoType: u32 {
+    compactedSize       = 0
+    toolsVisualization  = 1
+    serialization       = 2
+    currentSize         = 3
+}
+
+pub enum D3D12ElementsLayout: u32 {
+    array            = 0
+    arrayOfPointers  = 1
+}
+
+@flags
+pub enum D3D12RaytracingInstanceFlags: u32 {
+    none                            = 0
+    triangleCullDisable             = 1
+    triangleFrontCounterclockwise   = 2
+    forceOpaque                     = 4
+    forceNonOpaque                  = 8
+}
+
+/// Reasonable maximum for `MaxTraceRecursionDepth`.
+pub const D3D12_RAYTRACING_MAX_DECLARABLE_TRACE_RECURSION_DEPTH: u32 = 31
+
+/// Standard shader identifier size for AS/DispatchRays tables.
+pub const D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES: u32 = 32
+
+/// Required alignment of shader-record start addresses.
+pub const D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT: u32 = 32
+
+/// Required alignment of shader-table starts.
+pub const D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT: u32 = 64

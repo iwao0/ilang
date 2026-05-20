@@ -180,6 +180,69 @@ pub enum DxgiHdrMetadataType: u32 {
     hdr10plus = 2
 }
 
+// ─── DXGI_MWA (MakeWindowAssociation flags) ──────────────────────
+@flags
+pub enum DxgiMwa: u32 {
+    none           = 0
+    noWindowChanges = 1
+    noAltEnter     = 2
+    noPrintScreen  = 4
+    valid          = 0x7
+}
+
+// ─── DXGI_RESOURCE_PRIORITY ──────────────────────────────────────
+pub enum DxgiResourcePriority: u32 {
+    minimum = 0x28000000
+    low     = 0x50000000
+    normal  = 0x78000000
+    high    = 0xa0000000
+    maximum = 0xc8000000
+}
+
+// ─── IDXGIDebug RLO flags ────────────────────────────────────────
+@flags
+pub enum DxgiDebugRloFlags: u32 {
+    summary       = 1
+    detail        = 2
+    ignoreInternal = 4
+    all           = 7
+}
+
+// ─── IDXGIInfoQueue ──────────────────────────────────────────────
+pub enum DxgiInfoQueueMessageCategory: u32 {
+    unknown               = 0
+    miscellaneous         = 1
+    initialization        = 2
+    cleanup               = 3
+    compilation           = 4
+    stateCreation         = 5
+    stateSetting          = 6
+    stateGetting          = 7
+    resourceManipulation  = 8
+    execution             = 9
+    shader                = 10
+}
+
+pub enum DxgiInfoQueueMessageSeverity: u32 {
+    corruption = 0
+    error      = 1
+    warning    = 2
+    info       = 3
+    message    = 4
+}
+
+// ─── DXGI_FEATURE ────────────────────────────────────────────────
+pub enum DxgiFeature: u32 {
+    presentAllowTearing = 0
+}
+
+// ─── IDXGIOutputDuplication pointer-shape types ──────────────────
+pub enum DxgiOutduplPointerShapeType: u32 {
+    monochrome = 1
+    color      = 2
+    maskedColor = 4
+}
+
 // ─── Common HRESULT for DXGI ─────────────────────────────────────
 pub enum DxgiResult: i32 {
     ok               = 0
@@ -877,5 +940,270 @@ use kernel32 { HANDLE }
     @com pub interface IDXGIDevice4 : IDXGIDevice3 {
         _slot18_OfferResources1()
         _slot19_ReclaimResources1()
+    }
+
+    // ── Resource / surface / keyed-mutex chain ───────────────────
+
+    /// `DXGI_MAPPED_RECT` — pitch + base pointer for IDXGISurface::Map.
+    pub struct DXGI_MAPPED_RECT {
+        Pitch:  i32
+        _pad0:  u32
+        pBits:  *u8
+    }
+
+    /// `DXGI_SHARED_RESOURCE` — handle wrapper.
+    pub struct DXGI_SHARED_RESOURCE {
+        Handle: HANDLE
+    }
+
+    @com pub interface IDXGIResource : IDXGIDeviceSubObject {
+        GetSharedHandle(pSharedHandle: *HANDLE): i32
+        GetUsage(pUsage: *u32): i32
+        SetEvictionPriority(EvictionPriority: u32): i32
+        GetEvictionPriority(pEvictionPriority: *u32): i32
+    }
+
+    @com pub interface IDXGIResource1 : IDXGIResource {
+        CreateSubresourceSurface(index: u32, ppSurface: **void): i32
+        CreateSharedHandle(
+            pAttributes: *const void,
+            dwAccess:    u32,
+            lpName:      *const u16,
+            pHandle:     *HANDLE
+        ): i32
+    }
+
+    @com pub interface IDXGIKeyedMutex : IDXGIDeviceSubObject {
+        AcquireSync(Key: u64, dwMilliseconds: u32): i32
+        ReleaseSync(Key: u64): i32
+    }
+
+    @com pub interface IDXGISurface : IDXGIDeviceSubObject {
+        GetDesc(retval: *void): i32                          // DXGI_SURFACE_DESC
+        Map(pLockedRect: *DXGI_MAPPED_RECT, MapFlags: u32): i32
+        Unmap(): i32
+    }
+
+    @com pub interface IDXGISurface1 : IDXGISurface {
+        GetDC(Discard: i32, phdc: *i64): i32                // HDC out
+        ReleaseDC(pDirtyRect: *const D3D12_PRESENT_RECT_PLACEHOLDER): i32
+    }
+
+    @com pub interface IDXGISurface2 : IDXGISurface1 {
+        GetResource(riid: *const void, ppParentResource: **void, pSubresourceIndex: *u32): i32
+    }
+
+    // ── Output duplication (desktop capture) ─────────────────────
+
+    /// `DXGI_OUTDUPL_DESC` — describes a duplicated output target.
+    pub struct DXGI_OUTDUPL_DESC {
+        ModeDesc:             DXGI_MODE_DESC
+        Rotation:             u32
+        DesktopImageInSystemMemory: i32
+    }
+
+    /// `DXGI_OUTDUPL_POINTER_POSITION`.
+    pub struct DXGI_OUTDUPL_POINTER_POSITION {
+        Position_x:  i32
+        Position_y:  i32
+        Visible:     i32
+    }
+
+    /// `DXGI_OUTDUPL_FRAME_INFO`.
+    pub struct DXGI_OUTDUPL_FRAME_INFO {
+        LastPresentTime_lo:           u32
+        LastPresentTime_hi:           i32
+        LastMouseUpdateTime_lo:       u32
+        LastMouseUpdateTime_hi:       i32
+        AccumulatedFrames:            u32
+        RectsCoalesced:               i32
+        ProtectedContentMaskedOut:    i32
+        PointerPosition:              DXGI_OUTDUPL_POINTER_POSITION
+        TotalMetadataBufferSize:      u32
+        PointerShapeBufferSize:       u32
+    }
+
+    /// `DXGI_OUTDUPL_POINTER_SHAPE_INFO`.
+    pub struct DXGI_OUTDUPL_POINTER_SHAPE_INFO {
+        Type:       u32
+        Width:      u32
+        Height:     u32
+        Pitch:      u32
+        HotSpot_x:  i32
+        HotSpot_y:  i32
+    }
+
+    @com pub interface IDXGIOutputDuplication : IDXGIObject {
+        GetDesc(retval: *DXGI_OUTDUPL_DESC)
+        AcquireNextFrame(
+            TimeoutInMilliseconds: u32,
+            pFrameInfo:            *DXGI_OUTDUPL_FRAME_INFO,
+            ppDesktopResource:     **void
+        ): i32
+        GetFrameDirtyRects(
+            DirtyRectsBufferSize: u32,
+            pDirtyRectsBuffer:    *void,
+            pDirtyRectsBufferSizeRequired: *u32
+        ): i32
+        GetFrameMoveRects(
+            MoveRectsBufferSize: u32,
+            pMoveRectBuffer:     *void,
+            pMoveRectsBufferSizeRequired: *u32
+        ): i32
+        GetFramePointerShape(
+            PointerShapeBufferSize: u32,
+            pPointerShapeBuffer:    *void,
+            pPointerShapeBufferSizeRequired: *u32,
+            pPointerShapeInfo:      *DXGI_OUTDUPL_POINTER_SHAPE_INFO
+        ): i32
+        MapDesktopSurface(pLockedRect: *DXGI_MAPPED_RECT): i32
+        UnMapDesktopSurface(): i32
+        ReleaseFrame(): i32
+    }
+
+    // ── Frame statistics / gamma control ─────────────────────────
+
+    /// `DXGI_FRAME_STATISTICS`.
+    pub struct DXGI_FRAME_STATISTICS {
+        PresentCount:       u32
+        PresentRefreshCount: u32
+        SyncRefreshCount:   u32
+        _pad0:              u32
+        SyncQPCTime_lo:     u32
+        SyncQPCTime_hi:     i32
+        SyncGPUTime_lo:     u32
+        SyncGPUTime_hi:     i32
+    }
+
+    /// `DXGI_RGB` — float RGB triple, used by gamma control.
+    pub struct DXGI_RGB {
+        Red:   f32
+        Green: f32
+        Blue:  f32
+    }
+
+    /// `DXGI_GAMMA_CONTROL_CAPABILITIES` (1031 floats — abbreviated to
+    /// the leading fields; consumers walk the trailing curve via raw
+    /// pointer arith over the 1025 `ControlPointPositions` floats).
+    pub struct DXGI_GAMMA_CONTROL_CAPABILITIES {
+        ScaleAndOffsetSupported: i32
+        MaxConvertedValue:       f32
+        MinConvertedValue:       f32
+        NumGammaControlPoints:   u32
+        // Trailing: ControlPointPositions[1025] f32 (4100 bytes).
+        // Read via &caps + sizeof header for raw access.
+    }
+
+    /// `DXGI_GAMMA_CONTROL` — Scale/Offset + 1025 control-point
+    /// `DXGI_RGB`s. Same trailing-array story as the capabilities
+    /// struct; expose the header here.
+    pub struct DXGI_GAMMA_CONTROL {
+        Scale:   DXGI_RGB
+        Offset:  DXGI_RGB
+        // Trailing: GammaCurve[1025] DXGI_RGB.
+    }
+
+    // ── Info queue / debug ───────────────────────────────────────
+
+    /// `DXGI_INFO_QUEUE_MESSAGE`. Variable-sized — the trailing
+    /// `pDescription` UTF-8 string runs `DescriptionByteLength`
+    /// bytes after the struct.
+    pub struct DXGI_INFO_QUEUE_MESSAGE {
+        Producer_d1: u32
+        Producer_d2: u16
+        Producer_d3: u16
+        Producer_d4lo: u32
+        Producer_d4hi: u32
+        Category:    u32
+        Severity:    u32
+        ID:          i32
+        _pad0:       u32
+        pDescription: *const char
+        DescriptionByteLength: u64
+    }
+
+    /// `DXGI_INFO_QUEUE_FILTER_DESC`.
+    pub struct DXGI_INFO_QUEUE_FILTER_DESC {
+        NumCategories: u32
+        _pad0:         u32
+        pCategoryList: *const u32
+        NumSeverities: u32
+        _pad1:         u32
+        pSeverityList: *const u32
+        NumIDs:        u32
+        _pad2:         u32
+        pIDList:       *const i32
+    }
+
+    /// `DXGI_INFO_QUEUE_FILTER`.
+    pub struct DXGI_INFO_QUEUE_FILTER {
+        AllowList: DXGI_INFO_QUEUE_FILTER_DESC
+        DenyList:  DXGI_INFO_QUEUE_FILTER_DESC
+    }
+
+    @com pub interface IDXGIInfoQueue : IUnknown {
+        _slot3_SetMessageCountLimit()
+        ClearStoredMessages(Producer_d1: u32, Producer_d2: u16, Producer_d3: u16,
+                            Producer_d4lo: u32, Producer_d4hi: u32)
+        GetMessage(
+            Producer_d1: u32, Producer_d2: u16, Producer_d3: u16,
+            Producer_d4lo: u32, Producer_d4hi: u32,
+            MessageIndex:           u64,
+            pMessage:               *void,
+            pMessageByteLength:     *u64
+        ): i32
+        _slot6_GetNumStoredMessagesAllowedByRetrievalFilters()
+        GetNumStoredMessages(
+            Producer_d1: u32, Producer_d2: u16, Producer_d3: u16,
+            Producer_d4lo: u32, Producer_d4hi: u32
+        ): u64
+        _slot8_GetNumMessagesDiscardedByMessageCountLimit()
+        _slot9_GetMessageCountLimit()
+        _slot10_GetNumMessagesAllowedByStorageFilter()
+        _slot11_GetNumMessagesDeniedByStorageFilter()
+        _slot12_AddStorageFilterEntries()
+        _slot13_GetStorageFilter()
+        _slot14_ClearStorageFilter()
+        _slot15_PushEmptyStorageFilter()
+        _slot16_PushDenyAllStorageFilter()
+        _slot17_PushCopyOfStorageFilter()
+        _slot18_PushStorageFilter()
+        _slot19_PopStorageFilter()
+        _slot20_GetStorageFilterStackSize()
+        _slot21_AddRetrievalFilterEntries()
+        _slot22_GetRetrievalFilter()
+        _slot23_ClearRetrievalFilter()
+        _slot24_PushEmptyRetrievalFilter()
+        _slot25_PushDenyAllRetrievalFilter()
+        _slot26_PushCopyOfRetrievalFilter()
+        _slot27_PushRetrievalFilter()
+        _slot28_PopRetrievalFilter()
+        _slot29_GetRetrievalFilterStackSize()
+        _slot30_AddMessage()
+        _slot31_AddApplicationMessage()
+        _slot32_SetBreakOnCategory()
+        _slot33_SetBreakOnSeverity()
+        _slot34_SetBreakOnID()
+        _slot35_GetBreakOnCategory()
+        _slot36_GetBreakOnSeverity()
+        _slot37_GetBreakOnID()
+        _slot38_SetMuteDebugOutput()
+        _slot39_GetMuteDebugOutput()
+    }
+
+    @com pub interface IDXGIDebug : IUnknown {
+        /// Reports live DXGI / D3D objects matching `apiid`. Pass
+        /// `DXGI_DEBUG_ALL` as the GUID to dump everything.
+        ReportLiveObjects(
+            apiid_d1: u32, apiid_d2: u16, apiid_d3: u16,
+            apiid_d4lo: u32, apiid_d4hi: u32,
+            flags: u32                                       // DxgiDebugRloFlags
+        ): i32
+    }
+
+    @com pub interface IDXGIDebug1 : IDXGIDebug {
+        EnableLeakTrackingForThread()
+        DisableLeakTrackingForThread()
+        IsLeakTrackingEnabledForThread(): i32
     }
 }

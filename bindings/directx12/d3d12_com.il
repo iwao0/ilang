@@ -52,6 +52,7 @@ use d3d12 {
     D3D12_TEXTURE_COPY_LOCATION,
     D3D12_DISCARD_REGION,
     D3D12_TILED_RESOURCE_COORDINATE,
+    D3D12_PROTECTED_RESOURCE_SESSION_DESC,
 }
 
 @extern(C) {
@@ -457,6 +458,166 @@ use d3d12 {
             pInfo: *void                            // D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO
         )
         _slot64_CheckDriverMatchingIdentifier()
+    }
+
+    /// ID3D12Device6 — adds SetBackgroundProcessingMode.
+    @com pub interface ID3D12Device6 : ID3D12Device5 {
+        _slot65_SetBackgroundProcessingMode()
+    }
+
+    /// ID3D12Device7 — adds CreateProtectedResourceSession1 +
+    /// AddToStateObject (incremental DXR state-object growth).
+    @com pub interface ID3D12Device7 : ID3D12Device6 {
+        AddToStateObject(
+            pAddition:                *const void,
+            pStateObjectToGrowFrom:   *ID3D12StateObject,
+            riid:                     *const GUID,
+            ppNewStateObject:         **void
+        ): i32
+        _slot67_CreateProtectedResourceSession1()
+    }
+
+    /// ID3D12Device8 — adds GetCopyableFootprints1 / CreateCommittedResource2 /
+    /// CreatePlacedResource1 / CreateSamplerFeedbackUnorderedAccessView /
+    /// GetResourceAllocationInfo2.
+    @com pub interface ID3D12Device8 : ID3D12Device7 {
+        _slot68_GetResourceAllocationInfo2()
+        CreateCommittedResource2(
+            pHeapProperties:           *const D3D12_HEAP_PROPERTIES,
+            HeapFlags:                 u32,
+            pDesc:                     *const D3D12_RESOURCE_DESC,
+            InitialResourceState:      u32,
+            pOptimizedClearValue:      *const D3D12_CLEAR_VALUE,
+            pProtectedSession:         *void,
+            riidResource:              *const GUID,
+            ppvResource:               **void
+        ): i32
+        CreatePlacedResource1(
+            pHeap:                *ID3D12Heap,
+            HeapOffset:           u64,
+            pDesc:                *const D3D12_RESOURCE_DESC,
+            InitialState:         u32,
+            pOptimizedClearValue: *const D3D12_CLEAR_VALUE,
+            riid:                 *const GUID,
+            ppvResource:          **void
+        ): i32
+        _slot71_CreateSamplerFeedbackUnorderedAccessView()
+        _slot72_GetCopyableFootprints1()
+    }
+
+    /// ID3D12Device9 — adds CreateShaderCacheSession / ShaderCacheControl /
+    /// CreateCommandQueue1.
+    @com pub interface ID3D12Device9 : ID3D12Device8 {
+        _slot73_CreateShaderCacheSession()
+        _slot74_ShaderCacheControl()
+        CreateCommandQueue1(
+            pDesc:                  *const D3D12_COMMAND_QUEUE_DESC,
+            CreatorID:              *const GUID,
+            riid:                   *const GUID,
+            ppCommandQueue:         **void
+        ): i32
+    }
+
+    /// ID3D12Device10 — adds CreateCommittedResource3 /
+    /// CreatePlacedResource2 / CreateReservedResource1 / 2 (initial
+    /// layout-aware variants).
+    @com pub interface ID3D12Device10 : ID3D12Device9 {
+        CreateCommittedResource3(
+            pHeapProperties:           *const D3D12_HEAP_PROPERTIES,
+            HeapFlags:                 u32,
+            pDesc:                     *const D3D12_RESOURCE_DESC,
+            InitialLayout:             u32,            // D3D12BarrierLayout
+            pOptimizedClearValue:      *const D3D12_CLEAR_VALUE,
+            pProtectedSession:         *void,
+            NumCastableFormats:        u32,
+            pCastableFormats:          *const u32,
+            riidResource:              *const GUID,
+            ppvResource:               **void
+        ): i32
+        CreatePlacedResource2(
+            pHeap:                *ID3D12Heap,
+            HeapOffset:           u64,
+            pDesc:                *const D3D12_RESOURCE_DESC,
+            InitialLayout:        u32,
+            pOptimizedClearValue: *const D3D12_CLEAR_VALUE,
+            NumCastableFormats:   u32,
+            pCastableFormats:     *const u32,
+            riid:                 *const GUID,
+            ppvResource:          **void
+        ): i32
+        _slot78_CreateReservedResource1()
+        _slot79_CreateReservedResource2()
+    }
+
+    /// ID3D12Device11 — adds CreateSampler2 (D3D12_SAMPLER_DESC2).
+    @com pub interface ID3D12Device11 : ID3D12Device10 {
+        CreateSampler2(
+            pDesc:                *const void,         // D3D12_SAMPLER_DESC2
+            DestDescriptorPtr:    u64
+        )
+    }
+
+    // ── DRED ──────────────────────────────────────────────────────
+
+    /// ID3D12DeviceRemovedExtendedDataSettings — opt-in to DRED
+    /// before device creation: tell the runtime to capture
+    /// auto-breadcrumbs / page-fault info on a device-removed event.
+    @com pub interface ID3D12DeviceRemovedExtendedDataSettings : IUnknown {
+        SetAutoBreadcrumbsEnablement(Enablement: u32)     // D3D12DredEnablement
+        SetPageFaultEnablement(Enablement: u32)
+        SetWatsonDumpEnablement(Enablement: u32)
+    }
+
+    /// ID3D12DeviceRemovedExtendedDataSettings1 — adds
+    /// SetBreadcrumbContextEnablement.
+    @com pub interface ID3D12DeviceRemovedExtendedDataSettings1 : ID3D12DeviceRemovedExtendedDataSettings {
+        SetBreadcrumbContextEnablement(Enablement: u32)
+    }
+
+    /// ID3D12DeviceRemovedExtendedDataSettings2 — adds
+    /// UseMarkersOnlyAutoBreadcrumbs.
+    @com pub interface ID3D12DeviceRemovedExtendedDataSettings2 : ID3D12DeviceRemovedExtendedDataSettings1 {
+        UseMarkersOnlyAutoBreadcrumbs(MarkersOnly: i32)
+    }
+
+    /// ID3D12DeviceRemovedExtendedData — post-removed accessor for
+    /// the captured auto-breadcrumb / page-fault data.
+    @com pub interface ID3D12DeviceRemovedExtendedData : IUnknown {
+        GetAutoBreadcrumbsOutput(pOutput: *void): i32      // D3D12_DEVICE_REMOVED_EXTENDED_DATA
+        GetPageFaultAllocationOutput(pOutput: *void): i32  // D3D12_DRED_PAGE_FAULT_OUTPUT
+    }
+
+    @com pub interface ID3D12DeviceRemovedExtendedData1 : ID3D12DeviceRemovedExtendedData {
+        GetAutoBreadcrumbsOutput1(pOutput: *void): i32
+        GetPageFaultAllocationOutput1(pOutput: *void): i32
+    }
+
+    @com pub interface ID3D12DeviceRemovedExtendedData2 : ID3D12DeviceRemovedExtendedData1 {
+        GetPageFaultAllocationOutput2(pOutput: *void): i32
+        GetDeviceState(): u32   // D3D12 device state enum
+    }
+
+    // ── Misc device-side helpers ─────────────────────────────────
+
+    /// ID3D12CommandSignature — drives ExecuteIndirect.
+    @com pub interface ID3D12CommandSignature : ID3D12Pageable {
+    }
+
+    /// ID3D12ProtectedSession — base for protected resource / queue
+    /// sessions. No own methods at the @com level.
+    @com pub interface ID3D12ProtectedSession : ID3D12DeviceChild {
+        GetStatusFence(riid: *const GUID, ppFence: **void): i32
+        GetSessionStatus(): u32   // D3D12ProtectedSessionStatus
+    }
+
+    /// ID3D12ProtectedResourceSession.
+    @com pub interface ID3D12ProtectedResourceSession : ID3D12ProtectedSession {
+        GetDesc(retval: *D3D12_PROTECTED_RESOURCE_SESSION_DESC): *D3D12_PROTECTED_RESOURCE_SESSION_DESC
+    }
+
+    /// ID3D12LifetimeTracker — opt-in lifetime / residency tracking.
+    @com pub interface ID3D12LifetimeTracker : ID3D12DeviceChild {
+        DestroyOwnedObject(pObject: *void): i32
     }
 
     /// ID3D12GraphicsCommandList — record graphics / compute work

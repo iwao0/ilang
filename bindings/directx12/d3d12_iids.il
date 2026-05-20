@@ -380,3 +380,184 @@ pub const IID_IDXGIDevice1: GUID = GUID {
     Data4lo: 0x010728ba, Data4hi: 0x2c39b443,
 }
 
+
+/// IID_ID3D12Device6 = c70b221b-40e4-4a17-89af-025a0727a6dc
+pub const IID_ID3D12Device6: GUID = GUID {
+    Data1: 0xc70b221b, Data2: 0x40e4, Data3: 0x4a17,
+    Data4lo: 0x5a02af89, Data4hi: 0xdca62707,
+}
+
+/// IID_ID3D12Device7 = 5c014b53-68a1-4b9b-8bd1-dd6046b9358b
+pub const IID_ID3D12Device7: GUID = GUID {
+    Data1: 0x5c014b53, Data2: 0x68a1, Data3: 0x4b9b,
+    Data4lo: 0x60ddd18b, Data4hi: 0x8b35b946,
+}
+
+/// IID_ID3D12Device8 = 9218e6bb-f944-4f7e-a75c-b1b2c7b701f3
+pub const IID_ID3D12Device8: GUID = GUID {
+    Data1: 0x9218e6bb, Data2: 0xf944, Data3: 0x4f7e,
+    Data4lo: 0xb2b15ca7, Data4hi: 0xf301b7c7,
+}
+
+/// IID_ID3D12Device9 = 4c80e962-f032-4f60-bc9e-ebc2cfa1d83c
+pub const IID_ID3D12Device9: GUID = GUID {
+    Data1: 0x4c80e962, Data2: 0xf032, Data3: 0x4f60,
+    Data4lo: 0xc2eb9ebc, Data4hi: 0x3cd8a1cf,
+}
+
+/// IID_ID3D12Device10 = 517f8718-aa66-49f9-b02b-a7ab89c06031
+pub const IID_ID3D12Device10: GUID = GUID {
+    Data1: 0x517f8718, Data2: 0xaa66, Data3: 0x49f9,
+    Data4lo: 0xaba72bb0, Data4hi: 0x3160c089,
+}
+
+/// IID_ID3D12Device11 = 5405c344-d457-444e-b4dd-2366e45aee39
+pub const IID_ID3D12Device11: GUID = GUID {
+    Data1: 0x5405c344, Data2: 0xd457, Data3: 0x444e,
+    Data4lo: 0x6623ddb4, Data4hi: 0x39ee5ae4,
+}
+
+/// IID_ID3D12DeviceRemovedExtendedDataSettings = 82bc481c-6b9b-4030-aedb-7ee3d1df1e63
+pub const IID_ID3D12DeviceRemovedExtendedDataSettings: GUID = GUID {
+    Data1: 0x82bc481c, Data2: 0x6b9b, Data3: 0x4030,
+    Data4lo: 0xe37edbae, Data4hi: 0x631edfd1,
+}
+
+/// IID_ID3D12DeviceRemovedExtendedDataSettings1 = db8c63ae-2bde-4051-a757-b4afb5b0c0bf
+pub const IID_ID3D12DeviceRemovedExtendedDataSettings1: GUID = GUID {
+    Data1: 0xdb8c63ae, Data2: 0x2bde, Data3: 0x4051,
+    Data4lo: 0xafb457a7, Data4hi: 0xbfc0b0b5,
+}
+
+/// IID_ID3D12DeviceRemovedExtendedDataSettings2 = 61552388-01ab-4008-a436-83db189566ea
+pub const IID_ID3D12DeviceRemovedExtendedDataSettings2: GUID = GUID {
+    Data1: 0x61552388, Data2: 0x01ab, Data3: 0x4008,
+    Data4lo: 0xdb8336a4, Data4hi: 0xea669518,
+}
+
+/// IID_ID3D12DeviceRemovedExtendedData = 98931d33-5ae8-4791-aa3c-1a73a2934e71
+pub const IID_ID3D12DeviceRemovedExtendedData: GUID = GUID {
+    Data1: 0x98931d33, Data2: 0x5ae8, Data3: 0x4791,
+    Data4lo: 0x731a3caa, Data4hi: 0x714e93a2,
+}
+
+/// IID_ID3D12DeviceRemovedExtendedData1 = 9727a022-cf1d-4dda-9eba-effa653fc506
+pub const IID_ID3D12DeviceRemovedExtendedData1: GUID = GUID {
+    Data1: 0x9727a022, Data2: 0xcf1d, Data3: 0x4dda,
+    Data4lo: 0xfaefba9e, Data4hi: 0x06c53f65,
+}
+
+/// IID_ID3D12DeviceRemovedExtendedData2 = 67fc5816-e4ca-4915-bf18-42541272da54
+pub const IID_ID3D12DeviceRemovedExtendedData2: GUID = GUID {
+    Data1: 0x67fc5816, Data2: 0xe4ca, Data3: 0x4915,
+    Data4lo: 0x544218bf, Data4hi: 0x54da7212,
+}
+
+/// IID_ID3D12CommandSignature = c36a797c-ec80-4f0a-8985-a7b2475082d1
+pub const IID_ID3D12CommandSignature: GUID = GUID {
+    Data1: 0xc36a797c, Data2: 0xec80, Data3: 0x4f0a,
+    Data4lo: 0xb2a78589, Data4hi: 0xd1825047,
+}
+
+/// IID_ID3D12ProtectedResourceSession = 6cd696f4-f289-40cc-8091-5a6c0a099c3d
+pub const IID_ID3D12ProtectedResourceSession: GUID = GUID {
+    Data1: 0x6cd696f4, Data2: 0xf289, Data3: 0x40cc,
+    Data4lo: 0x6c5a9180, Data4hi: 0x3d9c090a,
+}
+
+/// IID_ID3D12LifetimeTracker = 3fd03d36-4eb1-424a-a582-494ecb8ba813
+pub const IID_ID3D12LifetimeTracker: GUID = GUID {
+    Data1: 0x3fd03d36, Data2: 0x4eb1, Data3: 0x424a,
+    Data4lo: 0x4e4982a5, Data4hi: 0x13a88bcb,
+}
+
+/// IID_IDXGIResource = 035f3ab4-482e-4e50-b41f-8a7f8bd8960b
+pub const IID_IDXGIResource: GUID = GUID {
+    Data1: 0x035f3ab4, Data2: 0x482e, Data3: 0x4e50,
+    Data4lo: 0x7f8a1fb4, Data4hi: 0x0b96d88b,
+}
+
+/// IID_IDXGIResource1 = 30961379-4609-4a41-998e-54fe567ee0c1
+pub const IID_IDXGIResource1: GUID = GUID {
+    Data1: 0x30961379, Data2: 0x4609, Data3: 0x4a41,
+    Data4lo: 0xfe548e99, Data4hi: 0xc1e07e56,
+}
+
+/// IID_IDXGIKeyedMutex = 9d8e1289-d7b3-465f-8126-250e349af85d
+pub const IID_IDXGIKeyedMutex: GUID = GUID {
+    Data1: 0x9d8e1289, Data2: 0xd7b3, Data3: 0x465f,
+    Data4lo: 0x0e252681, Data4hi: 0x5df89a34,
+}
+
+/// IID_IDXGISurface = cafcb56c-6ac3-4889-bf47-9e23bbd260ec
+pub const IID_IDXGISurface: GUID = GUID {
+    Data1: 0xcafcb56c, Data2: 0x6ac3, Data3: 0x4889,
+    Data4lo: 0x239e47bf, Data4hi: 0xec60d2bb,
+}
+
+/// IID_IDXGISurface1 = 4ae63092-6327-4c1b-80ae-bfe12ea32b86
+pub const IID_IDXGISurface1: GUID = GUID {
+    Data1: 0x4ae63092, Data2: 0x6327, Data3: 0x4c1b,
+    Data4lo: 0xe1bfae80, Data4hi: 0x862ba32e,
+}
+
+/// IID_IDXGISurface2 = aba496dd-b617-4cb8-a866-bc44d7eb1fa2
+pub const IID_IDXGISurface2: GUID = GUID {
+    Data1: 0xaba496dd, Data2: 0xb617, Data3: 0x4cb8,
+    Data4lo: 0x44bc66a8, Data4hi: 0xa21febd7,
+}
+
+/// IID_IDXGIOutputDuplication = 191cfac3-a341-470d-b26e-a864f428319c
+pub const IID_IDXGIOutputDuplication: GUID = GUID {
+    Data1: 0x191cfac3, Data2: 0xa341, Data3: 0x470d,
+    Data4lo: 0x64a86eb2, Data4hi: 0x9c3128f4,
+}
+
+/// IID_IDXGIDebug = 119e7452-de9e-40fe-8806-88f90c12b441
+pub const IID_IDXGIDebug: GUID = GUID {
+    Data1: 0x119e7452, Data2: 0xde9e, Data3: 0x40fe,
+    Data4lo: 0xf9880688, Data4hi: 0x41b4120c,
+}
+
+/// IID_IDXGIDebug1 = c5a05f0c-16f2-4adf-9f4d-a8c4d58ac550
+pub const IID_IDXGIDebug1: GUID = GUID {
+    Data1: 0xc5a05f0c, Data2: 0x16f2, Data3: 0x4adf,
+    Data4lo: 0xc4a84d9f, Data4hi: 0x50c58ad5,
+}
+
+/// IID_IDXGIInfoQueue = d67441c7-672a-476f-9e82-cd55b44949ce
+pub const IID_IDXGIInfoQueue: GUID = GUID {
+    Data1: 0xd67441c7, Data2: 0x672a, Data3: 0x476f,
+    Data4lo: 0x55cd829e, Data4hi: 0xce4949b4,
+}
+
+/// IID_DXGI_DEBUG_ALL = e48ae283-da80-490b-87e6-43e9a9cfda08
+pub const IID_DXGI_DEBUG_ALL: GUID = GUID {
+    Data1: 0xe48ae283, Data2: 0xda80, Data3: 0x490b,
+    Data4lo: 0xe943e687, Data4hi: 0x08dacfa9,
+}
+
+/// IID_DXGI_DEBUG_DX = 35cdd7fc-13b2-421d-a5d7-7e4451287d64
+pub const IID_DXGI_DEBUG_DX: GUID = GUID {
+    Data1: 0x35cdd7fc, Data2: 0x13b2, Data3: 0x421d,
+    Data4lo: 0x447ed7a5, Data4hi: 0x647d2851,
+}
+
+/// IID_DXGI_DEBUG_DXGI = 25cddaa4-b1c6-47e1-ac3e-98875b5a2e2a
+pub const IID_DXGI_DEBUG_DXGI: GUID = GUID {
+    Data1: 0x25cddaa4, Data2: 0xb1c6, Data3: 0x47e1,
+    Data4lo: 0x87983eac, Data4hi: 0x2a2e5a5b,
+}
+
+/// IID_DXGI_DEBUG_APP = 06cd6e01-4219-4ebd-8709-27ed23360c62
+pub const IID_DXGI_DEBUG_APP: GUID = GUID {
+    Data1: 0x06cd6e01, Data2: 0x4219, Data3: 0x4ebd,
+    Data4lo: 0xed270987, Data4hi: 0x620c3623,
+}
+
+/// IID_D3D12_DEBUG = cf59a98c-a950-4326-91ef-9bbaa17bfd78
+pub const IID_D3D12_DEBUG: GUID = GUID {
+    Data1: 0xcf59a98c, Data2: 0xa950, Data3: 0x4326,
+    Data4lo: 0xba9bef91, Data4hi: 0x78fd7ba1,
+}
+
