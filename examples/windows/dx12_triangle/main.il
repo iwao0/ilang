@@ -143,11 +143,8 @@ use directx12 {
         }
 
         // ── DXGI factory ───────────────────────────────────────────
-        // `CreateDXGIFactory2` is declared with a `*const void` slot
-        // for the IID, so the `&IID_X` taken from a CRepr Object
-        // const is downcast through `as *const void` at the call.
         let rawFactory: *void = NULL
-        let rcFactory = CreateDXGIFactory2(0, &IID_IDXGIFactory4 as *const void, &rawFactory)
+        let rcFactory = CreateDXGIFactory2(0, &IID_IDXGIFactory4, &rawFactory)
         console.log("[dx12] CreateDXGIFactory2 rc =", rcFactory)
         if rcFactory != 0 {
             SetWindowTextA(hwnd, cstrFromString("ilang DX12: CreateDXGIFactory2 failed"))
@@ -198,7 +195,7 @@ use directx12 {
         }
         let rawSwap1: *void = NULL
         let rcSwap = factory.CreateSwapChainForHwnd(
-            &cmdQueue as *void,
+            &cmdQueue,
             hwnd,
             &scDesc,
             NULL,
@@ -232,7 +229,7 @@ use directx12 {
 
         // Back buffers + RTVs
         let rawBackBuf0: *void = NULL
-        let rcBuf0 = swapChain.GetBuffer(0, &IID_ID3D12Resource as *const void, &rawBackBuf0)
+        let rcBuf0 = swapChain.GetBuffer(0, &IID_ID3D12Resource, &rawBackBuf0)
         console.log("[dx12] GetBuffer(0) rc =", rcBuf0)
         let backBuf0 = rawBackBuf0 as ID3D12Resource
         device.CreateRenderTargetView(
@@ -241,7 +238,7 @@ use directx12 {
             rtvBase.ptr
         )
         let rawBackBuf1: *void = NULL
-        swapChain.GetBuffer(1, &IID_ID3D12Resource as *const void, &rawBackBuf1)
+        swapChain.GetBuffer(1, &IID_ID3D12Resource, &rawBackBuf1)
         let backBuf1 = rawBackBuf1 as ID3D12Resource
         device.CreateRenderTargetView(
             &backBuf1,
@@ -273,11 +270,9 @@ use directx12 {
         }
         let rawSigBlob:   *void = NULL
         let rawSigErrBlob: *void = NULL
-        let rsDescVoid = &rsDesc as *const void
-        let rsVersion: u32 = D3D12RootSignatureVersion.version_1_0
         let rcSerial = D3D12SerializeRootSignature(
-            rsDescVoid,
-            rsVersion,
+            &rsDesc,
+            D3D12RootSignatureVersion.version_1_0,
             &rawSigBlob,
             &rawSigErrBlob
         )
@@ -288,9 +283,9 @@ use directx12 {
         let rawRootSig: *void = NULL
         let rcRoot = device.CreateRootSignature(
             0,
-            blobPtr as *const void,
+            blobPtr,
             blobSize,
-            &IID_ID3D12RootSignature as *const void,
+            &IID_ID3D12RootSignature,
             &rawRootSig
         )
         console.log("[dx12] CreateRootSignature rc =", rcRoot)
@@ -299,8 +294,7 @@ use directx12 {
             // what the debug layer rejected. Empty in the happy path
             // so we don't QueryInterface every frame.
             let rawInfoQueue: *void = NULL
-            let deviceAsBase = device as i64 as IUnknown
-            let rcQi = deviceAsBase.QueryInterface(&IID_ID3D12InfoQueue, &rawInfoQueue)
+            let rcQi = device.QueryInterface(&IID_ID3D12InfoQueue, &rawInfoQueue)
             if rcQi == 0 {
                 let infoQueue = rawInfoQueue as ID3D12InfoQueue
                 let numMsgs = infoQueue.GetNumStoredMessages()
@@ -314,22 +308,20 @@ use directx12 {
                     scratch.push(0)
                     fill = fill + 1
                 }
-                let scratchPtrV = scratch as *void
-                let scratchPtr = scratchPtrV as *const void
                 let i: u64 = 0
                 loop {
                     if i >= numMsgs { break }
                     let lenSlot: u64 = 4096
-                    let rcMsg = infoQueue.GetMessage(i, scratchPtrV, &lenSlot)
+                    let rcMsg = infoQueue.GetMessage(i, scratch, &lenSlot)
                     if rcMsg != 0 {
                         console.log("[dx12]  msg", i, "rc =", rcMsg)
                     } else {
                         // D3D12_MESSAGE { Category u32, Severity u32,
                         //                 ID u32, pad u32,
                         //                 pDescription ptr, Length u64 }
-                        let pDesc = readU64(scratchPtr, 16)
-                        let descLen = readU64(scratchPtr, 24)
-                        let descStr = stringFromCstr(pDesc as i64 as *const char)
+                        let pDesc = readU64(scratch, 16)
+                        let descLen = readU64(scratch, 24)
+                        let descStr = stringFromCstr(pDesc as *const char)
                         console.log("[dx12]  msg", i, "len=", descLen, "text=", descStr)
                     }
                     i = i + 1
@@ -353,7 +345,7 @@ use directx12 {
         let rawVs:    *void = NULL
         let rawVsErr: *void = NULL
         let rcVs = D3DCompile(
-            hlslCstr as *const void, hlslLen as u64,
+            hlslCstr, hlslLen as u64,
             srcName,
             NULL,  // placeholder: zero pDefines
             NULL,
@@ -368,7 +360,7 @@ use directx12 {
         let rawPs:    *void = NULL
         let rawPsErr: *void = NULL
         let rcPs = D3DCompile(
-            hlslCstr as *const void, hlslLen as u64,
+            hlslCstr, hlslLen as u64,
             srcName,
             NULL,
             NULL,
@@ -405,13 +397,13 @@ use directx12 {
         ]
         // ── Graphics PSO ──────────────────────────────────────────
         let psoDesc = D3D12_GRAPHICS_PIPELINE_STATE_DESC {
-            pRootSignature: rootSig as *void as i64,
+            pRootSignature: rootSig as i64,
             VS: D3D12_SHADER_BYTECODE {
-                pShaderBytecode: vsBlob.GetBufferPointer() as *const void,
+                pShaderBytecode: vsBlob.GetBufferPointer(),
                 BytecodeLength:  vsBlob.GetBufferSize(),
             },
             PS: D3D12_SHADER_BYTECODE {
-                pShaderBytecode: psBlob.GetBufferPointer() as *const void,
+                pShaderBytecode: psBlob.GetBufferPointer(),
                 BytecodeLength:  psBlob.GetBufferSize(),
             },
             DS: D3D12_SHADER_BYTECODE { pShaderBytecode: NULL, BytecodeLength: 0 },
@@ -457,8 +449,7 @@ use directx12 {
             // — pulls D3D12's validation messages so we see exactly
             // which PSO desc field it rejected.
             let rawIq: *void = NULL
-            let devBase = device as i64 as IUnknown
-            let rcQi = devBase.QueryInterface(&IID_ID3D12InfoQueue, &rawIq)
+            let rcQi = device.QueryInterface(&IID_ID3D12InfoQueue, &rawIq)
             if rcQi == 0 {
                 let iq = rawIq as ID3D12InfoQueue
                 let n = iq.GetNumStoredMessages()
@@ -470,17 +461,15 @@ use directx12 {
                     buf.push(0)
                     f = f + 1
                 }
-                let bv = buf as *void
-                let bc = bv as *const void
                 let i: u64 = 0
                 loop {
                     if i >= n { break }
                     let lenSlot: u64 = 8192
-                    let rcM = iq.GetMessage(i, bv, &lenSlot)
+                    let rcM = iq.GetMessage(i, buf, &lenSlot)
                     if rcM == 0 {
-                        let pd  = readU64(bc, 16)
-                        let dl  = readU64(bc, 24)
-                        let txt = stringFromCstr(pd as i64 as *const char)
+                        let pd  = readU64(buf, 16)
+                        let dl  = readU64(buf, 24)
+                        let txt = stringFromCstr(pd as *const char)
                         console.log("[dx12]  pso msg", i, "len=", dl, "text=", txt)
                     }
                     i = i + 1
@@ -665,7 +654,7 @@ use directx12 {
 
             // Execute + present + wait. Array-of-one of
             // `ID3D12CommandList*`.
-            let listPtr: *ID3D12CommandList = &cmdList as *void as *ID3D12CommandList
+            let listPtr: *ID3D12CommandList = &cmdList as *ID3D12CommandList
             cmdQueue.ExecuteCommandLists(1, &listPtr)
             let _ = swapChain.Present(1, 0)
 

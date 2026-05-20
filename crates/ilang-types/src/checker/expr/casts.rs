@@ -128,8 +128,9 @@ impl TypeChecker {
         // patterns work (read an opaque address from i64[],
         // hand it back to a `*Foo` parameter).
         let is_raw_ptr = |t: &Type| matches!(t, Type::RawPtr { .. });
-        if (is_raw_ptr(&from) && *ty == Type::I64)
-            || (from == Type::I64 && is_raw_ptr(ty))
+        let is_ptr_int = |t: &Type| matches!(t, Type::I64 | Type::U64);
+        if (is_raw_ptr(&from) && is_ptr_int(ty))
+            || (is_ptr_int(&from) && is_raw_ptr(ty))
         {
             return Ok(ty.clone());
         }

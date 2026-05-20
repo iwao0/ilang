@@ -107,12 +107,16 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
     // ilang `T[]` → `*T` / `*const T` raw pointer at the C boundary.
     // The array's data pointer is what's actually passed; the ARC
     // header / length sit at negative offsets and stay invisible to
-    // C. Element type must match exactly.
+    // C. Element type must match exactly, except that `*void` (the
+    // C-untyped-pointer escape hatch) accepts any element shape.
     if let (
         Type::Array { elem, fixed: _ },
         Type::RawPtr { inner, .. },
     ) = (from, to)
     {
+        if matches!(**inner, Type::CVoid) {
+            return true;
+        }
         return elem.as_ref() == inner.as_ref();
     }
     false
