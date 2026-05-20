@@ -808,7 +808,7 @@ pub enum SubSystem: u32 {
         /// the desktop mode).
         pub get currentDisplayMode(): DisplayMode {
             let raw = new SDL_DisplayMode()
-            SDL_GetWindowDisplayMode(this.handle as *SDL_Window, raw)
+            SDL_GetWindowDisplayMode(this.handle as *SDL_Window, &raw)
             let m = new DisplayMode()
             m.format = raw.format
             m.w = raw.w
@@ -868,7 +868,7 @@ pub enum SubSystem: u32 {
             SDL_SetWindowShape(
                 this.handle as *SDL_Window,
                 shape.handle as *SDL_Surface,
-                mode
+                &mode
             )
         }
 
@@ -878,7 +878,7 @@ pub enum SubSystem: u32 {
         /// had a shape set yet.
         pub shapedMode(out: WindowShapeMode): i32 {
             if this.handle == 0 { return -1 }
-            SDL_GetShapedWindowMode(this.handle as *SDL_Window, out)
+            SDL_GetShapedWindowMode(this.handle as *SDL_Window, &out)
         }
 
         // ─── system window manager (SDL_syswm.h) ─────────────────
@@ -903,7 +903,7 @@ pub enum SubSystem: u32 {
             info.versionMajor = 2 as u8
             info.versionMinor = 0 as u8
             info.versionPatch = 0 as u8
-            let ok = SDL_GetWindowWMInfo(this.handle as *SDL_Window, info)
+            let ok = SDL_GetWindowWMInfo(this.handle as *SDL_Window, &info)
             if ok == 0 as u8 {
                 // Reset subsystem so callers see `unknown` rather
                 // than whatever stale bytes happened to be in
@@ -1034,14 +1034,14 @@ pub enum SubSystem: u32 {
         /// Display bounds in screen coordinates.
         pub get bounds(): Rect {
             let r = new Rect()
-            SDL_GetDisplayBounds(this.index, r)
+            SDL_GetDisplayBounds(this.index, &r)
             r
         }
 
         /// Display bounds excluding system UI (taskbar / dock).
         pub get usableBounds(): Rect {
             let r = new Rect()
-            SDL_GetDisplayUsableBounds(this.index, r)
+            SDL_GetDisplayUsableBounds(this.index, &r)
             r
         }
 
@@ -1071,7 +1071,7 @@ pub enum SubSystem: u32 {
         ///   the corresponding `DisplayMode`.
         pub mode(modeIndex: i32): DisplayMode {
             let raw = new SDL_DisplayMode()
-            SDL_GetDisplayMode(this.index, modeIndex, raw)
+            SDL_GetDisplayMode(this.index, modeIndex, &raw)
             let m = new DisplayMode()
             m.format = raw.format
             m.w = raw.w
@@ -1083,7 +1083,7 @@ pub enum SubSystem: u32 {
         /// Mode the OS desktop is configured for.
         pub get desktopMode(): DisplayMode {
             let raw = new SDL_DisplayMode()
-            SDL_GetDesktopDisplayMode(this.index, raw)
+            SDL_GetDesktopDisplayMode(this.index, &raw)
             let m = new DisplayMode()
             m.format = raw.format
             m.w = raw.w
@@ -1096,7 +1096,7 @@ pub enum SubSystem: u32 {
         /// fullscreen app changed it).
         pub get currentMode(): DisplayMode {
             let raw = new SDL_DisplayMode()
-            SDL_GetCurrentDisplayMode(this.index, raw)
+            SDL_GetCurrentDisplayMode(this.index, &raw)
             let m = new DisplayMode()
             m.format = raw.format
             m.w = raw.w

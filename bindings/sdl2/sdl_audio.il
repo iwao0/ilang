@@ -193,7 +193,7 @@ pub enum AudioStatus: i32 {
             let obtained = new AudioSpec()
             this.id = SDL_OpenAudioDevice(
                 0 as *const char, 0,
-                desired, obtained, 0
+                &desired, &obtained, 0
             )
         }
 

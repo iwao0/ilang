@@ -483,7 +483,7 @@ pub enum Hint: string {
     ///   the linked SDL2 library's version (major.minor.patch).
     pub fn getVersion(): Version {
         let v = new Version()
-        SDL_GetVersion(v)
+        SDL_GetVersion(&v)
         v
     }
 
@@ -538,7 +538,7 @@ pub enum Hint: string {
 
     /// Test whether two rectangles overlap.
     pub fn rectsIntersect(a: Rect, b: Rect): bool {
-        SDL_HasIntersection(a, b) != 0
+        SDL_HasIntersection(&a, &b) != 0
     }
 
     /// Compute `a ∩ b`. The intersection is written into a fresh
@@ -551,7 +551,7 @@ pub enum Hint: string {
     ///   was no overlap.
     pub fn intersectRects(a: Rect, b: Rect): Rect {
         let r = new Rect()
-        SDL_IntersectRect(a, b, r)
+        SDL_IntersectRect(&a, &b, &r)
         r
     }
 
@@ -559,7 +559,7 @@ pub enum Hint: string {
     /// `b`.
     pub fn unionRects(a: Rect, b: Rect): Rect {
         let r = new Rect()
-        SDL_UnionRect(a, b, r)
+        SDL_UnionRect(&a, &b, &r)
         r
     }
 
@@ -584,7 +584,7 @@ pub enum Hint: string {
     pub fn enclosePoints(points: Point[], clip: Rect): Rect {
         let r = new Rect()
         let p: *Point = points
-        SDL_EnclosePoints(p, points.length as i32, clip, r)
+        SDL_EnclosePoints(p, points.length as i32, &clip, &r)
         r
     }
 

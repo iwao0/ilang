@@ -456,7 +456,7 @@ pub enum RendererFlip: i32 {
         /// Driver / capability info for *this* renderer.
         pub get info(): RendererInfo {
             let raw = new SDL_RendererInfo()
-            SDL_GetRendererInfo(this.handle as *SDL_Renderer, raw)
+            SDL_GetRendererInfo(this.handle as *SDL_Renderer, &raw)
             let info = new RendererInfo()
             info.name = stringFromCstr(raw.name)
             info.flags = raw.flags
@@ -558,11 +558,11 @@ pub enum RendererFlip: i32 {
         /// `clearViewport()` to remove the constraint.
         pub get viewport(): Rect {
             let r = new Rect()
-            SDL_RenderGetViewport(this.handle as *SDL_Renderer, r)
+            SDL_RenderGetViewport(this.handle as *SDL_Renderer, &r)
             r
         }
         pub set viewport(rect: Rect) {
-            SDL_RenderSetViewport(this.handle as *SDL_Renderer, rect)
+            SDL_RenderSetViewport(this.handle as *SDL_Renderer, &rect)
             return
         }
 
@@ -576,11 +576,11 @@ pub enum RendererFlip: i32 {
         /// Active clip rectangle (drawing outside is suppressed).
         pub get clipRect(): Rect {
             let r = new Rect()
-            SDL_RenderGetClipRect(this.handle as *SDL_Renderer, r)
+            SDL_RenderGetClipRect(this.handle as *SDL_Renderer, &r)
             r
         }
         pub set clipRect(rect: Rect) {
-            SDL_RenderSetClipRect(this.handle as *SDL_Renderer, rect)
+            SDL_RenderSetClipRect(this.handle as *SDL_Renderer, &rect)
             return
         }
 
@@ -664,7 +664,7 @@ pub enum RendererFlip: i32 {
             rect.y = y
             rect.w = w
             rect.h = h
-            SDL_RenderDrawRect(this.handle as *SDL_Renderer, rect)
+            SDL_RenderDrawRect(this.handle as *SDL_Renderer, &rect)
         }
 
         pub drawRects(rects: Rect[]): i32 {
@@ -690,7 +690,7 @@ pub enum RendererFlip: i32 {
             rect.y = y
             rect.w = w
             rect.h = h
-            SDL_RenderFillRect(this.handle as *SDL_Renderer, rect)
+            SDL_RenderFillRect(this.handle as *SDL_Renderer, &rect)
         }
 
         pub fillRects(rects: Rect[]): i32 {
@@ -730,7 +730,7 @@ pub enum RendererFlip: i32 {
             rect.y = y
             rect.w = w
             rect.h = h
-            SDL_RenderDrawRectF(this.handle as *SDL_Renderer, rect)
+            SDL_RenderDrawRectF(this.handle as *SDL_Renderer, &rect)
         }
 
         pub drawRectsF(rects: FRect[]): i32 {
@@ -746,7 +746,7 @@ pub enum RendererFlip: i32 {
             rect.y = y
             rect.w = w
             rect.h = h
-            SDL_RenderFillRectF(this.handle as *SDL_Renderer, rect)
+            SDL_RenderFillRectF(this.handle as *SDL_Renderer, &rect)
         }
 
         pub fillRectsF(rects: FRect[]): i32 {
@@ -776,7 +776,7 @@ pub enum RendererFlip: i32 {
             SDL_RenderCopy(
                 this.handle as *SDL_Renderer,
                 tex.handle as *SDL_Texture,
-                0 as *Rect, dst
+                0 as *Rect, &dst
             )
         }
 
@@ -802,7 +802,7 @@ pub enum RendererFlip: i32 {
             SDL_RenderCopyEx(
                 this.handle as *SDL_Renderer,
                 tex.handle as *SDL_Texture,
-                0 as *Rect, dst,
+                0 as *Rect, &dst,
                 angle, 0 as *const Point, 0
             )
         }
@@ -825,7 +825,7 @@ pub enum RendererFlip: i32 {
             SDL_RenderCopy(
                 this.handle as *SDL_Renderer,
                 tex.handle as *SDL_Texture,
-                srcrect, dstrect
+                &srcrect, &dstrect
             )
         }
 
@@ -837,7 +837,7 @@ pub enum RendererFlip: i32 {
             SDL_RenderCopyEx(
                 this.handle as *SDL_Renderer,
                 tex.handle as *SDL_Texture,
-                srcrect, dstrect, angle, center, flip
+                &srcrect, &dstrect, angle, &center, flip
             )
         }
 
@@ -848,7 +848,7 @@ pub enum RendererFlip: i32 {
             SDL_RenderCopyF(
                 this.handle as *SDL_Renderer,
                 tex.handle as *SDL_Texture,
-                srcrect, dstrect
+                &srcrect, &dstrect
             )
         }
 
@@ -860,7 +860,7 @@ pub enum RendererFlip: i32 {
             SDL_RenderCopyExF(
                 this.handle as *SDL_Renderer,
                 tex.handle as *SDL_Texture,
-                srcrect, dstrect, angle, center, flip
+                &srcrect, &dstrect, angle, &center, flip
             )
         }
 
@@ -892,7 +892,7 @@ pub enum RendererFlip: i32 {
         ): i32 {
             let p: *u8 = pixels
             SDL_RenderReadPixels(
-                this.handle as *SDL_Renderer, rect, format,
+                this.handle as *SDL_Renderer, &rect, format,
                 p as *void, pitch
             )
         }
@@ -950,7 +950,7 @@ pub enum RendererFlip: i32 {
         /// Driver info at `index` (`0..numDrivers()`).
         pub static driverInfo(index: i32): RendererInfo {
             let raw = new SDL_RendererInfo()
-            SDL_GetRenderDriverInfo(index, raw)
+            SDL_GetRenderDriverInfo(index, &raw)
             let info = new RendererInfo()
             info.name = stringFromCstr(raw.name)
             info.flags = raw.flags
@@ -1131,7 +1131,7 @@ pub enum RendererFlip: i32 {
         pub updateRect(rect: Rect, rgba: u8[], pitch: i32): i32 {
             let p: *u8 = rgba
             SDL_UpdateTexture(
-                this.handle as *SDL_Texture, rect, p as *const void, pitch
+                this.handle as *SDL_Texture, &rect, p as *const void, pitch
             )
         }
 

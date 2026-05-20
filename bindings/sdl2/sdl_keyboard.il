@@ -561,7 +561,7 @@ pub enum KeyMod: u16 {
         pub setTextInputRect(x: i32, y: i32, w: i32, h: i32) {
             let r = new Rect()
             r.x = x; r.y = y; r.w = w; r.h = h
-            SDL_SetTextInputRect(r)
+            SDL_SetTextInputRect(&r)
         }
 
         /// Args:

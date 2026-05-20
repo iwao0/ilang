@@ -266,7 +266,7 @@ pub enum PeepAction: i32 {
     ///   true if `event` was populated, false if the queue was
     ///   empty. Caller looks at `event.eventType` to dispatch.
     pub fn pollEvent(event: Event): bool {
-        SDL_PollEvent(event) != 0
+        SDL_PollEvent(&event) != 0
     }
 
     /// Push a synthetic event onto the queue.
@@ -278,7 +278,7 @@ pub enum PeepAction: i32 {
     ///   `1` on success, `0` if the event was filtered, `< 0` on
     ///   error.
     pub fn pushEvent(event: Event): i32 {
-        SDL_PushEvent(event)
+        SDL_PushEvent(&event)
     }
 
     /// Toggle delivery / query of an event class.
@@ -325,7 +325,7 @@ pub enum PeepAction: i32 {
     /// Returns:
     ///   true on success, false on internal SDL error.
     pub fn waitEvent(event: Event): bool {
-        SDL_WaitEvent(event) != 0
+        SDL_WaitEvent(&event) != 0
     }
 
     /// Block up to `timeoutMs` for an event.
@@ -338,7 +338,7 @@ pub enum PeepAction: i32 {
     /// Returns:
     ///   true if `event` was populated, false on timeout / error.
     pub fn waitEventTimeout(event: Event, timeoutMs: i32): bool {
-        SDL_WaitEventTimeout(event, timeoutMs) != 0
+        SDL_WaitEventTimeout(&event, timeoutMs) != 0
     }
 
     /// Peek / get / add events in bulk.

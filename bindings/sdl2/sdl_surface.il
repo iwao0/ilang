@@ -312,7 +312,7 @@ pub enum BlendMode: i32 {
         ///   `0` on success, `< 0` on failure.
         pub fillRect(rect: Rect, colour: u32): i32 {
             if this.handle == 0 { return -1 }
-            SDL_FillRect(this.handle as *SDL_Surface, rect, colour)
+            SDL_FillRect(this.handle as *SDL_Surface, &rect, colour)
         }
 
         /// Fill the entire surface with `colour`.
@@ -328,8 +328,8 @@ pub enum BlendMode: i32 {
         pub blit(srcRect: Rect, dst: Surface, dstRect: Rect): i32 {
             if this.handle == 0 || dst.handle == 0 { return -1 }
             SDL_UpperBlit(
-                this.handle as *SDL_Surface, srcRect,
-                dst.handle as *SDL_Surface, dstRect
+                this.handle as *SDL_Surface, &srcRect,
+                dst.handle as *SDL_Surface, &dstRect
             )
         }
 
@@ -338,8 +338,8 @@ pub enum BlendMode: i32 {
         pub blitScaled(srcRect: Rect, dst: Surface, dstRect: Rect): i32 {
             if this.handle == 0 || dst.handle == 0 { return -1 }
             SDL_UpperBlitScaled(
-                this.handle as *SDL_Surface, srcRect,
-                dst.handle as *SDL_Surface, dstRect
+                this.handle as *SDL_Surface, &srcRect,
+                dst.handle as *SDL_Surface, &dstRect
             )
         }
 
