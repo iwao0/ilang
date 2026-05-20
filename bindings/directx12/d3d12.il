@@ -11,6 +11,13 @@
 // Linking: d3d12.lib (Windows 10 SDK).  At runtime the DLL is
 // d3d12.dll (forwarded transparently).
 
+// Re-use the DXGI sample-descriptor struct from the windows
+// binding rather than duplicating it here — both modules end up
+// referenced from the same example via their parent `ilang.toml`,
+// and keeping a single canonical type stops the type checker
+// from rejecting cross-binding struct literals.
+use dxgi { DXGI_SAMPLE_DESC }
+
 // ─── Feature-level identifiers (D3D_FEATURE_LEVEL_*) ─────────────
 pub enum D3DFeatureLevel: u32 {
     /// 9.1 — Windows Phone fallback only.
@@ -386,13 +393,6 @@ pub enum D3D12Result: i32 {
         Alignment:       u64
         Flags:           u32           // D3D12HeapFlags.*
         _pad:            u32
-    }
-
-    // ── DXGI_SAMPLE_DESC — 8 bytes (duplicate of the dxgi.il one) ─
-
-    pub struct DXGI_SAMPLE_DESC {
-        Count:   u32
-        Quality: u32
     }
 
     // ── D3D12_RESOURCE_DESC — 72 bytes ───────────────────────────

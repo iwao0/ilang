@@ -1,0 +1,6 @@
+[package]
+name = "dx12_triangle"
+
+[deps]
+windows = "../../../bindings/windows"
+directx12 = "../../../bindings/directx12"

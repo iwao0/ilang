@@ -12,6 +12,10 @@ pub enum DxgiFormat: u32 {
     r32g32b32a32_float = 2
     r32g32b32a32_uint  = 3
     r32g32b32a32_sint  = 4
+    r32g32b32_typeless = 5
+    r32g32b32_float    = 6
+    r32g32b32_uint     = 7
+    r32g32b32_sint     = 8
     r16g16b16a16_float = 10
     r16g16b16a16_unorm = 11
     r32g32_float       = 16
@@ -268,4 +272,114 @@ pub enum DxgiResult: i32 {
         riid:  *const void,
         pDebug: **void
     ): i32
+
+    // ─── DXGI @com interfaces ─────────────────────────────────────
+    //
+    // Slot positions match the SDK vtable; methods this repo doesn't
+    // call yet stay as `_slotN_Name()` placeholders so binary
+    // compatibility is preserved.
+
+    @com pub interface IUnknown {
+        QueryInterface(riid: *const void, ppvObject: **void): i32
+        AddRef(): u32
+        Release(): u32
+    }
+
+    @com pub interface IDXGIObject : IUnknown {
+        SetPrivateData(Name: *const void, DataSize: u32, pData: *const void): i32
+        SetPrivateDataInterface(Name: *const void, pUnknown: i64): i32
+        GetPrivateData(Name: *const void, pDataSize: *u32, pData: *void): i32
+        GetParent(riid: *const void, ppParent: **void): i32
+    }
+
+    @com pub interface IDXGIDeviceSubObject : IDXGIObject {
+        GetDevice(riid: *const void, ppDevice: **void): i32
+    }
+
+    @com pub interface IDXGISwapChain : IDXGIDeviceSubObject {
+        Present(SyncInterval: u32, Flags: u32): i32
+        GetBuffer(Buffer: u32, riid: *const void, ppSurface: **void): i32
+        _slot10_SetFullscreenState()
+        _slot11_GetFullscreenState()
+        _slot12_GetDesc()
+        _slot13_ResizeBuffers()
+        _slot14_ResizeTarget()
+        _slot15_GetContainingOutput()
+        _slot16_GetFrameStatistics()
+        _slot17_GetLastPresentCount()
+    }
+
+    @com pub interface IDXGISwapChain1 : IDXGISwapChain {
+        _slot18_GetDesc1()
+        _slot19_GetFullscreenDesc()
+        _slot20_GetHwnd()
+        _slot21_GetCoreWindow()
+        _slot22_Present1()
+        _slot23_IsTemporaryMonoSupported()
+        _slot24_GetRestrictToOutput()
+        _slot25_SetBackgroundColor()
+        _slot26_GetBackgroundColor()
+        _slot27_SetRotation()
+        _slot28_GetRotation()
+    }
+
+    @com pub interface IDXGISwapChain2 : IDXGISwapChain1 {
+        _slot29_SetSourceSize()
+        _slot30_GetSourceSize()
+        _slot31_SetMaximumFrameLatency()
+        _slot32_GetMaximumFrameLatency()
+        _slot33_GetFrameLatencyWaitableObject()
+        _slot34_SetMatrixTransform()
+        _slot35_GetMatrixTransform()
+    }
+
+    @com pub interface IDXGISwapChain3 : IDXGISwapChain2 {
+        GetCurrentBackBufferIndex(): u32
+        _slot37_CheckColorSpaceSupport()
+        _slot38_SetColorSpace1()
+        _slot39_ResizeBuffers1()
+    }
+
+    @com pub interface IDXGIFactory : IDXGIObject {
+        _slot7_EnumAdapters()
+        MakeWindowAssociation(WindowHandle: i64, Flags: u32): i32
+        _slot9_GetWindowAssociation()
+        _slot10_CreateSwapChain()
+        _slot11_CreateSoftwareAdapter()
+    }
+
+    @com pub interface IDXGIFactory1 : IDXGIFactory {
+        _slot12_EnumAdapters1()
+        _slot13_IsCurrent()
+    }
+
+    @com pub interface IDXGIFactory2 : IDXGIFactory1 {
+        _slot14_IsWindowedStereoEnabled()
+        CreateSwapChainForHwnd(
+            pDevice:               i64,                    // IUnknown* (the command queue for D3D12)
+            hWnd:                  i64,                    // HWND
+            pDesc:                 *const DXGI_SWAP_CHAIN_DESC1,
+            pFullscreenDesc:       *const void,            // optional, NULL for windowed
+            pRestrictToOutput:     i64,                    // IDXGIOutput*, NULL = no restriction
+            ppSwapChain:           **void
+        ): i32
+        _slot16_CreateSwapChainForCoreWindow()
+        _slot17_GetSharedResourceAdapterLuid()
+        _slot18_RegisterStereoStatusWindow()
+        _slot19_RegisterStereoStatusEvent()
+        _slot20_UnregisterStereoStatus()
+        _slot21_RegisterOcclusionStatusWindow()
+        _slot22_RegisterOcclusionStatusEvent()
+        _slot23_UnregisterOcclusionStatus()
+        _slot24_CreateSwapChainForComposition()
+    }
+
+    @com pub interface IDXGIFactory3 : IDXGIFactory2 {
+        _slot25_GetCreationFlags()
+    }
+
+    @com pub interface IDXGIFactory4 : IDXGIFactory3 {
+        _slot26_EnumAdapterByLuid()
+        _slot27_EnumWarpAdapter()
+    }
 }
