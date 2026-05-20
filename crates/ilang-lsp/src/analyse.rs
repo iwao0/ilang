@@ -115,19 +115,24 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
         }
         ilang_parser::loader::load_program_with_overlay(path, &extra, &overlay).ok()
     };
-    let (mut external_sigs, external_rets) = merged
+    let (mut external_sigs, mut external_rets) = merged
         .as_ref()
         .map(collect_external_signatures)
         .unwrap_or_default();
     let mut external_sources: ExternalSources = HashMap::new();
     let mut external_docs: HashMap<AstSymbol, String> = HashMap::new();
+    let mut external_const_types: HashMap<AstSymbol, Type> = HashMap::new();
     harvest_imported_consts(
         &path.to_path_buf(),
         &text,
         &mut external_sigs,
         &mut external_sources,
         &mut external_docs,
+        &mut external_const_types,
     );
+    for (k, v) in &external_const_types {
+        external_rets.entry(k.clone()).or_insert(v.clone());
+    }
     let external_classes = merged
         .as_ref()
         .map(|p| collect_external_classes(p, &external_sources))

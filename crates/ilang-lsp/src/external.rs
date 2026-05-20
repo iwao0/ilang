@@ -98,10 +98,11 @@ pub(crate) fn harvest_imported_consts(
     out: &mut HashMap<AstSymbol, String>,
     sources: &mut ExternalSources,
     docs: &mut HashMap<AstSymbol, String>,
+    const_types: &mut HashMap<AstSymbol, Type>,
 ) {
     let Ok(tokens) = tokenize(entry_src) else { return };
     if let Ok(prog) = parse(&tokens) {
-        harvest_from_program(&prog, entry_path, out, sources, docs);
+        harvest_from_program(&prog, entry_path, out, sources, docs, const_types);
         return;
     }
     use ilang_lexer::TokenKind;
@@ -117,7 +118,7 @@ pub(crate) fn harvest_imported_consts(
         if matches!(tokens[i].kind, TokenKind::Use) {
             if let Some(t) = tokens.get(i + 1) {
                 if let TokenKind::Ident(name) = &t.kind {
-                    walk_module(name, &entry_dir, &extra, &mut visited, out, sources, docs);
+                    walk_module(name, &entry_dir, &extra, &mut visited, out, sources, docs, const_types);
                     i += 2;
                     continue;
                 }
@@ -133,6 +134,7 @@ pub(crate) fn harvest_from_program(
     out: &mut HashMap<AstSymbol, String>,
     sources: &mut ExternalSources,
     docs: &mut HashMap<AstSymbol, String>,
+    const_types: &mut HashMap<AstSymbol, Type>,
 ) {
     let mut extra = collect_dep_paths(entry_path).unwrap_or_default();
     let entry_dir = entry_path
@@ -158,6 +160,7 @@ pub(crate) fn harvest_from_program(
                 out,
                 sources,
                 docs,
+                const_types,
             );
             continue;
         }
@@ -174,10 +177,11 @@ pub(crate) fn harvest_from_program(
                 out,
                 sources,
                 docs,
+                const_types,
             );
             continue;
         }
-        walk_module(u.module.as_str(), &entry_dir, &extra, &mut visited, out, sources, docs);
+        walk_module(u.module.as_str(), &entry_dir, &extra, &mut visited, out, sources, docs, const_types);
     }
 }
 
@@ -207,8 +211,9 @@ pub(crate) fn harvest_wildcard_names(
     out: &mut HashMap<AstSymbol, String>,
     sources: &mut ExternalSources,
     docs: &mut HashMap<AstSymbol, String>,
+    const_types: &mut HashMap<AstSymbol, Type>,
 ) {
-    walk_module(module, entry_dir, extra, visited, out, sources, docs);
+    walk_module(module, entry_dir, extra, visited, out, sources, docs, const_types);
     let module_dot = format!("{module}.");
     let bare_entries: Vec<(AstSymbol, String)> = out
         .iter()
@@ -243,6 +248,17 @@ pub(crate) fn harvest_wildcard_names(
     for (k, v) in bare_docs {
         docs.entry(k).or_insert(v);
     }
+    let bare_const_tys: Vec<(AstSymbol, Type)> = const_types
+        .iter()
+        .filter_map(|(k, v)| {
+            k.as_str()
+                .strip_prefix(&module_dot)
+                .map(|tail| (AstSymbol::intern(tail), v.clone()))
+        })
+        .collect();
+    for (k, v) in bare_const_tys {
+        const_types.entry(k).or_insert(v);
+    }
 }
 
 pub(crate) fn harvest_selective_names(
@@ -253,9 +269,10 @@ pub(crate) fn harvest_selective_names(
     out: &mut HashMap<AstSymbol, String>,
     sources: &mut ExternalSources,
     docs: &mut HashMap<AstSymbol, String>,
+    const_types: &mut HashMap<AstSymbol, Type>,
 ) {
     let mut visited: HashSet<PathBuf> = HashSet::new();
-    walk_module(module, entry_dir, extra, &mut visited, out, sources, docs);
+    walk_module(module, entry_dir, extra, &mut visited, out, sources, docs, const_types);
     for name in names {
         let prefixed = AstSymbol::intern(&format!("{module}.{name}"));
         if let Some(sig) = out.get(&prefixed).cloned() {
@@ -266,6 +283,9 @@ pub(crate) fn harvest_selective_names(
         }
         if let Some(d) = docs.get(&prefixed).cloned() {
             docs.insert(name.clone(), d);
+        }
+        if let Some(t) = const_types.get(&prefixed).cloned() {
+            const_types.insert(name.clone(), t);
         }
         // Selectively-imported enums also expose `<bare>.<variant>`
         // composite keys so `Field { obj: Var(bare), name: variant }`
@@ -316,6 +336,7 @@ pub(crate) fn walk_module(
     out: &mut HashMap<AstSymbol, String>,
     sources: &mut ExternalSources,
     docs: &mut HashMap<AstSymbol, String>,
+    const_types: &mut HashMap<AstSymbol, Type>,
 ) {
     let (module_path, module_src) =
         if let Some(s) = ilang_parser::loader::builtin_module_source(prefix) {
@@ -377,11 +398,11 @@ pub(crate) fn walk_module(
     for it in &mod_prog.items {
         match it {
             Item::Const(c) => {
-                let ty = match c
+                let resolved_ty = c
                     .ty
                     .clone()
-                    .or_else(|| infer_expr_type_with_scope(&c.value, &[]))
-                {
+                    .or_else(|| infer_expr_type_with_scope(&c.value, &[]));
+                let ty = match &resolved_ty {
                     Some(t) => format!(": {t}"),
                     None => String::new(),
                 };
@@ -390,6 +411,9 @@ pub(crate) fn walk_module(
                     .unwrap_or_default();
                 let key = format!("{prefix}.{}", c.name);
                 out.insert(AstSymbol::intern(&key), format!("const {key}{ty}{value}"));
+                if let Some(t) = resolved_ty {
+                    const_types.insert(AstSymbol::intern(&key), t);
+                }
                 track(&key, c.span, c.name.as_str().len() as u32, sources, &module_path);
                 if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
@@ -578,6 +602,7 @@ pub(crate) fn walk_module(
                     out,
                     sources,
                     docs,
+                    const_types,
                 );
                 // Loader collapses one-deep umbrella prefixes so the
                 // entry sees `sdl.X` (not `sdl.sdl_renderer.X`). Mirror

@@ -151,13 +151,23 @@ pub(crate) async fn refresh_impl(
         .as_deref()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("/__lsp_buffer__.il"));
+    // Cross-module `pub const` types: the loader inlines const
+    // literals out of the merged program, so the buffer-side walker
+    // can't see them via `prog.items`. Capture each const's resolved
+    // `Type` here and merge it into `external_rets` below so a
+    // buffer-local `let x = ExternConst` recovers the const's type.
+    let mut external_const_types: HashMap<AstSymbol, Type> = HashMap::new();
     harvest_imported_consts(
         &harvest_anchor,
         &text,
         &mut external_sigs,
         &mut external_sources,
         &mut external_docs,
+        &mut external_const_types,
     );
+    for (k, v) in &external_const_types {
+        external_rets.entry(k.clone()).or_insert(v.clone());
+    }
     let external_classes = merged
         .as_ref()
         .map(|p| collect_external_classes(p, &external_sources))
