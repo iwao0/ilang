@@ -173,16 +173,20 @@ use d3d12 {
             nodeMask: u32,
             pBlobWithRootSignature: *const void,
             blobLengthInBytes: u64,
-            riid: *const GUID,
+            riid: *const void,
             ppvRootSignature: **void
         ): i32
         _slot17_CreateConstantBufferView()
         _slot18_CreateShaderResourceView()
         _slot19_CreateUnorderedAccessView()
+        // `DestDescriptor` is a `D3D12_CPU_DESCRIPTOR_HANDLE` (single
+        // SIZE_T) passed by value on x64 — identical at the ABI to a
+        // u64 in rcx. Take the raw `.ptr` to sidestep ilang's
+        // CRepr-struct value-vs-ptr mismatch on the call site.
         CreateRenderTargetView(
             pResource: i64,
             pDesc: *const void,
-            DestDescriptor: D3D12_CPU_DESCRIPTOR_HANDLE
+            DestDescriptorPtr: u64
         )
         _slot21_CreateDepthStencilView()
         _slot22_CreateSampler()
@@ -272,8 +276,10 @@ use d3d12 {
             pDepthStencilDescriptor: *const D3D12_CPU_DESCRIPTOR_HANDLE
         )
         _slot47_ClearDepthStencilView()
+        // `RenderTargetView` is a CPU descriptor handle passed by
+        // value (single SIZE_T = u64).
         ClearRenderTargetView(
-            RenderTargetView: D3D12_CPU_DESCRIPTOR_HANDLE,
+            RenderTargetViewPtr: u64,
             ColorRGBA: *const f32,
             NumRects: u32,
             pRects: *const D3D12_RECT
@@ -287,5 +293,29 @@ use d3d12 {
     @com pub interface ID3DBlob : IUnknown {
         GetBufferPointer(): *void
         GetBufferSize(): u64
+    }
+
+    /// ID3D12Debug — entry point for the D3D12 debug layer. Call
+    /// `EnableDebugLayer()` BEFORE creating the device to get
+    /// detailed validation messages on subsequent API calls.
+    @com pub interface ID3D12Debug : IUnknown {
+        EnableDebugLayer()
+    }
+
+    /// ID3D12InfoQueue — programmatic access to debug-layer
+    /// validation messages. Obtain via `device.QueryInterface`
+    /// after `D3D12CreateDevice` (debug layer must be enabled
+    /// up front). Slots between the ones we use stay as
+    /// `_slotN_*` placeholders.
+    @com pub interface ID3D12InfoQueue : IUnknown {
+        _slot3_SetMessageCountLimit()
+        _slot4_ClearStoredMessages()
+        /// `GetMessage(MessageIndex, pMessage, pMessageByteLength)`.
+        /// Pass `pMessage = NULL` + `*pMessageByteLength = 0` first to
+        /// learn the required size; then alloc + call again.
+        GetMessage(MessageIndex: u64, pMessage: *void, pMessageByteLength: *u64): i32
+        _slot6_GetNumMessagesAllowedByStorageFilter()
+        _slot7_GetNumMessagesDeniedByStorageFilter()
+        GetNumStoredMessages(): u64
     }
 }

@@ -324,6 +324,7 @@ pub(super) fn elem_byte_stride(t: &MirTy) -> i64 {
     }
 }
 
+
 /// Cranelift type to use for a packed array load/store of `t`. Only
 /// the small numeric types get tight packing; everything else uses
 /// the i64 cell path (returns `None`).

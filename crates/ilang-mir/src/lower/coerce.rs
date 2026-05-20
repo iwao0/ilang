@@ -200,24 +200,24 @@ impl<'a> BodyCx<'a> {
             }
         }
         // Array → *T (passes the array's data pointer, not the
-        // header). Reads `data_ptr` at offset 16 of the header.
-        if let (MirTy::Array { .. }, MirTy::RawPtr { .. }) = (from, to) {
-            let zero = self.const_int(MirTy::I64, 16 / 8);
-            let _ = zero;
-            let raw = self.fb.new_value(MirTy::I64);
-            // Treat the header as a 1-element array of i64 ptrs and
-            // load index 2 (= byte offset 16). Reuses ArrayLoad's
-            // emit path; the OOB check is benign — len is at offset
-            // 0 and is always > 2 for any valid header.
-            //
-            // ArrayLoad would do bounds-check; instead emit a raw
-            // memory load via a fresh Inst::LoadField on a synthetic
-            // class — but that's heavier than needed. Use a Cast +
-            // explicit pointer arithmetic via const-index ArrayLoad
-            // skip: simpler is to emit a bare load through a helper
-            // builtin so we avoid the bounds check.
-            let _ = raw;
-            // Fall back to a short builtin call: __array_data_ptr.
+        // header).
+        //
+        // Two layouts:
+        //   * `len: Some(_)` — fixed-length, header-less. The SSA
+        //     value is already the buffer pointer; the cast is a
+        //     bit-level no-op.
+        //   * `len: None`   — dynamic, with the 48-byte header.
+        //     Load `data_ptr` from offset 16 via __array_data_ptr.
+        if let (MirTy::Array { len, .. }, MirTy::RawPtr { .. }) = (from, to) {
+            if len.is_some() {
+                let dst = self.fb.new_value(to.clone());
+                self.fb.push_inst(Inst::Cast {
+                    dst,
+                    kind: CastKind::PtrCast,
+                    src: v,
+                });
+                return Ok(dst);
+            }
             let dst = self.fb.new_value(to.clone());
             self.fb.push_inst(Inst::Call {
                 dst: Some(dst),

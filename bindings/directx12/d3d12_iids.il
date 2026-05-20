@@ -59,7 +59,7 @@ pub const IID_ID3D12DescriptorHeap: GUID = GUID {
 /// IID_ID3D12RootSignature = c54a6b66-72df-4ee8-8be5-a946a1429214
 pub const IID_ID3D12RootSignature: GUID = GUID {
     Data1: 0xc54a6b66, Data2: 0x72df, Data3: 0x4ee8,
-    Data4lo: 0x46a9e58b, Data4hi: 0x14924241,
+    Data4lo: 0x46a9e58b, Data4hi: 0x149242a1,
 }
 
 /// IID_ID3D12PipelineState = 765a30f3-f624-4c6f-a828-ace948622445
@@ -83,5 +83,17 @@ pub const IID_IDXGIFactory4: GUID = GUID {
 /// IID_IDXGISwapChain3 = 94d99bdb-f1f8-4ab0-b236-7da0170edab1
 pub const IID_IDXGISwapChain3: GUID = GUID {
     Data1: 0x94d99bdb, Data2: 0xf1f8, Data3: 0x4ab0,
-    Data4lo: 0xa07d3672, Data4hi: 0xb1da0e17,
+    Data4lo: 0xa07d36b2, Data4hi: 0xb1da0e17,
+}
+
+/// IID_ID3D12RootSignatureDeserializer = 34AB647B-3CC8-46AC-841B-C0965645C046
+pub const IID_ID3D12RootSignatureDeserializer: GUID = GUID {
+    Data1: 0x34AB647B, Data2: 0x3CC8, Data3: 0x46AC,
+    Data4lo: 0x96C01B84, Data4hi: 0x46C04556,
+}
+
+/// IID_ID3D12InfoQueue = 0742a90b-c387-483f-b946-30a7e4e61458
+pub const IID_ID3D12InfoQueue: GUID = GUID {
+    Data1: 0x0742a90b, Data2: 0xc387, Data3: 0x483f,
+    Data4lo: 0xa73046b9, Data4hi: 0x5814e6e4,
 }

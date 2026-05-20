@@ -38,11 +38,13 @@ use windows {
     CreateDXGIFactory2,
     DXGI_SAMPLE_DESC, DXGI_SWAP_CHAIN_DESC1,
     DxgiFormat, DxgiUsage, DxgiSwapEffect, DxgiAlphaMode, DxgiScaling,
-    IDXGIFactory4, IDXGISwapChain3,
+    IDXGIFactory4, IDXGISwapChain1,
 }
 
 use directx12 {
-    D3D12CreateDevice, D3D12SerializeRootSignature,
+    D3D12CreateDevice, D3D12SerializeRootSignature, D3D12GetDebugInterface,
+    ID3D12Debug, IID_ID3D12Debug,
+    ID3D12InfoQueue, IID_ID3D12InfoQueue,
     D3DFeatureLevel,
     GUID,
     IUnknown, ID3D12Device, ID3D12CommandQueue, ID3D12CommandAllocator,
@@ -52,7 +54,7 @@ use directx12 {
     IID_ID3D12Device, IID_ID3D12CommandQueue, IID_ID3D12CommandAllocator,
     IID_ID3D12GraphicsCommandList, IID_ID3D12Resource, IID_ID3D12Fence,
     IID_ID3D12DescriptorHeap, IID_ID3D12RootSignature, IID_ID3D12PipelineState,
-    IID_IDXGIFactory4, IID_IDXGISwapChain3,
+    IID_IDXGIFactory4,
     D3D12_COMMAND_QUEUE_DESC, D3D12_DESCRIPTOR_HEAP_DESC, D3D12_VIEWPORT,
     D3D12_RECT, D3D12_RESOURCE_BARRIER, D3D12_RESOURCE_DESC,
     D3D12_HEAP_PROPERTIES, D3D12_CPU_DESCRIPTOR_HANDLE,
@@ -86,6 +88,7 @@ use directx12 {
     }
 
     pub fn run() {
+        console.log("[dx12] start")
         // ── Constants ──────────────────────────────────────────────
         let width:  u32 = 800
         let height: u32 = 600
@@ -124,17 +127,39 @@ use directx12 {
         )
         ShowWindow(hwnd, ShowCmd.show)
         UpdateWindow(hwnd)
+        console.log("[dx12] window shown")
+
+        // ── D3D12 debug layer ───────────────────────────────────────
+        // Must be enabled BEFORE D3D12CreateDevice for validation
+        // messages to attach. Output lands on the debugger / event
+        // viewer; run under `windbg` or with DebugView to read it.
+        let rawDebug: *void = NULL
+        let rcDbg = D3D12GetDebugInterface(IID_ID3D12Debug, &rawDebug)
+        console.log("[dx12] D3D12GetDebugInterface rc =", rcDbg)
+        if rcDbg == 0 {
+            let dbg = rawDebug as ID3D12Debug
+            dbg.EnableDebugLayer()
+            console.log("[dx12] debug layer enabled")
+        }
 
         // ── DXGI factory ───────────────────────────────────────────
-        // Copy each IID const into a local so `&` can take its
-        // address — top-level `pub const` values get folded inline
-        // and have no addressable storage of their own.
-        let iidFactory4    = IID_IDXGIFactory4
-        let iidSwapChain3  = IID_IDXGISwapChain3
-        let iidResource    = IID_ID3D12Resource
+        // QueryInterface / GetBuffer still need `&iid` so the IID is
+        // copied into addressable locals up front. CreateDXGIFactory2
+        // takes the IID by value through the @lib signature's
+        // `*const GUID` slot, where ilang's by-value→pointer auto
+        // applies just like D3D12CreateDevice.
+        // For @lib slots typed `*const void` the type checker
+        // doesn't auto-promote a struct value, so we route the IID
+        // through an Object→*Object→*void typed-pointer chain. The
+        // local binding gives the value addressable storage; the
+        // typed-pointer step picks the data area (not the binding
+        // slot the way `&local` would for a CRepr struct).
+        let iidFactory4Ptr:  *const GUID = IID_IDXGIFactory4
+        let iidResourcePtr:  *const GUID = IID_ID3D12Resource
 
         let rawFactory: *void = NULL
-        let rcFactory = CreateDXGIFactory2(0, &iidFactory4 as *const GUID as *const void, &rawFactory)
+        let rcFactory = CreateDXGIFactory2(0, iidFactory4Ptr as *const void, &rawFactory)
+        console.log("[dx12] CreateDXGIFactory2 rc =", rcFactory)
         if rcFactory != 0 {
             SetWindowTextA(hwnd, cstrFromString("ilang DX12: CreateDXGIFactory2 failed"))
             return
@@ -149,6 +174,7 @@ use directx12 {
             IID_ID3D12Device,
             &rawDevice
         )
+        console.log("[dx12] D3D12CreateDevice rc =", rcDevice)
         if rcDevice != 0 {
             SetWindowTextA(hwnd, cstrFromString("ilang DX12: D3D12CreateDevice failed - no GPU?"))
             return
@@ -163,7 +189,8 @@ use directx12 {
             NodeMask: 0,
         }
         let rawQueue: *void = NULL
-        device.CreateCommandQueue(queueDesc, IID_ID3D12CommandQueue, &rawQueue)
+        let rcQueue = device.CreateCommandQueue(queueDesc, IID_ID3D12CommandQueue, &rawQueue)
+        console.log("[dx12] CreateCommandQueue rc =", rcQueue)
         let cmdQueue = rawQueue as ID3D12CommandQueue
 
         // ── Swap chain ─────────────────────────────────────────────
@@ -181,20 +208,20 @@ use directx12 {
             Flags:       0,
         }
         let rawSwap1: *void = NULL
-        factory.CreateSwapChainForHwnd(
+        let rcSwap = factory.CreateSwapChainForHwnd(
             cmdQueue as i64,
             hwnd as i64,
-            &scDesc,
+            scDesc,
             NULL,
             0 as i64,
             &rawSwap1
         )
+        console.log("[dx12] CreateSwapChainForHwnd rc =", rcSwap)
         // Promote IDXGISwapChain1 → IDXGISwapChain3 via QueryInterface.
-        let swapChainBase = rawSwap1 as IUnknown
-        let rawSwap3: *void = NULL
-        swapChainBase.QueryInterface(&iidSwapChain3, &rawSwap3)
-        let swapChain = rawSwap3 as IDXGISwapChain3
-        let _ = swapChainBase.Release()
+        // Skip the IDXGISwapChain3 QueryInterface — the back buffer
+        // index can be tracked locally with a `% BufferCount` counter,
+        // so the base IDXGISwapChain1 interface is enough.
+        let swapChain = rawSwap1 as IDXGISwapChain1
 
         // ── RTV descriptor heap ────────────────────────────────────
         let rtvHeapDesc = D3D12_DESCRIPTOR_HEAP_DESC {
@@ -204,31 +231,33 @@ use directx12 {
             NodeMask:       0,
         }
         let rawRtvHeap: *void = NULL
-        device.CreateDescriptorHeap(&rtvHeapDesc, IID_ID3D12DescriptorHeap, &rawRtvHeap)
+        let rcHeap = device.CreateDescriptorHeap(rtvHeapDesc, IID_ID3D12DescriptorHeap, &rawRtvHeap)
+        console.log("[dx12] CreateDescriptorHeap rc =", rcHeap)
         let rtvHeap = rawRtvHeap as ID3D12DescriptorHeap
         let rtvDescriptorSize = device.GetDescriptorHandleIncrementSize(
             D3D12DescriptorHeapType.rtv as u32
         )
 
         let rtvBase = D3D12_CPU_DESCRIPTOR_HANDLE { ptr: 0 }
-        rtvHeap.GetCPUDescriptorHandleForHeapStart(&rtvBase)
+        rtvHeap.GetCPUDescriptorHandleForHeapStart(rtvBase)
 
         // Back buffers + RTVs
         let rawBackBuf0: *void = NULL
-        swapChain.GetBuffer(0, &iidResource, &rawBackBuf0)
+        let rcBuf0 = swapChain.GetBuffer(0, iidResourcePtr as *const void, &rawBackBuf0)
+        console.log("[dx12] GetBuffer(0) rc =", rcBuf0)
         let backBuf0 = rawBackBuf0 as ID3D12Resource
         device.CreateRenderTargetView(
             backBuf0 as i64,
             NULL,
-            D3D12_CPU_DESCRIPTOR_HANDLE { ptr: rtvBase.ptr }
+            rtvBase.ptr
         )
         let rawBackBuf1: *void = NULL
-        swapChain.GetBuffer(1, &iidResource, &rawBackBuf1)
+        swapChain.GetBuffer(1, iidResourcePtr as *const void, &rawBackBuf1)
         let backBuf1 = rawBackBuf1 as ID3D12Resource
         device.CreateRenderTargetView(
             backBuf1 as i64,
             NULL,
-            D3D12_CPU_DESCRIPTOR_HANDLE { ptr: rtvBase.ptr + rtvDescriptorSize as u64 }
+            rtvBase.ptr + rtvDescriptorSize as u64
         )
 
         // ── Command allocator ──────────────────────────────────────
@@ -248,26 +277,81 @@ use directx12 {
             NumStaticSamplers: 0,
             _pad1:             0,
             pStaticSamplers:   NULL,
-            Flags:             D3D12RootSignatureFlags.allowInputAssemblerInputLayout as u32,
+            // 0x1 = ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT; required so
+            // the IA stage can consume vertex/index buffers.
+            Flags:             1,
             _pad2:             0,
         }
         let rawSigBlob:   *void = NULL
         let rawSigErrBlob: *void = NULL
-        D3D12SerializeRootSignature(
-            &rsDesc as *const void,
-            D3D12RootSignatureVersion.version_1_0 as u32,
+        let rsDescPtr: *const D3D12_ROOT_SIGNATURE_DESC = rsDesc
+        let rsDescVoid = rsDescPtr as *const void
+        let rsVersion: u32 = D3D12RootSignatureVersion.version_1_0 as u32
+        let rcSerial = D3D12SerializeRootSignature(
+            rsDescVoid,
+            rsVersion,
             &rawSigBlob,
             &rawSigErrBlob
         )
+        console.log("[dx12] D3D12SerializeRootSignature rc =", rcSerial)
         let sigBlob = rawSigBlob as ID3DBlob
+        let blobPtr = sigBlob.GetBufferPointer()
+        let blobSize = sigBlob.GetBufferSize()
+        let iidRootSigTyped: *const GUID = IID_ID3D12RootSignature
+        let iidRootSigVoid = iidRootSigTyped as *const void
         let rawRootSig: *void = NULL
-        device.CreateRootSignature(
+        let rcRoot = device.CreateRootSignature(
             0,
-            sigBlob.GetBufferPointer() as *const void,
-            sigBlob.GetBufferSize(),
-            IID_ID3D12RootSignature,
+            blobPtr as *const void,
+            blobSize,
+            iidRootSigVoid,
             &rawRootSig
         )
+        console.log("[dx12] CreateRootSignature rc =", rcRoot)
+        if rcRoot != 0 {
+            // Failure path: drain D3D12's info queue so we see exactly
+            // what the debug layer rejected. Empty in the happy path
+            // so we don't QueryInterface every frame.
+            let iidInfoQueueTyped: *const GUID = IID_ID3D12InfoQueue
+            let rawInfoQueue: *void = NULL
+            let deviceAsBase = device as i64 as IUnknown
+            let rcQi = deviceAsBase.QueryInterface(iidInfoQueueTyped, &rawInfoQueue)
+            if rcQi == 0 {
+                let infoQueue = rawInfoQueue as ID3D12InfoQueue
+                let numMsgs = infoQueue.GetNumStoredMessages()
+                console.log("[dx12] info queue messages =", numMsgs)
+                // Scratch buffer for GetMessage. ilang has no fixed-size
+                // array repeat-init, so build a 4 KiB u8[] by push.
+                let scratch: u8[] = []
+                let fill: u64 = 0
+                loop {
+                    if fill >= 4096 as u64 { break }
+                    scratch.push(0 as u8)
+                    fill = fill + 1 as u64
+                }
+                let scratchPtrV = scratch as *void
+                let scratchPtr = scratchPtrV as *const void
+                let i: u64 = 0
+                loop {
+                    if i >= numMsgs { break }
+                    let lenSlot: u64 = 4096
+                    let rcMsg = infoQueue.GetMessage(i, scratchPtrV, &lenSlot)
+                    if rcMsg != 0 {
+                        console.log("[dx12]  msg", i as i64, "rc =", rcMsg)
+                    } else {
+                        // D3D12_MESSAGE { Category u32, Severity u32,
+                        //                 ID u32, pad u32,
+                        //                 pDescription ptr, Length u64 }
+                        let pDesc = readU64(scratchPtr, 16 as i64)
+                        let descLen = readU64(scratchPtr, 24 as i64)
+                        let descStr = stringFromCstr(pDesc as i64 as *const char)
+                        console.log("[dx12]  msg", i as i64, "len=", descLen as i64, "text=", descStr)
+                    }
+                    i = i + 1 as u64
+                }
+                let _ = infoQueue.Release()
+            }
+        }
         let rootSig = rawRootSig as ID3D12RootSignature
         let _ = sigBlob.Release()
 
@@ -283,7 +367,7 @@ use directx12 {
 
         let rawVs:    *void = NULL
         let rawVsErr: *void = NULL
-        D3DCompile(
+        let rcVs = D3DCompile(
             hlslCstr as *const void, hlslLen as u64,
             srcName,
             NULL as *const void as *const void,  // placeholder: zero pDefines
@@ -293,11 +377,12 @@ use directx12 {
             &rawVs as **void as **ID3DBlob,
             &rawVsErr as **void as **ID3DBlob
         )
+        console.log("[dx12] D3DCompile VS rc =", rcVs)
         let vsBlob = rawVs as ID3DBlob
 
         let rawPs:    *void = NULL
         let rawPsErr: *void = NULL
-        D3DCompile(
+        let rcPs = D3DCompile(
             hlslCstr as *const void, hlslLen as u64,
             srcName,
             NULL as *const void as *const void,
@@ -307,6 +392,7 @@ use directx12 {
             &rawPs as **void as **ID3DBlob,
             &rawPsErr as **void as **ID3DBlob
         )
+        console.log("[dx12] D3DCompile PS rc =", rcPs)
         let psBlob = rawPs as ID3DBlob
 
         // ── Input layout ──────────────────────────────────────────
@@ -332,10 +418,10 @@ use directx12 {
                 InstanceDataStepRate: 0,
             },
         ]
-
+        let inputElemsPtr = inputElems as *void
         // ── Graphics PSO ──────────────────────────────────────────
         let psoDesc = D3D12_GRAPHICS_PIPELINE_STATE_DESC {
-            pRootSignature: rootSig as i64,
+            pRootSignature: rootSig as *void as i64,
             VS: D3D12_SHADER_BYTECODE {
                 pShaderBytecode: vsBlob.GetBufferPointer() as *const void,
                 BytecodeLength:  vsBlob.GetBufferSize(),
@@ -349,6 +435,7 @@ use directx12 {
             GS: D3D12_SHADER_BYTECODE { pShaderBytecode: NULL, BytecodeLength: 0 },
             StreamOutput: D3D12_STREAM_OUTPUT_DESC {
                 pSODeclaration: NULL, NumEntries: 0,
+                _pad0: 0,
                 pBufferStrides: NULL, NumStrides: 0,
                 RasterizedStream: 0,
             },
@@ -357,16 +444,16 @@ use directx12 {
             RasterizerState: defaultRasterizerDesc(),
             DepthStencilState: defaultDepthStencilDesc(),
             InputLayout: D3D12_INPUT_LAYOUT_DESC {
-                pInputElementDescs: inputElems,
+                pInputElementDescs: inputElemsPtr as *const D3D12_INPUT_ELEMENT_DESC,
                 NumElements:        2,
                 _pad0:              0,
             },
             IBStripCutValue:       D3D12IndexBufferStripCutValue.disabled as u32,
             PrimitiveTopologyType: D3D12PrimitiveTopologyType.triangle as u32,
+            NumRenderTargets: 1,
             RTVFormat0: DxgiFormat.r8g8b8a8_unorm as u32,
             RTVFormat1: 0, RTVFormat2: 0, RTVFormat3: 0,
             RTVFormat4: 0, RTVFormat5: 0, RTVFormat6: 0, RTVFormat7: 0,
-            NumRenderTargets: 1,
             DSVFormat:        0,
             SampleDesc:       DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
             NodeMask:         0,
@@ -375,16 +462,54 @@ use directx12 {
             _pad0:            0,
         }
         let rawPso: *void = NULL
-        device.CreateGraphicsPipelineState(
-            &psoDesc,
+        let rcPso = device.CreateGraphicsPipelineState(
+            psoDesc,
             IID_ID3D12PipelineState,
             &rawPso
         )
+        console.log("[dx12] CreateGraphicsPipelineState rc =", rcPso)
+        if rcPso != 0 {
+            // Same info-queue drain pattern as CreateRootSignature
+            // — pulls D3D12's validation messages so we see exactly
+            // which PSO desc field it rejected.
+            let iidIqTyped: *const GUID = IID_ID3D12InfoQueue
+            let rawIq: *void = NULL
+            let devBase = device as i64 as IUnknown
+            let rcQi = devBase.QueryInterface(iidIqTyped, &rawIq)
+            if rcQi == 0 {
+                let iq = rawIq as ID3D12InfoQueue
+                let n = iq.GetNumStoredMessages()
+                console.log("[dx12] PSO info queue messages =", n)
+                let buf: u8[] = []
+                let f: u64 = 0
+                loop {
+                    if f >= 8192 as u64 { break }
+                    buf.push(0 as u8)
+                    f = f + 1 as u64
+                }
+                let bv = buf as *void
+                let bc = bv as *const void
+                let i: u64 = 0
+                loop {
+                    if i >= n { break }
+                    let lenSlot: u64 = 8192
+                    let rcM = iq.GetMessage(i, bv, &lenSlot)
+                    if rcM == 0 {
+                        let pd  = readU64(bc, 16 as i64)
+                        let dl  = readU64(bc, 24 as i64)
+                        let txt = stringFromCstr(pd as i64 as *const char)
+                        console.log("[dx12]  pso msg", i as i64, "len=", dl as i64, "text=", txt)
+                    }
+                    i = i + 1 as u64
+                }
+                let _ = iq.Release()
+            }
+        }
         let pso = rawPso as ID3D12PipelineState
 
         // ── Command list (immediately closed; reset each frame) ───
         let rawList: *void = NULL
-        device.CreateCommandList(
+        let rcList = device.CreateCommandList(
             0,
             D3D12CommandListType.direct as u32,
             allocator as i64,
@@ -392,6 +517,7 @@ use directx12 {
             IID_ID3D12GraphicsCommandList,
             &rawList
         )
+        console.log("[dx12] CreateCommandList rc =", rcList)
         let cmdList = rawList as ID3D12GraphicsCommandList
         let _ = cmdList.Close()
 
@@ -417,15 +543,16 @@ use directx12 {
             Flags:            D3D12ResourceFlags.none as u32,
         }
         let rawVb: *void = NULL
-        device.CreateCommittedResource(
-            &uploadHeap,
+        let rcVb = device.CreateCommittedResource(
+            uploadHeap,
             D3D12HeapMiscFlags.none as u32,
-            &vbDesc,
+            vbDesc,
             D3D12ResourceStates.genericRead as u32,
             NULL,
             IID_ID3D12Resource,
             &rawVb
         )
+        console.log("[dx12] CreateCommittedResource rc =", rcVb)
         let vb = rawVb as ID3D12Resource
 
         // Write the triangle (3 vertices, position + color).
@@ -433,7 +560,7 @@ use directx12 {
         // the writeF32 host helper rejects the wider operand.
         let mapped: *void = NULL
         let readNone = D3D12_RANGE { Begin: 0, End: 0 }
-        vb.Map(0, &readNone, &mapped)
+        vb.Map(0, readNone, &mapped)
         // v0 — top, red
         writeF32(mapped,  0,  0.0_f32)
         writeF32(mapped,  4,  0.25_f32)
@@ -468,10 +595,13 @@ use directx12 {
 
         // ── Fence ─────────────────────────────────────────────────
         let rawFence: *void = NULL
-        device.CreateFence(0, 0, IID_ID3D12Fence, &rawFence)
+        let rcFence = device.CreateFence(0, 0, IID_ID3D12Fence, &rawFence)
+        console.log("[dx12] CreateFence rc =", rcFence)
+        console.log("[dx12] entering message pump")
         let fence = rawFence as ID3D12Fence
         let fenceEvent = CreateEventA(NULL, 0, 0, NULL)
         let fenceValue: u64 = 1
+        let frameCounter: u32 = 0
 
         // ── Viewport + scissor (fixed) ────────────────────────────
         let viewport = D3D12_VIEWPORT {
@@ -511,10 +641,10 @@ use directx12 {
             let _ = allocator.Reset()
             let _ = cmdList.Reset(allocator as i64, pso as i64)
             cmdList.SetGraphicsRootSignature(rootSig as i64)
-            cmdList.RSSetViewports(1, &viewport)
-            cmdList.RSSetScissorRects(1, &scissor)
+            cmdList.RSSetViewports(1, viewport)
+            cmdList.RSSetScissorRects(1, scissor)
 
-            let frameIdx = swapChain.GetCurrentBackBufferIndex()
+            let frameIdx = frameCounter % 2 as u32
             let backBuf = if frameIdx == 0 as u32 { backBuf0 } else { backBuf1 }
             let rtvHandle = D3D12_CPU_DESCRIPTOR_HANDLE {
                 ptr: rtvBase.ptr + (frameIdx as u64) * (rtvDescriptorSize as u64),
@@ -529,13 +659,13 @@ use directx12 {
                 StateAfter:  D3D12ResourceStates.renderTarget as u32,
                 _pad:        0,
             }
-            cmdList.ResourceBarrier(1, &toRT)
+            cmdList.ResourceBarrier(1, toRT)
 
-            cmdList.OMSetRenderTargets(1, &rtvHandle, 0, NULL)
+            cmdList.OMSetRenderTargets(1, rtvHandle, 0, NULL)
             let clearColor: f32[] = [0.0, 0.2, 0.4, 1.0]
-            cmdList.ClearRenderTargetView(rtvHandle, clearColor, 0, NULL)
+            cmdList.ClearRenderTargetView(rtvHandle.ptr, clearColor, 0, NULL)
             cmdList.IASetPrimitiveTopology(D3DPrimitiveTopologyValue.triangleList as u32)
-            cmdList.IASetVertexBuffers(0, 1, &vbView)
+            cmdList.IASetVertexBuffers(0, 1, vbView)
             cmdList.DrawInstanced(3, 1, 0, 0)
 
             let toPresent = D3D12_RESOURCE_BARRIER {
@@ -547,7 +677,7 @@ use directx12 {
                 StateAfter:  D3D12ResourceStates.present as u32,
                 _pad:        0,
             }
-            cmdList.ResourceBarrier(1, &toPresent)
+            cmdList.ResourceBarrier(1, toPresent)
             let _ = cmdList.Close()
 
             // Execute + present + wait. `&listPtr as *const *void`
@@ -562,6 +692,7 @@ use directx12 {
                 let _ = WaitForSingleObject(fenceEvent, 0xFFFFFFFF as u32)
             }
             fenceValue = fenceValue + 1 as u64
+            frameCounter = frameCounter + 1 as u32
         }
 
         // ── Cleanup ───────────────────────────────────────────────

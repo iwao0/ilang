@@ -41,6 +41,34 @@ use super::{
     OBJECT_HEADER_BYTES,
 };
 
+/// Inline byte-wise copy of `total` bytes from `src` to `dst_addr`.
+/// Mirrors the pattern used in `objects.rs` for CRepr struct copies —
+/// it avoids depending on the JIT's `memcpy` libcall resolution
+/// (which can race with how mir-codegen declares its own symbols).
+fn crepr_struct_copy(fb: &mut ClifFnBuilder, src: Value, dst_addr: Value, total: i64) {
+    let mut copied = 0i64;
+    while copied + 8 <= total {
+        let v = fb.ins().load(types::I64, MemFlags::trusted(), src, copied as i32);
+        fb.ins().store(MemFlags::trusted(), v, dst_addr, copied as i32);
+        copied += 8;
+    }
+    while copied + 4 <= total {
+        let v = fb.ins().load(types::I32, MemFlags::trusted(), src, copied as i32);
+        fb.ins().store(MemFlags::trusted(), v, dst_addr, copied as i32);
+        copied += 4;
+    }
+    while copied + 2 <= total {
+        let v = fb.ins().load(types::I16, MemFlags::trusted(), src, copied as i32);
+        fb.ins().store(MemFlags::trusted(), v, dst_addr, copied as i32);
+        copied += 2;
+    }
+    while copied < total {
+        let v = fb.ins().load(types::I8, MemFlags::trusted(), src, copied as i32);
+        fb.ins().store(MemFlags::trusted(), v, dst_addr, copied as i32);
+        copied += 1;
+    }
+}
+
 pub(super) fn lower_inst<M: Module>(
     fb: &mut ClifFnBuilder,
     inst: &Inst,
@@ -410,6 +438,13 @@ pub(super) fn lower_inst<M: Module>(
             let slot_off = (*slot as i32) * 8;
             let fp = fb.ins().load(types::I64, MemFlags::trusted(), vt, slot_off);
             let mut clif_sig = module.make_signature();
+            // Inherit the enclosing fn's call convention so stack-arg
+            // / shadow-store placement matches what the COM method
+            // expects (WindowsFastcall on x64 MSVC, SystemV on
+            // Linux). The module default is sometimes the platform
+            // C calling convention, but explicitly pinning it makes
+            // the >4-arg case lay out the stack correctly.
+            clif_sig.call_conv = fb.func.signature.call_conv;
             for p in sig.params.iter() {
                 if let Some(ct) = mir_to_clif(p) {
                     clif_sig.params.push(AbiParam::new(ct));
@@ -925,6 +960,25 @@ pub(super) fn lower_inst<M: Module>(
             }
         }
         Inst::NewArray { dst, elem, items } => {
+            // Detect `@extern(C) struct` elements: those need to be
+            // copied inline so the resulting buffer matches the C
+            // layout `Elem buf[N]` byte-for-byte (rather than
+            // degenerating to an array of heap pointers).
+            let crepr_struct_elem_size: Option<i64> = if let MirTy::Object(cid) = elem {
+                let cls = &prog.classes[cid.0 as usize];
+                use ilang_mir::ClassRepr;
+                if matches!(
+                    cls.repr,
+                    ClassRepr::CRepr | ClassRepr::CPacked | ClassRepr::CUnion
+                ) && cls.c_size > 0
+                {
+                    Some(cls.c_size)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             // Inline fixed-length output (when the dst MirTy carries
             // `len: Some(n)`): allocate `n*stride` bytes with no
             // header, store elements directly at `data + i*stride`.
@@ -933,7 +987,7 @@ pub(super) fn lower_inst<M: Module>(
             // addresses.
             let dst_ty = func.ty_of(*dst).clone();
             if let MirTy::Array { len: Some(_), .. } = &dst_ty {
-                let stride_bytes = elem_byte_stride(elem);
+                let stride_bytes = crepr_struct_elem_size.unwrap_or_else(|| elem_byte_stride(elem));
                 let n = items.len() as i64;
                 let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
                 let bytes = fb.ins().iconst(types::I64, n.max(1) * stride_bytes);
@@ -943,7 +997,17 @@ pub(super) fn lower_inst<M: Module>(
                 for (i, it) in items.iter().enumerate() {
                     let raw = vmap[it];
                     let off = (i as i32) * (stride_bytes as i32);
-                    if let Some(elem_ct) = elem_clif_opt {
+                    if let Some(total) = crepr_struct_elem_size {
+                        // Inline byte-wise copy of the struct's bytes
+                        // from the source heap slot to data+off.
+                        let dst_addr = if off == 0 {
+                            ptr
+                        } else {
+                            let off_v = fb.ins().iconst(types::I64, off as i64);
+                            fb.ins().iadd(ptr, off_v)
+                        };
+                        crepr_struct_copy(fb, raw, dst_addr, total);
+                    } else if let Some(elem_ct) = elem_clif_opt {
                         let truncated = ireduce_or_pass(fb, raw, elem_ct);
                         fb.ins().store(MemFlags::trusted(), truncated, ptr, off);
                     } else {
@@ -958,8 +1022,10 @@ pub(super) fn lower_inst<M: Module>(
             // + separately-allocated `stride×capacity` buffer. stride is
             // 1/2/4/8 picked from `elem` so `u8[]` / `u16[]` / `u32[]`
             // pack tightly enough for native memcpy/memset to land on
-            // the right slots.
-            let stride_bytes = elem_byte_stride(elem);
+            // the right slots. For CRepr struct elements the stride
+            // is the struct's `c_size` and each slot stores the
+            // struct's bytes inline.
+            let stride_bytes = crepr_struct_elem_size.unwrap_or_else(|| elem_byte_stride(elem));
             let n = items.len() as i64;
             let header_bytes = fb.ins().iconst(types::I64, 48);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
@@ -984,7 +1050,15 @@ pub(super) fn lower_inst<M: Module>(
             for (i, it) in items.iter().enumerate() {
                 let raw = vmap[it];
                 let off = (i as i32) * (stride_bytes as i32);
-                if let Some(elem_ct) = elem_clif_opt {
+                if let Some(total) = crepr_struct_elem_size {
+                    let dst_addr = if off == 0 {
+                        data_ptr
+                    } else {
+                        let off_v = fb.ins().iconst(types::I64, off as i64);
+                        fb.ins().iadd(data_ptr, off_v)
+                    };
+                    crepr_struct_copy(fb, raw, dst_addr, total);
+                } else if let Some(elem_ct) = elem_clif_opt {
                     let truncated = ireduce_or_pass(fb, raw, elem_ct);
                     fb.ins().store(MemFlags::trusted(), truncated, data_ptr, off);
                 } else {

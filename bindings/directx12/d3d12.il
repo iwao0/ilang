@@ -631,10 +631,13 @@ pub enum D3D12Result: i32 {
     }
 
     /// Stream-output declaration entries — unused by hello-triangle.
-    /// Pass `{ NULL, 0, NULL, 0, 0 }` to disable.
+    /// Pass `{ NULL, 0, NULL, 0, 0 }` to disable. `_pad0` keeps
+    /// `pBufferStrides` 8-byte aligned to match MSVC's natural
+    /// padding (struct size = 32 bytes).
     pub struct D3D12_STREAM_OUTPUT_DESC {
         pSODeclaration:   *const void
         NumEntries:       u32
+        _pad0:            u32
         pBufferStrides:   *const u32
         NumStrides:       u32
         RasterizedStream: u32
@@ -746,6 +749,7 @@ pub enum D3D12Result: i32 {
         InputLayout:           D3D12_INPUT_LAYOUT_DESC
         IBStripCutValue:       u32                 // D3D12IndexBufferStripCutValue
         PrimitiveTopologyType: u32                 // D3D12PrimitiveTopologyType
+        NumRenderTargets:      u32
         RTVFormat0:            u32
         RTVFormat1:            u32
         RTVFormat2:            u32
@@ -754,7 +758,6 @@ pub enum D3D12Result: i32 {
         RTVFormat5:            u32
         RTVFormat6:            u32
         RTVFormat7:            u32
-        NumRenderTargets:      u32
         DSVFormat:             u32
         SampleDesc:            DXGI_SAMPLE_DESC
         NodeMask:              u32
