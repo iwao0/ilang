@@ -16,6 +16,11 @@ pub const PasteboardTypeString: string = "public.utf8-plain-text"
     @objc pub class NSPasteboard : NSObject {
         @objc("generalPasteboard")
         pub static generalPasteboard(): NSPasteboard
+        /// Create a private pasteboard with a unique name. Doesn't
+        /// touch the user-facing system clipboard — use this for
+        /// tests and any in-process copy/paste plumbing.
+        @objc("pasteboardWithUniqueName")
+        pub static pasteboardWithUniqueName(): NSPasteboard
 
         @objc("clearContents")
         pub clearContents(): i64
