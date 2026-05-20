@@ -1685,6 +1685,8 @@ paths.
 - **`union Name { fields }`** — C union (every field at offset 0)
 - **`@packed struct Name { ... }`** — `__attribute__((packed))`
   equivalent (no padding, align=1)
+- **`@handle struct Name {}`** — nominal pointer-sized opaque
+  handle (Win32 `HWND` / `HINSTANCE`-style)
 - **`class Name { ... }`** — ARC-managed wrapper class with
   method bodies type-checked in the @extern(C) context
 
@@ -1814,6 +1816,49 @@ console.log(ts.tv_sec)
   bit-fields with the same underlying type pack into a shared
   storage unit (GCC-style). Constraints: **unsigned integers
   only** (u8/u16/u32/u64); `1 ≤ N ≤ underlying width`.
+
+#### `@handle struct Name {}` — opaque pointer-sized handle
+
+```rust
+@extern(C, "user32") {
+    @handle pub struct HWND {}
+    @handle pub struct HBRUSH {}
+
+    @lib pub fn GetDC(hWnd: HWND): HANDLE
+    @lib pub fn FillRect(hDC: HANDLE, lprc: *RECT, hbr: HBRUSH): i32
+}
+```
+
+For Win32-style opaque pointer types (`HWND`, `HINSTANCE`,
+`HMODULE`, …) where the SDK exposes a `void *`-shaped value that
+should be **nominally distinct** from other handles so the type
+checker can catch swapped arguments.
+
+- The struct body **must be empty** — `@handle` declares a
+  handle *value*, not a layout. Adding fields is a parse error.
+- Uses spell the name **bare** (`hwnd: HWND`), **not** `*HWND`.
+  The handle itself is already pointer-sized; there is no
+  separate "pointer to handle" type at the FFI boundary.
+- Each `@handle` declaration is **nominally distinct** — `HWND`
+  and `HBRUSH` do not implicitly interconvert, even though both
+  are 8-byte pointers underneath.
+- Handles flow freely into and out of **`*void`**, **`i64`**, and
+  **other `@handle` types** via `as` casts at the FFI boundary
+  (mirroring the SDK's frequent `(HWND)hWndOrNull` /
+  `reinterpret_cast<HMODULE>(hInstance)` patterns). The null
+  handle is `0 as HWND`.
+- Reports `(size, align) = (8, 8)` everywhere — so embedding a
+  handle as a struct field (`WNDCLASSEXA.hInstance: HINSTANCE`)
+  contributes 8 bytes, the same as a raw pointer.
+- ARC is **not** applied to handles: they are plain pointer-sized
+  scalars, never retained or released. Lifetime is the C side's
+  responsibility (`CloseHandle`, `DestroyWindow`, …).
+
+Use a regular **empty struct** (`struct FILE {}`) when you want
+the inverse — an opaque *pointee* you only ever name via `*FILE`.
+Use **`@handle`** when the SDK already gives you a typedef'd
+pointer-shaped value and writing `*HWND` would be one level of
+indirection too many.
 
 #### `union Name { ... }`
 
