@@ -279,6 +279,52 @@ pub(crate) fn locate_selective_name(
     None
 }
 
+/// Module-level doc: the `///` block that starts the file (after
+/// any leading blank lines). Returns `None` if the first non-blank
+/// line isn't `///` — keeps existing `//` file-header comments
+/// out of the module hover.
+pub(crate) fn extract_module_doc(text: &str) -> Option<String> {
+    let mut lines = text.split('\n');
+    // Skip leading blank lines so a stray blank line at the top
+    // doesn't suppress the doc.
+    let first = loop {
+        let line = lines.next()?;
+        if !line.trim().is_empty() {
+            break line;
+        }
+    };
+    let trimmed = first.trim_start();
+    if !trimmed.starts_with("///") {
+        return None;
+    }
+    let mut doc_lines: Vec<String> = Vec::new();
+    let push = |dst: &mut Vec<String>, raw: &str| {
+        let t = raw.trim_start();
+        // Strip `///` and an optional single space.
+        let body = &t[3..];
+        let body = body.strip_prefix(' ').unwrap_or(body);
+        dst.push(body.to_string());
+    };
+    push(&mut doc_lines, first);
+    for line in lines {
+        let t = line.trim_start();
+        if t.starts_with("///") {
+            push(&mut doc_lines, line);
+        } else if t.is_empty() {
+            // Blank `///` line authors might use to break paragraphs
+            // stops the block; the file's real content is right
+            // after. Module docs are meant to be a short opener.
+            break;
+        } else {
+            break;
+        }
+    }
+    if doc_lines.is_empty() {
+        return None;
+    }
+    Some(doc_lines.join("\n"))
+}
+
 /// Extract a Rust-style doc comment block (`/// line` form) immediately
 /// above the line containing `decl_line` (1-based). Returns the joined
 /// body lines (without the leading `///` or single space) or `None`

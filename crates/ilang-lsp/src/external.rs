@@ -375,6 +375,15 @@ pub(crate) fn walk_module(
         span: Span::new(1, 1),
         name_len: 0,
     });
+    // Top-of-file `///` block — the module-level doc. Surfaces on
+    // hover over `use foundation` etc. The signature line is a
+    // simple `module {prefix}` placeholder so the hover renders
+    // something even when the file has no top doc.
+    out.entry(AstSymbol::intern(prefix))
+        .or_insert_with(|| format!("module {prefix}"));
+    if let Some(d) = text::extract_module_doc(&module_src) {
+        docs.entry(AstSymbol::intern(prefix)).or_insert(d);
+    }
     let Ok(tokens) = tokenize(&module_src) else { return };
     let Ok(mod_prog) = parse(&tokens) else { return };
     let mod_dir = module_path
