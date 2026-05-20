@@ -174,7 +174,8 @@
     },
     "type-name": {
       "name": "entity.name.type.ilang",
-      "match": "\\b[A-Z][A-Za-z0-9_]+\\b"
+      "comment": "Capitalised identifier in type position. Negative lookahead for `\\s*:` keeps struct-literal field names like `BlendEnable: 0` and `RenderTargetWriteMask: 0` from being painted as types — those start with a capital because they mirror Win32 / D3D12 SDK field names, but they're plain property assignments, not type references.",
+      "match": "\\b[A-Z][A-Za-z0-9_]+\\b(?!\\s*:)"
     },
     "operators": {
       "name": "keyword.operator.ilang",
