@@ -28,6 +28,7 @@ use ilang_lexer::TokenKind;
 use crate::ParseError;
 
 mod consts;
+mod dup_pub;
 mod rename;
 mod spans;
 
@@ -100,6 +101,20 @@ pub enum LoadError {
         reason: String,
         span: ilang_ast::Span,
     },
+    /// Two `pub` declarations share the same name in the merged
+    /// program. Triggered when an umbrella binding re-exports two
+    /// siblings that both declare the same `pub class` / `pub
+    /// interface` / `pub enum` / `pub struct` / `pub union` /
+    /// `pub const` etc., or when the same kind of decl is repeated
+    /// in a single file. `pub fn` overloads are allowed when their
+    /// parameter-type lists differ; identical-signature duplicates
+    /// still error.
+    DuplicatePubDeclaration {
+        kind: &'static str,
+        name: Symbol,
+        first_span: ilang_ast::Span,
+        second_span: ilang_ast::Span,
+    },
 }
 
 impl std::fmt::Display for LoadError {
@@ -126,6 +141,17 @@ impl std::fmt::Display for LoadError {
                 write!(
                     f,
                     "{span}: `{module}.{name}` is not `pub` in module `{module}` — mark the declaration with `pub` to expose it"
+                )
+            }
+            LoadError::DuplicatePubDeclaration {
+                kind,
+                name,
+                first_span,
+                second_span,
+            } => {
+                write!(
+                    f,
+                    "{second_span}: duplicate `pub` {kind} `{name}` — already declared at {first_span}"
                 )
             }
         }
@@ -249,6 +275,13 @@ pub fn load_program_with_overlay(
     // time; the merged Program has no `Item::Use`s, so use the
     // validation-skipping entry point here.
     let merged = crate::normalize::renormalize_merged(merged);
+    // Reject duplicate `pub` declarations across the merged
+    // program. Sibling modules re-exported through a single
+    // umbrella can otherwise land the same bare name twice
+    // (the original case was `pub struct ID3DBlob {}` +
+    // `@com pub interface ID3DBlob`); without this check the
+    // type system silently keeps whichever the walker hit first.
+    dup_pub::validate_unique_pub(&merged)?;
     // Auto-lift top-level `class C: SomeObjcInterface { … }` into
     // a synthesised `@extern(ObjC) { @objc class C : NSObject, … }`
     // block so users can write Cocoa delegates without dropping into
