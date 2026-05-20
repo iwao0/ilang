@@ -122,12 +122,12 @@ use network { NSURL }
     /// (`replacementValueForAttribute:value:` rewrites the
     /// per-attribute values in flight).
     @objc pub interface NSMetadataQueryDelegate {
-        @optional @objc("metadataQuery:replacementObjectForResultObject:")
-        metadataQueryReplacementObjectForResultObject(
+        @objc("metadataQuery:replacementObjectForResultObject:")
+        metadataQueryReplacementObjectForResultObject?(
             query: NSMetadataQuery, result: NSMetadataItem
         ): NSObject
-        @optional @objc("metadataQuery:replacementValueForAttribute:value:")
-        metadataQueryReplacementValueForAttribute(
+        @objc("metadataQuery:replacementValueForAttribute:value:")
+        metadataQueryReplacementValueForAttribute?(
             query: NSMetadataQuery, attribute: NSString, value: NSObject
         ): NSObject
     }

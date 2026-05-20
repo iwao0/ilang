@@ -64,14 +64,14 @@ use foundation { NSObject, NSString, NSArray }
     /// callbacks. Attach via `menu.setDelegate(d)`; commonly used
     /// to populate menus lazily right before they're shown.
     @objc pub interface NSMenuDelegate {
-        @optional menuWillOpen(menu: NSMenu)
-        @optional menuDidClose(menu: NSMenu)
-        @optional menuNeedsUpdate(menu: NSMenu)
-        @optional @objc("numberOfItemsInMenu:")
-        numberOfItemsInMenu(menu: NSMenu): i64
-        @optional @objc("menu:updateItem:atIndex:shouldCancel:")
-        updateMenuItem(menu: NSMenu, updateItem: NSMenuItem, atIndex: i64, shouldCancel: bool): bool
-        @optional @objc("menu:willHighlightItem:")
-        menuWillHighlightItem(menu: NSMenu, willHighlightItem: NSMenuItem)
+        menuWillOpen?(menu: NSMenu)
+        menuDidClose?(menu: NSMenu)
+        menuNeedsUpdate?(menu: NSMenu)
+        @objc("numberOfItemsInMenu:")
+        numberOfItemsInMenu?(menu: NSMenu): i64
+        @objc("menu:updateItem:atIndex:shouldCancel:")
+        updateMenuItem?(menu: NSMenu, updateItem: NSMenuItem, atIndex: i64, shouldCancel: bool): bool
+        @objc("menu:willHighlightItem:")
+        menuWillHighlightItem?(menu: NSMenu, willHighlightItem: NSMenuItem)
     }
 }

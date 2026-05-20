@@ -65,39 +65,39 @@ use network { NSURL }
 
     /// `NSXMLParserDelegate` — protocol the parser dispatches
     /// SAX-style events into. Implement the methods you care
-    /// about; everything is `@optional` so unimplemented ones
+    /// about; everything is optional so unimplemented ones
     /// stay as ObjC no-ops.
     @objc pub interface NSXMLParserDelegate {
-        @optional parserDidStartDocument(parser: NSXMLParser)
-        @optional parserDidEndDocument(parser: NSXMLParser)
-        @optional @objc("parser:didStartElement:namespaceURI:qualifiedName:attributes:")
-        parserDidStartElement(
+        parserDidStartDocument?(parser: NSXMLParser)
+        parserDidEndDocument?(parser: NSXMLParser)
+        @objc("parser:didStartElement:namespaceURI:qualifiedName:attributes:")
+        parserDidStartElement?(
             parser: NSXMLParser, didStartElement: NSString,
             namespaceURI: NSString, qualifiedName: NSString,
             attributes: NSDictionary
         )
-        @optional @objc("parser:didEndElement:namespaceURI:qualifiedName:")
-        parserDidEndElement(
+        @objc("parser:didEndElement:namespaceURI:qualifiedName:")
+        parserDidEndElement?(
             parser: NSXMLParser, didEndElement: NSString,
             namespaceURI: NSString, qualifiedName: NSString
         )
-        @optional @objc("parser:foundCharacters:")
-        parserFoundCharacters(parser: NSXMLParser, foundCharacters: NSString)
-        @optional @objc("parser:foundIgnorableWhitespace:")
-        parserFoundIgnorableWhitespace(
+        @objc("parser:foundCharacters:")
+        parserFoundCharacters?(parser: NSXMLParser, foundCharacters: NSString)
+        @objc("parser:foundIgnorableWhitespace:")
+        parserFoundIgnorableWhitespace?(
             parser: NSXMLParser, foundIgnorableWhitespace: NSString
         )
-        @optional @objc("parser:foundProcessingInstructionWithTarget:data:")
-        parserFoundProcessingInstruction(
+        @objc("parser:foundProcessingInstructionWithTarget:data:")
+        parserFoundProcessingInstruction?(
             parser: NSXMLParser, target: NSString, data: NSString
         )
-        @optional @objc("parser:foundComment:")
-        parserFoundComment(parser: NSXMLParser, foundComment: NSString)
-        @optional @objc("parser:foundCDATA:")
-        parserFoundCDATA(parser: NSXMLParser, foundCDATA: NSData)
-        @optional @objc("parser:parseErrorOccurred:")
-        parserParseErrorOccurred(parser: NSXMLParser, parseError: NSError)
-        @optional @objc("parser:validationErrorOccurred:")
-        parserValidationErrorOccurred(parser: NSXMLParser, validationError: NSError)
+        @objc("parser:foundComment:")
+        parserFoundComment?(parser: NSXMLParser, foundComment: NSString)
+        @objc("parser:foundCDATA:")
+        parserFoundCDATA?(parser: NSXMLParser, foundCDATA: NSData)
+        @objc("parser:parseErrorOccurred:")
+        parserParseErrorOccurred?(parser: NSXMLParser, parseError: NSError)
+        @objc("parser:validationErrorOccurred:")
+        parserValidationErrorOccurred?(parser: NSXMLParser, validationError: NSError)
     }
 }

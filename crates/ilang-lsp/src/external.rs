@@ -567,7 +567,7 @@ pub(crate) fn walk_module(
                         .methods
                         .iter()
                         .map(|m| {
-                            let opt = if m.is_optional { "@optional " } else { "" };
+                            let opt = if m.is_optional { "?" } else { "" };
                             let ps: Vec<String> = m
                                 .params
                                 .iter()
@@ -577,7 +577,7 @@ pub(crate) fn walk_module(
                                 Some(t) => format!(": {t}"),
                                 None => String::new(),
                             };
-                            format!("    {opt}{}({}){}", m.name, ps.join(", "), r)
+                            format!("    {}{}({}){}", m.name, opt, ps.join(", "), r)
                         })
                         .collect();
                     let header = if iface.is_objc { "@objc interface" } else { "interface" };
@@ -880,7 +880,7 @@ pub(crate) fn walk_module_aliased(
                         .methods
                         .iter()
                         .map(|m| {
-                            let opt = if m.is_optional { "@optional " } else { "" };
+                            let opt = if m.is_optional { "?" } else { "" };
                             let ps: Vec<String> = m
                                 .params
                                 .iter()
@@ -890,7 +890,7 @@ pub(crate) fn walk_module_aliased(
                                 Some(t) => format!(": {t}"),
                                 None => String::new(),
                             };
-                            format!("    {opt}{}({}){}", m.name, ps.join(", "), r)
+                            format!("    {}{}({}){}", m.name, opt, ps.join(", "), r)
                         })
                         .collect();
                     let header = if iface.is_objc { "@objc interface" } else { "interface" };

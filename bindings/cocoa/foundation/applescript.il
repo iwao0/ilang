@@ -401,15 +401,15 @@ use network { NSURL }
     /// override these methods to support
     /// `insertObject:in<Key>AtIndex:` etc.
     @objc pub interface NSScriptKeyValueCoding {
-        @optional valueAtIndex(forKey: NSString, i: u64): NSObject
-        @optional valueWithName(forKey: NSString, name: NSString): NSObject
-        @optional valueWithUniqueID(forKey: NSString, uid: NSObject): NSObject
-        @optional insertValue(value: NSObject, atIndex: u64, inPropertyWithKey: NSString)
-        @optional removeValueAtIndex(i: u64, fromPropertyWithKey: NSString)
-        @optional replaceValueAtIndex(
+        valueAtIndex?(forKey: NSString, i: u64): NSObject
+        valueWithName?(forKey: NSString, name: NSString): NSObject
+        valueWithUniqueID?(forKey: NSString, uid: NSObject): NSObject
+        insertValue?(value: NSObject, atIndex: u64, inPropertyWithKey: NSString)
+        removeValueAtIndex?(i: u64, fromPropertyWithKey: NSString)
+        replaceValueAtIndex?(
             i: u64, inPropertyWithKey: NSString, withValue: NSObject
         )
-        @optional insertValueInPropertyWithKey(value: NSObject, key: NSString)
+        insertValueInPropertyWithKey?(value: NSObject, key: NSString)
     }
 
     /// `NSScriptObjectSpecifierError` — error keys an object

@@ -1028,11 +1028,11 @@ pub enum NSURLCredentialPersistence: u64 {
     /// it (plus one of the task-shape refinements below) and pass
     /// to `+sessionWithConfiguration:delegate:delegateQueue:`.
     @objc pub interface NSURLSessionDelegate {
-        @optional URLSessionDidFinishEventsForBackgroundURLSession(session: NSURLSession)
-        @optional @objc("URLSession:didBecomeInvalidWithError:")
-        URLSessionDidBecomeInvalid(session: NSURLSession, didBecomeInvalidWithError: NSError)
-        @optional @objc("URLSession:didReceiveChallenge:completionHandler:")
-        URLSessionDidReceiveChallenge(
+        URLSessionDidFinishEventsForBackgroundURLSession?(session: NSURLSession)
+        @objc("URLSession:didBecomeInvalidWithError:")
+        URLSessionDidBecomeInvalid?(session: NSURLSession, didBecomeInvalidWithError: NSError)
+        @objc("URLSession:didReceiveChallenge:completionHandler:")
+        URLSessionDidReceiveChallenge?(
             session: NSURLSession,
             didReceiveChallenge: NSURLAuthenticationChallenge,
             completionHandler: ObjCBlock<fn(i64, i64)>
@@ -1042,25 +1042,25 @@ pub enum NSURLCredentialPersistence: u64 {
     /// `NSURLSessionTaskDelegate` — task-level lifecycle callbacks
     /// shared by every task variant.
     @objc pub interface NSURLSessionTaskDelegate {
-        @optional @objc("URLSession:task:didCompleteWithError:")
-        URLSessionTaskDidComplete(
+        @objc("URLSession:task:didCompleteWithError:")
+        URLSessionTaskDidComplete?(
             session: NSURLSession, task: NSURLSessionTask,
             didCompleteWithError: NSError
         )
-        @optional @objc("URLSession:task:didReceiveChallenge:completionHandler:")
-        URLSessionTaskDidReceiveChallenge(
+        @objc("URLSession:task:didReceiveChallenge:completionHandler:")
+        URLSessionTaskDidReceiveChallenge?(
             session: NSURLSession, task: NSURLSessionTask,
             didReceiveChallenge: NSURLAuthenticationChallenge,
             completionHandler: ObjCBlock<fn(i64, i64)>
         )
-        @optional @objc("URLSession:task:didSendBodyData:totalBytesSent:totalBytesExpectedToSend:")
-        URLSessionTaskDidSendBodyData(
+        @objc("URLSession:task:didSendBodyData:totalBytesSent:totalBytesExpectedToSend:")
+        URLSessionTaskDidSendBodyData?(
             session: NSURLSession, task: NSURLSessionTask,
             didSendBodyData: i64, totalBytesSent: i64,
             totalBytesExpectedToSend: i64
         )
-        @optional @objc("URLSession:task:didFinishCollectingMetrics:")
-        URLSessionTaskDidFinishCollectingMetrics(
+        @objc("URLSession:task:didFinishCollectingMetrics:")
+        URLSessionTaskDidFinishCollectingMetrics?(
             session: NSURLSession, task: NSURLSessionTask,
             didFinishCollectingMetrics: NSURLSessionTaskMetrics
         )
@@ -1072,18 +1072,18 @@ pub enum NSURLCredentialPersistence: u64 {
     /// `didReceiveResponse:completionHandler:` (call the handler
     /// with `NSURLSessionResponseAllow` to proceed).
     @objc pub interface NSURLSessionDataDelegate {
-        @optional @objc("URLSession:dataTask:didReceiveResponse:completionHandler:")
-        URLSessionDataTaskDidReceiveResponse(
+        @objc("URLSession:dataTask:didReceiveResponse:completionHandler:")
+        URLSessionDataTaskDidReceiveResponse?(
             session: NSURLSession, dataTask: NSURLSessionDataTask,
             didReceiveResponse: NSURLResponse, completionHandler: ObjCBlock<fn(i64)>
         )
-        @optional @objc("URLSession:dataTask:didReceiveData:")
-        URLSessionDataTaskDidReceiveData(
+        @objc("URLSession:dataTask:didReceiveData:")
+        URLSessionDataTaskDidReceiveData?(
             session: NSURLSession, dataTask: NSURLSessionDataTask,
             didReceiveData: NSData
         )
-        @optional @objc("URLSession:dataTask:didBecomeDownloadTask:")
-        URLSessionDataTaskDidBecomeDownloadTask(
+        @objc("URLSession:dataTask:didBecomeDownloadTask:")
+        URLSessionDataTaskDidBecomeDownloadTask?(
             session: NSURLSession, dataTask: NSURLSessionDataTask,
             didBecomeDownloadTask: NSURLSessionDownloadTask
         )
@@ -1100,14 +1100,14 @@ pub enum NSURLCredentialPersistence: u64 {
             session: NSURLSession, downloadTask: NSURLSessionDownloadTask,
             didFinishDownloadingToURL: NSURL
         )
-        @optional @objc("URLSession:downloadTask:didWriteData:totalBytesWritten:totalBytesExpectedToWrite:")
-        URLSessionDownloadTaskDidWriteData(
+        @objc("URLSession:downloadTask:didWriteData:totalBytesWritten:totalBytesExpectedToWrite:")
+        URLSessionDownloadTaskDidWriteData?(
             session: NSURLSession, downloadTask: NSURLSessionDownloadTask,
             didWriteData: i64, totalBytesWritten: i64,
             totalBytesExpectedToWrite: i64
         )
-        @optional @objc("URLSession:downloadTask:didResumeAtOffset:expectedTotalBytes:")
-        URLSessionDownloadTaskDidResumeAtOffset(
+        @objc("URLSession:downloadTask:didResumeAtOffset:expectedTotalBytes:")
+        URLSessionDownloadTaskDidResumeAtOffset?(
             session: NSURLSession, downloadTask: NSURLSessionDownloadTask,
             didResumeAtOffset: i64, expectedTotalBytes: i64
         )
@@ -1118,20 +1118,20 @@ pub enum NSURLCredentialPersistence: u64 {
     /// from / writes ahead to the connection, when a better
     /// route appears, or when one direction of the pipe closes.
     @objc pub interface NSURLSessionStreamDelegate {
-        @optional @objc("URLSession:readClosedForStreamTask:")
-        URLSessionReadClosedForStreamTask(
+        @objc("URLSession:readClosedForStreamTask:")
+        URLSessionReadClosedForStreamTask?(
             session: NSURLSession, streamTask: NSURLSessionStreamTask
         )
-        @optional @objc("URLSession:writeClosedForStreamTask:")
-        URLSessionWriteClosedForStreamTask(
+        @objc("URLSession:writeClosedForStreamTask:")
+        URLSessionWriteClosedForStreamTask?(
             session: NSURLSession, streamTask: NSURLSessionStreamTask
         )
-        @optional @objc("URLSession:betterRouteDiscoveredForStreamTask:")
-        URLSessionBetterRouteDiscoveredForStreamTask(
+        @objc("URLSession:betterRouteDiscoveredForStreamTask:")
+        URLSessionBetterRouteDiscoveredForStreamTask?(
             session: NSURLSession, streamTask: NSURLSessionStreamTask
         )
-        @optional @objc("URLSession:streamTask:didBecomeInputStream:outputStream:")
-        URLSessionStreamTaskDidBecomeStreams(
+        @objc("URLSession:streamTask:didBecomeInputStream:outputStream:")
+        URLSessionStreamTaskDidBecomeStreams?(
             session: NSURLSession, streamTask: NSURLSessionStreamTask,
             didBecomeInputStream: NSObject, outputStream: NSObject
         )
@@ -1140,13 +1140,13 @@ pub enum NSURLCredentialPersistence: u64 {
     /// `NSURLSessionWebSocketDelegate` — open / close callbacks
     /// for WebSocket tasks.
     @objc pub interface NSURLSessionWebSocketDelegate {
-        @optional @objc("URLSession:webSocketTask:didOpenWithProtocol:")
-        URLSessionWebSocketTaskDidOpen(
+        @objc("URLSession:webSocketTask:didOpenWithProtocol:")
+        URLSessionWebSocketTaskDidOpen?(
             session: NSURLSession, webSocketTask: NSURLSessionWebSocketTask,
             didOpenWithProtocol: NSString
         )
-        @optional @objc("URLSession:webSocketTask:didCloseWithCode:reason:")
-        URLSessionWebSocketTaskDidClose(
+        @objc("URLSession:webSocketTask:didCloseWithCode:reason:")
+        URLSessionWebSocketTaskDidClose?(
             session: NSURLSession, webSocketTask: NSURLSessionWebSocketTask,
             didCloseWithCode: i64, reason: NSData
         )
@@ -1157,17 +1157,17 @@ pub enum NSURLCredentialPersistence: u64 {
     /// is up; `netService:didNotPublish:` carries the dictionary
     /// of error info on failure.
     @objc pub interface NSNetServiceDelegate {
-        @optional netServiceWillPublish(sender: NSNetService)
-        @optional netServiceDidPublish(sender: NSNetService)
-        @optional @objc("netService:didNotPublish:")
-        netServiceDidNotPublish(sender: NSNetService, errorDict: NSDictionary)
-        @optional netServiceWillResolve(sender: NSNetService)
-        @optional netServiceDidResolveAddress(sender: NSNetService)
-        @optional @objc("netService:didNotResolve:")
-        netServiceDidNotResolve(sender: NSNetService, errorDict: NSDictionary)
-        @optional netServiceDidStop(sender: NSNetService)
-        @optional @objc("netService:didUpdateTXTRecordData:")
-        netServiceDidUpdateTXTRecordData(sender: NSNetService, data: NSData)
+        netServiceWillPublish?(sender: NSNetService)
+        netServiceDidPublish?(sender: NSNetService)
+        @objc("netService:didNotPublish:")
+        netServiceDidNotPublish?(sender: NSNetService, errorDict: NSDictionary)
+        netServiceWillResolve?(sender: NSNetService)
+        netServiceDidResolveAddress?(sender: NSNetService)
+        @objc("netService:didNotResolve:")
+        netServiceDidNotResolve?(sender: NSNetService, errorDict: NSDictionary)
+        netServiceDidStop?(sender: NSNetService)
+        @objc("netService:didUpdateTXTRecordData:")
+        netServiceDidUpdateTXTRecordData?(sender: NSNetService, data: NSData)
     }
 
     /// `NSNetServiceBrowserDelegate` — Bonjour discovery
@@ -1175,18 +1175,18 @@ pub enum NSURLCredentialPersistence: u64 {
     /// to discovered services; resolve them by setting their
     /// delegate and calling `resolveWithTimeout:`.
     @objc pub interface NSNetServiceBrowserDelegate {
-        @optional netServiceBrowserWillSearch(browser: NSNetServiceBrowser)
-        @optional netServiceBrowserDidStopSearch(browser: NSNetServiceBrowser)
-        @optional @objc("netServiceBrowser:didNotSearch:")
-        netServiceBrowserDidNotSearch(
+        netServiceBrowserWillSearch?(browser: NSNetServiceBrowser)
+        netServiceBrowserDidStopSearch?(browser: NSNetServiceBrowser)
+        @objc("netServiceBrowser:didNotSearch:")
+        netServiceBrowserDidNotSearch?(
             browser: NSNetServiceBrowser, errorDict: NSDictionary
         )
-        @optional @objc("netServiceBrowser:didFindService:moreComing:")
-        netServiceBrowserDidFindService(
+        @objc("netServiceBrowser:didFindService:moreComing:")
+        netServiceBrowserDidFindService?(
             browser: NSNetServiceBrowser, service: NSNetService, moreComing: bool
         )
-        @optional @objc("netServiceBrowser:didRemoveService:moreComing:")
-        netServiceBrowserDidRemoveService(
+        @objc("netServiceBrowser:didRemoveService:moreComing:")
+        netServiceBrowserDidRemoveService?(
             browser: NSNetServiceBrowser, service: NSNetService, moreComing: bool
         )
     }

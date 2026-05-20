@@ -407,19 +407,21 @@ fn f() {}
     #[test]
     pub(crate) fn implement_stubs_inserted_for_missing_methods() {
         let src = "\
-interface Greeter {
-    hello(name: i64)
-    @optional goodbye(name: i64): bool
+@extern(ObjC) {
+    @objc interface Greeter {
+        hello(name: i64)
+        goodbye?(name: i64): bool
+    }
 }
 class Eager : Greeter {
     pub init() {}
 }
 ";
         // cursor inside the class body
-        let out = run_iface(src, pos(5, 4)).unwrap();
+        let out = run_iface(src, pos(7, 4)).unwrap();
         assert!(out.contains("pub hello(name: i64) {"), "out:\n{out}");
         assert!(out.contains("pub goodbye(name: i64): bool {"), "out:\n{out}");
-        assert!(out.contains("@optional"), "out:\n{out}");
+        assert!(out.contains("optional"), "out:\n{out}");
         assert!(out.contains("false"), "out:\n{out}");
     }
 
@@ -533,7 +535,7 @@ fn outside() {}
         let src = "\
 interface Greeter {
     hello(name: i64): bool
-    @optional bye()
+    bye()
 }
 class C : Greeter {
     pub init() {}
@@ -569,7 +571,7 @@ class C : Greeter {
         let src = "\
 interface Greeter {
     hello(name: i64): bool
-    @optional bye()
+    bye()
 }
 class C : Greeter {
     pub init() {}
@@ -579,7 +581,7 @@ class C : Greeter {
         let ext_src = "\
 interface Greeter {
     hello(name: i64): bool
-    @optional bye()
+    bye()
 }
 ";
         // Build local_interfaces map from a parse of the interface
@@ -658,9 +660,11 @@ class MyApp : MyDel {
         // Build a stand-in InterfaceDecl by parsing a separate
         // snippet that DOES declare it.
         let ext_src = "\
-interface MyDel {
-    notifyMe(name: i64)
-    @optional cleanup()
+@extern(ObjC) {
+    @objc interface MyDel {
+        notifyMe(name: i64)
+        cleanup?()
+    }
 }
 ";
         let ext_toks = ilang_lexer::tokenize(ext_src).unwrap();
@@ -670,8 +674,10 @@ interface MyDel {
             ilang_ast::InterfaceDecl,
         > = std::collections::HashMap::new();
         for it in &ext_prog.items {
-            if let ilang_ast::Item::Interface(i) = it {
-                ext_ifaces.insert(i.name, i.clone());
+            if let ilang_ast::Item::ExternC(b) = it {
+                for i in b.interfaces.iter() {
+                    ext_ifaces.insert(i.name, i.clone());
+                }
             }
         }
 
@@ -683,7 +689,7 @@ interface MyDel {
         out.insert_str(insert, &new_text);
         assert!(out.contains("pub notifyMe(name: i64) {"), "out:\n{out}");
         assert!(out.contains("pub cleanup() {"), "out:\n{out}");
-        assert!(out.contains("@optional"), "out:\n{out}");
+        assert!(out.contains("optional"), "out:\n{out}");
     }
 
     #[test]
@@ -813,7 +819,7 @@ interface MyDel {
         let ext_src = "\
 @extern(ObjC) {
     @objc pub interface NSMenuDelegate {
-        @optional menuWillOpen(menu: i64)
+        menuWillOpen?(menu: i64)
     }
 }
 ";
@@ -939,7 +945,7 @@ interface MyDel {
 @extern(ObjC) {
     @objc pub interface MyDel {
         notifyMe(name: i64)
-        @optional cleanup()
+        cleanup?()
     }
 }
 ";
@@ -955,7 +961,7 @@ interface MyDel {
         );
         // The method list should be included in the hover detail.
         assert!(sym.signature.contains("notifyMe(name: i64)"), "{}", sym.signature);
-        assert!(sym.signature.contains("@optional cleanup()"), "{}", sym.signature);
+        assert!(sym.signature.contains("cleanup?()"), "{}", sym.signature);
     }
 
     #[test]

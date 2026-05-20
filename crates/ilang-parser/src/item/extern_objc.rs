@@ -82,7 +82,7 @@ impl<'a> Parser<'a> {
                             continue;
                         }
                         TokenKind::Interface => {
-                            let mut iface = self.parse_interface_decl()?;
+                            let mut iface = self.parse_interface_decl(true)?;
                             iface.is_pub = item_is_pub;
                             iface.is_objc = true;
                             // Auto-derive Objective-C selectors for

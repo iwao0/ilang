@@ -151,7 +151,7 @@ impl<'a> Parser<'a> {
                         span: t.span,
                     });
                 }
-                let mut i = self.parse_interface_decl()?;
+                let mut i = self.parse_interface_decl(false)?;
                 i.is_pub = is_pub;
                 Ok(Item::Interface(i))
             }
@@ -859,7 +859,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_interface_decl(&mut self) -> Result<ilang_ast::InterfaceDecl, ParseError> {
+    fn parse_interface_decl(&mut self, is_objc: bool) -> Result<ilang_ast::InterfaceDecl, ParseError> {
         let span = self.peek().span;
         self.expect(&TokenKind::Interface, "'interface'")?;
         let name = self.expect_ident("interface name")?;
@@ -879,30 +879,57 @@ impl<'a> Parser<'a> {
         let mut methods: Vec<ilang_ast::InterfaceMethod> = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace) {
             // Attributes on interface methods:
-            //   `@optional`             — implementing classes may
-            //                             skip this method.
             //   `@objc("selector:")`    — explicit Objective-C
             //                             selector for an @objc
             //                             interface method.
+            // Optional methods are expressed with a trailing `?` on
+            // the method name (e.g. `foo?(x: i64)`) — the legacy
+            // `@optional` attribute is rejected.
+            let attr_span = self.peek().span;
             let m_attrs = self.parse_attributes()?;
-            let is_optional = m_attrs
-                .iter()
-                .any(|a| a.name.as_str() == "optional");
             let mut objc_selector: Option<Symbol> = None;
             for a in m_attrs.iter() {
-                if a.name.as_str() == "objc" {
-                    match &a.args[..] {
-                        [ilang_ast::AttrArg::Str(s)] => {
-                            objc_selector = Some(Symbol::intern(s));
-                        }
-                        _ => {
-                            let t = self.peek();
+                match a.name.as_str() {
+                    "objc" => {
+                        if !is_objc {
                             return Err(ParseError::Unexpected {
-                                found: t.kind.clone(),
-                                expected: "@objc(\"selector:\") takes exactly one string argument".into(),
-                                span: t.span,
+                                found: TokenKind::Ident(a.name.to_string()),
+                                expected: "@objc(\"selector:\") is only allowed on methods of @objc interfaces".into(),
+                                span: attr_span,
                             });
                         }
+                        match &a.args[..] {
+                            [ilang_ast::AttrArg::Str(s)] => {
+                                objc_selector = Some(Symbol::intern(s));
+                            }
+                            _ => {
+                                let t = self.peek();
+                                return Err(ParseError::Unexpected {
+                                    found: t.kind.clone(),
+                                    expected: "@objc(\"selector:\") takes exactly one string argument".into(),
+                                    span: t.span,
+                                });
+                            }
+                        }
+                    }
+                    "optional" => {
+                        let expected = if is_objc {
+                            "the `@optional` attribute has been removed — write a trailing `?` on the method name instead (e.g. `foo?(x: i64)`)".into()
+                        } else {
+                            "optional interface methods are only allowed inside `@objc` interfaces — remove `@optional`".into()
+                        };
+                        return Err(ParseError::Unexpected {
+                            found: TokenKind::Ident(a.name.to_string()),
+                            expected,
+                            span: attr_span,
+                        });
+                    }
+                    _ => {
+                        return Err(ParseError::Unexpected {
+                            found: TokenKind::Ident(a.name.to_string()),
+                            expected: "only `@objc(\"selector:\")` is supported as an interface-method attribute".into(),
+                            span: attr_span,
+                        });
                     }
                 }
             }
@@ -920,6 +947,24 @@ impl<'a> Parser<'a> {
                 });
             }
             let m_name = self.expect_ident("method name")?;
+            // Trailing `?` after the method name marks an optional
+            // method (Objective-C `@optional` protocol method). Only
+            // legal inside `@objc` interfaces; rejected elsewhere so
+            // plain interfaces keep a strict conformance contract.
+            let is_optional = if matches!(self.peek().kind, TokenKind::Question) {
+                let q_span = self.peek().span;
+                if !is_objc {
+                    return Err(ParseError::Unexpected {
+                        found: TokenKind::Question,
+                        expected: "optional interface methods (trailing `?`) are only allowed inside `@objc` interfaces".into(),
+                        span: q_span,
+                    });
+                }
+                self.bump();
+                true
+            } else {
+                false
+            };
             self.expect(&TokenKind::LParen, "'('")?;
             let mut params: Vec<ilang_ast::Param> = Vec::new();
             if !matches!(self.peek().kind, TokenKind::RParen) {

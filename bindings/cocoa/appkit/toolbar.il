@@ -153,10 +153,10 @@ pub const StatusItemSquareLength: f64 = -2.0
         @objc("toolbarAllowedItemIdentifiers:")
         toolbarAllowedItemIdentifiers(toolbar: NSToolbar): NSArray
 
-        @optional toolbarWillAddItem(notification: NSNotification)
-        @optional toolbarDidRemoveItem(notification: NSNotification)
-        @optional @objc("toolbarSelectableItemIdentifiers:")
-        toolbarSelectableItemIdentifiers(toolbar: NSToolbar): NSArray
+        toolbarWillAddItem?(notification: NSNotification)
+        toolbarDidRemoveItem?(notification: NSNotification)
+        @objc("toolbarSelectableItemIdentifiers:")
+        toolbarSelectableItemIdentifiers?(toolbar: NSToolbar): NSArray
     }
 
     /// `NSTabView` — switchable container with one tab per
@@ -242,19 +242,19 @@ pub const StatusItemSquareLength: f64 = -2.0
 
     /// `NSTabViewDelegate` — tab selection callbacks.
     @objc pub interface NSTabViewDelegate {
-        @optional @objc("tabView:shouldSelectTabViewItem:")
-        tabViewShouldSelectTabViewItem(
+        @objc("tabView:shouldSelectTabViewItem:")
+        tabViewShouldSelectTabViewItem?(
             tabView: NSTabView, shouldSelectTabViewItem: NSTabViewItem
         ): bool
-        @optional @objc("tabView:willSelectTabViewItem:")
-        tabViewWillSelectTabViewItem(
+        @objc("tabView:willSelectTabViewItem:")
+        tabViewWillSelectTabViewItem?(
             tabView: NSTabView, willSelectTabViewItem: NSTabViewItem
         )
-        @optional @objc("tabView:didSelectTabViewItem:")
-        tabViewDidSelectTabViewItem(
+        @objc("tabView:didSelectTabViewItem:")
+        tabViewDidSelectTabViewItem?(
             tabView: NSTabView, didSelectTabViewItem: NSTabViewItem
         )
-        @optional tabViewDidChangeNumberOfTabViewItems(tabView: NSTabView)
+        tabViewDidChangeNumberOfTabViewItems?(tabView: NSTabView)
     }
 
     /// `NSStatusBar` — process-wide menu-bar status area

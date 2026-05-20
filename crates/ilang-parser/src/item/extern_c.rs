@@ -143,7 +143,7 @@ impl<'a> Parser<'a> {
                             }
                         }
                     }
-                    let mut iface = self.parse_interface_decl()?;
+                    let mut iface = self.parse_interface_decl(false)?;
                     iface.is_pub = item_is_pub;
                     iface.is_com = is_com;
                     extern_c_interfaces.push(iface);

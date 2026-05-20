@@ -200,14 +200,14 @@ pub enum NSTableViewGridLineStyle: u64 {
     /// `NSString` for plain text cells, an `NSNumber` for
     /// number / bool, etc.
     @objc pub interface NSTableViewDataSource {
-        @optional @objc("numberOfRowsInTableView:")
-        numberOfRowsInTableView(tableView: NSTableView): i64
-        @optional @objc("tableView:objectValueForTableColumn:row:")
-        tableViewObjectValueForTableColumn(
+        @objc("numberOfRowsInTableView:")
+        numberOfRowsInTableView?(tableView: NSTableView): i64
+        @objc("tableView:objectValueForTableColumn:row:")
+        tableViewObjectValueForTableColumn?(
             tableView: NSTableView, objectValueForTableColumn: NSTableColumn, row: i64
         ): NSObject
-        @optional @objc("tableView:setObjectValue:forTableColumn:row:")
-        tableViewSetObjectValue(
+        @objc("tableView:setObjectValue:forTableColumn:row:")
+        tableViewSetObjectValue?(
             tableView: NSTableView, setObjectValue: NSObject,
             forTableColumn: NSTableColumn, row: i64
         )
@@ -221,24 +221,24 @@ pub enum NSTableViewGridLineStyle: u64 {
     /// (`tableView:willDisplayCell:forTableColumn:row:`) is
     /// still supported for legacy `NSCell`-shaped tables.
     @objc pub interface NSTableViewDelegate {
-        @optional @objc("tableView:viewForTableColumn:row:")
-        tableViewViewForTableColumn(
+        @objc("tableView:viewForTableColumn:row:")
+        tableViewViewForTableColumn?(
             tableView: NSTableView, viewForTableColumn: NSTableColumn, row: i64
         ): NSView
 
-        @optional @objc("tableView:heightOfRow:")
-        tableViewHeightOfRow(tableView: NSTableView, heightOfRow: i64): f64
-        @optional @objc("tableView:shouldSelectRow:")
-        tableViewShouldSelectRow(tableView: NSTableView, shouldSelectRow: i64): bool
-        @optional @objc("tableView:shouldSelectTableColumn:")
-        tableViewShouldSelectTableColumn(
+        @objc("tableView:heightOfRow:")
+        tableViewHeightOfRow?(tableView: NSTableView, heightOfRow: i64): f64
+        @objc("tableView:shouldSelectRow:")
+        tableViewShouldSelectRow?(tableView: NSTableView, shouldSelectRow: i64): bool
+        @objc("tableView:shouldSelectTableColumn:")
+        tableViewShouldSelectTableColumn?(
             tableView: NSTableView, shouldSelectTableColumn: NSTableColumn
         ): bool
 
-        @optional tableViewSelectionDidChange(notification: NSNotification)
-        @optional tableViewSelectionIsChanging(notification: NSNotification)
-        @optional tableViewColumnDidResize(notification: NSNotification)
-        @optional tableViewColumnDidMove(notification: NSNotification)
+        tableViewSelectionDidChange?(notification: NSNotification)
+        tableViewSelectionIsChanging?(notification: NSNotification)
+        tableViewColumnDidResize?(notification: NSNotification)
+        tableViewColumnDidMove?(notification: NSNotification)
     }
 
     /// `NSOutlineView` — tree-shaped variant of NSTableView.
@@ -301,20 +301,20 @@ pub enum NSTableViewGridLineStyle: u64 {
     /// `outlineView:numberOfChildrenOfItem:` returns how many
     /// children that item has.
     @objc pub interface NSOutlineViewDataSource {
-        @optional @objc("outlineView:child:ofItem:")
-        outlineViewChildOfItem(
+        @objc("outlineView:child:ofItem:")
+        outlineViewChildOfItem?(
             outlineView: NSOutlineView, child: i64, ofItem: NSObject
         ): NSObject
-        @optional @objc("outlineView:isItemExpandable:")
-        outlineViewIsItemExpandable(
+        @objc("outlineView:isItemExpandable:")
+        outlineViewIsItemExpandable?(
             outlineView: NSOutlineView, isItemExpandable: NSObject
         ): bool
-        @optional @objc("outlineView:numberOfChildrenOfItem:")
-        outlineViewNumberOfChildrenOfItem(
+        @objc("outlineView:numberOfChildrenOfItem:")
+        outlineViewNumberOfChildrenOfItem?(
             outlineView: NSOutlineView, numberOfChildrenOfItem: NSObject
         ): i64
-        @optional @objc("outlineView:objectValueForTableColumn:byItem:")
-        outlineViewObjectValueForTableColumn(
+        @objc("outlineView:objectValueForTableColumn:byItem:")
+        outlineViewObjectValueForTableColumn?(
             outlineView: NSOutlineView,
             objectValueForTableColumn: NSTableColumn,
             byItem: NSObject
@@ -326,19 +326,19 @@ pub enum NSTableViewGridLineStyle: u64 {
     /// `NSTableViewDelegate` but the row identity is an
     /// arbitrary `id` (the item) rather than an integer row.
     @objc pub interface NSOutlineViewDelegate {
-        @optional @objc("outlineView:viewForTableColumn:item:")
-        outlineViewViewForTableColumn(
+        @objc("outlineView:viewForTableColumn:item:")
+        outlineViewViewForTableColumn?(
             outlineView: NSOutlineView,
             viewForTableColumn: NSTableColumn, item: NSObject
         ): NSView
-        @optional @objc("outlineView:heightOfRowByItem:")
-        outlineViewHeightOfRowByItem(
+        @objc("outlineView:heightOfRowByItem:")
+        outlineViewHeightOfRowByItem?(
             outlineView: NSOutlineView, heightOfRowByItem: NSObject
         ): f64
-        @optional @objc("outlineView:shouldSelectItem:")
-        outlineViewShouldSelectItem(
+        @objc("outlineView:shouldSelectItem:")
+        outlineViewShouldSelectItem?(
             outlineView: NSOutlineView, shouldSelectItem: NSObject
         ): bool
-        @optional outlineViewSelectionDidChange(notification: NSNotification)
+        outlineViewSelectionDidChange?(notification: NSNotification)
     }
 }

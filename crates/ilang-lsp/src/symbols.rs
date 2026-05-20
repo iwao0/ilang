@@ -255,7 +255,7 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                         .methods
                         .iter()
                         .map(|m| {
-                            let prefix = if m.is_optional { "@optional " } else { "" };
+                            let opt = if m.is_optional { "?" } else { "" };
                             let ps: Vec<String> = m
                                 .params
                                 .iter()
@@ -265,7 +265,7 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                                 Some(t) => format!(": {t}"),
                                 None => String::new(),
                             };
-                            format!("    {prefix}{}({}){}", m.name, ps.join(", "), r)
+                            format!("    {}{}({}){}", m.name, opt, ps.join(", "), r)
                         })
                         .collect();
                     let header = if iface.is_objc { "@objc interface" } else { "interface" };

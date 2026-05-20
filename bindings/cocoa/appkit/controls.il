@@ -318,9 +318,9 @@ pub enum NSDatePickerStyle: u64 {
     /// about are NSTextField-specific or shared with other
     /// NSControl subclasses.
     @objc pub interface NSTextFieldDelegate {
-        @optional controlTextDidBeginEditing(notification: NSObject)
-        @optional controlTextDidChange(notification: NSObject)
-        @optional controlTextDidEndEditing(notification: NSObject)
+        controlTextDidBeginEditing?(notification: NSObject)
+        controlTextDidChange?(notification: NSObject)
+        controlTextDidEndEditing?(notification: NSObject)
     }
 
     /// `NSControlTextEditingDelegate` — generic text-editing
@@ -329,18 +329,18 @@ pub enum NSDatePickerStyle: u64 {
     /// `control:textShouldBeginEditing:` and friends let the
     /// delegate veto edits, intercept commands, etc.
     @objc pub interface NSControlTextEditingDelegate {
-        @optional @objc("control:textShouldBeginEditing:")
-        controlTextShouldBeginEditing(control: NSObject, fieldEditor: NSObject): bool
-        @optional @objc("control:textShouldEndEditing:")
-        controlTextShouldEndEditing(control: NSObject, fieldEditor: NSObject): bool
-        @optional @objc("control:isValidObject:")
-        controlIsValidObject(control: NSObject, obj: NSObject): bool
-        @optional @objc("control:didFailToFormatString:errorDescription:")
-        controlDidFailToFormatString(
+        @objc("control:textShouldBeginEditing:")
+        controlTextShouldBeginEditing?(control: NSObject, fieldEditor: NSObject): bool
+        @objc("control:textShouldEndEditing:")
+        controlTextShouldEndEditing?(control: NSObject, fieldEditor: NSObject): bool
+        @objc("control:isValidObject:")
+        controlIsValidObject?(control: NSObject, obj: NSObject): bool
+        @objc("control:didFailToFormatString:errorDescription:")
+        controlDidFailToFormatString?(
             control: NSObject, string: NSString, errorDescription: NSString
         ): bool
-        @optional @objc("control:didFailToValidatePartialString:errorDescription:")
-        controlDidFailToValidatePartialString(
+        @objc("control:didFailToValidatePartialString:errorDescription:")
+        controlDidFailToValidatePartialString?(
             control: NSObject, string: NSString, errorDescription: NSString
         )
     }

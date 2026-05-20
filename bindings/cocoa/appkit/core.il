@@ -165,32 +165,32 @@ pub enum NSApplicationActivationPolicy: i64 {
     /// delegate via `app.setDelegate(myDelegate)` once after
     /// `sharedApplication()`.
     @objc pub interface NSApplicationDelegate {
-        @optional applicationWillFinishLaunching(notification: NSNotification)
-        @optional applicationDidFinishLaunching(notification: NSNotification)
-        @optional applicationWillBecomeActive(notification: NSNotification)
-        @optional applicationDidBecomeActive(notification: NSNotification)
-        @optional applicationWillResignActive(notification: NSNotification)
-        @optional applicationDidResignActive(notification: NSNotification)
-        @optional applicationDidHide(notification: NSNotification)
-        @optional applicationDidUnhide(notification: NSNotification)
-        @optional applicationDidChangeScreenParameters(notification: NSNotification)
-        @optional applicationWillTerminate(notification: NSNotification)
+        applicationWillFinishLaunching?(notification: NSNotification)
+        applicationDidFinishLaunching?(notification: NSNotification)
+        applicationWillBecomeActive?(notification: NSNotification)
+        applicationDidBecomeActive?(notification: NSNotification)
+        applicationWillResignActive?(notification: NSNotification)
+        applicationDidResignActive?(notification: NSNotification)
+        applicationDidHide?(notification: NSNotification)
+        applicationDidUnhide?(notification: NSNotification)
+        applicationDidChangeScreenParameters?(notification: NSNotification)
+        applicationWillTerminate?(notification: NSNotification)
 
         // Decision callbacks. Return-typed selectors that AppKit
         // consults before performing the corresponding action.
-        @optional applicationShouldTerminate(app: NSApplication): u64
-        @optional applicationShouldTerminateAfterLastWindowClosed(app: NSApplication): bool
-        @optional applicationShouldHandleReopen(app: NSApplication, hasVisibleWindows: bool): bool
+        applicationShouldTerminate?(app: NSApplication): u64
+        applicationShouldTerminateAfterLastWindowClosed?(app: NSApplication): bool
+        applicationShouldHandleReopen?(app: NSApplication, hasVisibleWindows: bool): bool
 
         // File / URL opens — single-file form is `application:openFile:`,
         // multi-file is `application:openFiles:` (the array variant
         // is the modern preferred one on macOS 10.13+).
-        @optional @objc("application:openFile:")
-        applicationOpenFile(app: NSApplication, filename: NSString): bool
-        @optional @objc("application:openFiles:")
-        applicationOpenFiles(app: NSApplication, filenames: NSArray)
-        @optional @objc("application:openURLs:")
-        applicationOpenURLs(app: NSApplication, urls: NSArray)
+        @objc("application:openFile:")
+        applicationOpenFile?(app: NSApplication, filename: NSString): bool
+        @objc("application:openFiles:")
+        applicationOpenFiles?(app: NSApplication, filenames: NSArray)
+        @objc("application:openURLs:")
+        applicationOpenURLs?(app: NSApplication, urls: NSArray)
     }
 
     /// `NSWindowDelegate` — per-window lifecycle and geometry
@@ -198,37 +198,37 @@ pub enum NSApplicationActivationPolicy: i64 {
     /// object can be both the window delegate and the app
     /// delegate by implementing both protocols.
     @objc pub interface NSWindowDelegate {
-        @optional windowDidBecomeKey(notification: NSNotification)
-        @optional windowDidResignKey(notification: NSNotification)
-        @optional windowDidBecomeMain(notification: NSNotification)
-        @optional windowDidResignMain(notification: NSNotification)
-        @optional windowDidMove(notification: NSNotification)
-        @optional windowDidResize(notification: NSNotification)
-        @optional windowWillMiniaturize(notification: NSNotification)
-        @optional windowDidMiniaturize(notification: NSNotification)
-        @optional windowDidDeminiaturize(notification: NSNotification)
-        @optional windowDidExpose(notification: NSNotification)
-        @optional windowWillClose(notification: NSNotification)
-        @optional windowDidChangeScreen(notification: NSNotification)
-        @optional windowDidChangeScreenProfile(notification: NSNotification)
-        @optional windowDidChangeBackingProperties(notification: NSNotification)
+        windowDidBecomeKey?(notification: NSNotification)
+        windowDidResignKey?(notification: NSNotification)
+        windowDidBecomeMain?(notification: NSNotification)
+        windowDidResignMain?(notification: NSNotification)
+        windowDidMove?(notification: NSNotification)
+        windowDidResize?(notification: NSNotification)
+        windowWillMiniaturize?(notification: NSNotification)
+        windowDidMiniaturize?(notification: NSNotification)
+        windowDidDeminiaturize?(notification: NSNotification)
+        windowDidExpose?(notification: NSNotification)
+        windowWillClose?(notification: NSNotification)
+        windowDidChangeScreen?(notification: NSNotification)
+        windowDidChangeScreenProfile?(notification: NSNotification)
+        windowDidChangeBackingProperties?(notification: NSNotification)
 
         // Full-screen transition callbacks.
-        @optional windowWillEnterFullScreen(notification: NSNotification)
-        @optional windowDidEnterFullScreen(notification: NSNotification)
-        @optional windowWillExitFullScreen(notification: NSNotification)
-        @optional windowDidExitFullScreen(notification: NSNotification)
+        windowWillEnterFullScreen?(notification: NSNotification)
+        windowDidEnterFullScreen?(notification: NSNotification)
+        windowWillExitFullScreen?(notification: NSNotification)
+        windowDidExitFullScreen?(notification: NSNotification)
 
         // Decision callbacks.
-        @optional windowShouldClose(sender: NSObject): bool
+        windowShouldClose?(sender: NSObject): bool
 
         // Geometry hooks. `windowWillResize:toSize:` lets the
         // delegate adjust the requested size; the returned size
         // is what the window actually uses.
-        @optional @objc("windowWillResize:toSize:")
-        windowWillResize(sender: NSWindow, toSize: NSSize): NSSize
-        @optional @objc("windowWillUseStandardFrame:defaultFrame:")
-        windowWillUseStandardFrame(sender: NSWindow, defaultFrame: NSRect): NSRect
+        @objc("windowWillResize:toSize:")
+        windowWillResize?(sender: NSWindow, toSize: NSSize): NSSize
+        @objc("windowWillUseStandardFrame:defaultFrame:")
+        windowWillUseStandardFrame?(sender: NSWindow, defaultFrame: NSRect): NSRect
     }
 
     // ─── Convenience helpers ─────────────────────────────────────

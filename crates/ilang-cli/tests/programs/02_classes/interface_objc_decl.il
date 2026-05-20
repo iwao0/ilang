@@ -4,7 +4,7 @@
 //
 //   * The type-checker accepts the interface as a base in any
 //     `class C: Iface { … }` declaration and runs the same
-//     conformance check it does for plain interfaces; `@optional`
+//     conformance check it does for plain interfaces; ``
 //     methods may be skipped.
 //
 //   * The loader's auto-lift pass spots top-level classes naming
@@ -23,7 +23,7 @@
 
 @extern(ObjC) {
     @objc class NSObject {
-        @objc("release") release()
+        @objc("release") release?()
     }
     @objc pub interface Greeter {
         // Auto-derived selector (= `hello:`) — the parser appends
@@ -31,7 +31,7 @@
         hello(name: i64)
         // Explicit selector. Same shape but spelled out.
         @objc("hello:withSuffix:")
-        @optional helloWithSuffix(name: i64, suffix: i64)
+        helloWithSuffix?(name: i64, suffix: i64)
     }
 }
 
@@ -47,10 +47,10 @@ class A: Greeter {
     }
 }
 
-// B skips the @optional helloWithSuffix — still legal because
+// B skips the helloWithSuffix — still legal because
 // `@optional` excuses it from the conformance check.
 class B: Greeter {
-    pub hello(name: i64) {
+    pub hello?(name: i64) {
         console.log("hello B")
     }
 }

@@ -151,8 +151,8 @@ use core { NSObject, NSString, NSArray, NSError }
     /// + exported object, call `-resume`, and return `true` to
     /// accept; return `false` to drop.
     @objc pub interface NSXPCListenerDelegate {
-        @optional @objc("listener:shouldAcceptNewConnection:")
-        listenerShouldAcceptNewConnection(
+        @objc("listener:shouldAcceptNewConnection:")
+        listenerShouldAcceptNewConnection?(
             listener: NSXPCListener, newConnection: NSXPCConnection
         ): bool
     }

@@ -576,7 +576,7 @@ pub(crate) fn implement_interface_methods_at(
     for m in &missing {
         if m.is_optional {
             out.push_str(&body_indent);
-            out.push_str("// @optional — delete if not overriding\n");
+            out.push_str("// optional (`?`) — delete if not overriding\n");
         }
         out.push_str(&body_indent);
         out.push_str("pub ");
@@ -776,7 +776,7 @@ pub(crate) fn interface_method_stub_completions_at(
             snippet.push_str("\n}");
             let detail = Some(format!(
                 "{} {}{}",
-                if m.is_optional { "@optional" } else { "required" },
+                if m.is_optional { "optional" } else { "required" },
                 iface.name.as_str(),
                 if m.is_optional { "" } else { " — implement" }
             ));
@@ -861,7 +861,7 @@ pub(crate) fn interface_method_stub_completions_textual(
             snippet.push_str("\n}");
             let detail = Some(format!(
                 "{} {}",
-                if m.is_optional { "@optional" } else { "required" },
+                if m.is_optional { "optional" } else { "required" },
                 iface.name.as_str(),
             ));
             out.push((name.to_string(), detail, snippet));

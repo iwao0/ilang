@@ -23,8 +23,8 @@ use test
 
     @objc pub interface Greeter {
         hello(n: i64)
-        @optional @objc("wave:")
-        wave(n: i64)
+        @objc("wave:")
+        wave?(n: i64)
     }
 
     @objc class Impl : NSObject, Greeter {

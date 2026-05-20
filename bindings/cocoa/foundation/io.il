@@ -519,16 +519,16 @@ pub enum NSStreamStatus: u64 {
     /// (it's a bitmask but typical handlers branch on a single
     /// bit at a time).
     @objc pub interface NSStreamDelegate {
-        @optional @objc("stream:handleEvent:")
-        streamHandleEvent(stream: NSStream, eventCode: u64)
+        @objc("stream:handleEvent:")
+        streamHandleEvent?(stream: NSStream, eventCode: u64)
     }
 
     /// `NSCacheDelegate` — fires before NSCache evicts an entry,
     /// giving you one last chance to peek at the value (e.g. to
     /// flush dirty state to disk).
     @objc pub interface NSCacheDelegate {
-        @optional @objc("cache:willEvictObject:")
-        cacheWillEvictObject(cache: NSCache, object: NSObject)
+        @objc("cache:willEvictObject:")
+        cacheWillEvictObject?(cache: NSCache, object: NSObject)
     }
 
     /// `NSFileManagerDelegate` — per-operation override hooks.
@@ -537,20 +537,20 @@ pub enum NSStreamStatus: u64 {
     /// through; the `proceedAfterError:` variants run after a
     /// failure and let you continue past errors.
     @objc pub interface NSFileManagerDelegate {
-        @optional @objc("fileManager:shouldCopyItemAtPath:toPath:")
-        fileManagerShouldCopyItemAtPath(
+        @objc("fileManager:shouldCopyItemAtPath:toPath:")
+        fileManagerShouldCopyItemAtPath?(
             fileManager: NSFileManager, srcPath: NSString, toPath: NSString
         ): bool
-        @optional @objc("fileManager:shouldMoveItemAtPath:toPath:")
-        fileManagerShouldMoveItemAtPath(
+        @objc("fileManager:shouldMoveItemAtPath:toPath:")
+        fileManagerShouldMoveItemAtPath?(
             fileManager: NSFileManager, srcPath: NSString, toPath: NSString
         ): bool
-        @optional @objc("fileManager:shouldRemoveItemAtPath:")
-        fileManagerShouldRemoveItemAtPath(
+        @objc("fileManager:shouldRemoveItemAtPath:")
+        fileManagerShouldRemoveItemAtPath?(
             fileManager: NSFileManager, path: NSString
         ): bool
-        @optional @objc("fileManager:shouldLinkItemAtPath:toPath:")
-        fileManagerShouldLinkItemAtPath(
+        @objc("fileManager:shouldLinkItemAtPath:toPath:")
+        fileManagerShouldLinkItemAtPath?(
             fileManager: NSFileManager, srcPath: NSString, toPath: NSString
         ): bool
     }
@@ -689,19 +689,19 @@ pub enum NSStreamStatus: u64 {
         presentedItemURL(): NSURL
         presentedItemOperationQueue(): NSObject
 
-        @optional presentedItemDidChange()
-        @optional @objc("presentedItemDidMoveToURL:")
-        presentedItemDidMoveToURL(newURL: NSURL)
-        @optional accommodatePresentedItemDeletion(
+        presentedItemDidChange?()
+        @objc("presentedItemDidMoveToURL:")
+        presentedItemDidMoveToURL?(newURL: NSURL)
+        accommodatePresentedItemDeletion?(
             completionHandler: ObjCBlock<fn(i64)>
         )
-        @optional savePresentedItemChangesWithCompletionHandler(
+        savePresentedItemChangesWithCompletionHandler?(
             completionHandler: ObjCBlock<fn(i64)>
         )
-        @optional @objc("relinquishPresentedItemToReader:")
-        relinquishPresentedItemToReader(reader: ObjCBlock<fn(i64)>)
-        @optional @objc("relinquishPresentedItemToWriter:")
-        relinquishPresentedItemToWriter(writer: ObjCBlock<fn(i64)>)
+        @objc("relinquishPresentedItemToReader:")
+        relinquishPresentedItemToReader?(reader: ObjCBlock<fn(i64)>)
+        @objc("relinquishPresentedItemToWriter:")
+        relinquishPresentedItemToWriter?(writer: ObjCBlock<fn(i64)>)
     }
 
     /// `NSFileSecurity` — opaque value carrying a file's owner /
