@@ -132,6 +132,14 @@ pub struct ClassLayout {
     /// dynamic array `T[]`, holds the byte size of `T`. `0` means
     /// no FAM. `new StructName(n)` then allocates `c_size + n*elem`.
     pub flex_elem_size: i64,
+    /// `@com interface` marker. ilang's ARC `__retain_object` /
+    /// `__release_object` would dereference the rc slot at
+    /// `obj_ptr + 8`, but a COM handle's value is the bare interface
+    /// pointer — `+8` lands inside the foreign object's private
+    /// data. Codegen sees this flag and emits Retain/Release as
+    /// no-ops; the user manages lifetime via `IUnknown::AddRef` /
+    /// `Release()` explicitly.
+    pub is_com_interface: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

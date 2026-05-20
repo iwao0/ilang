@@ -44,6 +44,7 @@ impl Lower {
                     c_field_offsets: Vec::new(),
                     c_size: 0,
                     flex_elem_size: 0,
+                    is_com_interface: false,
                         });
                         self.class_meta.insert(id, ClassMeta::default());
                     }

@@ -116,6 +116,7 @@ pub fn lower_program_with_slots(
                     c_field_offsets: Vec::new(),
                     c_size: 0,
                     flex_elem_size: 0,
+                    is_com_interface: false,
                 });
                 lower.class_meta.insert(id, ClassMeta::default());
             }
@@ -179,6 +180,7 @@ pub fn lower_program_with_slots(
                     c_field_offsets: Vec::new(),
                     c_size: 0,
                     flex_elem_size: 0,
+                    is_com_interface: false,
                 });
                 let mut meta = ClassMeta::default();
                 if i.is_objc {
@@ -202,6 +204,13 @@ pub fn lower_program_with_slots(
             lower.iface_methods_by_name.insert(i.name, names);
             if i.is_com {
                 lower.com_interfaces.insert(i.name);
+                // Also stamp the matching ClassLayout so codegen
+                // can recognise @com interfaces without re-deriving
+                // them from a side-table. Used by Retain / Release
+                // codegen to skip the ARC rc-bump on COM handles.
+                if let Some(cid) = lower.class_ids.get(&i.name).copied() {
+                    lower.classes[cid.0 as usize].is_com_interface = true;
+                }
             }
         }
     }

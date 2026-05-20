@@ -531,6 +531,16 @@ pub(super) fn lower_inst<M: Module>(
             match &aty {
                 MirTy::Object(cid) => {
                     let layout = &prog.classes[cid.0 as usize];
+                    // Mirror the Retain side: a `@com interface`
+                    // handle is a foreign COM pointer — releasing
+                    // it via `__release_object` would scribble at
+                    // `com_ptr + 8`, inside whatever real data
+                    // structure D3D12 / etc. parks there. Lifetime
+                    // is the user's responsibility through
+                    // `IUnknown::Release`.
+                    if layout.is_com_interface {
+                        return Ok(());
+                    }
                     if matches!(
                         layout.repr,
                         ilang_mir::ClassRepr::CRepr
@@ -618,6 +628,15 @@ pub(super) fn lower_inst<M: Module>(
                             | ilang_mir::ClassRepr::CPacked
                             | ilang_mir::ClassRepr::CUnion
                     ) {
+                        return Ok(());
+                    }
+                    // `@com interface` handles carry no ilang rc —
+                    // `__retain_object` would atomic-increment at
+                    // `com_ptr + 8`, which on a real COM resource is
+                    // private data the foreign runtime owns. Skip;
+                    // user code uses `IUnknown::AddRef` for the COM
+                    // lifetime contract.
+                    if layout.is_com_interface {
                         return Ok(());
                     }
                     let av = vmap[value];
