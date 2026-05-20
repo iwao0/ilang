@@ -63,7 +63,7 @@ use windows {
             lpszClassName: className,
             hIconSm:       0 as *HICON,
         }
-        RegisterClassExA(wc)
+        RegisterClassExA(&wc)
 
         let hwnd = CreateWindowExA(
             0,
@@ -90,10 +90,10 @@ use windows {
             lPrivate: 0,
         }
         loop {
-            let r = GetMessageA(msg, 0 as *HWND, 0, 0)
+            let r = GetMessageA(&msg, 0 as *HWND, 0, 0)
             if r <= 0 { break }
-            TranslateMessage(msg)
-            let _ = DispatchMessageA(msg)
+            TranslateMessage(&msg)
+            let _ = DispatchMessageA(&msg)
         }
     }
 }

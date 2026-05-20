@@ -22,7 +22,7 @@ pub enum Tag16: u16 {
 
     pub fn fillFrame(f: Frame, bytes: u8[]) {
         let p: *u8 = bytes
-        let _ = memcpy(f, p as *const u8, bytes.length as u64)
+        let _ = memcpy(&f, p as *const u8, bytes.length as u64)
     }
 }
 

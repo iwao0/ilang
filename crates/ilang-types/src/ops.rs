@@ -97,16 +97,13 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
         }
         return false;
     }
-    // ilang Object pointer → `*T` raw pointer when T is the same
-    // class. ilang's Object value is a pointer to the user data
-    // area of a `@extern(C) struct` allocation, so handing it to C
-    // as a `*MyStruct` argument is direct (the ARC header sits at
-    // negative offsets and stays invisible to the C side).
-    if let (Type::Object(from_n), Type::RawPtr { inner, .. }) = (from, to) {
-        if let Type::Object(to_n) = inner.as_ref() {
-            return from_n == to_n;
-        }
-    }
+    // NOTE: implicit `Object(N) → *N` coercion is intentionally
+    // not allowed. Callers must spell out `&value` to convert an
+    // `@extern(C) struct` value into the `*Struct` argument shape
+    // — same explicitness ilang requires for `&local` / `&field`
+    // in any other FFI context. Array-to-pointer (`T[] → *T`)
+    // stays implicit because the array's storage layout already
+    // makes the raw pointer the natural representation.
     // ilang `T[]` → `*T` / `*const T` raw pointer at the C boundary.
     // The array's data pointer is what's actually passed; the ARC
     // header / length sit at negative offsets and stay invisible to

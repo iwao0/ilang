@@ -102,6 +102,61 @@ impl<'a> BodyCx<'a> {
         // buffer pointer), so plain SSA values (e.g., function
         // parameters) work too.
         if fields.is_empty() {
+            // Short-circuit for CRepr `Object` bindings — the value
+            // is already a pointer to the C struct's storage, so
+            // `&s` is a bitcast from `Object(N)` to `*N` (not a
+            // stack-slot pin). Works for both `let`-bound locals
+            // and SSA bindings (fn params, returned values).
+            let crepr_short = match self.env.lookup_binding(root_name) {
+                Some(Binding::Local(lid, t)) => {
+                    if let MirTy::Object(cid) = &t {
+                        if matches!(
+                            self.classes[cid.0 as usize].repr,
+                            crate::program::ClassRepr::CRepr
+                                | crate::program::ClassRepr::CPacked
+                                | crate::program::ClassRepr::CUnion
+                        ) {
+                            let v = self.fb.new_value(t.clone());
+                            self.fb.push_inst(Inst::UseLocal { dst: v, local: lid });
+                            Some((v, t))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                Some(Binding::Ssa(v, t)) => {
+                    if let MirTy::Object(cid) = &t {
+                        if matches!(
+                            self.classes[cid.0 as usize].repr,
+                            crate::program::ClassRepr::CRepr
+                                | crate::program::ClassRepr::CPacked
+                                | crate::program::ClassRepr::CUnion
+                        ) {
+                            Some((v, t))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some((src_v, src_ty)) = crepr_short {
+                let ptr_ty = MirTy::RawPtr {
+                    is_const: false,
+                    inner: Box::new(src_ty),
+                };
+                let dst = self.fb.new_value(ptr_ty.clone());
+                self.fb.push_inst(Inst::Cast {
+                    dst,
+                    kind: crate::inst::CastKind::PtrCast,
+                    src: src_v,
+                });
+                return Ok((dst, ptr_ty));
+            }
             let (lid, root_ty) = match self.env.lookup_binding(root_name) {
                 Some(Binding::Local(lid, t)) => (lid, t),
                 Some(_) => {

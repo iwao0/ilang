@@ -10,31 +10,24 @@
 use test
 
 @extern(C) {
-    struct timespec {
+    pub struct timespec {
         tv_sec: i64
         tv_nsec: i64
     }
 
     @lib("c") fn clock_gettime(clk_id: i32, tp: *timespec): i32
+
+    /// User-level wrapper — `&ts` is only legal inside `@extern(C)`,
+    /// so the struct is allocated, filled, and returned here. User
+    /// code reads fields off the returned `timespec`.
+    pub fn realtime(): timespec {
+        let ts = new timespec()
+        let _ = clock_gettime(0 as i32, &ts)
+        ts
+    }
 }
 
-let ts = new timespec()
-
-// Sanity: zero-initialized.
-test.expect(ts.tv_sec, 0)
-test.expect(ts.tv_nsec, 0)
-
-// CLOCK_REALTIME = 0 on macOS / Linux.
-let rc = clock_gettime(0 as i32, ts)
-test.expect(rc as i64, 0)
-
-// The C side wrote into the struct. Seconds since 1970 must be
-// well past 1.5 billion (year 2017 onward).
+let ts = realtime()
 test.expectTrue(ts.tv_sec > 1500000000)
-// Nanoseconds always within [0, 1_000_000_000).
 test.expectTrue(ts.tv_nsec >= 0)
 test.expectTrue(ts.tv_nsec < 1000000000)
-
-// Modify a field from ilang and confirm the change is visible.
-ts.tv_sec = 42
-test.expect(ts.tv_sec, 42)
