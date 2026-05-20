@@ -97,3 +97,286 @@ pub const IID_ID3D12InfoQueue: GUID = GUID {
     Data1: 0x0742a90b, Data2: 0xc387, Data3: 0x483f,
     Data4lo: 0xa73046b9, Data4hi: 0x5814e6e4,
 }
+
+/// IID_ID3D12Heap = 6b3b2502-6e51-45b3-90ee-9884265e8df3
+pub const IID_ID3D12Heap: GUID = GUID {
+    Data1: 0x6b3b2502, Data2: 0x6e51, Data3: 0x45b3,
+    Data4lo: 0x8498ee90, Data4hi: 0xf38d5e26,
+}
+
+/// IID_ID3D12QueryHeap = 0d9658ae-ed45-469e-a61d-970ec583cab4
+pub const IID_ID3D12QueryHeap: GUID = GUID {
+    Data1: 0x0d9658ae, Data2: 0xed45, Data3: 0x469e,
+    Data4lo: 0x0e971da6, Data4hi: 0xb4ca83c5,
+}
+
+/// IID_ID3D12Fence1 = 433685fe-e22b-4ca0-a8db-b5b4f4dd0e4a
+pub const IID_ID3D12Fence1: GUID = GUID {
+    Data1: 0x433685fe, Data2: 0xe22b, Data3: 0x4ca0,
+    Data4lo: 0xb4b5dba8, Data4hi: 0x4a0eddf4,
+}
+
+/// IID_ID3D12Resource1 = 9d5e227a-4430-4161-88b3-3eca6bb16e19
+pub const IID_ID3D12Resource1: GUID = GUID {
+    Data1: 0x9d5e227a, Data2: 0x4430, Data3: 0x4161,
+    Data4lo: 0xca3eb388, Data4hi: 0x196eb16b,
+}
+
+/// IID_ID3D12Resource2 = be36ec3b-ea85-4aeb-a45a-e9d76404a495
+pub const IID_ID3D12Resource2: GUID = GUID {
+    Data1: 0xbe36ec3b, Data2: 0xea85, Data3: 0x4aeb,
+    Data4lo: 0xd7e95aa4, Data4hi: 0x95a40464,
+}
+
+/// IID_ID3D12Device1 = 77acce80-638e-4e65-8895-c1f23386863e
+pub const IID_ID3D12Device1: GUID = GUID {
+    Data1: 0x77acce80, Data2: 0x638e, Data3: 0x4e65,
+    Data4lo: 0xf2c19588, Data4hi: 0x3e868633,
+}
+
+/// IID_ID3D12Device2 = 30baa41e-b15b-475c-a0bb-1af5c5b64328
+pub const IID_ID3D12Device2: GUID = GUID {
+    Data1: 0x30baa41e, Data2: 0xb15b, Data3: 0x475c,
+    Data4lo: 0xf51abba0, Data4hi: 0x2843b6c5,
+}
+
+/// IID_ID3D12Device3 = 81dadc15-2bad-4392-93c5-101345c4aa98
+pub const IID_ID3D12Device3: GUID = GUID {
+    Data1: 0x81dadc15, Data2: 0x2bad, Data3: 0x4392,
+    Data4lo: 0x1310c593, Data4hi: 0x98aac445,
+}
+
+/// IID_ID3D12Device4 = e865df17-a9ee-46f9-a463-3098315aa2e5
+pub const IID_ID3D12Device4: GUID = GUID {
+    Data1: 0xe865df17, Data2: 0xa9ee, Data3: 0x46f9,
+    Data4lo: 0x983063a4, Data4hi: 0xe5a25a31,
+}
+
+/// IID_ID3D12Device5 = 8b4f173b-2fea-4b80-8f58-4307191ab95d
+pub const IID_ID3D12Device5: GUID = GUID {
+    Data1: 0x8b4f173b, Data2: 0x2fea, Data3: 0x4b80,
+    Data4lo: 0x0743588f, Data4hi: 0x5db91a19,
+}
+
+/// IID_ID3D12GraphicsCommandList1 = 553103fb-1fe7-4557-bb38-946d7d0e7ca7
+pub const IID_ID3D12GraphicsCommandList1: GUID = GUID {
+    Data1: 0x553103fb, Data2: 0x1fe7, Data3: 0x4557,
+    Data4lo: 0x6d9438bb, Data4hi: 0xa77c0e7d,
+}
+
+/// IID_ID3D12GraphicsCommandList2 = 38c3e585-ff17-412c-9150-4fc6f9d72a28
+pub const IID_ID3D12GraphicsCommandList2: GUID = GUID {
+    Data1: 0x38c3e585, Data2: 0xff17, Data3: 0x412c,
+    Data4lo: 0xc64f5091, Data4hi: 0x282ad7f9,
+}
+
+/// IID_ID3D12GraphicsCommandList3 = 6fda83a7-b84c-4e38-9ac8-c7bd22016b3d
+pub const IID_ID3D12GraphicsCommandList3: GUID = GUID {
+    Data1: 0x6fda83a7, Data2: 0xb84c, Data3: 0x4e38,
+    Data4lo: 0xbdc7c89a, Data4hi: 0x3d6b0122,
+}
+
+/// IID_ID3D12GraphicsCommandList4 = 8754318e-d3a9-4541-98cf-645b50dc4874
+pub const IID_ID3D12GraphicsCommandList4: GUID = GUID {
+    Data1: 0x8754318e, Data2: 0xd3a9, Data3: 0x4541,
+    Data4lo: 0x5b64cf98, Data4hi: 0x7448dc50,
+}
+
+/// IID_ID3D12GraphicsCommandList5 = 55050859-4024-474c-87f5-6472eaee44ea
+pub const IID_ID3D12GraphicsCommandList5: GUID = GUID {
+    Data1: 0x55050859, Data2: 0x4024, Data3: 0x474c,
+    Data4lo: 0x7264f587, Data4hi: 0xea44eeea,
+}
+
+/// IID_ID3D12GraphicsCommandList6 = c3827890-e548-4cfa-96cf-5689a9370f80
+pub const IID_ID3D12GraphicsCommandList6: GUID = GUID {
+    Data1: 0xc3827890, Data2: 0xe548, Data3: 0x4cfa,
+    Data4lo: 0x8956cf96, Data4hi: 0x800f37a9,
+}
+
+/// IID_ID3D12GraphicsCommandList7 = dd171223-8b61-4769-90e3-160ccde4e2c1
+pub const IID_ID3D12GraphicsCommandList7: GUID = GUID {
+    Data1: 0xdd171223, Data2: 0x8b61, Data3: 0x4769,
+    Data4lo: 0x0c16e390, Data4hi: 0xc1e2e4cd,
+}
+
+/// IID_ID3D12Debug1 = affaa4ca-63fe-4d8e-b8ad-159000af4304
+pub const IID_ID3D12Debug1: GUID = GUID {
+    Data1: 0xaffaa4ca, Data2: 0x63fe, Data3: 0x4d8e,
+    Data4lo: 0x9015adb8, Data4hi: 0x0443af00,
+}
+
+/// IID_ID3D12Debug3 = 5cf4e58f-f671-4ff1-a542-3686e3d153d1
+pub const IID_ID3D12Debug3: GUID = GUID {
+    Data1: 0x5cf4e58f, Data2: 0xf671, Data3: 0x4ff1,
+    Data4lo: 0x863642a5, Data4hi: 0xd153d1e3,
+}
+
+/// IID_ID3D12Debug5 = 548d6b12-09fa-40e0-9069-5dcd589a52c9
+pub const IID_ID3D12Debug5: GUID = GUID {
+    Data1: 0x548d6b12, Data2: 0x09fa, Data3: 0x40e0,
+    Data4lo: 0xcd5d6990, Data4hi: 0xc9529a58,
+}
+
+/// IID_ID3D12DebugDevice = 3febd6dd-4973-4787-8194-e45f9e28923e
+pub const IID_ID3D12DebugDevice: GUID = GUID {
+    Data1: 0x3febd6dd, Data2: 0x4973, Data3: 0x4787,
+    Data4lo: 0x5fe49481, Data4hi: 0x3e92289e,
+}
+
+/// IID_ID3D12StateObject = 47016943-fca8-4594-93ea-af258b55346d
+pub const IID_ID3D12StateObject: GUID = GUID {
+    Data1: 0x47016943, Data2: 0xfca8, Data3: 0x4594,
+    Data4lo: 0x25afea93, Data4hi: 0x6d34558b,
+}
+
+/// IID_ID3D12StateObjectProperties = de5fa827-9bf9-4f26-89ff-d7f56fde3860
+pub const IID_ID3D12StateObjectProperties: GUID = GUID {
+    Data1: 0xde5fa827, Data2: 0x9bf9, Data3: 0x4f26,
+    Data4lo: 0xf5d7ff89, Data4hi: 0x6038de6f,
+}
+
+/// IID_ID3D12PipelineLibrary = c64226a8-9201-46af-b4cc-53fb9ff7414f
+pub const IID_ID3D12PipelineLibrary: GUID = GUID {
+    Data1: 0xc64226a8, Data2: 0x9201, Data3: 0x46af,
+    Data4lo: 0xfb53ccb4, Data4hi: 0x4f41f79f,
+}
+
+/// IID_IDXGIFactory = 7b7166ec-21c7-44ae-b21a-c9ae321ae369
+pub const IID_IDXGIFactory: GUID = GUID {
+    Data1: 0x7b7166ec, Data2: 0x21c7, Data3: 0x44ae,
+    Data4lo: 0xaec91ab2, Data4hi: 0x69e31a32,
+}
+
+/// IID_IDXGIFactory1 = 770aae78-f26f-4dba-a829-253c83d1b387
+pub const IID_IDXGIFactory1: GUID = GUID {
+    Data1: 0x770aae78, Data2: 0xf26f, Data3: 0x4dba,
+    Data4lo: 0x3c2529a8, Data4hi: 0x87b3d183,
+}
+
+/// IID_IDXGIFactory2 = 50c83a1c-e072-4c48-87b0-3630fa36a6d0
+pub const IID_IDXGIFactory2: GUID = GUID {
+    Data1: 0x50c83a1c, Data2: 0xe072, Data3: 0x4c48,
+    Data4lo: 0x3036b087, Data4hi: 0xd0a636fa,
+}
+
+/// IID_IDXGIFactory3 = 25483823-cd46-4c7d-86ca-47aa95b837bd
+pub const IID_IDXGIFactory3: GUID = GUID {
+    Data1: 0x25483823, Data2: 0xcd46, Data3: 0x4c7d,
+    Data4lo: 0xaa47ca86, Data4hi: 0xbd37b895,
+}
+
+/// IID_IDXGIFactory5 = 7632e1f5-ee65-4dca-87fd-84cd75f8838d
+pub const IID_IDXGIFactory5: GUID = GUID {
+    Data1: 0x7632e1f5, Data2: 0xee65, Data3: 0x4dca,
+    Data4lo: 0xcd84fd87, Data4hi: 0x8d83f875,
+}
+
+/// IID_IDXGIFactory6 = c1b6694f-ff09-44a9-b03c-77900a0a1d17
+pub const IID_IDXGIFactory6: GUID = GUID {
+    Data1: 0xc1b6694f, Data2: 0xff09, Data3: 0x44a9,
+    Data4lo: 0x90773cb0, Data4hi: 0x171d0a0a,
+}
+
+/// IID_IDXGIFactory7 = a4966eed-76db-44da-84c1-ee9a7afb20a8
+pub const IID_IDXGIFactory7: GUID = GUID {
+    Data1: 0xa4966eed, Data2: 0x76db, Data3: 0x44da,
+    Data4lo: 0x9aeec184, Data4hi: 0xa820fb7a,
+}
+
+/// IID_IDXGIAdapter = 2411e7e1-12ac-4ccf-bd14-9798e8534dc0
+pub const IID_IDXGIAdapter: GUID = GUID {
+    Data1: 0x2411e7e1, Data2: 0x12ac, Data3: 0x4ccf,
+    Data4lo: 0x989714bd, Data4hi: 0xc04d53e8,
+}
+
+/// IID_IDXGIAdapter1 = 29038f61-3839-4626-91fd-086879011a05
+pub const IID_IDXGIAdapter1: GUID = GUID {
+    Data1: 0x29038f61, Data2: 0x3839, Data3: 0x4626,
+    Data4lo: 0x6808fd91, Data4hi: 0x051a0179,
+}
+
+/// IID_IDXGIAdapter2 = 0aa1ae0a-fa0e-4b84-8644-e05ff8e5acb5
+pub const IID_IDXGIAdapter2: GUID = GUID {
+    Data1: 0x0aa1ae0a, Data2: 0xfa0e, Data3: 0x4b84,
+    Data4lo: 0x5fe04486, Data4hi: 0xb5ace5f8,
+}
+
+/// IID_IDXGIAdapter3 = 645967a4-1392-4310-a798-8053ce3e93fd
+pub const IID_IDXGIAdapter3: GUID = GUID {
+    Data1: 0x645967a4, Data2: 0x1392, Data3: 0x4310,
+    Data4lo: 0x538098a7, Data4hi: 0xfd933ece,
+}
+
+/// IID_IDXGIAdapter4 = 3c8d99d1-4fbf-4181-a82c-af66bf7bd24e
+pub const IID_IDXGIAdapter4: GUID = GUID {
+    Data1: 0x3c8d99d1, Data2: 0x4fbf, Data3: 0x4181,
+    Data4lo: 0x66af2ca8, Data4hi: 0x4ed27bbf,
+}
+
+/// IID_IDXGIOutput = ae02eedb-c735-4690-8d52-5a8dc20213aa
+pub const IID_IDXGIOutput: GUID = GUID {
+    Data1: 0xae02eedb, Data2: 0xc735, Data3: 0x4690,
+    Data4lo: 0x8d5a528d, Data4hi: 0xaa1302c2,
+}
+
+/// IID_IDXGIOutput1 = 00cddea8-939b-4b83-a340-a685226666cc
+pub const IID_IDXGIOutput1: GUID = GUID {
+    Data1: 0x00cddea8, Data2: 0x939b, Data3: 0x4b83,
+    Data4lo: 0x85a640a3, Data4hi: 0xcc666622,
+}
+
+/// IID_IDXGIOutput4 = dc7dca35-2196-414d-9f53-617884032a60
+pub const IID_IDXGIOutput4: GUID = GUID {
+    Data1: 0xdc7dca35, Data2: 0x2196, Data3: 0x414d,
+    Data4lo: 0x7861539f, Data4hi: 0x602a0384,
+}
+
+/// IID_IDXGIOutput5 = 80a07424-ab52-42eb-833c-0c42fd282d98
+pub const IID_IDXGIOutput5: GUID = GUID {
+    Data1: 0x80a07424, Data2: 0xab52, Data3: 0x42eb,
+    Data4lo: 0x420c3c83, Data4hi: 0x982d28fd,
+}
+
+/// IID_IDXGIOutput6 = 068346e8-aaec-4b84-add7-137f513f77a1
+pub const IID_IDXGIOutput6: GUID = GUID {
+    Data1: 0x068346e8, Data2: 0xaaec, Data3: 0x4b84,
+    Data4lo: 0x7f13d7ad, Data4hi: 0xa1773f51,
+}
+
+/// IID_IDXGISwapChain = 310d36a0-d2e7-4c0a-aa04-6a9d23b8886a
+pub const IID_IDXGISwapChain: GUID = GUID {
+    Data1: 0x310d36a0, Data2: 0xd2e7, Data3: 0x4c0a,
+    Data4lo: 0x9d6a04aa, Data4hi: 0x6a88b823,
+}
+
+/// IID_IDXGISwapChain1 = 790a45f7-0d42-4876-983a-0a55cfe6f4aa
+pub const IID_IDXGISwapChain1: GUID = GUID {
+    Data1: 0x790a45f7, Data2: 0x0d42, Data3: 0x4876,
+    Data4lo: 0x550a3a98, Data4hi: 0xaaf4e6cf,
+}
+
+/// IID_IDXGISwapChain2 = a8be2ac4-199f-4946-b331-79599fb98de7
+pub const IID_IDXGISwapChain2: GUID = GUID {
+    Data1: 0xa8be2ac4, Data2: 0x199f, Data3: 0x4946,
+    Data4lo: 0x597931b3, Data4hi: 0xe78db99f,
+}
+
+/// IID_IDXGISwapChain4 = 3d585d5a-bd4a-489e-b1f4-3dbcb6452ffb
+pub const IID_IDXGISwapChain4: GUID = GUID {
+    Data1: 0x3d585d5a, Data2: 0xbd4a, Data3: 0x489e,
+    Data4lo: 0xbc3df4b1, Data4hi: 0xfb2f45b6,
+}
+
+/// IID_IDXGIDevice = 54ec77fa-1377-44e6-8c32-88fd5f44c84c
+pub const IID_IDXGIDevice: GUID = GUID {
+    Data1: 0x54ec77fa, Data2: 0x1377, Data3: 0x44e6,
+    Data4lo: 0xfd88328c, Data4hi: 0x4cc8445f,
+}
+
+/// IID_IDXGIDevice1 = 77db970f-6276-48ba-ba28-070143b4392c
+pub const IID_IDXGIDevice1: GUID = GUID {
+    Data1: 0x77db970f, Data2: 0x6276, Data3: 0x48ba,
+    Data4lo: 0x010728ba, Data4hi: 0x2c39b443,
+}
+

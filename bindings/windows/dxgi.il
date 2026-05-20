@@ -122,6 +122,64 @@ pub enum DxgiScaling: u32 {
     aspectRatioStretch = 2
 }
 
+// ─── DXGI_GPU_PREFERENCE ─────────────────────────────────────────
+pub enum DxgiGpuPreference: u32 {
+    unspecified     = 0
+    minimumPower    = 1
+    highPerformance = 2
+}
+
+// ─── DXGI_ADAPTER_FLAG ───────────────────────────────────────────
+@flags
+pub enum DxgiAdapterFlag: u32 {
+    none        = 0
+    remote      = 0x1   // legacy
+    software    = 0x2   // WARP-style basic render driver
+}
+
+// ─── DXGI_ADAPTER_FLAG3 (Adapter4-era) ────────────────────────────
+@flags
+pub enum DxgiAdapterFlag3: u32 {
+    none                       = 0
+    remote                     = 0x1
+    software                   = 0x2
+    aclEnforcedCrossAdapter    = 0x4
+    supportMonitoredFences     = 0x8
+    supportNonMonitoredFences  = 0x10
+    keyedMutexConformance      = 0x20
+}
+
+// ─── DXGI_COLOR_SPACE_TYPE (commonly used values) ────────────────
+pub enum DxgiColorSpaceType: u32 {
+    rgbFullG22NoneP709         = 0     // sRGB
+    rgbFullG10NoneP709         = 1     // scRGB
+    rgbStudioG22NoneP709       = 2
+    rgbStudioG22NoneP2020      = 3
+    reserved                   = 4
+    yccFullG22NoneP709X601     = 5
+    yccStudioG22LeftP601       = 6
+    yccFullG22LeftP601         = 7
+    yccStudioG22LeftP709       = 8
+    yccFullG22LeftP709         = 9
+    yccStudioG22LeftP2020      = 10
+    yccFullG22LeftP2020        = 11
+    rgbFullG2084NoneP2020      = 12    // HDR10
+    yccStudioG2084LeftP2020    = 14
+    rgbFullG22NoneP2020        = 17
+    yccStudioGhlgTopLeftP2020  = 19
+    yccFullGhlgTopLeftP2020    = 20
+    rgbStudioG24NoneP709       = 21
+    rgbStudioG24NoneP2020      = 22
+    custom                     = 0xFFFFFFFF
+}
+
+// ─── DXGI_HDR_METADATA_TYPE ──────────────────────────────────────
+pub enum DxgiHdrMetadataType: u32 {
+    none  = 0
+    hdr10 = 1
+    hdr10plus = 2
+}
+
 // ─── Common HRESULT for DXGI ─────────────────────────────────────
 pub enum DxgiResult: i32 {
     ok               = 0
@@ -139,6 +197,7 @@ pub enum DxgiResult: i32 {
 }
 
 use user32 { HWND }
+use kernel32 { HANDLE }
 
 @extern(C, "dxgi") {
     // ── DXGI_SAMPLE_DESC — 8 bytes ───────────────────────────────
@@ -193,6 +252,96 @@ use user32 { HWND }
         Flags:       u32
     }
 
+    // ── DXGI_RATIONAL — 8 bytes ──────────────────────────────────
+
+    /// Generic numerator/denominator pair. Used directly by some
+    /// structs and inlined into others (e.g. DXGI_MODE_DESC).
+    pub struct DXGI_RATIONAL {
+        Numerator:   u32
+        Denominator: u32
+    }
+
+    // ── DXGI_OUTPUT_DESC — ~96 bytes ─────────────────────────────
+
+    /// `DeviceName`: UTF-16 GDI device name, 32 chars (64 bytes).
+    /// Cast `&desc._n0 as *const u16` to read it.
+    pub struct DXGI_OUTPUT_DESC {
+        _n0:               u64
+        _n1:               u64
+        _n2:               u64
+        _n3:               u64
+        _n4:               u64
+        _n5:               u64
+        _n6:               u64
+        _n7:               u64
+        DesktopCoordinates_left:   i32
+        DesktopCoordinates_top:    i32
+        DesktopCoordinates_right:  i32
+        DesktopCoordinates_bottom: i32
+        AttachedToDesktop: i32
+        Rotation:          u32
+        Monitor:           i64    // HMONITOR
+    }
+
+    // ── DXGI_QUERY_VIDEO_MEMORY_INFO — 32 bytes ──────────────────
+
+    /// Returned by IDXGIAdapter3::QueryVideoMemoryInfo.
+    /// `Budget`: app's current OS-allotted budget (bytes).
+    /// `CurrentUsage`: bytes the app's resident set currently uses.
+    pub struct DXGI_QUERY_VIDEO_MEMORY_INFO {
+        Budget:                u64
+        CurrentUsage:          u64
+        AvailableForReservation: u64
+        CurrentReservation:    u64
+    }
+
+    // ── DXGI_HDR_METADATA_HDR10 — 24 bytes ───────────────────────
+
+    /// HDR10 mastering display metadata (ST.2086). Coordinates are
+    /// fixed-point at the standard scale; see the SDK header for
+    /// exact units.
+    pub struct DXGI_HDR_METADATA_HDR10 {
+        RedPrimary0:                u16
+        RedPrimary1:                u16
+        GreenPrimary0:              u16
+        GreenPrimary1:              u16
+        BluePrimary0:               u16
+        BluePrimary1:               u16
+        WhitePoint0:                u16
+        WhitePoint1:                u16
+        MaxMasteringLuminance:      u32
+        MinMasteringLuminance:      u32
+        MaxContentLightLevel:       u16
+        MaxFrameAverageLightLevel:  u16
+    }
+
+    // ── DXGI_PRESENT_PARAMETERS — 24 bytes ───────────────────────
+
+    /// Used by IDXGISwapChain1::Present1 for dirty-rect / scroll-
+    /// rect Present optimisations.
+    pub struct DXGI_PRESENT_PARAMETERS {
+        DirtyRectsCount: u32
+        _pad0:           u32
+        pDirtyRects:     *const D3D12_PRESENT_RECT_PLACEHOLDER
+        pScrollRect:     *const D3D12_PRESENT_RECT_PLACEHOLDER
+        pScrollOffset:   *const D3D12_PRESENT_POINT_PLACEHOLDER
+    }
+
+    /// Helper layouts used inside DXGI_PRESENT_PARAMETERS — match
+    /// Win32 `RECT` / `POINT` exactly. Kept here so swap-chain code
+    /// can name them without dragging in the broader user32 binding.
+    pub struct D3D12_PRESENT_RECT_PLACEHOLDER {
+        left:   i32
+        top:    i32
+        right:  i32
+        bottom: i32
+    }
+
+    pub struct D3D12_PRESENT_POINT_PLACEHOLDER {
+        x: i32
+        y: i32
+    }
+
     // ── DXGI_ADAPTER_DESC — 256 bytes (approx) ───────────────────
 
     /// Adapter information returned by IDXGIAdapter::GetDesc.
@@ -240,6 +389,163 @@ use user32 { HWND }
         SharedSystemMemory:    u64
         AdapterLuid_lo:        u32     // LUID = i32 lo, i32 hi
         AdapterLuid_hi:        i32
+    }
+
+    // ── DXGI_ADAPTER_DESC1 — DESC + Flags field ──────────────────
+
+    /// Returned by IDXGIAdapter1::GetDesc1. Adds the `Flags` field
+    /// (DxgiAdapterFlag.*) so callers can distinguish software /
+    /// remote adapters from real GPUs without probing them.
+    pub struct DXGI_ADAPTER_DESC1 {
+        _d00: u64
+        _d01: u64
+        _d02: u64
+        _d03: u64
+        _d04: u64
+        _d05: u64
+        _d06: u64
+        _d07: u64
+        _d08: u64
+        _d09: u64
+        _d10: u64
+        _d11: u64
+        _d12: u64
+        _d13: u64
+        _d14: u64
+        _d15: u64
+        _d16: u64
+        _d17: u64
+        _d18: u64
+        _d19: u64
+        _d20: u64
+        _d21: u64
+        _d22: u64
+        _d23: u64
+        _d24: u64
+        _d25: u64
+        _d26: u64
+        _d27: u64
+        _d28: u64
+        _d29: u64
+        _d30: u64
+        _d31: u64
+        VendorId:              u32
+        DeviceId:              u32
+        SubSysId:              u32
+        Revision:              u32
+        DedicatedVideoMemory:  u64
+        DedicatedSystemMemory: u64
+        SharedSystemMemory:    u64
+        AdapterLuid_lo:        u32
+        AdapterLuid_hi:        i32
+        Flags:                 u32       // DxgiAdapterFlag
+        _pad0:                 u32
+    }
+
+    // ── DXGI_ADAPTER_DESC2 — DESC1 + graphics/compute pref ───────
+
+    /// Returned by IDXGIAdapter2::GetDesc2. Adds the
+    /// `GraphicsPreemptionGranularity` / `ComputePreemptionGranularity`
+    /// enum-valued fields so callers can reason about how aggressively
+    /// the OS can preempt long-running work.
+    pub struct DXGI_ADAPTER_DESC2 {
+        _d00: u64
+        _d01: u64
+        _d02: u64
+        _d03: u64
+        _d04: u64
+        _d05: u64
+        _d06: u64
+        _d07: u64
+        _d08: u64
+        _d09: u64
+        _d10: u64
+        _d11: u64
+        _d12: u64
+        _d13: u64
+        _d14: u64
+        _d15: u64
+        _d16: u64
+        _d17: u64
+        _d18: u64
+        _d19: u64
+        _d20: u64
+        _d21: u64
+        _d22: u64
+        _d23: u64
+        _d24: u64
+        _d25: u64
+        _d26: u64
+        _d27: u64
+        _d28: u64
+        _d29: u64
+        _d30: u64
+        _d31: u64
+        VendorId:              u32
+        DeviceId:              u32
+        SubSysId:              u32
+        Revision:              u32
+        DedicatedVideoMemory:  u64
+        DedicatedSystemMemory: u64
+        SharedSystemMemory:    u64
+        AdapterLuid_lo:        u32
+        AdapterLuid_hi:        i32
+        Flags:                 u32
+        GraphicsPreemptionGranularity: u32
+        ComputePreemptionGranularity:  u32
+        _pad0:                 u32
+    }
+
+    // ── DXGI_ADAPTER_DESC3 — DESC2 + DxgiAdapterFlag3 ────────────
+
+    /// Returned by IDXGIAdapter4::GetDesc3. Adds the `Flags` field
+    /// widened to `DxgiAdapterFlag3` (sync-fence + ACL bits).
+    pub struct DXGI_ADAPTER_DESC3 {
+        _d00: u64
+        _d01: u64
+        _d02: u64
+        _d03: u64
+        _d04: u64
+        _d05: u64
+        _d06: u64
+        _d07: u64
+        _d08: u64
+        _d09: u64
+        _d10: u64
+        _d11: u64
+        _d12: u64
+        _d13: u64
+        _d14: u64
+        _d15: u64
+        _d16: u64
+        _d17: u64
+        _d18: u64
+        _d19: u64
+        _d20: u64
+        _d21: u64
+        _d22: u64
+        _d23: u64
+        _d24: u64
+        _d25: u64
+        _d26: u64
+        _d27: u64
+        _d28: u64
+        _d29: u64
+        _d30: u64
+        _d31: u64
+        VendorId:              u32
+        DeviceId:              u32
+        SubSysId:              u32
+        Revision:              u32
+        DedicatedVideoMemory:  u64
+        DedicatedSystemMemory: u64
+        SharedSystemMemory:    u64
+        AdapterLuid_lo:        u32
+        AdapterLuid_hi:        i32
+        Flags:                 u32       // DxgiAdapterFlag3
+        GraphicsPreemptionGranularity: u32
+        ComputePreemptionGranularity:  u32
+        _pad0:                 u32
     }
 
     // ── Factory creation ──────────────────────────────────────────
@@ -381,7 +687,195 @@ use user32 { HWND }
     }
 
     @com pub interface IDXGIFactory4 : IDXGIFactory3 {
-        _slot26_EnumAdapterByLuid()
-        _slot27_EnumWarpAdapter()
+        EnumAdapterByLuid(
+            AdapterLuid_lo: u32,
+            AdapterLuid_hi: i32,
+            riid:           *const void,
+            ppvAdapter:     **void
+        ): i32
+        EnumWarpAdapter(riid: *const void, ppvAdapter: **void): i32
+    }
+
+    /// IDXGIFactory5 — adds CheckFeatureSupport (the only feature
+    /// currently reachable from here is `DXGI_FEATURE_PRESENT_ALLOW_TEARING`).
+    @com pub interface IDXGIFactory5 : IDXGIFactory4 {
+        CheckFeatureSupport(
+            Feature: u32,
+            pFeatureSupportData: *void,
+            FeatureSupportDataSize: u32
+        ): i32
+    }
+
+    /// IDXGIFactory6 — adds `EnumAdapterByGpuPreference`, the only
+    /// adapter enumeration entry point on modern Windows that
+    /// honours the user-configurable GPU-preference list (Settings
+    /// → Display → Graphics).
+    @com pub interface IDXGIFactory6 : IDXGIFactory5 {
+        EnumAdapterByGpuPreference(
+            Adapter:        u32,
+            GpuPreference:  u32,                    // DxgiGpuPreference
+            riid:           *const void,
+            ppvAdapter:     **void
+        ): i32
+    }
+
+    /// IDXGIFactory7 — adds adapter-list-changed event registration.
+    @com pub interface IDXGIFactory7 : IDXGIFactory6 {
+        RegisterAdaptersChangedEvent(hEvent: HANDLE, pdwCookie: *u32): i32
+        UnregisterAdaptersChangedEvent(dwCookie: u32): i32
+    }
+
+    /// IDXGISwapChain4 — adds HDR colour-space + metadata setters.
+    @com pub interface IDXGISwapChain4 : IDXGISwapChain3 {
+        SetHDRMetaData(
+            Type:    u32,                           // DxgiHdrMetadataType
+            Size:    u32,
+            pMetaData: *const void
+        ): i32
+    }
+
+    // ── Adapter chain ────────────────────────────────────────────
+
+    /// IDXGIAdapter — physical / WARP GPU handle.
+    @com pub interface IDXGIAdapter : IDXGIObject {
+        EnumOutputs(Output: u32, ppOutput: **void): i32
+        GetDesc(retval: *DXGI_ADAPTER_DESC): i32
+        _slot9_CheckInterfaceSupport()
+    }
+
+    /// IDXGIAdapter1 — adds GetDesc1 (with the `Flags` field that
+    /// distinguishes software-vs-hardware adapters).
+    @com pub interface IDXGIAdapter1 : IDXGIAdapter {
+        GetDesc1(retval: *DXGI_ADAPTER_DESC1): i32
+    }
+
+    /// IDXGIAdapter2 — adds GetDesc2 (preemption granularity).
+    @com pub interface IDXGIAdapter2 : IDXGIAdapter1 {
+        GetDesc2(retval: *DXGI_ADAPTER_DESC2): i32
+    }
+
+    /// IDXGIAdapter3 — adds residency budget queries + change events.
+    @com pub interface IDXGIAdapter3 : IDXGIAdapter2 {
+        _slot12_RegisterHardwareContentProtectionTeardownStatusEvent()
+        _slot13_UnregisterHardwareContentProtectionTeardownStatus()
+        QueryVideoMemoryInfo(
+            NodeIndex:               u32,
+            MemorySegmentGroup:      u32,
+            pVideoMemoryInfo:        *DXGI_QUERY_VIDEO_MEMORY_INFO
+        ): i32
+        SetVideoMemoryReservation(
+            NodeIndex:               u32,
+            MemorySegmentGroup:      u32,
+            Reservation:             u64
+        ): i32
+        RegisterVideoMemoryBudgetChangeNotificationEvent(
+            hEvent:   HANDLE,
+            pdwCookie: *u32
+        ): i32
+        UnregisterVideoMemoryBudgetChangeNotification(dwCookie: u32)
+    }
+
+    /// IDXGIAdapter4 — adds GetDesc3 (DxgiAdapterFlag3 widened).
+    @com pub interface IDXGIAdapter4 : IDXGIAdapter3 {
+        GetDesc3(retval: *DXGI_ADAPTER_DESC3): i32
+    }
+
+    // ── Output chain ─────────────────────────────────────────────
+
+    /// IDXGIOutput — display output (a monitor attached to the
+    /// adapter). Many methods take/return `DXGI_MODE_DESC` arrays;
+    /// only the most-used ones get typed signatures here.
+    @com pub interface IDXGIOutput : IDXGIObject {
+        GetDesc(retval: *DXGI_OUTPUT_DESC): i32
+        GetDisplayModeList(
+            EnumFormat:         u32,
+            Flags:              u32,
+            pNumModes:          *u32,
+            pDesc:              *DXGI_MODE_DESC
+        ): i32
+        FindClosestMatchingMode(
+            pModeToMatch:    *const DXGI_MODE_DESC,
+            pClosestMatch:   *DXGI_MODE_DESC,
+            pConcernedDevice: *void
+        ): i32
+        WaitForVBlank(): i32
+        TakeOwnership(pDevice: *void, Exclusive: i32): i32
+        ReleaseOwnership()
+        _slot13_GetGammaControlCapabilities()
+        _slot14_SetGammaControl()
+        _slot15_GetGammaControl()
+        _slot16_SetDisplaySurface()
+        _slot17_GetDisplaySurfaceData()
+        _slot18_GetFrameStatistics()
+    }
+
+    /// IDXGIOutput1 — adds 1.2-era mode listing + duplicate-output.
+    @com pub interface IDXGIOutput1 : IDXGIOutput {
+        _slot19_GetDisplayModeList1()
+        _slot20_FindClosestMatchingMode1()
+        _slot21_GetDisplaySurfaceData1()
+        DuplicateOutput(pDevice: *void, ppOutputDuplication: **void): i32
+    }
+
+    /// IDXGIOutput2 — adds overlay-format support query.
+    @com pub interface IDXGIOutput2 : IDXGIOutput1 {
+        SupportsOverlays(): i32
+    }
+
+    /// IDXGIOutput3 — overlay-color-format / interlace support.
+    @com pub interface IDXGIOutput3 : IDXGIOutput2 {
+        _slot24_CheckOverlaySupport()
+    }
+
+    /// IDXGIOutput4 — adds HDR / wide-color colour-space probing.
+    @com pub interface IDXGIOutput4 : IDXGIOutput3 {
+        _slot25_CheckOverlayColorSpaceSupport()
+    }
+
+    /// IDXGIOutput5 — adds DuplicateOutput1 (HDR-aware capture).
+    @com pub interface IDXGIOutput5 : IDXGIOutput4 {
+        DuplicateOutput1(
+            pDevice:    *void,
+            Flags:      u32,
+            SupportedFormatsCount: u32,
+            pSupportedFormats:     *const u32,
+            ppOutputDuplication:   **void
+        ): i32
+    }
+
+    /// IDXGIOutput6 — adds GetDesc1 (HDR + colour-space data).
+    @com pub interface IDXGIOutput6 : IDXGIOutput5 {
+        _slot27_GetDesc1()
+        _slot28_CheckHardwareCompositionSupport()
+    }
+
+    // ── Device chain (mostly used through D3D11/D3D12 wrappers) ──
+
+    @com pub interface IDXGIDevice : IDXGIObject {
+        GetAdapter(pAdapter: **void): i32
+        _slot8_CreateSurface()
+        _slot9_QueryResourceResidency()
+        SetGPUThreadPriority(Priority: i32): i32
+        GetGPUThreadPriority(pPriority: *i32): i32
+    }
+
+    @com pub interface IDXGIDevice1 : IDXGIDevice {
+        SetMaximumFrameLatency(MaxLatency: u32): i32
+        GetMaximumFrameLatency(pMaxLatency: *u32): i32
+    }
+
+    @com pub interface IDXGIDevice2 : IDXGIDevice1 {
+        _slot14_OfferResources()
+        _slot15_ReclaimResources()
+        EnqueueSetEvent(hEvent: HANDLE): i32
+    }
+
+    @com pub interface IDXGIDevice3 : IDXGIDevice2 {
+        Trim()
+    }
+
+    @com pub interface IDXGIDevice4 : IDXGIDevice3 {
+        _slot18_OfferResources1()
+        _slot19_ReclaimResources1()
     }
 }
