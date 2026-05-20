@@ -69,7 +69,7 @@ use directx12 {
             lpszClassName: className,
             hIconSm:       NULL,
         }
-        RegisterClassExA(wc)
+        RegisterClassExA(&wc)
 
         let initialTitle = cstrFromString("ilang DX12: bringing up the pipeline...")
         let hwnd = CreateWindowExA(
@@ -90,10 +90,11 @@ use directx12 {
 
         // ── (1) D3D12CreateDevice (flat) ─────────────────────────
         let rawDevice: *void = NULL
+        let iidDevice = IID_ID3D12Device
         let rc = D3D12CreateDevice(
             NULL,
             D3DFeatureLevel.level_11_0,
-            IID_ID3D12Device,
+            &iidDevice,
             &rawDevice
         )
 
@@ -110,7 +111,8 @@ use directx12 {
                 Flags:    D3D12CommandQueueFlags.none,
                 NodeMask: 0,
             }
-            let qhr = device.CreateCommandQueue(queueDesc, IID_ID3D12CommandQueue, &rawQueue)
+            let iidQueue = IID_ID3D12CommandQueue
+            let qhr = device.CreateCommandQueue(&queueDesc, &iidQueue, &rawQueue)
             if qhr == 0 {
                 cstrFromString("ilang DX12: device + queue ready - close window to release")
             } else {
@@ -133,10 +135,10 @@ use directx12 {
             lPrivate: 0,
         }
         loop {
-            let r = GetMessageA(msg, NULL, 0, 0)
+            let r = GetMessageA(&msg, NULL, 0, 0)
             if r <= 0 { break }
-            TranslateMessage(msg)
-            let _ = DispatchMessageA(msg)
+            TranslateMessage(&msg)
+            let _ = DispatchMessageA(&msg)
         }
 
         // ── (3/4) Post-shutdown cleanup ──────────────────────────
