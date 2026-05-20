@@ -598,4 +598,290 @@ pub enum D3D12Result: i32 {
         pConfigurationStructs: *void,
         pConfigurationStructSizes: *u32
     ): i32
+
+    // ─── Pipeline / barrier / root-sig structs ──────────────────────
+    //
+    // The structs below describe a complete graphics PSO and the
+    // surrounding state objects (rasterizer / blend / depth-stencil
+    // / input layout). Most fields are integer enums so the bindings
+    // stay flat; enum constants live in the `D3D12*` enum families
+    // above plus the new ones in this block.
+
+    /// LONG[4] scissor / clear rectangle. Same layout as WinUser's
+    /// `RECT`.
+    pub struct D3D12_RECT {
+        left:   i32
+        top:    i32
+        right:  i32
+        bottom: i32
+    }
+
+    /// Bytecode pointer + length pair used everywhere a compiled
+    /// shader is consumed.
+    pub struct D3D12_SHADER_BYTECODE {
+        pShaderBytecode: *const void
+        BytecodeLength:  u64
+    }
+
+    /// Two-pointer pair for a cached PSO blob. Pass `{ NULL, 0 }` to
+    /// disable PSO caching.
+    pub struct D3D12_CACHED_PIPELINE_STATE {
+        pCachedBlob:           *const void
+        CachedBlobSizeInBytes: u64
+    }
+
+    /// Stream-output declaration entries — unused by hello-triangle.
+    /// Pass `{ NULL, 0, NULL, 0, 0 }` to disable.
+    pub struct D3D12_STREAM_OUTPUT_DESC {
+        pSODeclaration:   *const void
+        NumEntries:       u32
+        pBufferStrides:   *const u32
+        NumStrides:       u32
+        RasterizedStream: u32
+    }
+
+    /// `D3D12_RENDER_TARGET_BLEND_DESC` — 32 bytes per render target
+    /// in the BLEND_DESC array.
+    pub struct D3D12_RENDER_TARGET_BLEND_DESC {
+        BlendEnable:           i32       // BOOL
+        LogicOpEnable:         i32       // BOOL
+        SrcBlend:              u32       // D3D12Blend
+        DestBlend:             u32       // D3D12Blend
+        BlendOp:               u32       // D3D12BlendOp
+        SrcBlendAlpha:         u32       // D3D12Blend
+        DestBlendAlpha:        u32       // D3D12Blend
+        BlendOpAlpha:          u32       // D3D12BlendOp
+        LogicOp:               u32       // D3D12LogicOp
+        RenderTargetWriteMask: u8        // mask of D3D12ColorWriteEnable
+        _pad0:                 u8
+        _pad1:                 u16
+    }
+
+    /// Per-RT blend state plus two global toggles. The RT array is
+    /// always 8 entries; entries beyond `NumRenderTargets` (in the
+    /// PSO desc) are ignored.
+    pub struct D3D12_BLEND_DESC {
+        AlphaToCoverageEnable:  i32
+        IndependentBlendEnable: i32
+        RenderTarget0: D3D12_RENDER_TARGET_BLEND_DESC
+        RenderTarget1: D3D12_RENDER_TARGET_BLEND_DESC
+        RenderTarget2: D3D12_RENDER_TARGET_BLEND_DESC
+        RenderTarget3: D3D12_RENDER_TARGET_BLEND_DESC
+        RenderTarget4: D3D12_RENDER_TARGET_BLEND_DESC
+        RenderTarget5: D3D12_RENDER_TARGET_BLEND_DESC
+        RenderTarget6: D3D12_RENDER_TARGET_BLEND_DESC
+        RenderTarget7: D3D12_RENDER_TARGET_BLEND_DESC
+    }
+
+    /// Rasterizer state — fill mode, cull mode, depth-bias bits.
+    pub struct D3D12_RASTERIZER_DESC {
+        FillMode:              u32       // D3D12FillMode
+        CullMode:              u32       // D3D12CullMode
+        FrontCounterClockwise: i32
+        DepthBias:             i32
+        DepthBiasClamp:        f32
+        SlopeScaledDepthBias:  f32
+        DepthClipEnable:       i32
+        MultisampleEnable:     i32
+        AntialiasedLineEnable: i32
+        ForcedSampleCount:     u32
+        ConservativeRaster:    u32
+    }
+
+    /// Per-face stencil ops.
+    pub struct D3D12_DEPTH_STENCILOP_DESC {
+        StencilFailOp:      u32   // D3D12StencilOp
+        StencilDepthFailOp: u32
+        StencilPassOp:      u32
+        StencilFunc:        u32   // D3D12ComparisonFunc
+    }
+
+    /// Depth + stencil test configuration.
+    pub struct D3D12_DEPTH_STENCIL_DESC {
+        DepthEnable:      i32
+        DepthWriteMask:   u32       // D3D12DepthWriteMask
+        DepthFunc:        u32       // D3D12ComparisonFunc
+        StencilEnable:    i32
+        StencilReadMask:  u8
+        StencilWriteMask: u8
+        _pad0:            u16
+        FrontFace:        D3D12_DEPTH_STENCILOP_DESC
+        BackFace:         D3D12_DEPTH_STENCILOP_DESC
+    }
+
+    /// One vertex-buffer slot's element description.
+    pub struct D3D12_INPUT_ELEMENT_DESC {
+        SemanticName:         *const char
+        SemanticIndex:        u32
+        Format:               u32       // DXGI_FORMAT
+        InputSlot:            u32
+        AlignedByteOffset:    u32
+        InputSlotClass:       u32       // D3D12InputClassification
+        InstanceDataStepRate: u32
+    }
+
+    /// Input layout — pointer + count over `D3D12_INPUT_ELEMENT_DESC`.
+    pub struct D3D12_INPUT_LAYOUT_DESC {
+        pInputElementDescs: *const D3D12_INPUT_ELEMENT_DESC
+        NumElements:        u32
+        _pad0:              u32
+    }
+
+    /// `D3D12_GRAPHICS_PIPELINE_STATE_DESC` — everything a PSO needs.
+    /// Layout follows the SDK's exact field order; sizes are MSVC
+    /// x64 aligned (8-byte align on pointers / u64). The `RTVFormats`
+    /// array is flattened to 8 u32 slots.
+    pub struct D3D12_GRAPHICS_PIPELINE_STATE_DESC {
+        pRootSignature:        i64                 // ID3D12RootSignature*
+        VS:                    D3D12_SHADER_BYTECODE
+        PS:                    D3D12_SHADER_BYTECODE
+        DS:                    D3D12_SHADER_BYTECODE
+        HS:                    D3D12_SHADER_BYTECODE
+        GS:                    D3D12_SHADER_BYTECODE
+        StreamOutput:          D3D12_STREAM_OUTPUT_DESC
+        BlendState:            D3D12_BLEND_DESC
+        SampleMask:            u32
+        RasterizerState:       D3D12_RASTERIZER_DESC
+        DepthStencilState:     D3D12_DEPTH_STENCIL_DESC
+        InputLayout:           D3D12_INPUT_LAYOUT_DESC
+        IBStripCutValue:       u32                 // D3D12IndexBufferStripCutValue
+        PrimitiveTopologyType: u32                 // D3D12PrimitiveTopologyType
+        RTVFormat0:            u32
+        RTVFormat1:            u32
+        RTVFormat2:            u32
+        RTVFormat3:            u32
+        RTVFormat4:            u32
+        RTVFormat5:            u32
+        RTVFormat6:            u32
+        RTVFormat7:            u32
+        NumRenderTargets:      u32
+        DSVFormat:             u32
+        SampleDesc:            DXGI_SAMPLE_DESC
+        NodeMask:              u32
+        CachedPSO:             D3D12_CACHED_PIPELINE_STATE
+        Flags:                 u32                 // D3D12PipelineStateFlags
+        _pad0:                 u32
+    }
+
+    /// `D3D12_ROOT_SIGNATURE_DESC` — simplest possible form
+    /// (no parameters / no static samplers). For an empty root
+    /// signature use `{ 0, NULL, 0, NULL,
+    /// D3D12RootSignatureFlags.allowInputAssemblerInputLayout }`.
+    pub struct D3D12_ROOT_SIGNATURE_DESC {
+        NumParameters:     u32
+        _pad0:             u32
+        pParameters:       *const void
+        NumStaticSamplers: u32
+        _pad1:             u32
+        pStaticSamplers:   *const void
+        Flags:             u32       // D3D12RootSignatureFlags
+        _pad2:             u32
+    }
 }
+
+// ─── Additional enum families for the structs above ────────────────
+
+pub enum D3D12LogicOp: u32 {
+    clear = 0
+    set = 1
+    copy = 2
+    copyInverted = 3
+    noop = 4
+    invert = 5
+    and = 6
+    nand = 7
+    or = 8
+    nor = 9
+    xor = 10
+    equiv = 11
+    andReverse = 12
+    andInverted = 13
+    orReverse = 14
+    orInverted = 15
+}
+
+pub enum D3D12StencilOp: u32 {
+    keep = 1
+    zero = 2
+    replace = 3
+    incrSat = 4
+    decrSat = 5
+    invert = 6
+    incr = 7
+    decr = 8
+}
+
+pub enum D3D12DepthWriteMask: u32 {
+    zero = 0
+    all = 1
+}
+
+pub enum D3D12ColorWriteEnable: u8 {
+    red = 1
+    green = 2
+    blue = 4
+    alpha = 8
+    all = 15
+}
+
+pub enum D3D12InputClassification: u32 {
+    perVertexData = 0
+    perInstanceData = 1
+}
+
+pub enum D3D12IndexBufferStripCutValue: u32 {
+    disabled = 0
+    cut0xFFFF = 1
+    cut0xFFFFFFFF = 2
+}
+
+pub enum D3D12PipelineStateFlags: u32 {
+    none = 0
+    toolDebug = 1
+}
+
+pub enum D3D12RootSignatureFlags: u32 {
+    none = 0
+    allowInputAssemblerInputLayout = 1
+    denyVertexShaderRootAccess = 2
+    denyHullShaderRootAccess = 4
+    denyDomainShaderRootAccess = 8
+    denyGeometryShaderRootAccess = 16
+    denyPixelShaderRootAccess = 32
+    allowStreamOutput = 64
+}
+
+pub enum D3D12RootSignatureVersion: u32 {
+    version_1_0 = 1
+    version_1_1 = 2
+}
+
+/// Heap creation flags (D3D12_HEAP_FLAG_*). Hello-triangle uses
+/// `none` for the upload heap.
+pub enum D3D12HeapMiscFlags: u32 {
+    none = 0
+    shared = 1
+    denyBuffers = 4
+    allowDisplay = 8
+    sharedCrossAdapter = 32
+    denyRtDsTextures = 64
+    denyNonRtDsTextures = 128
+    hardwareProtected = 256
+    allowWriteWatch = 512
+    allowShaderAtomics = 1024
+    createNotResident = 2048
+    createNotZeroed = 4096
+    allowAllBuffersAndTextures = 0
+    allowOnlyBuffers = 192
+    allowOnlyNonRtDsTextures = 68
+    allowOnlyRtDsTextures = 132
+}
+
+pub enum D3DPrimitiveTopologyValue: u32 {
+    triangleList = 4
+    triangleStrip = 5
+    lineList = 2
+    lineStrip = 3
+    pointList = 1
+}
+
