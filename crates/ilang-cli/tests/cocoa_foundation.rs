@@ -343,28 +343,50 @@ fn run_foundation_fixtures() {
         test_dir().display()
     );
 
-    let mut failures: Vec<String> = Vec::new();
-    for path in &fixtures {
-        let out = Command::new(&bin)
-            .arg("run")
-            .arg(path)
-            .current_dir(test_dir())
-            .output()
-            .unwrap_or_else(|e| panic!("failed to spawn ilang: {e}"));
-        if !out.status.success() {
-            failures.push(format!(
-                "FAIL {}\n  stdout: {}\n  stderr: {}",
-                path.file_name().unwrap().to_string_lossy(),
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr),
-            ));
-        } else {
-            eprintln!(
-                "pass: {}",
-                path.file_name().unwrap().to_string_lossy()
-            );
+    // Fixtures spawn an isolated `ilang run` child each, so they
+    // are safe to drive in parallel. Mirrors the work-stealing
+    // pool used by `programs.rs::run_all_program_fixtures`.
+    let failures: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    let next_idx = std::sync::atomic::AtomicUsize::new(0);
+    let n_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    std::thread::scope(|s| {
+        for _ in 0..n_threads {
+            let bin = &bin;
+            let fixtures = &fixtures;
+            let failures = &failures;
+            let next_idx = &next_idx;
+            s.spawn(move || loop {
+                let i = next_idx.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if i >= fixtures.len() {
+                    break;
+                }
+                let path = &fixtures[i];
+                let out = Command::new(bin)
+                    .arg("run")
+                    .arg(path)
+                    .current_dir(test_dir())
+                    .output()
+                    .unwrap_or_else(|e| panic!("failed to spawn ilang: {e}"));
+                if !out.status.success() {
+                    let msg = format!(
+                        "FAIL {}\n  stdout: {}\n  stderr: {}",
+                        path.file_name().unwrap().to_string_lossy(),
+                        String::from_utf8_lossy(&out.stdout),
+                        String::from_utf8_lossy(&out.stderr),
+                    );
+                    failures.lock().expect("failures poisoned").push(msg);
+                } else {
+                    eprintln!(
+                        "pass: {}",
+                        path.file_name().unwrap().to_string_lossy()
+                    );
+                }
+            });
         }
-    }
+    });
+    let failures = failures.into_inner().expect("failures poisoned");
 
     // Print coverage even on failures so a partial run still
     // gives the user a sense of what's exercised.
