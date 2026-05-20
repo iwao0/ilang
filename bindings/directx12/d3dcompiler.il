@@ -57,10 +57,11 @@ pub enum D3DCompileEffectFlags: u32 {
 // keep the fallback for environments where only the SDK alias is
 // reachable.
 @extern(C, "d3dcompiler_47", "d3dcompiler") {
-    /// ID3DBlob — opaque byte buffer (used for compiled bytecode,
-    /// error messages, and root-signature blobs). Owned by the
-    /// caller; release with the COM Release() method on its vtable.
-    pub struct ID3DBlob {}
+    // `ID3DBlob` lives in `d3d12_com.il` as a `@com pub interface`
+    // (with `GetBufferPointer` / `GetBufferSize` / `Release`); use
+    // that definition wherever a blob handle is needed. The opaque
+    // `pub struct ID3DBlob {}` that used to sit here shadowed the
+    // COM interface and made hover / method dispatch ambiguous.
 
     // ── D3D_SHADER_MACRO — 16 bytes ──────────────────────────────
 

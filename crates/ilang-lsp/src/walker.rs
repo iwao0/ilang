@@ -1209,6 +1209,18 @@ impl<'a> Walker<'a> {
                         }
                     }
                 }
+                // Built-in `.length` on string / array — both return
+                // i64. Mirrors the hover ref entry built above in
+                // `walk_expr`'s Field arm so chained inference (a
+                // `let n = s.length` binding, `let m = (a + s.length)`,
+                // etc.) carries the type.
+                if name.as_str() == "length" {
+                    if let Some(t) = self.infer_expr(obj, scope) {
+                        if matches!(t, Type::Str | Type::Array { .. }) {
+                            return Some(Type::I64);
+                        }
+                    }
+                }
                 let obj_name = enum_obj_name(obj)?;
                 let key = AstSymbol::intern(&format!("{obj_name}.{name}"));
                 let sig = self.external_signatures.get(&key)?;
