@@ -132,6 +132,19 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub makeKeyAndOrderFront(sender: NSObject)
         @objc("contentView")
         pub get contentView(): NSView
+        @objc("setContentView:")
+        pub setContentView(v: NSView)
+        /// `acceptsMouseMovedEvents` opt-in for `mouseMoved:` —
+        /// AppKit suppresses motion events on windows that didn't
+        /// flip it on, so a custom NSView won't see drag-free
+        /// movement until this is set.
+        @objc("setAcceptsMouseMovedEvents:")
+        pub setAcceptsMouseMovedEvents(flag: bool)
+        /// Move the responder chain to `r` (typically the
+        /// contentView) so keyDown:/keyUp: dispatch lands there.
+        /// Returns `true` if the new responder accepted the role.
+        @objc("makeFirstResponder:")
+        pub makeFirstResponder(r: NSObject): bool
         /// setDelegate overloads — typed `NSWindowDelegate` for
         /// the conformance-checked casual case, NSObject for nil
         /// clearing / framework-bound objects.

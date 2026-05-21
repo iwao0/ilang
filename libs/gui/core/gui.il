@@ -14,6 +14,12 @@ use events { Signal }
 use gui_impl {
     createNativeWindow,
     setOnClose,
+    setOnResize,
+    setOnKeyDown,
+    setOnKeyUp,
+    setOnMouseMove,
+    setOnMouseDown,
+    setOnMouseUp,
     runEventLoop,
 }
 
@@ -32,7 +38,7 @@ pub class EventTarget {
 /// `EventTarget` that produced it (today always the originating
 /// `Window`).
 pub class Event {
-    sender: EventTarget
+    pub sender: EventTarget
     pub init(sender: EventTarget) {
         this.sender = sender
     }
@@ -49,8 +55,8 @@ pub class CloseEvent : Event {
 /// `width` / `height` are the new client-area dimensions in
 /// device-independent points.
 pub class SizeEvent : Event {
-    width: f64
-    height: f64
+    pub width: f64
+    pub height: f64
     pub init(sender: EventTarget, width: f64, height: f64) {
         super(sender)
         this.width = width
@@ -65,11 +71,11 @@ pub class SizeEvent : Event {
 /// mirror the DOM `KeyboardEvent.ctrlKey` / `shiftKey` / `altKey`
 /// / `metaKey` booleans.
 pub class KeyEvent : Event {
-    code: string
-    ctrlKey: bool
-    shiftKey: bool
-    altKey: bool
-    metaKey: bool
+    pub code: string
+    pub ctrlKey: bool
+    pub shiftKey: bool
+    pub altKey: bool
+    pub metaKey: bool
     pub init(
         sender: EventTarget, code: string,
         ctrlKey: bool, shiftKey: bool, altKey: bool, metaKey: bool
@@ -88,13 +94,13 @@ pub class KeyEvent : Event {
 /// `MouseEvent.button`: `0 = left`, `1 = middle`, `2 = right`,
 /// `3 = back`, `4 = forward`. Modifier flags as in `KeyEvent`.
 pub class MouseEvent : Event {
-    x: f64
-    y: f64
-    button: i32
-    ctrlKey: bool
-    shiftKey: bool
-    altKey: bool
-    metaKey: bool
+    pub x: f64
+    pub y: f64
+    pub button: i32
+    pub ctrlKey: bool
+    pub shiftKey: bool
+    pub altKey: bool
+    pub metaKey: bool
     pub init(
         sender: EventTarget, x: f64, y: f64, button: i32,
         ctrlKey: bool, shiftKey: bool, altKey: bool, metaKey: bool
@@ -119,18 +125,53 @@ pub class MouseEvent : Event {
 /// thread synchronously from inside `gui.run()`.
 pub class Window : EventTarget {
     pub handle: i64
-    pub onClose: Signal<CloseEvent>
+    pub onClose:     Signal<CloseEvent>
+    pub onResize:    Signal<SizeEvent>
+    pub onKeyDown:   Signal<KeyEvent>
+    pub onKeyUp:     Signal<KeyEvent>
+    pub onMouseMove: Signal<MouseEvent>
+    pub onMouseDown: Signal<MouseEvent>
+    pub onMouseUp:   Signal<MouseEvent>
 
     pub init(title: string, width: f64, height: f64) {
         super()
-        this.handle = createNativeWindow(title, width, height)
-        this.onClose = new Signal<CloseEvent>()
-        // Forward the native close notification to `onClose`.
-        // The closure captures `this` so the same Window flows
-        // through as `event.sender`.
+        this.handle      = createNativeWindow(title, width, height)
+        this.onClose     = new Signal<CloseEvent>()
+        this.onResize    = new Signal<SizeEvent>()
+        this.onKeyDown   = new Signal<KeyEvent>()
+        this.onKeyUp     = new Signal<KeyEvent>()
+        this.onMouseMove = new Signal<MouseEvent>()
+        this.onMouseDown = new Signal<MouseEvent>()
+        this.onMouseUp   = new Signal<MouseEvent>()
+        // Forward native callbacks to each Signal. The closures
+        // capture `this` so the same Window flows through as
+        // `event.sender`.
         setOnClose(this.handle, fn() {
             this.onClose.emit(new CloseEvent(this))
         })
+        setOnResize(this.handle, fn(w: f64, h: f64) {
+            this.onResize.emit(new SizeEvent(this, w, h))
+        })
+        setOnKeyDown(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyDown.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+            })
+        setOnKeyUp(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyUp.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+            })
+        setOnMouseMove(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onMouseMove.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnMouseDown(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onMouseDown.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnMouseUp(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onMouseUp.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
     }
 }
 
