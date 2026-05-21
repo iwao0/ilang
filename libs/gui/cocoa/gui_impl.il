@@ -17,9 +17,11 @@
 /// so an array slot is the simplest stable per-window key.
 
 use cocoa {
-    NSObject, NSApplication, NSWindow, NSView, NSButton, NSNotification, NSEvent,
+    NSObject, NSApplication, NSWindow, NSView, NSButton, NSTextField,
+    NSNotification, NSEvent,
     NSRect, NSWindowStyleMask, NSApplicationActivationPolicy,
-    NSEventModifierFlags, nsstr, makeRect, selectorPtr, nil,
+    NSEventModifierFlags, NSString,
+    nsstr, ilstr, makeRect, makeLabel, makeTextField, selectorPtr, nil,
     sharedApplication, makeWindow,
 }
 
@@ -391,6 +393,128 @@ pub fn setButtonEnabled(handle: i64, enabled: bool) {
 pub fn setButtonVisible(handle: i64, visible: bool) {
     if handle >= 0 && handle < (BUTTONS.length as i64) {
         BUTTONS[handle].setHidden(!visible)
+    }
+}
+
+// ─── labels ───────────────────────────────────────────────────
+//
+// `makeLabel` flips off editable / bordered / bezeled / drawsBackground
+// on an NSTextField so it reads as plain static text.
+
+let LABELS: NSTextField[] = []
+
+pub fn createNativeLabel(
+    windowHandle: i64,
+    text: string, x: f64, y: f64, width: f64, height: f64,
+    visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (WINDOWS.length as i64) {
+        return -1
+    }
+    let win = WINDOWS[windowHandle]
+    let lbl = makeLabel(text, x, y, width, height)
+    lbl.setHidden(!visible)
+    win.contentView.addSubview(lbl as NSView)
+    let handle: i64 = LABELS.length as i64
+    LABELS.push(lbl)
+    handle
+}
+
+pub fn setLabelText(handle: i64, text: string) {
+    if handle >= 0 && handle < (LABELS.length as i64) {
+        LABELS[handle].stringValue = nsstr(text)
+    }
+}
+pub fn setLabelFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (LABELS.length as i64) {
+        LABELS[handle].setFrame(makeRect(x, y, width, height))
+    }
+}
+pub fn setLabelVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (LABELS.length as i64) {
+        LABELS[handle].setHidden(!visible)
+    }
+}
+
+// ─── text fields ──────────────────────────────────────────────
+//
+// One `ChangeHandler` is set as each NSTextField's delegate; on
+// `controlTextDidChange:` it looks up the sender's slot in
+// `EDIT_KEYS` and fires the registered change callback with the
+// current contents.
+
+let EDITS:           NSTextField[]      = []
+let EDIT_KEYS:       NSObject[]         = []
+let ON_TEXT_CHANGE:  fn(string)[]       = []
+let CHANGE_HANDLERS: NSObject[]         = []
+
+fn noOpText(s: string) { let _ = s }
+
+class ChangeHandler : NSObject {
+    pub controlTextDidChange(n: NSNotification) {
+        let ix = indexBy(EDIT_KEYS, n.notificationObject)
+        if ix >= 0 {
+            let cb = ON_TEXT_CHANGE[ix]
+            cb(ilstr(EDITS[ix].stringValue))
+        }
+    }
+}
+
+pub fn createNativeEdit(
+    windowHandle: i64,
+    text: string, x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (WINDOWS.length as i64) {
+        return -1
+    }
+    let win = WINDOWS[windowHandle]
+    let tf = makeTextField(text, x, y, width, height)
+    tf.setEnabled(enabled)
+    tf.setHidden(!visible)
+
+    ChangeHandler.register()
+    let h = ChangeHandler.alloc().init()
+    tf.setDelegate(h as NSObject)
+
+    win.contentView.addSubview(tf as NSView)
+
+    let handle: i64 = EDITS.length as i64
+    EDITS.push(tf)
+    EDIT_KEYS.push(tf as NSObject)
+    ON_TEXT_CHANGE.push(noOpText)
+    CHANGE_HANDLERS.push(h as NSObject)
+    handle
+}
+
+pub fn readEditText(handle: i64): string {
+    if handle < 0 || handle >= (EDITS.length as i64) { return "" }
+    ilstr(EDITS[handle].stringValue)
+}
+
+pub fn setOnEditChange(handle: i64, cb: fn(string)) {
+    if handle >= 0 && handle < (ON_TEXT_CHANGE.length as i64) {
+        ON_TEXT_CHANGE[handle] = cb
+    }
+}
+pub fn setEditText(handle: i64, text: string) {
+    if handle >= 0 && handle < (EDITS.length as i64) {
+        EDITS[handle].stringValue = nsstr(text)
+    }
+}
+pub fn setEditFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (EDITS.length as i64) {
+        EDITS[handle].setFrame(makeRect(x, y, width, height))
+    }
+}
+pub fn setEditEnabled(handle: i64, enabled: bool) {
+    if handle >= 0 && handle < (EDITS.length as i64) {
+        EDITS[handle].setEnabled(enabled)
+    }
+}
+pub fn setEditVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (EDITS.length as i64) {
+        EDITS[handle].setHidden(!visible)
     }
 }
 

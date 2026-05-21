@@ -37,7 +37,10 @@ use windows {
     CreateFileA, WriteFile, CloseHandle, HANDLE,
     FileAccess, FileCreation, FileAttribute,
     HeapAlloc, HeapFree, GetProcessHeap,
-    MultiByteToWideChar,
+    MultiByteToWideChar, WideCharToMultiByte,
+    // Edit / static read-back — fetch the current text out of an
+    // EDIT control for the EN_CHANGE callback.
+    GetWindowTextW, GetWindowTextLengthW,
     // SetWindowTheme — best-effort modernization for buttons /
     // listviews. No-op when a v6 activation context isn't live.
     SetWindowTheme,
@@ -60,6 +63,15 @@ let ON_MOUSE_UP:    fn(f64, f64, i32, bool, bool, bool, bool)[]             = []
 let BUTTON_HWNDS:   HWND[]                                                  = []
 let ON_CLICK:       fn(f64, f64, i32)[]                                     = []
 
+// Labels (STATIC class) — display-only text, no event surface.
+let LABEL_HWNDS:    HWND[]                                                  = []
+
+// Text fields (EDIT class) — single-line input. EN_CHANGE
+// notifications fire each time the contents change; the cb gets
+// the freshly-read UTF-8 contents.
+let EDIT_HWNDS:     HWND[]                                                  = []
+let ON_TEXT_CHANGE: fn(string)[]                                            = []
+
 // True once enableComctl32V6() has run — we only need to install
 // the side-by-side activation context for comctl32 6.0 once per
 // process, regardless of how many windows / buttons get created.
@@ -75,6 +87,7 @@ fn noOpClick(x: f64, y: f64, b: i32) {
     let _ = y
     let _ = b
 }
+fn noOpText(s: string) { let _ = s }
 
 fn noOp1() {}
 fn noOp2(w: f64, h: f64) {
@@ -283,15 +296,39 @@ fn vkToString(vk: u32): string {
                     return 0
                 }
                 WindowMessage.command {
-                    // LOWORD(wParam) is the control identifier we
-                    // baked in as the button's HMENU value
-                    // (= the BUTTON_HWNDS index). BN_CLICKED carries
-                    // no cursor; pass (0, 0, 0) and let gui-core
-                    // fill in via the cached button position.
-                    let id = (wParam & 0xFFFF) as i64
-                    if id >= 0 && id < (ON_CLICK.length as i64) {
-                        let cb = ON_CLICK[id]
-                        cb(0.0, 0.0, 0)
+                    // For WM_COMMAND from a control: lParam is the
+                    // control HWND, HIWORD(wParam) the notify code,
+                    // LOWORD(wParam) the control id (= HMENU at
+                    // create time). We route by notify code, then
+                    // resolve the control by HWND equality so the
+                    // BUTTON / EDIT id spaces never collide.
+                    let ctrlHwnd = lParam as i64
+                    let notify = ((wParam >> 16) & 0xFFFF) as i32
+                    if notify == 0 {
+                        // BN_CLICKED — find the matching button by HWND.
+                        let n = BUTTON_HWNDS.length as i64
+                        let i: i64 = 0
+                        while i < n {
+                            if BUTTON_HWNDS[i] as i64 == ctrlHwnd {
+                                let cb = ON_CLICK[i]
+                                cb(0.0, 0.0, 0)
+                                return 0
+                            }
+                            i = i + 1
+                        }
+                    } elif notify == 0x0300 {
+                        // EN_CHANGE — text edited by the user. Read
+                        // the fresh contents back and surface them.
+                        let n = EDIT_HWNDS.length as i64
+                        let i: i64 = 0
+                        while i < n {
+                            if EDIT_HWNDS[i] as i64 == ctrlHwnd {
+                                let cb = ON_TEXT_CHANGE[i]
+                                cb(readEditText(i))
+                                return 0
+                            }
+                            i = i + 1
+                        }
                     }
                     return 0
                 }
@@ -619,6 +656,176 @@ pub fn setButtonVisible(handle: i64, visible: bool) {
     if handle >= 0 && handle < (BUTTON_HWNDS.length as i64) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(BUTTON_HWNDS[handle], cmd)
+    }
+}
+
+// ─── labels (STATIC class) ────────────────────────────────────
+
+pub fn createNativeLabel(
+    windowHandle: i64,
+    text: string, x: f64, y: f64, width: f64, height: f64,
+    visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (HWNDS.length as i64) {
+        return -1
+    }
+    let parent = HWNDS[windowHandle]
+    let classW = toWideUtf8("STATIC") as *u16
+    let textW  = toWideUtf8(text) as *u16
+    let visibleBits: u32 = if visible {
+        WindowStyle.visible as u32
+    } else {
+        0 as u32
+    }
+    let style: u32 = (WindowStyle.child as u32) | visibleBits
+    let hInstance = GetModuleHandleA(0 as *const char)
+    let hwnd = CreateWindowExW(
+        0,
+        classW,
+        textW,
+        style,
+        x as i32, y as i32, width as i32, height as i32,
+        parent,
+        0 as HMENU,            // labels emit no commands
+        hInstance as HINSTANCE,
+        0 as *void
+    )
+    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
+    HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
+    let id: i64 = LABEL_HWNDS.length as i64
+    LABEL_HWNDS.push(hwnd)
+    id
+}
+
+pub fn setLabelText(handle: i64, text: string) {
+    if handle >= 0 && handle < (LABEL_HWNDS.length as i64) {
+        let w = toWideUtf8(text) as *u16
+        let _ = SetWindowTextW(LABEL_HWNDS[handle], w)
+        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+    }
+}
+pub fn setLabelFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (LABEL_HWNDS.length as i64) {
+        MoveWindow(LABEL_HWNDS[handle],
+                   x as i32, y as i32, width as i32, height as i32, 1)
+    }
+}
+pub fn setLabelVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (LABEL_HWNDS.length as i64) {
+        let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
+        ShowWindow(LABEL_HWNDS[handle], cmd)
+    }
+}
+
+// ─── text fields (EDIT class) ────────────────────────────────
+
+pub fn createNativeEdit(
+    windowHandle: i64,
+    text: string, x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (HWNDS.length as i64) {
+        return -1
+    }
+    let parent = HWNDS[windowHandle]
+    let id: i64 = EDIT_HWNDS.length as i64
+    let classW = toWideUtf8("EDIT") as *u16
+    let textW  = toWideUtf8(text) as *u16
+    let visibleBits: u32 = if visible {
+        WindowStyle.visible as u32
+    } else {
+        0 as u32
+    }
+    // WS_BORDER so the field reads as an editable input rather
+    // than a flat label. ES_AUTOHSCROLL (0x80) makes the field
+    // scroll instead of clip when typing past the right edge.
+    let style: u32 = (WindowStyle.child as u32)
+                   | (WindowStyle.border as u32)
+                   | visibleBits
+                   | (0x0080 as u32)
+    let hInstance = GetModuleHandleA(0 as *const char)
+    let hwnd = CreateWindowExW(
+        0,
+        classW,
+        textW,
+        style,
+        x as i32, y as i32, width as i32, height as i32,
+        parent,
+        id as HMENU,           // HMENU slot doubles as the control ID
+        hInstance as HINSTANCE,
+        0 as *void
+    )
+    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
+    HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
+    let enabledFlag: i32 = if enabled { 1 } else { 0 }
+    EnableWindow(hwnd, enabledFlag)
+    EDIT_HWNDS.push(hwnd)
+    ON_TEXT_CHANGE.push(noOpText)
+    id
+}
+
+/// Read the current contents of edit `handle` as a UTF-8 string.
+/// Returns "" for an invalid handle or an empty field.
+pub fn readEditText(handle: i64): string {
+    if handle < 0 || handle >= (EDIT_HWNDS.length as i64) {
+        return ""
+    }
+    let hwnd = EDIT_HWNDS[handle]
+    let lenW = GetWindowTextLengthW(hwnd) as i32
+    if lenW <= 0 { return "" }
+    let heap = GetProcessHeap()
+    // (lenW + 1) UTF-16 code units → 2 × bytes for the wide buffer.
+    let wideBuf = HeapAlloc(heap, 8 as u32, (lenW as u64 + 1 as u64) * 2 as u64) as *u16
+    let _ = GetWindowTextW(hwnd, wideBuf, lenW + 1)
+    // Worst-case UTF-8 expansion is 3× per UTF-16 code unit (for
+    // BMP code points; surrogate pairs round-trip 1:1 to 4 bytes
+    // total, which is also 2 × code units, well below the cap).
+    let cap: i32 = (lenW + 1) * 3
+    let utf8Buf = HeapAlloc(heap, 8 as u32, cap as u64) as *char
+    let _ = WideCharToMultiByte(
+        65001 as u32,           // CP_UTF8
+        0 as u32,
+        wideBuf as *const u16,
+        -1 as i32,              // NUL-terminated input
+        utf8Buf,
+        cap,
+        0 as *const char,
+        0 as *i32
+    )
+    let s = stringFromCstr(utf8Buf as *const char)
+    HeapFree(heap, 0 as u32, wideBuf as *void)
+    HeapFree(heap, 0 as u32, utf8Buf as *void)
+    s
+}
+
+pub fn setOnEditChange(handle: i64, cb: fn(string)) {
+    if handle >= 0 && handle < (ON_TEXT_CHANGE.length as i64) {
+        ON_TEXT_CHANGE[handle] = cb
+    }
+}
+pub fn setEditText(handle: i64, text: string) {
+    if handle >= 0 && handle < (EDIT_HWNDS.length as i64) {
+        let w = toWideUtf8(text) as *u16
+        let _ = SetWindowTextW(EDIT_HWNDS[handle], w)
+        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+    }
+}
+pub fn setEditFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (EDIT_HWNDS.length as i64) {
+        MoveWindow(EDIT_HWNDS[handle],
+                   x as i32, y as i32, width as i32, height as i32, 1)
+    }
+}
+pub fn setEditEnabled(handle: i64, enabled: bool) {
+    if handle >= 0 && handle < (EDIT_HWNDS.length as i64) {
+        let flag: i32 = if enabled { 1 } else { 0 }
+        EnableWindow(EDIT_HWNDS[handle], flag)
+    }
+}
+pub fn setEditVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (EDIT_HWNDS.length as i64) {
+        let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
+        ShowWindow(EDIT_HWNDS[handle], cmd)
     }
 }
 

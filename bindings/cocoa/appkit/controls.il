@@ -103,6 +103,10 @@ pub enum NSDatePickerStyle: u64 {
         pub setDrawsBackground(flag: bool)
         @objc("setSelectable:")
         pub setSelectable(flag: bool)
+        /// Inherited from `NSControl`; included on `NSTextField`
+        /// for the common case of greying out an input.
+        @objc("setEnabled:")
+        pub setEnabled(flag: bool)
 
         /// setDelegate overloads. NSTextField accepts either the
         /// text-field-specific protocol or the more general
