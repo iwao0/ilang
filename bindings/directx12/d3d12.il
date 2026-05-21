@@ -331,10 +331,6 @@ pub enum D3D12Result: i32 {
     // user code can hold typed pointers between flat-entry-point
     // calls and the vtable invocations they bootstrap.
 
-    // GUID lives in `bindings/windows/ole32.il` (the COM foundation);
-    // imported above so this block's structs / fn signatures share
-    // the single canonical declaration.
-
     // All of the named ID3D12* handles are declared as `@com pub
     // interface` in d3d12_com.il (re-exported via directx12.il).
     // Anything that needs to flow through this file just refers to
