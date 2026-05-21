@@ -221,4 +221,98 @@ pub enum NotifyIconDataFlags: u32 {
     /// `dwMessage`: NotifyIconMessage.*, `lpdata` points to a
     /// NOTIFYICONDATAA struct with `cbSize` set correctly.
     @lib pub fn Shell_NotifyIconA(dwMessage: u32, lpdata: *void): i32
+
+    // ── Folder path helpers (extended) ───────────────────────────
+
+    /// Legacy CSIDL → path. Same as SHGetFolderPathA with hToken
+    /// = 0; kept for Win9x compatibility code.
+    @lib pub fn SHGetSpecialFolderPathA(
+        hwnd:    i64,
+        pszPath: *char,
+        csidl:   i32,
+        fCreate: i32
+    ): i32
+
+    /// `SHGetKnownFolderPath(rfid, flags, hToken, ppszPath)` —
+    /// modern (Vista+) folder-id API. `rfid` is a KNOWNFOLDERID
+    /// GUID pointer. The returned `*ppszPath` is a wide string
+    /// allocated by the shell; free with `CoTaskMemFree`.
+    @lib pub fn SHGetKnownFolderPath(
+        rfid:     *const void,    // *const GUID — pass ole32.GUID
+        dwFlags:  u32,
+        hToken:   i64,
+        ppszPath: **u16
+    ): i32
+
+    /// Create a directory and any missing parents.
+    @lib pub fn SHCreateDirectoryExA(
+        hwnd:    i64,
+        pszPath: *const char,
+        psa:     *void           // *SECURITY_ATTRIBUTES, may be 0
+    ): i32
+
+    // ── Recycle bin ──────────────────────────────────────────────
+
+    /// Empties the recycle bin on `pszRootPath` (or all drives when
+    /// `pszRootPath` is NULL). `dwFlags`: 1 = no confirmation,
+    /// 2 = no progress, 4 = no sound.
+    @lib pub fn SHEmptyRecycleBinA(
+        hwnd:        i64,
+        pszRootPath: *const char,
+        dwFlags:     u32
+    ): i32
+
+    /// Item count + total size of the recycle bin.
+    pub struct SHQUERYRBINFO {
+        cbSize:       u32
+        i64NumItems:  i64
+        i64Size:      i64
+    }
+
+    @lib pub fn SHQueryRecycleBinA(
+        pszRootPath: *const char,
+        pSHQueryRBInfo: *SHQUERYRBINFO
+    ): i32
+
+    // ── Icons ────────────────────────────────────────────────────
+
+    /// Pull large + small icon handles out of an .exe / .dll /
+    /// .ico file. Returns the number of icons in the file when
+    /// `phiconLarge` / `phiconSmall` are NULL.
+    @lib pub fn ExtractIconExA(
+        lpszFile:    *const char,
+        nIconIndex:  i32,
+        phiconLarge: *i64,
+        phiconSmall: *i64,
+        nIcons:      u32
+    ): u32
+
+    /// `ExtractAssociatedIconA` — first icon associated with a
+    /// file (looks up the extension's ProgID).
+    @lib pub fn ExtractAssociatedIconA(
+        hInst:      i64,
+        pszIconPath: *char,
+        piIcon:     *u16
+    ): i64                          // *HICON
+
+    // ── Privilege / admin checks ─────────────────────────────────
+
+    /// True if the calling process is a member of the local
+    /// Administrators group with an elevated token. Wrapper around
+    /// `CheckTokenMembership(NULL, AdministratorsAlias, &b)`.
+    @lib pub fn IsUserAnAdmin(): i32
+
+    // ── Command-line parsing ─────────────────────────────────────
+
+    /// Win32's own argv parser. Splits a wide command line into an
+    /// argv-shaped array. Free the result with kernel32.LocalFree.
+    @lib pub fn CommandLineToArgvW(
+        lpCmdLine: *const u16,
+        pNumArgs:  *i32
+    ): **u16
+
+    // ── Path-from-IDList (PIDL) helpers ──────────────────────────
+
+    /// Convert a PIDL (item id list) into a filesystem path.
+    @lib pub fn SHGetPathFromIDListA(pidl: *const void, pszPath: *char): i32
 }

@@ -46,3 +46,8 @@ pub use wtsapi32.*
 pub use pdh.*
 pub use avrt.*
 pub use mpr.*
+pub use comctl32.*
+pub use d3d11.*
+pub use dwrite.*
+pub use d2d1.*
+pub use msi.*
