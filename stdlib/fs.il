@@ -28,43 +28,41 @@ pub class FsError {
     }
 }
 
-@extern(C) {
-    pub fn __hasError(): bool
-    pub fn __errorCode(): string
-    pub fn __errorMessage(): string
+@intrinsic("fs.__hasError")       fn fs_has_error(): bool
+@intrinsic("fs.__errorCode")      fn fs_error_code(): string
+@intrinsic("fs.__errorMessage")   fn fs_error_message(): string
 
-    pub fn __readFile(path: string): string
-    pub fn __readFileBytes(path: string): u8[]
-    pub fn __writeFile(path: string, contents: string)
-    pub fn __writeFileBytes(path: string, bytes: u8[])
-    pub fn __appendFile(path: string, contents: string)
+@intrinsic("fs.__readFile")       fn fs_read_file(path: string): string
+@intrinsic("fs.__readFileBytes")  fn fs_read_file_bytes(path: string): u8[]
+@intrinsic("fs.__writeFile")      fn fs_write_file(path: string, contents: string)
+@intrinsic("fs.__writeFileBytes") fn fs_write_file_bytes(path: string, bytes: u8[])
+@intrinsic("fs.__appendFile")     fn fs_append_file(path: string, contents: string)
 
-    pub fn __exists(path: string): bool
-    pub fn __isFile(path: string): bool
-    pub fn __isDir(path: string): bool
+@intrinsic("fs.__exists")         fn fs_exists(path: string): bool
+@intrinsic("fs.__isFile")         fn fs_is_file(path: string): bool
+@intrinsic("fs.__isDir")          fn fs_is_dir(path: string): bool
 
-    pub fn __mkdir(path: string, recursive: bool)
-    pub fn __rm(path: string)
-    pub fn __rmdir(path: string, recursive: bool)
-    pub fn __rename(from: string, to: string)
+@intrinsic("fs.__mkdir")          fn fs_mkdir(path: string, recursive: bool)
+@intrinsic("fs.__rm")             fn fs_rm(path: string)
+@intrinsic("fs.__rmdir")          fn fs_rmdir(path: string, recursive: bool)
+@intrinsic("fs.__rename")         fn fs_rename(from: string, to: string)
 
-    pub fn __readDir(path: string): string[]
-    pub fn __size(path: string): i64
+@intrinsic("fs.__readDir")        fn fs_read_dir(path: string): string[]
+@intrinsic("fs.__size")           fn fs_size(path: string): i64
 
-    pub fn __stat(path: string): i64[]
-    pub fn __lstat(path: string): i64[]
-    pub fn __access(path: string, mode: i32)
-    pub fn __copyFile(src: string, dst: string, overwrite: bool)
-    pub fn __cp(src: string, dst: string, recursive: bool)
-    pub fn __realpath(path: string): string
-    pub fn __chmod(path: string, mode: i32)
-    pub fn __truncate(path: string, len: i64)
-    pub fn __utimes(path: string, atimeMs: i64, mtimeMs: i64)
-    pub fn __symlink(target: string, linkPath: string)
-    pub fn __readlink(path: string): string
-    pub fn __link(existing: string, newPath: string)
-    pub fn __mkdtemp(prefix: string): string
-}
+@intrinsic("fs.__stat")           fn fs_stat(path: string): i64[]
+@intrinsic("fs.__lstat")          fn fs_lstat(path: string): i64[]
+@intrinsic("fs.__access")         fn fs_access(path: string, mode: i32)
+@intrinsic("fs.__copyFile")       fn fs_copy_file(src: string, dst: string, overwrite: bool)
+@intrinsic("fs.__cp")             fn fs_cp(src: string, dst: string, recursive: bool)
+@intrinsic("fs.__realpath")       fn fs_realpath(path: string): string
+@intrinsic("fs.__chmod")          fn fs_chmod(path: string, mode: i32)
+@intrinsic("fs.__truncate")       fn fs_truncate(path: string, len: i64)
+@intrinsic("fs.__utimes")         fn fs_utimes(path: string, atimeMs: i64, mtimeMs: i64)
+@intrinsic("fs.__symlink")        fn fs_symlink(target: string, linkPath: string)
+@intrinsic("fs.__readlink")       fn fs_readlink(path: string): string
+@intrinsic("fs.__link")           fn fs_link(existing: string, newPath: string)
+@intrinsic("fs.__mkdtemp")        fn fs_mkdtemp(prefix: string): string
 
 /// `access(...)` mode flag: file exists. Bit-OR with the others
 /// to test multiple permissions at once.
@@ -132,122 +130,122 @@ fn buildStats(arr: i64[]): Stats {
 }
 
 fn lastError(): FsError {
-    new FsError(__errorCode(), __errorMessage())
+    new FsError(fs_error_code(), fs_error_message())
 }
 
 /// Read the entire file at `path` as a UTF-8 string. Returns
 /// `Result.err(FsError)` if the file is missing, unreadable, or
 /// contains invalid UTF-8.
 pub fn readFile(path: string): Result<string, FsError> {
-    let s = __readFile(path)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(s) }
+    let s = fs_read_file(path)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(s) }
 }
 
 /// Read the entire file at `path` as a raw byte array. Use this
 /// instead of `readFile` when the contents aren't valid UTF-8 or
 /// when you need to preserve bytes exactly.
 pub fn readFileBytes(path: string): Result<u8[], FsError> {
-    let b = __readFileBytes(path)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(b) }
+    let b = fs_read_file_bytes(path)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(b) }
 }
 
 /// Write `contents` to `path`, replacing any existing file.
 /// Creates the file if it doesn't exist; parent directories must
 /// already exist (use `mkdir(..., recursive: true)` first).
 pub fn writeFile(path: string, contents: string): Result<bool, FsError> {
-    __writeFile(path, contents)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_write_file(path, contents)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// Write raw `bytes` to `path`, replacing any existing file.
 /// Same semantics as `writeFile` but takes a `u8[]` payload.
 pub fn writeFileBytes(path: string, bytes: u8[]): Result<bool, FsError> {
-    __writeFileBytes(path, bytes)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_write_file_bytes(path, bytes)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// Append `contents` to `path`. Creates the file if it doesn't
 /// exist; otherwise leaves existing data intact and writes at the
 /// end.
 pub fn appendFile(path: string, contents: string): Result<bool, FsError> {
-    __appendFile(path, contents)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_append_file(path, contents)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// `true` if `path` refers to an existing filesystem entry of any
 /// kind (file, directory, symlink target, ...). Returns `false`
 /// for missing paths *and* permission errors — use `readFile`
 /// itself if you need to distinguish the two.
-pub fn exists(path: string): bool { __exists(path) }
+pub fn exists(path: string): bool { fs_exists(path) }
 
 /// `true` if `path` exists and is a regular file. `false` for
 /// directories, missing paths, or anything the process can't
 /// stat.
-pub fn isFile(path: string): bool { __isFile(path) }
+pub fn isFile(path: string): bool { fs_is_file(path) }
 
 /// `true` if `path` exists and is a directory. `false` for
 /// regular files, missing paths, or anything the process can't
 /// stat.
-pub fn isDir(path: string): bool { __isDir(path) }
+pub fn isDir(path: string): bool { fs_is_dir(path) }
 
 /// Create directory `path`. With `recursive: true` behaves like
 /// `mkdir -p` (creates missing parents, succeeds when the
 /// directory already exists). With `recursive: false` fails with
 /// `EEXIST` if `path` exists.
 pub fn mkdir(path: string, recursive: bool): Result<bool, FsError> {
-    __mkdir(path, recursive)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_mkdir(path, recursive)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// Remove the file at `path`. Use `rmdir` for directories.
 pub fn rm(path: string): Result<bool, FsError> {
-    __rm(path)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_rm(path)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// Remove the directory at `path`. With `recursive: true` removes
 /// the entire subtree (`rm -rf`); with `recursive: false` fails
 /// if the directory is non-empty.
 pub fn rmdir(path: string, recursive: bool): Result<bool, FsError> {
-    __rmdir(path, recursive)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_rmdir(path, recursive)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// Move / rename `from` to `to`. Atomic when both paths are on
 /// the same filesystem; falls back to copy-then-delete otherwise.
 pub fn rename(from: string, to: string): Result<bool, FsError> {
-    __rename(from, to)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_rename(from, to)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// List the entries of directory `path`. Returns just the entry
 /// names (not full paths), excluding `.` and `..`.
 pub fn readDir(path: string): Result<string[], FsError> {
-    let entries = __readDir(path)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(entries) }
+    let entries = fs_read_dir(path)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(entries) }
 }
 
 /// Size of `path` in bytes. Reports the file size for regular
 /// files; for directories the value is platform-dependent.
 pub fn size(path: string): Result<i64, FsError> {
-    let n = __size(path)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(n) }
+    let n = fs_size(path)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(n) }
 }
 
 /// Fetch a `Stats` snapshot for `path`. Symbolic links are
 /// followed, so the returned values describe the link's *target*
 /// (use `lstat` to inspect the link itself).
 pub fn stat(path: string): Result<Stats, FsError> {
-    let arr = __stat(path)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(buildStats(arr)) }
+    let arr = fs_stat(path)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(buildStats(arr)) }
 }
 
 /// `stat` that does **not** follow symbolic links — if `path`
 /// names a symlink, the returned `Stats` describes the link
 /// itself (`isSymlink()` will be `true`).
 pub fn lstat(path: string): Result<Stats, FsError> {
-    let arr = __lstat(path)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(buildStats(arr)) }
+    let arr = fs_lstat(path)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(buildStats(arr)) }
 }
 
 /// Check whether the current process can access `path` under the
@@ -259,8 +257,8 @@ pub fn lstat(path: string): Result<Stats, FsError> {
 /// map cleanly); only F_OK and W_OK (read-only attribute) are
 /// honoured there.
 pub fn access(path: string, mode: i32): Result<bool, FsError> {
-    __access(path, mode)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_access(path, mode)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// Copy file `src` to `dst`. With `overwrite: false` fails with
@@ -268,8 +266,8 @@ pub fn access(path: string, mode: i32): Result<bool, FsError> {
 /// replaces it. Symbolic links in `src` are followed (the link
 /// target's contents are copied).
 pub fn copyFile(src: string, dst: string, overwrite: bool): Result<bool, FsError> {
-    __copyFile(src, dst, overwrite)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_copy_file(src, dst, overwrite)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// Copy `src` to `dst`. With `recursive: false` copies a single
@@ -277,16 +275,16 @@ pub fn copyFile(src: string, dst: string, overwrite: bool): Result<bool, FsError
 /// `recursive: true` walks `src` like `cp -r`, creating
 /// directories at `dst` and preserving symlinks as symlinks.
 pub fn cp(src: string, dst: string, recursive: bool): Result<bool, FsError> {
-    __cp(src, dst, recursive)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_cp(src, dst, recursive)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// Canonicalise `path` to an absolute path with all `.` / `..`
 /// segments resolved and every symbolic link followed. Fails if
 /// `path` (or any component) doesn't exist.
 pub fn realpath(path: string): Result<string, FsError> {
-    let r = __realpath(path)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(r) }
+    let r = fs_realpath(path)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(r) }
 }
 
 /// Change the permission bits of `path` to `mode`. On POSIX
@@ -295,16 +293,16 @@ pub fn realpath(path: string): Result<string, FsError> {
 /// bit (`0o200`) is honoured — clearing it sets the read-only
 /// attribute.
 pub fn chmod(path: string, mode: i32): Result<bool, FsError> {
-    __chmod(path, mode)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_chmod(path, mode)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// Set the length of `path` to exactly `len` bytes. Truncates
 /// when shrinking; pads with NUL bytes when growing. `len` must
 /// be non-negative — pass `0` to empty the file in place.
 pub fn truncate(path: string, len: i64): Result<bool, FsError> {
-    __truncate(path, len)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_truncate(path, len)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// Set the access and modification timestamps of `path`. Both
@@ -312,8 +310,8 @@ pub fn truncate(path: string, len: i64): Result<bool, FsError> {
 /// reports). Negative values are clamped at the platform's
 /// minimum — practical use means "now or after 1970".
 pub fn utimes(path: string, atimeMs: i64, mtimeMs: i64): Result<bool, FsError> {
-    __utimes(path, atimeMs, mtimeMs)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_utimes(path, atimeMs, mtimeMs)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// Create a symbolic link at `linkPath` pointing to `target`.
@@ -322,23 +320,23 @@ pub fn utimes(path: string, atimeMs: i64, mtimeMs: i64): Result<bool, FsError> {
 /// directory) is chosen by inspecting `target` — for a missing
 /// target a file symlink is created.
 pub fn symlink(target: string, linkPath: string): Result<bool, FsError> {
-    __symlink(target, linkPath)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_symlink(target, linkPath)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// Read the target of the symbolic link at `path`. The returned
 /// string is whatever was stored in the link (may be relative).
 /// Fails with `EINVAL` if `path` is not a symlink.
 pub fn readlink(path: string): Result<string, FsError> {
-    let r = __readlink(path)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(r) }
+    let r = fs_readlink(path)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(r) }
 }
 
 /// Create a hard link at `newPath` referencing the same inode as
 /// `existing`. Both paths must be on the same filesystem.
 pub fn link(existing: string, newPath: string): Result<bool, FsError> {
-    __link(existing, newPath)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+    fs_link(existing, newPath)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(true) }
 }
 
 /// Create a uniquely-named directory by appending six random
@@ -346,6 +344,6 @@ pub fn link(existing: string, newPath: string): Result<bool, FsError> {
 /// The caller owns the new directory and is responsible for
 /// removing it (e.g. via `rmdir(path, recursive: true)`).
 pub fn mkdtemp(prefix: string): Result<string, FsError> {
-    let p = __mkdtemp(prefix)
-    if __hasError() { Result.err(lastError()) } else { Result.ok(p) }
+    let p = fs_mkdtemp(prefix)
+    if fs_has_error() { Result.err(lastError()) } else { Result.ok(p) }
 }

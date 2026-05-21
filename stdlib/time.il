@@ -38,39 +38,37 @@
 ///
 /// Unknown specifiers are echoed verbatim (`%X` → `%X`).
 
-@extern(C) {
-    pub fn __now_ms(): i64
-    pub fn __now_ns(): i64
-    pub fn __monotonic_ns(): i64
-    pub fn __sleep_ms(ms: i64)
-    pub fn __break_down_utc(epochMs: i64): i64[]
-    pub fn __break_down_local(epochMs: i64): i64[]
-    pub fn __compose(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, offsetSec: i64): i64
-    pub fn __parse_iso(s: string): i64[]
-    pub fn __to_iso(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, offsetMin: i64): string
-    pub fn __format(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, weekday: i64, offsetMin: i64, fmt: string): string
-}
+@intrinsic("time.__now_ms")           fn time_now_ms(): i64
+@intrinsic("time.__now_ns")           fn time_now_ns(): i64
+@intrinsic("time.__monotonic_ns")     fn time_monotonic_ns(): i64
+@intrinsic("time.__sleep_ms")         fn time_sleep_ms(ms: i64)
+@intrinsic("time.__break_down_utc")   fn time_break_down_utc(epochMs: i64): i64[]
+@intrinsic("time.__break_down_local") fn time_break_down_local(epochMs: i64): i64[]
+@intrinsic("time.__compose")          fn time_compose(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, offsetSec: i64): i64
+@intrinsic("time.__parse_iso")        fn time_parse_iso(s: string): i64[]
+@intrinsic("time.__to_iso")           fn time_to_iso(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, offsetMin: i64): string
+@intrinsic("time.__format")           fn time_format(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, weekday: i64, offsetMin: i64, fmt: string): string
 
 /// Current wall-clock instant as Unix-epoch milliseconds.
-pub fn now(): i64 { __now_ms() }
+pub fn now(): i64 { time_now_ms() }
 
 /// Current wall-clock instant as Unix-epoch seconds.
-pub fn nowSec(): i64 { __now_ms() / 1000 }
+pub fn nowSec(): i64 { time_now_ms() / 1000 }
 
 /// Current wall-clock instant as Unix-epoch nanoseconds.
 /// Precision is platform-dependent (typically µs on macOS, ns on
 /// Linux).
-pub fn nowNanos(): i64 { __now_ns() }
+pub fn nowNanos(): i64 { time_now_ns() }
 
 /// Monotonic nanoseconds since process start. Use for measuring
 /// elapsed durations — guaranteed not to go backwards when the
 /// wall clock is adjusted (NTP slew, DST, manual change).
-pub fn monotonicNs(): i64 { __monotonic_ns() }
+pub fn monotonicNs(): i64 { time_monotonic_ns() }
 
 /// Block the current thread for `ms` milliseconds. No-op for
 /// `ms <= 0`. The actual sleep length is at least `ms` but the
 /// OS may wake later — don't use this for sub-millisecond timing.
-pub fn sleep(ms: i64) { __sleep_ms(ms) }
+pub fn sleep(ms: i64) { time_sleep_ms(ms) }
 
 /// Broken-down calendar time at a specific UTC offset. Stores
 /// wall-clock components plus the offset they're interpreted
@@ -117,23 +115,23 @@ pub class DateTime {
 
     /// Convert Unix-epoch milliseconds to a `DateTime` in UTC.
     pub static fromUnixMs(epochMs: i64): DateTime {
-        fromArr(__break_down_utc(epochMs))
+        fromArr(time_break_down_utc(epochMs))
     }
 
     /// Convert Unix-epoch milliseconds to a `DateTime` in the
     /// host's local timezone.
     pub static fromUnixMsLocal(epochMs: i64): DateTime {
-        fromArr(__break_down_local(epochMs))
+        fromArr(time_break_down_local(epochMs))
     }
 
     /// Current wall time in UTC.
     pub static utcNow(): DateTime {
-        DateTime.fromUnixMs(__now_ms())
+        DateTime.fromUnixMs(time_now_ms())
     }
 
     /// Current wall time in the host's local timezone.
     pub static now(): DateTime {
-        DateTime.fromUnixMsLocal(__now_ms())
+        DateTime.fromUnixMsLocal(time_now_ms())
     }
 
     /// Parse an ISO 8601 / RFC 3339 timestamp.
@@ -148,7 +146,7 @@ pub class DateTime {
     /// Returns `Result.err("...")` for anything outside this
     /// grammar.
     pub static parseIso(s: string): Result<DateTime, string> {
-        let arr = __parse_iso(s)
+        let arr = time_parse_iso(s)
         if arr.length == 0 {
             return Result.err("invalid ISO 8601 timestamp")
         }
@@ -159,7 +157,7 @@ pub class DateTime {
     /// `offsetMin` — `DateTime.fromUnixMs(t).toUnixMs() == t` for
     /// any `t`.
     pub toUnixMs(): i64 {
-        __compose(
+        time_compose(
             this.year as i64, this.month as i64, this.day as i64,
             this.hour as i64, this.minute as i64, this.second as i64,
             this.ms as i64, (this.offsetMin as i64) * 60
@@ -170,7 +168,7 @@ pub class DateTime {
     /// (`Z` when it is zero). Fractional seconds are omitted when
     /// `ms == 0`.
     pub toIso(): string {
-        __to_iso(
+        time_to_iso(
             this.year as i64, this.month as i64, this.day as i64,
             this.hour as i64, this.minute as i64, this.second as i64,
             this.ms as i64, this.offsetMin as i64
@@ -180,7 +178,7 @@ pub class DateTime {
     /// strftime-style format. See the module-level doc table for
     /// the recognised specifiers.
     pub format(fmt: string): string {
-        __format(
+        time_format(
             this.year as i64, this.month as i64, this.day as i64,
             this.hour as i64, this.minute as i64, this.second as i64,
             this.ms as i64, this.weekday as i64, this.offsetMin as i64,
