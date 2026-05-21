@@ -17,7 +17,7 @@ use windows {
         let buf = HeapAlloc(heap, 8 as u32, 1024 as u64)
 
         // GetModuleFileNameA for the current process — returns path > 5.
-        let exeName = GetModuleFileNameA(0 as *HMODULE, buf as *char, 1024 as u32)
+        let exeName = GetModuleFileNameA(0 as HMODULE, buf as *char, 1024 as u32)
         test.expectTrue(exeName > 5)
 
         // GetCommandLineA returns a static string; non-empty.

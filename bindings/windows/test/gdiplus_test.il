@@ -14,7 +14,7 @@ use windows {
             SuppressExternalCodecs: 0,
         }
         let token: u64 = 0
-        let rc = GdiplusStartup(&token, input, 0 as *void)
+        let rc = GdiplusStartup(&token, &input, 0 as *void)
         // 0 = Ok.
         test.expect(rc as i64, 0)
         test.expectTrue(token != 0 as u64)

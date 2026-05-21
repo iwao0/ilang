@@ -36,10 +36,10 @@ use windows {
             data_lo: 0 as u64,
             data_hi: 0 as u64,
         }
-        VariantInit(v)
+        VariantInit(&v)
         // After VariantInit, vt should be 0 (VT_EMPTY).
         test.expect(v.vt as i64, 0)
-        let hr = VariantClear(v)
+        let hr = VariantClear(&v)
         test.expect(hr as i64, 0)
     }
 }

@@ -38,7 +38,7 @@ use windows {
 
         // GetCursorPos fills a POINT struct.
         let pt = POINT { x: 0, y: 0 }
-        let ok = GetCursorPos(pt)
+        let ok = GetCursorPos(&pt)
         test.expectTrue(ok != 0)
         // Coordinates can be negative on multi-monitor setups, just
         // check the call succeeds.

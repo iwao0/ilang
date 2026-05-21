@@ -15,7 +15,7 @@ use windows {
     pub fn run() {
         // 1-D array of 5 VT_I4 elements, lower bound 0.
         let bound = SAFEARRAYBOUND { cElements: 5, lLbound: 0 }
-        let sa = SafeArrayCreate(VarType.i4 as u16, 1 as u32, bound)
+        let sa = SafeArrayCreate(VarType.i4 as u16, 1 as u32, &bound)
         test.expectTrue((sa as i64) != 0)
 
         test.expect(SafeArrayGetDim(sa) as i64, 1)

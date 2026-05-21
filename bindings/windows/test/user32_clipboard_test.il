@@ -32,7 +32,7 @@ use windows {
         freeCstr(name)
 
         // Open / empty / close — exercise the lifecycle.
-        test.expectTrue(OpenClipboard(0 as *HWND) != 0)
+        test.expectTrue(OpenClipboard(0 as HWND) != 0)
         test.expectTrue(EmptyClipboard() != 0)
         // After EmptyClipboard, the owner is the calling-thread (which
         // has no HWND so this returns NULL — just verify the call).

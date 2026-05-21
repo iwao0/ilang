@@ -23,7 +23,7 @@ use windows {
             wSecond: 0,
             wMilliseconds: 0,
         }
-        GetSystemTime(st)
+        GetSystemTime(&st)
         test.expectTrue(st.wYear >= 2000)
         test.expectTrue(st.wMonth >= 1 && st.wMonth <= 12)
         test.expectTrue(st.wDay >= 1 && st.wDay <= 31)
@@ -43,10 +43,10 @@ use windows {
             wSecond: 0,
             wMilliseconds: 0,
         }
-        GetLocalTime(lt)
+        GetLocalTime(&lt)
 
         let ft = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 }
-        let ok = SystemTimeToFileTime(lt, ft)
+        let ok = SystemTimeToFileTime(&lt, &ft)
         test.expectTrue(ok != 0)
 
         let lt2 = SYSTEMTIME {
@@ -59,7 +59,7 @@ use windows {
             wSecond: 0,
             wMilliseconds: 0,
         }
-        let ok2 = FileTimeToSystemTime(ft, lt2)
+        let ok2 = FileTimeToSystemTime(&ft, &lt2)
         test.expectTrue(ok2 != 0)
 
         test.expect(lt.wYear as i64, lt2.wYear as i64)
@@ -71,18 +71,18 @@ use windows {
 
         // Local FILETIME → UTC FILETIME → Local FILETIME.
         let localFt = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 }
-        LocalFileTimeToFileTime(ft, localFt)
+        LocalFileTimeToFileTime(&ft, &localFt)
         let roundFt = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 }
-        FileTimeToLocalFileTime(localFt, roundFt)
+        FileTimeToLocalFileTime(&localFt, &roundFt)
         test.expect(ft.dwLowDateTime as i64, roundFt.dwLowDateTime as i64)
         test.expect(ft.dwHighDateTime as i64, roundFt.dwHighDateTime as i64)
 
         // CompareFileTime: identical times compare as 0.
-        test.expect(CompareFileTime(ft, ft) as i64, 0)
+        test.expect(CompareFileTime(&ft, &ft) as i64, 0)
 
         // GetSystemTimeAsFileTime: nonzero high or low.
         let ft2 = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 }
-        GetSystemTimeAsFileTime(ft2)
+        GetSystemTimeAsFileTime(&ft2)
         test.expectTrue(ft2.dwHighDateTime > 0)
     }
 }

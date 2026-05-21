@@ -25,7 +25,7 @@ use windows {
             PagefileUsage: 0 as u64,
             PeakPagefileUsage: 0 as u64,
         }
-        let ok = GetProcessMemoryInfo(hp as *void, pmc, 72 as u32)
+        let ok = GetProcessMemoryInfo(hp as *void, &pmc, 72 as u32)
         test.expectTrue(ok != 0)
         test.expectTrue(pmc.WorkingSetSize > 0 as u64)
         test.expectTrue(pmc.PeakWorkingSetSize >= pmc.WorkingSetSize)

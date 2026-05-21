@@ -22,12 +22,12 @@ use windows {
 
         // GetWindowRect must fill a non-degenerate RECT.
         let wr = RECT { left: 0, top: 0, right: 0, bottom: 0 }
-        test.expectTrue(GetWindowRect(desktop, wr) != 0)
+        test.expectTrue(GetWindowRect(desktop, &wr) != 0)
         test.expectTrue(wr.right > wr.left)
         test.expectTrue(wr.bottom > wr.top)
 
         let cr = RECT { left: 0, top: 0, right: 0, bottom: 0 }
-        test.expectTrue(GetClientRect(desktop, cr) != 0)
+        test.expectTrue(GetClientRect(desktop, &cr) != 0)
         test.expectTrue(cr.right >= 0)
 
         // Style bit for the desktop includes WS_VISIBLE (0x10000000).
@@ -54,7 +54,7 @@ use windows {
 
         // ScreenToClient transforms a fixed screen point.
         let pt = POINT { x: 100, y: 100 }
-        test.expectTrue(ScreenToClient(desktop, pt) != 0)
+        test.expectTrue(ScreenToClient(desktop, &pt) != 0)
         let _ = pt   // touch
     }
 }

@@ -39,7 +39,7 @@ use windows {
             0 as *void,
             FileCreation.createAlways as u32,
             FileAttribute.normal as u32,
-            0 as *HANDLE
+            0 as HANDLE
         )
         test.expectTrue((h as i64) != 0xFFFFFFFFFFFFFFFF)
 
@@ -66,7 +66,7 @@ use windows {
             0 as *void,
             FileCreation.openExisting as u32,
             FileAttribute.normal as u32,
-            0 as *HANDLE
+            0 as HANDLE
         )
         test.expectTrue((h2 as i64) != 0xFFFFFFFFFFFFFFFF)
 

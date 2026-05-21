@@ -25,17 +25,17 @@ use windows {
             LockSemaphore: 0 as *void,
             SpinCount: 0 as u64,
         }
-        InitializeCriticalSection(cs)
-        EnterCriticalSection(cs)
+        InitializeCriticalSection(&cs)
+        EnterCriticalSection(&cs)
         // Recursive entry is allowed for the owning thread.
-        EnterCriticalSection(cs)
-        LeaveCriticalSection(cs)
-        LeaveCriticalSection(cs)
+        EnterCriticalSection(&cs)
+        LeaveCriticalSection(&cs)
+        LeaveCriticalSection(&cs)
         // TryEnter returns non-zero on success.
-        let got = TryEnterCriticalSection(cs)
+        let got = TryEnterCriticalSection(&cs)
         test.expectTrue(got != 0)
-        LeaveCriticalSection(cs)
-        DeleteCriticalSection(cs)
+        LeaveCriticalSection(&cs)
+        DeleteCriticalSection(&cs)
 
         // InitializeCriticalSectionAndSpinCount.
         let cs2 = CRITICAL_SECTION {
@@ -46,24 +46,24 @@ use windows {
             LockSemaphore: 0 as *void,
             SpinCount: 0 as u64,
         }
-        let ok2 = InitializeCriticalSectionAndSpinCount(cs2, 4000)
+        let ok2 = InitializeCriticalSectionAndSpinCount(&cs2, 4000)
         test.expectTrue(ok2 != 0)
-        DeleteCriticalSection(cs2)
+        DeleteCriticalSection(&cs2)
 
         // SRWLOCK: basic acquire/release in both modes.
         let rw = SRWLOCK { Ptr: 0 as *void }
-        InitializeSRWLock(rw)
-        AcquireSRWLockExclusive(rw)
-        ReleaseSRWLockExclusive(rw)
-        AcquireSRWLockShared(rw)
-        ReleaseSRWLockShared(rw)
+        InitializeSRWLock(&rw)
+        AcquireSRWLockExclusive(&rw)
+        ReleaseSRWLockExclusive(&rw)
+        AcquireSRWLockShared(&rw)
+        ReleaseSRWLockShared(&rw)
         // Try-acquire variants.
-        let te = TryAcquireSRWLockExclusive(rw)
+        let te = TryAcquireSRWLockExclusive(&rw)
         test.expectTrue(te != 0)
-        ReleaseSRWLockExclusive(rw)
-        let ts = TryAcquireSRWLockShared(rw)
+        ReleaseSRWLockExclusive(&rw)
+        let ts = TryAcquireSRWLockShared(&rw)
         test.expectTrue(ts != 0)
-        ReleaseSRWLockShared(rw)
+        ReleaseSRWLockShared(&rw)
     }
 }
 

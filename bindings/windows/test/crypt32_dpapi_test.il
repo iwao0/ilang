@@ -19,13 +19,13 @@ use windows {
         // Protect.
         let cipher = CRYPT_DATA_BLOB { cbData: 0, pbData: 0 as *u8 }
         let rc = CryptProtectData(
-            inBlob,
+            &inBlob,
             0 as *const u16,    // szDataDescr
             0 as *const CRYPT_DATA_BLOB,    // pOptionalEntropy
             0 as *void,
             0 as *const void,
             0 as u32,
-            cipher
+            &cipher
         )
         test.expectTrue(rc != 0)
         test.expectTrue(cipher.cbData > 12)        // DPAPI adds a MAC + key blob
@@ -35,13 +35,13 @@ use windows {
         let out = CRYPT_DATA_BLOB { cbData: 0, pbData: 0 as *u8 }
         let descr: *u16 = 0 as *u16
         let rc2 = CryptUnprotectData(
-            cipher,
+            &cipher,
             &descr,
             0 as *const CRYPT_DATA_BLOB,
             0 as *void,
             0 as *const void,
             0 as u32,
-            out
+            &out
         )
         test.expectTrue(rc2 != 0)
         test.expect(out.cbData as i64, 12)

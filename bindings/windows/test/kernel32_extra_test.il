@@ -79,7 +79,7 @@ use windows {
             wProcessorLevel: 0,
             wProcessorRevision: 0,
         }
-        GetSystemInfo(si)
+        GetSystemInfo(&si)
         test.expectTrue(si.dwNumberOfProcessors >= 1)
         test.expectTrue(si.dwPageSize > 0)
 
@@ -106,14 +106,14 @@ use windows {
         let user = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 }
         test.expectTrue(GetProcessTimes(
             GetCurrentProcess(),
-            creation, exit, kernel, user
+            &creation, &exit, &kernel, &user
         ) != 0)
         // Creation time must be non-zero (some FILETIME value since boot).
         test.expectTrue(creation.dwHighDateTime > 0)
 
         // High-res system time.
         let ft = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 }
-        GetSystemTimePreciseAsFileTime(ft)
+        GetSystemTimePreciseAsFileTime(&ft)
         test.expectTrue(ft.dwHighDateTime > 0)
     }
 }

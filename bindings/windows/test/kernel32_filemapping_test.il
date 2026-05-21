@@ -11,7 +11,7 @@ use windows {
     pub fn run() {
         // Pagefile-backed mapping: INVALID_HANDLE_VALUE for hFile.
         // 8 KB region (low DWORD = 8192, high = 0).
-        let invalidHandle = -1 as i64 as *HANDLE
+        let invalidHandle = -1 as i64 as HANDLE
         let map = CreateFileMappingA(
             invalidHandle,
             0 as *void,
