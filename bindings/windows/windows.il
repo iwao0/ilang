@@ -59,3 +59,8 @@ pub use mfplat.*
 pub use mfreadwrite.*
 pub use secur32.*
 pub use wlanapi.*
+pub use wintrust.*
+pub use wevtapi.*
+pub use cabinet.*
+pub use wer.*
+pub use fwpuclnt.*
