@@ -1,0 +1,5 @@
+[package]
+name = "gui_window_example"
+
+[deps]
+gui = "../../../../libs/gui/core"

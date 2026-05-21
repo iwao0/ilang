@@ -1,0 +1,5 @@
+[package]
+name = "gui-win32"
+
+[deps]
+windows = "../../../bindings/windows"

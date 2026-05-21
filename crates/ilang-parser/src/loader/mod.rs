@@ -59,6 +59,25 @@ fn builtin_path(name: &str) -> PathBuf {
     PathBuf::from(format!("<builtin>/{name}.il"))
 }
 
+/// Real on-disk source-tree path for a built-in module, baked in at
+/// compile time via `CARGO_MANIFEST_DIR`. Returned only when the
+/// file exists at the recorded location — released binaries shipped
+/// without the source tree fall back to `None` and the caller keeps
+/// the synthetic `<builtin>/M.il` key. F12 / hover-to-definition use
+/// this so cursoring on a `use events` / `Signal` jumps into
+/// `stdlib/events.il` instead of failing to open a fake path.
+pub fn builtin_module_path(name: &str) -> Option<PathBuf> {
+    if builtin_module_source(name).is_none() {
+        return None;
+    }
+    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    p.pop(); // crates/
+    p.pop(); // repo root
+    p.push("stdlib");
+    p.push(format!("{name}.il"));
+    if p.exists() { Some(p) } else { None }
+}
+
 fn is_builtin_path(p: &Path) -> Option<&str> {
     let s = p.to_str()?;
     s.strip_prefix("<builtin>/")

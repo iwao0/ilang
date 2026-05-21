@@ -108,3 +108,81 @@ pub class EventEmitter<T> {
         }
     }
 }
+
+/// Single-event emitter — like `EventEmitter` but bound to one
+/// event with one payload type. Designed for cases where the
+/// containing object already partitions listeners by name (e.g. a
+/// GUI `Window` that holds `onClose`, `onResize` as separate
+/// `Signal<T>` fields, so callers write `window.onClose.add(fn)`
+/// rather than `window.events.on("close", fn)`).
+///
+///     let sig = new Signal<MouseEvent>()
+///     sig.add(fn(e: MouseEvent) { ... })
+///     sig.emit(new MouseEvent(...))
+pub class Signal<T> {
+    /// Registration order = firing order.
+    listeners: fn(T)[]
+
+    pub init() {
+        this.listeners = []
+    }
+
+    /// Register `listener`. Same listener may be added more than
+    /// once; each registration fires once per `emit`.
+    pub add(listener: fn(T)) {
+        this.listeners.push(listener)
+    }
+
+    /// Remove the first registration whose `fn` value compares
+    /// equal to `listener` (closure-pointer equality — pass back
+    /// the exact value handed to `add`). Returns `true` when a
+    /// matching listener was found, `false` otherwise. Call again
+    /// to drop further duplicates.
+    pub remove(listener: fn(T)): bool {
+        let n = this.listeners.length
+        let i = 0
+        let found_idx = -1
+        while i < n {
+            if this.listeners[i] == listener {
+                found_idx = i
+                i = n
+            } else {
+                i = i + 1
+            }
+        }
+        if found_idx < 0 { return false }
+        // Rebuild without the matching slot — arrays don't have
+        // a `splice` primitive.
+        let next: fn(T)[] = []
+        let j = 0
+        while j < n {
+            if j != found_idx { next.push(this.listeners[j]) }
+            j = j + 1
+        }
+        this.listeners = next
+        true
+    }
+
+    /// Synchronously fire every registered listener in
+    /// registration order, passing `value` as the single argument.
+    pub emit(value: T) {
+        let n = this.listeners.length
+        let i = 0
+        while i < n {
+            let f = this.listeners[i]
+            f(value)
+            i = i + 1
+        }
+    }
+
+    /// Drop every registered listener.
+    pub removeAll() {
+        this.listeners = []
+    }
+
+    /// Number of listeners currently registered. Property-style
+    /// access: `sig.count` (no parens).
+    pub get count(): i32 {
+        this.listeners.length as i32
+    }
+}

@@ -148,12 +148,13 @@ impl<'a> Walker<'a> {
             return;
         }
         if let Some(sym) = self.symbols.get(&AstSymbol::intern(name)) {
-            self.push_ref(
+            self.push_ref_with_doc(
                 name,
                 start_span,
                 sym.span,
                 name.len() as u32,
                 sym.signature.clone(),
+                sym.doc.clone(),
             );
         } else {
             self.push_external_type_ref(name, start_span);
@@ -1521,6 +1522,18 @@ impl<'a> Walker<'a> {
         target_name_len: u32,
         signature: String,
     ) {
+        self.push_ref_with_doc(name, use_span, target_span, target_name_len, signature, None)
+    }
+
+    pub(crate) fn push_ref_with_doc(
+        &mut self,
+        name: &str,
+        use_span: Span,
+        target_span: Span,
+        target_name_len: u32,
+        signature: String,
+        doc: Option<String>,
+    ) {
         // Parser-synthesised calls (the `@objc class` desugar emits
         // a pile of `cstrFromString("ClassName")`, `__get_class(...)`,
         // etc.) reuse user spans so error messages stay anchored
@@ -1541,7 +1554,7 @@ impl<'a> Walker<'a> {
             signature,
             no_definition: false,
             target_uri: None,
-            doc: None,
+            doc,
         });
     }
 
