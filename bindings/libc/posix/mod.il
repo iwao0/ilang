@@ -11,7 +11,7 @@
 /// actually called.
 
 pub use unistd.*
-pub use time.*
+pub use ctime.*
 pub use string.*
 pub use stdlib.*
 pub use stdio.*

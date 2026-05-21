@@ -203,6 +203,24 @@ pub(crate) fn harvest_from_program(
 /// `<X>.<variant>` key. The buffer-side walker can then resolve a
 /// bare `sharedApplication()` call the same way it resolves an
 /// explicit `use cocoa { sharedApplication }`.
+/// Rewrite a fully-qualified declaration signature into its bare-name
+/// view. Signatures from `collect_external_signatures` / `walk_module`
+/// embed the dotted name (`fn cocoa.makeTextField(...)`,
+/// `class cocoa.NSObject`, `const cocoa.NSStringEncoding.utf8: ...`),
+/// but selective / wildcard imports surface the item under just its
+/// bare name. Without this rewrite, hovering on `makeTextField` shows
+/// `fn cocoa.makeTextField(...)` even though the user only wrote
+/// `makeTextField` at the call site.
+///
+/// `replacen(_, _, 1)` is intentional: the qualified name always
+/// appears first as the declared item, and the rest of the signature
+/// (param types, default values) may reference unrelated dotted
+/// names that should stay qualified.
+fn strip_module_prefix_in_sig(sig: &str, module: &str, bare: &str) -> String {
+    let qualified = format!("{module}.{bare}");
+    sig.replacen(&qualified, bare, 1)
+}
+
 pub(crate) fn harvest_wildcard_names(
     module: &str,
     entry_dir: &Path,
@@ -218,9 +236,13 @@ pub(crate) fn harvest_wildcard_names(
     let bare_entries: Vec<(AstSymbol, String)> = out
         .iter()
         .filter_map(|(k, v)| {
-            k.as_str()
-                .strip_prefix(&module_dot)
-                .map(|tail| (AstSymbol::intern(tail), v.clone()))
+            let tail = k.as_str().strip_prefix(&module_dot)?;
+            // Only the top-level item gets its module prefix stripped;
+            // nested dotted names (`cocoa.Foo.Bar`) keep the inner
+            // `Foo.Bar` part intact in the bare view.
+            let bare_head = tail.split('.').next().unwrap_or(tail);
+            let rewritten = strip_module_prefix_in_sig(v, module, bare_head);
+            Some((AstSymbol::intern(tail), rewritten))
         })
         .collect();
     for (k, v) in bare_entries {
@@ -276,7 +298,7 @@ pub(crate) fn harvest_selective_names(
     for name in names {
         let prefixed = AstSymbol::intern(&format!("{module}.{name}"));
         if let Some(sig) = out.get(&prefixed).cloned() {
-            out.insert(name.clone(), sig);
+            out.insert(name.clone(), strip_module_prefix_in_sig(&sig, module, name.as_str()));
         }
         if let Some(loc) = sources.get(&prefixed).cloned() {
             sources.insert(name.clone(), loc);
@@ -295,9 +317,9 @@ pub(crate) fn harvest_selective_names(
         let extra_sigs: Vec<(AstSymbol, String)> = out
             .iter()
             .filter_map(|(k, v)| {
-                k.as_str()
-                    .strip_prefix(&prefix_dot)
-                    .map(|tail| (AstSymbol::intern(&format!("{bare_dot}{tail}")), v.clone()))
+                let tail = k.as_str().strip_prefix(&prefix_dot)?;
+                let rewritten = strip_module_prefix_in_sig(v, module, name.as_str());
+                Some((AstSymbol::intern(&format!("{bare_dot}{tail}")), rewritten))
             })
             .collect();
         for (k, v) in extra_sigs {
@@ -1076,13 +1098,25 @@ pub(crate) fn collect_external_classes(
         }
     }
     for c in &classes {
+        // Bare class name used inside member signatures. The receiver
+        // type already establishes the module context, so showing
+        // `cocoa.NSApplication.setActivationPolicy` instead of
+        // `NSApplication.setActivationPolicy` is noise. Keep the
+        // qualified `c.name` for catalog keys / doc lookups; only the
+        // human-rendered signature lines drop the prefix.
+        let class_label = c
+            .name
+            .as_str()
+            .rsplit_once('.')
+            .map(|(_, t)| t)
+            .unwrap_or(c.name.as_str());
         let mut fields = HashMap::new();
         for f in &c.fields {
             fields.insert(
                 f.name.into(),
                 MemberInfo {
                     span: f.span,
-                    signature: format!("(property) {}.{}: {}", c.name, f.name, f.ty),
+                    signature: format!("(property) {}.{}: {}", class_label, f.name, f.ty),
                     ret_ty: Some(f.ty.clone()),
                     is_static: false,
                     doc: field_doc_at(&mut src_cache, sources, &c.name, f.span.line),
@@ -1100,7 +1134,7 @@ pub(crate) fn collect_external_classes(
                     span: f.span,
                     signature: format!(
                         "({}) {}.{}: {}{}",
-                        kind, c.name, f.name, f.ty, value
+                        kind, class_label, f.name, f.ty, value
                     ),
                     ret_ty: Some(f.ty.clone()),
                     is_static: true,
@@ -1119,7 +1153,7 @@ pub(crate) fn collect_external_classes(
                     span: prop.span,
                     signature: format!(
                         "({prop_kind}) {}.{}: {}",
-                        c.name, prop.name, prop.ty
+                        class_label, prop.name, prop.ty
                     ),
                     ret_ty: Some(prop.ty.clone()),
                     is_static: prop.is_static,
@@ -1135,7 +1169,7 @@ pub(crate) fn collect_external_classes(
                         span: g.span,
                         signature: format!(
                             "({getter_label}) {}.{}: {}",
-                            c.name, prop.name, prop.ty
+                            class_label, prop.name, prop.ty
                         ),
                         ret_ty: Some(prop.ty.clone()),
                         is_static: prop.is_static,
@@ -1150,7 +1184,7 @@ pub(crate) fn collect_external_classes(
                         span: s.span,
                         signature: format!(
                             "({setter_label}) {}.{}: {}",
-                            c.name, prop.name, prop.ty
+                            class_label, prop.name, prop.ty
                         ),
                         ret_ty: Some(prop.ty.clone()),
                         is_static: prop.is_static,
@@ -1168,7 +1202,7 @@ pub(crate) fn collect_external_classes(
                 signature: format!(
                     "(method) {}{}.{}",
                     render_user_attrs(&m.attrs),
-                    c.name,
+                    class_label,
                     fn_body(m)
                 ),
                 ret_ty: m.ret.clone(),
@@ -1187,7 +1221,7 @@ pub(crate) fn collect_external_classes(
                 signature: format!(
                     "(static method) {}{}.{}",
                     render_user_attrs(&m.attrs),
-                    c.name,
+                    class_label,
                     fn_body(m)
                 ),
                 is_static: true,
@@ -1321,6 +1355,12 @@ fn register_external_interface(
     src_cache: &mut HashMap<PathBuf, String>,
     out: &mut HashMap<AstSymbol, ClassInfo>,
 ) {
+    let iface_label = i
+        .name
+        .as_str()
+        .rsplit_once('.')
+        .map(|(_, t)| t)
+        .unwrap_or(i.name.as_str());
     let mut methods = HashMap::new();
     for m in i.methods.iter() {
         let params = m
@@ -1351,7 +1391,7 @@ fn register_external_interface(
             m.name,
             MemberInfo {
                 span: m.span,
-                signature: format!("(method) {}.{}({}){}", i.name, m.name, params, ret_str),
+                signature: format!("(method) {}.{}({}){}", iface_label, m.name, params, ret_str),
                 ret_ty,
                 is_static: false,
                 doc,
@@ -1504,6 +1544,27 @@ pub(crate) fn register_enum_variants_with_sources(
             },
         );
     }
+}
+
+/// Inject the type-checker-only built-ins (`Result<T, E>`, `Map<K, V>`,
+/// `Promise<T>`, `ObjCBlock<F>`) into the external signatures table so
+/// hover / completion on the bare type name (and `Result.ok` / `.err`)
+/// works without the user importing or declaring anything. Mirrors what
+/// `register_enum_variants` would produce for a user-written enum.
+pub(crate) fn register_builtin_enums(out: &mut HashMap<AstSymbol, String>) {
+    for (name, sig) in [
+        ("Result", "enum Result<T, E>"),
+        ("Map", "class Map<K, V>"),
+        ("Promise", "class Promise<T>"),
+        ("ObjCBlock", "class ObjCBlock<F>"),
+    ] {
+        out.entry(AstSymbol::intern(name))
+            .or_insert_with(|| sig.to_string());
+    }
+    out.entry(AstSymbol::intern("Result.ok"))
+        .or_insert_with(|| "(variant) Result.ok(...)".to_string());
+    out.entry(AstSymbol::intern("Result.err"))
+        .or_insert_with(|| "(variant) Result.err(...)".to_string());
 }
 
 pub(crate) fn collect_external_signatures(

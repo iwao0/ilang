@@ -504,11 +504,38 @@ The attributes that actually carry meaning today are:
 - `@override` (inheritance — see the Classes section)
 - `@extern(C) { ... }` / `@extern(ObjC) { ... }` block markers
 - FFI items inside `@extern(C)`: `@lib`, `@optional`, `@symbol`, `@packed`, `@bits(N)`
-- ObjC bridging inside `@extern(ObjC)`: `@objc`, `@objc("selector:")`, `@optional` (on interface methods)
+- ObjC bridging inside `@extern(ObjC)`: `@objc`, `@objc("selector:")` (optional protocol methods are marked with a trailing `?` on the method name, not an attribute)
 - `@flags` on `enum` declarations (bitset semantics)
 - `@embed("path/to/file")` on `const` declarations (compile-time file inclusion)
+- `@target("os")` on `fn` / `class` / methods — host-OS filter (details below)
 
 Everything else parses successfully but is silently dropped.
+
+#### `@target` — same-name declarations dispatched by OS
+
+Filters declarations at build time by the host's OS. Equivalent to Rust's `#[cfg(target_os = "…")]`.
+
+```rust
+@target("macos")
+fn fileSeparator(): string { "/" }
+
+@target("windows")
+fn fileSeparator(): string { "\\" }
+
+@target("macos", "linux")          // OR — kept if the host matches either
+fn isPosix(): bool { true }
+
+@target(not "windows")             // negation — single `not "X"` only
+fn hasFork(): bool { true }
+```
+
+- Matching items survive and have the `@target` attribute stripped (so it doesn't leak into hover / formatter output).
+- Non-matching items are dropped by the loader before merge — the type checker / JIT never see them.
+- Multiple `@target` attributes on the same item are AND.
+- Mixing `not "X"` with positive args in a single attribute is rejected (split into separate `@target`s if AND is what you want).
+- OS names use the same set as `os.platform`: `"macos"` / `"linux"` / `"windows"` / `"other"`.
+- Allowed on: `fn` (top-level / instance method / static method / `@extern(C)` `FnDef`) and `class` (top-level / inside `@extern(C)`).
+- Two same-name declarations annotated with mutually exclusive `@target`s leave one survivor per host. If more than one slips through (e.g. you wrote `@target("macos")` twice), the existing duplicate-overload check catches it.
 
 ---
 
@@ -2092,8 +2119,8 @@ stand in for ObjC **protocols**, and selector metadata.
     }
 
     @objc pub interface NSMenuDelegate {
-        @optional menuWillOpen(menu: NSMenu)
-        @optional menuDidClose(menu: NSMenu)
+        menuWillOpen?(menu: NSMenu)
+        menuDidClose?(menu: NSMenu)
     }
 }
 ```
@@ -2120,9 +2147,13 @@ declaration shape is the same as an ordinary `interface I { ... }`
 - Each method may carry `@objc("selector:")` to name a non-default
   selector. Without it, the selector defaults to the method name
   plus a trailing `:` per parameter (Cocoa-style).
-- Methods marked `@optional` mirror ObjC `@optional` protocol
-  methods — implementing them is not required, and at runtime the
-  ObjC machinery dispatches via `respondsToSelector:`.
+- A method whose name ends in `?` (e.g. `menuWillOpen?(menu: NSMenu)`)
+  mirrors an ObjC `@optional` protocol method — implementing it is
+  not required, and at runtime the ObjC machinery dispatches via
+  `respondsToSelector:`. The `?` suffix is the only way to mark an
+  optional method; the legacy `@optional` attribute is rejected, and
+  trailing `?` is only allowed inside `@objc` interfaces (plain
+  interfaces enforce a strict conformance contract).
 - `@objc interface` types can appear in parameter / property
   positions the same as any other interface — `pub setDelegate(d:
   NSMenuDelegate)` is type-checked, and ARC retain/release on the
@@ -2183,9 +2214,9 @@ parent) ObjC parent, selector wiring (default = method name + `:`
 per parameter), and `alloc` / `init` / `register` stubs — you
 only write the methods you actually want to override.
 
-- Methods you don't implement on a protocol stay as ObjC
-  `@optional` no-ops; the runtime answers `respondsToSelector: NO`
-  for them.
+- Methods you don't implement on a protocol stay as ObjC optional
+  no-ops (the protocol side marks them with a trailing `?`); the
+  runtime answers `respondsToSelector: NO` for them.
 - The class is **not** treated as a plain ilang class for `new`
   construction — instantiate it through the lifted `alloc().init()`
   pair the runtime exposes (`AppDelegate.alloc().init()`).
@@ -2721,9 +2752,11 @@ class Worker {
 
 ### `const` (constant declaration)
 
-Top-level immutable constants. The RHS is restricted to
-**compile-time-evaluable expressions**; the loader's inline pass
-folds them and replaces references with the literal value.
+Top-level immutable binding. The loader tries to fold the RHS to a
+literal at compile time and inline it at every reference; when the
+RHS is too dynamic for the folder (function call, `new`, field
+access, etc.) the declaration is demoted to a once-evaluated
+runtime initializer that still rejects reassignment.
 
 ```rust
 const TWO: i64 = 2
@@ -2738,22 +2771,28 @@ fn double(n: i64): i64 { n * TWO }
 double(21)                          // 42
 ```
 
-- Allowed operations: arithmetic (`+ - * / %`), bitwise
+- Compile-time fold accepts: arithmetic (`+ - * / %`), bitwise
   (`& | ^ << >> ~`), comparison (`== != < <= > >=`), logical
-  (`&& || !`), string concat (`+`), `as` cast (between numerics).
-- Allowed references: other `const`s declared earlier in the same
+  (`&& || !`), string concat (`+`), `as` cast (between numerics),
+  and references to other `const`s declared earlier in the same
   file (folding is order-dependent — no forward references).
-- **Forbidden**: function calls, field/method access, arrays,
-  `new`, `if`/`match`, loops — anything needing runtime.
-- Folding errors (e.g. divide-by-zero) are **compile-time
+- Anything outside that set (function calls, `new`, field /
+  method access, arrays, `if` / `match`, loops) falls through to
+  the runtime path — the RHS is evaluated **once** at module
+  init in declaration order and the resulting value is bound
+  immutably for the rest of the program. Cross-module references
+  see the same value.
+- Folding errors that aren't recoverable at runtime (e.g.
+  divide-by-zero in a fold-eligible expression, an annotated
+  numeric literal that doesn't fit its type) are **compile-time
   errors**.
 - Type annotation (`: T`) is optional (inferred). When present
   on a numeric `const`, the annotation propagates to every
   reference: a `const N: u32 = 0x10` substitutes as `(0x10 as u32)`
   at every use, so callers don't need their own `as u32`.
-- The bundled `math` module's `pi` / `e` are defined this way.
-- References across modules work fine (the loader stores the
-  qualified name `math.pi`).
+- The bundled `math` module's `pi` / `e` use the compile-time
+  fold path; `os.platform` uses the runtime fallback (it calls a
+  host intrinsic at module init).
 
 #### `@embed("path") const X: T` — file embedding
 

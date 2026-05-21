@@ -652,6 +652,7 @@ pub(crate) fn render_user_attrs(attrs: &[ilang_ast::Attribute]) -> String {
                     .map(|s| s.as_str().to_string())
                     .collect::<Vec<_>>()
                     .join("."),
+                AttrArg::NotStr(s) => format!("not \"{s}\""),
                 _ => String::new(),
             })
             .collect::<Vec<_>>()

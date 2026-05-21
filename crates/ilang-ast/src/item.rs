@@ -34,6 +34,10 @@ pub enum AttrArg {
     /// An integer literal — used by `@bits(N)` to declare a bitfield
     /// width.
     Int(i64),
+    /// `not "X"` — the negated form of a string argument. Currently
+    /// only used by `@target(not "macos")` and friends; rejected as
+    /// "invalid attribute argument" by attributes that don't opt in.
+    NotStr(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -168,8 +172,11 @@ pub struct StaticFieldDecl {
     pub is_pub: bool,
     pub name: Symbol,
     pub ty: crate::types::Type,
-    /// Compile-time-evaluable initializer. After the loader's
-    /// `inline_constants` pass this is a literal Expr.
+    /// Initializer expression. The loader's `inline_constants` pass
+    /// folds it to a literal when possible; non-foldable initializers
+    /// stay as the original expression on the AST and a parallel
+    /// runtime `AssignField` is synthesised to fill the slot at
+    /// program startup.
     pub value: crate::expr::Expr,
     /// `true` for `const name: T = expr` (immutable, reassignment is
     /// a type error). `false` for `static name: T = expr` (mutable
@@ -326,11 +333,12 @@ pub enum Item {
     /// The loader resolves the path and merges items; the AST node
     /// is removed from the Program before type checking.
     Use(UseDecl),
-    /// `const NAME [: T] = literal` — top-level immutable binding.
-    /// Restricted to literal values (no expressions). After loader
-    /// merge, references to the (possibly module-prefixed) name are
-    /// substituted with the literal directly, so type checker /
-    /// interpreter / JIT never see Item::Const themselves.
+    /// `const NAME [: T] = expr` — top-level immutable binding.
+    /// The loader's `inline_constants` pass folds the RHS to a
+    /// literal and substitutes each reference; when the RHS isn't
+    /// foldable it's demoted to a once-evaluated runtime initializer
+    /// (`Stmt::Let { is_const: true, ... }`). Either way, Item::Const
+    /// itself is gone before the type checker / interpreter / JIT runs.
     Const(ConstDecl),
     /// `@extern(C) { ... }` — C ABI block. Inside this block raw
     /// pointer types (`*char`, `*void`, `*const T`, etc.) are

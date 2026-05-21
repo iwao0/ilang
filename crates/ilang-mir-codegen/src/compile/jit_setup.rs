@@ -236,9 +236,9 @@ pub fn compile_with_builtins(
     // Always-on memory-tracking helpers exposed through `test.liveAlloc*`
     // / `test.liveStringCount`. Used by the leak-detection fixtures
     // under tests/programs/.
-    jit_builder.symbol("test.liveAllocBytes", ilang_runtime::test_live_alloc_bytes as *const u8);
-    jit_builder.symbol("test.liveAllocCount", ilang_runtime::test_live_alloc_count as *const u8);
-    jit_builder.symbol("test.liveStringCount", ilang_runtime::test_live_string_count as *const u8);
+    jit_builder.symbol("$test.liveAllocBytes", ilang_runtime::test_live_alloc_bytes as *const u8);
+    jit_builder.symbol("$test.liveAllocCount", ilang_runtime::test_live_alloc_count as *const u8);
+    jit_builder.symbol("$test.liveStringCount", ilang_runtime::test_live_string_count as *const u8);
     jit_builder.symbol(
         "test.mallocBytesInUse",
         ilang_runtime::test_malloc_bytes_in_use as *const u8,
@@ -267,11 +267,11 @@ pub fn compile_with_builtins(
     jit_builder.symbol("errnoCheck", ilang_runtime::errno_check_i32 as *const u8);
     jit_builder.symbol("errnoCheckI64", ilang_runtime::errno_check_i64 as *const u8);
     jit_builder.symbol("bytesFromBuffer", ilang_runtime::bytes_from_buffer as *const u8);
-    jit_builder.symbol("os.errno", ilang_runtime::os_errno as *const u8);
-    jit_builder.symbol("os.setErrno", ilang_runtime::os_set_errno as *const u8);
-    jit_builder.symbol("os.libLoaded", ilang_runtime::os_lib_loaded as *const u8);
-    jit_builder.symbol("os.libLoadError", ilang_runtime::os_lib_load_error as *const u8);
-    jit_builder.symbol("os.__platform", ilang_runtime::os_platform as *const u8);
+    jit_builder.symbol("$os.errno", ilang_runtime::os_errno as *const u8);
+    jit_builder.symbol("$os.setErrno", ilang_runtime::os_set_errno as *const u8);
+    jit_builder.symbol("$os.libLoaded", ilang_runtime::os_lib_loaded as *const u8);
+    jit_builder.symbol("$os.libLoadError", ilang_runtime::os_lib_load_error as *const u8);
+    jit_builder.symbol("$os.platform", ilang_runtime::os_platform as *const u8);
     jit_builder.symbol(
         "__ilang_objc_imp_lookup",
         ilang_runtime::__ilang_objc_imp_lookup as *const u8,
@@ -317,34 +317,58 @@ pub fn compile_with_builtins(
         ilang_runtime::objc_take_err as *const u8,
     );
     // fs.* — `stdlib/fs.il`'s `@extern(C)` block.
-    jit_builder.symbol("fs.__hasError", ilang_runtime::fs::fs_has_error as *const u8);
-    jit_builder.symbol("fs.__errorCode", ilang_runtime::fs::fs_error_code as *const u8);
-    jit_builder.symbol("fs.__errorMessage", ilang_runtime::fs::fs_error_message as *const u8);
-    jit_builder.symbol("fs.__readFile", ilang_runtime::fs::fs_read_file as *const u8);
-    jit_builder.symbol("fs.__readFileBytes", ilang_runtime::fs::fs_read_file_bytes as *const u8);
-    jit_builder.symbol("fs.__writeFile", ilang_runtime::fs::fs_write_file as *const u8);
-    jit_builder.symbol("fs.__writeFileBytes", ilang_runtime::fs::fs_write_file_bytes as *const u8);
-    jit_builder.symbol("fs.__appendFile", ilang_runtime::fs::fs_append_file as *const u8);
-    jit_builder.symbol("fs.__exists", ilang_runtime::fs::fs_exists as *const u8);
-    jit_builder.symbol("fs.__isFile", ilang_runtime::fs::fs_is_file as *const u8);
-    jit_builder.symbol("fs.__isDir", ilang_runtime::fs::fs_is_dir as *const u8);
-    jit_builder.symbol("fs.__mkdir", ilang_runtime::fs::fs_mkdir as *const u8);
-    jit_builder.symbol("fs.__rm", ilang_runtime::fs::fs_rm as *const u8);
-    jit_builder.symbol("fs.__rmdir", ilang_runtime::fs::fs_rmdir as *const u8);
-    jit_builder.symbol("fs.__rename", ilang_runtime::fs::fs_rename as *const u8);
-    jit_builder.symbol("fs.__readDir", ilang_runtime::fs::fs_read_dir as *const u8);
-    jit_builder.symbol("fs.__size", ilang_runtime::fs::fs_size as *const u8);
-    // regex.* — `stdlib/regex.il`'s `@extern(C)` block. The loader
-    // prefixes the @extern fn names with the module name, so the
-    // JIT looks them up as `regex.__regex_*`.
-    jit_builder.symbol("regex.__regex_compile", ilang_runtime::regex::__regex_compile as *const u8);
-    jit_builder.symbol("regex.__regex_destroy", ilang_runtime::regex::__regex_destroy as *const u8);
-    jit_builder.symbol("regex.__regex_test", ilang_runtime::regex::__regex_test as *const u8);
-    jit_builder.symbol("regex.__regex_has_match", ilang_runtime::regex::__regex_has_match as *const u8);
-    jit_builder.symbol("regex.__regex_first_match", ilang_runtime::regex::__regex_first_match as *const u8);
-    jit_builder.symbol("regex.__regex_replace_all", ilang_runtime::regex::__regex_replace_all as *const u8);
-    jit_builder.symbol("regex.__regex_find_all", ilang_runtime::regex::__regex_find_all as *const u8);
-    jit_builder.symbol("regex.__regex_split", ilang_runtime::regex::__regex_split as *const u8);
+    jit_builder.symbol("$fs.hasError", ilang_runtime::fs::fs_has_error as *const u8);
+    jit_builder.symbol("$fs.errorCode", ilang_runtime::fs::fs_error_code as *const u8);
+    jit_builder.symbol("$fs.errorMessage", ilang_runtime::fs::fs_error_message as *const u8);
+    jit_builder.symbol("$fs.readFile", ilang_runtime::fs::fs_read_file as *const u8);
+    jit_builder.symbol("$fs.readFileBytes", ilang_runtime::fs::fs_read_file_bytes as *const u8);
+    jit_builder.symbol("$fs.writeFile", ilang_runtime::fs::fs_write_file as *const u8);
+    jit_builder.symbol("$fs.writeFileBytes", ilang_runtime::fs::fs_write_file_bytes as *const u8);
+    jit_builder.symbol("$fs.appendFile", ilang_runtime::fs::fs_append_file as *const u8);
+    jit_builder.symbol("$fs.exists", ilang_runtime::fs::fs_exists as *const u8);
+    jit_builder.symbol("$fs.isFile", ilang_runtime::fs::fs_is_file as *const u8);
+    jit_builder.symbol("$fs.isDir", ilang_runtime::fs::fs_is_dir as *const u8);
+    jit_builder.symbol("$fs.mkdir", ilang_runtime::fs::fs_mkdir as *const u8);
+    jit_builder.symbol("$fs.rm", ilang_runtime::fs::fs_rm as *const u8);
+    jit_builder.symbol("$fs.rmdir", ilang_runtime::fs::fs_rmdir as *const u8);
+    jit_builder.symbol("$fs.rename", ilang_runtime::fs::fs_rename as *const u8);
+    jit_builder.symbol("$fs.readDir", ilang_runtime::fs::fs_read_dir as *const u8);
+    jit_builder.symbol("$fs.size", ilang_runtime::fs::fs_size as *const u8);
+    jit_builder.symbol("$fs.stat", ilang_runtime::fs::fs_stat as *const u8);
+    jit_builder.symbol("$fs.lstat", ilang_runtime::fs::fs_lstat as *const u8);
+    jit_builder.symbol("$fs.access", ilang_runtime::fs::fs_access as *const u8);
+    jit_builder.symbol("$fs.copyFile", ilang_runtime::fs::fs_copy_file as *const u8);
+    jit_builder.symbol("$fs.cp", ilang_runtime::fs::fs_cp as *const u8);
+    jit_builder.symbol("$fs.realpath", ilang_runtime::fs::fs_realpath as *const u8);
+    jit_builder.symbol("$fs.chmod", ilang_runtime::fs::fs_chmod as *const u8);
+    jit_builder.symbol("$fs.truncate", ilang_runtime::fs::fs_truncate as *const u8);
+    jit_builder.symbol("$fs.utimes", ilang_runtime::fs::fs_utimes as *const u8);
+    jit_builder.symbol("$fs.symlink", ilang_runtime::fs::fs_symlink as *const u8);
+    jit_builder.symbol("$fs.readlink", ilang_runtime::fs::fs_readlink as *const u8);
+    jit_builder.symbol("$fs.link", ilang_runtime::fs::fs_link as *const u8);
+    jit_builder.symbol("$fs.mkdtemp", ilang_runtime::fs::fs_mkdtemp as *const u8);
+    // time.* — `stdlib/time.il`'s `@extern(C)` block.
+    jit_builder.symbol("$time.now_ms", ilang_runtime::time::time_now_ms as *const u8);
+    jit_builder.symbol("$time.now_ns", ilang_runtime::time::time_now_ns as *const u8);
+    jit_builder.symbol("$time.monotonic_ns", ilang_runtime::time::time_monotonic_ns as *const u8);
+    jit_builder.symbol("$time.sleep_ms", ilang_runtime::time::time_sleep_ms as *const u8);
+    jit_builder.symbol("$time.break_down_utc", ilang_runtime::time::time_break_down_utc as *const u8);
+    jit_builder.symbol("$time.break_down_local", ilang_runtime::time::time_break_down_local as *const u8);
+    jit_builder.symbol("$time.compose", ilang_runtime::time::time_compose as *const u8);
+    jit_builder.symbol("$time.parse_iso", ilang_runtime::time::time_parse_iso as *const u8);
+    jit_builder.symbol("$time.to_iso", ilang_runtime::time::time_to_iso as *const u8);
+    jit_builder.symbol("$time.format", ilang_runtime::time::time_format as *const u8);
+    // regex.* — `stdlib/regex.il` binds these via `@intrinsic("regex.X")`
+    // declarations. The runtime exports each backing fn under the same
+    // `regex.X` symbol name.
+    jit_builder.symbol("$regex.compile", ilang_runtime::regex::__regex_compile as *const u8);
+    jit_builder.symbol("$regex.destroy", ilang_runtime::regex::__regex_destroy as *const u8);
+    jit_builder.symbol("$regex.test", ilang_runtime::regex::__regex_test as *const u8);
+    jit_builder.symbol("$regex.has_match", ilang_runtime::regex::__regex_has_match as *const u8);
+    jit_builder.symbol("$regex.first_match", ilang_runtime::regex::__regex_first_match as *const u8);
+    jit_builder.symbol("$regex.replace_all", ilang_runtime::regex::__regex_replace_all as *const u8);
+    jit_builder.symbol("$regex.find_all", ilang_runtime::regex::__regex_find_all as *const u8);
+    jit_builder.symbol("$regex.split", ilang_runtime::regex::__regex_split as *const u8);
     // Built-in `test.*` runtime — fixture programs use these to
     // self-check. Failures abort the process with exit code 2.
     // Reuse the legacy JIT's full test-extern symbol set (callbacks,
@@ -353,34 +377,34 @@ pub fn compile_with_builtins(
     // `test.*` symbols (incl. test.countedFree*) live in
     // `ilang-runtime` now; the explicit `jit_builder.symbol(...)`
     // bindings below pick them up.
-    jit_builder.symbol("test.applyI32Cb", ilang_runtime::test_apply_i32_cb as *const u8);
-    jit_builder.symbol("test.expect", ilang_runtime::test_expect as *const u8);
-    jit_builder.symbol("test.expectStr", ilang_runtime::test_expect_str as *const u8);
-    jit_builder.symbol("test.expectBool", ilang_runtime::test_expect_bool as *const u8);
-    jit_builder.symbol("test.expectF64", ilang_runtime::test_expect_f64 as *const u8);
-    jit_builder.symbol("test.expectTrue", ilang_runtime::test_expect_true as *const u8);
-    jit_builder.symbol("test.expectFalse", ilang_runtime::test_expect_false as *const u8);
-    jit_builder.symbol("test.fail", ilang_runtime::test_fail as *const u8);
-    jit_builder.symbol("test.countedFree", ilang_runtime::test_counted_free as *const u8);
-    jit_builder.symbol("test.countedFreeCount", ilang_runtime::test_counted_free_count as *const u8);
+    jit_builder.symbol("$test.applyI32Cb", ilang_runtime::test_apply_i32_cb as *const u8);
+    jit_builder.symbol("$test.expect", ilang_runtime::test_expect as *const u8);
+    jit_builder.symbol("$test.expectStr", ilang_runtime::test_expect_str as *const u8);
+    jit_builder.symbol("$test.expectBool", ilang_runtime::test_expect_bool as *const u8);
+    jit_builder.symbol("$test.expectF64", ilang_runtime::test_expect_f64 as *const u8);
+    jit_builder.symbol("$test.expectTrue", ilang_runtime::test_expect_true as *const u8);
+    jit_builder.symbol("$test.expectFalse", ilang_runtime::test_expect_false as *const u8);
+    jit_builder.symbol("$test.fail", ilang_runtime::test_fail as *const u8);
+    jit_builder.symbol("$test.countedFree", ilang_runtime::test_counted_free as *const u8);
+    jit_builder.symbol("$test.countedFreeCount", ilang_runtime::test_counted_free_count as *const u8);
     // Built-in `math.*` runtime — wraps `f64::*` Rust intrinsics.
-    jit_builder.symbol("math.sin", ilang_runtime::math_sin as *const u8);
-    jit_builder.symbol("math.cos", ilang_runtime::math_cos as *const u8);
-    jit_builder.symbol("math.tan", ilang_runtime::math_tan as *const u8);
-    jit_builder.symbol("math.asin", ilang_runtime::math_asin as *const u8);
-    jit_builder.symbol("math.acos", ilang_runtime::math_acos as *const u8);
-    jit_builder.symbol("math.atan", ilang_runtime::math_atan as *const u8);
-    jit_builder.symbol("math.atan2", ilang_runtime::math_atan2 as *const u8);
-    jit_builder.symbol("math.sqrt", ilang_runtime::math_sqrt as *const u8);
-    jit_builder.symbol("math.pow", ilang_runtime::math_pow as *const u8);
-    jit_builder.symbol("math.exp", ilang_runtime::math_exp as *const u8);
-    jit_builder.symbol("math.ln", ilang_runtime::math_ln as *const u8);
-    jit_builder.symbol("math.log10", ilang_runtime::math_log10 as *const u8);
-    jit_builder.symbol("math.log2", ilang_runtime::math_log2 as *const u8);
-    jit_builder.symbol("math.floor", ilang_runtime::math_floor as *const u8);
-    jit_builder.symbol("math.ceil", ilang_runtime::math_ceil as *const u8);
-    jit_builder.symbol("math.round", ilang_runtime::math_round as *const u8);
-    jit_builder.symbol("math.abs", ilang_runtime::math_abs as *const u8);
+    jit_builder.symbol("$math.sin", ilang_runtime::math_sin as *const u8);
+    jit_builder.symbol("$math.cos", ilang_runtime::math_cos as *const u8);
+    jit_builder.symbol("$math.tan", ilang_runtime::math_tan as *const u8);
+    jit_builder.symbol("$math.asin", ilang_runtime::math_asin as *const u8);
+    jit_builder.symbol("$math.acos", ilang_runtime::math_acos as *const u8);
+    jit_builder.symbol("$math.atan", ilang_runtime::math_atan as *const u8);
+    jit_builder.symbol("$math.atan2", ilang_runtime::math_atan2 as *const u8);
+    jit_builder.symbol("$math.sqrt", ilang_runtime::math_sqrt as *const u8);
+    jit_builder.symbol("$math.pow", ilang_runtime::math_pow as *const u8);
+    jit_builder.symbol("$math.exp", ilang_runtime::math_exp as *const u8);
+    jit_builder.symbol("$math.ln", ilang_runtime::math_ln as *const u8);
+    jit_builder.symbol("$math.log10", ilang_runtime::math_log10 as *const u8);
+    jit_builder.symbol("$math.log2", ilang_runtime::math_log2 as *const u8);
+    jit_builder.symbol("$math.floor", ilang_runtime::math_floor as *const u8);
+    jit_builder.symbol("$math.ceil", ilang_runtime::math_ceil as *const u8);
+    jit_builder.symbol("$math.round", ilang_runtime::math_round as *const u8);
+    jit_builder.symbol("$math.abs", ilang_runtime::math_abs as *const u8);
     // `console.log` is variadic at the language surface, so the
     // codegen splits each argument into a per-type print call.
     jit_builder.symbol("__ilang_panic", ilang_runtime::__ilang_panic as *const u8);

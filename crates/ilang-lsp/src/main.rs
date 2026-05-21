@@ -55,14 +55,15 @@ use tower_lsp::lsp_types::Position;
 
 use builtins::{
     array_method_doc, array_method_names, array_method_sig, ffi_helper_signature,
-    string_method_doc, string_method_names, string_method_sig,
+    map_method_doc, map_method_names, map_method_sig, string_method_doc, string_method_names,
+    string_method_sig,
 };
 use project::{collect_dep_paths, find_project_file, find_umbrella};
 use text::{
-    call_context_at, locate_class_base_name, locate_dot_name, locate_let_name,
-    locate_let_name_with_kw, locate_property_name, locate_selective_name, locate_type_after_colon,
-    parameter_offsets, receiver_before_dot, span_full_to_range, span_to_range,
-    word_at,
+    call_context_at, generic_args_context_at, locate_class_base_name, locate_dot_name,
+    locate_if_let_some_name, locate_let_name, locate_let_name_with_kw, locate_property_name,
+    locate_selective_name, locate_type_after_colon, parameter_offsets, receiver_before_dot,
+    span_full_to_range, span_to_range, word_at,
 };
 
 
@@ -489,6 +490,23 @@ fn outside() {}
         // `(a, ` — bare tuple, NOT a type position.
         let src = "let t = (a, ";
         assert!(!at_type_position(src, src.len()));
+
+        // `let a: Map<` — first generic argument slot is a type position.
+        let src = "let a: Map<";
+        assert!(at_type_position(src, src.len()));
+
+        // `let a: Map<K, ` — subsequent generic argument slot is a type
+        // position.
+        let src = "let a: Map<K, ";
+        assert!(at_type_position(src, src.len()));
+
+        // `new Map<` — generic args inside a constructor are types.
+        let src = "let a = new Map<";
+        assert!(at_type_position(src, src.len()));
+
+        // `new Map<i32, ` — subsequent constructor generic slot.
+        let src = "let a = new Map<i32, ";
+        assert!(at_type_position(src, src.len()));
     }
 
     #[test]

@@ -44,12 +44,12 @@ pub extern "C" fn free_cstr(_p: i64) {
 // `os.errno` / `os.setErrno`
 // --------------------------------------------------------------------
 
-#[unsafe(export_name = "os.errno")]
+#[unsafe(export_name = "$os.errno")]
 pub extern "C" fn os_errno() -> i32 {
     std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
 }
 
-#[unsafe(export_name = "os.setErrno")]
+#[unsafe(export_name = "$os.setErrno")]
 pub extern "C" fn os_set_errno(code: i32) {
     #[cfg(target_os = "macos")]
     unsafe extern "C" {
@@ -174,7 +174,7 @@ fn try_open_lib(name: &str) -> bool {
     false
 }
 
-#[unsafe(export_name = "os.libLoaded")]
+#[unsafe(export_name = "$os.libLoaded")]
 pub extern "C" fn os_lib_loaded(name: i64) -> i64 {
     if name == 0 {
         return 0;
@@ -220,7 +220,7 @@ unsafe fn raw_c_str_bytes<'a>(p: *const u8) -> &'a [u8] {
     }
 }
 
-#[unsafe(export_name = "os.libLoadError")]
+#[unsafe(export_name = "$os.libLoadError")]
 pub extern "C" fn os_lib_load_error(name: i64) -> i64 {
     let n = if name == 0 {
         return leak_cstring(String::new());
@@ -337,7 +337,7 @@ pub extern "C" fn __ilang_objc_imp_lookup(_handle: i64, name_ptr: i64) -> i64 {
     }
 }
 
-#[unsafe(export_name = "os.__platform")]
+#[unsafe(export_name = "$os.platform")]
 pub extern "C" fn os_platform() -> i64 {
     #[cfg(target_os = "macos")]
     let name = "macos";

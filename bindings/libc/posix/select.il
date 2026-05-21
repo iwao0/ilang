@@ -7,7 +7,7 @@
 /// — we don't bind those macros here because they're preprocessor-
 /// only; use raw bit ops on the underlying `u64[16]` instead.
 
-use time { timespec, timeval }
+use ctime { timespec, timeval }
 
 @extern(C, "c") {
     pub struct fd_set {

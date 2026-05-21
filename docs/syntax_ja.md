@@ -401,11 +401,38 @@ fn download(url: string, path: string) { ... }
 - `@override` (継承メソッド — Classes 節を参照)
 - `@extern(C) { ... }` / `@extern(ObjC) { ... }` のブロックマーカー
 - `@extern(C)` 内の FFI 系: `@lib` / `@optional` / `@symbol` / `@packed` / `@bits(N)`
-- `@extern(ObjC)` 内の ObjC ブリッジ系: `@objc` / `@objc("selector:")` / `@optional` (interface メソッド用)
+- `@extern(ObjC)` 内の ObjC ブリッジ系: `@objc` / `@objc("selector:")` (optional プロトコルメソッドはメソッド名末尾の `?` で表す。属性ではない)
 - `enum` 宣言に付ける `@flags` (ビットセット意味付け)
 - `const` 宣言に付ける `@embed("path/to/file")` (コンパイル時ファイル取り込み)
+- `fn` / `class` / メソッドに付ける `@target("os")` — ホスト OS フィルタ (詳細は次節)
 
 それ以外はパースは通るが黙って捨てられる。
+
+#### `@target` — OS 別の同名宣言
+
+ビルド時にホストの OS で宣言を絞り込む。Rust の `#[cfg(target_os = "…")]` に対応する。
+
+```rust
+@target("macos")
+fn fileSeparator(): string { "/" }
+
+@target("windows")
+fn fileSeparator(): string { "\\" }
+
+@target("macos", "linux")          // OR — どちらかにマッチで残る
+fn isPosix(): bool { true }
+
+@target(not "windows")             // 否定 — 単独の `not "X"` のみ
+fn hasFork(): bool { true }
+```
+
+- マッチすれば item が残り、`@target` 自体は剥がされる (ホバー / フォーマッタには現れない)
+- マッチしないとビルド前に loader が item を捨てる — 型チェッカ・JIT は見ない
+- 同じ item に `@target` を複数並べた場合は AND
+- `not` 形と他の引数の混在は禁止 (AND が必要なら `@target` を分けて書く)
+- OS 名は `os.platform` と同じ集合: `"macos"` / `"linux"` / `"windows"` / `"other"`
+- 適用先は `fn` (トップレベル / メソッド / 静的メソッド / `@extern(C)` 内 `FnDef`) と `class` (トップレベル / `@extern(C)` 内)
+- 同名の宣言を OS で振り分けた場合、フィルタ後に1つしか残らなければ重複扱いされない。複数残ると既存の重複検出でエラー
 
 ---
 
@@ -1570,8 +1597,8 @@ macOS 専用の Objective-C ランタイム側を扱うブロック。`@extern(C
     }
 
     @objc pub interface NSMenuDelegate {
-        @optional menuWillOpen(menu: NSMenu)
-        @optional menuDidClose(menu: NSMenu)
+        menuWillOpen?(menu: NSMenu)
+        menuDidClose?(menu: NSMenu)
     }
 }
 ```
@@ -1587,7 +1614,7 @@ macOS 専用の Objective-C ランタイム側を扱うブロック。`@extern(C
 ObjC の **protocol** は ilang の `@objc interface` に対応する。宣言形式は通常の `interface I { ... }` と同じ (シグネチャのみ、本体不可)。`@objc` が加える違いは:
 
 - 各メソッドに `@objc("selector:")` を付けて、既定以外のセレクタ名を指定できる。属性が無ければセレクタ名はメソッド名 + パラメータごとの末尾 `:` (Cocoa 流儀) に決まる
-- `@optional` 付きメソッドは ObjC `@optional` プロトコルメソッドに対応する。実装は必須ではなく、ランタイムでは `respondsToSelector:` で振り分けられる
+- メソッド名末尾に `?` を付けた宣言 (例: `menuWillOpen?(menu: NSMenu)`) は ObjC の `@optional` プロトコルメソッドに対応する。実装は必須ではなく、ランタイムでは `respondsToSelector:` で振り分けられる。optional を表す唯一の構文がこの末尾 `?` で、旧来の `@optional` 属性は構文エラー。末尾 `?` を書けるのは `@objc` interface の中だけで、通常の interface は strict な実装契約を保つ
 - `@objc interface` 型はパラメータ / プロパティ位置でそのまま使える。`pub setDelegate(d: NSMenuDelegate)` のような形が型チェックされ、ブリッジ側の ARC retain / release も自動で配線される
 
 #### ObjC サブクラスを通常の `class` で書く
@@ -1637,7 +1664,7 @@ app.run()
 
 lift された各クラスには NSObject (または指定された親) ObjC 親、セレクタ配線 (デフォルト = メソッド名 + パラメータ数ぶんの `:`)、`alloc` / `init` / `register` のスタブが自動挿入される。書くのは実装したいメソッドだけでよい。
 
-- プロトコルで実装しなかったメソッドは ObjC 側で `@optional` 扱いの no-op として残り、ランタイムは `respondsToSelector: NO` を返すだけ
+- プロトコルで実装しなかったメソッドは ObjC 側で optional 扱い (プロトコル側に末尾 `?` が付いているもの) の no-op として残り、ランタイムは `respondsToSelector: NO` を返すだけ
 - これらのクラスは ilang の通常クラスとして `new` で生成するものでは**ない** — lifted された `alloc().init()` ペア (`AppDelegate.alloc().init()`) 経由でインスタンス化する
 - base list に複数の `@objc interface` を並べてもよい (`class X : NSWindowDelegate, NSMenuDelegate { ... }`)。`@objc class` 親と組み合わせれば「サブクラス + プロトコル」も書ける
 - 以下の用途では明示的な `@extern(ObjC) { @objc class … { … } }` 形式に切り替える: raw ポインタ (`*u8`、`*const char` 等) を引数 / 戻り値で扱いたい、もしくはデフォルトのセレクタ形式に乗らない `@objc("selector:")` を指定したい場合
@@ -2040,7 +2067,7 @@ class Worker {
 
 ### `const` (定数宣言)
 
-トップレベルで不変の定数を宣言できます。RHS には **コンパイル時に値が決まる式** が書けます。loader の inline pass で folding され、参照箇所はリテラルに置換されます。
+トップレベルの不変束縛。loader はまず RHS をコンパイル時に literal へ fold して各参照に inline しようとし、fold できない式 (関数呼び出し、`new`、フィールド/メソッドアクセスなど) の場合は **モジュール初期化時に一度だけ評価される runtime 初期化** に降格します。どちらの経路でも再代入は型チェッカが拒否します。
 
 ```rust
 const TWO: i64 = 2
@@ -2055,13 +2082,11 @@ fn double(n: i64): i64 { n * TWO }
 double(21)                          // 42
 ```
 
-- 使える演算: 算術 (`+ - * / %`)、ビット (`& | ^ << >> ~`)、比較 (`== != < <= > >=`)、論理 (`&& || !`)、文字列連結 (`+`)、`as` キャスト (数値間)
-- 使える参照: 同じファイルで宣言済の他の `const` のみ (宣言順で folding するので前方参照は不可)
-- **使えない**: 関数呼び出し、フィールド/メソッド、配列、`new`、`if`/`match`、ループなどランタイム必要な式
-- 0 除算など folding 中のエラーは **コンパイル時エラー** になる
+- コンパイル時 fold で扱える演算: 算術 (`+ - * / %`)、ビット (`& | ^ << >> ~`)、比較 (`== != < <= > >=`)、論理 (`&& || !`)、文字列連結 (`+`)、`as` キャスト (数値間)、同じファイルで宣言済の他の `const` の参照 (宣言順で folding するため前方参照は不可)
+- 上記以外 (関数呼び出し、`new`、フィールド / メソッドアクセス、配列、`if` / `match`、ループ等) は runtime 経路に落ちます。RHS はモジュール初期化時に宣言順で **一度だけ** 評価され、その値が以降の参照に束縛されます。モジュール越しの参照でも同じ値が見えます
+- runtime 経路で救えないエラー (fold 対象式の中の 0 除算、型注釈に収まらない数値リテラル等) は **コンパイル時エラー**
 - 型注釈 (`: T`) は省略可 (推論)
-- 同梱 `math` モジュールの `pi` / `e` はこの仕組みで定義されている
-- モジュール越しに `math.pi` のように参照可能 (loader が `math.pi` という qualified 名で扱う)
+- 同梱 `math` モジュールの `pi` / `e` は fold 経路、`os.platform` は runtime 経路 (ホストの intrinsic 呼び出しで一度初期化)
 
 #### `@embed("path") const X: T` — ファイル埋め込み
 

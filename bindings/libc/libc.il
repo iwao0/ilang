@@ -16,7 +16,7 @@ pub use stdlib.*
 pub use stdio.*
 pub use cmath.*
 pub use ctype.*
-pub use time.*
+pub use ctime.*
 pub use errno.*
 pub use locale.*
 pub use signal.*

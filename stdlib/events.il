@@ -1,18 +1,18 @@
-// Built-in `events` module — minimal Node.js-style EventEmitter.
-//
-// Generic over the **single payload type** every listener
-// receives:
-//
-//     let bus = new events.EventEmitter<MouseEvent>()
-//     bus.on("click", fn(e: MouseEvent) { ... })
-//     bus.emit("click", new MouseEvent(...))
-//
-// Pure ilang — no FFI, safe to call from anywhere.
-//
-// Difference from Node.js's `EventEmitter`:
-//   - One payload type per emitter (set by the generic `T`).
-//     If you need heterogeneous events, give the emitter a
-//     wrapping struct / class for `T`.
+/// Built-in `events` module — minimal Node.js-style EventEmitter.
+///
+/// Generic over the **single payload type** every listener
+/// receives:
+///
+///     let bus = new events.EventEmitter<MouseEvent>()
+///     bus.on("click", fn(e: MouseEvent) { ... })
+///     bus.emit("click", new MouseEvent(...))
+///
+/// Pure ilang — no FFI, safe to call from anywhere.
+///
+/// Difference from Node.js's `EventEmitter`:
+///   - One payload type per emitter (set by the generic `T`).
+///     If you need heterogeneous events, give the emitter a
+///     wrapping struct / class for `T`.
 
 /// Generic single-payload event bus. Construct with the payload
 /// type fixed, register listeners with `on`, fire them with

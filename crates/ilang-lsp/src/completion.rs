@@ -527,9 +527,78 @@ pub(crate) fn at_type_position(text: &str, offset: usize) -> bool {
         // further back through one prior ident + optional `:` to
         // confirm we're inside a class-base list rather than an
         // arbitrary tuple / argument list.
-        b',' => is_in_class_base_list(bytes, i - 1),
+        // Also handles `Map<K, ` and similar generic-arg positions.
+        b',' => is_in_class_base_list(bytes, i - 1) || is_in_generic_args(bytes, i - 1),
+        // `Foo<` — first generic argument slot.
+        b'<' => is_in_generic_args(bytes, i),
         _ => false,
     }
+}
+
+/// Heuristic: decide whether `from` sits inside an unmatched `<...>`
+/// whose opener is preceded by an identifier that is itself in a type
+/// position. Powers type-completion inside `Map<K, V>` and other
+/// generic-argument slots.
+fn is_in_generic_args(bytes: &[u8], from: usize) -> bool {
+    let mut depth: i32 = 0;
+    let mut i = from;
+    while i > 0 {
+        let b = bytes[i - 1];
+        match b {
+            b'>' => depth += 1,
+            b'<' => {
+                if depth == 0 {
+                    let mut k = i - 1;
+                    while k > 0 && matches!(bytes[k - 1], b' ' | b'\t') {
+                        k -= 1;
+                    }
+                    let id_end = k;
+                    while k > 0 {
+                        let c = bytes[k - 1];
+                        if c.is_ascii_alphanumeric() || c == b'_' || c == b'.' {
+                            k -= 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    if k == id_end {
+                        return false;
+                    }
+                    let Ok(text) = std::str::from_utf8(bytes) else {
+                        return false;
+                    };
+                    if at_type_position(text, id_end) {
+                        return true;
+                    }
+                    // `new TypeName<` — argument slots inside the
+                    // constructor's generic list are still types,
+                    // even though the identifier itself isn't in a
+                    // bare type-annotation position.
+                    let mut p = k;
+                    while p > 0 && matches!(bytes[p - 1], b' ' | b'\t') {
+                        p -= 1;
+                    }
+                    const NEW_KW: &[u8] = b"new";
+                    if p >= NEW_KW.len() && &bytes[p - NEW_KW.len()..p] == NEW_KW {
+                        let boundary = p.checked_sub(NEW_KW.len() + 1).map(|b| bytes[b]);
+                        let ok = match boundary {
+                            None => true,
+                            Some(c) => !(c.is_ascii_alphanumeric() || c == b'_'),
+                        };
+                        if ok {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+                depth -= 1;
+            }
+            b'\n' | b'(' | b'{' | b';' => return false,
+            _ => {}
+        }
+        i -= 1;
+    }
+    false
 }
 
 /// Heuristic: walk backwards from a `,` to decide whether the
@@ -587,6 +656,16 @@ const PRIMITIVE_TYPES: &[&str] = &[
     "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64", "bool", "string",
 ];
 
+/// Built-in generic types the type checker pre-registers but no source
+/// file declares. Surfaced as type-position completions so `let a: M`
+/// suggests `Map`.
+const BUILTIN_GENERIC_TYPES: &[(&str, &str, CompletionItemKind)] = &[
+    ("Map", "class Map<K, V>", CompletionItemKind::CLASS),
+    ("Promise", "class Promise<T>", CompletionItemKind::CLASS),
+    ("Result", "enum Result<T, E>", CompletionItemKind::ENUM),
+    ("ObjCBlock", "class ObjCBlock<F>", CompletionItemKind::CLASS),
+];
+
 /// Identifiers valid in a type position: primitive types, user classes
 /// / enums (incl. structs / unions), and `module.X` names imported via
 /// `use`.
@@ -596,6 +675,14 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
         out.push(CompletionItem {
             label: (*t).to_string(),
             kind: Some(CompletionItemKind::TYPE_PARAMETER),
+            ..CompletionItem::default()
+        });
+    }
+    for (name, detail, kind) in BUILTIN_GENERIC_TYPES {
+        out.push(CompletionItem {
+            label: (*name).to_string(),
+            kind: Some(*kind),
+            detail: Some((*detail).to_string()),
             ..CompletionItem::default()
         });
     }

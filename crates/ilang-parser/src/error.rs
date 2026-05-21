@@ -23,6 +23,8 @@ pub enum ParseError {
         item: ilang_ast::Symbol,
         span: Span,
     },
+    #[error("{span}: {msg}")]
+    Generic { msg: String, span: Span },
 }
 
 impl ParseError {
@@ -30,7 +32,8 @@ impl ParseError {
         match self {
             ParseError::Unexpected { span, .. }
             | ParseError::InvalidAssignTarget { span }
-            | ParseError::UnauthorizedModuleRef { span, .. } => *span,
+            | ParseError::UnauthorizedModuleRef { span, .. }
+            | ParseError::Generic { span, .. } => *span,
         }
     }
 }
