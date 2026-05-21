@@ -40,13 +40,13 @@ use spans::tag_program_spans;
 /// resolves here before consulting the filesystem.
 pub fn builtin_module_source(name: &str) -> Option<&'static str> {
     match name {
-        "math" => Some(include_str!("../stdlib/math.il")),
-        "test" => Some(include_str!("../stdlib/test.il")),
-        "os" => Some(include_str!("../stdlib/os.il")),
-        "events" => Some(include_str!("../stdlib/events.il")),
-        "fs" => Some(include_str!("../stdlib/fs.il")),
-        "path" => Some(include_str!("../stdlib/path.il")),
-        "regex" => Some(include_str!("../stdlib/regex.il")),
+        "math" => Some(include_str!("../../../../stdlib/math.il")),
+        "test" => Some(include_str!("../../../../stdlib/test.il")),
+        "os" => Some(include_str!("../../../../stdlib/os.il")),
+        "events" => Some(include_str!("../../../../stdlib/events.il")),
+        "fs" => Some(include_str!("../../../../stdlib/fs.il")),
+        "path" => Some(include_str!("../../../../stdlib/path.il")),
+        "regex" => Some(include_str!("../../../../stdlib/regex.il")),
         _ => None,
     }
 }

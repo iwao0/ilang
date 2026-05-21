@@ -110,7 +110,7 @@ fn bench_concat_lex(c: &mut Criterion, files: &[(String, String)]) {
 }
 
 fn bench_all(c: &mut Criterion) {
-    let stdlib = load_dir("crates/ilang-parser/src/stdlib");
+    let stdlib = load_dir("stdlib");
     let programs = load_dir("crates/ilang-cli/tests/programs");
     eprintln!(
         "[bench] stdlib: {} files / {} bytes",
