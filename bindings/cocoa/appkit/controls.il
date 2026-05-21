@@ -72,6 +72,10 @@ pub enum NSDatePickerStyle: u64 {
         /// Use `selectorPtr("clicked:")` to build one from a name.
         @objc("setAction:")
         pub setAction(sel: i64)
+        @objc("setEnabled:")
+        pub setEnabled(flag: bool)
+        @objc("isEnabled")
+        pub get isEnabled(): bool
     }
 
     /// NSTextField. Doubles as both an editable text input and a

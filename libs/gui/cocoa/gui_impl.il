@@ -17,9 +17,9 @@
 /// so an array slot is the simplest stable per-window key.
 
 use cocoa {
-    NSObject, NSApplication, NSWindow, NSView, NSNotification, NSEvent,
-    NSWindowStyleMask, NSApplicationActivationPolicy,
-    NSEventModifierFlags, nil,
+    NSObject, NSApplication, NSWindow, NSView, NSButton, NSNotification, NSEvent,
+    NSRect, NSWindowStyleMask, NSApplicationActivationPolicy,
+    NSEventModifierFlags, nsstr, makeRect, selectorPtr, nil,
     sharedApplication, makeWindow,
 }
 
@@ -63,16 +63,20 @@ fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {
 /// equality which is exactly what we want here. Returns -1 when
 /// the window is no longer in the table (e.g. dispatch came in
 /// after teardown).
-/// Linear search by NSObject pointer equality against `keys`.
-/// Both `WINDOWS` (matched on `windowWillClose` / `windowDidResize`
-/// notifications) and `VIEWS` (matched on keyDown / mouseDown
-/// inside the GuiView) use this. Returns -1 when not found.
+/// Linear search by Objective-C identity against `keys`. Uses
+/// `[NSObject isEqual:]` rather than ilang's `==` — Cocoa
+/// property getters that return `NSObject` (e.g.
+/// `[NSNotification object]`) hand back a fresh ilang wrapper
+/// around the same ObjC pointer on each call, so the
+/// heap-pointer `==` compares wrapper identity and misses.
+/// `isEqual:` defaults to pointer equality on the ObjC side,
+/// which is what we want.
 fn indexBy(keys: NSObject[], o: NSObject): i64 {
     let n = keys.length
     let i: i64 = 0
     let found: i64 = -1
     while i < n {
-        if keys[i] == o {
+        if keys[i].isEqual(o) {
             found = i
             i = n
         } else {
@@ -217,7 +221,13 @@ class GuiView : NSView {
         let ix = indexBy(VIEWS, this as NSObject)
         if ix < 0 { return }
         let p = this.convertPointFromView(event.locationInWindow, nil)
+        let w = this.frame.size.width
         let h = this.frame.size.height
+        // `setAcceptsMouseMovedEvents(true)` makes the window
+        // receive cursor motion globally while it's key — even
+        // outside its own frame. Clip to the view's bounds here
+        // so callers only see in-content events.
+        if p.x < 0.0 || p.y < 0.0 || p.x > w || p.y > h { return }
         // Cocoa origin = bottom-left; flip Y so callers see the
         // W3C / DOM convention (top-left origin).
         let flags = event.modifierFlags as u64
@@ -288,6 +298,100 @@ pub fn setOnMouseDown(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 }
 pub fn setOnMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if handle >= 0 && handle < (ON_MOUSE_UP.length as i64) { ON_MOUSE_UP[handle] = cb }
+}
+
+// ─── buttons ──────────────────────────────────────────────────
+//
+// One `ClickHandler` instance is registered for all buttons; on
+// click the sender NSButton is looked up in `BUTTON_KEYS` and the
+// matching slot's `ON_CLICK` callback fires. Each callback is
+// (x, y, button) — gui-core wraps it into a MouseEvent.
+
+let BUTTONS:    NSButton[]                     = []
+let BUTTON_KEYS: NSObject[]                    = []
+let ON_CLICK:   fn(f64, f64, i32)[]            = []
+let CLICK_HANDLERS: NSObject[]                 = []   // ClickHandler instances
+
+fn noOpClick(x: f64, y: f64, b: i32) {
+    let _ = x
+    let _ = y
+    let _ = b
+}
+
+class ClickHandler : NSObject {
+    pub clicked(sender: NSObject) {
+        let ix = indexBy(BUTTON_KEYS, sender)
+        if ix >= 0 {
+            let cb = ON_CLICK[ix]
+            // Cocoa target/action carries no cursor position; pass
+            // the button's centre so the MouseEvent has something
+            // sensible. Win32 BN_CLICKED is the same — no cursor.
+            let btn = BUTTONS[ix]
+            let f = btn.frame
+            cb(f.origin.x + f.size.width / 2.0,
+               f.origin.y + f.size.height / 2.0,
+               0)
+        }
+    }
+}
+
+/// Allocate and attach an NSButton as a subview of `windowHandle`'s
+/// content view. Returns the button's handle (= parallel-array
+/// index). Caller must invoke `setButton*` to register the click
+/// callback and to mutate `text` / `frame` / `enabled` / `hidden`.
+pub fn createNativeButton(
+    windowHandle: i64,
+    text: string, x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (WINDOWS.length as i64) {
+        return -1
+    }
+    let win = WINDOWS[windowHandle]
+    let btn = NSButton.alloc().init(makeRect(x, y, width, height))
+    btn.setTitle(nsstr(text))
+    btn.setEnabled(enabled)
+    btn.setHidden(!visible)
+
+    ClickHandler.register()
+    let h = ClickHandler.alloc().init()
+    btn.setTarget(h)
+    btn.setAction(selectorPtr("clicked:"))
+
+    // NSButton inherits from NSView; addSubview accepts NSView.
+    win.contentView.addSubview(btn as NSView)
+
+    let handle: i64 = BUTTONS.length as i64
+    BUTTONS.push(btn)
+    BUTTON_KEYS.push(btn as NSObject)
+    ON_CLICK.push(noOpClick)
+    CLICK_HANDLERS.push(h as NSObject)
+    handle
+}
+
+pub fn setOnButtonClick(handle: i64, cb: fn(f64, f64, i32)) {
+    if handle >= 0 && handle < (ON_CLICK.length as i64) { ON_CLICK[handle] = cb }
+}
+
+pub fn setButtonText(handle: i64, text: string) {
+    if handle >= 0 && handle < (BUTTONS.length as i64) {
+        BUTTONS[handle].setTitle(nsstr(text))
+    }
+}
+pub fn setButtonFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (BUTTONS.length as i64) {
+        BUTTONS[handle].setFrame(makeRect(x, y, width, height))
+    }
+}
+pub fn setButtonEnabled(handle: i64, enabled: bool) {
+    if handle >= 0 && handle < (BUTTONS.length as i64) {
+        BUTTONS[handle].setEnabled(enabled)
+    }
+}
+pub fn setButtonVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (BUTTONS.length as i64) {
+        BUTTONS[handle].setHidden(!visible)
+    }
 }
 
 pub fn runEventLoop() {

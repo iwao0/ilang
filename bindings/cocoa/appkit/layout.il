@@ -53,8 +53,6 @@ pub enum NSBoxType: u64 {
         pub setSpacing(s: f64)
         @objc("addArrangedSubview:")
         pub addArrangedSubview(v: NSView)
-        @objc("setFrame:")
-        pub setFrame(rect: NSRect)
     }
 
     /// `NSScrollView` — wraps a document view (typically an

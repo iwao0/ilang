@@ -18,7 +18,7 @@ use windows {
     WNDCLASSEXA, MSG, POINT,
     ClassStyle, WindowStyle, ShowCmd, WindowMessage, VirtualKey, WindowLongIndex,
     RegisterClassExA, CreateWindowExA, DefWindowProcA,
-    ShowWindow, UpdateWindow,
+    ShowWindow, UpdateWindow, EnableWindow, MoveWindow, SetWindowTextA,
     GetMessageA, TranslateMessage, DispatchMessageA,
     PostQuitMessage,
     GetWindowLongPtrA, SetWindowLongPtrA, GetKeyState,
@@ -34,6 +34,14 @@ let ON_KEY_UP:      fn(string, bool, bool, bool, bool)[]                    = []
 let ON_MOUSE_MOVE:  fn(f64, f64, i32, bool, bool, bool, bool)[]             = []
 let ON_MOUSE_DOWN:  fn(f64, f64, i32, bool, bool, bool, bool)[]             = []
 let ON_MOUSE_UP:    fn(f64, f64, i32, bool, bool, bool, bool)[]             = []
+
+let BUTTON_HWNDS:   HWND[]                                                  = []
+let ON_CLICK:       fn(f64, f64, i32)[]                                     = []
+fn noOpClick(x: f64, y: f64, b: i32) {
+    let _ = x
+    let _ = y
+    let _ = b
+}
 
 fn noOp1() {}
 fn noOp2(w: f64, h: f64) {
@@ -129,67 +137,84 @@ fn vkToString(vk: u32): string {
     pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         let ix = GetWindowLongPtrA(hwnd as HWND, WindowLongIndex.userdata as i32)
         if ix >= 0 && ix < (ON_CLOSE.length as i64) {
-            if msg == (WindowMessage.close as u32) {
-                let cb = ON_CLOSE[ix]
-                cb()
-                PostQuitMessage(0)
-                return 0
-            } elif msg == (WindowMessage.size as u32) {
-                let w = (lParam & 0xFFFF) as f64
-                let h = ((lParam >> 16) & 0xFFFF) as f64
-                let cb = ON_RESIZE[ix]
-                cb(w, h)
-                return 0
-            } elif msg == (WindowMessage.keydown as u32) {
-                let cb = ON_KEY_DOWN[ix]
-                cb(vkToString(wParam as u32), modCtrl(), modShift(), modAlt(), modMeta())
-                return 0
-            } elif msg == (WindowMessage.keyup as u32) {
-                let cb = ON_KEY_UP[ix]
-                cb(vkToString(wParam as u32), modCtrl(), modShift(), modAlt(), modMeta())
-                return 0
-            } elif msg == (WindowMessage.mouseMove as u32) {
-                let x = (lParam & 0xFFFF) as f64
-                let y = ((lParam >> 16) & 0xFFFF) as f64
-                let cb = ON_MOUSE_MOVE[ix]
-                cb(x, y, 0, modCtrl(), modShift(), modAlt(), modMeta())
-                return 0
-            } elif msg == (WindowMessage.lbuttondown as u32) {
-                let x = (lParam & 0xFFFF) as f64
-                let y = ((lParam >> 16) & 0xFFFF) as f64
-                let cb = ON_MOUSE_DOWN[ix]
-                cb(x, y, 0, modCtrl(), modShift(), modAlt(), modMeta())
-                return 0
-            } elif msg == (WindowMessage.lbuttonup as u32) {
-                let x = (lParam & 0xFFFF) as f64
-                let y = ((lParam >> 16) & 0xFFFF) as f64
-                let cb = ON_MOUSE_UP[ix]
-                cb(x, y, 0, modCtrl(), modShift(), modAlt(), modMeta())
-                return 0
-            } elif msg == (WindowMessage.mButtonDown as u32) {
-                let x = (lParam & 0xFFFF) as f64
-                let y = ((lParam >> 16) & 0xFFFF) as f64
-                let cb = ON_MOUSE_DOWN[ix]
-                cb(x, y, 1, modCtrl(), modShift(), modAlt(), modMeta())
-                return 0
-            } elif msg == (WindowMessage.mButtonUp as u32) {
-                let x = (lParam & 0xFFFF) as f64
-                let y = ((lParam >> 16) & 0xFFFF) as f64
-                let cb = ON_MOUSE_UP[ix]
-                cb(x, y, 1, modCtrl(), modShift(), modAlt(), modMeta())
-                return 0
-            } elif msg == (WindowMessage.rButtonDown as u32) {
-                let x = (lParam & 0xFFFF) as f64
-                let y = ((lParam >> 16) & 0xFFFF) as f64
-                let cb = ON_MOUSE_DOWN[ix]
-                cb(x, y, 2, modCtrl(), modShift(), modAlt(), modMeta())
-                return 0
-            } elif msg == (WindowMessage.rButtonUp as u32) {
-                let x = (lParam & 0xFFFF) as f64
-                let y = ((lParam >> 16) & 0xFFFF) as f64
-                let cb = ON_MOUSE_UP[ix]
-                cb(x, y, 2, modCtrl(), modShift(), modAlt(), modMeta())
-                return 0
+            // lParam packs (x, y) for mouse messages and (width,
+            // height) for WM_SIZE — same low/high u16 split, pulled
+            // here once so the per-arm code only emits the cb call.
+            let lo = (lParam & 0xFFFF) as f64
+            let hi = ((lParam >> 16) & 0xFFFF) as f64
+            match msg as WindowMessage {
+                WindowMessage.close {
+                    let cb = ON_CLOSE[ix]
+                    cb()
+                    PostQuitMessage(0)
+                    return 0
+                }
+                WindowMessage.size {
+                    let cb = ON_RESIZE[ix]
+                    cb(lo, hi)
+                    return 0
+                }
+                WindowMessage.keydown {
+                    let cb = ON_KEY_DOWN[ix]
+                    cb(vkToString(wParam as u32),
+                       modCtrl(), modShift(), modAlt(), modMeta())
+                    return 0
+                }
+                WindowMessage.keyup {
+                    let cb = ON_KEY_UP[ix]
+                    cb(vkToString(wParam as u32),
+                       modCtrl(), modShift(), modAlt(), modMeta())
+                    return 0
+                }
+                WindowMessage.mouseMove {
+                    let cb = ON_MOUSE_MOVE[ix]
+                    cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+                    return 0
+                }
+                WindowMessage.lbuttondown {
+                    let cb = ON_MOUSE_DOWN[ix]
+                    cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+                    return 0
+                }
+                WindowMessage.lbuttonup {
+                    let cb = ON_MOUSE_UP[ix]
+                    cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+                    return 0
+                }
+                WindowMessage.mButtonDown {
+                    let cb = ON_MOUSE_DOWN[ix]
+                    cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+                    return 0
+                }
+                WindowMessage.mButtonUp {
+                    let cb = ON_MOUSE_UP[ix]
+                    cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+                    return 0
+                }
+                WindowMessage.rButtonDown {
+                    let cb = ON_MOUSE_DOWN[ix]
+                    cb(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
+                    return 0
+                }
+                WindowMessage.rButtonUp {
+                    let cb = ON_MOUSE_UP[ix]
+                    cb(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
+                    return 0
+                }
+                WindowMessage.command {
+                    // LOWORD(wParam) is the control identifier we
+                    // baked in as the button's HMENU value
+                    // (= the BUTTON_HWNDS index). BN_CLICKED carries
+                    // no cursor; pass (0, 0, 0) and let gui-core
+                    // fill in via the cached button position.
+                    let id = (wParam & 0xFFFF) as i64
+                    if id >= 0 && id < (ON_CLICK.length as i64) {
+                        let cb = ON_CLICK[id]
+                        cb(0.0, 0.0, 0)
+                    }
+                    return 0
+                }
+                _ {}
             }
         }
         DefWindowProcA(hwnd as HWND, msg, wParam, lParam)
@@ -271,6 +296,72 @@ pub fn setOnMouseDown(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 }
 pub fn setOnMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if handle >= 0 && handle < (ON_MOUSE_UP.length as i64) { ON_MOUSE_UP[handle] = cb }
+}
+
+// ─── buttons ──────────────────────────────────────────────────
+
+pub fn createNativeButton(
+    windowHandle: i64,
+    text: string, x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (HWNDS.length as i64) {
+        return -1
+    }
+    let parent = HWNDS[windowHandle]
+    let id: i64 = BUTTON_HWNDS.length as i64
+    let classN = cstrFromString("BUTTON")
+    let textC  = cstrFromString(text)
+    let visibleBits: u32 = if visible {
+        WindowStyle.visible as u32
+    } else {
+        0
+    }
+    let style: u32 = (WindowStyle.child as u32) | visibleBits
+    let hInstance = GetModuleHandleA(0 as *const char)
+    let hwnd = CreateWindowExA(
+        0,
+        classN,
+        textC,
+        style,
+        x as i32, y as i32, width as i32, height as i32,
+        parent,
+        id as HMENU,           // HMENU slot doubles as the control ID
+        hInstance as HINSTANCE,
+        0 as *void
+    )
+    let enabledFlag: i32 = if enabled { 1 } else { 0 }
+    EnableWindow(hwnd, enabledFlag)
+    BUTTON_HWNDS.push(hwnd)
+    ON_CLICK.push(noOpClick)
+    id
+}
+
+pub fn setOnButtonClick(handle: i64, cb: fn(f64, f64, i32)) {
+    if handle >= 0 && handle < (ON_CLICK.length as i64) { ON_CLICK[handle] = cb }
+}
+pub fn setButtonText(handle: i64, text: string) {
+    if handle >= 0 && handle < (BUTTON_HWNDS.length as i64) {
+        SetWindowTextA(BUTTON_HWNDS[handle], cstrFromString(text))
+    }
+}
+pub fn setButtonFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (BUTTON_HWNDS.length as i64) {
+        MoveWindow(BUTTON_HWNDS[handle],
+                   x as i32, y as i32, width as i32, height as i32, 1)
+    }
+}
+pub fn setButtonEnabled(handle: i64, enabled: bool) {
+    if handle >= 0 && handle < (BUTTON_HWNDS.length as i64) {
+        let flag: i32 = if enabled { 1 } else { 0 }
+        EnableWindow(BUTTON_HWNDS[handle], flag)
+    }
+}
+pub fn setButtonVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (BUTTON_HWNDS.length as i64) {
+        let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
+        ShowWindow(BUTTON_HWNDS[handle], cmd)
+    }
 }
 
 pub fn runEventLoop() {

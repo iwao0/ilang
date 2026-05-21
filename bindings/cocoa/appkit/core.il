@@ -105,8 +105,16 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub convertPointToView(p: NSPoint, toView: NSObject): NSPoint
         @objc("frame")
         pub get frame(): NSRect
+        @objc("setFrame:")
+        pub setFrame(rect: NSRect)
         @objc("bounds")
         pub get bounds(): NSRect
+        @objc("setHidden:")
+        pub setHidden(flag: bool)
+        @objc("isHidden")
+        pub get isHidden(): bool
+        @objc("window")
+        pub get window(): NSWindow
     }
 
     /// NSWindow. The two-step `alloc + initWithContentRect:...`

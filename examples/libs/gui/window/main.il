@@ -42,4 +42,17 @@ w.onMouseUp.add(fn(e: gui.MouseEvent) {
     console.log("mouseUp", e.x, e.y, "button=", e.button)
 })
 
+// Push button — configure before `addChild` so the cached values
+// are applied at native-realization time.
+let b = new gui.Button()
+b.text   = "Click me"
+b.x      = 180.0
+b.y      = 140.0
+b.width  = 120.0
+b.height = 32.0
+b.onClick.add(fn(e: gui.MouseEvent) {
+    console.log("clicked at", e.x, e.y)
+})
+w.addChild(b)
+
 gui.run()
