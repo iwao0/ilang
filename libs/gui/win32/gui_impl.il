@@ -222,6 +222,13 @@ fn vkToString(vk: u32): string {
 }
 
 // ─── public API ────────────────────────────────────────────────
+//
+// Wrapped in `@extern(C) { ... }` so the raw-pointer literals
+// (`0 as *const char` for NULL, `0 as *void`, `&wc` / `&msg`)
+// and `cstrFromString` are nameable. ilang only allows raw C
+// pointer types to appear inside an `@extern(C)` block.
+
+@extern(C) {
 
 pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     let hInstance = GetModuleHandleA(0 as *const char)
@@ -315,7 +322,7 @@ pub fn createNativeButton(
     let visibleBits: u32 = if visible {
         WindowStyle.visible as u32
     } else {
-        0
+        0 as u32
     }
     let style: u32 = (WindowStyle.child as u32) | visibleBits
     let hInstance = GetModuleHandleA(0 as *const char)
@@ -381,3 +388,5 @@ pub fn runEventLoop() {
         let _ = DispatchMessageA(&msg)
     }
 }
+
+} // @extern(C)
