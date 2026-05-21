@@ -585,8 +585,6 @@ pub enum StdHandle: u32 {
     // ── File enumeration ──────────────────────────────────────────
 
     /// `WIN32_FIND_DATAA` — 320 bytes.
-    /// `cFileName` and `cAlternateFileName` are char arrays stored
-    /// as u32 blocks for alignment; cast to `*char` when reading.
     pub struct WIN32_FIND_DATAA {
         dwFileAttributes:   u32
         ftCreationTime_lo:  u32   // FILETIME lo-dword
@@ -599,77 +597,9 @@ pub enum StdHandle: u32 {
         nFileSizeLow:       u32
         dwReserved0:        u32
         dwReserved1:        u32
-        // cFileName[MAX_PATH=260] as 65 × u32 = 260 bytes
-        _fn00: u32
-        _fn01: u32
-        _fn02: u32
-        _fn03: u32
-        _fn04: u32
-        _fn05: u32
-        _fn06: u32
-        _fn07: u32
-        _fn08: u32
-        _fn09: u32
-        _fn10: u32
-        _fn11: u32
-        _fn12: u32
-        _fn13: u32
-        _fn14: u32
-        _fn15: u32
-        _fn16: u32
-        _fn17: u32
-        _fn18: u32
-        _fn19: u32
-        _fn20: u32
-        _fn21: u32
-        _fn22: u32
-        _fn23: u32
-        _fn24: u32
-        _fn25: u32
-        _fn26: u32
-        _fn27: u32
-        _fn28: u32
-        _fn29: u32
-        _fn30: u32
-        _fn31: u32
-        _fn32: u32
-        _fn33: u32
-        _fn34: u32
-        _fn35: u32
-        _fn36: u32
-        _fn37: u32
-        _fn38: u32
-        _fn39: u32
-        _fn40: u32
-        _fn41: u32
-        _fn42: u32
-        _fn43: u32
-        _fn44: u32
-        _fn45: u32
-        _fn46: u32
-        _fn47: u32
-        _fn48: u32
-        _fn49: u32
-        _fn50: u32
-        _fn51: u32
-        _fn52: u32
-        _fn53: u32
-        _fn54: u32
-        _fn55: u32
-        _fn56: u32
-        _fn57: u32
-        _fn58: u32
-        _fn59: u32
-        _fn60: u32
-        _fn61: u32
-        _fn62: u32
-        _fn63: u32
-        _fn64: u32
-        // cAlternateFileName[14] as 4 × u32 = 16 bytes (padded from 14)
-        _af0: u32
-        _af1: u32
-        _af2: u32
-        _af3: u32
+        cFileName:          u8[260]
+        cAlternateFileName: u8[14]
+        _pad:               u16     // trailing alignment to DWORD
     }
 
     /// Begins a directory enumeration. Returns INVALID_HANDLE_VALUE
