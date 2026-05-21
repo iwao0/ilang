@@ -942,20 +942,12 @@ pub enum SpiAction: u32 {
     /// `EndPaint` to describe the area needing repainting.
     /// `hdc` is valid only between BeginPaint and EndPaint.
     pub struct PAINTSTRUCT {
-        hdc:        HDC
-        fErase:     i32
-        rcPaint:    RECT
-        fRestore:   i32
-        fIncUpdate: i32
-        // rgbReserved[32] — internal use, 8 × u32 = 32 bytes.
-        _r0: u32
-        _r1: u32
-        _r2: u32
-        _r3: u32
-        _r4: u32
-        _r5: u32
-        _r6: u32
-        _r7: u32
+        hdc:         HDC
+        fErase:      i32
+        rcPaint:     RECT
+        fRestore:    i32
+        fIncUpdate:  i32
+        rgbReserved: u8[32]   // internal use
     }
 
     /// `MINMAXINFO` — 40 bytes. lParam of `WM_GETMINMAXINFO`.

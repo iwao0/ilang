@@ -225,56 +225,9 @@ pub enum AddrInfoFlags: i32 {
         iMaxSockets:  u16
         iMaxUdpDg:    u16
         lpVendorInfo: *char
-        // szDescription[257] + szSystemStatus[129] + 6-byte pad = 392 bytes
-        _d00: u64
-        _d01: u64
-        _d02: u64
-        _d03: u64
-        _d04: u64
-        _d05: u64
-        _d06: u64
-        _d07: u64
-        _d08: u64
-        _d09: u64
-        _d10: u64
-        _d11: u64
-        _d12: u64
-        _d13: u64
-        _d14: u64
-        _d15: u64
-        _d16: u64
-        _d17: u64
-        _d18: u64
-        _d19: u64
-        _d20: u64
-        _d21: u64
-        _d22: u64
-        _d23: u64
-        _d24: u64
-        _d25: u64
-        _d26: u64
-        _d27: u64
-        _d28: u64
-        _d29: u64
-        _d30: u64
-        _d31: u64
-        _d32: u64
-        _d33: u64
-        _d34: u64
-        _d35: u64
-        _d36: u64
-        _d37: u64
-        _d38: u64
-        _d39: u64
-        _d40: u64
-        _d41: u64
-        _d42: u64
-        _d43: u64
-        _d44: u64
-        _d45: u64
-        _d46: u64
-        _d47: u64
-        _d48: u64
+        szDescription:  u8[257]
+        szSystemStatus: u8[129]
+        _pad:           u8[6]    // trailing alignment to 8 bytes
     }
 
     // ── sockaddr_in — 16 bytes ────────────────────────────────────

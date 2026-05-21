@@ -299,15 +299,7 @@ pub enum FontPitchFamily: u32 {
         lfClipPrecision:  u8
         lfQuality:        u8
         lfPitchAndFamily: u8
-        // lfFaceName[LF_FACESIZE=32] as 8 × u32
-        _fn0: u32
-        _fn1: u32
-        _fn2: u32
-        _fn3: u32
-        _fn4: u32
-        _fn5: u32
-        _fn6: u32
-        _fn7: u32
+        lfFaceName:       u8[32]   // LF_FACESIZE = 32
     }
 
     /// `TEXTMETRICA` — 60 bytes. Returned by `GetTextMetricsA`.

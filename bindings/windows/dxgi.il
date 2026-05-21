@@ -327,17 +327,9 @@ use ole32 { IUnknown }
 
     // ── DXGI_OUTPUT_DESC — ~96 bytes ─────────────────────────────
 
-    /// `DeviceName`: UTF-16 GDI device name, 32 chars (64 bytes).
-    /// Cast `&desc._n0 as *const u16` to read it.
+    /// `DeviceName`: UTF-16 GDI device name, 32 wide chars (64 bytes).
     pub struct DXGI_OUTPUT_DESC {
-        _n0:               u64
-        _n1:               u64
-        _n2:               u64
-        _n3:               u64
-        _n4:               u64
-        _n5:               u64
-        _n6:               u64
-        _n7:               u64
+        DeviceName:        u16[32]
         DesktopCoordinates_left:   i32
         DesktopCoordinates_top:    i32
         DesktopCoordinates_right:  i32
@@ -412,38 +404,7 @@ use ole32 { IUnknown }
     /// `Description`: UTF-16 device string, max 128 chars (256 bytes
     /// = 32 × u64).  Cast `&adapter._d00 as *const u16` to read it.
     pub struct DXGI_ADAPTER_DESC {
-        _d00: u64
-        _d01: u64
-        _d02: u64
-        _d03: u64
-        _d04: u64
-        _d05: u64
-        _d06: u64
-        _d07: u64
-        _d08: u64
-        _d09: u64
-        _d10: u64
-        _d11: u64
-        _d12: u64
-        _d13: u64
-        _d14: u64
-        _d15: u64
-        _d16: u64
-        _d17: u64
-        _d18: u64
-        _d19: u64
-        _d20: u64
-        _d21: u64
-        _d22: u64
-        _d23: u64
-        _d24: u64
-        _d25: u64
-        _d26: u64
-        _d27: u64
-        _d28: u64
-        _d29: u64
-        _d30: u64
-        _d31: u64
+                Description: u16[128]
         VendorId:              u32
         DeviceId:              u32
         SubSysId:              u32
@@ -461,38 +422,7 @@ use ole32 { IUnknown }
     /// (DxgiAdapterFlag.*) so callers can distinguish software /
     /// remote adapters from real GPUs without probing them.
     pub struct DXGI_ADAPTER_DESC1 {
-        _d00: u64
-        _d01: u64
-        _d02: u64
-        _d03: u64
-        _d04: u64
-        _d05: u64
-        _d06: u64
-        _d07: u64
-        _d08: u64
-        _d09: u64
-        _d10: u64
-        _d11: u64
-        _d12: u64
-        _d13: u64
-        _d14: u64
-        _d15: u64
-        _d16: u64
-        _d17: u64
-        _d18: u64
-        _d19: u64
-        _d20: u64
-        _d21: u64
-        _d22: u64
-        _d23: u64
-        _d24: u64
-        _d25: u64
-        _d26: u64
-        _d27: u64
-        _d28: u64
-        _d29: u64
-        _d30: u64
-        _d31: u64
+                Description: u16[128]
         VendorId:              u32
         DeviceId:              u32
         SubSysId:              u32
@@ -513,38 +443,7 @@ use ole32 { IUnknown }
     /// enum-valued fields so callers can reason about how aggressively
     /// the OS can preempt long-running work.
     pub struct DXGI_ADAPTER_DESC2 {
-        _d00: u64
-        _d01: u64
-        _d02: u64
-        _d03: u64
-        _d04: u64
-        _d05: u64
-        _d06: u64
-        _d07: u64
-        _d08: u64
-        _d09: u64
-        _d10: u64
-        _d11: u64
-        _d12: u64
-        _d13: u64
-        _d14: u64
-        _d15: u64
-        _d16: u64
-        _d17: u64
-        _d18: u64
-        _d19: u64
-        _d20: u64
-        _d21: u64
-        _d22: u64
-        _d23: u64
-        _d24: u64
-        _d25: u64
-        _d26: u64
-        _d27: u64
-        _d28: u64
-        _d29: u64
-        _d30: u64
-        _d31: u64
+                Description: u16[128]
         VendorId:              u32
         DeviceId:              u32
         SubSysId:              u32
@@ -565,38 +464,7 @@ use ole32 { IUnknown }
     /// Returned by IDXGIAdapter4::GetDesc3. Adds the `Flags` field
     /// widened to `DxgiAdapterFlag3` (sync-fence + ACL bits).
     pub struct DXGI_ADAPTER_DESC3 {
-        _d00: u64
-        _d01: u64
-        _d02: u64
-        _d03: u64
-        _d04: u64
-        _d05: u64
-        _d06: u64
-        _d07: u64
-        _d08: u64
-        _d09: u64
-        _d10: u64
-        _d11: u64
-        _d12: u64
-        _d13: u64
-        _d14: u64
-        _d15: u64
-        _d16: u64
-        _d17: u64
-        _d18: u64
-        _d19: u64
-        _d20: u64
-        _d21: u64
-        _d22: u64
-        _d23: u64
-        _d24: u64
-        _d25: u64
-        _d26: u64
-        _d27: u64
-        _d28: u64
-        _d29: u64
-        _d30: u64
-        _d31: u64
+                Description: u16[128]
         VendorId:              u32
         DeviceId:              u32
         SubSysId:              u32

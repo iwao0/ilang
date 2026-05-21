@@ -70,14 +70,15 @@ pub const IID_IDXGIAdapter1: GUID = GUID {
         // Read the adapter description; both VendorId and DeviceId
         // must be non-zero on any real GPU (including WARP).
         let desc = DXGI_ADAPTER_DESC1 {
-            _d00: 0, _d01: 0, _d02: 0, _d03: 0,
-            _d04: 0, _d05: 0, _d06: 0, _d07: 0,
-            _d08: 0, _d09: 0, _d10: 0, _d11: 0,
-            _d12: 0, _d13: 0, _d14: 0, _d15: 0,
-            _d16: 0, _d17: 0, _d18: 0, _d19: 0,
-            _d20: 0, _d21: 0, _d22: 0, _d23: 0,
-            _d24: 0, _d25: 0, _d26: 0, _d27: 0,
-            _d28: 0, _d29: 0, _d30: 0, _d31: 0,
+            Description: [
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0
+            ],
             VendorId: 0, DeviceId: 0, SubSysId: 0, Revision: 0,
             DedicatedVideoMemory: 0, DedicatedSystemMemory: 0,
             SharedSystemMemory: 0,

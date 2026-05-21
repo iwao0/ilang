@@ -469,39 +469,7 @@ pub enum StdHandle: u32 {
         dwMinorVersion:      u32
         dwBuildNumber:       u32
         dwPlatformId:        u32
-        // szCSDVersion[128] as 32 × u32
-        _v0: u32
-        _v1: u32
-        _v2: u32
-        _v3: u32
-        _v4: u32
-        _v5: u32
-        _v6: u32
-        _v7: u32
-        _v8: u32
-        _v9: u32
-        _va: u32
-        _vb: u32
-        _vc: u32
-        _vd: u32
-        _ve: u32
-        _vf: u32
-        _vg: u32
-        _vh: u32
-        _vi: u32
-        _vj: u32
-        _vk: u32
-        _vl: u32
-        _vm: u32
-        _vn: u32
-        _vo: u32
-        _vp: u32
-        _vq: u32
-        _vr: u32
-        _vs: u32
-        _vt: u32
-        _vu: u32
-        _vv: u32
+        szCSDVersion:        u8[128]
     }
 
     /// Deprecated on Windows 8.1+; returns 6.2 for later versions
