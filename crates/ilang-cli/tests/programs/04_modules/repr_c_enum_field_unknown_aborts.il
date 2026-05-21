@@ -13,12 +13,12 @@ pub enum Tag16: u16 {
     b = 0x5678
 }
 
+use libc { memcpy }
+
 @extern(C) {
     struct Frame {
         tag: Tag16
     }
-
-    @lib("c") fn memcpy(dst: *Frame, src: *const u8, n: u64): *Frame
 
     pub fn fillFrame(f: Frame, bytes: u8[]) {
         let p: *u8 = bytes

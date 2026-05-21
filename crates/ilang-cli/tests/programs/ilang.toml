@@ -1,0 +1,8 @@
+[package]
+name = "ilang_programs_fixtures"
+
+# Bindings the cross-platform fixture suite is allowed to import.
+# Add a new entry here when a fixture needs to reach into a
+# bindings/ subtree.
+[deps]
+libc = "../../../../bindings/libc"
