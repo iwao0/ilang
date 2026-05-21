@@ -56,12 +56,7 @@ use d3d12 {
 }
 
 @extern(C) {
-    // IUnknown is conceptually one type, but ilang's @com inheritance
-    // resolver tracks parent symbols within the same compilation
-    // surface only — a local re-declaration is required for the
-    // `ID3D12Object : IUnknown` chain below to find its methods. The
-    // canonical contract lives in `bindings/windows/ole32.il`; this
-    // copy stays in lock-step with that.
+    /// Universal IUnknown vtable — every COM interface starts here.
     @com pub interface IUnknown {
         QueryInterface(riid: *const GUID, ppvObject: **void): i32
         AddRef(): u32

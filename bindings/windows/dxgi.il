@@ -650,12 +650,6 @@ use kernel32 { HANDLE }
     // call yet stay as `_slotN_Name()` placeholders so binary
     // compatibility is preserved.
 
-    // IUnknown is conceptually one type, but ilang's @com inheritance
-    // resolver tracks parent symbols within the same compilation
-    // surface only — a local re-declaration is required for the
-    // `IDXGIObject : IUnknown` chain below to find its methods. The
-    // canonical contract lives in `bindings/windows/ole32.il`; this
-    // copy stays in lock-step with that.
     @com pub interface IUnknown {
         QueryInterface(riid: *const void, ppvObject: **void): i32
         AddRef(): u32
