@@ -75,3 +75,9 @@ pub use powrprof.*
 pub use dxva2.*
 pub use sensapi.*
 pub use winsta.*
+pub use wbemcli.*
+pub use rasapi32.*
+pub use mscms.*
+pub use ntdsapi.*
+pub use bluetoothapis.*
+pub use fltlib.*
