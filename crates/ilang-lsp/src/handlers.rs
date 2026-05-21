@@ -142,16 +142,22 @@ impl LanguageServer for Backend {
                     // `,` continues a comma-separated type list
                     // such as `class C : A, …` (additional
                     // interfaces) and `Map<K, …>` generic args.
+                    // `<` opens a generic-argument slot (`Map<…`).
                     trigger_characters: Some(vec![
                         ".".to_string(),
                         "@".to_string(),
                         ":".to_string(),
                         ",".to_string(),
+                        "<".to_string(),
                     ]),
                     ..CompletionOptions::default()
                 }),
                 signature_help_provider: Some(SignatureHelpOptions {
-                    trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+                    trigger_characters: Some(vec![
+                        "(".to_string(),
+                        ",".to_string(),
+                        "<".to_string(),
+                    ]),
                     retrigger_characters: None,
                     work_done_progress_options: WorkDoneProgressOptions::default(),
                 }),
@@ -744,6 +750,45 @@ impl LanguageServer for Backend {
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
+        if let Some(gc) = generic_args_context_at(&doc.text, pos) {
+            let label = format!("{}<{}>", gc.type_name, gc.type_params.join(", "));
+            let params: Vec<ParameterInformation> = gc
+                .type_params
+                .iter()
+                .map(|p| ParameterInformation {
+                    label: ParameterLabel::Simple((*p).to_string()),
+                    documentation: None,
+                })
+                .collect();
+            let remaining = gc.type_params.len().saturating_sub(gc.arg_index);
+            let suffix = if gc.arg_index >= gc.type_params.len() {
+                format!("All {} generic argument(s) supplied.", gc.type_params.len())
+            } else if remaining == 1 {
+                "1 more generic argument required.".to_string()
+            } else {
+                format!("{remaining} more generic arguments required.")
+            };
+            let doc_value = match gc.short_doc {
+                Some(d) => format!("{d}\n\n{suffix}"),
+                None => suffix,
+            };
+            let active = gc
+                .arg_index
+                .min(gc.type_params.len().saturating_sub(1)) as u32;
+            return Ok(Some(SignatureHelp {
+                signatures: vec![SignatureInformation {
+                    label,
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: doc_value,
+                    })),
+                    parameters: Some(params),
+                    active_parameter: Some(active),
+                }],
+                active_signature: Some(0),
+                active_parameter: Some(active),
+            }));
+        }
         let Some(call) = call_context_at(&doc.text, pos) else {
             return Ok(None);
         };

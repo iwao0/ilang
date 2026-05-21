@@ -634,6 +634,99 @@ pub(crate) struct CallContext {
     pub arg_index: usize,
 }
 
+/// Generic-argument signature context, returned when the cursor sits
+/// inside `TypeName<...>`. `arg_index` is the zero-based slot the
+/// cursor is currently filling (number of `,`s after the opening `<`).
+pub(crate) struct GenericContext {
+    pub type_name: String,
+    pub type_params: Vec<&'static str>,
+    pub arg_index: usize,
+    pub short_doc: Option<&'static str>,
+}
+
+/// Detect when the cursor sits inside `TypeName<...>` and return the
+/// type's generic parameter list along with the active slot. Only
+/// recognizes the built-in generic types the type checker pre-registers
+/// (`Map`, `Promise`, `Result`, `ObjCBlock`) — user-declared generics
+/// would need a doc-table lookup we don't currently maintain here.
+pub(crate) fn generic_args_context_at(text: &str, pos: Position) -> Option<GenericContext> {
+    let off = line_col_to_offset(text, pos.line + 1, pos.character + 1)?;
+    let bytes = text.as_bytes();
+    if off > bytes.len() {
+        return None;
+    }
+    let mut angle_depth: i32 = 0;
+    let mut paren_depth: i32 = 0;
+    let mut commas: usize = 0;
+    let mut i = off;
+    while i > 0 {
+        let b = bytes[i - 1];
+        match b {
+            b')' | b']' => paren_depth += 1,
+            b'(' | b'[' => {
+                if paren_depth == 0 {
+                    return None;
+                }
+                paren_depth -= 1;
+            }
+            b'>' if paren_depth == 0 => angle_depth += 1,
+            b',' if paren_depth == 0 && angle_depth == 0 => commas += 1,
+            b'<' if paren_depth == 0 => {
+                if angle_depth == 0 {
+                    let mut k = i - 1;
+                    while k > 0 && matches!(bytes[k - 1], b' ' | b'\t') {
+                        k -= 1;
+                    }
+                    let id_end = k;
+                    while k > 0 {
+                        let c = bytes[k - 1];
+                        if c.is_ascii_alphanumeric() || c == b'_' {
+                            k -= 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    if k == id_end {
+                        return None;
+                    }
+                    let name = std::str::from_utf8(&bytes[k..id_end]).ok()?.to_string();
+                    let (params, doc): (Vec<&'static str>, Option<&'static str>) =
+                        match name.as_str() {
+                            "Map" => (
+                                vec!["K", "V"],
+                                Some("Built-in associative map: keys of type K, values of type V."),
+                            ),
+                            "Promise" => (
+                                vec!["T"],
+                                Some("Built-in asynchronous value resolving to T."),
+                            ),
+                            "Result" => (
+                                vec!["T", "E"],
+                                Some("Built-in success/error enum with ok(T) and err(E) variants."),
+                            ),
+                            "ObjCBlock" => (
+                                vec!["F"],
+                                Some("Built-in Objective-C block whose closure type matches F."),
+                            ),
+                            _ => return None,
+                        };
+                    return Some(GenericContext {
+                        type_name: name,
+                        type_params: params,
+                        arg_index: commas,
+                        short_doc: doc,
+                    });
+                }
+                angle_depth -= 1;
+            }
+            b'\n' | b'{' | b';' => return None,
+            _ => {}
+        }
+        i -= 1;
+    }
+    None
+}
+
 /// Find the `callee(...)` containing the cursor by scanning backwards
 /// past balanced parens / brackets.
 pub(crate) fn call_context_at(text: &str, pos: Position) -> Option<CallContext> {

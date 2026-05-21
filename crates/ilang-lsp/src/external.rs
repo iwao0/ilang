@@ -1506,13 +1506,21 @@ pub(crate) fn register_enum_variants_with_sources(
     }
 }
 
-/// Inject built-in generic enums (`Result<T, E>`) into the external
-/// signatures table so hover / completion on `Result.ok` / `Result.err`
+/// Inject the type-checker-only built-ins (`Result<T, E>`, `Map<K, V>`,
+/// `Promise<T>`, `ObjCBlock<F>`) into the external signatures table so
+/// hover / completion on the bare type name (and `Result.ok` / `.err`)
 /// works without the user importing or declaring anything. Mirrors what
 /// `register_enum_variants` would produce for a user-written enum.
 pub(crate) fn register_builtin_enums(out: &mut HashMap<AstSymbol, String>) {
-    out.entry(AstSymbol::intern("Result"))
-        .or_insert_with(|| "enum Result<T, E>".to_string());
+    for (name, sig) in [
+        ("Result", "enum Result<T, E>"),
+        ("Map", "class Map<K, V>"),
+        ("Promise", "class Promise<T>"),
+        ("ObjCBlock", "class ObjCBlock<F>"),
+    ] {
+        out.entry(AstSymbol::intern(name))
+            .or_insert_with(|| sig.to_string());
+    }
     out.entry(AstSymbol::intern("Result.ok"))
         .or_insert_with(|| "(variant) Result.ok(...)".to_string());
     out.entry(AstSymbol::intern("Result.err"))
