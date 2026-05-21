@@ -8,9 +8,9 @@ use test
 use windows { HANDLE }
 use directx12 {
     D3D12CreateDevice,
-    D3DFeatureLevel,
-    GUID,
+    D3DFeatureLevel
 }
+use ole32 { GUID }
 
 @extern(C) {
     pub fn run() {

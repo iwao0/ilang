@@ -8,9 +8,9 @@
 use test
 use windows { HANDLE }
 use directx12 {
-    D3D12GetDebugInterface,
-    GUID,
+    D3D12GetDebugInterface
 }
+use ole32 { GUID }
 
 @extern(C) {
     pub fn run() {

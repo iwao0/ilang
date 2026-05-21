@@ -21,7 +21,7 @@ use windows {
     IDXGIFactory6,
     IDXGIAdapter1
 }
-use ole32 { IUnknown }
+use ole32 { GUID, IUnknown }
 
 // IID_IDXGIFactory6 = c1b6694f-ff09-44a9-b03c-77900a0a1d17
 // IID_IDXGIAdapter1 = 29038f61-3839-4626-91fd-086879011a05
@@ -30,24 +30,16 @@ use ole32 { IUnknown }
 // to keep the windows test crate's dep list short — these are pure
 // GUID literals.
 
+pub const IID_IDXGIFactory6: GUID = GUID {
+    Data1: 0xc1b6694f, Data2: 0xff09, Data3: 0x44a9,
+    Data4lo: 0x90773cb0, Data4hi: 0x171d0a0a,
+}
+pub const IID_IDXGIAdapter1: GUID = GUID {
+    Data1: 0x29038f61, Data2: 0x3839, Data3: 0x4626,
+    Data4lo: 0x6808fd91, Data4hi: 0x051a0179,
+}
+
 @extern(C) {
-    pub struct GUID {
-        Data1:   u32
-        Data2:   u16
-        Data3:   u16
-        Data4lo: u32
-        Data4hi: u32
-    }
-
-    pub const IID_IDXGIFactory6: GUID = GUID {
-        Data1: 0xc1b6694f, Data2: 0xff09, Data3: 0x44a9,
-        Data4lo: 0x90773cb0, Data4hi: 0x171d0a0a,
-    }
-    pub const IID_IDXGIAdapter1: GUID = GUID {
-        Data1: 0x29038f61, Data2: 0x3839, Data3: 0x4626,
-        Data4lo: 0x6808fd91, Data4hi: 0x051a0179,
-    }
-
     pub fn run() {
         let rawFactory: *void = NULL
         let hr = CreateDXGIFactory2(

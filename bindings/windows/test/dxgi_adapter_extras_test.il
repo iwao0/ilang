@@ -19,32 +19,25 @@ use windows {
     IDXGIAdapter,
     IDXGIAdapter3
 }
-use ole32 { IUnknown }
+use ole32 { GUID, IUnknown }
+
+/// IID_IDXGIFactory4 = 1bc6ea02-ef36-464f-bf0c-21ca39e5168a
+pub const IID_IDXGIFactory4: GUID = GUID {
+    Data1: 0x1bc6ea02, Data2: 0xef36, Data3: 0x464f,
+    Data4lo: 0xca210cbf, Data4hi: 0x8a16e539,
+}
+/// IID_IDXGIFactory5 = 7632e1f5-ee65-4dca-87fd-84cd75f8838d
+pub const IID_IDXGIFactory5: GUID = GUID {
+    Data1: 0x7632e1f5, Data2: 0xee65, Data3: 0x4dca,
+    Data4lo: 0xcd84fd87, Data4hi: 0x8d83f875,
+}
+/// IID_IDXGIAdapter3 = 645967a4-1392-4310-a798-8053ce3e93fd
+pub const IID_IDXGIAdapter3: GUID = GUID {
+    Data1: 0x645967a4, Data2: 0x1392, Data3: 0x4310,
+    Data4lo: 0x538098a7, Data4hi: 0xfd933ece,
+}
 
 @extern(C) {
-    pub struct GUID {
-        Data1:   u32
-        Data2:   u16
-        Data3:   u16
-        Data4lo: u32
-        Data4hi: u32
-    }
-    /// IID_IDXGIFactory4 = 1bc6ea02-ef36-464f-bf0c-21ca39e5168a
-    pub const IID_IDXGIFactory4: GUID = GUID {
-        Data1: 0x1bc6ea02, Data2: 0xef36, Data3: 0x464f,
-        Data4lo: 0xca210cbf, Data4hi: 0x8a16e539,
-    }
-    /// IID_IDXGIFactory5 = 7632e1f5-ee65-4dca-87fd-84cd75f8838d
-    pub const IID_IDXGIFactory5: GUID = GUID {
-        Data1: 0x7632e1f5, Data2: 0xee65, Data3: 0x4dca,
-        Data4lo: 0xcd84fd87, Data4hi: 0x8d83f875,
-    }
-    /// IID_IDXGIAdapter3 = 645967a4-1392-4310-a798-8053ce3e93fd
-    pub const IID_IDXGIAdapter3: GUID = GUID {
-        Data1: 0x645967a4, Data2: 0x1392, Data3: 0x4310,
-        Data4lo: 0x538098a7, Data4hi: 0xfd933ece,
-    }
-
     pub fn run() {
         // ── IDXGIFactory4 (EnumWarpAdapter) ────────────────────────
         let rawF4: *void = NULL

@@ -12,7 +12,7 @@
 ///   Data4lo = little-endian u32 of the first 4 bytes of `cccc || dddd`
 ///   Data4hi = little-endian u32 of the last 4 bytes
 
-use d3d12 { GUID }
+use ole32 { GUID }
 
 /// IID_ID3D12Device = 189819f1-1db6-4b57-be54-1821339b85f7
 pub const IID_ID3D12Device: GUID = GUID {

@@ -27,30 +27,23 @@ use directx12 {
     D3D12_COMMAND_QUEUE_DESC,
     D3D12CommandListType, D3D12CommandQueueFlags, D3D12CommandQueuePriority
 }
-use ole32 { IUnknown }
+use ole32 { GUID, IUnknown }
 
 // IID_IDXGIFactory4    = 1bc6ea02-ef36-464f-bf0c-21ca39e5168a
 // IID_IDXGISwapChain3  = 94d99bdb-f1f8-4ab0-b236-7da0170edab1
 //
 // Re-declared here so the test crate doesn't need a re-export.
 
-@extern(C) {
-    pub struct GUID {
-        Data1:   u32
-        Data2:   u16
-        Data3:   u16
-        Data4lo: u32
-        Data4hi: u32
-    }
-    pub const IID_IDXGIFactory4: GUID = GUID {
-        Data1: 0x1bc6ea02, Data2: 0xef36, Data3: 0x464f,
-        Data4lo: 0xca210cbf, Data4hi: 0x8a16e539,
-    }
-    pub const IID_IDXGISwapChain3: GUID = GUID {
-        Data1: 0x94d99bdb, Data2: 0xf1f8, Data3: 0x4ab0,
-        Data4lo: 0xa07d36b2, Data4hi: 0xb1da0e17,
-    }
+pub const IID_IDXGIFactory4: GUID = GUID {
+    Data1: 0x1bc6ea02, Data2: 0xef36, Data3: 0x464f,
+    Data4lo: 0xca210cbf, Data4hi: 0x8a16e539,
+}
+pub const IID_IDXGISwapChain3: GUID = GUID {
+    Data1: 0x94d99bdb, Data2: 0xf1f8, Data3: 0x4ab0,
+    Data4lo: 0xa07d36b2, Data4hi: 0xb1da0e17,
+}
 
+@extern(C) {
     pub fn nopWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         DefWindowProcA(hwnd as HWND, msg, wParam, lParam)
     }

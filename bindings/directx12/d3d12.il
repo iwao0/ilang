@@ -17,6 +17,7 @@
 // and keeping a single canonical type stops the type checker
 // from rejecting cross-binding struct literals.
 use dxgi { DXGI_SAMPLE_DESC }
+use ole32 { GUID }
 
 // ─── Feature-level identifiers (D3D_FEATURE_LEVEL_*) ─────────────
 pub enum D3DFeatureLevel: u32 {
@@ -330,17 +331,9 @@ pub enum D3D12Result: i32 {
     // user code can hold typed pointers between flat-entry-point
     // calls and the vtable invocations they bootstrap.
 
-    // ── GUID (locally declared; layout-compatible with ole32's GUID) ─
-
-    /// 16-byte interface identifier. Used as the `riid` argument to
-    /// D3D12 / DXGI factory calls.
-    pub struct GUID {
-        Data1:   u32
-        Data2:   u16
-        Data3:   u16
-        Data4lo: u32
-        Data4hi: u32
-    }
+    // GUID lives in `bindings/windows/ole32.il` (the COM foundation);
+    // imported above so this block's structs / fn signatures share
+    // the single canonical declaration.
 
     // All of the named ID3D12* handles are declared as `@com pub
     // interface` in d3d12_com.il (re-exported via directx12.il).
