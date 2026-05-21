@@ -1591,6 +1591,31 @@ becomes an extra directory the loader checks during `use module`
 resolution. Lookup order: importer's own directory, then each
 declared dep directory.
 
+A dep entry may also be a table that carries a `target` filter,
+so the same dep name can resolve to a different directory per
+host OS. Three accepted shapes:
+
+```toml
+[deps]
+common = "./libs/common"                       # bare string
+math   = { path = "./libs/math" }              # single table
+
+[[deps.gui_impl]]                              # array-of-tables
+path   = "./libs/gui-cocoa"                    # for OS multiplexing
+target = "macos"
+
+[[deps.gui_impl]]
+path   = "./libs/gui-win32"
+target = "windows"
+```
+
+`target` accepts a single OS string (`"macos"` / `"linux"` /
+`"windows"`) or an array of OS strings (`["macos", "linux"]`,
+OR-matched against the build host). Entries whose `target`
+doesn't match are silently dropped. Multiple surviving entries
+under the same dep name are an error — write mutually-exclusive
+targets so exactly one wins per host.
+
 ### Top-level `struct` / `union` (value types)
 
 `struct` and `union` declarations are also accepted at module
@@ -2859,6 +2884,10 @@ removed; the MIR pipeline is the only execution path.
 The CLI walks upward from the entry file looking for an
 `ilang.toml`. If present, each `[deps]` value adds an extra
 search directory the loader uses for `use module` resolution.
+Dep entries may carry a `target` filter (single OS string or
+array of OS strings) so the same dep name can resolve to a
+different directory per host; see the `[deps]` description in
+the project-file section for the array-of-tables form.
 
 ---
 
