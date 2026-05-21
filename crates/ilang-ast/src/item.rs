@@ -34,6 +34,10 @@ pub enum AttrArg {
     /// An integer literal — used by `@bits(N)` to declare a bitfield
     /// width.
     Int(i64),
+    /// `not "X"` — the negated form of a string argument. Currently
+    /// only used by `@target(not "macos")` and friends; rejected as
+    /// "invalid attribute argument" by attributes that don't opt in.
+    NotStr(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]

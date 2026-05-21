@@ -31,6 +31,7 @@ mod consts;
 mod dup_pub;
 mod rename;
 mod spans;
+mod target_filter;
 
 use consts::inline_constants;
 use rename::{rename_in_item, rename_in_program, rename_in_stmt};
@@ -481,6 +482,11 @@ fn load_recursive(
         &implicit_modules,
     )
     .map_err(LoadError::ParseError)?;
+    // Drop items annotated with `@target(...)` whose OS doesn't match
+    // the build host. Runs before embed / objc-class harvesting so
+    // those passes never see classes / fns that don't survive the
+    // filter (and so per-OS same-name decls don't collide downstream).
+    target_filter::filter_program(&mut prog)?;
     expand_embeds(&mut prog, file)?;
     collect_objc_class_names(&prog, objc_registry);
     // Stamp every span in this file's Program with the canonical

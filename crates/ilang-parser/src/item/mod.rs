@@ -703,6 +703,27 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::At => {
                     let attrs = self.parse_attributes()?;
+                    // Allow `@attr pub method(...)` — top-level items
+                    // accept attrs before `pub`, mirror that order
+                    // inside class bodies so users don't have to
+                    // remember a different rule for members.
+                    let attr_pub = if matches!(self.peek().kind, TokenKind::Pub) {
+                        let t = self.peek();
+                        if member_is_pub {
+                            return Err(ParseError::Unexpected {
+                                found: TokenKind::Pub,
+                                expected: "single `pub` modifier — \
+                                    don't write `pub` both before and \
+                                    after the attribute list".into(),
+                                span: t.span,
+                            });
+                        }
+                        self.bump();
+                        true
+                    } else {
+                        false
+                    };
+                    let member_is_pub = member_is_pub || attr_pub;
                     // Attributes can apply to either a method or a
                     // field. Look two tokens ahead: `ident :` →
                     // field (with attrs), `ident (` → method.
@@ -1273,7 +1294,25 @@ impl<'a> Parser<'a> {
                     loop {
                         // String literal arg (`@extern("libm")`) or a
                         // capability path (`@requires(net)`).
-                        if let TokenKind::Str(s) = &self.peek().kind {
+                        // `not "X"` — negated string form, only valid
+                        // when the identifier `not` is followed by a
+                        // string literal directly (no comma). The
+                        // semantics layer (`@target`) decides whether
+                        // to accept this; other attrs reject NotStr.
+                        let is_not_str = matches!(
+                            &self.peek().kind,
+                            TokenKind::Ident(s) if s.as_str() == "not"
+                        ) && matches!(
+                            self.peek_n(1).map(|t| &t.kind),
+                            Some(TokenKind::Str(_))
+                        );
+                        if is_not_str {
+                            self.bump();
+                            if let TokenKind::Str(s) = self.peek().kind.clone() {
+                                self.bump();
+                                args.push(AttrArg::NotStr(s));
+                            }
+                        } else if let TokenKind::Str(s) = &self.peek().kind {
                             let s = s.clone();
                             self.bump();
                             args.push(AttrArg::Str(s));

@@ -404,8 +404,35 @@ fn download(url: string, path: string) { ... }
 - `@extern(ObjC)` 内の ObjC ブリッジ系: `@objc` / `@objc("selector:")` (optional プロトコルメソッドはメソッド名末尾の `?` で表す。属性ではない)
 - `enum` 宣言に付ける `@flags` (ビットセット意味付け)
 - `const` 宣言に付ける `@embed("path/to/file")` (コンパイル時ファイル取り込み)
+- `fn` / `class` / メソッドに付ける `@target("os")` — ホスト OS フィルタ (詳細は次節)
 
 それ以外はパースは通るが黙って捨てられる。
+
+#### `@target` — OS 別の同名宣言
+
+ビルド時にホストの OS で宣言を絞り込む。Rust の `#[cfg(target_os = "…")]` に対応する。
+
+```rust
+@target("macos")
+fn fileSeparator(): string { "/" }
+
+@target("windows")
+fn fileSeparator(): string { "\\" }
+
+@target("macos", "linux")          // OR — どちらかにマッチで残る
+fn isPosix(): bool { true }
+
+@target(not "windows")             // 否定 — 単独の `not "X"` のみ
+fn hasFork(): bool { true }
+```
+
+- マッチすれば item が残り、`@target` 自体は剥がされる (ホバー / フォーマッタには現れない)
+- マッチしないとビルド前に loader が item を捨てる — 型チェッカ・JIT は見ない
+- 同じ item に `@target` を複数並べた場合は AND
+- `not` 形と他の引数の混在は禁止 (AND が必要なら `@target` を分けて書く)
+- OS 名は `os.platform` と同じ集合: `"macos"` / `"linux"` / `"windows"` / `"other"`
+- 適用先は `fn` (トップレベル / メソッド / 静的メソッド / `@extern(C)` 内 `FnDef`) と `class` (トップレベル / `@extern(C)` 内)
+- 同名の宣言を OS で振り分けた場合、フィルタ後に1つしか残らなければ重複扱いされない。複数残ると既存の重複検出でエラー
 
 ---
 
