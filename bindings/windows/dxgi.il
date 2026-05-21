@@ -261,6 +261,7 @@ pub enum DxgiResult: i32 {
 
 use user32 { HWND }
 use kernel32 { HANDLE }
+use ole32 { IUnknown }
 
 @extern(C, "dxgi") {
     // ── DXGI_SAMPLE_DESC — 8 bytes ───────────────────────────────
@@ -649,12 +650,6 @@ use kernel32 { HANDLE }
     // Slot positions match the SDK vtable; methods this repo doesn't
     // call yet stay as `_slotN_Name()` placeholders so binary
     // compatibility is preserved.
-
-    @com pub interface IUnknown {
-        QueryInterface(riid: *const void, ppvObject: **void): i32
-        AddRef(): u32
-        Release(): u32
-    }
 
     @com pub interface IDXGIObject : IUnknown {
         SetPrivateData(Name: *const void, DataSize: u32, pData: *const void): i32

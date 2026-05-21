@@ -23,9 +23,9 @@ use directx12 {
     D3D12RootSignatureVersion,
     IID_ID3D12RootSignatureDeserializer,
     IID_ID3D12VersionedRootSignatureDeserializer,
-    IUnknown,
-    ID3DBlob,
+    ID3DBlob
 }
+use ole32 { IUnknown }
 
 @extern(C) {
     pub fn run() {

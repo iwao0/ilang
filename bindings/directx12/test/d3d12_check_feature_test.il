@@ -13,15 +13,15 @@ use directx12 {
     D3DFeatureLevel,
     IID_ID3D12Device,
     IID_ID3D12QueryHeap,
-    IUnknown,
     ID3D12Device,
     D3D12_FEATURE_DATA_D3D12_OPTIONS,
     D3D12_QUERY_HEAP_DESC,
     D3D12Feature,
     D3D12QueryHeapType,
     D3D12ResourceBindingTier,
-    D3D12ResourceHeapTier,
+    D3D12ResourceHeapTier
 }
+use ole32 { IUnknown }
 
 @extern(C) {
     pub fn run() {

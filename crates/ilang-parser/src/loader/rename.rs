@@ -127,12 +127,23 @@ pub(super) fn rename_in_item(item: &mut Item, rules: &HashMap<Symbol, Symbol>) {
                     }
                 }
             }
-            // @objc interfaces declared alongside the FFI items
-            // — rename their method param / return types so
-            // cross-module references stay consistent.
+            // @objc / @com interfaces declared alongside the FFI items
+            // — rewrite their parent reference and method param /
+            // return types so cross-module references stay consistent.
+            // Without the parent rewrite a `@com pub interface X : Y`
+            // can't inherit from a `Y` brought in via
+            // `use M { Y }`: the bare `Y` parent stays unqualified
+            // while the imported `Y` is renamed to `M.Y`, so the
+            // post-merge `prefix_item` would prepend the wrong
+            // module prefix and the inherited methods stop resolving.
             for iface in b.interfaces.iter_mut() {
                 if is_submodule_name(&iface.name) {
                     continue;
+                }
+                if let Some(parent) = iface.parent.as_mut() {
+                    if let Some(new_name) = rename_sym(parent, rules) {
+                        *parent = new_name;
+                    }
                 }
                 for m in iface.methods.iter_mut() {
                     for p in m.params.iter_mut() {

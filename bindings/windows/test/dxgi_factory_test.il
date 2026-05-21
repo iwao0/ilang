@@ -18,10 +18,10 @@ use windows {
     DXGI_ADAPTER_DESC1,
     DxgiGpuPreference,
     DxgiAdapterFlag,
-    IUnknown,
     IDXGIFactory6,
-    IDXGIAdapter1,
+    IDXGIAdapter1
 }
+use ole32 { IUnknown }
 
 // IID_IDXGIFactory6 = c1b6694f-ff09-44a9-b03c-77900a0a1d17
 // IID_IDXGIAdapter1 = 29038f61-3839-4626-91fd-086879011a05

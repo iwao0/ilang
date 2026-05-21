@@ -22,6 +22,7 @@
 /// numbering stays anchored to the C++ COM ABI's positions.
 
 use windows { HANDLE }
+use ole32 { IUnknown }
 use d3d12 {
     GUID,
     D3D12_COMMAND_QUEUE_DESC,
@@ -56,13 +57,6 @@ use d3d12 {
 }
 
 @extern(C) {
-    /// Universal IUnknown vtable — every COM interface starts here.
-    @com pub interface IUnknown {
-        QueryInterface(riid: *const GUID, ppvObject: **void): i32
-        AddRef(): u32
-        Release(): u32
-    }
-
     /// ID3D12Object — IUnknown + 4 debug/naming methods. Most
     /// D3D12 interfaces inherit from this.
     @com pub interface ID3D12Object : IUnknown {

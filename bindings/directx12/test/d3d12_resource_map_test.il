@@ -17,7 +17,6 @@ use directx12 {
     D3DFeatureLevel,
     IID_ID3D12Device,
     IID_ID3D12Resource,
-    IUnknown,
     ID3D12Device,
     ID3D12Resource,
     D3D12_HEAP_PROPERTIES,
@@ -30,8 +29,9 @@ use directx12 {
     D3D12TextureLayout,
     D3D12ResourceFlags,
     D3D12ResourceStates,
-    D3D12HeapMiscFlags,
+    D3D12HeapMiscFlags
 }
+use ole32 { IUnknown }
 
 @extern(C) {
     pub fn run() {

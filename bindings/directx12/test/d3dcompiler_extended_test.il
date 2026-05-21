@@ -14,9 +14,9 @@ use directx12 {
     D3DCompile, D3DCompile2,
     D3DDisassemble, D3DStripShader, D3DGetBlobPart, D3DReflect,
     D3D_SHADER_MACRO, ID3DBlob, GUID,
-    D3DCompileFlags,
-    IUnknown,
+    D3DCompileFlags
 }
+use ole32 { IUnknown }
 
 /// IID_ID3D11ShaderReflection = 8d536ca1-0cca-4956-a837-786963755584.
 /// This is what d3dcompiler_47.dll's `D3DReflect` accepts — the

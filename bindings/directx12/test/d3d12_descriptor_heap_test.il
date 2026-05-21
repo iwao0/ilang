@@ -24,7 +24,6 @@ use directx12 {
     IID_ID3D12Device,
     IID_ID3D12DescriptorHeap,
     IID_ID3D12Resource,
-    IUnknown,
     ID3D12Device,
     ID3D12DescriptorHeap,
     ID3D12Resource,
@@ -48,8 +47,9 @@ use directx12 {
     D3D12RtvDimension,
     D3D12Filter,
     D3D12TextureAddressMode,
-    D3D12ComparisonFunc,
+    D3D12ComparisonFunc
 }
+use ole32 { IUnknown }
 
 @extern(C) {
     pub fn run() {

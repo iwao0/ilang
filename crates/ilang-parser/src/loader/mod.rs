@@ -1975,11 +1975,18 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
             // sibling `interfaces` list so the post-merge type
             // checker / auto-lift can look them up by their
             // module-qualified name (the same form users get
-            // after a `use M { … }` rewrite).
+            // after a `use M { … }` rewrite). A parent reference
+            // that already contains a `.` was rewritten by the
+            // `rename_in_item` pass to a cross-module form
+            // (`ole32.IUnknown` etc.) — leave it alone so the
+            // inheritance edge keeps pointing at the canonical
+            // declaration rather than this module's namespace.
             for iface in b.interfaces.iter_mut() {
                 iface.name = format!("{prefix}.{}", iface.name).into();
                 if let Some(parent) = iface.parent.as_mut() {
-                    *parent = format!("{prefix}.{}", parent).into();
+                    if !parent.as_str().contains('.') {
+                        *parent = format!("{prefix}.{}", parent).into();
+                    }
                 }
                 for m in iface.methods.iter_mut() {
                     for p in m.params.iter_mut() {
@@ -2006,9 +2013,15 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
             // `@com interface X : IUnknown { … }` carries a parent
             // name that has to live in the same module-prefixed form
             // as the class-side `extends`, so vtable-slot inheritance
-            // resolves after the loader merge.
+            // resolves after the loader merge. An already-qualified
+            // parent (one that contains `.`) came from a
+            // `use M { Y }` rewrite — leave it pointing at the
+            // canonical declaration instead of dragging it into the
+            // local namespace.
             if let Some(parent) = i.parent.as_mut() {
-                *parent = format!("{prefix}.{}", parent).into();
+                if !parent.as_str().contains('.') {
+                    *parent = format!("{prefix}.{}", parent).into();
+                }
             }
             for m in i.methods.iter_mut() {
                 for p in m.params.iter_mut() {

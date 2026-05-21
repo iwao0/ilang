@@ -14,12 +14,12 @@ use windows {
     CreateDXGIFactory2,
     DXGI_QUERY_VIDEO_MEMORY_INFO,
     DxgiFeature,
-    IUnknown,
     IDXGIFactory4,
     IDXGIFactory5,
     IDXGIAdapter,
-    IDXGIAdapter3,
+    IDXGIAdapter3
 }
+use ole32 { IUnknown }
 
 @extern(C) {
     pub struct GUID {

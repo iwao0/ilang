@@ -47,8 +47,7 @@ use directx12 {
     ID3D12Debug, IID_ID3D12Debug,
     ID3D12InfoQueue, IID_ID3D12InfoQueue,
     D3DFeatureLevel,
-    GUID,
-    IUnknown, ID3D12Device, ID3D12CommandQueue, ID3D12CommandAllocator,
+    GUID, ID3D12Device, ID3D12CommandQueue, ID3D12CommandAllocator,
     ID3D12CommandList, ID3D12GraphicsCommandList, ID3D12Resource, ID3D12Fence,
     ID3D12DescriptorHeap, ID3D12RootSignature, ID3D12PipelineState,
     ID3DBlob,
@@ -76,8 +75,9 @@ use directx12 {
     D3D12InputClassification, D3D12IndexBufferStripCutValue, D3D12PipelineStateFlags,
     D3D12RootSignatureFlags, D3D12RootSignatureVersion, D3D12PrimitiveTopologyType,
     D3DPrimitiveTopologyValue,
-    D3DCompile,
+    D3DCompile
 }
+use ole32 { IUnknown }
 
 @extern(C) {
     // Triangle vertex layout — position (xyz) + color (rgba),

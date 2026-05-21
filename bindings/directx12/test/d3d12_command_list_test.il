@@ -22,7 +22,6 @@ use directx12 {
     IID_ID3D12CommandQueue, IID_ID3D12CommandAllocator,
     IID_ID3D12GraphicsCommandList,
     IID_ID3D12Resource, IID_ID3D12DescriptorHeap, IID_ID3D12Fence,
-    IUnknown,
     ID3D12Device,
     ID3D12CommandQueue,
     ID3D12CommandAllocator,
@@ -53,8 +52,9 @@ use directx12 {
     D3D12ResourceBarrierFlags,
     D3D12HeapMiscFlags,
     D3D12FenceFlags,
-    D3DPrimitiveTopology,
+    D3DPrimitiveTopology
 }
+use ole32 { IUnknown }
 
 @extern(C) {
     pub fn run() {

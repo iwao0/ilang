@@ -20,12 +20,12 @@ use directx12 {
     IID_ID3D12Device,
     IID_ID3D12DeviceRemovedExtendedDataSettings,
     IID_ID3D12DeviceRemovedExtendedData,
-    IUnknown,
     ID3D12Device,
     ID3D12DeviceRemovedExtendedDataSettings,
     ID3D12DeviceRemovedExtendedData,
-    D3D12DredEnablement,
+    D3D12DredEnablement
 }
+use ole32 { IUnknown }
 
 @extern(C) {
     pub fn run() {

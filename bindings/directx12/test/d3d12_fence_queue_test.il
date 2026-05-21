@@ -21,7 +21,6 @@ use directx12 {
     IID_ID3D12Device,
     IID_ID3D12CommandQueue,
     IID_ID3D12Fence,
-    IUnknown,
     ID3D12Device,
     ID3D12CommandQueue,
     ID3D12Fence,
@@ -29,8 +28,9 @@ use directx12 {
     D3D12CommandListType,
     D3D12CommandQueueFlags,
     D3D12CommandQueuePriority,
-    D3D12FenceFlags,
+    D3D12FenceFlags
 }
+use ole32 { IUnknown }
 
 @extern(C) {
     pub fn run() {

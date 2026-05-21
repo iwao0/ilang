@@ -37,9 +37,9 @@ use directx12 {
     D3DFeatureLevel,
     D3D12_COMMAND_QUEUE_DESC,
     D3D12CommandListType, D3D12CommandQueueFlags, D3D12CommandQueuePriority,
-    IID_ID3D12Device, IID_ID3D12CommandQueue,
-    IUnknown, ID3D12Device,
+    IID_ID3D12Device, IID_ID3D12CommandQueue, ID3D12Device
 }
+use ole32 { IUnknown }
 
 @extern(C) {
     pub fn wndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {

@@ -17,9 +17,9 @@ use directx12 {
     D3D12CommandListType, D3D12CommandQueueFlags, D3D12CommandQueuePriority,
     IID_ID3D12Device,
     IID_ID3D12CommandQueue,
-    IUnknown,
-    ID3D12Device,
+    ID3D12Device
 }
+use ole32 { IUnknown }
 
 @extern(C) {
     pub fn run() {

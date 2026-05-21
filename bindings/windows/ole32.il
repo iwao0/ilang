@@ -125,9 +125,12 @@ pub enum DvAspect: u32 {
     // Declared once in ole32 (the COM foundation) so dxgi / d3d12 /
     // wasapi / any future COM binding shares a single identity.
     // Cross-module casts (`device as IUnknown` etc.) work without
-    // detouring through `*void`.
+    // detouring through `*void`. `riid` is `*const void` so callers
+    // can pass `&IID_X` against any binding's own `GUID` struct —
+    // the ABI is the same and that side-steps cross-module struct-
+    // identity friction (e.g. `directx12.GUID` vs `ole32.GUID`).
     @com pub interface IUnknown {
-        QueryInterface(riid: *const GUID, ppvObject: **void): i32
+        QueryInterface(riid: *const void, ppvObject: **void): i32
         AddRef(): u32
         Release(): u32
     }

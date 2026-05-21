@@ -14,9 +14,9 @@ use windows { HANDLE }
 use directx12 {
     D3D12GetInterface,
     IID_ID3D12DeviceRemovedExtendedDataSettings,
-    IUnknown,
-    GUID,
+    GUID
 }
+use ole32 { IUnknown }
 
 /// CLSID_D3D12DeviceRemovedExtendedDataSettings =
 ///   4488833e-dda2-434b-94e2-a2c91b73da89

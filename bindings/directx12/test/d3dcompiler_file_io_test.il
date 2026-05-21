@@ -22,9 +22,10 @@ use windows {
 }
 use directx12 {
     D3DCompileFromFile, D3DWriteBlobToFile, D3DReadFileToBlob,
-    D3D_SHADER_MACRO, ID3DBlob, IUnknown,
-    D3DCompileFlags,
+    D3D_SHADER_MACRO, ID3DBlob,
+    D3DCompileFlags
 }
+use ole32 { IUnknown }
 
 @extern(C) {
     /// Convert an ANSI null-terminated buffer (passed as `i64`) to

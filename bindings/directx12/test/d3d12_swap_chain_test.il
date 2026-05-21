@@ -23,11 +23,11 @@ use windows {
 use directx12 {
     D3D12CreateDevice, D3DFeatureLevel,
     IID_ID3D12Device, IID_ID3D12CommandQueue,
-    IUnknown,
     ID3D12Device, ID3D12CommandQueue,
     D3D12_COMMAND_QUEUE_DESC,
-    D3D12CommandListType, D3D12CommandQueueFlags, D3D12CommandQueuePriority,
+    D3D12CommandListType, D3D12CommandQueueFlags, D3D12CommandQueuePriority
 }
+use ole32 { IUnknown }
 
 // IID_IDXGIFactory4    = 1bc6ea02-ef36-464f-bf0c-21ca39e5168a
 // IID_IDXGISwapChain3  = 94d99bdb-f1f8-4ab0-b236-7da0170edab1
