@@ -418,10 +418,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// `const NAME [: T] = literal` — top-level immutable binding.
-    /// Restricted to literal RHS (numeric / bool / string, with
-    /// optional unary minus on numerics). Anything more elaborate is
-    /// rejected so the substitution pass stays trivial.
+    /// `const NAME [: T] = expr` — top-level immutable binding.
+    /// The parser accepts an arbitrary expression; the loader's
+    /// `inline_constants` pass tries to fold it to a literal and
+    /// inline at each reference, falling back to a once-evaluated
+    /// runtime initializer (`Stmt::Let { is_const: true, ... }`)
+    /// when the RHS can't be folded.
     ///
     /// When `embed_path` is `Some`, the const is being initialised
     /// from a file via `@embed("path")` — `=` must be absent and the
@@ -494,7 +496,9 @@ impl<'a> Parser<'a> {
         self.bump();
         let value = self.parse_expr(0)?;
         // The parser accepts any expression here; the loader's
-        // `inline_constants` pass folds it to a literal (or errors).
+        // `inline_constants` pass tries to fold it to a literal and,
+        // when that fails, demotes the decl to a once-evaluated
+        // runtime initializer (`Stmt::Let { is_const: true, ... }`).
         Ok(ilang_ast::ConstDecl {
             is_pub: false,
             name,

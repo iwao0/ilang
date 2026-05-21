@@ -50,7 +50,7 @@ fn os_platform(): string
 /// conditional-compilation attribute:
 ///
 ///     if os.platform == "windows" { ... }
-pub let platform: string = os_platform()
+pub const platform: string = os_platform()
 
 // ─── POSIX error code constants ─────────────────────────────────
 // Values chosen to match macOS / Linux glibc — these 30-something

@@ -2752,9 +2752,11 @@ class Worker {
 
 ### `const` (constant declaration)
 
-Top-level immutable constants. The RHS is restricted to
-**compile-time-evaluable expressions**; the loader's inline pass
-folds them and replaces references with the literal value.
+Top-level immutable binding. The loader tries to fold the RHS to a
+literal at compile time and inline it at every reference; when the
+RHS is too dynamic for the folder (function call, `new`, field
+access, etc.) the declaration is demoted to a once-evaluated
+runtime initializer that still rejects reassignment.
 
 ```rust
 const TWO: i64 = 2
@@ -2769,22 +2771,28 @@ fn double(n: i64): i64 { n * TWO }
 double(21)                          // 42
 ```
 
-- Allowed operations: arithmetic (`+ - * / %`), bitwise
+- Compile-time fold accepts: arithmetic (`+ - * / %`), bitwise
   (`& | ^ << >> ~`), comparison (`== != < <= > >=`), logical
-  (`&& || !`), string concat (`+`), `as` cast (between numerics).
-- Allowed references: other `const`s declared earlier in the same
+  (`&& || !`), string concat (`+`), `as` cast (between numerics),
+  and references to other `const`s declared earlier in the same
   file (folding is order-dependent — no forward references).
-- **Forbidden**: function calls, field/method access, arrays,
-  `new`, `if`/`match`, loops — anything needing runtime.
-- Folding errors (e.g. divide-by-zero) are **compile-time
+- Anything outside that set (function calls, `new`, field /
+  method access, arrays, `if` / `match`, loops) falls through to
+  the runtime path — the RHS is evaluated **once** at module
+  init in declaration order and the resulting value is bound
+  immutably for the rest of the program. Cross-module references
+  see the same value.
+- Folding errors that aren't recoverable at runtime (e.g.
+  divide-by-zero in a fold-eligible expression, an annotated
+  numeric literal that doesn't fit its type) are **compile-time
   errors**.
 - Type annotation (`: T`) is optional (inferred). When present
   on a numeric `const`, the annotation propagates to every
   reference: a `const N: u32 = 0x10` substitutes as `(0x10 as u32)`
   at every use, so callers don't need their own `as u32`.
-- The bundled `math` module's `pi` / `e` are defined this way.
-- References across modules work fine (the loader stores the
-  qualified name `math.pi`).
+- The bundled `math` module's `pi` / `e` use the compile-time
+  fold path; `os.platform` uses the runtime fallback (it calls a
+  host intrinsic at module init).
 
 #### `@embed("path") const X: T` — file embedding
 

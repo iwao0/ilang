@@ -106,7 +106,7 @@ pub fn round(x: f64): f64
 @intrinsic("math.abs")
 pub fn abs(x: f64): f64
 
-// Constants — inlined at compile time by the loader's const pass.
+// Compile-time folded constants — inlined at every reference.
 
 /// Ratio of a circle's circumference to its diameter (π).
 pub const pi: f64 = 3.141592653589793
