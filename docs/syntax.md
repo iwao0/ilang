@@ -507,8 +507,35 @@ The attributes that actually carry meaning today are:
 - ObjC bridging inside `@extern(ObjC)`: `@objc`, `@objc("selector:")` (optional protocol methods are marked with a trailing `?` on the method name, not an attribute)
 - `@flags` on `enum` declarations (bitset semantics)
 - `@embed("path/to/file")` on `const` declarations (compile-time file inclusion)
+- `@target("os")` on `fn` / `class` / methods — host-OS filter (details below)
 
 Everything else parses successfully but is silently dropped.
+
+#### `@target` — same-name declarations dispatched by OS
+
+Filters declarations at build time by the host's OS. Equivalent to Rust's `#[cfg(target_os = "…")]`.
+
+```rust
+@target("macos")
+fn fileSeparator(): string { "/" }
+
+@target("windows")
+fn fileSeparator(): string { "\\" }
+
+@target("macos", "linux")          // OR — kept if the host matches either
+fn isPosix(): bool { true }
+
+@target(not "windows")             // negation — single `not "X"` only
+fn hasFork(): bool { true }
+```
+
+- Matching items survive and have the `@target` attribute stripped (so it doesn't leak into hover / formatter output).
+- Non-matching items are dropped by the loader before merge — the type checker / JIT never see them.
+- Multiple `@target` attributes on the same item are AND.
+- Mixing `not "X"` with positive args in a single attribute is rejected (split into separate `@target`s if AND is what you want).
+- OS names use the same set as `os.platform`: `"macos"` / `"linux"` / `"windows"` / `"other"`.
+- Allowed on: `fn` (top-level / instance method / static method / `@extern(C)` `FnDef`) and `class` (top-level / inside `@extern(C)`).
+- Two same-name declarations annotated with mutually exclusive `@target`s leave one survivor per host. If more than one slips through (e.g. you wrote `@target("macos")` twice), the existing duplicate-overload check catches it.
 
 ---
 
