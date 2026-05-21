@@ -401,7 +401,7 @@ fn download(url: string, path: string) { ... }
 - `@override` (継承メソッド — Classes 節を参照)
 - `@extern(C) { ... }` / `@extern(ObjC) { ... }` のブロックマーカー
 - `@extern(C)` 内の FFI 系: `@lib` / `@optional` / `@symbol` / `@packed` / `@bits(N)`
-- `@extern(ObjC)` 内の ObjC ブリッジ系: `@objc` / `@objc("selector:")` / `@optional` (interface メソッド用)
+- `@extern(ObjC)` 内の ObjC ブリッジ系: `@objc` / `@objc("selector:")` (optional プロトコルメソッドはメソッド名末尾の `?` で表す。属性ではない)
 - `enum` 宣言に付ける `@flags` (ビットセット意味付け)
 - `const` 宣言に付ける `@embed("path/to/file")` (コンパイル時ファイル取り込み)
 
@@ -1570,8 +1570,8 @@ macOS 専用の Objective-C ランタイム側を扱うブロック。`@extern(C
     }
 
     @objc pub interface NSMenuDelegate {
-        @optional menuWillOpen(menu: NSMenu)
-        @optional menuDidClose(menu: NSMenu)
+        menuWillOpen?(menu: NSMenu)
+        menuDidClose?(menu: NSMenu)
     }
 }
 ```
@@ -1587,7 +1587,7 @@ macOS 専用の Objective-C ランタイム側を扱うブロック。`@extern(C
 ObjC の **protocol** は ilang の `@objc interface` に対応する。宣言形式は通常の `interface I { ... }` と同じ (シグネチャのみ、本体不可)。`@objc` が加える違いは:
 
 - 各メソッドに `@objc("selector:")` を付けて、既定以外のセレクタ名を指定できる。属性が無ければセレクタ名はメソッド名 + パラメータごとの末尾 `:` (Cocoa 流儀) に決まる
-- `@optional` 付きメソッドは ObjC `@optional` プロトコルメソッドに対応する。実装は必須ではなく、ランタイムでは `respondsToSelector:` で振り分けられる
+- メソッド名末尾に `?` を付けた宣言 (例: `menuWillOpen?(menu: NSMenu)`) は ObjC の `@optional` プロトコルメソッドに対応する。実装は必須ではなく、ランタイムでは `respondsToSelector:` で振り分けられる。optional を表す唯一の構文がこの末尾 `?` で、旧来の `@optional` 属性は構文エラー。末尾 `?` を書けるのは `@objc` interface の中だけで、通常の interface は strict な実装契約を保つ
 - `@objc interface` 型はパラメータ / プロパティ位置でそのまま使える。`pub setDelegate(d: NSMenuDelegate)` のような形が型チェックされ、ブリッジ側の ARC retain / release も自動で配線される
 
 #### ObjC サブクラスを通常の `class` で書く
@@ -1637,7 +1637,7 @@ app.run()
 
 lift された各クラスには NSObject (または指定された親) ObjC 親、セレクタ配線 (デフォルト = メソッド名 + パラメータ数ぶんの `:`)、`alloc` / `init` / `register` のスタブが自動挿入される。書くのは実装したいメソッドだけでよい。
 
-- プロトコルで実装しなかったメソッドは ObjC 側で `@optional` 扱いの no-op として残り、ランタイムは `respondsToSelector: NO` を返すだけ
+- プロトコルで実装しなかったメソッドは ObjC 側で optional 扱い (プロトコル側に末尾 `?` が付いているもの) の no-op として残り、ランタイムは `respondsToSelector: NO` を返すだけ
 - これらのクラスは ilang の通常クラスとして `new` で生成するものでは**ない** — lifted された `alloc().init()` ペア (`AppDelegate.alloc().init()`) 経由でインスタンス化する
 - base list に複数の `@objc interface` を並べてもよい (`class X : NSWindowDelegate, NSMenuDelegate { ... }`)。`@objc class` 親と組み合わせれば「サブクラス + プロトコル」も書ける
 - 以下の用途では明示的な `@extern(ObjC) { @objc class … { … } }` 形式に切り替える: raw ポインタ (`*u8`、`*const char` 等) を引数 / 戻り値で扱いたい、もしくはデフォルトのセレクタ形式に乗らない `@objc("selector:")` を指定したい場合

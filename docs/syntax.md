@@ -504,7 +504,7 @@ The attributes that actually carry meaning today are:
 - `@override` (inheritance — see the Classes section)
 - `@extern(C) { ... }` / `@extern(ObjC) { ... }` block markers
 - FFI items inside `@extern(C)`: `@lib`, `@optional`, `@symbol`, `@packed`, `@bits(N)`
-- ObjC bridging inside `@extern(ObjC)`: `@objc`, `@objc("selector:")`, `@optional` (on interface methods)
+- ObjC bridging inside `@extern(ObjC)`: `@objc`, `@objc("selector:")` (optional protocol methods are marked with a trailing `?` on the method name, not an attribute)
 - `@flags` on `enum` declarations (bitset semantics)
 - `@embed("path/to/file")` on `const` declarations (compile-time file inclusion)
 
@@ -2092,8 +2092,8 @@ stand in for ObjC **protocols**, and selector metadata.
     }
 
     @objc pub interface NSMenuDelegate {
-        @optional menuWillOpen(menu: NSMenu)
-        @optional menuDidClose(menu: NSMenu)
+        menuWillOpen?(menu: NSMenu)
+        menuDidClose?(menu: NSMenu)
     }
 }
 ```
@@ -2120,9 +2120,13 @@ declaration shape is the same as an ordinary `interface I { ... }`
 - Each method may carry `@objc("selector:")` to name a non-default
   selector. Without it, the selector defaults to the method name
   plus a trailing `:` per parameter (Cocoa-style).
-- Methods marked `@optional` mirror ObjC `@optional` protocol
-  methods — implementing them is not required, and at runtime the
-  ObjC machinery dispatches via `respondsToSelector:`.
+- A method whose name ends in `?` (e.g. `menuWillOpen?(menu: NSMenu)`)
+  mirrors an ObjC `@optional` protocol method — implementing it is
+  not required, and at runtime the ObjC machinery dispatches via
+  `respondsToSelector:`. The `?` suffix is the only way to mark an
+  optional method; the legacy `@optional` attribute is rejected, and
+  trailing `?` is only allowed inside `@objc` interfaces (plain
+  interfaces enforce a strict conformance contract).
 - `@objc interface` types can appear in parameter / property
   positions the same as any other interface — `pub setDelegate(d:
   NSMenuDelegate)` is type-checked, and ARC retain/release on the
@@ -2183,9 +2187,9 @@ parent) ObjC parent, selector wiring (default = method name + `:`
 per parameter), and `alloc` / `init` / `register` stubs — you
 only write the methods you actually want to override.
 
-- Methods you don't implement on a protocol stay as ObjC
-  `@optional` no-ops; the runtime answers `respondsToSelector: NO`
-  for them.
+- Methods you don't implement on a protocol stay as ObjC optional
+  no-ops (the protocol side marks them with a trailing `?`); the
+  runtime answers `respondsToSelector: NO` for them.
 - The class is **not** treated as a plain ilang class for `new`
   construction — instantiate it through the lifted `alloc().init()`
   pair the runtime exposes (`AppDelegate.alloc().init()`).
