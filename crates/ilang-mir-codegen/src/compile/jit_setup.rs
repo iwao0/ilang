@@ -347,6 +347,17 @@ pub fn compile_with_builtins(
     jit_builder.symbol("fs.__readlink", ilang_runtime::fs::fs_readlink as *const u8);
     jit_builder.symbol("fs.__link", ilang_runtime::fs::fs_link as *const u8);
     jit_builder.symbol("fs.__mkdtemp", ilang_runtime::fs::fs_mkdtemp as *const u8);
+    // time.* — `stdlib/time.il`'s `@extern(C)` block.
+    jit_builder.symbol("time.__now_ms", ilang_runtime::time::time_now_ms as *const u8);
+    jit_builder.symbol("time.__now_ns", ilang_runtime::time::time_now_ns as *const u8);
+    jit_builder.symbol("time.__monotonic_ns", ilang_runtime::time::time_monotonic_ns as *const u8);
+    jit_builder.symbol("time.__sleep_ms", ilang_runtime::time::time_sleep_ms as *const u8);
+    jit_builder.symbol("time.__break_down_utc", ilang_runtime::time::time_break_down_utc as *const u8);
+    jit_builder.symbol("time.__break_down_local", ilang_runtime::time::time_break_down_local as *const u8);
+    jit_builder.symbol("time.__compose", ilang_runtime::time::time_compose as *const u8);
+    jit_builder.symbol("time.__parse_iso", ilang_runtime::time::time_parse_iso as *const u8);
+    jit_builder.symbol("time.__to_iso", ilang_runtime::time::time_to_iso as *const u8);
+    jit_builder.symbol("time.__format", ilang_runtime::time::time_format as *const u8);
     // regex.* — `stdlib/regex.il`'s `@extern(C)` block. The loader
     // prefixes the @extern fn names with the module name, so the
     // JIT looks them up as `regex.__regex_*`.

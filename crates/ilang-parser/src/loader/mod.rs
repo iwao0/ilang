@@ -47,6 +47,7 @@ pub fn builtin_module_source(name: &str) -> Option<&'static str> {
         "fs" => Some(include_str!("../../../../stdlib/fs.il")),
         "path" => Some(include_str!("../../../../stdlib/path.il")),
         "regex" => Some(include_str!("../../../../stdlib/regex.il")),
+        "time" => Some(include_str!("../../../../stdlib/time.il")),
         _ => None,
     }
 }
