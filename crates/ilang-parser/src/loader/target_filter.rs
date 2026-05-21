@@ -162,18 +162,16 @@ fn filter_class(c: &mut ClassDecl) -> Result<bool, LoadError> {
 pub(crate) fn filter_program(prog: &mut Program) -> Result<(), LoadError> {
     let mut kept: Vec<Item> = Vec::with_capacity(prog.items.len());
     for item in std::mem::take(&mut prog.items).into_iter() {
-        let keep = match item {
+        match item {
             Item::Fn(mut f) => {
                 if filter_fn(&mut f)? {
                     kept.push(Item::Fn(f));
                 }
-                continue;
             }
             Item::Class(mut c) => {
                 if filter_class(&mut c)? {
                     kept.push(Item::Class(c));
                 }
-                continue;
             }
             Item::ExternC(mut block) => {
                 let mut inner: Vec<ExternCItem> = Vec::with_capacity(block.items.len());
@@ -194,11 +192,14 @@ pub(crate) fn filter_program(prog: &mut Program) -> Result<(), LoadError> {
                 }
                 block.items = inner.into_boxed_slice();
                 kept.push(Item::ExternC(block));
-                continue;
             }
-            other => other,
-        };
-        let _ = keep; // pacify clippy on the trailing arm — the body above always continues.
+            // `Item::Use` / `Item::Const` / `Item::Enum` / `Item::Interface`
+            // don't carry a `@target` attribute at all — pass them through
+            // unchanged. Dropping them silently breaks every cross-module
+            // reference: e.g. `use math` vanishes and the type checker
+            // can't find `math.sqrt`.
+            other => kept.push(other),
+        }
     }
     prog.items = kept;
     Ok(())
