@@ -561,3 +561,9 @@ pub const IID_D3D12_DEBUG: GUID = GUID {
     Data4lo: 0xba9bef91, Data4hi: 0x78fd7ba1,
 }
 
+
+/// IID_ID3D12VersionedRootSignatureDeserializer = 7f91ce67-090c-4bb7-b78e-ed8ff2e31da0
+pub const IID_ID3D12VersionedRootSignatureDeserializer: GUID = GUID {
+    Data1: 0x7f91ce67, Data2: 0x090c, Data3: 0x4bb7,
+    Data4lo: 0x8fed8eb7, Data4hi: 0xa01de3f2,
+}
