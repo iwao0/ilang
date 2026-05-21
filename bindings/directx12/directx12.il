@@ -8,10 +8,8 @@
 /// driver. The flat entry points here bootstrap COM interfaces
 /// (ID3D12Device, ID3D12CommandQueue, etc.); reaching the full
 /// rendering pipeline requires vtable calls on those interfaces.
-///
-/// Layered on top of dxgi (in bindings/windows): DXGI provides
-/// the adapter, output, and swap-chain factory used by D3D12.
 
+pub use dxgi.*
 pub use d3d12.*
 pub use d3d12_iids.*
 pub use d3d12_com.*

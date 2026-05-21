@@ -13,14 +13,8 @@
 use test
 use windows {
     HANDLE,
-    NULL,
-    CreateDXGIFactory2,
-    DXGI_ADAPTER_DESC1,
-    DxgiGpuPreference,
-    DxgiAdapterFlag,
-    IDXGIFactory6,
-    IDXGIAdapter1
-}
+    NULL,}
+use directx12 { CreateDXGIFactory2, DXGI_ADAPTER_DESC1, DxgiAdapterFlag, DxgiGpuPreference, IDXGIAdapter1, IDXGIFactory6 }
 use ole32 { GUID, IUnknown }
 
 // IID_IDXGIFactory6 = c1b6694f-ff09-44a9-b03c-77900a0a1d17

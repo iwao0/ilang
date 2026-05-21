@@ -36,10 +36,6 @@ use windows {
     SetWindowTextA,
     CreateEventA, WaitForSingleObject, CloseHandle,
     RtlMoveMemory,
-    CreateDXGIFactory2,
-    DXGI_SAMPLE_DESC, DXGI_SWAP_CHAIN_DESC1,
-    DxgiFormat, DxgiUsage, DxgiSwapEffect, DxgiAlphaMode, DxgiScaling,
-    IDXGIFactory4, IDXGISwapChain1,
 }
 
 use directx12 {
@@ -74,7 +70,8 @@ use directx12 {
     D3D12InputClassification, D3D12IndexBufferStripCutValue, D3D12PipelineStateFlags,
     D3D12RootSignatureFlags, D3D12RootSignatureVersion, D3D12PrimitiveTopologyType,
     D3DPrimitiveTopologyValue,
-    D3DCompile
+    D3DCompile,
+    CreateDXGIFactory2, DXGI_SAMPLE_DESC, DXGI_SWAP_CHAIN_DESC1, DxgiAlphaMode, DxgiFormat, DxgiScaling, DxgiSwapEffect, DxgiUsage, IDXGIFactory4, IDXGISwapChain1,
 }
 use ole32 { GUID, IUnknown }
 

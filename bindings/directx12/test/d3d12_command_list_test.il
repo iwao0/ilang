@@ -14,7 +14,6 @@ use test
 use windows {
     HANDLE, NULL,
     CreateEventA, WaitForSingleObject, CloseHandle,
-    DXGI_SAMPLE_DESC, DxgiFormat,
 }
 use directx12 {
     D3D12CreateDevice, D3DFeatureLevel,
@@ -52,7 +51,8 @@ use directx12 {
     D3D12ResourceBarrierFlags,
     D3D12HeapMiscFlags,
     D3D12FenceFlags,
-    D3DPrimitiveTopology
+    D3DPrimitiveTopology,
+    DXGI_SAMPLE_DESC, DxgiFormat,
 }
 use ole32 { IUnknown }
 

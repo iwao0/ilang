@@ -38,7 +38,6 @@ pub use opengl32.*
 pub use bcrypt.*
 pub use netapi32.*
 pub use userenv.*
-pub use dxgi.*
 pub use dinput8.*
 pub use setupapi.*
 pub use rpcrt4.*

@@ -10,15 +10,8 @@
 
 use test
 use windows {
-    HANDLE, NULL,
-    CreateDXGIFactory2,
-    DXGI_QUERY_VIDEO_MEMORY_INFO,
-    DxgiFeature,
-    IDXGIFactory4,
-    IDXGIFactory5,
-    IDXGIAdapter,
-    IDXGIAdapter3
-}
+    HANDLE, NULL,}
+use directx12 { CreateDXGIFactory2, DXGI_QUERY_VIDEO_MEMORY_INFO, DxgiFeature, IDXGIAdapter, IDXGIAdapter3, IDXGIFactory4, IDXGIFactory5 }
 use ole32 { GUID, IUnknown }
 
 /// IID_IDXGIFactory4 = 1bc6ea02-ef36-464f-bf0c-21ca39e5168a

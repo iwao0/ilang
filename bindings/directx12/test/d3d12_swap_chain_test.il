@@ -15,17 +15,14 @@ use windows {
     WNDCLASSEXA, ClassStyle, WindowStyle,
     RegisterClassExA, CreateWindowExA, DefWindowProcA, DestroyWindow,
     GetModuleHandleA,
-    CreateDXGIFactory2,
-    DXGI_SWAP_CHAIN_DESC1, DXGI_SAMPLE_DESC,
-    DxgiFormat, DxgiSwapEffect, DxgiAlphaMode, DxgiScaling, DxgiUsage,
-    IDXGIFactory2, IDXGIFactory4, IDXGISwapChain1, IDXGISwapChain3,
 }
 use directx12 {
     D3D12CreateDevice, D3DFeatureLevel,
     IID_ID3D12Device, IID_ID3D12CommandQueue,
     ID3D12Device, ID3D12CommandQueue,
     D3D12_COMMAND_QUEUE_DESC,
-    D3D12CommandListType, D3D12CommandQueueFlags, D3D12CommandQueuePriority
+    D3D12CommandListType, D3D12CommandQueueFlags, D3D12CommandQueuePriority,
+    CreateDXGIFactory2, DXGI_SAMPLE_DESC, DXGI_SWAP_CHAIN_DESC1, DxgiAlphaMode, DxgiFormat, DxgiScaling, DxgiSwapEffect, DxgiUsage, IDXGIFactory2, IDXGIFactory4, IDXGISwapChain1, IDXGISwapChain3,
 }
 use ole32 { GUID, IUnknown }
 

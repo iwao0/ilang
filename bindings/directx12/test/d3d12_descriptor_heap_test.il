@@ -16,7 +16,6 @@
 use test
 use windows {
     HANDLE, NULL,
-    DXGI_SAMPLE_DESC, DxgiFormat,
 }
 use directx12 {
     D3D12CreateDevice,
@@ -47,7 +46,8 @@ use directx12 {
     D3D12RtvDimension,
     D3D12Filter,
     D3D12TextureAddressMode,
-    D3D12ComparisonFunc
+    D3D12ComparisonFunc,
+    DXGI_SAMPLE_DESC, DxgiFormat,
 }
 use ole32 { IUnknown }
 

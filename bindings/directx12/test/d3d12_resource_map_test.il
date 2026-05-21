@@ -9,8 +9,6 @@ use windows {
     HANDLE,
     NULL,
     RtlMoveMemory,
-    DXGI_SAMPLE_DESC,
-    DxgiFormat,
 }
 use directx12 {
     D3D12CreateDevice,
@@ -29,7 +27,8 @@ use directx12 {
     D3D12TextureLayout,
     D3D12ResourceFlags,
     D3D12ResourceStates,
-    D3D12HeapMiscFlags
+    D3D12HeapMiscFlags,
+    DXGI_SAMPLE_DESC, DxgiFormat,
 }
 use ole32 { IUnknown }
 
