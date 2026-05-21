@@ -37,6 +37,36 @@ use gui_impl {
     setEditFrame,
     setEditEnabled,
     setEditVisible,
+    createNativeCheckbox,
+    setOnCheckboxToggle,
+    setCheckboxText,
+    setCheckboxChecked,
+    readCheckboxChecked,
+    setCheckboxFrame,
+    setCheckboxEnabled,
+    setCheckboxVisible,
+    createNativeSlider,
+    setOnSliderChange,
+    setSliderRange,
+    setSliderValue,
+    readSliderValue,
+    setSliderFrame,
+    setSliderEnabled,
+    setSliderVisible,
+    createNativeProgress,
+    setProgressRange,
+    setProgressValue,
+    setProgressFrame,
+    setProgressVisible,
+    createNativeCombo,
+    setOnComboSelect,
+    addComboItem,
+    clearComboItems,
+    setComboSelectedIndex,
+    readComboSelectedIndex,
+    setComboFrame,
+    setComboEnabled,
+    setComboVisible,
     runEventLoop,
 }
 
@@ -113,6 +143,37 @@ pub class ChangeEvent : Event {
     pub value: string
     pub init(sender: EventTarget, value: string) {
         super(sender)
+        this.value = value
+    }
+}
+
+/// Fired when a `Checkbox` flips. `checked` is the new state.
+pub class ToggleEvent : Event {
+    pub checked: bool
+    pub init(sender: EventTarget, checked: bool) {
+        super(sender)
+        this.checked = checked
+    }
+}
+
+/// Fired continuously while a `Slider` is being dragged. `value`
+/// is the current slider position.
+pub class SliderEvent : Event {
+    pub value: f64
+    pub init(sender: EventTarget, value: f64) {
+        super(sender)
+        this.value = value
+    }
+}
+
+/// Fired when a `ComboBox` selection changes. `index` is the new
+/// 0-based slot; `value` is the matching item's display string.
+pub class SelectEvent : Event {
+    pub index: i32
+    pub value: string
+    pub init(sender: EventTarget, index: i32, value: string) {
+        super(sender)
+        this.index = index
         this.value = value
     }
 }
@@ -225,6 +286,10 @@ pub class Window : EventTarget {
     pub addChild(child: TextField) {
         child.attachTo(this)
     }
+    pub addChild(child: Checkbox)    { child.attachTo(this) }
+    pub addChild(child: Slider)      { child.attachTo(this) }
+    pub addChild(child: ProgressBar) { child.attachTo(this) }
+    pub addChild(child: ComboBox)    { child.attachTo(this) }
 }
 
 /// A push-button widget. Construct unparented, configure with
@@ -516,6 +581,428 @@ pub class TextField : EventTarget {
         setOnEditChange(this.handle, fn(v: string) {
             this._text = v
             this.onChange.emit(new ChangeEvent(this, v))
+        })
+    }
+}
+
+/// A boolean toggle with an inline title. Win32: `BUTTON` class
+/// with `BS_AUTOCHECKBOX`; Cocoa: `NSButton` with
+/// `setButtonType(NSButtonTypeSwitch)`. `onToggle` fires whenever
+/// the checked state flips.
+pub class Checkbox : EventTarget {
+    handle: i64
+    _text:      string
+    _checked:   bool
+    _x:         f64
+    _y:         f64
+    _width:     f64
+    _height:    f64
+    _isEnabled: bool
+    _isVisible: bool
+    pub onToggle: Signal<ToggleEvent>
+
+    pub init() {
+        super()
+        this.handle     = -1
+        this._text      = ""
+        this._checked   = false
+        this._x         = 0.0
+        this._y         = 0.0
+        this._width     = 160.0
+        this._height    = 22.0
+        this._isEnabled = true
+        this._isVisible = true
+        this.onToggle   = new Signal<ToggleEvent>()
+    }
+
+    pub get text(): string { this._text }
+    pub set text(v: string) {
+        this._text = v
+        if this.handle >= 0 { setCheckboxText(this.handle, v) }
+    }
+    pub get checked(): bool {
+        if this.handle >= 0 { this._checked = readCheckboxChecked(this.handle) }
+        this._checked
+    }
+    pub set checked(v: bool) {
+        this._checked = v
+        if this.handle >= 0 { setCheckboxChecked(this.handle, v) }
+    }
+
+    pub get x(): f64 { this._x }
+    pub set x(v: f64) {
+        this._x = v
+        if this.handle >= 0 {
+            setCheckboxFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub get y(): f64 { this._y }
+    pub set y(v: f64) {
+        this._y = v
+        if this.handle >= 0 {
+            setCheckboxFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub get width(): f64 { this._width }
+    pub set width(v: f64) {
+        this._width = v
+        if this.handle >= 0 {
+            setCheckboxFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub get height(): f64 { this._height }
+    pub set height(v: f64) {
+        this._height = v
+        if this.handle >= 0 {
+            setCheckboxFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+
+    pub get isEnabled(): bool { this._isEnabled }
+    pub set isEnabled(v: bool) {
+        this._isEnabled = v
+        if this.handle >= 0 { setCheckboxEnabled(this.handle, v) }
+    }
+    pub get isVisible(): bool { this._isVisible }
+    pub set isVisible(v: bool) {
+        this._isVisible = v
+        if this.handle >= 0 { setCheckboxVisible(this.handle, v) }
+    }
+
+    pub attachTo(window: Window) {
+        if this.handle >= 0 { return }
+        this.handle = createNativeCheckbox(
+            window.handle,
+            this._text, this._checked,
+            this._x, this._y, this._width, this._height,
+            this._isEnabled, this._isVisible
+        )
+        setOnCheckboxToggle(this.handle, fn(checked: bool) {
+            this._checked = checked
+            this.onToggle.emit(new ToggleEvent(this, checked))
+        })
+    }
+}
+
+/// Continuous numeric slider over `[min, max]`. Win32:
+/// `msctls_trackbar32`; Cocoa: `NSSlider` (continuous). `onChange`
+/// fires live while the thumb is being dragged.
+pub class Slider : EventTarget {
+    handle: i64
+    _min:       f64
+    _max:       f64
+    _value:     f64
+    _x:         f64
+    _y:         f64
+    _width:     f64
+    _height:    f64
+    _isEnabled: bool
+    _isVisible: bool
+    pub onChange: Signal<SliderEvent>
+
+    pub init() {
+        super()
+        this.handle     = -1
+        this._min       = 0.0
+        this._max       = 100.0
+        this._value     = 0.0
+        this._x         = 0.0
+        this._y         = 0.0
+        this._width     = 200.0
+        this._height    = 26.0
+        this._isEnabled = true
+        this._isVisible = true
+        this.onChange   = new Signal<SliderEvent>()
+    }
+
+    pub get min(): f64 { this._min }
+    pub set min(v: f64) {
+        this._min = v
+        if this.handle >= 0 { setSliderRange(this.handle, this._min, this._max) }
+    }
+    pub get max(): f64 { this._max }
+    pub set max(v: f64) {
+        this._max = v
+        if this.handle >= 0 { setSliderRange(this.handle, this._min, this._max) }
+    }
+    pub get value(): f64 {
+        if this.handle >= 0 { this._value = readSliderValue(this.handle) }
+        this._value
+    }
+    pub set value(v: f64) {
+        this._value = v
+        if this.handle >= 0 { setSliderValue(this.handle, v) }
+    }
+
+    pub get x(): f64 { this._x }
+    pub set x(v: f64) {
+        this._x = v
+        if this.handle >= 0 {
+            setSliderFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub get y(): f64 { this._y }
+    pub set y(v: f64) {
+        this._y = v
+        if this.handle >= 0 {
+            setSliderFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub get width(): f64 { this._width }
+    pub set width(v: f64) {
+        this._width = v
+        if this.handle >= 0 {
+            setSliderFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub get height(): f64 { this._height }
+    pub set height(v: f64) {
+        this._height = v
+        if this.handle >= 0 {
+            setSliderFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+
+    pub get isEnabled(): bool { this._isEnabled }
+    pub set isEnabled(v: bool) {
+        this._isEnabled = v
+        if this.handle >= 0 { setSliderEnabled(this.handle, v) }
+    }
+    pub get isVisible(): bool { this._isVisible }
+    pub set isVisible(v: bool) {
+        this._isVisible = v
+        if this.handle >= 0 { setSliderVisible(this.handle, v) }
+    }
+
+    pub attachTo(window: Window) {
+        if this.handle >= 0 { return }
+        this.handle = createNativeSlider(
+            window.handle,
+            this._min, this._max, this._value,
+            this._x, this._y, this._width, this._height,
+            this._isEnabled, this._isVisible
+        )
+        setOnSliderChange(this.handle, fn(v: f64) {
+            this._value = v
+            this.onChange.emit(new SliderEvent(this, v))
+        })
+    }
+}
+
+/// Read-only progress bar. Win32: `msctls_progress32`; Cocoa:
+/// `NSProgressIndicator` (determinate bar). Set `value` within
+/// `[min, max]` to advance.
+pub class ProgressBar : EventTarget {
+    handle: i64
+    _min:       f64
+    _max:       f64
+    _value:     f64
+    _x:         f64
+    _y:         f64
+    _width:     f64
+    _height:    f64
+    _isVisible: bool
+
+    pub init() {
+        super()
+        this.handle     = -1
+        this._min       = 0.0
+        this._max       = 100.0
+        this._value     = 0.0
+        this._x         = 0.0
+        this._y         = 0.0
+        this._width     = 200.0
+        this._height    = 18.0
+        this._isVisible = true
+    }
+
+    pub get min(): f64 { this._min }
+    pub set min(v: f64) {
+        this._min = v
+        if this.handle >= 0 { setProgressRange(this.handle, this._min, this._max) }
+    }
+    pub get max(): f64 { this._max }
+    pub set max(v: f64) {
+        this._max = v
+        if this.handle >= 0 { setProgressRange(this.handle, this._min, this._max) }
+    }
+    pub get value(): f64 { this._value }
+    pub set value(v: f64) {
+        this._value = v
+        if this.handle >= 0 { setProgressValue(this.handle, v) }
+    }
+
+    pub get x(): f64 { this._x }
+    pub set x(v: f64) {
+        this._x = v
+        if this.handle >= 0 {
+            setProgressFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub get y(): f64 { this._y }
+    pub set y(v: f64) {
+        this._y = v
+        if this.handle >= 0 {
+            setProgressFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub get width(): f64 { this._width }
+    pub set width(v: f64) {
+        this._width = v
+        if this.handle >= 0 {
+            setProgressFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub get height(): f64 { this._height }
+    pub set height(v: f64) {
+        this._height = v
+        if this.handle >= 0 {
+            setProgressFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+
+    pub get isVisible(): bool { this._isVisible }
+    pub set isVisible(v: bool) {
+        this._isVisible = v
+        if this.handle >= 0 { setProgressVisible(this.handle, v) }
+    }
+
+    pub attachTo(window: Window) {
+        if this.handle >= 0 { return }
+        this.handle = createNativeProgress(
+            window.handle,
+            this._min, this._max, this._value,
+            this._x, this._y, this._width, this._height,
+            this._isVisible
+        )
+    }
+}
+
+/// Drop-down list of pre-populated string items. Win32: `COMBOBOX`
+/// with `CBS_DROPDOWNLIST` (read-only); Cocoa: `NSPopUpButton`.
+/// `onSelect` fires on each selection change.
+///
+/// Items added with `addItem` before `addChild` are pushed to the
+/// native control on realization; calls after `addChild` propagate
+/// immediately.
+pub class ComboBox : EventTarget {
+    handle: i64
+    _items:     string[]
+    _selected:  i32
+    _x:         f64
+    _y:         f64
+    _width:     f64
+    _height:    f64
+    _isEnabled: bool
+    _isVisible: bool
+    pub onSelect: Signal<SelectEvent>
+
+    pub init() {
+        super()
+        this.handle     = -1
+        this._items     = []
+        this._selected  = -1
+        this._x         = 0.0
+        this._y         = 0.0
+        this._width     = 160.0
+        this._height    = 26.0
+        this._isEnabled = true
+        this._isVisible = true
+        this.onSelect   = new Signal<SelectEvent>()
+    }
+
+    /// Append `item` to the dropdown.
+    pub addItem(item: string) {
+        this._items.push(item)
+        if this.handle >= 0 { addComboItem(this.handle, item) }
+    }
+    /// Drop every item.
+    pub clear() {
+        this._items = []
+        this._selected = -1
+        if this.handle >= 0 { clearComboItems(this.handle) }
+    }
+    /// 0-based index of the currently selected item, or `-1` when
+    /// nothing is selected.
+    pub get selectedIndex(): i32 {
+        if this.handle >= 0 { this._selected = readComboSelectedIndex(this.handle) }
+        this._selected
+    }
+    pub set selectedIndex(v: i32) {
+        this._selected = v
+        if this.handle >= 0 { setComboSelectedIndex(this.handle, v) }
+    }
+    pub get selectedValue(): string {
+        let i = this.selectedIndex
+        if i < 0 || (i as i64) >= this._items.length { return "" }
+        this._items[i as i64]
+    }
+
+    pub get x(): f64 { this._x }
+    pub set x(v: f64) {
+        this._x = v
+        if this.handle >= 0 {
+            setComboFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub get y(): f64 { this._y }
+    pub set y(v: f64) {
+        this._y = v
+        if this.handle >= 0 {
+            setComboFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub get width(): f64 { this._width }
+    pub set width(v: f64) {
+        this._width = v
+        if this.handle >= 0 {
+            setComboFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub get height(): f64 { this._height }
+    pub set height(v: f64) {
+        this._height = v
+        if this.handle >= 0 {
+            setComboFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+
+    pub get isEnabled(): bool { this._isEnabled }
+    pub set isEnabled(v: bool) {
+        this._isEnabled = v
+        if this.handle >= 0 { setComboEnabled(this.handle, v) }
+    }
+    pub get isVisible(): bool { this._isVisible }
+    pub set isVisible(v: bool) {
+        this._isVisible = v
+        if this.handle >= 0 { setComboVisible(this.handle, v) }
+    }
+
+    pub attachTo(window: Window) {
+        if this.handle >= 0 { return }
+        this.handle = createNativeCombo(
+            window.handle,
+            this._x, this._y, this._width, this._height,
+            this._isEnabled, this._isVisible
+        )
+        // Push the cached items / selection.
+        let n = this._items.length
+        let i: i64 = 0
+        while i < n {
+            addComboItem(this.handle, this._items[i])
+            i = i + 1
+        }
+        if this._selected >= 0 {
+            setComboSelectedIndex(this.handle, this._selected)
+        }
+        setOnComboSelect(this.handle, fn(idx: i32) {
+            this._selected = idx
+            let v = if idx >= 0 && (idx as i64) < this._items.length {
+                this._items[idx as i64]
+            } else {
+                ""
+            }
+            this.onSelect.emit(new SelectEvent(this, idx, v))
         })
     }
 }

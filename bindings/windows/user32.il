@@ -1217,6 +1217,18 @@ pub enum SpiAction: u32 {
         lParam: i64
     ): i64
 
+    /// Wide-string variant of `SendMessageA`. Required for messages
+    /// that ferry strings through lParam against a window class
+    /// registered with `RegisterClassExW` (combo-box CB_ADDSTRING,
+    /// CB_GETLBTEXT, etc.) — the A variant would re-interpret the
+    /// UTF-16 buffer as the ANSI code page.
+    @lib pub fn SendMessageW(
+        hwnd:   HWND,
+        msg:    u32,
+        wParam: u64,
+        lParam: i64
+    ): i64
+
     /// Posts a message asynchronously; returns immediately.
     @lib pub fn PostMessageA(
         hwnd:   HWND,

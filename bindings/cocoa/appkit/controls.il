@@ -64,6 +64,16 @@ pub enum NSDatePickerStyle: u64 {
         pub setTitle(title: NSString)
         @objc("setBezelStyle:")
         pub setBezelStyle(style: NSBezelStyle)
+        /// Switch to checkbox / radio / push-on-push-off / etc. by
+        /// passing the matching `NSButtonType` (= `i64` on macOS).
+        /// `3` = `NSButtonTypeSwitch` (checkbox).
+        @objc("setButtonType:")
+        pub setButtonType(t: i64)
+        /// `NSControlStateValueOff = 0`, `Mixed = -1`, `On = 1`.
+        @objc("state")
+        pub get state(): i64
+        @objc("setState:")
+        pub set state(v: i64)
 
         @objc("setTarget:")
         pub setTarget(target: NSObject)
@@ -138,6 +148,10 @@ pub enum NSDatePickerStyle: u64 {
         pub get doubleValue(): f64
         @objc("setDoubleValue:")
         pub set doubleValue(v: f64)
+        /// `true` = fire the action every time the thumb moves;
+        /// `false` (default) = only fire on mouse-up.
+        @objc("setContinuous:")
+        pub setContinuous(flag: bool)
 
         @objc("setTarget:")
         pub setTarget(target: NSObject)

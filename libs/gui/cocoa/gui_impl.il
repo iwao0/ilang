@@ -18,10 +18,13 @@
 
 use cocoa {
     NSObject, NSApplication, NSWindow, NSView, NSButton, NSTextField,
+    NSSlider, NSProgressIndicator, NSPopUpButton,
+    NSProgressIndicatorStyle,
     NSNotification, NSEvent,
     NSRect, NSWindowStyleMask, NSApplicationActivationPolicy,
     NSEventModifierFlags, NSString,
-    nsstr, ilstr, makeRect, makeLabel, makeTextField, selectorPtr, nil,
+    nsstr, ilstr, makeRect, makeLabel, makeTextField, makeSlider,
+    makeProgressBar, selectorPtr, nil,
     sharedApplication, makeWindow,
 }
 
@@ -515,6 +518,312 @@ pub fn setEditEnabled(handle: i64, enabled: bool) {
 pub fn setEditVisible(handle: i64, visible: bool) {
     if handle >= 0 && handle < (EDITS.length as i64) {
         EDITS[handle].setHidden(!visible)
+    }
+}
+
+// ─── checkboxes (NSButton + setButtonType:switch) ────────────
+
+let CHECKBOXES:        NSButton[]    = []
+let CHECKBOX_KEYS:     NSObject[]    = []
+let ON_TOGGLE:         fn(bool)[]    = []
+let TOGGLE_HANDLERS:   NSObject[]    = []
+
+fn noOpBool(b: bool) { let _ = b }
+
+class ToggleHandler : NSObject {
+    pub toggled(sender: NSObject) {
+        let ix = indexBy(CHECKBOX_KEYS, sender)
+        if ix >= 0 {
+            let cb = ON_TOGGLE[ix]
+            // NSControlStateValueOn = 1.
+            cb(CHECKBOXES[ix].state == 1 as i64)
+        }
+    }
+}
+
+pub fn createNativeCheckbox(
+    windowHandle: i64,
+    text: string, checked: bool,
+    x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (WINDOWS.length as i64) {
+        return -1
+    }
+    let win = WINDOWS[windowHandle]
+    let cb = NSButton.alloc().init(makeRect(x, y, width, height))
+    // NSButtonTypeSwitch = 3 — the checkbox look.
+    cb.setButtonType(3 as i64)
+    cb.setTitle(nsstr(text))
+    cb.state = if checked { 1 as i64 } else { 0 as i64 }
+    cb.setEnabled(enabled)
+    cb.setHidden(!visible)
+
+    ToggleHandler.register()
+    let h = ToggleHandler.alloc().init()
+    cb.setTarget(h)
+    cb.setAction(selectorPtr("toggled:"))
+
+    win.contentView.addSubview(cb as NSView)
+
+    let handle: i64 = CHECKBOXES.length as i64
+    CHECKBOXES.push(cb)
+    CHECKBOX_KEYS.push(cb as NSObject)
+    ON_TOGGLE.push(noOpBool)
+    TOGGLE_HANDLERS.push(h as NSObject)
+    handle
+}
+
+pub fn setOnCheckboxToggle(handle: i64, cb: fn(bool)) {
+    if handle >= 0 && handle < (ON_TOGGLE.length as i64) {
+        ON_TOGGLE[handle] = cb
+    }
+}
+pub fn setCheckboxText(handle: i64, text: string) {
+    if handle >= 0 && handle < (CHECKBOXES.length as i64) {
+        CHECKBOXES[handle].setTitle(nsstr(text))
+    }
+}
+pub fn setCheckboxChecked(handle: i64, checked: bool) {
+    if handle >= 0 && handle < (CHECKBOXES.length as i64) {
+        CHECKBOXES[handle].state = if checked { 1 as i64 } else { 0 as i64 }
+    }
+}
+pub fn readCheckboxChecked(handle: i64): bool {
+    if handle < 0 || handle >= (CHECKBOXES.length as i64) { return false }
+    CHECKBOXES[handle].state == 1 as i64
+}
+pub fn setCheckboxFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (CHECKBOXES.length as i64) {
+        CHECKBOXES[handle].setFrame(makeRect(x, y, width, height))
+    }
+}
+pub fn setCheckboxEnabled(handle: i64, enabled: bool) {
+    if handle >= 0 && handle < (CHECKBOXES.length as i64) {
+        CHECKBOXES[handle].setEnabled(enabled)
+    }
+}
+pub fn setCheckboxVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (CHECKBOXES.length as i64) {
+        CHECKBOXES[handle].setHidden(!visible)
+    }
+}
+
+// ─── sliders ─────────────────────────────────────────────────
+
+let SLIDERS:         NSSlider[]    = []
+let SLIDER_KEYS:     NSObject[]    = []
+let ON_SLIDER:       fn(f64)[]     = []
+let SLIDER_HANDLERS: NSObject[]    = []
+
+fn noOpF64(v: f64) { let _ = v }
+
+class SliderHandler : NSObject {
+    pub slid(sender: NSObject) {
+        let ix = indexBy(SLIDER_KEYS, sender)
+        if ix >= 0 {
+            let cb = ON_SLIDER[ix]
+            cb(SLIDERS[ix].doubleValue)
+        }
+    }
+}
+
+pub fn createNativeSlider(
+    windowHandle: i64,
+    min: f64, max: f64, value: f64,
+    x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (WINDOWS.length as i64) {
+        return -1
+    }
+    let win = WINDOWS[windowHandle]
+    let s = makeSlider(min, max, value, x, y, width, height)
+    s.setContinuous(true)
+    s.setHidden(!visible)
+    let _ = enabled   // NSSlider has no setEnabled in our binding;
+                      // surface omitted on macOS for now.
+
+    SliderHandler.register()
+    let h = SliderHandler.alloc().init()
+    s.setTarget(h)
+    s.setAction(selectorPtr("slid:"))
+
+    win.contentView.addSubview(s as NSView)
+
+    let handle: i64 = SLIDERS.length as i64
+    SLIDERS.push(s)
+    SLIDER_KEYS.push(s as NSObject)
+    ON_SLIDER.push(noOpF64)
+    SLIDER_HANDLERS.push(h as NSObject)
+    handle
+}
+
+pub fn setOnSliderChange(handle: i64, cb: fn(f64)) {
+    if handle >= 0 && handle < (ON_SLIDER.length as i64) {
+        ON_SLIDER[handle] = cb
+    }
+}
+pub fn setSliderRange(handle: i64, min: f64, max: f64) {
+    if handle >= 0 && handle < (SLIDERS.length as i64) {
+        SLIDERS[handle].setMinValue(min)
+        SLIDERS[handle].setMaxValue(max)
+    }
+}
+pub fn setSliderValue(handle: i64, value: f64) {
+    if handle >= 0 && handle < (SLIDERS.length as i64) {
+        SLIDERS[handle].doubleValue = value
+    }
+}
+pub fn readSliderValue(handle: i64): f64 {
+    if handle < 0 || handle >= (SLIDERS.length as i64) { return 0.0 }
+    SLIDERS[handle].doubleValue
+}
+pub fn setSliderFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (SLIDERS.length as i64) {
+        SLIDERS[handle].setFrame(makeRect(x, y, width, height))
+    }
+}
+pub fn setSliderEnabled(handle: i64, enabled: bool) {
+    // NSSlider inherits setEnabled from NSControl; the binding
+    // doesn't expose it today, so this is a no-op on macOS.
+    let _ = handle
+    let _ = enabled
+}
+pub fn setSliderVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (SLIDERS.length as i64) {
+        SLIDERS[handle].setHidden(!visible)
+    }
+}
+
+// ─── progress bars ───────────────────────────────────────────
+
+let PROGRESS_BARS: NSProgressIndicator[] = []
+
+pub fn createNativeProgress(
+    windowHandle: i64,
+    min: f64, max: f64, value: f64,
+    x: f64, y: f64, width: f64, height: f64,
+    visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (WINDOWS.length as i64) {
+        return -1
+    }
+    let win = WINDOWS[windowHandle]
+    let p = makeProgressBar(min, max, value, x, y, width, height)
+    p.setHidden(!visible)
+    win.contentView.addSubview(p as NSView)
+    let handle: i64 = PROGRESS_BARS.length as i64
+    PROGRESS_BARS.push(p)
+    handle
+}
+
+pub fn setProgressRange(handle: i64, min: f64, max: f64) {
+    if handle >= 0 && handle < (PROGRESS_BARS.length as i64) {
+        PROGRESS_BARS[handle].setMinValue(min)
+        PROGRESS_BARS[handle].setMaxValue(max)
+    }
+}
+pub fn setProgressValue(handle: i64, value: f64) {
+    if handle >= 0 && handle < (PROGRESS_BARS.length as i64) {
+        PROGRESS_BARS[handle].doubleValue = value
+    }
+}
+pub fn setProgressFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (PROGRESS_BARS.length as i64) {
+        PROGRESS_BARS[handle].setFrame(makeRect(x, y, width, height))
+    }
+}
+pub fn setProgressVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (PROGRESS_BARS.length as i64) {
+        PROGRESS_BARS[handle].setHidden(!visible)
+    }
+}
+
+// ─── combo boxes (NSPopUpButton) ─────────────────────────────
+
+let COMBOS:         NSPopUpButton[] = []
+let COMBO_KEYS:     NSObject[]      = []
+let ON_COMBO:       fn(i32)[]       = []
+let COMBO_HANDLERS: NSObject[]      = []
+
+fn noOpI32(i: i32) { let _ = i }
+
+class ComboHandler : NSObject {
+    pub picked(sender: NSObject) {
+        let ix = indexBy(COMBO_KEYS, sender)
+        if ix >= 0 {
+            let cb = ON_COMBO[ix]
+            cb(COMBOS[ix].indexOfSelectedItem as i32)
+        }
+    }
+}
+
+pub fn createNativeCombo(
+    windowHandle: i64,
+    x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (WINDOWS.length as i64) {
+        return -1
+    }
+    let win = WINDOWS[windowHandle]
+    let p = NSPopUpButton.alloc().init(makeRect(x, y, width, height), false)
+    p.setEnabled(enabled)
+    p.setHidden(!visible)
+
+    ComboHandler.register()
+    let h = ComboHandler.alloc().init()
+    p.setTarget(h)
+    p.setAction(selectorPtr("picked:"))
+
+    win.contentView.addSubview(p as NSView)
+
+    let handle: i64 = COMBOS.length as i64
+    COMBOS.push(p)
+    COMBO_KEYS.push(p as NSObject)
+    ON_COMBO.push(noOpI32)
+    COMBO_HANDLERS.push(h as NSObject)
+    handle
+}
+
+pub fn setOnComboSelect(handle: i64, cb: fn(i32)) {
+    if handle >= 0 && handle < (ON_COMBO.length as i64) {
+        ON_COMBO[handle] = cb
+    }
+}
+pub fn addComboItem(handle: i64, item: string) {
+    if handle >= 0 && handle < (COMBOS.length as i64) {
+        COMBOS[handle].addItemWithTitle(nsstr(item))
+    }
+}
+pub fn clearComboItems(handle: i64) {
+    if handle >= 0 && handle < (COMBOS.length as i64) {
+        COMBOS[handle].removeAllItems()
+    }
+}
+pub fn setComboSelectedIndex(handle: i64, index: i32) {
+    if handle >= 0 && handle < (COMBOS.length as i64) {
+        COMBOS[handle].selectItemAtIndex(index as i64)
+    }
+}
+pub fn readComboSelectedIndex(handle: i64): i32 {
+    if handle < 0 || handle >= (COMBOS.length as i64) { return -1 as i32 }
+    COMBOS[handle].indexOfSelectedItem as i32
+}
+pub fn setComboFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (COMBOS.length as i64) {
+        COMBOS[handle].setFrame(makeRect(x, y, width, height))
+    }
+}
+pub fn setComboEnabled(handle: i64, enabled: bool) {
+    if handle >= 0 && handle < (COMBOS.length as i64) {
+        COMBOS[handle].setEnabled(enabled)
+    }
+}
+pub fn setComboVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (COMBOS.length as i64) {
+        COMBOS[handle].setHidden(!visible)
     }
 }
 

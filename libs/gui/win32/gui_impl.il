@@ -41,6 +41,8 @@ use windows {
     // Edit / static read-back — fetch the current text out of an
     // EDIT control for the EN_CHANGE callback.
     GetWindowTextW, GetWindowTextLengthW,
+    // Control I/O for trackbar / progress / combo / button-state.
+    SendMessageA, SendMessageW,
     // SetWindowTheme — best-effort modernization for buttons /
     // listviews. No-op when a v6 activation context isn't live.
     SetWindowTheme,
@@ -72,6 +74,31 @@ let LABEL_HWNDS:    HWND[]                                                  = []
 let EDIT_HWNDS:     HWND[]                                                  = []
 let ON_TEXT_CHANGE: fn(string)[]                                            = []
 
+// Checkboxes (BUTTON class with BS_AUTOCHECKBOX). BN_CLICKED
+// fires after the state has already flipped, so the callback
+// reads the post-flip BM_GETCHECK result.
+let CHECKBOX_HWNDS: HWND[]                                                  = []
+let ON_TOGGLE:      fn(bool)[]                                              = []
+
+// Sliders (msctls_trackbar32). The control reports moves via
+// WM_HSCROLL to its parent — we map the integer position back to
+// the user-facing f64 in [min, max] using the per-slider ranges
+// cached below.
+let SLIDER_HWNDS:   HWND[]                                                  = []
+let ON_SLIDER:      fn(f64)[]                                               = []
+let SLIDER_MIN:     f64[]                                                   = []
+let SLIDER_MAX:     f64[]                                                   = []
+
+// Progress bars (msctls_progress32). Read-only; no callbacks.
+let PROGRESS_HWNDS: HWND[]                                                  = []
+let PROGRESS_MIN:   f64[]                                                   = []
+let PROGRESS_MAX:   f64[]                                                   = []
+
+// Combo boxes (COMBOBOX with CBS_DROPDOWNLIST). CBN_SELCHANGE
+// fires when the user picks a new item.
+let COMBO_HWNDS:    HWND[]                                                  = []
+let ON_COMBO:       fn(i32)[]                                               = []
+
 // True once enableComctl32V6() has run — we only need to install
 // the side-by-side activation context for comctl32 6.0 once per
 // process, regardless of how many windows / buttons get created.
@@ -88,6 +115,9 @@ fn noOpClick(x: f64, y: f64, b: i32) {
     let _ = b
 }
 fn noOpText(s: string) { let _ = s }
+fn noOpBool(b: bool) { let _ = b }
+fn noOpF64(v: f64) { let _ = v }
+fn noOpI32(i: i32) { let _ = i }
 
 fn noOp1() {}
 fn noOp2(w: f64, h: f64) {
@@ -301,11 +331,12 @@ fn vkToString(vk: u32): string {
                     // LOWORD(wParam) the control id (= HMENU at
                     // create time). We route by notify code, then
                     // resolve the control by HWND equality so the
-                    // BUTTON / EDIT id spaces never collide.
+                    // BUTTON / EDIT / COMBO id spaces never collide.
                     let ctrlHwnd = lParam as i64
                     let notify = ((wParam >> 16) & 0xFFFF) as i32
                     if notify == 0 {
-                        // BN_CLICKED — find the matching button by HWND.
+                        // BN_CLICKED — try buttons first, then
+                        // checkboxes (which are also BUTTON class).
                         let n = BUTTON_HWNDS.length as i64
                         let i: i64 = 0
                         while i < n {
@@ -315,6 +346,16 @@ fn vkToString(vk: u32): string {
                                 return 0
                             }
                             i = i + 1
+                        }
+                        let m = CHECKBOX_HWNDS.length as i64
+                        let j: i64 = 0
+                        while j < m {
+                            if CHECKBOX_HWNDS[j] as i64 == ctrlHwnd {
+                                let cb = ON_TOGGLE[j]
+                                cb(readCheckboxChecked(j))
+                                return 0
+                            }
+                            j = j + 1
                         }
                     } elif notify == 0x0300 {
                         // EN_CHANGE — text edited by the user. Read
@@ -329,6 +370,36 @@ fn vkToString(vk: u32): string {
                             }
                             i = i + 1
                         }
+                    } elif notify == 1 {
+                        // CBN_SELCHANGE — user picked a combo item.
+                        let n = COMBO_HWNDS.length as i64
+                        let i: i64 = 0
+                        while i < n {
+                            if COMBO_HWNDS[i] as i64 == ctrlHwnd {
+                                let cb = ON_COMBO[i]
+                                cb(readComboSelectedIndex(i))
+                                return 0
+                            }
+                            i = i + 1
+                        }
+                    }
+                    return 0
+                }
+                WindowMessage.hScroll {
+                    // Trackbars (msctls_trackbar32) post WM_HSCROLL
+                    // to their parent for every thumb move. lParam
+                    // is the slider HWND; we map back to the
+                    // f64 [min, max] range cached at create time.
+                    let ctrlHwnd = lParam as i64
+                    let n = SLIDER_HWNDS.length as i64
+                    let i: i64 = 0
+                    while i < n {
+                        if SLIDER_HWNDS[i] as i64 == ctrlHwnd {
+                            let cb = ON_SLIDER[i]
+                            cb(readSliderValue(i))
+                            return 0
+                        }
+                        i = i + 1
                     }
                     return 0
                 }
@@ -467,7 +538,9 @@ pub fn enableComctl32V6() {
     // ── Register v6 common control classes. ────────────────────
     let icc = INITCOMMONCONTROLSEX {
         dwSize: 8 as u32,
-        dwICC:  Icc.standardClasses as u32 | Icc.barClasses as u32,
+        dwICC:  Icc.standardClasses as u32
+              | Icc.barClasses as u32      // trackbar / toolbar
+              | Icc.progressClass as u32,  // progress bar
     }
     let _ = InitCommonControlsEx(&icc)
 
@@ -826,6 +899,387 @@ pub fn setEditVisible(handle: i64, visible: bool) {
     if handle >= 0 && handle < (EDIT_HWNDS.length as i64) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(EDIT_HWNDS[handle], cmd)
+    }
+}
+
+// ─── checkboxes (BUTTON class + BS_AUTOCHECKBOX) ─────────────
+
+pub fn createNativeCheckbox(
+    windowHandle: i64,
+    text: string, checked: bool,
+    x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (HWNDS.length as i64) {
+        return -1
+    }
+    let parent = HWNDS[windowHandle]
+    let id: i64 = CHECKBOX_HWNDS.length as i64
+    let classW = toWideUtf8("BUTTON") as *u16
+    let textW  = toWideUtf8(text) as *u16
+    let visibleBits: u32 = if visible {
+        WindowStyle.visible as u32
+    } else {
+        0 as u32
+    }
+    // BS_AUTOCHECKBOX = 0x0003 — flips state automatically on
+    // click, then posts BN_CLICKED so we can forward the new
+    // state to user code.
+    let style: u32 = (WindowStyle.child as u32) | visibleBits | (0x0003 as u32)
+    let hInstance = GetModuleHandleA(0 as *const char)
+    let hwnd = CreateWindowExW(
+        0,
+        classW,
+        textW,
+        style,
+        x as i32, y as i32, width as i32, height as i32,
+        parent,
+        0 as HMENU,            // dispatch is by HWND match, not id
+        hInstance as HINSTANCE,
+        0 as *void
+    )
+    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
+    HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
+    let enabledFlag: i32 = if enabled { 1 } else { 0 }
+    EnableWindow(hwnd, enabledFlag)
+    if EXPLORER_THEME[0] != 0 as i64 {
+        let _ = SetWindowTheme(
+            hwnd as i64,
+            EXPLORER_THEME[0] as *const u16,
+            0 as *const u16
+        )
+    }
+    // BM_SETCHECK = 0x00F1 — BST_CHECKED = 1, BST_UNCHECKED = 0.
+    let checkedW: u64 = if checked { 1 as u64 } else { 0 as u64 }
+    let _ = SendMessageA(hwnd, 0x00F1 as u32, checkedW, 0 as i64)
+    CHECKBOX_HWNDS.push(hwnd)
+    ON_TOGGLE.push(noOpBool)
+    id
+}
+
+pub fn setOnCheckboxToggle(handle: i64, cb: fn(bool)) {
+    if handle >= 0 && handle < (ON_TOGGLE.length as i64) {
+        ON_TOGGLE[handle] = cb
+    }
+}
+pub fn setCheckboxText(handle: i64, text: string) {
+    if handle >= 0 && handle < (CHECKBOX_HWNDS.length as i64) {
+        let w = toWideUtf8(text) as *u16
+        let _ = SetWindowTextW(CHECKBOX_HWNDS[handle], w)
+        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+    }
+}
+pub fn setCheckboxChecked(handle: i64, checked: bool) {
+    if handle >= 0 && handle < (CHECKBOX_HWNDS.length as i64) {
+        let v: u64 = if checked { 1 as u64 } else { 0 as u64 }
+        // BM_SETCHECK = 0x00F1
+        let _ = SendMessageA(CHECKBOX_HWNDS[handle], 0x00F1 as u32, v, 0 as i64)
+    }
+}
+/// BM_GETCHECK = 0x00F0 — returns BST_CHECKED (1) when ticked.
+pub fn readCheckboxChecked(handle: i64): bool {
+    if handle < 0 || handle >= (CHECKBOX_HWNDS.length as i64) { return false }
+    let r = SendMessageA(CHECKBOX_HWNDS[handle], 0x00F0 as u32, 0 as u64, 0 as i64)
+    r == 1 as i64
+}
+pub fn setCheckboxFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (CHECKBOX_HWNDS.length as i64) {
+        MoveWindow(CHECKBOX_HWNDS[handle],
+                   x as i32, y as i32, width as i32, height as i32, 1)
+    }
+}
+pub fn setCheckboxEnabled(handle: i64, enabled: bool) {
+    if handle >= 0 && handle < (CHECKBOX_HWNDS.length as i64) {
+        let flag: i32 = if enabled { 1 } else { 0 }
+        EnableWindow(CHECKBOX_HWNDS[handle], flag)
+    }
+}
+pub fn setCheckboxVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (CHECKBOX_HWNDS.length as i64) {
+        let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
+        ShowWindow(CHECKBOX_HWNDS[handle], cmd)
+    }
+}
+
+// ─── sliders (msctls_trackbar32) ─────────────────────────────
+//
+// The trackbar takes / reports integer positions; we cache the
+// user-facing f64 [min, max] range so the public API can stay
+// in f64 even though the native control rounds to int.
+//
+// Trackbar messages: TBM_SETRANGE = 0x406, TBM_SETPOS = 0x405,
+// TBM_GETPOS = 0x400.
+
+fn sliderRangeBits(handle: i64): i64 {
+    let mn = SLIDER_MIN[handle] as i32
+    let mx = SLIDER_MAX[handle] as i32
+    (mn as i64 & 0xFFFF) | ((mx as i64 & 0xFFFF) << 16)
+}
+
+pub fn createNativeSlider(
+    windowHandle: i64,
+    min: f64, max: f64, value: f64,
+    x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (HWNDS.length as i64) {
+        return -1
+    }
+    let parent = HWNDS[windowHandle]
+    let id: i64 = SLIDER_HWNDS.length as i64
+    let classW = toWideUtf8("msctls_trackbar32") as *u16
+    let emptyW = toWideUtf8("") as *u16
+    let visibleBits: u32 = if visible { WindowStyle.visible as u32 } else { 0 as u32 }
+    // TBS_HORZ = 0, TBS_AUTOTICKS = 0x0001 — slimmer slider w/
+    // automatic tick marks.
+    let style: u32 = (WindowStyle.child as u32) | visibleBits | (0x0001 as u32)
+    let hInstance = GetModuleHandleA(0 as *const char)
+    let hwnd = CreateWindowExW(
+        0,
+        classW,
+        emptyW,
+        style,
+        x as i32, y as i32, width as i32, height as i32,
+        parent,
+        0 as HMENU,
+        hInstance as HINSTANCE,
+        0 as *void
+    )
+    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
+    HeapFree(GetProcessHeap(), 0 as u32, emptyW as *void)
+    let enabledFlag: i32 = if enabled { 1 } else { 0 }
+    EnableWindow(hwnd, enabledFlag)
+
+    SLIDER_HWNDS.push(hwnd)
+    ON_SLIDER.push(noOpF64)
+    SLIDER_MIN.push(min)
+    SLIDER_MAX.push(max)
+    // TBM_SETRANGE = 0x406, wParam = redraw flag.
+    let _ = SendMessageA(hwnd, 0x0406 as u32, 1 as u64, sliderRangeBits(id))
+    // TBM_SETPOS = 0x405, wParam = redraw, lParam = pos.
+    let _ = SendMessageA(hwnd, 0x0405 as u32, 1 as u64, value as i64)
+    id
+}
+
+pub fn setOnSliderChange(handle: i64, cb: fn(f64)) {
+    if handle >= 0 && handle < (ON_SLIDER.length as i64) {
+        ON_SLIDER[handle] = cb
+    }
+}
+pub fn setSliderRange(handle: i64, min: f64, max: f64) {
+    if handle >= 0 && handle < (SLIDER_HWNDS.length as i64) {
+        SLIDER_MIN[handle] = min
+        SLIDER_MAX[handle] = max
+        let _ = SendMessageA(SLIDER_HWNDS[handle], 0x0406 as u32, 1 as u64,
+                             sliderRangeBits(handle))
+    }
+}
+pub fn setSliderValue(handle: i64, value: f64) {
+    if handle >= 0 && handle < (SLIDER_HWNDS.length as i64) {
+        let _ = SendMessageA(SLIDER_HWNDS[handle], 0x0405 as u32, 1 as u64, value as i64)
+    }
+}
+pub fn readSliderValue(handle: i64): f64 {
+    if handle < 0 || handle >= (SLIDER_HWNDS.length as i64) { return 0.0 }
+    let r = SendMessageA(SLIDER_HWNDS[handle], 0x0400 as u32, 0 as u64, 0 as i64)
+    r as f64
+}
+pub fn setSliderFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (SLIDER_HWNDS.length as i64) {
+        MoveWindow(SLIDER_HWNDS[handle],
+                   x as i32, y as i32, width as i32, height as i32, 1)
+    }
+}
+pub fn setSliderEnabled(handle: i64, enabled: bool) {
+    if handle >= 0 && handle < (SLIDER_HWNDS.length as i64) {
+        let flag: i32 = if enabled { 1 } else { 0 }
+        EnableWindow(SLIDER_HWNDS[handle], flag)
+    }
+}
+pub fn setSliderVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (SLIDER_HWNDS.length as i64) {
+        let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
+        ShowWindow(SLIDER_HWNDS[handle], cmd)
+    }
+}
+
+// ─── progress bars (msctls_progress32) ───────────────────────
+//
+// PBM_SETRANGE32 = 0x0406 (wParam = min, lParam = max), PBM_SETPOS
+// = 0x0402 (wParam = pos). The control internally keeps everything
+// as i32; we cache the user f64 range and rescale on writes.
+
+pub fn createNativeProgress(
+    windowHandle: i64,
+    min: f64, max: f64, value: f64,
+    x: f64, y: f64, width: f64, height: f64,
+    visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (HWNDS.length as i64) {
+        return -1
+    }
+    let parent = HWNDS[windowHandle]
+    let id: i64 = PROGRESS_HWNDS.length as i64
+    let classW = toWideUtf8("msctls_progress32") as *u16
+    let emptyW = toWideUtf8("") as *u16
+    let visibleBits: u32 = if visible { WindowStyle.visible as u32 } else { 0 as u32 }
+    let style: u32 = (WindowStyle.child as u32) | visibleBits
+    let hInstance = GetModuleHandleA(0 as *const char)
+    let hwnd = CreateWindowExW(
+        0,
+        classW,
+        emptyW,
+        style,
+        x as i32, y as i32, width as i32, height as i32,
+        parent,
+        0 as HMENU,
+        hInstance as HINSTANCE,
+        0 as *void
+    )
+    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
+    HeapFree(GetProcessHeap(), 0 as u32, emptyW as *void)
+
+    PROGRESS_HWNDS.push(hwnd)
+    PROGRESS_MIN.push(min)
+    PROGRESS_MAX.push(max)
+    // PBM_SETRANGE32: wParam = min, lParam = max.
+    let _ = SendMessageA(hwnd, 0x0406 as u32, min as i64 as u64, max as i64)
+    // PBM_SETPOS: wParam = pos.
+    let _ = SendMessageA(hwnd, 0x0402 as u32, value as i64 as u64, 0 as i64)
+    id
+}
+
+pub fn setProgressRange(handle: i64, min: f64, max: f64) {
+    if handle >= 0 && handle < (PROGRESS_HWNDS.length as i64) {
+        PROGRESS_MIN[handle] = min
+        PROGRESS_MAX[handle] = max
+        let _ = SendMessageA(PROGRESS_HWNDS[handle], 0x0406 as u32,
+                             min as i64 as u64, max as i64)
+    }
+}
+pub fn setProgressValue(handle: i64, value: f64) {
+    if handle >= 0 && handle < (PROGRESS_HWNDS.length as i64) {
+        let _ = SendMessageA(PROGRESS_HWNDS[handle], 0x0402 as u32,
+                             value as i64 as u64, 0 as i64)
+    }
+}
+pub fn setProgressFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (PROGRESS_HWNDS.length as i64) {
+        MoveWindow(PROGRESS_HWNDS[handle],
+                   x as i32, y as i32, width as i32, height as i32, 1)
+    }
+}
+pub fn setProgressVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (PROGRESS_HWNDS.length as i64) {
+        let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
+        ShowWindow(PROGRESS_HWNDS[handle], cmd)
+    }
+}
+
+// ─── combo boxes (COMBOBOX with CBS_DROPDOWNLIST) ────────────
+//
+// CBS_DROPDOWNLIST = 0x0003 — non-editable drop-down. The list
+// dropping below the box needs vertical room so the combo's
+// `height` parameter is the combined (closed) box + dropped-list
+// extent; Win32 takes both as one rect, allocates ~24 px to the
+// closed box itself, and uses the rest for the popup.
+
+pub fn createNativeCombo(
+    windowHandle: i64,
+    x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (HWNDS.length as i64) {
+        return -1
+    }
+    let parent = HWNDS[windowHandle]
+    let id: i64 = COMBO_HWNDS.length as i64
+    let classW = toWideUtf8("COMBOBOX") as *u16
+    let emptyW = toWideUtf8("") as *u16
+    let visibleBits: u32 = if visible { WindowStyle.visible as u32 } else { 0 as u32 }
+    // CBS_DROPDOWNLIST = 0x3, WS_VSCROLL for tall lists.
+    let style: u32 = (WindowStyle.child as u32) | visibleBits
+                   | (0x0003 as u32)
+                   | (WindowStyle.vScroll as u32)
+    let hInstance = GetModuleHandleA(0 as *const char)
+    // Expand the height so the dropdown list (default ~100 px) is
+    // actually usable; callers' `height` is the closed-box height
+    // only. We add 120 px of room for the popped list.
+    let totalH = (height as i32) + 120
+    let hwnd = CreateWindowExW(
+        0,
+        classW,
+        emptyW,
+        style,
+        x as i32, y as i32, width as i32, totalH,
+        parent,
+        0 as HMENU,
+        hInstance as HINSTANCE,
+        0 as *void
+    )
+    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
+    HeapFree(GetProcessHeap(), 0 as u32, emptyW as *void)
+    let enabledFlag: i32 = if enabled { 1 } else { 0 }
+    EnableWindow(hwnd, enabledFlag)
+
+    COMBO_HWNDS.push(hwnd)
+    ON_COMBO.push(noOpI32)
+    id
+}
+
+pub fn setOnComboSelect(handle: i64, cb: fn(i32)) {
+    if handle >= 0 && handle < (ON_COMBO.length as i64) {
+        ON_COMBO[handle] = cb
+    }
+}
+/// CB_ADDSTRING = 0x143 — append item. Use the wide variant so
+/// non-ASCII display strings round-trip.
+pub fn addComboItem(handle: i64, item: string) {
+    if handle >= 0 && handle < (COMBO_HWNDS.length as i64) {
+        let w = toWideUtf8(item) as *u16
+        let _ = SendMessageW(COMBO_HWNDS[handle], 0x0143 as u32,
+                             0 as u64, w as i64)
+        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+    }
+}
+/// CB_RESETCONTENT = 0x14B — drop every item.
+pub fn clearComboItems(handle: i64) {
+    if handle >= 0 && handle < (COMBO_HWNDS.length as i64) {
+        let _ = SendMessageA(COMBO_HWNDS[handle], 0x014B as u32,
+                             0 as u64, 0 as i64)
+    }
+}
+/// CB_SETCURSEL = 0x14E — wParam is the new index (or `-1` = none).
+pub fn setComboSelectedIndex(handle: i64, index: i32) {
+    if handle >= 0 && handle < (COMBO_HWNDS.length as i64) {
+        let _ = SendMessageA(COMBO_HWNDS[handle], 0x014E as u32,
+                             index as i64 as u64, 0 as i64)
+    }
+}
+/// CB_GETCURSEL = 0x147 — returns `CB_ERR = -1` when nothing
+/// is selected.
+pub fn readComboSelectedIndex(handle: i64): i32 {
+    if handle < 0 || handle >= (COMBO_HWNDS.length as i64) { return -1 as i32 }
+    let r = SendMessageA(COMBO_HWNDS[handle], 0x0147 as u32, 0 as u64, 0 as i64)
+    r as i32
+}
+pub fn setComboFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (COMBO_HWNDS.length as i64) {
+        let totalH = (height as i32) + 120
+        MoveWindow(COMBO_HWNDS[handle],
+                   x as i32, y as i32, width as i32, totalH, 1)
+    }
+}
+pub fn setComboEnabled(handle: i64, enabled: bool) {
+    if handle >= 0 && handle < (COMBO_HWNDS.length as i64) {
+        let flag: i32 = if enabled { 1 } else { 0 }
+        EnableWindow(COMBO_HWNDS[handle], flag)
+    }
+}
+pub fn setComboVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (COMBO_HWNDS.length as i64) {
+        let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
+        ShowWindow(COMBO_HWNDS[handle], cmd)
     }
 }
 
