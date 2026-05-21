@@ -7,15 +7,15 @@
 /// All functions return PDH_STATUS (i32); 0 = ERROR_SUCCESS.
 
 // ─── PDH status codes (selected) ─────────────────────────────────
-pub enum PdhStatus: i32 {
+pub enum PdhStatus: u32 {
     success          = 0
-    invalidArgument  = -1073738819   // 0xC0000BBD
-    cstatusBadCountername = -1073738825
-    invalidHandle    = -1073738824
-    noData           = -2147481643   // 0x800007D5
-    moreData         = -2147481648
-    insufficientBuffer = -1073738824
-    noSuchCountername = -1073738824
+    invalidArgument  = 0xc0000bbd   //
+    cstatusBadCountername = 0xc0000bb7
+    invalidHandle    = 0xc0000bb8
+    noData           = 0x800007d5   //
+    moreData         = 0x800007d0
+    insufficientBuffer = 0xc0000bb8
+    noSuchCountername = 0xc0000bb8
 }
 
 // ─── PdhGetFormattedCounterValue dwFormat ────────────────────────

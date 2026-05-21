@@ -85,16 +85,16 @@ pub enum DispatchFlags: u16 {
 }
 
 // ─── Common HRESULT codes specific to Automation ─────────────────
-pub enum HResultAuto: i32 {
-    typeMismatch      = -2147352571  // DISP_E_TYPEMISMATCH 0x80020005
-    paramNotFound     = -2147352572  // DISP_E_PARAMNOTFOUND 0x80020004
-    badIndex          = -2147352565  // DISP_E_BADINDEX     0x8002000B
-    badVarType        = -2147352568  // DISP_E_BADVARTYPE   0x80020008
-    overflow          = -2147352566  // DISP_E_OVERFLOW     0x8002000A
-    unknownName       = -2147352570  // DISP_E_UNKNOWNNAME  0x80020006
-    unknownInterface  = -2147352575  // DISP_E_UNKNOWNINTERFACE 0x80020001
-    memberNotFound    = -2147352573  // DISP_E_MEMBERNOTFOUND 0x80020003
-    exception         = -2147352567  // DISP_E_EXCEPTION    0x80020009
+pub enum HResultAuto: u32 {
+    typeMismatch      = 0x80020005  // DISP_E_TYPEMISMATCH
+    paramNotFound     = 0x80020004  // DISP_E_PARAMNOTFOUND
+    badIndex          = 0x8002000b  // DISP_E_BADINDEX
+    badVarType        = 0x80020008  // DISP_E_BADVARTYPE
+    overflow          = 0x8002000a  // DISP_E_OVERFLOW
+    unknownName       = 0x80020006  // DISP_E_UNKNOWNNAME
+    unknownInterface  = 0x80020001  // DISP_E_UNKNOWNINTERFACE
+    memberNotFound    = 0x80020003  // DISP_E_MEMBERNOTFOUND
+    exception         = 0x80020009  // DISP_E_EXCEPTION
 }
 
 @extern(C, "oleaut32") {

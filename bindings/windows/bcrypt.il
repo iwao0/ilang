@@ -7,16 +7,16 @@
 /// All functions return NTSTATUS (i32); 0 = STATUS_SUCCESS.
 
 // ─── NTSTATUS values (selected) ──────────────────────────────────
-pub enum NtStatus: i32 {
+pub enum NtStatus: u32 {
     success            = 0
-    invalidHandle      = -1073741816   // 0xC0000008
-    invalidParameter   = -1073741811   // 0xC000000D
-    noMemory           = -1073741801   // 0xC0000017
-    bufferTooSmall     = -1073741789   // 0xC0000023
-    notSupported       = -1073741822   // 0xC0000002
-    invalidSignature   = -1073700859   // 0xC0090006
-    notFound           = -1073741275   // 0xC0000225
-    authTagMismatch    = -1073700864   // 0xC000A002
+    invalidHandle      = 0xc0000008   //
+    invalidParameter   = 0xc000000d   //
+    noMemory           = 0xc0000017   //
+    bufferTooSmall     = 0xc0000023   //
+    notSupported       = 0xc0000002   //
+    invalidSignature   = 0xc000a005   //
+    notFound           = 0xc0000225   //
+    authTagMismatch    = 0xc000a000   //
 }
 
 // ─── BCryptOpenAlgorithmProvider flags ───────────────────────────

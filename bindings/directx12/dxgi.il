@@ -244,19 +244,19 @@ pub enum DxgiOutduplPointerShapeType: u32 {
 }
 
 // ─── Common HRESULT for DXGI ─────────────────────────────────────
-pub enum DxgiResult: i32 {
+pub enum DxgiResult: u32 {
     ok               = 0
-    invalidCall      = -2005270527  // 0x887A0001
-    notFound         = -2005270526  // 0x887A0002
-    moreData         = -2005270525  // 0x887A0003
-    unsupported      = -2005270524  // 0x887A0004
-    deviceRemoved    = -2005270523  // 0x887A0005
-    deviceHung       = -2005270522  // 0x887A0006
-    deviceReset      = -2005270521  // 0x887A0007
-    wasStillDrawing  = -2005270518  // 0x887A000A
-    frameStatisticsDisjoint = -2005270517 // 0x887A000B
-    accessDenied     = -2005270505  // 0x887A0026
-    accessLost       = -2005270504  // 0x887A0027
+    invalidCall      = 0x887a0001  //
+    notFound         = 0x887a0002  //
+    moreData         = 0x887a0003  //
+    unsupported      = 0x887a0004  //
+    deviceRemoved    = 0x887a0005  //
+    deviceHung       = 0x887a0006  //
+    deviceReset      = 0x887a0007  //
+    wasStillDrawing  = 0x887a000a  //
+    frameStatisticsDisjoint = 0x887a000b //
+    accessDenied     = 0x887a0017  //
+    accessLost       = 0x887a0018  //
 }
 
 use user32 { HWND }

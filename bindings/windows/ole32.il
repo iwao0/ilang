@@ -54,22 +54,22 @@ pub enum ClsCtx: u32 {
 }
 
 // ─── Common HRESULT values ────────────────────────────────────────
-pub enum HResult: i32 {
+pub enum HResult: u32 {
     ok                = 0x00000000   // S_OK
     false_            = 0x00000001   // S_FALSE
-    notImpl           = -2147467263  // E_NOTIMPL      0x80004001
-    noInterface       = -2147467262  // E_NOINTERFACE  0x80004002
-    pointer           = -2147467261  // E_POINTER      0x80004003
-    abort             = -2147467260  // E_ABORT        0x80004004
-    fail              = -2147467259  // E_FAIL         0x80004005
-    unexpected        = -2147418113  // E_UNEXPECTED   0x8000FFFF
-    invalidArg        = -2147024809  // E_INVALIDARG   0x80070057
-    outOfMemory       = -2147024882  // E_OUTOFMEMORY  0x8007000E
-    accessDenied      = -2147024891  // E_ACCESSDENIED 0x80070005
-    handle            = -2147024890  // E_HANDLE       0x80070006
-    rpcChangedMode    = -2147417850  // RPC_E_CHANGED_MODE
-    classNotReg       = -2147221164  // REGDB_E_CLASSNOTREG
-    noCls             = -2147221231  // CO_E_NOTINITIALIZED
+    notImpl           = 0x80004001  // E_NOTIMPL
+    noInterface       = 0x80004002  // E_NOINTERFACE
+    pointer           = 0x80004003  // E_POINTER
+    abort             = 0x80004004  // E_ABORT
+    fail              = 0x80004005  // E_FAIL
+    unexpected        = 0x8000ffff  // E_UNEXPECTED
+    invalidArg        = 0x80070057  // E_INVALIDARG
+    outOfMemory       = 0x8007000e  // E_OUTOFMEMORY
+    accessDenied      = 0x80070005  // E_ACCESSDENIED
+    handle            = 0x80070006  // E_HANDLE
+    rpcChangedMode    = 0x80010106  // RPC_E_CHANGED_MODE
+    classNotReg       = 0x80040154  // REGDB_E_CLASSNOTREG
+    noCls             = 0x80040111  // CO_E_NOTINITIALIZED
 }
 
 // ─── REGCLS flags for CoRegisterClassObject ───────────────────────

@@ -35,11 +35,11 @@ pub enum D3DFeatureLevel: u32 {
 }
 
 // ─── Device removal reasons (D3D12_DEVICE_REMOVED_*) ─────────────
-pub enum D3D12DeviceRemovedReason: i32 {
-    hung           = -2005270523    // DXGI_ERROR_DEVICE_HUNG
-    removed        = -2005270523
-    reset          = -2005270521
-    driverInternal = -2005270522
+pub enum D3D12DeviceRemovedReason: u32 {
+    hung           = 0x887a0005    // DXGI_ERROR_DEVICE_HUNG
+    removed        = 0x887a0005
+    reset          = 0x887a0007
+    driverInternal = 0x887a0006
 }
 
 // ─── Heap types (D3D12_HEAP_TYPE) ────────────────────────────────
@@ -309,17 +309,17 @@ pub enum D3D12ResourceBarrierFlags: u32 {
 //   D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES = 0xFFFFFFFF
 
 // ─── HRESULT codes specific to D3D12 ─────────────────────────────
-pub enum D3D12Result: i32 {
+pub enum D3D12Result: u32 {
     ok                          = 0
-    adapterNotFound             = -2005270512   // 0x887E0001
-    driverVersionMismatch       = -2005270511   // 0x887E0002
-    invalidArg                  = -2147024809   // E_INVALIDARG
-    outOfMemory                 = -2147024882   // E_OUTOFMEMORY
-    notImpl                     = -2147467263   // E_NOTIMPL
-    fail                        = -2147467259   // E_FAIL
-    deviceRemoved               = -2005270523
-    deviceReset                 = -2005270521
-    notCurrentlyAvailable       = -2005270527
+    adapterNotFound             = 0x887a0010   //
+    driverVersionMismatch       = 0x887a0011   //
+    invalidArg                  = 0x80070057   // E_INVALIDARG
+    outOfMemory                 = 0x8007000e   // E_OUTOFMEMORY
+    notImpl                     = 0x80004001   // E_NOTIMPL
+    fail                        = 0x80004005   // E_FAIL
+    deviceRemoved               = 0x887a0005
+    deviceReset                 = 0x887a0007
+    notCurrentlyAvailable       = 0x887a0001
 }
 
 // ─── ID3D12Object query flags (debug naming, SetName) ────────────

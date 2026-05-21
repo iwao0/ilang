@@ -10,15 +10,15 @@
 /// returns an IDirectInput8 interface pointer to bootstrap.
 
 // ─── DI_ HRESULT codes (selected) ────────────────────────────────
-pub enum DiResult: i32 {
+pub enum DiResult: u32 {
     ok             = 0
     polledDevice   = 0x00000002
-    notAcquired    = -2147024891   // 0x80070005 E_ACCESSDENIED-ish
-    inputLost      = -2005401590   // 0x8007001E (DIERR_INPUTLOST)
-    notInitialized = -2147467259   // E_FAIL-ish
-    invalidParam   = -2147024809   // E_INVALIDARG
-    outOfMemory    = -2147024882   // E_OUTOFMEMORY
-    unsupported    = -2147467263   // E_NOTIMPL
+    notAcquired    = 0x80070005   // E_ACCESSDENIED-ish
+    inputLost      = 0x8878000a   // (DIERR_INPUTLOST)
+    notInitialized = 0x80004005   // E_FAIL-ish
+    invalidParam   = 0x80070057   // E_INVALIDARG
+    outOfMemory    = 0x8007000e   // E_OUTOFMEMORY
+    unsupported    = 0x80004001   // E_NOTIMPL
 }
 
 // ─── Cooperative-level flags (DISCL_*) ───────────────────────────
