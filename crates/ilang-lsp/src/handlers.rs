@@ -632,6 +632,8 @@ impl LanguageServer for Backend {
                         CompletionItemKind::CLASS
                     } else if body.starts_with("enum ") {
                         CompletionItemKind::ENUM
+                    } else if body.starts_with("(variant)") {
+                        CompletionItemKind::ENUM_MEMBER
                     } else if body.starts_with("const ") {
                         CompletionItemKind::CONSTANT
                     } else {

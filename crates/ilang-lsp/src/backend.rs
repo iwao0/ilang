@@ -101,6 +101,10 @@ pub(crate) async fn refresh_impl(
         .as_ref()
         .map(collect_external_signatures)
         .unwrap_or_default();
+    // Built-in generic enums (`Result<T, E>`) aren't declared in any
+    // source the loader can see, so seed their variants here. Without
+    // this, `Result.` completion comes up empty.
+    register_builtin_enums(&mut external_sigs);
     // `external_rets` from `collect_external_signatures` is keyed
     // by the qualified `module.fn` name only. For a `use M { fn }`
     // selective import the buffer sees the bare callee `fn(...)`,

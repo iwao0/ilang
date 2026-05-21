@@ -334,6 +334,19 @@ pub fn compile_with_builtins(
     jit_builder.symbol("fs.__rename", ilang_runtime::fs::fs_rename as *const u8);
     jit_builder.symbol("fs.__readDir", ilang_runtime::fs::fs_read_dir as *const u8);
     jit_builder.symbol("fs.__size", ilang_runtime::fs::fs_size as *const u8);
+    jit_builder.symbol("fs.__stat", ilang_runtime::fs::fs_stat as *const u8);
+    jit_builder.symbol("fs.__lstat", ilang_runtime::fs::fs_lstat as *const u8);
+    jit_builder.symbol("fs.__access", ilang_runtime::fs::fs_access as *const u8);
+    jit_builder.symbol("fs.__copyFile", ilang_runtime::fs::fs_copy_file as *const u8);
+    jit_builder.symbol("fs.__cp", ilang_runtime::fs::fs_cp as *const u8);
+    jit_builder.symbol("fs.__realpath", ilang_runtime::fs::fs_realpath as *const u8);
+    jit_builder.symbol("fs.__chmod", ilang_runtime::fs::fs_chmod as *const u8);
+    jit_builder.symbol("fs.__truncate", ilang_runtime::fs::fs_truncate as *const u8);
+    jit_builder.symbol("fs.__utimes", ilang_runtime::fs::fs_utimes as *const u8);
+    jit_builder.symbol("fs.__symlink", ilang_runtime::fs::fs_symlink as *const u8);
+    jit_builder.symbol("fs.__readlink", ilang_runtime::fs::fs_readlink as *const u8);
+    jit_builder.symbol("fs.__link", ilang_runtime::fs::fs_link as *const u8);
+    jit_builder.symbol("fs.__mkdtemp", ilang_runtime::fs::fs_mkdtemp as *const u8);
     // regex.* — `stdlib/regex.il`'s `@extern(C)` block. The loader
     // prefixes the @extern fn names with the module name, so the
     // JIT looks them up as `regex.__regex_*`.

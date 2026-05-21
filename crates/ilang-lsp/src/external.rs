@@ -1506,6 +1506,19 @@ pub(crate) fn register_enum_variants_with_sources(
     }
 }
 
+/// Inject built-in generic enums (`Result<T, E>`) into the external
+/// signatures table so hover / completion on `Result.ok` / `Result.err`
+/// works without the user importing or declaring anything. Mirrors what
+/// `register_enum_variants` would produce for a user-written enum.
+pub(crate) fn register_builtin_enums(out: &mut HashMap<AstSymbol, String>) {
+    out.entry(AstSymbol::intern("Result"))
+        .or_insert_with(|| "enum Result<T, E>".to_string());
+    out.entry(AstSymbol::intern("Result.ok"))
+        .or_insert_with(|| "(variant) Result.ok(...)".to_string());
+    out.entry(AstSymbol::intern("Result.err"))
+        .or_insert_with(|| "(variant) Result.err(...)".to_string());
+}
+
 pub(crate) fn collect_external_signatures(
     prog: &Program,
 ) -> (HashMap<AstSymbol, String>, HashMap<AstSymbol, Type>) {
