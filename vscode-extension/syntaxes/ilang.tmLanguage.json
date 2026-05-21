@@ -13,6 +13,7 @@
     { "include": "#enum-decl" },
     { "include": "#struct-decl" },
     { "include": "#union-decl" },
+    { "include": "#use-decl" },
     { "include": "#keywords" },
     { "include": "#types" },
     { "include": "#constants" },
@@ -65,6 +66,15 @@
           "match": "(?<=\\.)(as|bool|break|class|const|continue|deinit|elif|else|enum|f32|f64|false|fn|for|get|i16|i32|i64|i8|if|in|init|interface|let|loop|match|new|none|override|pub|return|set|some|static|string|struct|super|this|true|u16|u32|u64|u8|union|use|void|while)\\b"
         }
       ]
+    },
+    "use-decl": {
+      "comment": "Module path in `use foo`, `use foo.bar`, `use foo.*`, `pub use foo.*`. Consumes the dotted path eagerly so primitive-keyword module names (`string`, `time`, `bool`, ...) don't fall through to #types and get painted as types. The `{ a, b, c }` selective-import tail is left to subsequent rules.",
+      "match": "\\b(?:(pub)\\s+)?(use)\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*(?:\\.\\*)?)",
+      "captures": {
+        "1": { "name": "keyword.declaration.ilang" },
+        "2": { "name": "keyword.declaration.ilang" },
+        "3": { "name": "entity.name.namespace.ilang" }
+      }
     },
     "keywords": {
       "patterns": [
