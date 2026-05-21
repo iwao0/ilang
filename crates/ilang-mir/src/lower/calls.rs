@@ -14,6 +14,7 @@
 use ilang_ast::{Expr, ExprKind, Span, Symbol};
 
 use crate::inst::{FuncId, FuncRef, Inst, ValueId};
+use crate::program::ClassLayout;
 use crate::types::MirTy;
 
 use super::utils::retain_if_heap;
@@ -22,9 +23,19 @@ use super::{BodyCx, FnSig, LowerError};
 /// Cascade `KIND_*` tag for a MirTy. Mirrors the codegen-side
 /// `print_kind::kind_tag_of`. Used by Promise codegen to tell
 /// the runtime how to release the wrapped value.
-fn kind_tag_of_mir(ty: &MirTy) -> i64 {
+///
+/// `@handle` structs are opaque, pointer-sized values with no ARC
+/// header and must therefore report `KIND_NONE` so the runtime
+/// cascade doesn't try to release the raw OS handle.
+fn kind_tag_of_mir(ty: &MirTy, classes: &[ClassLayout]) -> i64 {
     match ty {
-        MirTy::Object(_) => 1,
+        MirTy::Object(cid) => {
+            if classes[cid.0 as usize].is_handle {
+                0
+            } else {
+                1
+            }
+        }
         MirTy::Array { .. } => 2,
         MirTy::Optional(_) => 3,
         MirTy::Tuple(_) => 4,
@@ -249,7 +260,7 @@ impl<'a> BodyCx<'a> {
                 if !arg_is_fresh {
                     self.fb.push_inst(Inst::Retain { value: av });
                 }
-                let value_kind = kind_tag_of_mir(&inner_t);
+                let value_kind = kind_tag_of_mir(&inner_t, self.classes);
                 let kind_v = self.const_int(MirTy::I64, value_kind);
                 let ret_inner = if method.as_str() == "all" {
                     MirTy::Array { elem: Box::new(inner_t.clone()), len: None }
@@ -310,7 +321,7 @@ impl<'a> BodyCx<'a> {
                 if !v_is_fresh && self.is_arc_heap(&vty) {
                     self.fb.push_inst(Inst::Retain { value: vv });
                 }
-                let kind = kind_tag_of_mir(&vty);
+                let kind = kind_tag_of_mir(&vty, self.classes);
                 let kind_v = self.const_int(MirTy::I64, kind);
                 self.fb.push_inst(Inst::Call {
                     dst: None,
@@ -384,7 +395,7 @@ impl<'a> BodyCx<'a> {
                 if !arg_is_fresh && self.is_arc_heap(&vty) {
                     self.fb.push_inst(Inst::Retain { value: vv });
                 }
-                let kind = kind_tag_of_mir(&vty);
+                let kind = kind_tag_of_mir(&vty, self.classes);
                 let kind_v = self.const_int(MirTy::I64, kind);
                 let prom_ty = MirTy::Promise(Box::new(vty.clone()));
                 let dst = self.fb.new_value(prom_ty.clone());
@@ -782,7 +793,7 @@ impl<'a> BodyCx<'a> {
                     (_, "catch") => (**inner).clone(),
                     _ => MirTy::Unit,
                 };
-                let out_kind = kind_tag_of_mir(&out_inner);
+                let out_kind = kind_tag_of_mir(&out_inner, self.classes);
                 let out_kind_v = self.const_int(MirTy::I64, out_kind);
                 // Runtime takes ownership of the callback's +1.
                 if !cb_is_fresh {

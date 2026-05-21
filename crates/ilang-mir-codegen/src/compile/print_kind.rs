@@ -15,7 +15,7 @@
 //! `kind_tag_of_*` / `print_kind_id_*` helpers project it down to
 //! the flat i64 tags the runtime registries expect.
 
-use ilang_mir::MirTy;
+use ilang_mir::{ClassLayout, MirTy};
 
 // `KIND_*` — heap cell tag stored in every heap container's header.
 // Used by the runtime cascade to know how to release each cell value
@@ -73,9 +73,23 @@ pub(super) enum PrintKind {
 /// Compute the cascade `KIND_*` tag for a static MirTy. Used at
 /// compile time when a heap container (Array / Optional) emits its
 /// header.
-pub(super) fn kind_tag_of(ty: &MirTy) -> i64 {
+///
+/// `@handle` structs (`MirTy::Object(cid)` where
+/// `classes[cid].is_handle`) are pointer-sized opaque values with
+/// no ARC header — their slot must be tagged `KIND_NONE` so the
+/// release cascade leaves the raw OS handle alone instead of
+/// reinterpreting it as an ilang object header (= ACCESS_VIOLATION
+/// when the cascade reads a refcount out of foreign memory).
+pub(super) fn kind_tag_of(ty: &MirTy, classes: &[ClassLayout]) -> i64 {
     match ty {
-        MirTy::Object(_) => KIND_OBJECT,
+        MirTy::Object(cid) => {
+            let layout = &classes[cid.0 as usize];
+            if layout.is_handle {
+                KIND_NONE
+            } else {
+                KIND_OBJECT
+            }
+        }
         MirTy::Array { .. } => KIND_ARRAY,
         MirTy::Optional(_) => KIND_OPTIONAL,
         MirTy::Tuple(_) => KIND_TUPLE,

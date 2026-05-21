@@ -568,7 +568,7 @@ pub fn compile_with_builtins(
         // registry (AOT mirrors these calls from `__ilang_aot_init`).
         for class in &prog.classes {
             for (i, f) in class.fields.iter().enumerate() {
-                let cascade_tag = kind_tag_of(&f.ty);
+                let cascade_tag = kind_tag_of(&f.ty, &prog.classes);
                 if cascade_tag != KIND_NONE {
                     let off = OBJECT_HEADER_BYTES as i64 + (i as i64) * 8;
                     ilang_runtime::__register_object_field(
@@ -738,7 +738,7 @@ pub fn compile_with_builtins(
                 // Cells are 1-element arrays — leak for now.
                 continue;
             }
-            let tag = kind_tag_of(&cap.ty);
+            let tag = kind_tag_of(&cap.ty, &prog.classes);
             if tag == KIND_NONE {
                 continue;
             }

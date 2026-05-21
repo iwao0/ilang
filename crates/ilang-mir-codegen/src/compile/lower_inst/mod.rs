@@ -1063,7 +1063,7 @@ pub(super) fn lower_inst<M: Module>(
             fb.ins().store(MemFlags::trusted(), data_ptr, ptr, 16);
             let one = fb.ins().iconst(types::I64, 1);
             fb.ins().store(MemFlags::trusted(), one, ptr, 24);
-            let tag = kind_tag_of(elem);
+            let tag = kind_tag_of(elem, &prog.classes);
             let tag_v = fb.ins().iconst(types::I64, tag);
             fb.ins().store(MemFlags::trusted(), tag_v, ptr, 32);
             let stride_v = fb.ins().iconst(types::I64, stride_bytes);
@@ -1108,7 +1108,7 @@ pub(super) fn lower_inst<M: Module>(
             fb.ins().store(MemFlags::trusted(), data_ptr, ptr, 16);
             let one = fb.ins().iconst(types::I64, 1);
             fb.ins().store(MemFlags::trusted(), one, ptr, 24);
-            let tag = kind_tag_of(elem);
+            let tag = kind_tag_of(elem, &prog.classes);
             let tag_v = fb.ins().iconst(types::I64, tag);
             fb.ins().store(MemFlags::trusted(), tag_v, ptr, 32);
             let stride_v = fb.ins().iconst(types::I64, stride_bytes);
@@ -1308,7 +1308,7 @@ pub(super) fn lower_inst<M: Module>(
             // can retain on insert and host_release_map can cascade-
             // release on drop, for any heap-typed value (Object,
             // String, Array, Tuple, Optional, Map, Closure, Enum).
-            let val_kind = kind_tag_of(val);
+            let val_kind = kind_tag_of(val, &prog.classes);
             if val_kind != KIND_NONE {
                 let mark_ref =
                     module.declare_func_in_func(panic_aux.map_set_val_kind, fb.func);
@@ -1427,7 +1427,7 @@ pub(super) fn lower_inst<M: Module>(
             // arm-scope release of the extracted binding would
             // double-decrement and either dangle (cell still holds
             // the ptr) or crash on subsequent access.
-            let kind = kind_tag_of(&dst_ty);
+            let kind = kind_tag_of(&dst_ty, &prog.classes);
             if kind != KIND_NONE {
                 let r = match kind {
                     KIND_OBJECT => panic_aux.retain_obj,
@@ -1477,7 +1477,7 @@ pub(super) fn lower_inst<M: Module>(
                     if i >= 12 {
                         break;
                     }
-                    let kind = kind_tag_of(ety) & 0xF;
+                    let kind = kind_tag_of(ety, &prog.classes) & 0xF;
                     packed |= kind << (16 + (i as i64) * 4);
                 }
             }
@@ -1515,7 +1515,7 @@ pub(super) fn lower_inst<M: Module>(
             // release fn at cascade time.
             let dst_ty = func.ty_of(*dst).clone();
             let tag = if let MirTy::Optional(inner) = &dst_ty {
-                kind_tag_of(inner)
+                kind_tag_of(inner, &prog.classes)
             } else {
                 KIND_NONE
             };
