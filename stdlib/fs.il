@@ -50,6 +50,85 @@ pub class FsError {
 
     pub fn __readDir(path: string): string[]
     pub fn __size(path: string): i64
+
+    pub fn __stat(path: string): i64[]
+    pub fn __lstat(path: string): i64[]
+    pub fn __access(path: string, mode: i32)
+    pub fn __copyFile(src: string, dst: string, overwrite: bool)
+    pub fn __cp(src: string, dst: string, recursive: bool)
+    pub fn __realpath(path: string): string
+    pub fn __chmod(path: string, mode: i32)
+    pub fn __truncate(path: string, len: i64)
+    pub fn __utimes(path: string, atimeMs: i64, mtimeMs: i64)
+    pub fn __symlink(target: string, linkPath: string)
+    pub fn __readlink(path: string): string
+    pub fn __link(existing: string, newPath: string)
+    pub fn __mkdtemp(prefix: string): string
+}
+
+/// `access(...)` mode flag: file exists. Bit-OR with the others
+/// to test multiple permissions at once.
+pub const F_OK: i32 = 0
+/// `access(...)` mode flag: executable / searchable by the
+/// process (POSIX only; treated as always allowed on Windows).
+pub const X_OK: i32 = 1
+/// `access(...)` mode flag: writable by the process. On Windows
+/// only the read-only attribute is consulted.
+pub const W_OK: i32 = 2
+/// `access(...)` mode flag: readable by the process (POSIX only;
+/// always allowed on Windows since ACLs don't map cleanly).
+pub const R_OK: i32 = 4
+
+/// Filesystem entry metadata returned by `stat` / `lstat`.
+/// Mirrors the relevant subset of Node.js's `fs.Stats`: timestamps
+/// are Unix-epoch milliseconds (`0` when the host doesn't supply
+/// the value), and the entry kind is read via `isFile()` /
+/// `isDir()` / `isSymlink()`.
+pub class Stats {
+    /// File size in bytes. For directories the value is
+    /// platform-dependent (typically the directory's own block
+    /// size, not the recursive content total).
+    pub size: i64
+    /// POSIX mode bits (permissions + type). On Windows a
+    /// synthesised value: `0o444` when read-only, `0o644` otherwise.
+    pub mode: i32
+    /// Last modification time as Unix-epoch milliseconds.
+    pub mtimeMs: i64
+    /// Last access time as Unix-epoch milliseconds.
+    pub atimeMs: i64
+    /// Last inode-change time as Unix-epoch milliseconds (POSIX);
+    /// on Windows this mirrors `birthtimeMs`.
+    pub ctimeMs: i64
+    /// File creation time as Unix-epoch milliseconds. `0` on
+    /// platforms / filesystems that don't track it.
+    pub birthtimeMs: i64
+    /// Internal entry-kind discriminator: 1=file, 2=dir,
+    /// 3=symlink, 0=other (FIFO, socket, ...). Use the predicate
+    /// methods instead of comparing this directly.
+    fileType: i32
+
+    pub init(sz: i64, md: i32, mt: i64, at: i64, ct: i64, bt: i64, ft: i32) {
+        this.size = sz
+        this.mode = md
+        this.mtimeMs = mt
+        this.atimeMs = at
+        this.ctimeMs = ct
+        this.birthtimeMs = bt
+        this.fileType = ft
+    }
+
+    /// `true` when the entry is a regular file.
+    pub isFile(): bool { this.fileType == 1 }
+    /// `true` when the entry is a directory.
+    pub isDir(): bool { this.fileType == 2 }
+    /// `true` when the entry is a symbolic link. Only set by
+    /// `lstat` — `stat` follows links and reports the target's
+    /// type.
+    pub isSymlink(): bool { this.fileType == 3 }
+}
+
+fn buildStats(arr: i64[]): Stats {
+    new Stats(arr[0], arr[1] as i32, arr[2], arr[3], arr[4], arr[5], arr[6] as i32)
 }
 
 fn lastError(): FsError {
@@ -153,4 +232,120 @@ pub fn readDir(path: string): Result<string[], FsError> {
 pub fn size(path: string): Result<i64, FsError> {
     let n = __size(path)
     if __hasError() { Result.err(lastError()) } else { Result.ok(n) }
+}
+
+/// Fetch a `Stats` snapshot for `path`. Symbolic links are
+/// followed, so the returned values describe the link's *target*
+/// (use `lstat` to inspect the link itself).
+pub fn stat(path: string): Result<Stats, FsError> {
+    let arr = __stat(path)
+    if __hasError() { Result.err(lastError()) } else { Result.ok(buildStats(arr)) }
+}
+
+/// `stat` that does **not** follow symbolic links — if `path`
+/// names a symlink, the returned `Stats` describes the link
+/// itself (`isSymlink()` will be `true`).
+pub fn lstat(path: string): Result<Stats, FsError> {
+    let arr = __lstat(path)
+    if __hasError() { Result.err(lastError()) } else { Result.ok(buildStats(arr)) }
+}
+
+/// Check whether the current process can access `path` under the
+/// given mode (bit-OR of `F_OK` / `R_OK` / `W_OK` / `X_OK`). On
+/// success returns `Result.ok(true)`; on denial returns
+/// `Result.err(FsError)` with an `EACCES` / `ENOENT` code.
+///
+/// Windows note: R_OK / X_OK are not enforced (POSIX ACLs don't
+/// map cleanly); only F_OK and W_OK (read-only attribute) are
+/// honoured there.
+pub fn access(path: string, mode: i32): Result<bool, FsError> {
+    __access(path, mode)
+    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+}
+
+/// Copy file `src` to `dst`. With `overwrite: false` fails with
+/// `EEXIST` when `dst` already exists; with `overwrite: true`
+/// replaces it. Symbolic links in `src` are followed (the link
+/// target's contents are copied).
+pub fn copyFile(src: string, dst: string, overwrite: bool): Result<bool, FsError> {
+    __copyFile(src, dst, overwrite)
+    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+}
+
+/// Copy `src` to `dst`. With `recursive: false` copies a single
+/// file (use `copyFile` for finer control over overwriting). With
+/// `recursive: true` walks `src` like `cp -r`, creating
+/// directories at `dst` and preserving symlinks as symlinks.
+pub fn cp(src: string, dst: string, recursive: bool): Result<bool, FsError> {
+    __cp(src, dst, recursive)
+    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+}
+
+/// Canonicalise `path` to an absolute path with all `.` / `..`
+/// segments resolved and every symbolic link followed. Fails if
+/// `path` (or any component) doesn't exist.
+pub fn realpath(path: string): Result<string, FsError> {
+    let r = __realpath(path)
+    if __hasError() { Result.err(lastError()) } else { Result.ok(r) }
+}
+
+/// Change the permission bits of `path` to `mode`. On POSIX
+/// `mode` is the standard `chmod(2)` bitmask (use the constants
+/// in `os` such as `S_IRUSR`); on Windows only the user-write
+/// bit (`0o200`) is honoured — clearing it sets the read-only
+/// attribute.
+pub fn chmod(path: string, mode: i32): Result<bool, FsError> {
+    __chmod(path, mode)
+    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+}
+
+/// Set the length of `path` to exactly `len` bytes. Truncates
+/// when shrinking; pads with NUL bytes when growing. `len` must
+/// be non-negative — pass `0` to empty the file in place.
+pub fn truncate(path: string, len: i64): Result<bool, FsError> {
+    __truncate(path, len)
+    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+}
+
+/// Set the access and modification timestamps of `path`. Both
+/// values are Unix-epoch milliseconds (the same units `stat()`
+/// reports). Negative values are clamped at the platform's
+/// minimum — practical use means "now or after 1970".
+pub fn utimes(path: string, atimeMs: i64, mtimeMs: i64): Result<bool, FsError> {
+    __utimes(path, atimeMs, mtimeMs)
+    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+}
+
+/// Create a symbolic link at `linkPath` pointing to `target`.
+/// `target` is stored verbatim and may be relative; it is not
+/// required to exist. On Windows the link type (file vs.
+/// directory) is chosen by inspecting `target` — for a missing
+/// target a file symlink is created.
+pub fn symlink(target: string, linkPath: string): Result<bool, FsError> {
+    __symlink(target, linkPath)
+    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+}
+
+/// Read the target of the symbolic link at `path`. The returned
+/// string is whatever was stored in the link (may be relative).
+/// Fails with `EINVAL` if `path` is not a symlink.
+pub fn readlink(path: string): Result<string, FsError> {
+    let r = __readlink(path)
+    if __hasError() { Result.err(lastError()) } else { Result.ok(r) }
+}
+
+/// Create a hard link at `newPath` referencing the same inode as
+/// `existing`. Both paths must be on the same filesystem.
+pub fn link(existing: string, newPath: string): Result<bool, FsError> {
+    __link(existing, newPath)
+    if __hasError() { Result.err(lastError()) } else { Result.ok(true) }
+}
+
+/// Create a uniquely-named directory by appending six random
+/// characters to `prefix`. The full directory path is returned.
+/// The caller owns the new directory and is responsible for
+/// removing it (e.g. via `rmdir(path, recursive: true)`).
+pub fn mkdtemp(prefix: string): Result<string, FsError> {
+    let p = __mkdtemp(prefix)
+    if __hasError() { Result.err(lastError()) } else { Result.ok(p) }
 }
