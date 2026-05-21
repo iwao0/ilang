@@ -24,3 +24,7 @@ pub use setjmp.*
 pub use wchar.*
 pub use wctype.*
 pub use assert.*
+pub use fenv.*
+pub use inttypes.*
+pub use threads.*
+pub use uchar.*

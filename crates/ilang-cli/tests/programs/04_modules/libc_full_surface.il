@@ -23,6 +23,14 @@ use libc {
     jmp_buf,
     // wctype.il (wide ctype — symbol may be missing at runtime)
     iswalpha,
+    // fenv.il
+    FeRound, FeExcept,
+    // inttypes.il
+    imaxabs, imaxdiv_t,
+    // threads.il
+    ThrdResult, MtxType,
+    // uchar.il
+    mbstate_t,
 }
 
 @extern(C) {
@@ -41,6 +49,16 @@ use libc {
         // time() should return something positive on every host.
         let t = time(0 as *i64)
         test.expectTrue(t > 0 as i64)
+
+        // inttypes — imaxabs of a negative literal.
+        test.expect(imaxabs(-7 as i64), 7 as i64)
+
+        // fenv — round-mode constants.
+        test.expect(FeRound.toNearest as i64, 0 as i64)
+        test.expect(FeRound.upward    as i64, 0x800 as i64)
+        // C11 thread result enum values match the C surface.
+        test.expect(ThrdResult.success as i64, 0 as i64)
+        test.expect(ThrdResult.busy    as i64, 3 as i64)
     }
 }
 
