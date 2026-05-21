@@ -69,3 +69,9 @@ pub use winspool.*
 pub use mswsock.*
 pub use virtdisk.*
 pub use taskschd.*
+pub use httpapi.*
+pub use rstrtmgr.*
+pub use powrprof.*
+pub use dxva2.*
+pub use sensapi.*
+pub use winsta.*
