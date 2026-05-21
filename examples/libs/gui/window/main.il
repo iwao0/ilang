@@ -12,7 +12,7 @@
 
 use gui
 
-let w = gui.createWindow("ilang × gui", 480.0, 320.0)
+let w = new gui.Window("ilang × gui", 480.0, 320.0)
 
 w.onClose.add(fn(e: gui.CloseEvent) {
     console.log("window closing")

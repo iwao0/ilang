@@ -362,10 +362,14 @@ pub(crate) fn walk_module(
 ) {
     let (module_path, module_src) =
         if let Some(s) = ilang_parser::loader::builtin_module_source(prefix) {
-            (
-                PathBuf::from(format!("<builtin>/{prefix}.il")),
-                s.to_string(),
-            )
+            // Prefer the real on-disk `stdlib/<name>.il` so F12 lands
+            // in an actual file. Falls back to the synthetic
+            // `<builtin>/<name>.il` key in release-only installs where
+            // the source tree isn't present (the rest of the LSP — hover,
+            // completion — still works off the embedded source string).
+            let real = ilang_parser::loader::builtin_module_path(prefix)
+                .unwrap_or_else(|| PathBuf::from(format!("<builtin>/{prefix}.il")));
+            (real, s.to_string())
         } else {
             // Mirror `loader::resolve_module`: try `<dir>/M.il` first,
             // then fall back to `<dir>/M/mod.il` (Rust-style subfolder

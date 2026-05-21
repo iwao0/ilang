@@ -6,7 +6,7 @@
 /// call site.
 ///
 ///   use gui
-///   let w = gui.createWindow("hello", 480.0, 320.0)
+///   let w = new gui.Window("hello", 480.0, 320.0)
 ///   w.onClose.add(fn(e: gui.CloseEvent) { console.log("bye") })
 ///   gui.run()
 
@@ -110,9 +110,9 @@ pub class MouseEvent : Event {
     }
 }
 
-/// A top-level OS window. Construct via `createWindow(...)`; the
-/// `init(handle)` form is exposed for the bridging package only —
-/// app code should not call it directly.
+/// A top-level OS window. Construct with `new Window(title, w, h)`;
+/// the window appears immediately but no events fire until
+/// `gui.run()` is called.
 ///
 /// Each `on*` field is a `Signal<T>` users register on with
 /// `w.onClose.add(fn(e) { ... })`. Listeners fire on the main
@@ -121,27 +121,17 @@ pub class Window : EventTarget {
     pub handle: i64
     pub onClose: Signal<CloseEvent>
 
-    pub init(handle: i64) {
+    pub init(title: string, width: f64, height: f64) {
         super()
-        this.handle = handle
+        this.handle = createNativeWindow(title, width, height)
         this.onClose = new Signal<CloseEvent>()
+        // Forward the native close notification to `onClose`.
+        // The closure captures `this` so the same Window flows
+        // through as `event.sender`.
+        setOnClose(this.handle, fn() {
+            this.onClose.emit(new CloseEvent(this))
+        })
     }
-}
-
-/// Open a top-level window. `title` is the window-title text;
-/// `width` / `height` are the initial client-area size in points.
-/// The window appears immediately but no events fire until
-/// `run()` is called.
-pub fn createWindow(title: string, width: f64, height: f64): Window {
-    let handle = createNativeWindow(title, width, height)
-    let win = new Window(handle)
-    // Forward the native close notification to the Window's
-    // `onClose` Signal. Captures `win` so the same Window flows
-    // through as `event.sender`.
-    setOnClose(handle, fn() {
-        win.onClose.emit(new CloseEvent(win))
-    })
-    win
 }
 
 /// Run the platform event loop until every window has closed
