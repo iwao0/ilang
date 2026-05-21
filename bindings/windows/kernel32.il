@@ -300,12 +300,49 @@ pub enum StdHandle: u32 {
     @lib pub fn GetCurrentDirectoryA(nBufferLength: u32, lpBuffer: *char): u32
     @lib pub fn SetCurrentDirectoryA(lpPathName: *const char): i32
     @lib pub fn GetTempPathA(nBufferLength: u32, lpBuffer: *char): u32
+    @lib pub fn GetTempPathW(nBufferLength: u32, lpBuffer: *u16): u32
     @lib pub fn GetTempFileNameA(
         lpPathName:    *const char,
         lpPrefixString: *const char,
         uUnique:       u32,
         lpTempFileName: *char
     ): u32
+
+    // ── Activation Context (side-by-side assemblies) ─────────
+
+    /// `ACTCTXW` — input to `CreateActCtxW`. Layout (x64):
+    /// 4 + 4 + 8 + 2 + 2 + 4 + 8 + 8 + 8 + 8 = 56 bytes.
+    pub struct ACTCTXW {
+        cbSize:                u32
+        dwFlags:               u32
+        lpSource:              *const u16
+        wProcessorArchitecture: u16
+        wLangId:               u16
+        _pad:                  u32
+        lpAssemblyDirectory:   *const u16
+        lpResourceName:        *const u16
+        lpApplicationName:     *const u16
+        hModule:               i64        // *HMODULE
+    }
+
+    /// Build a side-by-side activation context. Use this to load
+    /// e.g. comctl32 v6 (the themed control set) from an in-memory
+    /// or on-disk manifest without rebuilding the .exe.
+    /// Returns INVALID_HANDLE_VALUE (-1) on failure.
+    @lib pub fn CreateActCtxW(pActCtx: *const ACTCTXW): i64
+
+    /// Push `hActCtx` onto the calling thread's activation stack.
+    /// `*lpCookie` receives a value passed to `DeactivateActCtx`.
+    /// Returns non-zero on success.
+    @lib pub fn ActivateActCtx(hActCtx: i64, lpCookie: *u64): i32
+
+    /// Pop the activation context with the matching `ulCookie`.
+    /// `dwFlags` is typically 0.
+    @lib pub fn DeactivateActCtx(dwFlags: u32, ulCookie: u64): i32
+
+    /// Decrement the ref count of an activation context; the
+    /// kernel frees it when the count hits 0.
+    @lib pub fn ReleaseActCtx(hActCtx: i64)
 
     // ── System / environment ──────────────────────────────────
     @lib pub fn GetCommandLineA(): *const char

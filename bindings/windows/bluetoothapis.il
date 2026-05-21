@@ -15,7 +15,7 @@ pub enum BluetoothSearchFlag: u32 {
     returnAll         = 0x1F
 }
 
-@extern(C, "bthprops.cpl") {
+@extern(C, "BluetoothApis", "bthprops.cpl") {
     /// 48-bit MAC address (8 bytes — 6 active + 2 padding).
     pub struct BLUETOOTH_ADDRESS {
         ullLong: u64

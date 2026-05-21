@@ -22,7 +22,20 @@ use windows {
     GetMessageA, TranslateMessage, DispatchMessageA,
     PostQuitMessage,
     GetWindowLongPtrA, SetWindowLongPtrA, GetKeyState,
-    LoadCursorA, SystemCursor,
+    LoadCursorA, SetCursor, SystemCursor,
+    // Side-by-side activation: load comctl32 v6 (themed buttons /
+    // edit / list / tab / progress) without an embedded .manifest.
+    ACTCTXW, CreateActCtxW, ActivateActCtx, GetTempPathA,
+    CreateFileA, WriteFile, CloseHandle, HANDLE,
+    FileAccess, FileCreation, FileAttribute,
+    HeapAlloc, HeapFree, GetProcessHeap,
+    MultiByteToWideChar,
+    // SetWindowTheme — best-effort modernization for buttons /
+    // listviews. No-op when a v6 activation context isn't live.
+    SetWindowTheme,
+    // InitCommonControlsEx — required so the v6 control classes
+    // are actually registered before the first CreateWindow.
+    INITCOMMONCONTROLSEX, InitCommonControlsEx, Icc,
 }
 
 // ─── per-window callback table ────────────────────────────────
@@ -38,6 +51,17 @@ let ON_MOUSE_UP:    fn(f64, f64, i32, bool, bool, bool, bool)[]             = []
 
 let BUTTON_HWNDS:   HWND[]                                                  = []
 let ON_CLICK:       fn(f64, f64, i32)[]                                     = []
+
+// True once enableComctl32V6() has run — we only need to install
+// the side-by-side activation context for comctl32 6.0 once per
+// process, regardless of how many windows / buttons get created.
+let SXS_INITIALIZED: bool[] = [false]
+
+// Wide "Explorer" string used by SetWindowTheme on each button.
+// Stored as `i64` (pointer value) because ilang arrays don't hold
+// raw-pointer element types outside `@extern(C)` blocks. The slot
+// is 0 until `enableComctl32V6` has populated it.
+let EXPLORER_THEME: i64[] = [0 as i64]
 fn noOpClick(x: f64, y: f64, b: i32) {
     let _ = x
     let _ = y
@@ -150,6 +174,24 @@ fn vkToString(vk: u32): string {
                     PostQuitMessage(0)
                     return 0
                 }
+                WindowMessage.setCursor {
+                    // lParam packs (hit-test-code, mouse-message);
+                    // low word = hit-test. HTCLIENT == 1 means the
+                    // pointer is over the client area; force the
+                    // standard arrow there so the resize-border
+                    // cursor doesn't leak back in. Anything else
+                    // (HTLEFT etc.) falls through to DefWindowProc
+                    // so the system resize cursors still work.
+                    let ht = (lParam & 0xFFFF) as i32
+                    if ht == 1 {
+                        let arrow = LoadCursorA(
+                            0 as HINSTANCE,
+                            SystemCursor.arrow as i64 as *const char
+                        )
+                        let _ = SetCursor(arrow)
+                        return 1
+                    }
+                }
                 WindowMessage.size {
                     let cb = ON_RESIZE[ix]
                     cb(lo, hi)
@@ -231,15 +273,124 @@ fn vkToString(vk: u32): string {
 
 @extern(C) {
 
+/// Install a side-by-side activation context that pulls in
+/// `Microsoft.Windows.Common-Controls` v6 — the "modern" themed
+/// button / edit / listview / tab / progress classes. Without
+/// this (or an embedded .manifest resource on the EXE), CreateWindow
+/// hands back the legacy Win95-style controls.
+///
+/// Writes the manifest to `%TEMP%\ilang_gui_v6.manifest` on first
+/// call, then calls `CreateActCtxW + ActivateActCtx`. The context
+/// stays activated for the lifetime of the process (we leak the
+/// cookie on purpose).
+pub fn enableComctl32V6() {
+    if SXS_INITIALIZED[0] { return }
+    SXS_INITIALIZED[0] = true
+
+    let heap = GetProcessHeap()
+
+    // ── Compose the manifest path under %TEMP%. ─────────────────
+    let tempBuf = HeapAlloc(heap, 8 as u32, 1024 as u64)
+    let _ = GetTempPathA(1024 as u32, tempBuf as *char)
+    let tempStr = stringFromCstr(tempBuf as *const char)
+    let manifestPath = tempStr + "ilang_gui_v6.manifest"
+    let pathC = cstrFromString(manifestPath)
+
+    // ── Manifest body. Asks the loader for comctl32 6.0 — the
+    //    same content used by themed apps' embedded .manifest. ─
+    let manifest = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\"><dependency><dependentAssembly><assemblyIdentity type=\"win32\" name=\"Microsoft.Windows.Common-Controls\" version=\"6.0.0.0\" processorArchitecture=\"*\" publicKeyToken=\"6595b64144ccf1df\" language=\"*\"/></dependentAssembly></dependency></assembly>"
+    let manifestC = cstrFromString(manifest)
+    let manifestLen = manifest.length as u32
+
+    let hFile = CreateFileA(
+        pathC,
+        FileAccess.write as u32,
+        0 as u32,
+        0 as *void,
+        FileCreation.createAlways as u32,
+        FileAttribute.normal as u32,
+        0 as HANDLE
+    )
+    if (hFile as i64) == -1 as i64 {
+        HeapFree(heap, 0 as u32, tempBuf)
+        return
+    }
+    let written: u32 = 0
+    let _ = WriteFile(
+        hFile,
+        manifestC as *const void,
+        manifestLen,
+        &written,
+        0 as *void
+    )
+    CloseHandle(hFile)
+
+    // ── ANSI path → wide for CreateActCtxW. ─────────────────────
+    let wideBuf = HeapAlloc(heap, 8 as u32, 2048 as u64) as *u16
+    let _ = MultiByteToWideChar(
+        0 as u32,                   // CP_ACP
+        0 as u32,
+        pathC,
+        -1 as i32,                  // NUL-terminated
+        wideBuf,
+        1024 as i32
+    )
+
+    // ── CreateActCtxW + ActivateActCtx. Cookie leaks on purpose
+    //    so v6 stays active for every later window / button. ──
+    let actCtx = ACTCTXW {
+        cbSize:                 56 as u32,
+        dwFlags:                0 as u32,
+        lpSource:               wideBuf as *const u16,
+        wProcessorArchitecture: 0 as u16,
+        wLangId:                0 as u16,
+        _pad:                   0 as u32,
+        lpAssemblyDirectory:    0 as *const u16,
+        lpResourceName:         0 as *const u16,
+        lpApplicationName:      0 as *const u16,
+        hModule:                0 as i64,
+    }
+    let h = CreateActCtxW(&actCtx)
+    if h != -1 as i64 {
+        let cookie: u64 = 0
+        let _ = ActivateActCtx(h, &cookie)
+    }
+    HeapFree(heap, 0 as u32, tempBuf)
+    // wideBuf intentionally not freed — the activation context
+    // keeps a pointer to it.
+
+    // ── Register v6 common control classes. ────────────────────
+    let icc = INITCOMMONCONTROLSEX {
+        dwSize: 8 as u32,
+        dwICC:  Icc.standardClasses as u32 | Icc.barClasses as u32,
+    }
+    let _ = InitCommonControlsEx(&icc)
+
+    // ── Build a cached wide "Explorer" string for SetWindowTheme. ─
+    let themeBuf = HeapAlloc(heap, 8 as u32, 32 as u64) as *u16
+    let themeName = cstrFromString("Explorer")
+    let _ = MultiByteToWideChar(
+        0 as u32, 0 as u32, themeName, -1 as i32,
+        themeBuf, 16 as i32
+    )
+    EXPLORER_THEME[0] = themeBuf as i64
+}
+
 pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
+    // Switch the process over to comctl32 v6 *before* the first
+    // CreateWindowExA so registered classes pick up the themed
+    // shapes.
+    enableComctl32V6()
+
     let hInstance = GetModuleHandleA(0 as *const char)
     let className = cstrFromString("IlangGuiWindow")
     let titleC = cstrFromString(title)
 
     // Load IDC_ARROW so Windows restores the standard pointer
     // when the cursor re-enters the client area after the resize
-    // border swapped it to a size cursor. Without `hCursor` set,
-    // Win32 leaves whatever cursor the previous area was showing.
+    // border swapped it to a size cursor. We also explicitly
+    // handle WM_SETCURSOR in `guiWndProc` so this is belt-and-
+    // suspenders.
     let arrowCursor = LoadCursorA(0 as HINSTANCE,
                                   SystemCursor.arrow as i64 as *const char)
 
@@ -252,7 +403,12 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         hInstance:     hInstance as HINSTANCE,
         hIcon:         0 as HICON,
         hCursor:       arrowCursor,
-        hbrBackground: 6 as HBRUSH,         // COLOR_WINDOW (5) + 1
+        // COLOR_BTNFACE (15) + 1 = 16 — the default dialog /
+        // control panel grey, what callers usually mean by
+        // "normal Windows background". COLOR_WINDOW + 1 (= 6)
+        // is pure white, which makes single-button utility
+        // windows look like an embedded text editor.
+        hbrBackground: 16 as HBRUSH,
         lpszMenuName:  0 as *const char,
         lpszClassName: className,
         hIconSm:       0 as HICON,
@@ -347,6 +503,19 @@ pub fn createNativeButton(
     )
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
+
+    // Apply the Explorer theme so the button picks up the modern
+    // rounded / hover-shaded look. With the v6 activation context
+    // installed by `enableComctl32V6` this swaps the Win95 grey
+    // 3-D border for the current theme's button.
+    if EXPLORER_THEME[0] != 0 as i64 {
+        let _ = SetWindowTheme(
+            hwnd as i64,
+            EXPLORER_THEME[0] as *const u16,
+            0 as *const u16
+        )
+    }
+
     BUTTON_HWNDS.push(hwnd)
     ON_CLICK.push(noOpClick)
     id

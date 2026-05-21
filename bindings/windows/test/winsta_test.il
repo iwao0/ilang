@@ -1,7 +1,7 @@
 /// winsta — open server + enumerate sessions smoke test.
 
 use test
-use windows {
+use winsta {
     WinStationOpenServerW, WinStationCloseServer,
     WinStationEnumerateW, WinStationFreeMemory,
     SESSIONIDW,

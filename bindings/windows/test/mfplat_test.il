@@ -1,7 +1,7 @@
 /// mfplat — startup / shutdown + buffer creation smoke test.
 
 use test
-use windows {
+use mfplat {
     MFStartup, MFShutdown, MfStartupFlags,
     MFCreateMemoryBuffer, MFCreateSample, MFCreateMediaType,
     MFCreateAttributes,

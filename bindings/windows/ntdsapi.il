@@ -173,5 +173,4 @@ pub enum DcGetFlags: u32 {
         ppServers:       **void
     ): u32
 
-    @lib pub fn DsFreeNameResult(pResult: *void)
 }
