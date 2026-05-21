@@ -31,6 +31,9 @@ use libc {
     ThrdResult, MtxType,
     // uchar.il
     mbstate_t,
+    // posix subfolder
+    timespec, timeval, OpenFlags, MmapProt, sockaddr_in,
+    pthread_t, sem_t, sigset_t, fd_set, dirent, stat, passwd,
 }
 
 @extern(C) {
@@ -59,6 +62,11 @@ use libc {
         // C11 thread result enum values match the C surface.
         test.expect(ThrdResult.success as i64, 0 as i64)
         test.expect(ThrdResult.busy    as i64, 3 as i64)
+
+        // POSIX flag values.
+        test.expect(OpenFlags.rdwr   as i64, 2 as i64)
+        test.expect(OpenFlags.create as i64, 0x40 as i64)
+        test.expect(MmapProt.read    as i64, 1 as i64)
     }
 }
 
