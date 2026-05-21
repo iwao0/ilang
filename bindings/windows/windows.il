@@ -81,3 +81,9 @@ pub use mscms.*
 pub use ntdsapi.*
 pub use bluetoothapis.*
 pub use fltlib.*
+pub use wldap32.*
+pub use vssapi.*
+pub use uiautomationcore.*
+pub use cryptui.*
+pub use wuapi.*
+pub use clfsw32.*
