@@ -398,6 +398,7 @@ fn rename_in_expr(e: &mut Expr, rules: &HashMap<Symbol, Symbol>) {
         ExprKind::Match { scrutinee, arms } => {
             rename_in_expr(scrutinee, rules);
             for arm in arms.iter_mut() {
+                rename_in_pattern(&mut arm.pattern, rules);
                 rename_in_expr(&mut arm.body, rules);
             }
         }
@@ -409,6 +410,23 @@ fn rename_in_expr(e: &mut Expr, rules: &HashMap<Symbol, Symbol>) {
         | ExprKind::Float(_)
         | ExprKind::Bool(_)
         | ExprKind::Str(_) => {}
+    }
+}
+
+/// Apply use-rules to a match-arm pattern. Only `Variant`'s
+/// `enum_name` carries a user-named symbol that may have been
+/// brought in via `use M { Enum }`. Without this, the type
+/// checker sees the scrutinee as the fully-qualified
+/// `windows.WindowMessage` (renamed by the type/expr passes) but
+/// the pattern's bare `WindowMessage` stays unrenamed and the arm
+/// fails with `expected windows.WindowMessage, got WindowMessage`.
+fn rename_in_pattern(p: &mut ilang_ast::Pattern, rules: &HashMap<Symbol, Symbol>) {
+    if let ilang_ast::PatternKind::Variant { enum_name, .. } = &mut p.kind {
+        if let Some(name) = enum_name {
+            if let Some(new_name) = rename_sym(name, rules) {
+                *name = new_name;
+            }
+        }
     }
 }
 
