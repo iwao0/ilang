@@ -106,7 +106,7 @@ pub enum DttFlags: u32 {
     // ── Theme handle ──────────────────────────────────────────────
 
     /// Opaque theme-data handle (HTHEME).
-    pub struct HTHEME {}
+    @handle pub struct HTHEME {}
 
     // ── DTTOPTS for DrawThemeTextEx — 76 bytes ───────────────────
 

@@ -89,7 +89,7 @@ pub enum DwmThumbnailFlags: u32 {
     // ── Opaque thumbnail handle ───────────────────────────────────
 
     /// Opaque handle for a DWM live thumbnail registration.
-    pub struct HTHUMBNAIL {}
+    @handle pub struct HTHUMBNAIL {}
 
     // ── MARGINS — 16 bytes ────────────────────────────────────────
 

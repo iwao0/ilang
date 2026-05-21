@@ -135,7 +135,7 @@ pub enum NotifyIconDataFlags: u32 {
 
     /// Drag-and-drop data handle (HDROP). Passed as wParam in
     /// WM_DROPFILES; pass to DragQueryFileA / DragFinish.
-    pub struct HDROP {}
+    @handle pub struct HDROP {}
 
     // ── SHFILEOPERATIONA struct — 36 bytes on x64 ─────────────────
 

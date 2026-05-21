@@ -251,25 +251,25 @@ pub enum FontPitchFamily: u32 {
 
     /// Generic GDI object handle (HGDIOBJ). Returned by SelectObject
     /// and used by DeleteObject. Cast from HPEN, HBRUSH, HFONT, etc.
-    pub struct HGDIOBJ {}
+    @handle pub struct HGDIOBJ {}
 
     /// GDI pen handle.
-    pub struct HPEN {}
+    @handle pub struct HPEN {}
 
     /// GDI solid or hatch brush handle.
-    pub struct HBRUSHGDI {}
+    @handle pub struct HBRUSHGDI {}
 
     /// GDI font handle.
-    pub struct HFONT {}
+    @handle pub struct HFONT {}
 
     /// GDI bitmap handle.
-    pub struct HBITMAP {}
+    @handle pub struct HBITMAP {}
 
     /// GDI region handle.
-    pub struct HRGN {}
+    @handle pub struct HRGN {}
 
     /// GDI palette handle.
-    pub struct HPALETTE {}
+    @handle pub struct HPALETTE {}
 
     // ── Geometry / layout structs ─────────────────────────────────
 

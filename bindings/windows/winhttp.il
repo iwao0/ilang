@@ -117,7 +117,7 @@ pub enum WinHttpRedirectPolicy: u32 {
 
 @extern(C, "winhttp") {
     /// WinHTTP handle (HINTERNET, same opaque type as in wininet).
-    pub struct HWINHTTP {}
+    @handle pub struct HWINHTTP {}
 
     // ── Session lifecycle ─────────────────────────────────────────
 

@@ -143,7 +143,7 @@ pub enum GlBlend: u32 {
     }
 
     /// Opaque GL rendering context.
-    pub struct HGLRC {}
+    @handle pub struct HGLRC {}
 
     // ── WGL — context management ─────────────────────────────────
 

@@ -155,7 +155,7 @@ pub enum InternetOption: u32 {
     // ── Opaque handle ─────────────────────────────────────────────
 
     /// WinINet handle (HINTERNET). Closed with InternetCloseHandle.
-    pub struct HINTERNET {}
+    @handle pub struct HINTERNET {}
 
     // ── INTERNET_BUFFERSA — for HttpSendRequestEx (rarely needed) ──
 

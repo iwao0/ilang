@@ -34,10 +34,10 @@ pub enum PdhFormat: u32 {
 
 @extern(C, "pdh") {
     /// Opaque PDH query handle (HQUERY).
-    pub struct HPdhQuery {}
+    @handle pub struct HPdhQuery {}
 
     /// Opaque PDH counter handle (HCOUNTER).
-    pub struct HPdhCounter {}
+    @handle pub struct HPdhCounter {}
 
     // ── PDH_FMT_COUNTERVALUE — 16 bytes union ────────────────────
 

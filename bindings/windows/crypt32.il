@@ -115,7 +115,7 @@ pub enum CryptProtectFlags: u32 {
     // ── Opaque types ──────────────────────────────────────────────
 
     /// Certificate store handle (HCERTSTORE).
-    pub struct HCERTSTORE {}
+    @handle pub struct HCERTSTORE {}
 
     // ── CRYPT_INTEGER_BLOB / CRYPT_DATA_BLOB — 16 bytes ──────────
 

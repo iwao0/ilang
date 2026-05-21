@@ -120,6 +120,18 @@ pub enum DvAspect: u32 {
         Data4hi: u32
     }
 
+    // ── IUnknown — every COM interface starts here ────────────────
+    //
+    // Declared once in ole32 (the COM foundation) so dxgi / d3d12 /
+    // wasapi / any future COM binding shares a single identity.
+    // Cross-module casts (`device as IUnknown` etc.) work without
+    // detouring through `*void`.
+    @com pub interface IUnknown {
+        QueryInterface(riid: *const GUID, ppvObject: **void): i32
+        AddRef(): u32
+        Release(): u32
+    }
+
     // ── STATSTG — 72 bytes on x64 ────────────────────────────────
 
     /// Stream / storage statistics returned by IStream::Stat.

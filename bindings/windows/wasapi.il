@@ -10,7 +10,7 @@
 /// (everything else), but every entry below is reached through
 /// the COM vtables — no flat `@lib pub fn` declarations needed.
 
-use ole32 { GUID }
+use ole32 { GUID, IUnknown }
 use kernel32 { HANDLE }
 
 // ─── EDataFlow / ERole / DeviceState ─────────────────────────────
@@ -70,30 +70,35 @@ pub enum AudioSessionState: u32 {
 }
 
 // ─── AUDCLNT HRESULTs (commonly hit on first-run integration) ────
-pub enum AudClntResult: i32 {
-    ok                       = 0
-    notInitialized           = -2004287487   // 0x88890001
-    alreadyInitialized       = -2004287486   // 0x88890002
-    wrongEndpointType        = -2004287485   // 0x88890003
-    deviceInvalidated        = -2004287484   // 0x88890004
-    notStopped               = -2004287483   // 0x88890005
-    bufferTooLarge           = -2004287482   // 0x88890006
-    outOfOrder               = -2004287481   // 0x88890007
-    unsupportedFormat        = -2004287480   // 0x88890008
-    invalidSize              = -2004287479   // 0x88890009
-    deviceInUse              = -2004287478   // 0x8889000A
-    bufferOperationPending   = -2004287477   // 0x8889000B
-    threadNotRegistered      = -2004287476   // 0x8889000C
-    exclusiveModeNotAllowed  = -2004287474   // 0x8889000E
-    endpointCreateFailed     = -2004287473   // 0x8889000F
-    serviceNotRunning        = -2004287472   // 0x88890010
-    eventHandleNotExpected   = -2004287471   // 0x88890011
-    exclusiveModeOnly        = -2004287470   // 0x88890012
-    bufdurationPeriodNotEqual = -2004287469  // 0x88890013
-    eventHandleNotSet        = -2004287468   // 0x88890014
-    incorrectBufferSize      = -2004287467   // 0x88890015
-    bufferSizeError          = -2004287466   // 0x88890016
-    cpuUsageExceeded         = -2004287465   // 0x88890017
+//
+// Repr is `u32` so the bit pattern stays identical to the SDK
+// header values (`AUDCLNT_E_*` are negative i32 HRESULTs at the
+// ABI). Compare an HRESULT returned from a flat fn with
+// `rc as u32 == AudClntResult.notInitialized as u32`.
+pub enum AudClntResult: u32 {
+    ok                        = 0
+    notInitialized            = 0x88890001
+    alreadyInitialized        = 0x88890002
+    wrongEndpointType         = 0x88890003
+    deviceInvalidated         = 0x88890004
+    notStopped                = 0x88890005
+    bufferTooLarge            = 0x88890006
+    outOfOrder                = 0x88890007
+    unsupportedFormat         = 0x88890008
+    invalidSize               = 0x88890009
+    deviceInUse               = 0x8889000A
+    bufferOperationPending    = 0x8889000B
+    threadNotRegistered       = 0x8889000C
+    exclusiveModeNotAllowed   = 0x8889000E
+    endpointCreateFailed      = 0x8889000F
+    serviceNotRunning         = 0x88890010
+    eventHandleNotExpected    = 0x88890011
+    exclusiveModeOnly         = 0x88890012
+    bufdurationPeriodNotEqual = 0x88890013
+    eventHandleNotSet         = 0x88890014
+    incorrectBufferSize       = 0x88890015
+    bufferSizeError           = 0x88890016
+    cpuUsageExceeded          = 0x88890017
 }
 
 // ─── REFERENCE_TIME — 100-ns ticks, signed 64-bit ────────────────
@@ -258,17 +263,6 @@ pub const IID_ISimpleAudioVolume: GUID = GUID {
 // ─── COM interfaces (declarations) ───────────────────────────────
 
 @extern(C) {
-    // Local IUnknown — declared as not-`pub` so the windows umbrella
-    // doesn't see two competing `IUnknown` exports (dxgi.il already
-    // ships one). Internal inheritance chains in this file still
-    // reference this declaration; cross-file casts go via `*void`
-    // re-cast as elsewhere.
-    @com interface IUnknown {
-        QueryInterface(riid: *const GUID, ppvObject: **void): i32
-        AddRef(): u32
-        Release(): u32
-    }
-
     /// `IMMDevice` — handle to a single audio endpoint.
     /// `Activate(IID, ClsCtx, params, ppInterface)` is the workhorse
     /// — pass `IID_IAudioClient` (or a relative) to bring up the

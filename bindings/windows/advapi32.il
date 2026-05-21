@@ -183,13 +183,13 @@ pub enum EventLogType: u16 {
 
     /// Registry key handle. The predefined roots are cast from
     /// the PredefinedKey enum: `PredefinedKey.currentUser as i64 as *HKEY`.
-    pub struct HKEY {}
+    @handle pub struct HKEY {}
 
     /// Service Control Manager handle.
     pub struct SC_HANDLE {}
 
     /// Event log handle.
-    pub struct HEVENTLOG {}
+    @handle pub struct HEVENTLOG {}
 
     // ── SERVICE_STATUS — 28 bytes ─────────────────────────────────
 

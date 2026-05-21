@@ -144,10 +144,10 @@ pub enum MixerLineFlags: u32 {
     // ── Opaque handles ────────────────────────────────────────────
 
     /// Waveform audio output handle.
-    pub struct HWAVEOUT {}
+    @handle pub struct HWAVEOUT {}
 
     /// Waveform audio input handle.
-    pub struct HWAVEIN {}
+    @handle pub struct HWAVEIN {}
 
     // ── Audio format ──────────────────────────────────────────────
 
@@ -286,9 +286,9 @@ pub enum MixerLineFlags: u32 {
 
     // ── Additional handles ────────────────────────────────────────
 
-    pub struct HMIDIOUT {}
-    pub struct HMIDIIN {}
-    pub struct HMIXER {}
+    @handle pub struct HMIDIOUT {}
+    @handle pub struct HMIDIIN {}
+    @handle pub struct HMIXER {}
 
     // ── Device caps (WAVEOUTCAPSA / WAVEINCAPSA / MIDIOUTCAPSA) ───
     //

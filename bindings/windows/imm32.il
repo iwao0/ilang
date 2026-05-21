@@ -78,7 +78,7 @@ pub enum ImeNotifyAction: u32 {
     // ── Opaque handle ─────────────────────────────────────────────
 
     /// IME context handle (HIMC).
-    pub struct HIMC {}
+    @handle pub struct HIMC {}
 
     // ── COMPOSITIONFORM — 28 bytes (4-byte aligned) ──────────────
 
