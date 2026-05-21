@@ -1,17 +1,17 @@
-// Built-in `path` module — Node.js-inspired path manipulation.
-//
-// All operations treat `/` as the only separator and never touch
-// the filesystem. The shape mirrors Node.js's `path` (POSIX), so
-// `basename` / `dirname` / `extname` / `join` / `isAbsolute` /
-// `normalize` / `relative` / `parse` / `format` behave the same
-// way Node does on POSIX-style paths.
-//
-// Cross-platform note: even on Windows the separator stays `/`.
-// Pass `\`-style paths through `replace("\\", "/")` first if you
-// have them. (Native Windows backslash handling isn't supported —
-// pick one path style and stick to it.)
-//
-// Pure ilang implementation, no FFI; safe to call from anywhere.
+/// Built-in `path` module — Node.js-inspired path manipulation.
+///
+/// All operations treat `/` as the only separator and never touch
+/// the filesystem. The shape mirrors Node.js's `path` (POSIX), so
+/// `basename` / `dirname` / `extname` / `join` / `isAbsolute` /
+/// `normalize` / `relative` / `parse` / `format` behave the same
+/// way Node does on POSIX-style paths.
+///
+/// Cross-platform note: even on Windows the separator stays `/`.
+/// Pass `\`-style paths through `replace("\\", "/")` first if you
+/// have them. (Native Windows backslash handling isn't supported —
+/// pick one path style and stick to it.)
+///
+/// Pure ilang implementation, no FFI; safe to call from anywhere.
 
 /// Path separator. Always `"/"` (cross-platform; see module note).
 pub const sep: string = "/"

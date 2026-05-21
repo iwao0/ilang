@@ -1,16 +1,16 @@
-// Built-in `regex` module — regular-expression matching via the
-// Rust `regex` crate. Compile a pattern once with `new Regex(...)`
-// and reuse the resulting object; the wrapped engine drops when
-// the object's ARC refcount reaches zero.
-//
-// Backrefs (`\1`) and lookaround (`(?=...)`) aren't supported —
-// the wrapped engine is the linear-time `regex` crate, not PCRE.
-//
-// Flags: each character in the `flags` string toggles one option.
-//   i  case-insensitive
-//   m  `^` / `$` match line boundaries (multi-line)
-//   s  `.` matches newlines (dot-all)
-//   x  ignore whitespace + `#` comments in the pattern
+/// Built-in `regex` module — regular-expression matching via the
+/// Rust `regex` crate. Compile a pattern once with `new Regex(...)`
+/// and reuse the resulting object; the wrapped engine drops when
+/// the object's ARC refcount reaches zero.
+///
+/// Backrefs (`\1`) and lookaround (`(?=...)`) aren't supported —
+/// the wrapped engine is the linear-time `regex` crate, not PCRE.
+///
+/// Flags: each character in the `flags` string toggles one option.
+///   i  case-insensitive
+///   m  `^` / `$` match line boundaries (multi-line)
+///   s  `.` matches newlines (dot-all)
+///   x  ignore whitespace + `#` comments in the pattern
 
 @extern(C) {
     fn __regex_compile(pattern: string, flags: string): i64
@@ -23,9 +23,15 @@
     fn __regex_split(handle: i64, s: string): string[]
 }
 
+/// Compiled regular expression. Construct with a pattern and a
+/// flags string (see module doc for the recognised characters);
+/// reuse the instance across as many match calls as needed.
 pub class Regex {
     handle: i64
 
+    /// Compile `pattern` with the given `flags`. Panics if the
+    /// pattern fails to compile — validate untrusted input before
+    /// passing it in. Pass `""` for `flags` to use defaults.
     pub init(pattern: string, flags: string) {
         this.handle = __regex_compile(pattern, flags)
     }
@@ -60,6 +66,8 @@ pub class Regex {
         __regex_split(this.handle, s)
     }
 
+    /// Releases the host-side compiled pattern. Runs automatically
+    /// when the ARC refcount reaches zero.
     deinit() {
         __regex_destroy(this.handle)
     }
