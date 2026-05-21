@@ -51,3 +51,11 @@ pub use d3d11.*
 pub use dwrite.*
 pub use d2d1.*
 pub use msi.*
+pub use dnsapi.*
+pub use credui.*
+pub use urlmon.*
+pub use propsys.*
+pub use mfplat.*
+pub use mfreadwrite.*
+pub use secur32.*
+pub use wlanapi.*
