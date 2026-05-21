@@ -85,6 +85,61 @@ pub enum JoystickButtons: u32 {
     button4  = 0x0008
 }
 
+// ─── MMRESULT — generic return code for the wave / mixer / midi
+// entries (MMSYSERR_*). Higher-level wrappers translate them; the
+// codes shared between subsystems live here.
+pub enum MmResult: u32 {
+    noError      = 0
+    error        = 1
+    badDeviceId  = 2
+    notEnabled   = 3
+    allocated    = 4
+    invalHandle  = 5
+    noDriver     = 6
+    noMem        = 7
+    notSupported = 8
+    badErrNum    = 9
+    invalFlag    = 10
+    invalParam   = 11
+    handleBusy   = 12
+    invalidAlias = 13
+    badDb        = 14
+    keyNotFound  = 15
+    readError    = 16
+    writeError   = 17
+    deleteError  = 18
+    valNotFound  = 19
+    noDriverCb   = 20
+}
+
+// ─── MIDI flags for MIDIHDR ──────────────────────────────────────
+@flags
+pub enum MidiHdrFlags: u32 {
+    done       = 0x00000001
+    prepared   = 0x00000002
+    inQueue    = 0x00000004
+    isStream   = 0x00000008
+}
+
+// ─── Mixer constants ─────────────────────────────────────────────
+@flags
+pub enum MixerObjectFlag: u32 {
+    handle           = 0x80000000
+    mixer            = 0x00000000
+    waveOut          = 0x10000000
+    waveIn           = 0x20000000
+    midiOut          = 0x30000000
+    midiIn           = 0x40000000
+    aux              = 0x50000000
+}
+
+@flags
+pub enum MixerLineFlags: u32 {
+    active     = 0x00000001
+    disconnected = 0x00008000
+    source     = 0x80000000
+}
+
 @extern(C, "winmm") {
     // ── Opaque handles ────────────────────────────────────────────
 
@@ -228,4 +283,201 @@ pub enum JoystickButtons: u32 {
     /// Fills `pji` with the extended position of joystick `uJoyID`
     /// (0-based). Returns JoystickError.noError on success.
     @lib pub fn joyGetPosEx(uJoyID: u32, pji: *JOYINFOEX): u32
+
+    // ── Additional handles ────────────────────────────────────────
+
+    pub struct HMIDIOUT {}
+    pub struct HMIDIIN {}
+    pub struct HMIXER {}
+
+    // ── Device caps (WAVEOUTCAPSA / WAVEINCAPSA / MIDIOUTCAPSA) ───
+    //
+    // Full SDK caps blocks carry a 32-char name array; we expose the
+    // numeric fields and treat the name slot as an opaque 32-byte
+    // run that the caller copies out via raw pointer if it needs to
+    // display the device label.
+
+    /// `WAVEOUTCAPSA` — driver capability block for waveOutGetDevCapsA.
+    /// Size = 84 bytes on x64.
+    pub struct WAVEOUTCAPSA {
+        wMid:         u16
+        wPid:         u16
+        vDriverVer:   u32
+        szPname0:     u64       // 32-byte device name (ANSI) — read
+        szPname1:     u64       //   the ANSI string out of these
+        szPname2:     u64       //   four u64s after the call.
+        szPname3:     u64
+        dwFormats:    u32       // bitmask of WAVE_FORMAT_* the driver supports
+        wChannels:    u16
+        wReserved:    u16
+        dwSupport:    u32
+    }
+
+    /// `WAVEINCAPSA` — mirror struct for the input side, same shape
+    /// minus `dwSupport`. Size = 80 bytes on x64.
+    pub struct WAVEINCAPSA {
+        wMid:         u16
+        wPid:         u16
+        vDriverVer:   u32
+        szPname0:     u64
+        szPname1:     u64
+        szPname2:     u64
+        szPname3:     u64
+        dwFormats:    u32
+        wChannels:    u16
+        wReserved:    u16
+    }
+
+    /// `MIDIOUTCAPSA` — 50 bytes on x64. Same layout convention as
+    /// `WAVEOUTCAPSA`.
+    pub struct MIDIOUTCAPSA {
+        wMid:         u16
+        wPid:         u16
+        vDriverVer:   u32
+        szPname0:     u64
+        szPname1:     u64
+        szPname2:     u64
+        szPname3:     u64
+        wTechnology:  u16
+        wVoices:      u16
+        wNotes:       u16
+        wChannelMask: u16
+        dwSupport:    u32
+    }
+
+    /// `TIMECAPS` — multimedia-timer resolution range.
+    pub struct TIMECAPS {
+        wPeriodMin: u32
+        wPeriodMax: u32
+    }
+
+    // ── WAVE input / output (extended) ────────────────────────────
+
+    @lib pub fn waveOutGetDevCapsA(
+        uDeviceID: u64,
+        pwoc:      *WAVEOUTCAPSA,
+        cbwoc:     u32
+    ): u32
+
+    @lib pub fn waveOutGetID(hwo: *HWAVEOUT, puDeviceID: *u32): u32
+
+    /// Returns the playback position of `hwo` into `pmmt` — the
+    /// caller fills `wType` (TIME_BYTES / TIME_SAMPLES / TIME_MS /
+    /// TIME_SMPTE / TIME_MIDI) before the call.
+    @lib pub fn waveOutGetPosition(
+        hwo:   *HWAVEOUT,
+        pmmt:  *void,            // MMTIME
+        cbmmt: u32
+    ): u32
+
+    /// Returns the playback pitch as a 32-bit fixed-point
+    /// `whole.fraction` (high u16 = whole, low u16 = fraction).
+    /// Not supported on every driver; check WAVECAPS_PITCH.
+    @lib pub fn waveOutGetPitch(hwo: *HWAVEOUT, pdwPitch: *u32): u32
+    @lib pub fn waveOutSetPitch(hwo: *HWAVEOUT, dwPitch: u32): u32
+
+    @lib pub fn waveOutGetPlaybackRate(hwo: *HWAVEOUT, pdwRate: *u32): u32
+    @lib pub fn waveOutSetPlaybackRate(hwo: *HWAVEOUT, dwRate: u32): u32
+
+    @lib pub fn waveOutBreakLoop(hwo: *HWAVEOUT): u32
+
+    /// Number of waveform input devices.
+    @lib pub fn waveInGetNumDevs(): u32
+
+    @lib pub fn waveInGetDevCapsA(
+        uDeviceID: u64,
+        pwic:      *WAVEINCAPSA,
+        cbwic:     u32
+    ): u32
+
+    /// Opens a waveform input (capture) device — mirror of
+    /// `waveOutOpen`.
+    @lib pub fn waveInOpen(
+        phwi:       **HWAVEIN,
+        uDeviceID:  u32,
+        pwfx:       *const WAVEFORMATEX,
+        dwCallback: u64,
+        dwInstance: u64,
+        fdwOpen:    u32
+    ): u32
+    @lib pub fn waveInClose(hwi: *HWAVEIN): u32
+    @lib pub fn waveInStart(hwi: *HWAVEIN): u32
+    @lib pub fn waveInStop(hwi: *HWAVEIN): u32
+    @lib pub fn waveInReset(hwi: *HWAVEIN): u32
+    @lib pub fn waveInPrepareHeader(hwi: *HWAVEIN, pwh: *WAVEHDR, cbwh: u32): u32
+    @lib pub fn waveInUnprepareHeader(hwi: *HWAVEIN, pwh: *WAVEHDR, cbwh: u32): u32
+    @lib pub fn waveInAddBuffer(hwi: *HWAVEIN, pwh: *WAVEHDR, cbwh: u32): u32
+
+    // ── MIDI output ────────────────────────────────────────────────
+
+    @lib pub fn midiOutGetNumDevs(): u32
+    @lib pub fn midiOutGetDevCapsA(
+        uDeviceID: u64,
+        pmoc:      *MIDIOUTCAPSA,
+        cbmoc:     u32
+    ): u32
+    @lib pub fn midiOutOpen(
+        phmo:        **HMIDIOUT,
+        uDeviceID:   u32,
+        dwCallback:  u64,
+        dwInstance:  u64,
+        fdwOpen:     u32
+    ): u32
+    @lib pub fn midiOutClose(hmo: *HMIDIOUT): u32
+    @lib pub fn midiOutShortMsg(hmo: *HMIDIOUT, dwMsg: u32): u32
+    @lib pub fn midiOutLongMsg(hmo: *HMIDIOUT, pmh: *void, cbmh: u32): u32
+    @lib pub fn midiOutReset(hmo: *HMIDIOUT): u32
+    @lib pub fn midiOutGetVolume(hmo: *HMIDIOUT, pdwVolume: *u32): u32
+    @lib pub fn midiOutSetVolume(hmo: *HMIDIOUT, dwVolume: u32): u32
+
+    // ── MIDI input ─────────────────────────────────────────────────
+
+    @lib pub fn midiInGetNumDevs(): u32
+    @lib pub fn midiInOpen(
+        phmi:        **HMIDIIN,
+        uDeviceID:   u32,
+        dwCallback:  u64,
+        dwInstance:  u64,
+        fdwOpen:     u32
+    ): u32
+    @lib pub fn midiInClose(hmi: *HMIDIIN): u32
+    @lib pub fn midiInStart(hmi: *HMIDIIN): u32
+    @lib pub fn midiInStop(hmi: *HMIDIIN): u32
+    @lib pub fn midiInReset(hmi: *HMIDIIN): u32
+
+    // ── Mixer ──────────────────────────────────────────────────────
+
+    @lib pub fn mixerGetNumDevs(): u32
+    @lib pub fn mixerOpen(
+        phmx:        **HMIXER,
+        uMxId:       u32,
+        dwCallback:  u64,
+        dwInstance:  u64,
+        fdwOpen:     u32
+    ): u32
+    @lib pub fn mixerClose(hmx: *HMIXER): u32
+
+    // ── MCI (Media Control Interface) ──────────────────────────────
+
+    /// Send a string command to the MCI command set, e.g.
+    /// `mciSendStringA("open foo.mp3 alias bgm", NULL, 0, NULL)`
+    /// then `mciSendStringA("play bgm", NULL, 0, NULL)`. Returns
+    /// 0 on success or an MCI error code.
+    @lib pub fn mciSendStringA(
+        lpszCommand:        *const char,
+        lpszReturnString:   *char,
+        cchReturn:          u32,
+        hwndCallback:       *void
+    ): u32
+
+    /// Looks up a string for the most recent MCI error.
+    @lib pub fn mciGetErrorStringA(
+        fdwError: u32,
+        lpszErrorText: *char,
+        cchErrorText: u32
+    ): i32
+
+    // ── Multimedia timer caps ──────────────────────────────────────
+
+    @lib pub fn timeGetDevCaps(ptc: *TIMECAPS, cbtc: u32): u32
 }

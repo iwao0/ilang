@@ -12,6 +12,8 @@ pub use shell32.*
 pub use comdlg32.*
 pub use dwmapi.*
 pub use winmm.*
+pub use wasapi.*
+pub use wasapi_keys.*
 pub use advapi32.*
 pub use ws2_32.*
 pub use shlwapi.*
