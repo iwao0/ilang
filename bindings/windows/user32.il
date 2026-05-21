@@ -1248,6 +1248,15 @@ pub enum SpiAction: u32 {
     /// cast to `HBRUSH`, e.g. `6 as HBRUSH` for COLOR_WINDOW+1.
     @lib pub fn FillRect(hDC: HDC, lprc: *const RECT, hbr: HBRUSH): i32
 
+    /// Returns the shared system-colour brush for `nIndex`
+    /// (COLOR_BTNFACE = 15, COLOR_WINDOW = 5, etc.). Do NOT
+    /// `DeleteObject` the result — the brush is owned by the OS
+    /// and lives for the process lifetime.
+    @lib pub fn GetSysColorBrush(nIndex: i32): HBRUSH
+
+    /// 32-bit RGB system colour for `nIndex`.
+    @lib pub fn GetSysColor(nIndex: i32): u32
+
     // ── Timer ─────────────────────────────────────────────────
 
     /// Sets a timer; fires WM_TIMER with `nIDEvent` as wParam.

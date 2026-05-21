@@ -25,9 +25,12 @@ use windows {
     RegisterClassExW, CreateWindowExW, DefWindowProcW,
     SetWindowTextW, GetMessageW, DispatchMessageW,
     ShowWindow, UpdateWindow, EnableWindow, MoveWindow,
-    TranslateMessage, PostQuitMessage,
+    TranslateMessage, PostQuitMessage, DestroyWindow,
     GetWindowLongPtrA, SetWindowLongPtrA, GetKeyState,
     LoadCursorA, SetCursor, SystemCursor,
+    // WM_ERASEBKGND path — handle it explicitly so resize /
+    // maximise transitions actually paint the new region.
+    HDC, RECT, GetClientRect, FillRect, GetSysColorBrush,
     // Side-by-side activation: load comctl32 v6 (themed buttons /
     // edit / list / tab / progress) without an embedded .manifest.
     ACTCTXW, CreateActCtxW, ActivateActCtx, GetTempPathA,
@@ -174,10 +177,40 @@ fn vkToString(vk: u32): string {
             let hi = ((lParam >> 16) & 0xFFFF) as f64
             match msg as WindowMessage {
                 WindowMessage.close {
+                    // Standard idiom: fire the user's onClose, then
+                    // ask the system to destroy the HWND. WM_DESTROY
+                    // (below) calls PostQuitMessage so the message
+                    // loop exits *after* the window is gone — the
+                    // previous "PostQuitMessage from WM_CLOSE without
+                    // destroying" path left a live HWND that the OS
+                    // tore down forcibly during process exit, hitting
+                    // our globals after they'd been freed (=>
+                    // ACCESS_VIOLATION on close).
                     let cb = ON_CLOSE[ix]
                     cb()
+                    let _ = DestroyWindow(hwnd as HWND)
+                    return 0
+                }
+                WindowMessage.destroy {
                     PostQuitMessage(0)
                     return 0
+                }
+                WindowMessage.eraseBkgnd {
+                    // Paint the entire client area with the system
+                    // dialog grey ourselves. Relying on DefWindowProc
+                    // + WNDCLASSEX.hbrBackground works for the
+                    // initial WM_PAINT but DWM sometimes skips the
+                    // background fill during maximise / per-monitor
+                    // DPI transitions, leaving the newly-uncovered
+                    // region as the compositor's uninitialised
+                    // surface (= black). Doing the fill manually
+                    // here side-steps that path entirely.
+                    let hdc = wParam as i64 as HDC
+                    let rc = RECT { left: 0, top: 0, right: 0, bottom: 0 }
+                    let _ = GetClientRect(hwnd as HWND, &rc)
+                    let brush = GetSysColorBrush(15 as i32)   // COLOR_BTNFACE
+                    let _ = FillRect(hdc, &rc, brush)
+                    return 1
                 }
                 WindowMessage.setCursor {
                     // lParam packs (hit-test-code, mouse-message);
@@ -425,14 +458,6 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     let classNameW = toWideUtf8("IlangGuiWindow") as *u16
     let titleW     = toWideUtf8(title) as *u16
 
-    // Load IDC_ARROW so Windows restores the standard pointer
-    // when the cursor re-enters the client area after the resize
-    // border swapped it to a size cursor. We also explicitly
-    // handle WM_SETCURSOR in `guiWndProc` so this is belt-and-
-    // suspenders.
-    let arrowCursor = LoadCursorA(0 as HINSTANCE,
-                                  SystemCursor.arrow as i64 as *const char)
-
     // WNDCLASSEXA and WNDCLASSEXW have the same byte layout
     // (80 bytes on x64); the difference is which char width Win32
     // uses to read `lpszClassName` / `lpszMenuName`. We cast the
@@ -446,7 +471,7 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         cbWndExtra:    0,
         hInstance:     hInstance as HINSTANCE,
         hIcon:         0 as HICON,
-        hCursor:       arrowCursor,
+        hCursor:       0 as HCURSOR,
         // COLOR_BTNFACE (15) + 1 = 16 — the default dialog /
         // control panel grey, what callers usually mean by
         // "normal Windows background". COLOR_WINDOW + 1 (= 6)
