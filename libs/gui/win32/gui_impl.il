@@ -22,6 +22,7 @@ use windows {
     GetMessageA, TranslateMessage, DispatchMessageA,
     PostQuitMessage,
     GetWindowLongPtrA, SetWindowLongPtrA, GetKeyState,
+    LoadCursorA, SystemCursor,
 }
 
 // ─── per-window callback table ────────────────────────────────
@@ -235,6 +236,13 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     let className = cstrFromString("IlangGuiWindow")
     let titleC = cstrFromString(title)
 
+    // Load IDC_ARROW so Windows restores the standard pointer
+    // when the cursor re-enters the client area after the resize
+    // border swapped it to a size cursor. Without `hCursor` set,
+    // Win32 leaves whatever cursor the previous area was showing.
+    let arrowCursor = LoadCursorA(0 as HINSTANCE,
+                                  SystemCursor.arrow as i64 as *const char)
+
     let wc = WNDCLASSEXA {
         cbSize:        80,
         style:         (ClassStyle.hredraw | ClassStyle.vredraw) as u32,
@@ -243,7 +251,7 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         cbWndExtra:    0,
         hInstance:     hInstance as HINSTANCE,
         hIcon:         0 as HICON,
-        hCursor:       0 as HCURSOR,
+        hCursor:       arrowCursor,
         hbrBackground: 6 as HBRUSH,         // COLOR_WINDOW (5) + 1
         lpszMenuName:  0 as *const char,
         lpszClassName: className,
