@@ -347,8 +347,36 @@ impl<'a> BodyCx<'a> {
                     .get(field)
                     .ok_or_else(|| LowerError::Other(format!("no field {field}")))?;
                 let fty = meta.field_ty.get(&fid).cloned().unwrap_or(MirTy::I64);
-                let value_is_fresh = self.is_fresh_object_expr(value);
-                let (vv, _) = self.lower_expr(value)?;
+                let src_is_fresh = self.is_fresh_object_expr(value);
+                let (vv0, vty) = self.lower_expr(value)?;
+                // Coerce the rhs to the field's declared type — this
+                // is where `T → T?` Optional auto-wrap fires for
+                // `this.f = expr` / `obj.f = expr` (struct-literal
+                // and `init`-time `this.f = ...` paths already do
+                // this a few hundred lines down). Without it, a
+                // raw `fn()` value gets stored into a `fn()?` slot
+                // and later `if let some(x) = obj.f` reads garbage.
+                // Only the `T → T?` Optional auto-wrap shape is
+                // coerced here. Other shape mismatches (e.g. existing
+                // `Optional<Object>` → `Optional<Weak<_>>` field
+                // assignment, which the codegen handles by reusing
+                // the raw heap pointer) pass through unchanged so
+                // we don't regress those paths.
+                let needs_optional_wrap = matches!(
+                    &fty,
+                    MirTy::Optional(inner) if **inner == vty
+                );
+                let (vv, value_is_fresh) = if needs_optional_wrap {
+                    let coerced = self.coerce(vv0, &vty, &fty, value.span)?;
+                    // `coerce` already inserted the heap retain for
+                    // the inner of `T → T?`, and the resulting cell
+                    // is a fresh `NewOptional` allocation — treat it
+                    // as fresh so the caller below doesn't add a
+                    // second retain on the outer Optional.
+                    (coerced, true)
+                } else {
+                    (vv0, src_is_fresh)
+                };
                 // ARC for any heap-typed field: retain the incoming
                 // value (unless it was a fresh allocation that
                 // already owned its +1) and release the previous
