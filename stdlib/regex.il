@@ -12,14 +12,22 @@
 ///   s  `.` matches newlines (dot-all)
 ///   x  ignore whitespace + `#` comments in the pattern
 
-@intrinsic("regex.compile")      fn regex_compile(pattern: string, flags: string): i64
-@intrinsic("regex.destroy")      fn regex_destroy(handle: i64)
-@intrinsic("regex.test")         fn regex_test(handle: i64, s: string): i32
-@intrinsic("regex.has_match")    fn regex_has_match(handle: i64, s: string): i32
-@intrinsic("regex.first_match")  fn regex_first_match(handle: i64, s: string): string
-@intrinsic("regex.replace_all")  fn regex_replace_all(handle: i64, s: string, with: string): string
-@intrinsic("regex.find_all")     fn regex_find_all(handle: i64, s: string): string[]
-@intrinsic("regex.split")        fn regex_split(handle: i64, s: string): string[]
+@intrinsic("regex.compile")
+fn regex_compile(pattern: string, flags: string): i64
+@intrinsic("regex.destroy")
+fn regex_destroy(handle: i64)
+@intrinsic("regex.test")
+fn regex_test(handle: i64, s: string): i32
+@intrinsic("regex.has_match")
+fn regex_has_match(handle: i64, s: string): i32
+@intrinsic("regex.first_match")
+fn regex_first_match(handle: i64, s: string): string
+@intrinsic("regex.replace_all")
+fn regex_replace_all(handle: i64, s: string, with: string): string
+@intrinsic("regex.find_all")
+fn regex_find_all(handle: i64, s: string): string[]
+@intrinsic("regex.split")
+fn regex_split(handle: i64, s: string): string[]
 
 /// Compiled regular expression. Construct with a pattern and a
 /// flags string (see module doc for the recognised characters);

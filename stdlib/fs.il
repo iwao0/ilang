@@ -28,41 +28,71 @@ pub class FsError {
     }
 }
 
-@intrinsic("fs.hasError")       fn fs_has_error(): bool
-@intrinsic("fs.errorCode")      fn fs_error_code(): string
-@intrinsic("fs.errorMessage")   fn fs_error_message(): string
+@intrinsic("fs.hasError")
+fn fs_has_error(): bool
+@intrinsic("fs.errorCode")
+fn fs_error_code(): string
+@intrinsic("fs.errorMessage")
+fn fs_error_message(): string
 
-@intrinsic("fs.readFile")       fn fs_read_file(path: string): string
-@intrinsic("fs.readFileBytes")  fn fs_read_file_bytes(path: string): u8[]
-@intrinsic("fs.writeFile")      fn fs_write_file(path: string, contents: string)
-@intrinsic("fs.writeFileBytes") fn fs_write_file_bytes(path: string, bytes: u8[])
-@intrinsic("fs.appendFile")     fn fs_append_file(path: string, contents: string)
+@intrinsic("fs.readFile")
+fn fs_read_file(path: string): string
+@intrinsic("fs.readFileBytes")
+fn fs_read_file_bytes(path: string): u8[]
+@intrinsic("fs.writeFile")
+fn fs_write_file(path: string, contents: string)
+@intrinsic("fs.writeFileBytes")
+fn fs_write_file_bytes(path: string, bytes: u8[])
+@intrinsic("fs.appendFile")
+fn fs_append_file(path: string, contents: string)
 
-@intrinsic("fs.exists")         fn fs_exists(path: string): bool
-@intrinsic("fs.isFile")         fn fs_is_file(path: string): bool
-@intrinsic("fs.isDir")          fn fs_is_dir(path: string): bool
+@intrinsic("fs.exists")
+fn fs_exists(path: string): bool
+@intrinsic("fs.isFile")
+fn fs_is_file(path: string): bool
+@intrinsic("fs.isDir")
+fn fs_is_dir(path: string): bool
 
-@intrinsic("fs.mkdir")          fn fs_mkdir(path: string, recursive: bool)
-@intrinsic("fs.rm")             fn fs_rm(path: string)
-@intrinsic("fs.rmdir")          fn fs_rmdir(path: string, recursive: bool)
-@intrinsic("fs.rename")         fn fs_rename(from: string, to: string)
+@intrinsic("fs.mkdir")
+fn fs_mkdir(path: string, recursive: bool)
+@intrinsic("fs.rm")
+fn fs_rm(path: string)
+@intrinsic("fs.rmdir")
+fn fs_rmdir(path: string, recursive: bool)
+@intrinsic("fs.rename")
+fn fs_rename(from: string, to: string)
 
-@intrinsic("fs.readDir")        fn fs_read_dir(path: string): string[]
-@intrinsic("fs.size")           fn fs_size(path: string): i64
+@intrinsic("fs.readDir")
+fn fs_read_dir(path: string): string[]
+@intrinsic("fs.size")
+fn fs_size(path: string): i64
 
-@intrinsic("fs.stat")           fn fs_stat(path: string): i64[]
-@intrinsic("fs.lstat")          fn fs_lstat(path: string): i64[]
-@intrinsic("fs.access")         fn fs_access(path: string, mode: i32)
-@intrinsic("fs.copyFile")       fn fs_copy_file(src: string, dst: string, overwrite: bool)
-@intrinsic("fs.cp")             fn fs_cp(src: string, dst: string, recursive: bool)
-@intrinsic("fs.realpath")       fn fs_realpath(path: string): string
-@intrinsic("fs.chmod")          fn fs_chmod(path: string, mode: i32)
-@intrinsic("fs.truncate")       fn fs_truncate(path: string, len: i64)
-@intrinsic("fs.utimes")         fn fs_utimes(path: string, atimeMs: i64, mtimeMs: i64)
-@intrinsic("fs.symlink")        fn fs_symlink(target: string, linkPath: string)
-@intrinsic("fs.readlink")       fn fs_readlink(path: string): string
-@intrinsic("fs.link")           fn fs_link(existing: string, newPath: string)
-@intrinsic("fs.mkdtemp")        fn fs_mkdtemp(prefix: string): string
+@intrinsic("fs.stat")
+fn fs_stat(path: string): i64[]
+@intrinsic("fs.lstat")
+fn fs_lstat(path: string): i64[]
+@intrinsic("fs.access")
+fn fs_access(path: string, mode: i32)
+@intrinsic("fs.copyFile")
+fn fs_copy_file(src: string, dst: string, overwrite: bool)
+@intrinsic("fs.cp")
+fn fs_cp(src: string, dst: string, recursive: bool)
+@intrinsic("fs.realpath")
+fn fs_realpath(path: string): string
+@intrinsic("fs.chmod")
+fn fs_chmod(path: string, mode: i32)
+@intrinsic("fs.truncate")
+fn fs_truncate(path: string, len: i64)
+@intrinsic("fs.utimes")
+fn fs_utimes(path: string, atimeMs: i64, mtimeMs: i64)
+@intrinsic("fs.symlink")
+fn fs_symlink(target: string, linkPath: string)
+@intrinsic("fs.readlink")
+fn fs_readlink(path: string): string
+@intrinsic("fs.link")
+fn fs_link(existing: string, newPath: string)
+@intrinsic("fs.mkdtemp")
+fn fs_mkdtemp(prefix: string): string
 
 /// `access(...)` mode flag: file exists. Bit-OR with the others
 /// to test multiple permissions at once.

@@ -7,7 +7,8 @@
 /// Returns the current value of the C `errno` variable
 /// (Windows: `GetLastError()`). Read after a failing libc call
 /// (e.g. `fopen` returned NULL) to see *why* it failed.
-@intrinsic("os.errno")        pub fn errno(): i32
+@intrinsic("os.errno")
+pub fn errno(): i32
 
 /// Overwrite the current thread's errno. The classic
 /// clear-then-call pattern:
@@ -15,7 +16,8 @@
 /// — useful when the libc fn itself doesn't have a clear failure
 /// indicator (e.g. some functions return 0 for both "ok" and
 /// "no entries left").
-@intrinsic("os.setErrno")     pub fn setErrno(code: i32)
+@intrinsic("os.setErrno")
+pub fn setErrno(code: i32)
 
 /// Returns true if `name` was successfully dlopened by any
 /// `@lib("name") ...` declaration in this program. Used to gate
@@ -23,19 +25,22 @@
 /// whose library failed to load aborts the program, so this
 /// check runs first:
 ///   if os.libLoaded("libssl.so.3") { SSL_write(...) }
-@intrinsic("os.libLoaded")    pub fn libLoaded(name: string): bool
+@intrinsic("os.libLoaded")
+pub fn libLoaded(name: string): bool
 
 /// Returns the dlopen error message captured for a missing
 /// `@lib(...) @optional` library, or "" if the library loaded
 /// successfully (or no `@lib` ever attempted to load it). Only
 /// useful for diagnostic logging; gating logic should use
 /// `os.libLoaded(...)`.
-@intrinsic("os.libLoadError") pub fn libLoadError(name: string): string
+@intrinsic("os.libLoadError")
+pub fn libLoadError(name: string): string
 
 /// Host OS name probe — called exactly once during module init
 /// to populate the `os.platform` binding below. Module-private;
 /// reach for `os.platform` instead.
-@intrinsic("os.platform") fn os_platform(): string
+@intrinsic("os.platform")
+fn os_platform(): string
 
 /// Host OS name. One of `"macos"` / `"linux"` / `"windows"`,
 /// or `"other"` for any other Rust-known target. Resolved at

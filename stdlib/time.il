@@ -38,16 +38,26 @@
 ///
 /// Unknown specifiers are echoed verbatim (`%X` → `%X`).
 
-@intrinsic("time.now_ms")           fn time_now_ms(): i64
-@intrinsic("time.now_ns")           fn time_now_ns(): i64
-@intrinsic("time.monotonic_ns")     fn time_monotonic_ns(): i64
-@intrinsic("time.sleep_ms")         fn time_sleep_ms(ms: i64)
-@intrinsic("time.break_down_utc")   fn time_break_down_utc(epochMs: i64): i64[]
-@intrinsic("time.break_down_local") fn time_break_down_local(epochMs: i64): i64[]
-@intrinsic("time.compose")          fn time_compose(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, offsetSec: i64): i64
-@intrinsic("time.parse_iso")        fn time_parse_iso(s: string): i64[]
-@intrinsic("time.to_iso")           fn time_to_iso(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, offsetMin: i64): string
-@intrinsic("time.format")           fn time_format(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, weekday: i64, offsetMin: i64, fmt: string): string
+@intrinsic("time.now_ms")
+fn time_now_ms(): i64
+@intrinsic("time.now_ns")
+fn time_now_ns(): i64
+@intrinsic("time.monotonic_ns")
+fn time_monotonic_ns(): i64
+@intrinsic("time.sleep_ms")
+fn time_sleep_ms(ms: i64)
+@intrinsic("time.break_down_utc")
+fn time_break_down_utc(epochMs: i64): i64[]
+@intrinsic("time.break_down_local")
+fn time_break_down_local(epochMs: i64): i64[]
+@intrinsic("time.compose")
+fn time_compose(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, offsetSec: i64): i64
+@intrinsic("time.parse_iso")
+fn time_parse_iso(s: string): i64[]
+@intrinsic("time.to_iso")
+fn time_to_iso(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, offsetMin: i64): string
+@intrinsic("time.format")
+fn time_format(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, weekday: i64, offsetMin: i64, fmt: string): string
 
 /// Current wall-clock instant as Unix-epoch milliseconds.
 pub fn now(): i64 { time_now_ms() }
