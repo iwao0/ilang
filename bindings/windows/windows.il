@@ -64,3 +64,8 @@ pub use wevtapi.*
 pub use cabinet.*
 pub use wer.*
 pub use fwpuclnt.*
+pub use windowscodecs.*
+pub use winspool.*
+pub use mswsock.*
+pub use virtdisk.*
+pub use taskschd.*
