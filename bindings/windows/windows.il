@@ -93,3 +93,9 @@ pub use directcomposition.*
 pub use slc.*
 pub use mfsensorgroup.*
 pub use lzexpand.*
+pub use icu.*
+pub use dbgeng.*
+pub use activeds.*
+pub use t2embed.*
+pub use certenroll.*
+pub use eapphost.*
