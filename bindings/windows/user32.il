@@ -1041,6 +1041,14 @@ pub enum SpiAction: u32 {
     /// Registers a window class. Returns 0 on failure.
     @lib pub fn RegisterClassExA(lpwcx: *const WNDCLASSEXA): u16
 
+    /// Wide variant — same struct layout (`WNDCLASSEXA` and
+    /// `WNDCLASSEXW` are both 80 bytes on x64), just interprets
+    /// `lpszClassName` / `lpszMenuName` as `*const u16` instead of
+    /// `*const char`.  Use this + the wide CreateWindow / message
+    /// loop when the class name or window title contains characters
+    /// outside the system ANSI code page.
+    @lib pub fn RegisterClassExW(lpwcx: *const WNDCLASSEXA): u16
+
     /// Creates a window. Returns NULL on failure.
     @lib pub fn CreateWindowExA(
         dwExStyle:    u32,
@@ -1057,10 +1065,29 @@ pub enum SpiAction: u32 {
         lpParam:      *void
     ): HWND
 
+    /// Wide variant — class name / window text are UTF-16.
+    @lib pub fn CreateWindowExW(
+        dwExStyle:    u32,
+        lpClassName:  *const u16,
+        lpWindowName: *const u16,
+        dwStyle:      u32,
+        X:            i32,
+        Y:            i32,
+        nWidth:       i32,
+        nHeight:      i32,
+        hWndParent:   HWND,
+        hMenu:        HMENU,
+        hInstance:    HINSTANCE,
+        lpParam:      *void
+    ): HWND
+
     // ── Default message handling ──────────────────────────────
 
     /// Default window procedure; call for every unhandled message.
     @lib pub fn DefWindowProcA(
+        hwnd: HWND, msg: u32, wParam: u64, lParam: i64
+    ): i64
+    @lib pub fn DefWindowProcW(
         hwnd: HWND, msg: u32, wParam: u64, lParam: i64
     ): i64
 
@@ -1114,13 +1141,20 @@ pub enum SpiAction: u32 {
     // ── Window text ───────────────────────────────────────────
 
     @lib pub fn SetWindowTextA(hwnd: HWND, lpString: *const char): i32
+    @lib pub fn SetWindowTextW(hwnd: HWND, lpString: *const u16): i32
     /// Returns the number of characters copied (excluding NUL).
     @lib pub fn GetWindowTextA(
         hwnd:       HWND,
         lpString:   *char,
         nMaxCount:  i32
     ): i32
+    @lib pub fn GetWindowTextW(
+        hwnd:       HWND,
+        lpString:   *u16,
+        nMaxCount:  i32
+    ): i32
     @lib pub fn GetWindowTextLengthA(hwnd: HWND): i32
+    @lib pub fn GetWindowTextLengthW(hwnd: HWND): i32
 
     // ── Z-order / focus / parent ──────────────────────────────
 
@@ -1150,6 +1184,12 @@ pub enum SpiAction: u32 {
         wMsgFilterMin: u32,
         wMsgFilterMax: u32
     ): i32
+    @lib pub fn GetMessageW(
+        lpMsg:         *MSG,
+        hwnd:          HWND,
+        wMsgFilterMin: u32,
+        wMsgFilterMax: u32
+    ): i32
 
     /// Non-blocking message check. `wRemoveMsg`: 0=peek only,
     /// 1=remove (PM_REMOVE).
@@ -1165,6 +1205,7 @@ pub enum SpiAction: u32 {
     @lib pub fn TranslateMessage(lpMsg: *const MSG): i32
     /// Invokes the target window's wndproc.
     @lib pub fn DispatchMessageA(lpMsg: *const MSG): i64
+    @lib pub fn DispatchMessageW(lpMsg: *const MSG): i64
     /// Posts WM_QUIT to the current thread's queue.
     @lib pub fn PostQuitMessage(nExitCode: i32)
 

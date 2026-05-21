@@ -17,10 +17,15 @@ use windows {
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU,
     WNDCLASSEXA, MSG, POINT,
     ClassStyle, WindowStyle, ShowCmd, WindowMessage, VirtualKey, WindowLongIndex,
-    RegisterClassExA, CreateWindowExA, DefWindowProcA,
-    ShowWindow, UpdateWindow, EnableWindow, MoveWindow, SetWindowTextA,
-    GetMessageA, TranslateMessage, DispatchMessageA,
-    PostQuitMessage,
+    // Wide variants — drive every string-bearing entry point in
+    // UTF-16 so non-ASCII titles / labels round-trip correctly.
+    // The A variants reinterpret the UTF-8 bytes from
+    // `cstrFromString` as the system ANSI code page, garbling
+    // anything outside ASCII (Japanese / Chinese / accented Latin).
+    RegisterClassExW, CreateWindowExW, DefWindowProcW,
+    SetWindowTextW, GetMessageW, DispatchMessageW,
+    ShowWindow, UpdateWindow, EnableWindow, MoveWindow,
+    TranslateMessage, PostQuitMessage,
     GetWindowLongPtrA, SetWindowLongPtrA, GetKeyState,
     LoadCursorA, SetCursor, SystemCursor,
     // Side-by-side activation: load comctl32 v6 (themed buttons /
@@ -260,7 +265,7 @@ fn vkToString(vk: u32): string {
                 _ {}
             }
         }
-        DefWindowProcA(hwnd as HWND, msg, wParam, lParam)
+        DefWindowProcW(hwnd as HWND, msg, wParam, lParam)
     }
 }
 
@@ -272,6 +277,36 @@ fn vkToString(vk: u32): string {
 // pointer types to appear inside an `@extern(C)` block.
 
 @extern(C) {
+
+/// Convert an ilang UTF-8 `string` to a freshly-`HeapAlloc`'d
+/// NUL-terminated UTF-16 buffer suitable for the wide Win32 API.
+/// Returned as `i64` because ilang fns can't return raw pointers;
+/// cast back with `as *u16` at the call site. The buffer is owned
+/// by the caller; pass to a Win32 fn (which won't keep it) and
+/// `HeapFree` afterwards — or, when the lifetime has to outlast a
+/// single call (class name, theme name), leak it.
+pub fn toWideUtf8(s: string): i64 {
+    let cstr = cstrFromString(s)
+    // 4× the code-point count is a safe upper bound for UTF-16:
+    // CP_UTF8 ⇒ UTF-16 expands by at most 2× per code point, but
+    // ilang's `.length` is code points; multiply by 2 and add room
+    // for the NUL.
+    let cap = (s.length as i32 + 1) * 2
+    let buf = HeapAlloc(
+        GetProcessHeap(),
+        8 as u32,
+        (cap as u64) * 2 as u64
+    )
+    let _ = MultiByteToWideChar(
+        65001 as u32,           // CP_UTF8
+        0 as u32,
+        cstr,
+        -1 as i32,              // NUL-terminated input
+        buf as *u16,
+        cap
+    )
+    buf as i64
+}
 
 /// Install a side-by-side activation context that pulls in
 /// `Microsoft.Windows.Common-Controls` v6 — the "modern" themed
@@ -383,8 +418,12 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     enableComctl32V6()
 
     let hInstance = GetModuleHandleA(0 as *const char)
-    let className = cstrFromString("IlangGuiWindow")
-    let titleC = cstrFromString(title)
+    // Class name + title go through UTF-16 so non-ASCII characters
+    // (Japanese / Chinese / etc.) survive intact. The class name
+    // buffer must outlive `RegisterClassExW`; we intentionally
+    // leak it (a single 32-byte allocation per process).
+    let classNameW = toWideUtf8("IlangGuiWindow") as *u16
+    let titleW     = toWideUtf8(title) as *u16
 
     // Load IDC_ARROW so Windows restores the standard pointer
     // when the cursor re-enters the client area after the resize
@@ -394,6 +433,11 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     let arrowCursor = LoadCursorA(0 as HINSTANCE,
                                   SystemCursor.arrow as i64 as *const char)
 
+    // WNDCLASSEXA and WNDCLASSEXW have the same byte layout
+    // (80 bytes on x64); the difference is which char width Win32
+    // uses to read `lpszClassName` / `lpszMenuName`. We cast the
+    // wide pointer through `*const char` so the existing struct
+    // declaration keeps working, then call `RegisterClassExW`.
     let wc = WNDCLASSEXA {
         cbSize:        80,
         style:         (ClassStyle.hredraw | ClassStyle.vredraw) as u32,
@@ -410,18 +454,18 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         // windows look like an embedded text editor.
         hbrBackground: 16 as HBRUSH,
         lpszMenuName:  0 as *const char,
-        lpszClassName: className,
+        lpszClassName: classNameW as *const char,
         hIconSm:       0 as HICON,
     }
-    // RegisterClassExA returns 0 only when the class isn't yet
+    // RegisterClassExW returns 0 only when the class isn't yet
     // registered; calling twice silently no-ops, which is what we
     // want when `createNativeWindow` is called more than once.
-    let _ = RegisterClassExA(&wc)
+    let _ = RegisterClassExW(&wc)
 
-    let hwnd = CreateWindowExA(
+    let hwnd = CreateWindowExW(
         0,
-        className,
-        titleC,
+        classNameW,
+        titleW,
         WindowStyle.overlappedWindow as u32,
         100, 100,
         width as i32, height as i32,
@@ -430,6 +474,7 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         hInstance as HINSTANCE,
         0 as *void
     )
+    HeapFree(GetProcessHeap(), 0 as u32, titleW as *void)
     let handle: i64 = HWNDS.length as i64
     HWNDS.push(hwnd)
     ON_CLOSE.push(noOp1)
@@ -481,8 +526,8 @@ pub fn createNativeButton(
     }
     let parent = HWNDS[windowHandle]
     let id: i64 = BUTTON_HWNDS.length as i64
-    let classN = cstrFromString("BUTTON")
-    let textC  = cstrFromString(text)
+    let classW = toWideUtf8("BUTTON") as *u16
+    let textW  = toWideUtf8(text) as *u16
     let visibleBits: u32 = if visible {
         WindowStyle.visible as u32
     } else {
@@ -490,10 +535,10 @@ pub fn createNativeButton(
     }
     let style: u32 = (WindowStyle.child as u32) | visibleBits
     let hInstance = GetModuleHandleA(0 as *const char)
-    let hwnd = CreateWindowExA(
+    let hwnd = CreateWindowExW(
         0,
-        classN,
-        textC,
+        classW,
+        textW,
         style,
         x as i32, y as i32, width as i32, height as i32,
         parent,
@@ -501,6 +546,8 @@ pub fn createNativeButton(
         hInstance as HINSTANCE,
         0 as *void
     )
+    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
+    HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
 
@@ -526,7 +573,9 @@ pub fn setOnButtonClick(handle: i64, cb: fn(f64, f64, i32)) {
 }
 pub fn setButtonText(handle: i64, text: string) {
     if handle >= 0 && handle < (BUTTON_HWNDS.length as i64) {
-        SetWindowTextA(BUTTON_HWNDS[handle], cstrFromString(text))
+        let w = toWideUtf8(text) as *u16
+        let _ = SetWindowTextW(BUTTON_HWNDS[handle], w)
+        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
     }
 }
 pub fn setButtonFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
@@ -559,10 +608,14 @@ pub fn runEventLoop() {
         lPrivate: 0,
     }
     loop {
-        let r = GetMessageA(&msg, 0 as HWND, 0, 0)
+        // GetMessageW / DispatchMessageW so the synthesised WM_CHAR
+        // messages carry UTF-16 code units (matters for any future
+        // text input — TranslateMessage queues a wide WM_CHAR for
+        // wide message loops, an ANSI one otherwise).
+        let r = GetMessageW(&msg, 0 as HWND, 0, 0)
         if r <= 0 { break }
         TranslateMessage(&msg)
-        let _ = DispatchMessageA(&msg)
+        let _ = DispatchMessageW(&msg)
     }
 }
 
