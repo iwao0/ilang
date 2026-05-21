@@ -4,24 +4,24 @@
 /// Linux (`libc.so.6`), macOS (`libSystem.B.dylib`), and Windows
 /// (`msvcrt.dll` / `ucrtbase.dll`) without a separate package.
 
-@extern(C) {
+@extern(C, "c") {
     /// Copy `n` bytes from `src` to `dst`. Behaviour is undefined
     /// when the ranges overlap; use `memmove` for that case.
-    @lib("c") pub fn memcpy(
+    @lib pub fn memcpy(
         dst: *void,
         src: *const void,
         n:   size_t
     ): *void
 
     /// Like `memcpy` but defined for overlapping ranges.
-    @lib("c") pub fn memmove(
+    @lib pub fn memmove(
         dst: *void,
         src: *const void,
         n:   size_t
     ): *void
 
     /// Fill `n` bytes of `buf` with the (unsigned char) value `byte`.
-    @lib("c") pub fn memset(
+    @lib pub fn memset(
         buf:  *void,
         byte: i32,
         n:    size_t
@@ -30,22 +30,68 @@
     /// Compare the first `n` bytes of `a` and `b`. Returns 0 when
     /// equal, negative if the first differing byte in `a` is
     /// less than the corresponding byte in `b`, positive otherwise.
-    @lib("c") pub fn memcmp(
+    @lib pub fn memcmp(
         a: *const void,
         b: *const void,
         n: size_t
     ): i32
 
+    /// Scan the first `n` bytes of `s` for `c` (an unsigned char).
+    /// Returns a pointer to the match or NULL if not found.
+    @lib pub fn memchr(
+        s: *const void,
+        c: i32,
+        n: size_t
+    ): *void
+
     /// Return the length of `s` excluding the terminating NUL.
-    @lib("c") pub fn strlen(s: *const char): size_t
+    @lib pub fn strlen(s: *const char): size_t
 
     /// `strcmp(a, b)` — 0 if equal, ±1 lexicographic ordering.
-    @lib("c") pub fn strcmp(a: *const char, b: *const char): i32
+    @lib pub fn strcmp(a: *const char, b: *const char): i32
 
     /// `strncmp` — compare at most `n` bytes.
-    @lib("c") pub fn strncmp(
+    @lib pub fn strncmp(
         a: *const char,
         b: *const char,
         n: size_t
     ): i32
+
+    /// Locate the first occurrence of `c` in `s`. NUL terminator
+    /// is searched too; pass `0` to find the end of the string.
+    @lib pub fn strchr(s: *const char, c: i32): *const char
+
+    /// Locate the last occurrence of `c` in `s`.
+    @lib pub fn strrchr(s: *const char, c: i32): *const char
+
+    /// Locate the first occurrence of `needle` in `haystack`.
+    @lib pub fn strstr(haystack: *const char, needle: *const char): *const char
+
+    /// Span over the initial run of `s` made of bytes in `accept`.
+    @lib pub fn strspn(s: *const char, accept: *const char): size_t
+
+    /// Span over the initial run of `s` made of bytes NOT in `reject`.
+    @lib pub fn strcspn(s: *const char, reject: *const char): size_t
+
+    /// Locate the first byte in `s` that's also in `accept`.
+    @lib pub fn strpbrk(s: *const char, accept: *const char): *const char
+
+    /// Copy `src` (including the NUL) to `dst`; returns `dst`.
+    /// Caller is responsible for `dst` having room; use `strncpy`
+    /// when there's a known bound.
+    @lib pub fn strcpy(dst: *char, src: *const char): *char
+
+    /// Copy at most `n` bytes from `src` to `dst`, padding with NUL
+    /// if `src` is shorter; does NOT NUL-terminate when `src`
+    /// reaches `n` bytes without a NUL itself.
+    @lib pub fn strncpy(dst: *char, src: *const char, n: size_t): *char
+
+    /// Append `src` to the end of `dst` (which must contain a NUL).
+    @lib pub fn strcat(dst: *char, src: *const char): *char
+
+    /// Bounded `strcat` — append at most `n` bytes from `src`.
+    @lib pub fn strncat(dst: *char, src: *const char, n: size_t): *char
+
+    /// Localised error string for an `errno` value.
+    @lib pub fn strerror(errnum: i32): *const char
 }
