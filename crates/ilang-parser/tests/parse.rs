@@ -205,6 +205,41 @@ fn class_base_accepts_dotted_name() {
 fn _stmt_marker(_s: Stmt) {}
 
 #[test]
+fn intrinsic_attr_desugars_to_extern_block() {
+    use ilang_ast::ExternCItem;
+    let p = parse_str(
+        "@intrinsic(\"rt.do_thing\") pub fn do_thing(x: i64): i64",
+    );
+    assert_eq!(p.items.len(), 1, "expected one item");
+    let Item::ExternC(blk) = &p.items[0] else {
+        panic!("expected ExternC block, got {:?}", p.items[0]);
+    };
+    assert_eq!(blk.items.len(), 1);
+    let ExternCItem::FnDecl {
+        name, c_symbol, is_pub, libs, ..
+    } = &blk.items[0]
+    else {
+        panic!("expected FnDecl");
+    };
+    assert_eq!(name.as_str(), "do_thing");
+    assert!(*is_pub, "pub flag should propagate");
+    assert_eq!(
+        c_symbol.as_ref().map(|s| s.as_str()),
+        Some("rt.do_thing"),
+        "c_symbol should hold the intrinsic argument verbatim"
+    );
+    assert!(libs.is_empty(), "intrinsic fns carry no @lib list");
+}
+
+#[test]
+fn intrinsic_attr_requires_string_arg() {
+    let toks = tokenize("@intrinsic fn foo()").unwrap();
+    assert!(parse(&toks).is_err());
+    let toks = tokenize("@intrinsic(\"\") fn foo()").unwrap();
+    assert!(parse(&toks).is_err());
+}
+
+#[test]
 fn parse_error_format_starts_with_span() {
     let toks = tokenize("let").unwrap();
     let err = parse(&toks).unwrap_err();

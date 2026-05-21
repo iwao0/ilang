@@ -12,6 +12,37 @@ mod extern_c;
 pub(crate) mod extern_objc;
 mod types;
 
+/// Extract the runtime symbol argument from `@intrinsic("symbol")`.
+/// Returns `Ok(Some(sym))` when the attribute is present, `Ok(None)`
+/// when it's absent, and an error when present but malformed (wrong
+/// argument shape, repeated, etc.).
+fn extract_intrinsic_arg(attrs: &[Attribute]) -> Result<Option<Symbol>, ParseError> {
+    let mut found: Option<Symbol> = None;
+    for a in attrs {
+        if a.name.as_str() != "intrinsic" {
+            continue;
+        }
+        if found.is_some() {
+            return Err(ParseError::Generic {
+                msg: "duplicate @intrinsic attribute".into(),
+                span: ilang_ast::Span::dummy(),
+            });
+        }
+        match a.args.as_ref() {
+            [AttrArg::Str(s)] if !s.is_empty() => {
+                found = Some(Symbol::intern(s));
+            }
+            _ => {
+                return Err(ParseError::Generic {
+                    msg: "@intrinsic requires exactly one non-empty string argument, e.g. @intrinsic(\"regex.compile\")".into(),
+                    span: ilang_ast::Span::dummy(),
+                });
+            }
+        }
+    }
+    Ok(found)
+}
+
 /// True if `e` is a value-only literal — what `const` accepts as its
 /// RHS. Numeric / bool / string literals, optionally with a unary
 /// `-` on numerics. No identifiers, no calls, no expressions.
@@ -104,6 +135,14 @@ impl<'a> Parser<'a> {
                     span,
                 }));
             }
+        }
+        // `@intrinsic("runtime.symbol") [pub] fn name(...): T` —
+        // body-less binding for a runtime-provided implementation. We
+        // desugar to an `@extern(C) { fn name(...): T }` block with
+        // `c_symbol` set to the attribute's argument so the existing
+        // FFI lowering path routes the call to the named symbol.
+        if let Some(symbol) = extract_intrinsic_arg(&attrs)? {
+            return self.parse_intrinsic_fn(is_pub, symbol, &attrs);
         }
         // `async fn ...` — strip the `async` token, set `is_async`
         // on the parsed FnDecl. The desugar pass picks this up and
@@ -1281,6 +1320,78 @@ impl<'a> Parser<'a> {
             name.push_str(segment.as_str());
         }
         Ok(Symbol::intern(&name))
+    }
+
+    /// Parse the signature half of `@intrinsic("...") [pub] fn name(...): T`
+    /// (no body) and wrap the result in an `@extern(C) { fn ... }`
+    /// block carrying the intrinsic's runtime symbol in `c_symbol`.
+    fn parse_intrinsic_fn(
+        &mut self,
+        is_pub: bool,
+        runtime_symbol: Symbol,
+        attrs: &[Attribute],
+    ) -> Result<Item, ParseError> {
+        // Other attributes mixed in alongside `@intrinsic` aren't
+        // supported — the desugar discards them and silently letting
+        // them through would surprise the author later.
+        for a in attrs {
+            if a.name.as_str() != "intrinsic" {
+                let t = self.peek();
+                return Err(ParseError::Unexpected {
+                    found: t.kind.clone(),
+                    expected: format!(
+                        "@intrinsic cannot be combined with other attributes (found @{})",
+                        a.name
+                    ),
+                    span: t.span,
+                });
+            }
+        }
+        if !matches!(self.peek().kind, TokenKind::Fn) {
+            let t = self.peek();
+            return Err(ParseError::Unexpected {
+                found: t.kind.clone(),
+                expected: "@intrinsic must be followed by a `fn` declaration".into(),
+                span: t.span,
+            });
+        }
+        let span = self.peek().span;
+        self.expect(&TokenKind::Fn, "'fn'")?;
+        let name = self.expect_ident("function name")?;
+        if matches!(self.peek().kind, TokenKind::Lt) {
+            let t = self.peek();
+            return Err(ParseError::Unexpected {
+                found: t.kind.clone(),
+                expected: "@intrinsic fns do not support generic type parameters".into(),
+                span: t.span,
+            });
+        }
+        self.expect(&TokenKind::LParen, "'('")?;
+        let params = self.parse_param_list()?;
+        self.expect(&TokenKind::RParen, "')'")?;
+        let ret = if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        let item = ilang_ast::ExternCItem::FnDecl {
+            is_pub,
+            name,
+            params: params.into(),
+            ret,
+            libs: Box::new([]),
+            optional: false,
+            variadic: false,
+            c_symbol: Some(runtime_symbol),
+            span,
+        };
+        Ok(Item::ExternC(ilang_ast::ExternCBlock {
+            items: Box::new([item]),
+            interfaces: Box::new([]),
+            consts: Box::new([]),
+            span,
+        }))
     }
 
     fn parse_fn_decl(&mut self, attrs: Vec<Attribute>) -> Result<FnDecl, ParseError> {

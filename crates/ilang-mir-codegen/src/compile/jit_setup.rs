@@ -358,17 +358,17 @@ pub fn compile_with_builtins(
     jit_builder.symbol("time.__parse_iso", ilang_runtime::time::time_parse_iso as *const u8);
     jit_builder.symbol("time.__to_iso", ilang_runtime::time::time_to_iso as *const u8);
     jit_builder.symbol("time.__format", ilang_runtime::time::time_format as *const u8);
-    // regex.* — `stdlib/regex.il`'s `@extern(C)` block. The loader
-    // prefixes the @extern fn names with the module name, so the
-    // JIT looks them up as `regex.__regex_*`.
-    jit_builder.symbol("regex.__regex_compile", ilang_runtime::regex::__regex_compile as *const u8);
-    jit_builder.symbol("regex.__regex_destroy", ilang_runtime::regex::__regex_destroy as *const u8);
-    jit_builder.symbol("regex.__regex_test", ilang_runtime::regex::__regex_test as *const u8);
-    jit_builder.symbol("regex.__regex_has_match", ilang_runtime::regex::__regex_has_match as *const u8);
-    jit_builder.symbol("regex.__regex_first_match", ilang_runtime::regex::__regex_first_match as *const u8);
-    jit_builder.symbol("regex.__regex_replace_all", ilang_runtime::regex::__regex_replace_all as *const u8);
-    jit_builder.symbol("regex.__regex_find_all", ilang_runtime::regex::__regex_find_all as *const u8);
-    jit_builder.symbol("regex.__regex_split", ilang_runtime::regex::__regex_split as *const u8);
+    // regex.* — `stdlib/regex.il` binds these via `@intrinsic("regex.X")`
+    // declarations. The runtime exports each backing fn under the same
+    // `regex.X` symbol name.
+    jit_builder.symbol("regex.compile", ilang_runtime::regex::__regex_compile as *const u8);
+    jit_builder.symbol("regex.destroy", ilang_runtime::regex::__regex_destroy as *const u8);
+    jit_builder.symbol("regex.test", ilang_runtime::regex::__regex_test as *const u8);
+    jit_builder.symbol("regex.has_match", ilang_runtime::regex::__regex_has_match as *const u8);
+    jit_builder.symbol("regex.first_match", ilang_runtime::regex::__regex_first_match as *const u8);
+    jit_builder.symbol("regex.replace_all", ilang_runtime::regex::__regex_replace_all as *const u8);
+    jit_builder.symbol("regex.find_all", ilang_runtime::regex::__regex_find_all as *const u8);
+    jit_builder.symbol("regex.split", ilang_runtime::regex::__regex_split as *const u8);
     // Built-in `test.*` runtime — fixture programs use these to
     // self-check. Failures abort the process with exit code 2.
     // Reuse the legacy JIT's full test-extern symbol set (callbacks,

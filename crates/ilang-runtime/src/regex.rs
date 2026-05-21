@@ -28,7 +28,7 @@ unsafe fn from_handle<'a>(handle: i64) -> Option<&'a Regex> {
 /// aborts the process when the pattern is malformed — the same
 /// failure shape as other "construction can't fail at runtime"
 /// builtins.
-#[unsafe(export_name = "regex.__regex_compile")]
+#[unsafe(export_name = "regex.compile")]
 pub extern "C" fn __regex_compile(pattern: i64, flags: i64) -> i64 {
     let p = cstr_to_str(pattern);
     let f = if flags == 0 { "" } else { cstr_to_str(flags) };
@@ -57,7 +57,7 @@ pub extern "C" fn __regex_compile(pattern: i64, flags: i64) -> i64 {
     }
 }
 
-#[unsafe(export_name = "regex.__regex_destroy")]
+#[unsafe(export_name = "regex.destroy")]
 pub extern "C" fn __regex_destroy(handle: i64) {
     if handle == 0 {
         return;
@@ -67,14 +67,14 @@ pub extern "C" fn __regex_destroy(handle: i64) {
     }
 }
 
-#[unsafe(export_name = "regex.__regex_test")]
+#[unsafe(export_name = "regex.test")]
 pub extern "C" fn __regex_test(handle: i64, s: i64) -> i32 {
     let Some(r) = (unsafe { from_handle(handle) }) else { return 0 };
     let txt = cstr_to_str(s);
     if r.is_match(txt) { 1 } else { 0 }
 }
 
-#[unsafe(export_name = "regex.__regex_has_match")]
+#[unsafe(export_name = "regex.has_match")]
 pub extern "C" fn __regex_has_match(handle: i64, s: i64) -> i32 {
     __regex_test(handle, s)
 }
@@ -83,7 +83,7 @@ pub extern "C" fn __regex_has_match(handle: i64, s: i64) -> i32 {
 /// string. Caller has already checked `__regex_has_match`; when no
 /// match exists this returns an empty string (callers shouldn't
 /// reach here in that case).
-#[unsafe(export_name = "regex.__regex_first_match")]
+#[unsafe(export_name = "regex.first_match")]
 pub extern "C" fn __regex_first_match(handle: i64, s: i64) -> i64 {
     let Some(r) = (unsafe { from_handle(handle) }) else {
         return leak_cstring(String::new());
@@ -93,7 +93,7 @@ pub extern "C" fn __regex_first_match(handle: i64, s: i64) -> i64 {
     leak_cstring(m)
 }
 
-#[unsafe(export_name = "regex.__regex_replace_all")]
+#[unsafe(export_name = "regex.replace_all")]
 pub extern "C" fn __regex_replace_all(handle: i64, s: i64, with: i64) -> i64 {
     let Some(r) = (unsafe { from_handle(handle) }) else {
         return leak_cstring(cstr_to_str(s).to_string());
@@ -103,7 +103,7 @@ pub extern "C" fn __regex_replace_all(handle: i64, s: i64, with: i64) -> i64 {
     leak_cstring(r.replace_all(txt, rep).into_owned())
 }
 
-#[unsafe(export_name = "regex.__regex_find_all")]
+#[unsafe(export_name = "regex.find_all")]
 pub extern "C" fn __regex_find_all(handle: i64, s: i64) -> i64 {
     let Some(r) = (unsafe { from_handle(handle) }) else {
         return empty_string_array();
@@ -116,7 +116,7 @@ pub extern "C" fn __regex_find_all(handle: i64, s: i64) -> i64 {
     build_string_array(&cells)
 }
 
-#[unsafe(export_name = "regex.__regex_split")]
+#[unsafe(export_name = "regex.split")]
 pub extern "C" fn __regex_split(handle: i64, s: i64) -> i64 {
     let Some(r) = (unsafe { from_handle(handle) }) else {
         return empty_string_array();
