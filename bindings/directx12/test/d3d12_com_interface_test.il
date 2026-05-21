@@ -7,6 +7,9 @@
 /// without manual offset / cast boilerplate.
 
 use test
+// HANDLE is referenced deep in the binding (ID3D12Fence::SetEventOnCompletion);
+// ilang's import resolver wants it in scope here too.
+use windows { HANDLE }
 use directx12 {
     D3D12CreateDevice,
     D3DFeatureLevel,
@@ -24,7 +27,7 @@ use directx12 {
         let rc = D3D12CreateDevice(
             0 as *void,
             D3DFeatureLevel.level_11_0 as u32,
-            IID_ID3D12Device,
+            &IID_ID3D12Device,
             &raw
         )
         if rc != 0 {
@@ -47,7 +50,7 @@ use directx12 {
             NodeMask: 0,
         }
         let queueRaw: *void = 0 as *void
-        let qhr = device.CreateCommandQueue(queueDesc, IID_ID3D12CommandQueue, &queueRaw)
+        let qhr = device.CreateCommandQueue(&queueDesc, &IID_ID3D12CommandQueue, &queueRaw)
         test.expect(qhr as i64, 0)
         test.expectTrue((queueRaw as i64) != 0)
 

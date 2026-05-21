@@ -5,6 +5,7 @@
 /// HRESULT so the test is robust on CI without a discrete GPU.
 
 use test
+use windows { HANDLE }
 use directx12 {
     D3D12CreateDevice,
     D3DFeatureLevel,
@@ -27,7 +28,7 @@ use directx12 {
         let rc = D3D12CreateDevice(
             0 as *void,                              // default adapter
             D3DFeatureLevel.level_11_0 as u32,
-            iid,
+            &iid,
             &device
         )
 

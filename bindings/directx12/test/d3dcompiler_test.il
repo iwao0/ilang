@@ -2,6 +2,7 @@
 /// the resulting blob.
 
 use test
+use windows { HANDLE }
 use directx12 {
     D3DCompile, D3DCreateBlob,
     D3D_SHADER_MACRO, ID3DBlob,

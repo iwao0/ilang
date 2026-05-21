@@ -6,6 +6,7 @@
 /// (0x887A0022 → -2005270494 as i32) — we treat that as OK.
 
 use test
+use windows { HANDLE }
 use directx12 {
     D3D12GetDebugInterface,
     GUID,
@@ -26,7 +27,7 @@ use directx12 {
         }
 
         let dbg: *void = 0 as *void
-        let rc = D3D12GetDebugInterface(iid, &dbg)
+        let rc = D3D12GetDebugInterface(&iid, &dbg)
 
         // Acceptable: S_OK (debug layer available), or any negative
         // HRESULT (debug layer not installed, no GPU, etc.).
