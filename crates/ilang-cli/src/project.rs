@@ -98,22 +98,45 @@ pub(crate) fn collect_dep_paths(entry: &PathBuf) -> Result<Vec<PathBuf>, String>
     // Walk upward from the entry's directory looking for the
     // closest `ilang.toml`. Stops at the first hit; absent file is
     // not an error (project file is optional).
-    let project_file = find_project_file(&entry_dir);
-    let Some(project_file) = project_file else {
+    let Some(project_file) = find_project_file(&entry_dir) else {
         return Ok(Vec::new());
     };
+    let host = current_os();
+    let mut visited: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    walk_project(&project_file, host, &mut visited, &mut out)?;
+    Ok(out)
+}
+
+/// Read one `ilang.toml`, resolve its `[deps]` entries against
+/// the current host OS, push each dep directory into `out`, and
+/// recurse into the dep's own `ilang.toml` if it has one — so a
+/// consumer that depends on `gui-core` automatically picks up
+/// gui-core's `gui_impl` dep without having to mention the
+/// OS-specific package in its own manifest. `visited` is keyed on
+/// canonical project-file paths to break cycles (`A → B → A`).
+fn walk_project(
+    project_file: &std::path::Path,
+    host: &str,
+    visited: &mut std::collections::HashSet<PathBuf>,
+    out: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    let canon_pf = project_file
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve {}: {e}", project_file.display()))?;
+    if !visited.insert(canon_pf) {
+        return Ok(());
+    }
     let project_dir = project_file
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let src = std::fs::read_to_string(&project_file)
+    let src = std::fs::read_to_string(project_file)
         .map_err(|e| format!("cannot read {}: {e}", project_file.display()))?;
     let parsed: ProjectFile = toml::from_str(&src)
         .map_err(|e| format!("invalid {}: {e}", project_file.display()))?;
-    let host = current_os();
-    let mut out = Vec::new();
     for (name, dep) in parsed.deps {
-        let chosen = select_for_host(&name, dep, host, &project_file)?;
+        let chosen = select_for_host(&name, dep, host, project_file)?;
         let Some(path_str) = chosen else { continue };
         let p = project_dir.join(&path_str);
         let canon = p.canonicalize().map_err(|e| {
@@ -123,9 +146,19 @@ pub(crate) fn collect_dep_paths(entry: &PathBuf) -> Result<Vec<PathBuf>, String>
                 path_str
             )
         })?;
-        out.push(canon);
+        if !out.iter().any(|q| q == &canon) {
+            out.push(canon.clone());
+        }
+        // Recurse: if the dep is itself an ilang package (has its
+        // own `ilang.toml`), pull its deps into the search path
+        // too. `use gui_impl` inside `libs/gui-core/gui.il` needs
+        // this when the consumer's manifest only mentions `gui`.
+        let nested = canon.join("ilang.toml");
+        if nested.exists() {
+            walk_project(&nested, host, visited, out)?;
+        }
     }
-    Ok(out)
+    Ok(())
 }
 
 /// Resolve a `[deps]` entry to at most one path string for the

@@ -1,0 +1,10 @@
+[package]
+name = "gui-core"
+
+[[deps.gui_impl]]
+path = "../cocoa"
+target = "macos"
+
+[[deps.gui_impl]]
+path = "../win32"
+target = "windows"
