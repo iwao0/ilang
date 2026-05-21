@@ -94,4 +94,22 @@
 
     /// Localised error string for an `errno` value.
     @lib pub fn strerror(errnum: i32): *const char
+
+    // ── Tokenisation ────────────────────────────────────────────
+
+    /// Destructive tokeniser. Pass `s` on the first call, NULL on
+    /// subsequent calls. Returns NULL when no more tokens remain.
+    /// Not thread-safe; use `strtok_r` (POSIX) for re-entrancy.
+    @lib pub fn strtok(s: *char, delim: *const char): *char
+
+    // ── Locale-aware compare / transform ────────────────────────
+
+    /// Compare per the current `LC_COLLATE` locale.
+    @lib pub fn strcoll(a: *const char, b: *const char): i32
+
+    /// Transform `src` so that a byte-wise compare of two transformed
+    /// strings yields the same result as `strcoll`. Returns the
+    /// length (excluding NUL) the transform would need; `n` may be
+    /// 0 to query the size.
+    @lib pub fn strxfrm(dst: *char, src: *const char, n: size_t): size_t
 }

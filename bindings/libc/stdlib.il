@@ -95,4 +95,75 @@
     /// Pull a non-negative pseudo-random `int` ≤ `RAND_MAX`
     /// (Windows: 0x7FFF; glibc: 0x7FFFFFFF — see `RAND_MAX`).
     @lib pub fn rand(): i32
+
+    // ── div / quotient + remainder pairs ────────────────────────
+
+    /// Quotient + remainder pair for `int` division.
+    pub struct div_t {
+        quot: i32
+        rem:  i32
+    }
+
+    /// Quotient + remainder pair for `long` division.
+    pub struct ldiv_t {
+        quot: i64
+        rem:  i64
+    }
+
+    /// Quotient + remainder pair for `long long` division.
+    pub struct lldiv_t {
+        quot: i64
+        rem:  i64
+    }
+
+    @lib pub fn div(numer: i32, denom: i32): div_t
+    @lib pub fn ldiv(numer: i64, denom: i64): ldiv_t
+    @lib pub fn lldiv(numer: i64, denom: i64): lldiv_t
+
+    /// `long long` absolute value (C99).
+    @lib pub fn llabs(x: i64): i64
+
+    // ── Additional string → number ──────────────────────────────
+
+    /// C99 `long long` parse (decimal only).
+    @lib pub fn atoll(s: *const char): i64
+
+    /// `strtoll(s, &endp, base)` — C99.
+    @lib pub fn strtoll(s: *const char, endptr: **char, base: i32): i64
+    @lib pub fn strtoull(s: *const char, endptr: **char, base: i32): u64
+
+    /// `float` parse (C99).
+    @lib pub fn strtof(s: *const char, endptr: **char): f32
+
+    // ── Process control (additions) ─────────────────────────────
+
+    /// Register a function to run at normal program termination.
+    /// Returns 0 on success.
+    @lib pub fn atexit(func: fn()): i32
+
+    /// C99 quick-exit — skips atexit handlers, still flushes stdio
+    /// on most implementations.
+    @lib @optional pub fn _Exit(status: i32)
+
+    /// Set / clear an environment variable. POSIX, but ucrt exposes
+    /// the same name. Returns 0 on success.
+    @lib @optional pub fn setenv(name: *const char, value: *const char, overwrite: i32): i32
+    @lib @optional pub fn unsetenv(name: *const char): i32
+
+    // ── Multi-byte ↔ wide conversion ────────────────────────────
+
+    /// Length in bytes of the next multi-byte character starting at
+    /// `s`. Returns -1 on encoding error, 0 for the empty string.
+    @lib pub fn mblen(s: *const char, n: size_t): i32
+
+    /// Decode one multi-byte character.
+    @lib pub fn mbtowc(pwc: *u32, s: *const char, n: size_t): i32
+
+    /// Encode one wide character as multi-byte bytes.
+    @lib pub fn wctomb(s: *char, wc: u32): i32
+
+    /// Convert a multi-byte string to wide. Returns the number of
+    /// wide chars written (excluding the NUL) or (size_t)-1.
+    @lib pub fn mbstowcs(pwcs: *u32, s: *const char, n: size_t): size_t
+    @lib pub fn wcstombs(s: *char, pwcs: *const u32, n: size_t): size_t
 }

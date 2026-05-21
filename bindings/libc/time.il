@@ -63,4 +63,10 @@
     /// Approximate CPU time the process has consumed, in
     /// `CLOCKS_PER_SEC` ticks. Returns -1 if unavailable.
     @lib pub fn clock(): i64
+
+    // ── C11 `timespec_get` ────────────────────────────────────
+
+    /// C11 wall-clock read. `base` is typically `1` (TIME_UTC).
+    /// Returns `base` on success, 0 on failure.
+    @lib @optional pub fn timespec_get(ts: *void, base: i32): i32
 }

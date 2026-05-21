@@ -111,4 +111,62 @@
     /// `GetTempFileNameA` on Windows for new code; `tmpnam` is
     /// kept here for completeness.
     @lib pub fn tmpnam(buf: *char): *char
+
+    /// Open a temporary file in `wb+` mode. Auto-deleted on close.
+    @lib pub fn tmpfile(): *FILE
+
+    // ── Convenience char / line helpers ──────────────────────────
+
+    /// One-byte read from stdin. EOF on end of stream.
+    @lib pub fn getchar(): i32
+
+    /// One-byte write to stdout.
+    @lib pub fn putchar(c: i32): i32
+
+    /// Write `s` plus a newline to stdout. Returns ≥0 / EOF.
+    @lib pub fn puts(s: *const char): i32
+
+    /// Print a NUL-terminated message followed by ": " and
+    /// `strerror(errno)` to stderr.
+    @lib pub fn perror(s: *const char)
+
+    // ── Buffering ────────────────────────────────────────────────
+
+    /// Set buffer + mode for `stream`. `mode`:
+    ///   0 = _IOFBF (full),
+    ///   1 = _IOLBF (line),
+    ///   2 = _IONBF (none).
+    @lib pub fn setvbuf(stream: *FILE, buf: *char, mode: i32, size: size_t): i32
+
+    /// `setbuf(s, NULL)` ≡ disable buffering; non-NULL ≡ full,
+    /// BUFSIZ-sized buffer. Prefer `setvbuf`.
+    @lib pub fn setbuf(stream: *FILE, buf: *char)
+
+    // ── Positioning (extended) ───────────────────────────────────
+
+    /// Opaque file position type. Layout differs per platform; treat
+    /// as a 16-byte cookie obtained from `fgetpos` and consumed by
+    /// `fsetpos`. The struct exists only so callers can size storage.
+    pub struct fpos_t {
+        _opaque0: i64
+        _opaque1: i64
+    }
+
+    @lib pub fn fgetpos(stream: *FILE, pos: *fpos_t): i32
+    @lib pub fn fsetpos(stream: *FILE, pos: *const fpos_t): i32
+
+    // ── Variadic (va_list) variants ──────────────────────────────
+    //
+    // `va_list` doesn't have a portable ABI in pure ilang yet, so
+    // these take `*void` for the list pointer. Build the va_list on
+    // the call site through inline C / a forwarding wrapper, or call
+    // the non-`v` form directly when possible.
+
+    @lib pub fn vprintf(fmt: *const char, ap: *void): i32
+    @lib pub fn vfprintf(stream: *FILE, fmt: *const char, ap: *void): i32
+    @lib pub fn vsprintf(buf: *char, fmt: *const char, ap: *void): i32
+    @lib pub fn vsnprintf(buf: *char, n: size_t, fmt: *const char, ap: *void): i32
+    @lib pub fn vscanf(fmt: *const char, ap: *void): i32
+    @lib pub fn vfscanf(stream: *FILE, fmt: *const char, ap: *void): i32
+    @lib pub fn vsscanf(s: *const char, fmt: *const char, ap: *void): i32
 }

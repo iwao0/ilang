@@ -17,3 +17,10 @@ pub use stdio.*
 pub use cmath.*
 pub use ctype.*
 pub use time.*
+pub use errno.*
+pub use locale.*
+pub use signal.*
+pub use setjmp.*
+pub use wchar.*
+pub use wctype.*
+pub use assert.*
