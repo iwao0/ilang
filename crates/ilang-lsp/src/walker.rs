@@ -663,12 +663,18 @@ impl<'a> Walker<'a> {
                 for a in args {
                     self.walk_expr(a, scope, this_class);
                 }
-                // Built-in string / array methods.
+                // Built-in string / array / Map methods.
                 let builtin = match self.infer_expr(obj, scope) {
                     Some(Type::Str) => string_method_sig(method.as_str())
                         .map(|s| (s, string_method_doc(method.as_str()))),
                     Some(Type::Array { elem, .. }) => array_method_sig(method.as_str(), &elem)
                         .map(|s| (s, array_method_doc(method.as_str()))),
+                    Some(Type::Generic(g))
+                        if g.base.as_str() == "Map" && g.args.len() == 2 =>
+                    {
+                        map_method_sig(method.as_str(), &g.args[0], &g.args[1])
+                            .map(|s| (s, map_method_doc(method.as_str())))
+                    }
                     _ => None,
                 };
                 if let Some((sig, doc_text)) = builtin {
@@ -953,6 +959,36 @@ impl<'a> Walker<'a> {
                     self.walk_expr(e, scope, this_class);
                 }
             }
+            ExprKind::IfLet { name, expr, then_branch, else_branch } => {
+                self.walk_expr(expr, scope, this_class);
+                let inner_ty = self.infer_expr(expr, scope).and_then(|t| match t {
+                    Type::Optional(inner) => Some(*inner),
+                    _ => None,
+                });
+                let name_span =
+                    locate_if_let_some_name(self.text, e.span, name.as_str()).unwrap_or(e.span);
+                let sig = BindKind::Let.render(name.as_str(), inner_ty.as_ref());
+                self.push_decl(name.as_str(), name_span, sig);
+                if let Some(c) = inner_ty.as_ref().and_then(type_to_class) {
+                    self.var_classes.insert(name.clone(), c);
+                }
+                if let Some(t) = inner_ty.as_ref() {
+                    self.var_types.insert(name.clone(), t.clone());
+                }
+                let depth = scope.len();
+                scope.push(Binding {
+                    name: name.as_str().to_string(),
+                    span: name_span,
+                    ty: inner_ty,
+                    kind: BindKind::Let,
+                    override_signature: None,
+                });
+                self.walk_block(then_branch, scope, this_class);
+                scope.truncate(depth);
+                if let Some(eb) = else_branch {
+                    self.walk_expr(eb, scope, this_class);
+                }
+            }
             ExprKind::While { cond, body } => {
                 self.walk_expr(cond, scope, this_class);
                 self.walk_block(body, scope, this_class);
@@ -1202,6 +1238,36 @@ impl<'a> Walker<'a> {
                     info.methods.get(&AstSymbol::intern(m))?.ret_ty.clone()
                 }),
             ExprKind::MethodCall { obj, method, .. } => {
+                // Built-in `Map<K, V>` methods. The LSP doesn't carry a
+                // ClassInfo for `Map` (it's only registered in the type
+                // checker), so resolve them off the receiver's generic
+                // args directly. Without this, `m.get(k)` falls off the
+                // lookup and downstream bindings (e.g. `if let
+                // some(arr) = m.get(k)`) hover with no type.
+                if let Some(Type::Generic(g)) = self.infer_expr(obj, scope) {
+                    if g.base.as_str() == "Map" && g.args.len() == 2 {
+                        let k = g.args[0].clone();
+                        let v = g.args[1].clone();
+                        match method.as_str() {
+                            "get" => return Some(Type::Optional(Box::new(v))),
+                            "has" | "delete" => return Some(Type::Bool),
+                            "size" => return Some(Type::I64),
+                            "keys" => {
+                                return Some(Type::Array {
+                                    elem: Box::new(k),
+                                    fixed: None,
+                                });
+                            }
+                            "values" => {
+                                return Some(Type::Array {
+                                    elem: Box::new(v),
+                                    fixed: None,
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 let this_class = self.current_this_class.as_deref();
                 let class = self.resolve_obj_class(obj, scope, this_class)?;
                 let info = self.classes.get(&AstSymbol::intern(&class))?;
@@ -1261,6 +1327,27 @@ impl<'a> Walker<'a> {
                     .and_then(|t| self.infer_expr(t, scope));
                 from_then.or_else(|| {
                     else_branch.as_ref().and_then(|e| self.infer_expr(e, scope))
+                })
+            }
+            ExprKind::IfLet { name, expr, then_branch, else_branch } => {
+                let inner_ty = self.infer_expr(expr, scope).and_then(|t| match t {
+                    Type::Optional(inner) => Some(*inner),
+                    _ => None,
+                });
+                let mut then_scope = scope.to_vec();
+                then_scope.push(Binding {
+                    name: name.as_str().to_string(),
+                    span: e.span,
+                    ty: inner_ty,
+                    kind: BindKind::Let,
+                    override_signature: None,
+                });
+                let from_then = then_branch
+                    .tail
+                    .as_ref()
+                    .and_then(|t| self.infer_expr(t, &then_scope));
+                from_then.or_else(|| {
+                    else_branch.as_ref().and_then(|eb| self.infer_expr(eb, scope))
                 })
             }
             ExprKind::Block(b) => b.tail.as_ref().and_then(|t| self.infer_expr(t, scope)),

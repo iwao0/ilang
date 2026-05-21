@@ -167,6 +167,37 @@ pub(crate) fn array_method_sig(method: &str, elem: &Type) -> Option<String> {
     Some(format!("(method) {elem}[].{body}"))
 }
 
+pub(crate) fn map_method_names() -> &'static [&'static str] {
+    &["get", "set", "has", "delete", "size", "keys", "values"]
+}
+
+pub(crate) fn map_method_sig(method: &str, k: &Type, v: &Type) -> Option<String> {
+    let body = match method {
+        "get" => format!("get(key: {k}): {v}?"),
+        "set" => format!("set(key: {k}, value: {v}): ()"),
+        "has" => format!("has(key: {k}): bool"),
+        "delete" => format!("delete(key: {k}): bool"),
+        "size" => "size(): i64".to_string(),
+        "keys" => format!("keys(): {k}[]"),
+        "values" => format!("values(): {v}[]"),
+        _ => return None,
+    };
+    Some(format!("(method) Map<{k}, {v}>.{body}"))
+}
+
+pub(crate) fn map_method_doc(method: &str) -> Option<&'static str> {
+    Some(match method {
+        "get" => "Returns `some(value)` for `key`, or `none` when the key is absent.",
+        "set" => "Inserts `value` under `key`, replacing any existing entry.",
+        "has" => "Returns `true` when `key` has an associated entry.",
+        "delete" => "Removes the entry for `key`. Returns `true` when an entry existed, `false` otherwise.",
+        "size" => "Returns the number of entries currently stored.",
+        "keys" => "Returns a new array of every key, in insertion order.",
+        "values" => "Returns a new array of every value, in insertion order.",
+        _ => return None,
+    })
+}
+
 /// Hover documentation for the built-in array methods.
 pub(crate) fn array_method_doc(method: &str) -> Option<&'static str> {
     Some(match method {

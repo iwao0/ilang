@@ -548,6 +548,17 @@ impl LanguageServer for Backend {
                                 .map(|s| (n.to_string(), s, array_method_doc(n)))
                         })
                         .collect(),
+                    Type::Generic(g)
+                        if g.base.as_str() == "Map" && g.args.len() == 2 =>
+                    {
+                        map_method_names()
+                            .into_iter()
+                            .filter_map(|n| {
+                                map_method_sig(n, &g.args[0], &g.args[1])
+                                    .map(|s| (n.to_string(), s, map_method_doc(n)))
+                            })
+                            .collect()
+                    }
                     _ => Vec::new(),
                 };
                 if !entries.is_empty() {

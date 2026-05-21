@@ -194,6 +194,39 @@ pub(crate) fn locate_let_name_with_kw(
     None
 }
 
+/// Locate the binding identifier inside an `if let some(<name>) = ...`
+/// expression. The IfLet AST node only carries its outer span (the `if`
+/// keyword), so we scan forward to the next `some(` and read the
+/// identifier inside its parentheses.
+pub(crate) fn locate_if_let_some_name(
+    text: &str,
+    if_span: Span,
+    name: &str,
+) -> Option<Span> {
+    let off = line_col_to_offset(text, if_span.line, if_span.col)?;
+    let bytes = text.as_bytes();
+    let needle = b"some(";
+    let mut i = off;
+    while i + needle.len() <= bytes.len() {
+        if &bytes[i..i + needle.len()] == needle {
+            let mut j = i + needle.len();
+            while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
+                j += 1;
+            }
+            let nb = name.as_bytes();
+            if bytes.len() - j >= nb.len() && &bytes[j..j + nb.len()] == nb {
+                let next = bytes.get(j + nb.len()).copied().unwrap_or(b' ');
+                if !next.is_ascii_alphanumeric() && next != b'_' {
+                    let (line, col) = offset_to_line_col(text, j)?;
+                    return Some(name_span(line, col, name));
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Find the `name` identifier that follows the next `.` after `obj_span`.
 /// Returns its (line, col). Used to attach a precise span to `Field` and
 /// `MethodCall` references whose AST nodes only carry the receiver's
