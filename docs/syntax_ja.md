@@ -2138,6 +2138,29 @@ console.log(ICON_BYTES.length)
 
 CLI はエントリファイルから親方向に `ilang.toml` を探し、見つかれば `[deps]` の各エントリを loader の `use module` 解決の追加検索ディレクトリに加える。
 
+`[deps]` のエントリは次の3つの形を受け付ける:
+
+```toml
+[package]
+name = "my_game"
+
+[deps]
+common = "./libs/common"                       # 文字列
+math   = { path = "./libs/math" }              # 単一テーブル
+
+[[deps.gui_impl]]                              # 配列形式 (OS 振り分け)
+path   = "./libs/gui-cocoa"
+target = "macos"
+
+[[deps.gui_impl]]
+path   = "./libs/gui-win32"
+target = "windows"
+```
+
+`target` は単一の OS 文字列 (`"macos"` / `"linux"` / `"windows"`) か、複数の OS 文字列の配列 (`["macos", "linux"]`、OR マッチ) を受け付ける。ホスト OS と一致しないエントリは静かに破棄される。同じ dep 名で複数のエントリがホスト OS にマッチした場合はエラー — ホストごとにちょうど 1 つだけ残るように排他的な `target` を書くこと。
+
+ルックアップ順: import 元自身のディレクトリ → 宣言された各 dep ディレクトリ。
+
 ---
 
 ## 17. 未実装 (今後の TODO)
