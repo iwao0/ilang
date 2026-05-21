@@ -81,12 +81,12 @@ fn read_path(name_ptr: i64) -> Option<String> {
 // Error-slot accessors
 // ---------------------------------------------------------------
 
-#[unsafe(export_name = "fs.__hasError")]
+#[unsafe(export_name = "$fs.hasError")]
 pub extern "C" fn fs_has_error() -> i64 {
     LAST_FS_ERROR.with(|e| if e.borrow().is_some() { 1 } else { 0 })
 }
 
-#[unsafe(export_name = "fs.__errorCode")]
+#[unsafe(export_name = "$fs.errorCode")]
 pub extern "C" fn fs_error_code() -> i64 {
     LAST_FS_ERROR.with(|e| match e.borrow().as_ref() {
         Some((code, _)) => leak_cstring(code.clone()),
@@ -94,7 +94,7 @@ pub extern "C" fn fs_error_code() -> i64 {
     })
 }
 
-#[unsafe(export_name = "fs.__errorMessage")]
+#[unsafe(export_name = "$fs.errorMessage")]
 pub extern "C" fn fs_error_message() -> i64 {
     LAST_FS_ERROR.with(|e| match e.borrow().as_ref() {
         Some((_, msg)) => leak_cstring(msg.clone()),
@@ -106,7 +106,7 @@ pub extern "C" fn fs_error_message() -> i64 {
 // readFile / readFileBytes
 // ---------------------------------------------------------------
 
-#[unsafe(export_name = "fs.__readFile")]
+#[unsafe(export_name = "$fs.readFile")]
 pub extern "C" fn fs_read_file(path: i64) -> i64 {
     clear_error();
     let Some(p) = read_path(path) else {
@@ -121,7 +121,7 @@ pub extern "C" fn fs_read_file(path: i64) -> i64 {
     }
 }
 
-#[unsafe(export_name = "fs.__readFileBytes")]
+#[unsafe(export_name = "$fs.readFileBytes")]
 pub extern "C" fn fs_read_file_bytes(path: i64) -> i64 {
     clear_error();
     let Some(p) = read_path(path) else {
@@ -150,7 +150,7 @@ pub extern "C" fn fs_read_file_bytes(path: i64) -> i64 {
 // writeFile / writeFileBytes / appendFile
 // ---------------------------------------------------------------
 
-#[unsafe(export_name = "fs.__writeFile")]
+#[unsafe(export_name = "$fs.writeFile")]
 pub extern "C" fn fs_write_file(path: i64, contents: i64) {
     clear_error();
     let Some(p) = read_path(path) else { return };
@@ -164,7 +164,7 @@ pub extern "C" fn fs_write_file(path: i64, contents: i64) {
     }
 }
 
-#[unsafe(export_name = "fs.__writeFileBytes")]
+#[unsafe(export_name = "$fs.writeFileBytes")]
 pub extern "C" fn fs_write_file_bytes(path: i64, arr: i64) {
     clear_error();
     let Some(p) = read_path(path) else { return };
@@ -187,7 +187,7 @@ pub extern "C" fn fs_write_file_bytes(path: i64, arr: i64) {
     }
 }
 
-#[unsafe(export_name = "fs.__appendFile")]
+#[unsafe(export_name = "$fs.appendFile")]
 pub extern "C" fn fs_append_file(path: i64, contents: i64) {
     clear_error();
     let Some(p) = read_path(path) else { return };
@@ -212,19 +212,19 @@ pub extern "C" fn fs_append_file(path: i64, contents: i64) {
 // exists / isFile / isDir
 // ---------------------------------------------------------------
 
-#[unsafe(export_name = "fs.__exists")]
+#[unsafe(export_name = "$fs.exists")]
 pub extern "C" fn fs_exists(path: i64) -> i64 {
     let Some(p) = read_path(path) else { return 0 };
     if Path::new(&p).exists() { 1 } else { 0 }
 }
 
-#[unsafe(export_name = "fs.__isFile")]
+#[unsafe(export_name = "$fs.isFile")]
 pub extern "C" fn fs_is_file(path: i64) -> i64 {
     let Some(p) = read_path(path) else { return 0 };
     if Path::new(&p).is_file() { 1 } else { 0 }
 }
 
-#[unsafe(export_name = "fs.__isDir")]
+#[unsafe(export_name = "$fs.isDir")]
 pub extern "C" fn fs_is_dir(path: i64) -> i64 {
     let Some(p) = read_path(path) else { return 0 };
     if Path::new(&p).is_dir() { 1 } else { 0 }
@@ -234,7 +234,7 @@ pub extern "C" fn fs_is_dir(path: i64) -> i64 {
 // mkdir / rm / rmdir / rename
 // ---------------------------------------------------------------
 
-#[unsafe(export_name = "fs.__mkdir")]
+#[unsafe(export_name = "$fs.mkdir")]
 pub extern "C" fn fs_mkdir(path: i64, recursive: i64) {
     clear_error();
     let Some(p) = read_path(path) else { return };
@@ -248,7 +248,7 @@ pub extern "C" fn fs_mkdir(path: i64, recursive: i64) {
     }
 }
 
-#[unsafe(export_name = "fs.__rm")]
+#[unsafe(export_name = "$fs.rm")]
 pub extern "C" fn fs_rm(path: i64) {
     clear_error();
     let Some(p) = read_path(path) else { return };
@@ -257,7 +257,7 @@ pub extern "C" fn fs_rm(path: i64) {
     }
 }
 
-#[unsafe(export_name = "fs.__rmdir")]
+#[unsafe(export_name = "$fs.rmdir")]
 pub extern "C" fn fs_rmdir(path: i64, recursive: i64) {
     clear_error();
     let Some(p) = read_path(path) else { return };
@@ -271,7 +271,7 @@ pub extern "C" fn fs_rmdir(path: i64, recursive: i64) {
     }
 }
 
-#[unsafe(export_name = "fs.__rename")]
+#[unsafe(export_name = "$fs.rename")]
 pub extern "C" fn fs_rename(from: i64, to: i64) {
     clear_error();
     let Some(src) = read_path(from) else { return };
@@ -285,7 +285,7 @@ pub extern "C" fn fs_rename(from: i64, to: i64) {
 // readDir / size
 // ---------------------------------------------------------------
 
-#[unsafe(export_name = "fs.__readDir")]
+#[unsafe(export_name = "$fs.readDir")]
 pub extern "C" fn fs_read_dir(path: i64) -> i64 {
     clear_error();
     let Some(p) = read_path(path) else {
@@ -314,7 +314,7 @@ pub extern "C" fn fs_read_dir(path: i64) -> i64 {
     build_i64_array(&entries, KIND_STR)
 }
 
-#[unsafe(export_name = "fs.__size")]
+#[unsafe(export_name = "$fs.size")]
 pub extern "C" fn fs_size(path: i64) -> i64 {
     clear_error();
     let Some(p) = read_path(path) else { return -1 };
@@ -415,12 +415,12 @@ fn stat_inner(path: i64, follow_links: bool) -> i64 {
     }
 }
 
-#[unsafe(export_name = "fs.__stat")]
+#[unsafe(export_name = "$fs.stat")]
 pub extern "C" fn fs_stat(path: i64) -> i64 {
     stat_inner(path, true)
 }
 
-#[unsafe(export_name = "fs.__lstat")]
+#[unsafe(export_name = "$fs.lstat")]
 pub extern "C" fn fs_lstat(path: i64) -> i64 {
     stat_inner(path, false)
 }
@@ -433,7 +433,7 @@ pub extern "C" fn fs_lstat(path: i64) -> i64 {
 // Windows ACLs don't map cleanly to POSIX bits.
 // ---------------------------------------------------------------
 
-#[unsafe(export_name = "fs.__access")]
+#[unsafe(export_name = "$fs.access")]
 pub extern "C" fn fs_access(path: i64, mode: i64) {
     clear_error();
     let Some(p) = read_path(path) else { return };
@@ -481,7 +481,7 @@ pub extern "C" fn fs_access(path: i64, mode: i64) {
 // copyFile / cp / realpath
 // ---------------------------------------------------------------
 
-#[unsafe(export_name = "fs.__copyFile")]
+#[unsafe(export_name = "$fs.copyFile")]
 pub extern "C" fn fs_copy_file(src: i64, dst: i64, overwrite: i64) {
     clear_error();
     let Some(s) = read_path(src) else { return };
@@ -529,7 +529,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
     Ok(())
 }
 
-#[unsafe(export_name = "fs.__cp")]
+#[unsafe(export_name = "$fs.cp")]
 pub extern "C" fn fs_cp(src: i64, dst: i64, recursive: i64) {
     clear_error();
     let Some(s) = read_path(src) else { return };
@@ -544,7 +544,7 @@ pub extern "C" fn fs_cp(src: i64, dst: i64, recursive: i64) {
     }
 }
 
-#[unsafe(export_name = "fs.__realpath")]
+#[unsafe(export_name = "$fs.realpath")]
 pub extern "C" fn fs_realpath(path: i64) -> i64 {
     clear_error();
     let Some(p) = read_path(path) else {
@@ -563,7 +563,7 @@ pub extern "C" fn fs_realpath(path: i64) -> i64 {
 // chmod / truncate / utimes
 // ---------------------------------------------------------------
 
-#[unsafe(export_name = "fs.__chmod")]
+#[unsafe(export_name = "$fs.chmod")]
 pub extern "C" fn fs_chmod(path: i64, mode: i64) {
     clear_error();
     let Some(p) = read_path(path) else { return };
@@ -592,7 +592,7 @@ pub extern "C" fn fs_chmod(path: i64, mode: i64) {
     }
 }
 
-#[unsafe(export_name = "fs.__truncate")]
+#[unsafe(export_name = "$fs.truncate")]
 pub extern "C" fn fs_truncate(path: i64, len: i64) {
     clear_error();
     let Some(p) = read_path(path) else { return };
@@ -613,7 +613,7 @@ pub extern "C" fn fs_truncate(path: i64, len: i64) {
     }
 }
 
-#[unsafe(export_name = "fs.__utimes")]
+#[unsafe(export_name = "$fs.utimes")]
 pub extern "C" fn fs_utimes(path: i64, atime_ms: i64, mtime_ms: i64) {
     clear_error();
     let Some(p) = read_path(path) else { return };
@@ -641,7 +641,7 @@ pub extern "C" fn fs_utimes(path: i64, atime_ms: i64, mtime_ms: i64) {
 // symlink / readlink / link
 // ---------------------------------------------------------------
 
-#[unsafe(export_name = "fs.__symlink")]
+#[unsafe(export_name = "$fs.symlink")]
 pub extern "C" fn fs_symlink(target: i64, link_path: i64) {
     clear_error();
     let Some(t) = read_path(target) else { return };
@@ -665,7 +665,7 @@ pub extern "C" fn fs_symlink(target: i64, link_path: i64) {
     }
 }
 
-#[unsafe(export_name = "fs.__readlink")]
+#[unsafe(export_name = "$fs.readlink")]
 pub extern "C" fn fs_readlink(path: i64) -> i64 {
     clear_error();
     let Some(p) = read_path(path) else {
@@ -680,7 +680,7 @@ pub extern "C" fn fs_readlink(path: i64) -> i64 {
     }
 }
 
-#[unsafe(export_name = "fs.__link")]
+#[unsafe(export_name = "$fs.link")]
 pub extern "C" fn fs_link(existing: i64, new_path: i64) {
     clear_error();
     let Some(e1) = read_path(existing) else { return };
@@ -698,7 +698,7 @@ pub extern "C" fn fs_link(existing: i64, new_path: i64) {
 // workload without pulling in `rand` / `tempfile`.
 // ---------------------------------------------------------------
 
-#[unsafe(export_name = "fs.__mkdtemp")]
+#[unsafe(export_name = "$fs.mkdtemp")]
 pub extern "C" fn fs_mkdtemp(prefix: i64) -> i64 {
     clear_error();
     let Some(pre) = read_path(prefix) else {

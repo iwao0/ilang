@@ -225,8 +225,8 @@ fn intrinsic_attr_desugars_to_extern_block() {
     assert!(*is_pub, "pub flag should propagate");
     assert_eq!(
         c_symbol.as_ref().map(|s| s.as_str()),
-        Some("rt.do_thing"),
-        "c_symbol should hold the intrinsic argument verbatim"
+        Some("$rt.do_thing"),
+        "c_symbol should hold the intrinsic argument with a `$` sigil prepended to keep it out of the ilang identifier namespace"
     );
     assert!(libs.is_empty(), "intrinsic fns carry no @lib list");
 }

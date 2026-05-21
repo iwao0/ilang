@@ -1414,6 +1414,13 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        // Stamp a leading `$` onto the runtime symbol so it cannot
+        // collide with any loader-prefixed ilang fn name (`$` isn't a
+        // legal identifier character). The .il source still spells the
+        // argument cleanly (`@intrinsic("fs.readFile")`) — the sigil
+        // lives only in the runtime / host-symbol table.
+        let sigil_symbol =
+            Symbol::intern(&format!("${}", runtime_symbol.as_str()));
         let item = ilang_ast::ExternCItem::FnDecl {
             is_pub,
             name,
@@ -1422,7 +1429,7 @@ impl<'a> Parser<'a> {
             libs: Box::new([]),
             optional: false,
             variadic: false,
-            c_symbol: Some(runtime_symbol),
+            c_symbol: Some(sigil_symbol),
             span,
         };
         Ok(Item::ExternC(ilang_ast::ExternCBlock {

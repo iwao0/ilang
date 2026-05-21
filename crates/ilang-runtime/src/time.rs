@@ -165,7 +165,7 @@ fn local_offset_min(_epoch_sec: i64) -> i32 {
 // Clock & sleep
 // ---------------------------------------------------------------
 
-#[unsafe(export_name = "time.__now_ms")]
+#[unsafe(export_name = "$time.now_ms")]
 pub extern "C" fn time_now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -173,7 +173,7 @@ pub extern "C" fn time_now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-#[unsafe(export_name = "time.__now_ns")]
+#[unsafe(export_name = "$time.now_ns")]
 pub extern "C" fn time_now_ns() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -181,7 +181,7 @@ pub extern "C" fn time_now_ns() -> i64 {
         .unwrap_or(0)
 }
 
-#[unsafe(export_name = "time.__monotonic_ns")]
+#[unsafe(export_name = "$time.monotonic_ns")]
 pub extern "C" fn time_monotonic_ns() -> i64 {
     // Anchor the monotonic clock at the first call so subsequent
     // values are reasonably-sized i64 nanos. `Instant::now()` is
@@ -191,7 +191,7 @@ pub extern "C" fn time_monotonic_ns() -> i64 {
     start.elapsed().as_nanos() as i64
 }
 
-#[unsafe(export_name = "time.__sleep_ms")]
+#[unsafe(export_name = "$time.sleep_ms")]
 pub extern "C" fn time_sleep_ms(ms: i64) {
     if ms > 0 {
         std::thread::sleep(Duration::from_millis(ms as u64));
@@ -202,13 +202,13 @@ pub extern "C" fn time_sleep_ms(ms: i64) {
 // Calendar breakdown / composition
 // ---------------------------------------------------------------
 
-#[unsafe(export_name = "time.__break_down_utc")]
+#[unsafe(export_name = "$time.break_down_utc")]
 pub extern "C" fn time_break_down_utc(epoch_ms: i64) -> i64 {
     let a = break_down(epoch_ms, 0);
     build_i64_array(&a, KIND_NONE)
 }
 
-#[unsafe(export_name = "time.__break_down_local")]
+#[unsafe(export_name = "$time.break_down_local")]
 pub extern "C" fn time_break_down_local(epoch_ms: i64) -> i64 {
     let sec = epoch_ms.div_euclid(1000);
     let off = local_offset_min(sec);
@@ -216,7 +216,7 @@ pub extern "C" fn time_break_down_local(epoch_ms: i64) -> i64 {
     build_i64_array(&a, KIND_NONE)
 }
 
-#[unsafe(export_name = "time.__compose")]
+#[unsafe(export_name = "$time.compose")]
 pub extern "C" fn time_compose(
     year: i64,
     month: i64,
@@ -319,7 +319,7 @@ fn build_iso(
     s
 }
 
-#[unsafe(export_name = "time.__to_iso")]
+#[unsafe(export_name = "$time.to_iso")]
 pub extern "C" fn time_to_iso(
     year: i64,
     month: i64,
@@ -448,7 +448,7 @@ fn parse_iso(s: &str) -> Option<[i64; 9]> {
     ])
 }
 
-#[unsafe(export_name = "time.__parse_iso")]
+#[unsafe(export_name = "$time.parse_iso")]
 pub extern "C" fn time_parse_iso(s_ptr: i64) -> i64 {
     let Some(s) = read_path_str(s_ptr) else {
         return build_i64_array(&[], KIND_NONE);
@@ -598,7 +598,7 @@ fn format_time(
     out
 }
 
-#[unsafe(export_name = "time.__format")]
+#[unsafe(export_name = "$time.format")]
 pub extern "C" fn time_format(
     year: i64,
     month: i64,

@@ -35,7 +35,7 @@
 /// Host OS name probe — called exactly once during module init
 /// to populate the `os.platform` binding below. Module-private;
 /// reach for `os.platform` instead.
-@intrinsic("os.__platform") fn os_platform(): string
+@intrinsic("os.platform") fn os_platform(): string
 
 /// Host OS name. One of `"macos"` / `"linux"` / `"windows"`,
 /// or `"other"` for any other Rust-known target. Resolved at

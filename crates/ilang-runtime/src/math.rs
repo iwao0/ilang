@@ -1,6 +1,6 @@
 //! `math.*` stdlib bindings.
 //!
-//! Symbol names use `export_name = "math.X"` so they match the
+//! Symbol names use `export_name = "$math.X"` so they match the
 //! JIT-emitted symbol the codegen looks up via the `use math` form.
 //! AOT links against these the same way it links any other runtime
 //! helper, so calling `math.sin(...)` in ilang works in both
@@ -28,8 +28,8 @@ math_unary!(math_ceil,  "math.ceil",  f64::ceil);
 math_unary!(math_round, "math.round", f64::round);
 math_unary!(math_abs,   "math.abs",   f64::abs);
 
-#[unsafe(export_name = "math.atan2")]
+#[unsafe(export_name = "$math.atan2")]
 pub extern "C" fn math_atan2(y: f64, x: f64) -> f64 { y.atan2(x) }
 
-#[unsafe(export_name = "math.pow")]
+#[unsafe(export_name = "$math.pow")]
 pub extern "C" fn math_pow(x: f64, y: f64) -> f64 { x.powf(y) }
