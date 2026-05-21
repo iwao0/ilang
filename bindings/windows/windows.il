@@ -87,3 +87,9 @@ pub use uiautomationcore.*
 pub use cryptui.*
 pub use wuapi.*
 pub use clfsw32.*
+pub use oleacc.*
+pub use mscoree.*
+pub use directcomposition.*
+pub use slc.*
+pub use mfsensorgroup.*
+pub use lzexpand.*
