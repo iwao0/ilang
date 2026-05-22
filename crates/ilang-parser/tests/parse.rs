@@ -265,3 +265,30 @@ fn run(x: X): i64 {
 ";
     parse_str(src);
 }
+
+#[test]
+fn parse_empty_slice_returns_err_not_panic() {
+    // Regression: parse(&[]) used to index past the end at the
+    // first peek() and panic. Public callers (LSP / tests / third-
+    // party integrations) must get a normal Err instead.
+    let err = parse(&[]).expect_err("parse(&[]) must return Err, not panic");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("EOF sentinel"),
+        "unexpected error message: {msg}"
+    );
+}
+
+#[test]
+fn parse_slice_without_eof_returns_err_not_panic() {
+    // Same guard but for a non-empty slice that's missing the
+    // trailing EOF — also a public-API hardening case.
+    let mut toks = tokenize("42").unwrap();
+    toks.pop(); // drop the EOF sentinel that tokenize() appended
+    let err = parse(&toks).expect_err("parse without EOF must return Err");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("EOF sentinel"),
+        "unexpected error message: {msg}"
+    );
+}

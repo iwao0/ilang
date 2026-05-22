@@ -24,6 +24,28 @@ fn empty_objc_registry() -> &'static HashSet<Symbol> {
     EMPTY.get_or_init(HashSet::new)
 }
 
+/// Reject a token slice that isn't terminated by `TokenKind::Eof`.
+/// `tokenize()` always appends the sentinel, but the public API can
+/// be called with arbitrary slices (LSP, tests, third-party
+/// integrations) — without this guard `Parser::peek()` would index
+/// past the end and panic on the first `peek` of an empty slice.
+fn require_eof_sentinel(tokens: &[Token]) -> Result<(), ParseError> {
+    let trailing_eof = tokens
+        .last()
+        .map(|t| matches!(t.kind, TokenKind::Eof))
+        .unwrap_or(false);
+    if trailing_eof {
+        return Ok(());
+    }
+    Err(ParseError::Generic {
+        msg: "token stream is missing the trailing EOF sentinel — \
+              call `ilang_lexer::tokenize` to produce a well-formed \
+              stream"
+            .to_string(),
+        span: ilang_ast::Span::dummy(),
+    })
+}
+
 pub fn parse(tokens: &[Token]) -> Result<Program, ParseError> {
     parse_with_objc_registry(tokens, empty_objc_registry())
 }
@@ -53,6 +75,7 @@ pub fn parse_with_implicit_modules(
     external_objc_classes: &HashSet<Symbol>,
     implicit_modules: &[Symbol],
 ) -> Result<Program, ParseError> {
+    require_eof_sentinel(tokens)?;
     let mut p = Parser {
         tokens,
         pos: 0,
@@ -66,6 +89,7 @@ pub fn parse_with_implicit_modules(
 /// Parse a single expression — used by tests that want to inspect expression
 /// trees directly without wrapping in a program.
 pub fn parse_expr_only(tokens: &[Token]) -> Result<Expr, ParseError> {
+    require_eof_sentinel(tokens)?;
     let mut p = Parser {
         tokens,
         pos: 0,

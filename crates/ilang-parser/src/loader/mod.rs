@@ -761,10 +761,38 @@ fn expand_embeds(prog: &mut Program, source_file: &Path) -> Result<(), LoadError
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."));
+    // Canonicalize once so per-embed escape checks only pay for the
+    // child canonicalize. Falls back to the literal dir when
+    // canonicalize fails (rare — happens when the source file's
+    // parent disappeared mid-build); the per-embed check below
+    // gracefully degrades by skipping the boundary check in that
+    // case, letting the read error surface normally.
+    let canonical_base = source_dir.canonicalize().ok();
     for item in prog.items.iter_mut() {
         let Item::Const(c) = item else { continue };
         let Some(rel) = c.embed_path.clone() else { continue };
         let path = source_dir.join(rel.as_str());
+        // Containment check: an `@embed("../../etc/passwd")` or an
+        // absolute path would otherwise let a built ilang program
+        // read arbitrary files from the compiling machine. The
+        // canonical form follows symlinks, so a symlink pointing
+        // outside the source tree is caught too.
+        if let (Some(base), Ok(canonical_path)) =
+            (&canonical_base, path.canonicalize())
+        {
+            if !canonical_path.starts_with(base) {
+                return Err(LoadError::BadConst {
+                    name: c.name.clone(),
+                    reason: format!(
+                        "@embed({:?}): path escapes the source file's directory ({}). \
+                         Embeds must resolve inside the source tree.",
+                        rel.as_str(),
+                        base.display(),
+                    ),
+                    span: c.value.span,
+                });
+            }
+        }
         let bytes = std::fs::read(&path).map_err(|e| LoadError::ReadError {
             path: path.clone(),
             message: format!("@embed({:?}): {e}", rel.as_str()),
