@@ -105,6 +105,14 @@ The extension looks for the `ilang-lsp` binary in this order:
   classes (with fields / methods / properties / static members),
   interfaces, enums (with variants), consts, and `@extern(C)`
   items
+- **CodeLens** — inline action lines above top-level decls:
+  "N references" on every fn / class / interface / enum / class
+  method, and "N implementations" on every class / interface.
+  Lenses are returned with empty commands; the count is filled in
+  lazily via `codeLens/resolve` so only visible lenses pay the
+  workspace-scan cost. References lens clicks open the "Peek
+  References" window pre-populated; implementations lens clicks
+  open the implementation peek
 - **Folding range** — collapse top-level decls (fn / class /
   interface / enum / struct / union / `@extern(C)` block) plus
   any multi-line `{ ... }` block in the source. Multi-line `use

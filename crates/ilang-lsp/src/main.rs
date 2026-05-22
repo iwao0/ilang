@@ -3,6 +3,7 @@ mod backend;
 mod builtins;
 mod call_hierarchy;
 mod code_actions;
+mod code_lens;
 mod completion;
 mod diag;
 mod external;

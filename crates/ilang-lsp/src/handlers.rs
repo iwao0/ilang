@@ -150,6 +150,9 @@ impl LanguageServer for Backend {
                     CallHierarchyServerCapability::Simple(true),
                 ),
                 inlay_hint_provider: Some(OneOf::Left(true)),
+                code_lens_provider: Some(CodeLensOptions {
+                    resolve_provider: Some(true),
+                }),
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(
                     true,
                 )),
@@ -1973,6 +1976,84 @@ impl LanguageServer for Backend {
         if calls.is_empty() { Ok(None) } else { Ok(Some(calls)) }
     }
 
+    async fn code_lens(
+        &self,
+        p: CodeLensParams,
+    ) -> LspResult<Option<Vec<CodeLens>>> {
+        let uri = p.text_document.uri;
+        let docs = self.docs.lock().unwrap();
+        let Some(doc) = docs.get(&uri) else { return Ok(None) };
+        let lenses = code_lens::build(&uri, &doc.text);
+        if lenses.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(lenses))
+        }
+    }
+
+    async fn code_lens_resolve(&self, mut lens: CodeLens) -> LspResult<CodeLens> {
+        let Some(data) = lens.data.as_ref().and_then(code_lens::decode_data)
+        else {
+            return Ok(lens);
+        };
+        match data {
+            code_lens::LensData::References {
+                uri,
+                name: _,
+                decl_line,
+                decl_col,
+                decl_name_len,
+            } => {
+                let snapshot = self.docs.lock().unwrap().clone();
+                // Collect actual reference locations so the `Peek
+                // References` window opens populated when the user
+                // clicks the lens.
+                let locations = collect_reference_locations(
+                    &uri,
+                    ilang_ast::Span::new(decl_line, decl_col),
+                    decl_name_len,
+                    &snapshot,
+                );
+                let pos = Position {
+                    line:      decl_line.saturating_sub(1),
+                    character: decl_col.saturating_sub(1),
+                };
+                lens.command = Some(code_lens::references_command(&uri, pos, locations));
+            }
+            code_lens::LensData::Implementations {
+                uri,
+                name,
+                is_interface,
+                decl_line,
+                decl_col,
+                decl_name_len: _,
+            } => {
+                let target = if is_interface {
+                    implementation::Target::Interface { name: name.clone() }
+                } else {
+                    implementation::Target::Class { name: name.clone() }
+                };
+                let snapshot = self.docs.lock().unwrap().clone();
+                let anchor = match uri.to_file_path() {
+                    Ok(p) => p,
+                    Err(_) => return Ok(lens),
+                };
+                let iface_class = if is_interface { Some(name.as_str()) } else { None };
+                let locs = implementation::collect(&target, &anchor, &snapshot, iface_class);
+                let pos = Position {
+                    line:      decl_line.saturating_sub(1),
+                    character: decl_col.saturating_sub(1),
+                };
+                lens.command = Some(code_lens::implementations_command(
+                    &uri,
+                    pos,
+                    locs.len(),
+                ));
+            }
+        }
+        Ok(lens)
+    }
+
     async fn folding_range(
         &self,
         p: FoldingRangeParams,
@@ -2366,6 +2447,75 @@ fn class_symbol(text: &str, c: &ClassDecl) -> DocumentSymbol {
         sel,
         if children.is_empty() { None } else { Some(children) },
     )
+}
+
+/// Collect every workspace `Location` whose RefEntry targets the
+/// decl identified by (`target_uri`, `target_span`, `name_len`).
+/// Mirrors the inline logic in the references handler so the
+/// CodeLens resolve path can populate "Peek References" without
+/// going through `textDocument/references` round-tripping.
+fn collect_reference_locations(
+    target_uri: &Url,
+    target_span: ilang_ast::Span,
+    name_len: u32,
+    snapshot: &HashMap<Url, crate::types::Doc>,
+) -> Vec<Location> {
+    let mut out: Vec<Location> = Vec::new();
+    let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let push = |out: &mut Vec<Location>,
+                doc_uri: &Url,
+                doc: &crate::types::Doc,
+                is_owner: bool| {
+        for r in doc.refs.iter() {
+            if r.signature.starts_with("this:") { continue; }
+            if r.target_span != target_span || r.target_name_len != name_len { continue; }
+            let matches = if is_owner {
+                r.target_uri.is_none()
+            } else {
+                r.target_uri.as_ref() == Some(target_uri)
+            };
+            if !matches { continue; }
+            out.push(Location {
+                uri: doc_uri.clone(),
+                range: Range {
+                    start: Position {
+                        line: r.line.saturating_sub(1),
+                        character: r.start_col.saturating_sub(1),
+                    },
+                    end: Position {
+                        line: r.line.saturating_sub(1),
+                        character: r.end_col.saturating_sub(1),
+                    },
+                },
+            });
+        }
+    };
+    for (doc_uri, doc) in snapshot.iter() {
+        if let Ok(p) = doc_uri.to_file_path() {
+            if let Ok(c) = p.canonicalize() {
+                seen.insert(c);
+            }
+        }
+        let is_owner = doc_uri == target_uri;
+        push(&mut out, doc_uri, doc, is_owner);
+    }
+    if let Ok(anchor) = target_uri.to_file_path() {
+        for path in collect_workspace_il_files(&anchor) {
+            if let Ok(c) = path.canonicalize() {
+                if seen.contains(&c) { continue; }
+            }
+            let Some(doc) = analyse_path_to_doc(&path) else { continue };
+            let Ok(uri) = Url::from_file_path(&path) else { continue };
+            let is_owner = uri == *target_uri;
+            push(&mut out, &uri, &doc, is_owner);
+        }
+    }
+    out.sort_by(|a, b| {
+        (a.uri.as_str(), a.range.start.line, a.range.start.character)
+            .cmp(&(b.uri.as_str(), b.range.start.line, b.range.start.character))
+    });
+    out.dedup_by(|a, b| a.uri == b.uri && a.range == b.range);
+    out
 }
 
 /// Read the source word sitting between the 1-based `start_col`

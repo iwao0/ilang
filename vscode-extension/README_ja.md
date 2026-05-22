@@ -105,6 +105,14 @@ language server も自動で起動する。
   fn / class (フィールド・メソッド・プロパティ・static を
   ぶら下げる) / interface / enum (variant をぶら下げる) /
   const / `@extern(C)` の項目を階層化して返す
+- **コードレンズ (CodeLens)**: トップレベル宣言の上にインラインの
+  アクション行を表示する。fn / class / interface / enum /
+  クラスメソッドには「N references」、class / interface には
+  「N implementations」。空コマンドのレンズだけ返し、件数は
+  `codeLens/resolve` で遅延計算するので、可視範囲のレンズだけが
+  ワークスペーススキャンのコストを払う。References レンズの
+  クリックで参照リストを開き、Implementations レンズのクリックで
+  実装ジャンプを開く
 - **折り畳み範囲 (Folding Range)**: トップレベル宣言 (fn / class /
   interface / enum / struct / union / `@extern(C)` ブロック) と
   ソース内の複数行 `{ ... }` ブロックを fold 可能にする。複数行
