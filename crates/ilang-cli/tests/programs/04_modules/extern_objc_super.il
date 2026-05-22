@@ -23,7 +23,7 @@ use test
         // (which routes through `objc_msgSendSuper`) and adds 1
         // — so the observable return is (super_hash + 1).
         @objc("hash")
-        hash(): i64 {
+        override hash(): i64 {
             super.hash() + 1
         }
     }

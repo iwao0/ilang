@@ -146,6 +146,7 @@ impl<'a> Parser<'a> {
                         selector,
                         item_is_pub,
                         /*is_static*/ false,
+                        /*is_override*/ false,
                         /*require_fn_kw*/ true,
                         /*extra_attrs*/ Vec::new(),
                         /*accessor*/ None,
@@ -179,6 +180,7 @@ impl<'a> Parser<'a> {
         selector: String,
         is_pub: bool,
         is_static: bool,
+        is_override: bool,
         require_fn_kw: bool,
         extra_attrs: Vec<Attribute>,
         accessor: Option<AccessorKind>,
@@ -262,6 +264,7 @@ impl<'a> Parser<'a> {
             span,
             is_pub,
             is_static,
+            is_override,
             extra_attrs,
             accessor,
         })
@@ -308,6 +311,14 @@ impl<'a> Parser<'a> {
             // Optional `static` modifier before the method name.
             let is_static = matches!(&self.peek().kind, TokenKind::Ident(n) if n.as_str() == "static");
             if is_static {
+                self.bump();
+            }
+            // Optional `override` keyword — matches the plain ilang
+            // class grammar. Required by the type checker when this
+            // method shadows an inherited slot from the parent
+            // @objc class (NSObject's `hash`, `isEqual:`, etc.).
+            let is_override = matches!(self.peek().kind, TokenKind::Override);
+            if is_override {
                 self.bump();
             }
             // Optional `get` / `set` accessor marker. Only valid
@@ -392,6 +403,7 @@ impl<'a> Parser<'a> {
                     selector,
                     method_is_pub,
                     is_static,
+                    is_override,
                     /*require_fn_kw*/ false,
                     extra,
                     accessor,
@@ -415,6 +427,7 @@ impl<'a> Parser<'a> {
                     String::new(),
                     method_is_pub,
                     is_static,
+                    is_override,
                     /*require_fn_kw*/ false,
                     extra,
                     /*accessor*/ None,
@@ -504,6 +517,13 @@ struct ObjcMethod {
     span: Span,
     is_pub: bool,
     is_static: bool,
+    /// `true` when the user wrote `override` before the method
+    /// name. Required by the type checker for any method whose
+    /// name matches an inherited slot from the parent @objc
+    /// class — without it, the "hides parent method" check
+    /// fires. The bare keyword sits between `pub` (or `static`)
+    /// and the method name, matching plain ilang class syntax.
+    is_override: bool,
     /// User-supplied attributes other than `@objc(...)` —
     /// currently just `@deprecated("reason")` for ObjC-side
     /// soft-removal markers. Propagated onto the synthesised
@@ -1573,7 +1593,12 @@ fn build_class_method(
         ret: m.ret.clone(),
         body: Block { stmts, tail },
         span: m.span,
-        is_override: false,
+        // Propagate the user-written `override` so the type
+        // checker accepts a subclass shadowing an inherited slot
+        // (the IMP installed by `register()` is exactly the
+        // override mechanism — `class_addMethod` swaps the
+        // selector's implementation at registration time).
+        is_override: m.is_override,
         is_async: false,
     };
     (alias_decl, method_fn)
@@ -3143,6 +3168,7 @@ pub(crate) fn lift_class_to_objc_block(
             span: m.span,
             is_pub: m.is_pub,
             is_static: false,
+            is_override: m.is_override,
             extra_attrs,
             accessor: None,
         });
@@ -3186,6 +3212,7 @@ pub(crate) fn lift_class_to_objc_block(
             span: m.span,
             is_pub: m.is_pub,
             is_static: true,
+            is_override: m.is_override,
             extra_attrs,
             accessor: None,
         });
@@ -3205,6 +3232,7 @@ pub(crate) fn lift_class_to_objc_block(
             span,
             is_pub: true,
             is_static: true,
+            is_override: false,
             extra_attrs: Vec::new(),
             accessor: None,
         });
@@ -3219,6 +3247,7 @@ pub(crate) fn lift_class_to_objc_block(
             span,
             is_pub: true,
             is_static: false,
+            is_override: false,
             extra_attrs: Vec::new(),
             accessor: None,
         });

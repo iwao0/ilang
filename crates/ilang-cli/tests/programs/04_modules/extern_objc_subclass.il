@@ -15,7 +15,7 @@ use test
 
     @objc class MyDispatchTarget : NSObject {
         @objc("alloc") static alloc(): MyDispatchTarget
-        @objc("hash") hash(): i64
+        @objc("hash") override hash(): i64
 
         // Body present: this is a subclass override. The parser
         // generates an IMP (`ilang_objc_imp__MyDispatchTarget__answer`)
