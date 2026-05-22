@@ -136,6 +136,7 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
                 completion_provider: Some(CompletionOptions {
                     // `:` triggers type-position completion
                     // (`let x: …`, `fn f(p: …)`, `class C : …`).
@@ -955,6 +956,152 @@ impl LanguageServer for Backend {
             range,
             new_text: formatted,
         }]))
+    }
+
+    async fn references(
+        &self,
+        p: ReferenceParams,
+    ) -> LspResult<Option<Vec<Location>>> {
+        let uri = p.text_document_position.text_document.uri;
+        let pos = p.text_document_position.position;
+        let include_decl = p.context.include_declaration;
+        let docs = self.docs.lock().unwrap();
+        let Some(doc) = docs.get(&uri) else {
+            return Ok(None);
+        };
+        // Resolve the cursor to the same (decl_uri, decl_span,
+        // name_len, decl_name_span) tuple `rename` uses; the only
+        // difference is we collect `Location`s instead of
+        // `TextEdit`s.
+        let (target_uri, target, decl_name_span) = if let Some(entry) = lookup_ref(doc, pos)
+        {
+            if entry.signature.starts_with("this:") {
+                return Ok(None);
+            }
+            let owner = entry.target_uri.clone().unwrap_or_else(|| uri.clone());
+            (
+                owner,
+                (entry.target_span, entry.target_name_len),
+                entry.target_span,
+            )
+        } else if let Some((word, _)) = word_at(&doc.text, pos) {
+            if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&word)) {
+                let name_span = ["fn", "class", "enum", "const"]
+                    .iter()
+                    .find_map(|kw| {
+                        text::locate_let_name_with_kw(
+                            &doc.text, sym.span, kw, &sym.name,
+                        )
+                    })
+                    .unwrap_or(sym.span);
+                (
+                    uri.clone(),
+                    (sym.span, sym.name.as_str().len() as u32),
+                    name_span,
+                )
+            } else {
+                return Ok(None);
+            }
+        } else {
+            return Ok(None);
+        };
+
+        let mut locations: Vec<Location> = Vec::new();
+        let opened_paths: std::collections::HashSet<PathBuf> = docs
+            .keys()
+            .filter_map(|u| u.to_file_path().ok())
+            .filter_map(|p| p.canonicalize().ok())
+            .collect();
+        let push_ref_locs = |out: &mut Vec<Location>,
+                             d_uri: &Url,
+                             d: &crate::types::Doc,
+                             is_owner: bool| {
+            for r in d.refs.iter() {
+                if r.signature.starts_with("this:") { continue; }
+                if r.target_span != target.0 || r.target_name_len != target.1 { continue; }
+                let matches = if is_owner {
+                    r.target_uri.is_none()
+                } else {
+                    r.target_uri.as_ref() == Some(&target_uri)
+                };
+                if !matches { continue; }
+                out.push(Location {
+                    uri: d_uri.clone(),
+                    range: Range {
+                        start: Position {
+                            line: r.line.saturating_sub(1),
+                            character: r.start_col.saturating_sub(1),
+                        },
+                        end: Position {
+                            line: r.line.saturating_sub(1),
+                            character: r.end_col.saturating_sub(1),
+                        },
+                    },
+                });
+            }
+        };
+        for (doc_uri, d) in docs.iter() {
+            let is_owner = doc_uri == &target_uri;
+            push_ref_locs(&mut locations, doc_uri, d, is_owner);
+            if is_owner && include_decl {
+                locations.push(Location {
+                    uri: doc_uri.clone(),
+                    range: Range {
+                        start: Position {
+                            line: decl_name_span.line.saturating_sub(1),
+                            character: decl_name_span.col.saturating_sub(1),
+                        },
+                        end: Position {
+                            line: decl_name_span.line.saturating_sub(1),
+                            character: decl_name_span
+                                .col
+                                .saturating_sub(1)
+                                .saturating_add(target.1),
+                        },
+                    },
+                });
+            }
+        }
+        if let Ok(anchor_path) = target_uri.to_file_path() {
+            for path in collect_workspace_il_files(&anchor_path) {
+                if opened_paths.contains(&path) { continue; }
+                let Some(d) = analyse_path_to_doc(&path) else { continue };
+                let path_uri = match Url::from_file_path(&path) {
+                    Ok(u) => u,
+                    Err(_) => continue,
+                };
+                let is_owner = path_uri == target_uri;
+                push_ref_locs(&mut locations, &path_uri, &d, is_owner);
+                if is_owner && include_decl {
+                    locations.push(Location {
+                        uri: path_uri,
+                        range: Range {
+                            start: Position {
+                                line: decl_name_span.line.saturating_sub(1),
+                                character: decl_name_span.col.saturating_sub(1),
+                            },
+                            end: Position {
+                                line: decl_name_span.line.saturating_sub(1),
+                                character: decl_name_span
+                                    .col
+                                    .saturating_sub(1)
+                                    .saturating_add(target.1),
+                            },
+                        },
+                    });
+                }
+            }
+        }
+        // Stable, de-duplicated output.
+        locations.sort_by(|a, b| {
+            (a.uri.as_str(), a.range.start.line, a.range.start.character)
+                .cmp(&(b.uri.as_str(), b.range.start.line, b.range.start.character))
+        });
+        locations.dedup_by(|a, b| a.uri == b.uri && a.range == b.range);
+        if locations.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(locations))
     }
 
     async fn rename(
