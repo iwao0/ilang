@@ -99,6 +99,19 @@ let PROGRESS_MAX:   f64[]                                                   = []
 let COMBO_HWNDS:    HWND[]                                                  = []
 let ON_COMBO:       fn(i32)[]                                               = []
 
+// Radio buttons (BUTTON class with BS_AUTORADIOBUTTON).
+let RADIO_HWNDS:    HWND[]                                                  = []
+let ON_RADIO:       fn(bool)[]                                              = []
+
+// List boxes (LISTBOX class). LBN_SELCHANGE = 1 routes through
+// WM_COMMAND just like combos.
+let LIST_HWNDS:     HWND[]                                                  = []
+let ON_LIST:        fn(i32)[]                                               = []
+
+// Group boxes (BUTTON class with BS_GROUPBOX) — purely visual,
+// no event surface.
+let GROUPBOX_HWNDS: HWND[]                                                  = []
+
 // True once enableComctl32V6() has run — we only need to install
 // the side-by-side activation context for comctl32 6.0 once per
 // process, regardless of how many windows / buttons get created.
@@ -336,7 +349,7 @@ fn vkToString(vk: u32): string {
                     let notify = ((wParam >> 16) & 0xFFFF) as i32
                     if notify == 0 {
                         // BN_CLICKED — try buttons first, then
-                        // checkboxes (which are also BUTTON class).
+                        // checkboxes and radios (also BUTTON class).
                         let n = BUTTON_HWNDS.length as i64
                         let i: i64 = 0
                         while i < n {
@@ -357,6 +370,16 @@ fn vkToString(vk: u32): string {
                             }
                             j = j + 1
                         }
+                        let p = RADIO_HWNDS.length as i64
+                        let k: i64 = 0
+                        while k < p {
+                            if RADIO_HWNDS[k] as i64 == ctrlHwnd {
+                                let cb = ON_RADIO[k]
+                                cb(readRadioChecked(k))
+                                return 0
+                            }
+                            k = k + 1
+                        }
                     } elif notify == 0x0300 {
                         // EN_CHANGE — text edited by the user. Read
                         // the fresh contents back and surface them.
@@ -371,7 +394,10 @@ fn vkToString(vk: u32): string {
                             i = i + 1
                         }
                     } elif notify == 1 {
-                        // CBN_SELCHANGE — user picked a combo item.
+                        // CBN_SELCHANGE / LBN_SELCHANGE — user
+                        // picked a combo item OR a list-box row;
+                        // they share the same notify code, so the
+                        // sender's HWND distinguishes them.
                         let n = COMBO_HWNDS.length as i64
                         let i: i64 = 0
                         while i < n {
@@ -381,6 +407,16 @@ fn vkToString(vk: u32): string {
                                 return 0
                             }
                             i = i + 1
+                        }
+                        let m = LIST_HWNDS.length as i64
+                        let j: i64 = 0
+                        while j < m {
+                            if LIST_HWNDS[j] as i64 == ctrlHwnd {
+                                let cb = ON_LIST[j]
+                                cb(readListSelectedIndex(j))
+                                return 0
+                            }
+                            j = j + 1
                         }
                     }
                     return 0
@@ -1280,6 +1316,260 @@ pub fn setComboVisible(handle: i64, visible: bool) {
     if handle >= 0 && handle < (COMBO_HWNDS.length as i64) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(COMBO_HWNDS[handle], cmd)
+    }
+}
+
+// ─── radio buttons (BUTTON + BS_AUTORADIOBUTTON) ─────────────
+//
+// Mutual exclusion is handled in gui-core (the per-Window
+// `_unselectSiblings` walk) rather than by trying to coordinate
+// the Win32 WS_GROUP bits across separately-created radios.
+
+pub fn createNativeRadio(
+    windowHandle: i64,
+    text: string, checked: bool,
+    x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (HWNDS.length as i64) {
+        return -1
+    }
+    let parent = HWNDS[windowHandle]
+    let id: i64 = RADIO_HWNDS.length as i64
+    let classW = toWideUtf8("BUTTON") as *u16
+    let textW  = toWideUtf8(text) as *u16
+    let visibleBits: u32 = if visible {
+        WindowStyle.visible as u32
+    } else {
+        0 as u32
+    }
+    // BS_AUTORADIOBUTTON = 0x0009 — flips the radio on click and
+    // posts BN_CLICKED.
+    let style: u32 = (WindowStyle.child as u32) | visibleBits | (0x0009 as u32)
+    let hInstance = GetModuleHandleA(0 as *const char)
+    let hwnd = CreateWindowExW(
+        0,
+        classW,
+        textW,
+        style,
+        x as i32, y as i32, width as i32, height as i32,
+        parent,
+        0 as HMENU,
+        hInstance as HINSTANCE,
+        0 as *void
+    )
+    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
+    HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
+    let enabledFlag: i32 = if enabled { 1 } else { 0 }
+    EnableWindow(hwnd, enabledFlag)
+    if EXPLORER_THEME[0] != 0 as i64 {
+        let _ = SetWindowTheme(
+            hwnd as i64,
+            EXPLORER_THEME[0] as *const u16,
+            0 as *const u16
+        )
+    }
+    let checkedW: u64 = if checked { 1 as u64 } else { 0 as u64 }
+    let _ = SendMessageA(hwnd, 0x00F1 as u32, checkedW, 0 as i64)
+    RADIO_HWNDS.push(hwnd)
+    ON_RADIO.push(noOpBool)
+    id
+}
+
+pub fn setOnRadioToggle(handle: i64, cb: fn(bool)) {
+    if handle >= 0 && handle < (ON_RADIO.length as i64) {
+        ON_RADIO[handle] = cb
+    }
+}
+pub fn setRadioText(handle: i64, text: string) {
+    if handle >= 0 && handle < (RADIO_HWNDS.length as i64) {
+        let w = toWideUtf8(text) as *u16
+        let _ = SetWindowTextW(RADIO_HWNDS[handle], w)
+        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+    }
+}
+pub fn setRadioChecked(handle: i64, checked: bool) {
+    if handle >= 0 && handle < (RADIO_HWNDS.length as i64) {
+        let v: u64 = if checked { 1 as u64 } else { 0 as u64 }
+        let _ = SendMessageA(RADIO_HWNDS[handle], 0x00F1 as u32, v, 0 as i64)
+    }
+}
+pub fn readRadioChecked(handle: i64): bool {
+    if handle < 0 || handle >= (RADIO_HWNDS.length as i64) { return false }
+    let r = SendMessageA(RADIO_HWNDS[handle], 0x00F0 as u32, 0 as u64, 0 as i64)
+    r == 1 as i64
+}
+pub fn setRadioFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (RADIO_HWNDS.length as i64) {
+        MoveWindow(RADIO_HWNDS[handle],
+                   x as i32, y as i32, width as i32, height as i32, 1)
+    }
+}
+pub fn setRadioEnabled(handle: i64, enabled: bool) {
+    if handle >= 0 && handle < (RADIO_HWNDS.length as i64) {
+        let flag: i32 = if enabled { 1 } else { 0 }
+        EnableWindow(RADIO_HWNDS[handle], flag)
+    }
+}
+pub fn setRadioVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (RADIO_HWNDS.length as i64) {
+        let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
+        ShowWindow(RADIO_HWNDS[handle], cmd)
+    }
+}
+
+// ─── list boxes (LISTBOX) ────────────────────────────────────
+//
+// LB_ADDSTRING = 0x0180, LB_RESETCONTENT = 0x0184,
+// LB_GETCURSEL = 0x0188, LB_SETCURSEL = 0x0186. LBN_SELCHANGE
+// is notify code 1 — same value as CBN_SELCHANGE, distinguished
+// by the sender HWND in our WM_COMMAND dispatcher above.
+
+pub fn createNativeList(
+    windowHandle: i64,
+    x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (HWNDS.length as i64) {
+        return -1
+    }
+    let parent = HWNDS[windowHandle]
+    let id: i64 = LIST_HWNDS.length as i64
+    let classW = toWideUtf8("LISTBOX") as *u16
+    let emptyW = toWideUtf8("") as *u16
+    let visibleBits: u32 = if visible { WindowStyle.visible as u32 } else { 0 as u32 }
+    // LBS_NOTIFY = 0x0001 — required for the LBN_SELCHANGE
+    // notifications, otherwise the list-box swallows clicks.
+    let style: u32 = (WindowStyle.child as u32) | visibleBits
+                   | (WindowStyle.border as u32)
+                   | (WindowStyle.vScroll as u32)
+                   | (0x0001 as u32)
+    let hInstance = GetModuleHandleA(0 as *const char)
+    let hwnd = CreateWindowExW(
+        0,
+        classW,
+        emptyW,
+        style,
+        x as i32, y as i32, width as i32, height as i32,
+        parent,
+        0 as HMENU,
+        hInstance as HINSTANCE,
+        0 as *void
+    )
+    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
+    HeapFree(GetProcessHeap(), 0 as u32, emptyW as *void)
+    let enabledFlag: i32 = if enabled { 1 } else { 0 }
+    EnableWindow(hwnd, enabledFlag)
+    LIST_HWNDS.push(hwnd)
+    ON_LIST.push(noOpI32)
+    id
+}
+
+pub fn setOnListSelect(handle: i64, cb: fn(i32)) {
+    if handle >= 0 && handle < (ON_LIST.length as i64) {
+        ON_LIST[handle] = cb
+    }
+}
+pub fn addListItem(handle: i64, item: string) {
+    if handle >= 0 && handle < (LIST_HWNDS.length as i64) {
+        let w = toWideUtf8(item) as *u16
+        let _ = SendMessageW(LIST_HWNDS[handle], 0x0180 as u32,
+                             0 as u64, w as i64)
+        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+    }
+}
+pub fn clearListItems(handle: i64) {
+    if handle >= 0 && handle < (LIST_HWNDS.length as i64) {
+        let _ = SendMessageA(LIST_HWNDS[handle], 0x0184 as u32,
+                             0 as u64, 0 as i64)
+    }
+}
+pub fn setListSelectedIndex(handle: i64, index: i32) {
+    if handle >= 0 && handle < (LIST_HWNDS.length as i64) {
+        let _ = SendMessageA(LIST_HWNDS[handle], 0x0186 as u32,
+                             index as i64 as u64, 0 as i64)
+    }
+}
+pub fn readListSelectedIndex(handle: i64): i32 {
+    if handle < 0 || handle >= (LIST_HWNDS.length as i64) { return -1 as i32 }
+    let r = SendMessageA(LIST_HWNDS[handle], 0x0188 as u32, 0 as u64, 0 as i64)
+    r as i32
+}
+pub fn setListFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (LIST_HWNDS.length as i64) {
+        MoveWindow(LIST_HWNDS[handle],
+                   x as i32, y as i32, width as i32, height as i32, 1)
+    }
+}
+pub fn setListEnabled(handle: i64, enabled: bool) {
+    if handle >= 0 && handle < (LIST_HWNDS.length as i64) {
+        let flag: i32 = if enabled { 1 } else { 0 }
+        EnableWindow(LIST_HWNDS[handle], flag)
+    }
+}
+pub fn setListVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (LIST_HWNDS.length as i64) {
+        let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
+        ShowWindow(LIST_HWNDS[handle], cmd)
+    }
+}
+
+// ─── group boxes (BUTTON + BS_GROUPBOX) ──────────────────────
+
+pub fn createNativeGroupBox(
+    windowHandle: i64,
+    text: string, x: f64, y: f64, width: f64, height: f64,
+    visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (HWNDS.length as i64) {
+        return -1
+    }
+    let parent = HWNDS[windowHandle]
+    let id: i64 = GROUPBOX_HWNDS.length as i64
+    let classW = toWideUtf8("BUTTON") as *u16
+    let textW  = toWideUtf8(text) as *u16
+    let visibleBits: u32 = if visible {
+        WindowStyle.visible as u32
+    } else {
+        0 as u32
+    }
+    // BS_GROUPBOX = 0x0007 — labelled frame, ignores clicks.
+    let style: u32 = (WindowStyle.child as u32) | visibleBits | (0x0007 as u32)
+    let hInstance = GetModuleHandleA(0 as *const char)
+    let hwnd = CreateWindowExW(
+        0,
+        classW,
+        textW,
+        style,
+        x as i32, y as i32, width as i32, height as i32,
+        parent,
+        0 as HMENU,
+        hInstance as HINSTANCE,
+        0 as *void
+    )
+    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
+    HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
+    GROUPBOX_HWNDS.push(hwnd)
+    id
+}
+
+pub fn setGroupBoxText(handle: i64, text: string) {
+    if handle >= 0 && handle < (GROUPBOX_HWNDS.length as i64) {
+        let w = toWideUtf8(text) as *u16
+        let _ = SetWindowTextW(GROUPBOX_HWNDS[handle], w)
+        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+    }
+}
+pub fn setGroupBoxFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (GROUPBOX_HWNDS.length as i64) {
+        MoveWindow(GROUPBOX_HWNDS[handle],
+                   x as i32, y as i32, width as i32, height as i32, 1)
+    }
+}
+pub fn setGroupBoxVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (GROUPBOX_HWNDS.length as i64) {
+        let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
+        ShowWindow(GROUPBOX_HWNDS[handle], cmd)
     }
 }
 

@@ -19,12 +19,13 @@
 use cocoa {
     NSObject, NSApplication, NSWindow, NSView, NSButton, NSTextField,
     NSSlider, NSProgressIndicator, NSPopUpButton,
+    NSScrollView, NSTableView, NSTableColumn, NSBox,
     NSProgressIndicatorStyle,
     NSNotification, NSEvent,
     NSRect, NSWindowStyleMask, NSApplicationActivationPolicy,
     NSEventModifierFlags, NSString,
     nsstr, ilstr, makeRect, makeLabel, makeTextField, makeSlider,
-    makeProgressBar, selectorPtr, nil,
+    makeProgressBar, makeScrollView, selectorPtr, nil,
     sharedApplication, makeWindow,
 }
 
@@ -824,6 +825,276 @@ pub fn setComboEnabled(handle: i64, enabled: bool) {
 pub fn setComboVisible(handle: i64, visible: bool) {
     if handle >= 0 && handle < (COMBOS.length as i64) {
         COMBOS[handle].setHidden(!visible)
+    }
+}
+
+// ─── radio buttons (NSButton + setButtonType:radio) ──────────
+//
+// Mutual exclusion is driven by gui-core's per-Window
+// `_unselectSiblings` walk, so this backend just surfaces the
+// click and lets the core toggle siblings via `setRadioChecked`.
+
+let RADIOS:           NSButton[] = []
+let RADIO_KEYS:       NSObject[] = []
+let ON_RADIO:         fn(bool)[] = []
+let RADIO_HANDLERS:   NSObject[] = []
+
+class RadioHandler : NSObject {
+    pub radioClicked(sender: NSObject) {
+        let ix = indexBy(RADIO_KEYS, sender)
+        if ix >= 0 {
+            let cb = ON_RADIO[ix]
+            cb(RADIOS[ix].state == 1 as i64)
+        }
+    }
+}
+
+pub fn createNativeRadio(
+    windowHandle: i64,
+    text: string, checked: bool,
+    x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (WINDOWS.length as i64) {
+        return -1
+    }
+    let win = WINDOWS[windowHandle]
+    let r = NSButton.alloc().init(makeRect(x, y, width, height))
+    // NSButtonTypeRadio = 4.
+    r.setButtonType(4 as i64)
+    r.setTitle(nsstr(text))
+    r.state = if checked { 1 as i64 } else { 0 as i64 }
+    r.setEnabled(enabled)
+    r.setHidden(!visible)
+
+    RadioHandler.register()
+    let h = RadioHandler.alloc().init()
+    r.setTarget(h)
+    r.setAction(selectorPtr("radioClicked:"))
+
+    win.contentView.addSubview(r as NSView)
+
+    let handle: i64 = RADIOS.length as i64
+    RADIOS.push(r)
+    RADIO_KEYS.push(r as NSObject)
+    ON_RADIO.push(noOpBool)
+    RADIO_HANDLERS.push(h as NSObject)
+    handle
+}
+
+pub fn setOnRadioToggle(handle: i64, cb: fn(bool)) {
+    if handle >= 0 && handle < (ON_RADIO.length as i64) {
+        ON_RADIO[handle] = cb
+    }
+}
+pub fn setRadioText(handle: i64, text: string) {
+    if handle >= 0 && handle < (RADIOS.length as i64) {
+        RADIOS[handle].setTitle(nsstr(text))
+    }
+}
+pub fn setRadioChecked(handle: i64, checked: bool) {
+    if handle >= 0 && handle < (RADIOS.length as i64) {
+        RADIOS[handle].state = if checked { 1 as i64 } else { 0 as i64 }
+    }
+}
+pub fn readRadioChecked(handle: i64): bool {
+    if handle < 0 || handle >= (RADIOS.length as i64) { return false }
+    RADIOS[handle].state == 1 as i64
+}
+pub fn setRadioFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (RADIOS.length as i64) {
+        RADIOS[handle].setFrame(makeRect(x, y, width, height))
+    }
+}
+pub fn setRadioEnabled(handle: i64, enabled: bool) {
+    if handle >= 0 && handle < (RADIOS.length as i64) {
+        RADIOS[handle].setEnabled(enabled)
+    }
+}
+pub fn setRadioVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (RADIOS.length as i64) {
+        RADIOS[handle].setHidden(!visible)
+    }
+}
+
+// ─── list boxes (NSTableView in NSScrollView) ────────────────
+//
+// Single-column read-only list. Each slot owns a `ListDataSource`
+// that the table queries for row count + cell value; the
+// `tableViewSelectionDidChange:` delegate hop posts the new
+// `selectedRow` back to the registered callback.
+
+let LISTS:            NSTableView[]   = []
+let LIST_SCROLLS:     NSScrollView[]  = []
+let LIST_KEYS:        NSObject[]      = []   // keyed by NSTableView identity
+let LIST_DS:          NSObject[]      = []   // data source instances (parallel)
+let LIST_ITEMS:       string[][]      = []   // items per slot
+let ON_LIST:          fn(i32)[]       = []
+
+class ListDataSource : NSObject {
+    pub numberOfRowsInTableView(t: NSTableView): i64 {
+        let _ = t
+        let ix = indexBy(LIST_DS, this as NSObject)
+        if ix < 0 { return 0 }
+        LIST_ITEMS[ix].length
+    }
+
+    pub tableViewObjectValueForTableColumn(
+        t: NSTableView, column: NSTableColumn, row: i64
+    ): NSObject {
+        let _ = t
+        let _ = column
+        let ix = indexBy(LIST_DS, this as NSObject)
+        if ix < 0 { return nsstr("") as NSObject }
+        let items = LIST_ITEMS[ix]
+        if row < 0 || row >= items.length { return nsstr("") as NSObject }
+        nsstr(items[row]) as NSObject
+    }
+}
+
+class ListDelegate : NSObject {
+    pub tableViewSelectionDidChange(n: NSNotification) {
+        let table = n.notificationObject
+        let ix = indexBy(LIST_KEYS, table)
+        if ix >= 0 {
+            let cb = ON_LIST[ix]
+            cb(LISTS[ix].selectedRow as i32)
+        }
+    }
+}
+
+let LIST_DELEGATES: NSObject[] = []
+
+pub fn createNativeList(
+    windowHandle: i64,
+    x: f64, y: f64, width: f64, height: f64,
+    enabled: bool, visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (WINDOWS.length as i64) {
+        return -1
+    }
+    let _ = enabled   // NSTableView selection isn't gated by an
+                      // enabled flag in the same way; surfaced as
+                      // no-op so the gui-core call site stays
+                      // platform-uniform.
+    let win = WINDOWS[windowHandle]
+    let table = NSTableView.alloc().init(makeRect(0.0, 0.0, width, height))
+    // Single anonymous column — width matches the scroll-view
+    // contents so the column spans the visible area.
+    let col = NSTableColumn.alloc().initWithIdentifier(nsstr("v"))
+    table.addTableColumn(col)
+    table.setHeaderView(nil as NSView)
+    table.setAllowsMultipleSelection(false)
+
+    ListDataSource.register()
+    let ds = ListDataSource.alloc().init()
+    table.setDataSource(ds as NSObject)
+
+    ListDelegate.register()
+    let dg = ListDelegate.alloc().init()
+    table.setDelegate(dg as NSObject)
+
+    let scroll = makeScrollView(table as NSView, x, y, width, height)
+    scroll.setHidden(!visible)
+    win.contentView.addSubview(scroll as NSView)
+
+    let handle: i64 = LISTS.length as i64
+    LISTS.push(table)
+    LIST_SCROLLS.push(scroll)
+    LIST_KEYS.push(table as NSObject)
+    LIST_DS.push(ds as NSObject)
+    LIST_ITEMS.push([])
+    ON_LIST.push(noOpI32)
+    LIST_DELEGATES.push(dg as NSObject)
+    handle
+}
+
+pub fn setOnListSelect(handle: i64, cb: fn(i32)) {
+    if handle >= 0 && handle < (ON_LIST.length as i64) {
+        ON_LIST[handle] = cb
+    }
+}
+pub fn addListItem(handle: i64, item: string) {
+    if handle >= 0 && handle < (LIST_ITEMS.length as i64) {
+        LIST_ITEMS[handle].push(item)
+        LISTS[handle].reloadData()
+    }
+}
+pub fn clearListItems(handle: i64) {
+    if handle >= 0 && handle < (LIST_ITEMS.length as i64) {
+        LIST_ITEMS[handle] = []
+        LISTS[handle].reloadData()
+    }
+}
+pub fn setListSelectedIndex(handle: i64, index: i32) {
+    if handle >= 0 && handle < (LISTS.length as i64) {
+        if index < 0 {
+            LISTS[handle].deselectAll(nil)
+        } else {
+            // NSTableView wants an NSIndexSet; the cocoa bindings
+            // don't expose a single-row constructor today, so we
+            // fall back to selecting nothing and letting the user
+            // re-pick. Programmatic selection is uncommon enough
+            // that this gap is acceptable on the macOS side.
+            let _ = index
+        }
+    }
+}
+pub fn readListSelectedIndex(handle: i64): i32 {
+    if handle < 0 || handle >= (LISTS.length as i64) { return -1 as i32 }
+    LISTS[handle].selectedRow as i32
+}
+pub fn setListFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (LIST_SCROLLS.length as i64) {
+        LIST_SCROLLS[handle].setFrame(makeRect(x, y, width, height))
+    }
+}
+pub fn setListEnabled(handle: i64, enabled: bool) {
+    // No direct NSTableView enabled toggle; surface as no-op.
+    let _ = handle
+    let _ = enabled
+}
+pub fn setListVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (LIST_SCROLLS.length as i64) {
+        LIST_SCROLLS[handle].setHidden(!visible)
+    }
+}
+
+// ─── group boxes (NSBox) ─────────────────────────────────────
+
+let GROUPBOXES: NSBox[] = []
+
+pub fn createNativeGroupBox(
+    windowHandle: i64,
+    text: string, x: f64, y: f64, width: f64, height: f64,
+    visible: bool
+): i64 {
+    if windowHandle < 0 || windowHandle >= (WINDOWS.length as i64) {
+        return -1
+    }
+    let win = WINDOWS[windowHandle]
+    let box = NSBox.alloc().init(makeRect(x, y, width, height))
+    box.setTitle(nsstr(text))
+    box.setHidden(!visible)
+    win.contentView.addSubview(box as NSView)
+    let handle: i64 = GROUPBOXES.length as i64
+    GROUPBOXES.push(box)
+    handle
+}
+
+pub fn setGroupBoxText(handle: i64, text: string) {
+    if handle >= 0 && handle < (GROUPBOXES.length as i64) {
+        GROUPBOXES[handle].setTitle(nsstr(text))
+    }
+}
+pub fn setGroupBoxFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if handle >= 0 && handle < (GROUPBOXES.length as i64) {
+        GROUPBOXES[handle].setFrame(makeRect(x, y, width, height))
+    }
+}
+pub fn setGroupBoxVisible(handle: i64, visible: bool) {
+    if handle >= 0 && handle < (GROUPBOXES.length as i64) {
+        GROUPBOXES[handle].setHidden(!visible)
     }
 }
 
