@@ -1025,9 +1025,57 @@ impl<'a> BodyCx<'a> {
                     return Ok((dst.unwrap_or_else(|| self.const_unit()), sig.ret));
                 }
                 let meta = self.class_meta.get(class_id).expect("class meta");
-                let mid = *meta.method_ids.get(&method).ok_or_else(|| {
-                    LowerError::Other(format!("no method `{method}` on class"))
-                })?;
+                if !meta.method_ids.contains_key(&method) {
+                    // Fn-typed instance field — `obj.field(args)`
+                    // becomes a LoadField + CallIndirect. Mirrors
+                    // the type-checker fallback in
+                    // `crates/ilang-types/.../calls.rs`.
+                    if let Some(&fid) = meta.field_ix.get(&method) {
+                        let fty = meta.field_ty.get(&fid).cloned().unwrap();
+                        if let MirTy::Fn(ft) = fty.clone() {
+                            let fn_val = self.fb.new_value(fty.clone());
+                            self.fb.push_inst(Inst::LoadField {
+                                dst: fn_val, obj: ov, field: fid,
+                            });
+                            let mut arg_vals = Vec::with_capacity(args.len());
+                            for (i, a) in args.iter().enumerate() {
+                                let (v, vty) = self.lower_expr(a)?;
+                                let coerced = match ft.params.get(i) {
+                                    Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
+                                    _ => v,
+                                };
+                                arg_vals.push(coerced);
+                            }
+                            let dst = if matches!(ft.ret, MirTy::Unit) {
+                                None
+                            } else {
+                                Some(self.fb.new_value(ft.ret.clone()))
+                            };
+                            let call_sig = crate::inst::FnSig {
+                                params: ft.params.clone(),
+                                ret: ft.ret.clone(),
+                                variadic: false,
+                            };
+                            self.fb.push_inst(Inst::CallIndirect {
+                                dst,
+                                callee: fn_val,
+                                sig: call_sig,
+                                args: arg_vals.into_boxed_slice(),
+                            });
+                            if obj_is_fresh && !matches!(ft.ret, MirTy::Object(_)) {
+                                self.fb.push_inst(Inst::Release { value: ov });
+                            }
+                            return Ok((
+                                dst.unwrap_or_else(|| self.const_unit()),
+                                ft.ret.clone(),
+                            ));
+                        }
+                    }
+                    return Err(LowerError::Other(
+                        format!("no method `{method}` on class"),
+                    ));
+                }
+                let mid = *meta.method_ids.get(&method).unwrap();
                 let sig = meta.method_sigs.get(&method).cloned().unwrap();
                 let slot = self.classes[class_id.0 as usize]
                     .methods

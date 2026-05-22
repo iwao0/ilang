@@ -574,13 +574,46 @@ impl TypeChecker {
                 span,
             }
         })?;
-        let raw_sigs = cls.methods.get(method).cloned().ok_or_else(|| {
-            TypeError::UnknownMethod {
-                class: class_name.into(),
-                method: method.clone(),
-                span,
+        let raw_sigs = match cls.methods.get(method).cloned() {
+            Some(s) => s,
+            None => {
+                // Fn-typed instance field — `obj.field(args)`
+                // desugars to a field load + indirect call instead
+                // of a method dispatch. Lets users avoid the
+                // `let cb = obj.field; cb(args)` bounce when the
+                // field already carries the fn type.
+                if let Some(field_ty) = cls.fields.get(method).cloned() {
+                    if let Type::Fn(ft) = field_ty {
+                        if args.len() != ft.params.len() {
+                            return Err(TypeError::ArityMismatch {
+                                name: method.clone(),
+                                expected: ft.params.len(),
+                                got: args.len(),
+                                span,
+                            });
+                        }
+                        for (i, expected) in ft.params.iter().enumerate() {
+                            let got = self.check_expr(
+                                &args[i], env, ret_ty, in_class, loop_depth,
+                            )?;
+                            if !self.value_assignable(&args[i], &got, expected) {
+                                return Err(TypeError::Mismatch {
+                                    expected: expected.clone(),
+                                    got,
+                                    span: args[i].span,
+                                });
+                            }
+                        }
+                        return Ok(ft.ret.clone());
+                    }
+                }
+                return Err(TypeError::UnknownMethod {
+                    class: class_name.into(),
+                    method: method.clone(),
+                    span,
+                });
             }
-        })?;
+        };
         let class_params = cls.type_params.clone();
         let inst_args: Vec<Type> = type_args_of(&ot).to_vec();
         // Substitute generic type args once per overload, then
