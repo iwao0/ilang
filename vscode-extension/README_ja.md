@@ -1,16 +1,15 @@
 # vscode-ilang
 
-ilang 用の VSCode extension。シンタックスハイライトに加え、
-language server (`ilang-lsp`) による診断 / hover / 定義ジャンプを
-提供する。
+ilang 用の VSCode extension。シンタックスハイライトに加えて
+language server (`ilang-lsp`) を同梱する。
 
 English: [README.md](README.md)
 
 ## ローカルインストール
 
 ```sh
-# 1. language server をビルド
-cargo build -p ilang-lsp
+# 1. language server をビルド (release 推奨)
+cargo build --release -p ilang-lsp
 
 # 2. extension クライアント (TypeScript) をビルド
 cd vscode-extension
@@ -28,33 +27,63 @@ language server も自動で起動する。
 
 1. 設定 `ilang.serverPath` (絶対パス)
 2. 環境変数 `ILANG_LSP_PATH`
-3. `<workspace>/target/debug/ilang-lsp` (開発時のデフォルト)
+3. `<workspace>/target/release/ilang-lsp`
+4. `<workspace>/target/debug/ilang-lsp`
 
-## 機能
+## エディタ機能
 
 - `.il` ファイルの認識
-- キーワード / 型 / 数値リテラル / 文字列 / コメント / 属性 (`@flags` 等)
-  のハイライト
+- VSCode のファイルアイコンテーマが許す場合、`.il` に既定の
+  言語アイコンを設定
+- キーワード / 型 / 数値リテラル / 文字列 / コメント / 属性
+  (`@flags` 等) のハイライト
 - ブラケット自動補完 / コメントトグル
-- **診断**: パーサ / 型チェッカのエラーを赤波線で表示
-- **hover**: カーソル位置の識別子のシグネチャを表示
-- **定義ジャンプ (F12)**: 宣言箇所にジャンプ
 
-## 索引化される範囲
+## language server 機能
 
-LSP が同一ファイル内で解決するもの:
+- **診断**: パーサ / 型チェッカのエラーを赤波線で表示。
+  保存前のバッファ内容を基準に更新する
+- **hover**: カーソル位置の識別子のシグネチャと `///` doc
+  コメントを表示。ローカル / パラメータ / フィールド /
+  メソッド / getter/setter / enum variant / `use module` で
+  取り込んだ名前 / 配列・文字列・Map のビルトインメソッドに
+  対応
+- **定義ジャンプ (F12)**
+  - 同一ファイルの宣言
+  - `use module` 経由の別ファイル (stdlib や `ilang.toml` の
+    `[deps]` パスを含む)
+  - `use super.M` — dep DAG 上の親パッケージへ
+  - クラスの親 / インターフェース名 / 型注釈
+- **参照検索 (Find All References)**: ワークスペース全体
+  (ファイルの `ilang.toml` から辿れる `.il` と開いている
+  バッファ全部)
+- **リネーム**: 参照検索と同じ範囲。`this` 上では拒否する
+- **補完**
+  - トップレベル宣言 / ローカル / パラメータ / enum variant
+  - `obj.` のメンバ補完 (フィールド / メソッド / getter /
+    setter / 配列・文字列・Map のビルトイン)
+  - `:` / `,` / `<` の後の型補完
+  - `@` の後の属性補完
+  - `use M { … }` の selective import 名
+  - インターフェース実装時のメソッドスタブ
+  - キーワード補完 (`super` も含む)
+- **シグネチャヘルプ**: `(` / `,` でパラメータヒント。
+  `<` で再トリガし、オーバーロード切替も対応
+- **ドキュメントフォーマット**: ファイル全体の整形
+- **コードアクション**
+  - `source.organizeImports` — `use` 行のソート / 重複削除
+  - 代表的な診断に対する quick fix
+  - クラスのフィールドから `init(...)` を生成
+  - 未実装のインターフェースメソッドを生成
+  - match のアームを enum の全 variant で埋める
+- **ドキュメントシンボル (アウトライン)**: トップレベルの
+  fn / class (フィールド・メソッド・プロパティ・static を
+  ぶら下げる) / interface / enum (variant をぶら下げる) /
+  const / `@extern(C)` の項目を階層化して返す
 
-- **トップレベル宣言** — fn / class / enum / const
-- **ローカル変数 / パラメータ** — `let` / fn パラメータ / fn-expr / `for x in ...`
-- **`this`** — 囲みクラスへ解決
-- **`this.field` / `this.method(...)`** — クラスメンバへ解決
-- **`obj.field` / `obj.method(...)`** ただし `obj` が明示型注釈付きの
-  ローカルか `new ClassName(...)` の結果のとき
+## 索引化の範囲
 
-診断は `ilang run` と同じ loader パイプラインを使う:
-`use module` / `ilang.toml` の `[deps]` パスを解決し、トップ
-レベル `const` を inline してから型チェックする。診断はディスクの
-内容を基準にするので、未保存の編集は保存するまで反映されない。
-
-他ファイルへの F12 / hover (`use module` 経由のジャンプ) は未対応で、
-索引化は現在開いているファイルだけ。
+LSP は開いているファイルとその `ilang.toml` から辿れる範囲を
+解析する: `use module` の対象、`[deps]` (`target` フィルタ
+含む) と推移的な依存。バッファのテキストが基準なので、診断 /
+hover / 補完などは保存前の編集内容を反映する。
