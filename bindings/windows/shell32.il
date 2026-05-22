@@ -130,6 +130,8 @@ pub enum NotifyIconDataFlags: u32 {
     showtip  = 0x00000080
 }
 
+use user32 { HINSTANCE, HICON, HWND }
+
 @extern(C, "shell32") {
     // ── Shell handle type ─────────────────────────────────────────
 
@@ -205,7 +207,7 @@ pub enum NotifyIconDataFlags: u32 {
     /// `iFile` is 0xFFFFFFFF (returns count without copying).
     /// `lpszFile`: buffer of `cch` chars, or NULL to get length.
     @lib pub fn DragQueryFileA(
-        hDrop:   *HDROP,
+        hDrop:   HDROP,
         iFile:   u32,
         lpszFile: *char,
         cch:     u32
@@ -213,7 +215,7 @@ pub enum NotifyIconDataFlags: u32 {
 
     /// Releases memory allocated by the system for `hDrop`.
     /// Always call this after processing WM_DROPFILES.
-    @lib pub fn DragFinish(hDrop: *HDROP)
+    @lib pub fn DragFinish(hDrop: HDROP)
 
     // ── System tray ───────────────────────────────────────────────
 
@@ -290,10 +292,10 @@ pub enum NotifyIconDataFlags: u32 {
     /// `ExtractAssociatedIconA` — first icon associated with a
     /// file (looks up the extension's ProgID).
     @lib pub fn ExtractAssociatedIconA(
-        hInst:      i64,
+        hInst:      HINSTANCE,
         pszIconPath: *char,
         piIcon:     *u16
-    ): i64                          // *HICON
+    ): HICON
 
     // ── Privilege / admin checks ─────────────────────────────────
 

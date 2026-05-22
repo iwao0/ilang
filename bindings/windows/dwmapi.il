@@ -188,18 +188,18 @@ pub enum DwmThumbnailFlags: u32 {
     @lib pub fn DwmRegisterThumbnail(
         hwndDestination: i64,  // *HWND
         hwndSource:      i64,  // *HWND
-        phThumbnailId:   **HTHUMBNAIL
+        phThumbnailId:   *HTHUMBNAIL
     ): i32
 
-    @lib pub fn DwmUnregisterThumbnail(hThumbnailId: *HTHUMBNAIL): i32
+    @lib pub fn DwmUnregisterThumbnail(hThumbnailId: HTHUMBNAIL): i32
 
     @lib pub fn DwmUpdateThumbnailProperties(
-        hThumbnailId: *HTHUMBNAIL,
+        hThumbnailId: HTHUMBNAIL,
         ptnProperties: *const DWM_THUMBNAIL_PROPERTIES
     ): i32
 
     @lib pub fn DwmQueryThumbnailSourceSize(
-        hThumbnail: *HTHUMBNAIL,
+        hThumbnail: HTHUMBNAIL,
         pSize:      *void    // *SIZE
     ): i32
 }

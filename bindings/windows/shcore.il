@@ -49,6 +49,8 @@ pub enum ScaleFactor: i32 {
     scale500     = 500
 }
 
+use user32 { HMONITOR }
+
 @extern(C, "shcore") {
     // ── Process-level DPI awareness ──────────────────────────────
 
@@ -68,7 +70,7 @@ pub enum ScaleFactor: i32 {
     /// Returns the DPI of a monitor in `dpiX` / `dpiY` (typically 96 at 100%).
     /// `dpiType`: MonitorDpiType.*.
     @lib pub fn GetDpiForMonitor(
-        hmonitor: *void,        // *HMONITOR
+        hmonitor: HMONITOR,
         dpiType:  i32,
         dpiX:     *u32,
         dpiY:     *u32
@@ -76,7 +78,7 @@ pub enum ScaleFactor: i32 {
 
     /// Returns the scale factor of a monitor (e.g. 100, 125, 150).
     @lib pub fn GetScaleFactorForMonitor(
-        hMon:    *void,
+        hMon:    HMONITOR,
         pScale:  *i32         // out: ScaleFactor.*
     ): i32
 

@@ -140,7 +140,7 @@ pub enum CryptProtectFlags: u32 {
         cbCertEncoded:      u32
         _pad:               u32
         pCertInfo:          *void   // *CERT_INFO
-        hCertStore:         *HCERTSTORE
+        hCertStore:         HCERTSTORE
     }
 
     // ── Store open / close ────────────────────────────────────────
@@ -157,18 +157,18 @@ pub enum CryptProtectFlags: u32 {
         hCryptProv:        u64,
         dwFlags:           u32,
         pvPara:            *const void
-    ): *HCERTSTORE
+    ): HCERTSTORE
 
     /// Opens "MY" / "ROOT" / "CA" / "TRUST" stores by name.
     @lib pub fn CertOpenSystemStoreA(
         hProv:            u64,
         szSubsystemProtocol: *const char
-    ): *HCERTSTORE
+    ): HCERTSTORE
 
     /// Closes a cert store. `dwFlags`:
     ///   0                        = release reference only
     ///   1 (CERT_CLOSE_FORCE_FLAG)= force close even with open contexts
-    @lib pub fn CertCloseStore(hCertStore: *HCERTSTORE, dwFlags: u32): i32
+    @lib pub fn CertCloseStore(hCertStore: HCERTSTORE, dwFlags: u32): i32
 
     // ── Certificate enumeration / search ──────────────────────────
 
@@ -176,7 +176,7 @@ pub enum CryptProtectFlags: u32 {
     /// First call: pPrevCertContext = NULL.
     /// Subsequent calls: pass the previous result.  Returns NULL at end.
     @lib pub fn CertEnumCertificatesInStore(
-        hCertStore:       *HCERTSTORE,
+        hCertStore:       HCERTSTORE,
         pPrevCertContext: *const CERT_CONTEXT
     ): *CERT_CONTEXT
 
@@ -184,7 +184,7 @@ pub enum CryptProtectFlags: u32 {
     /// `dwCertEncodingType`: CertEncodingType.cryptAsn for typical use.
     /// `dwFindFlags`: 0 for default.
     @lib pub fn CertFindCertificateInStore(
-        hCertStore:       *HCERTSTORE,
+        hCertStore:       HCERTSTORE,
         dwCertEncodingType: u32,
         dwFindFlags:      u32,
         dwFindType:       u32,

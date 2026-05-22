@@ -136,20 +136,20 @@ use user32 { HDC }
     /// Opens a theme handle for the given class name (e.g. "BUTTON",
     /// "EDIT", "SCROLLBAR", "HEADER", "TAB"). Returns NULL if themes
     /// are disabled or the class is unknown.
-    @lib pub fn OpenThemeData(hwnd: i64, pszClassList: *const u16): *HTHEME
+    @lib pub fn OpenThemeData(hwnd: i64, pszClassList: *const u16): HTHEME
 
-    @lib pub fn CloseThemeData(hTheme: *HTHEME): i32
+    @lib pub fn CloseThemeData(hTheme: HTHEME): i32
 
     /// Re-opens the theme for an HWND after the OS theme changed
     /// (call from WM_THEMECHANGED).
-    @lib pub fn OpenThemeDataEx(hwnd: i64, pszClassList: *const u16, dwFlags: u32): *HTHEME
+    @lib pub fn OpenThemeDataEx(hwnd: i64, pszClassList: *const u16, dwFlags: u32): HTHEME
 
     // ── Drawing ───────────────────────────────────────────────────
 
     /// Draws the themed background of a part/state into `pRect`.
     /// `pClipRect`: NULL to use the full DC.
     @lib pub fn DrawThemeBackground(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
@@ -159,7 +159,7 @@ use user32 { HDC }
 
     /// Extended variant with explicit options (DtBgFlags.*).
     @lib pub fn DrawThemeBackgroundEx(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
@@ -170,7 +170,7 @@ use user32 { HDC }
     /// Draws themed text. `dwTextFlags`: DT_* (gdi DrawTextFormat),
     /// `dwTextFlags2`: typically 0.
     @lib pub fn DrawThemeText(
-        hTheme:        *HTHEME,
+        hTheme:        HTHEME,
         hdc:           HDC,
         iPartId:       i32,
         iStateId:      i32,
@@ -183,7 +183,7 @@ use user32 { HDC }
 
     /// Extended text with shadow/glow/color overrides (DTTOPTS).
     @lib pub fn DrawThemeTextEx(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
@@ -198,7 +198,7 @@ use user32 { HDC }
 
     /// Returns the rect that the part would draw inside `pRect`.
     @lib pub fn GetThemeBackgroundContentRect(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
@@ -208,7 +208,7 @@ use user32 { HDC }
 
     /// Returns the rect of the themed background surrounding `pRect`.
     @lib pub fn GetThemeBackgroundExtent(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
@@ -218,7 +218,7 @@ use user32 { HDC }
 
     /// Returns the natural size of a part. `eSize`: 0=min, 1=true, 2=draw.
     @lib pub fn GetThemePartSize(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
@@ -231,7 +231,7 @@ use user32 { HDC }
 
     /// Returns a COLORREF for the given color property.
     @lib pub fn GetThemeColor(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         iPartId:   i32,
         iStateId:  i32,
         iPropId:   i32,
@@ -239,7 +239,7 @@ use user32 { HDC }
     ): i32
 
     @lib pub fn GetThemeFont(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
@@ -248,7 +248,7 @@ use user32 { HDC }
     ): i32
 
     @lib pub fn GetThemeMargins(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
@@ -258,7 +258,7 @@ use user32 { HDC }
     ): i32
 
     @lib pub fn GetThemeInt(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         iPartId:   i32,
         iStateId:  i32,
         iPropId:   i32,
@@ -266,7 +266,7 @@ use user32 { HDC }
     ): i32
 
     @lib pub fn GetThemeString(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         iPartId:   i32,
         iStateId:  i32,
         iPropId:   i32,
@@ -275,7 +275,7 @@ use user32 { HDC }
     ): i32
 
     @lib pub fn GetThemeMetric(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
@@ -284,7 +284,7 @@ use user32 { HDC }
     ): i32
 
     @lib pub fn GetThemePosition(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         iPartId:   i32,
         iStateId:  i32,
         iPropId:   i32,
@@ -292,7 +292,7 @@ use user32 { HDC }
     ): i32
 
     @lib pub fn GetThemeRect(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         iPartId:   i32,
         iStateId:  i32,
         iPropId:   i32,
@@ -300,7 +300,7 @@ use user32 { HDC }
     ): i32
 
     @lib pub fn GetThemeBool(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         iPartId:   i32,
         iStateId:  i32,
         iPropId:   i32,
@@ -317,7 +317,7 @@ use user32 { HDC }
 
     /// Returns non-zero if the part has any transparent or alpha pixels.
     @lib pub fn IsThemeBackgroundPartiallyTransparent(
-        hTheme:    *HTHEME,
+        hTheme:    HTHEME,
         iPartId:   i32,
         iStateId:  i32
     ): i32

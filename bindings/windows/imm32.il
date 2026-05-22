@@ -110,19 +110,19 @@ pub enum ImeNotifyAction: u32 {
 
     /// Returns the IME context for `hwnd`.  Always pair with
     /// `ImmReleaseContext`.
-    @lib pub fn ImmGetContext(hwnd: i64): *HIMC
+    @lib pub fn ImmGetContext(hwnd: i64): HIMC
 
-    @lib pub fn ImmReleaseContext(hwnd: i64, himc: *HIMC): i32
+    @lib pub fn ImmReleaseContext(hwnd: i64, himc: HIMC): i32
 
     /// Creates a new IME context; rarely needed (default contexts
     /// are created automatically per window).
-    @lib pub fn ImmCreateContext(): *HIMC
+    @lib pub fn ImmCreateContext(): HIMC
 
-    @lib pub fn ImmDestroyContext(himc: *HIMC): i32
+    @lib pub fn ImmDestroyContext(himc: HIMC): i32
 
     /// Associates `himc` with `hwnd`.  Returns the previously
     /// associated context.
-    @lib pub fn ImmAssociateContext(hwnd: i64, himc: *HIMC): *HIMC
+    @lib pub fn ImmAssociateContext(hwnd: i64, himc: HIMC): HIMC
 
     // ── Composition string ────────────────────────────────────────
 
@@ -130,21 +130,21 @@ pub enum ImeNotifyAction: u32 {
     /// `dwIndex`: CompositionStringIndex.*.
     /// Returns the byte count (or character count for some indices).
     @lib pub fn ImmGetCompositionStringA(
-        himc:    *HIMC,
+        himc:    HIMC,
         dwIndex: u32,
         lpBuf:   *void,
         dwBufLen: u32
     ): i32
 
     @lib pub fn ImmGetCompositionStringW(
-        himc:    *HIMC,
+        himc:    HIMC,
         dwIndex: u32,
         lpBuf:   *void,
         dwBufLen: u32
     ): i32
 
     @lib pub fn ImmSetCompositionStringA(
-        himc:        *HIMC,
+        himc:        HIMC,
         dwIndex:     u32,
         lpComp:      *const void,
         dwCompLen:   u32,
@@ -155,34 +155,34 @@ pub enum ImeNotifyAction: u32 {
     // ── IME state / conversion mode ──────────────────────────────
 
     /// Returns 1 if the IME for `hwnd` is currently open (composing).
-    @lib pub fn ImmGetOpenStatus(himc: *HIMC): i32
+    @lib pub fn ImmGetOpenStatus(himc: HIMC): i32
 
     /// Opens or closes the IME.
-    @lib pub fn ImmSetOpenStatus(himc: *HIMC, fOpen: i32): i32
+    @lib pub fn ImmSetOpenStatus(himc: HIMC, fOpen: i32): i32
 
     @lib pub fn ImmGetConversionStatus(
-        himc:        *HIMC,
+        himc:        HIMC,
         lpdwConversion: *u32,    // ImeConversionMode.*
         lpdwSentence:   *u32     // ImeSentenceMode.*
     ): i32
 
     @lib pub fn ImmSetConversionStatus(
-        himc:        *HIMC,
+        himc:        HIMC,
         dwConversion: u32,
         dwSentence:   u32
     ): i32
 
     // ── Window placement ─────────────────────────────────────────
 
-    @lib pub fn ImmSetCompositionWindow(himc: *HIMC, lpCompForm: *COMPOSITIONFORM): i32
+    @lib pub fn ImmSetCompositionWindow(himc: HIMC, lpCompForm: *COMPOSITIONFORM): i32
 
-    @lib pub fn ImmSetCandidateWindow(himc: *HIMC, lpCandidate: *CANDIDATEFORM): i32
+    @lib pub fn ImmSetCandidateWindow(himc: HIMC, lpCandidate: *CANDIDATEFORM): i32
 
     // ── Notification ──────────────────────────────────────────────
 
     /// Sends a notification to the IME (e.g. close candidate window).
     @lib pub fn ImmNotifyIME(
-        himc:    *HIMC,
+        himc:    HIMC,
         dwAction: u32,           // ImeNotifyAction.*
         dwIndex: u32,
         dwValue: u32
@@ -235,7 +235,7 @@ pub enum ImeNotifyAction: u32 {
     /// Asks the IME for a candidate list given a reading string.
     @lib pub fn ImmGetConversionListA(
         hkl:      i64,
-        himc:     *HIMC,
+        himc:     HIMC,
         lpsrc:    *const char,
         lpDst:    *void,
         dwBufLen: u32,

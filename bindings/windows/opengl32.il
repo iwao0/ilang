@@ -174,15 +174,15 @@ use user32 { HDC }
     /// Creates a GL 1.x rendering context for `hdc`.
     /// For GL 3.0+ use the WGL_ARB_create_context extension via
     /// wglGetProcAddress.
-    @lib pub fn wglCreateContext(hdc: HDC): *HGLRC
+    @lib pub fn wglCreateContext(hdc: HDC): HGLRC
 
-    @lib pub fn wglDeleteContext(hglrc: *HGLRC): i32
+    @lib pub fn wglDeleteContext(hglrc: HGLRC): i32
 
     /// Makes `hglrc` the active context on the calling thread.
     /// Pass NULL for both to detach.
-    @lib pub fn wglMakeCurrent(hdc: HDC, hglrc: *HGLRC): i32
+    @lib pub fn wglMakeCurrent(hdc: HDC, hglrc: HGLRC): i32
 
-    @lib pub fn wglGetCurrentContext(): *HGLRC
+    @lib pub fn wglGetCurrentContext(): HGLRC
     @lib pub fn wglGetCurrentDC(): *void
 
     /// Returns the function pointer for an extension entry point.
@@ -190,7 +190,7 @@ use user32 { HDC }
     @lib pub fn wglGetProcAddress(lpszProc: *const char): *void
 
     /// Allows two GL contexts to share display lists, textures, FBOs, etc.
-    @lib pub fn wglShareLists(hglrc1: *HGLRC, hglrc2: *HGLRC): i32
+    @lib pub fn wglShareLists(hglrc1: HGLRC, hglrc2: HGLRC): i32
 
     // ── GL 1.1 core (selected) ───────────────────────────────────
 

@@ -391,36 +391,36 @@ pub enum FontPitchFamily: u32 {
     /// Selects `hObject` into `hdc`, returning the previously
     /// selected object of the same type (or NULL on error).
     /// Returned HGDIOBJ must be selected back before DeleteObject.
-    @lib pub fn SelectObject(hdc: HDC, hObject: *HGDIOBJ): *HGDIOBJ
+    @lib pub fn SelectObject(hdc: HDC, hObject: HGDIOBJ): HGDIOBJ
 
     /// Deletes a GDI object (pen, brush, font, bitmap, region,
     /// palette). Never delete an object while it is selected.
-    @lib pub fn DeleteObject(hObject: *HGDIOBJ): i32
+    @lib pub fn DeleteObject(hObject: HGDIOBJ): i32
 
     /// Returns a predefined stock GDI object. Cast result to the
     /// appropriate handle type.
-    @lib pub fn GetStockObject(fnObject: i32): *HGDIOBJ
+    @lib pub fn GetStockObject(fnObject: i32): HGDIOBJ
 
     /// Fills `lpObject` with data about a GDI object. `nCount` is
     /// the byte size of the buffer (e.g. sizeof LOGFONTA for fonts).
-    @lib pub fn GetObjectA(hObject: *HGDIOBJ, nCount: i32, lpObject: *void): i32
+    @lib pub fn GetObjectA(hObject: HGDIOBJ, nCount: i32, lpObject: *void): i32
 
     // ── Pen ───────────────────────────────────────────────────────
 
     /// Creates a cosmetic pen. `iStyle`: PenStyle.*, `cWidth`: pixel
     /// width (0 = 1 px), `color`: COLORREF (0x00BBGGRR).
-    @lib pub fn CreatePen(iStyle: i32, cWidth: i32, color: u32): *HPEN
+    @lib pub fn CreatePen(iStyle: i32, cWidth: i32, color: u32): HPEN
 
     // ── Brush ─────────────────────────────────────────────────────
 
     /// Creates a solid-color brush. `color`: COLORREF (0x00BBGGRR).
-    @lib pub fn CreateSolidBrush(color: u32): *HBRUSHGDI
+    @lib pub fn CreateSolidBrush(color: u32): HBRUSHGDI
 
     /// Creates a hatch brush. `iHatch`: HatchStyle.*, `color`: COLORREF.
-    @lib pub fn CreateHatchBrush(iHatch: i32, color: u32): *HBRUSHGDI
+    @lib pub fn CreateHatchBrush(iHatch: i32, color: u32): HBRUSHGDI
 
     /// Creates a pattern brush from a bitmap handle.
-    @lib pub fn CreatePatternBrush(hbm: *HBITMAP): *HBRUSHGDI
+    @lib pub fn CreatePatternBrush(hbm: HBITMAP): HBRUSHGDI
 
     // ── Color / background ────────────────────────────────────────
 
@@ -550,7 +550,7 @@ pub enum FontPitchFamily: u32 {
 
     /// Creates a device-compatible bitmap with the same colour format
     /// as `hdc`, sized `nWidth` × `nHeight` pixels.
-    @lib pub fn CreateCompatibleBitmap(hdc: HDC, nWidth: i32, nHeight: i32): *HBITMAP
+    @lib pub fn CreateCompatibleBitmap(hdc: HDC, nWidth: i32, nHeight: i32): HBITMAP
 
     /// Creates a DDB with explicitly specified planes and bits-per-pixel.
     @lib pub fn CreateBitmap(
@@ -559,7 +559,7 @@ pub enum FontPitchFamily: u32 {
         nPlanes:    u32,
         nBitCount:  u32,
         lpBits:     *const void
-    ): *HBITMAP
+    ): HBITMAP
 
     /// Block-transfers `nWidth`×`nHeight` pixels from `hdcSrc`
     /// to `hdcDest`. `dwRop`: RasterOp.srcCopy for a plain copy.
@@ -587,23 +587,23 @@ pub enum FontPitchFamily: u32 {
 
     // ── Region ────────────────────────────────────────────────────
 
-    @lib pub fn CreateRectRgn(left: i32, top: i32, right: i32, bottom: i32): *HRGN
-    @lib pub fn CreateEllipticRgn(left: i32, top: i32, right: i32, bottom: i32): *HRGN
+    @lib pub fn CreateRectRgn(left: i32, top: i32, right: i32, bottom: i32): HRGN
+    @lib pub fn CreateEllipticRgn(left: i32, top: i32, right: i32, bottom: i32): HRGN
     @lib pub fn CreateRoundRectRgn(
         left: i32, top: i32, right: i32, bottom: i32,
         widthEllipse: i32, heightEllipse: i32
-    ): *HRGN
-    @lib pub fn CreatePolygonRgn(lpPoints: *void, nCount: i32, fnPolyFillMode: i32): *HRGN
+    ): HRGN
+    @lib pub fn CreatePolygonRgn(lpPoints: *void, nCount: i32, fnPolyFillMode: i32): HRGN
 
     /// Combines `hrgnSrc1` and `hrgnSrc2` into `hrgnDest` using
     /// `fnCombineMode` (CombineRgnMode.*). Returns RegionResult.*.
-    @lib pub fn CombineRgn(hrgnDest: *HRGN, hrgnSrc1: *HRGN, hrgnSrc2: *HRGN, fnCombineMode: i32): i32
+    @lib pub fn CombineRgn(hrgnDest: HRGN, hrgnSrc1: HRGN, hrgnSrc2: HRGN, fnCombineMode: i32): i32
 
     /// Replaces the DC clipping region with `hRgn`.
-    /// Pass `0 as *HRGN` to remove clipping.
-    @lib pub fn SelectClipRgn(hdc: HDC, hRgn: *HRGN): i32
+    /// Pass `0 as HRGN` to remove clipping.
+    @lib pub fn SelectClipRgn(hdc: HDC, hRgn: HRGN): i32
 
-    @lib pub fn OffsetRgn(hRgn: *HRGN, nXOffset: i32, nYOffset: i32): i32
+    @lib pub fn OffsetRgn(hRgn: HRGN, nXOffset: i32, nYOffset: i32): i32
 
     // ── Path ──────────────────────────────────────────────────────
 
@@ -612,7 +612,7 @@ pub enum FontPitchFamily: u32 {
     @lib pub fn StrokePath(hdc: HDC): i32
     @lib pub fn FillPath(hdc: HDC): i32
     @lib pub fn StrokeAndFillPath(hdc: HDC): i32
-    @lib pub fn PathToRegion(hdc: HDC): *HRGN
+    @lib pub fn PathToRegion(hdc: HDC): HRGN
 
     // ── Coordinate transforms ─────────────────────────────────────
 
@@ -723,7 +723,7 @@ pub enum FontPitchFamily: u32 {
         ppvBits:    **void,        // receives pointer to pixel data
         hSection:   *void,         // file-mapping object, or NULL
         dwOffset:   u32
-    ): *HBITMAP
+    ): HBITMAP
 
     /// Draws `cScanLines` scan lines of DIB data.
     @lib pub fn SetDIBitsToDevice(
@@ -804,7 +804,7 @@ pub enum FontPitchFamily: u32 {
 
     // ── Misc ──────────────────────────────────────────────────────
 
-    @lib pub fn FrameRect(hDC: *void, lprc: *const void, hbr: *HBRUSHGDI): i32
+    @lib pub fn FrameRect(hDC: *void, lprc: *const void, hbr: HBRUSHGDI): i32
     @lib pub fn InvertRect(hDC: *void, lprc: *const void): i32
 
     // ── Font enumeration ─────────────────────────────────────────

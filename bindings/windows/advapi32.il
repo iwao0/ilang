@@ -2,7 +2,7 @@
 /// security tokens, event logging, and LSA policy.
 
 // ─── Predefined registry root keys ───────────────────────────────
-// Use as `0x80000000 as i64 as *HKEY` etc.
+// Use as `0x80000000 as i64 as HKEY` etc.
 pub enum PredefinedKey: u64 {
     classesRoot   = 0x80000000
     currentUser   = 0x80000001
@@ -182,7 +182,7 @@ pub enum EventLogType: u16 {
     // ── Opaque handles ────────────────────────────────────────────
 
     /// Registry key handle. The predefined roots are cast from
-    /// the PredefinedKey enum: `PredefinedKey.currentUser as i64 as *HKEY`.
+    /// the PredefinedKey enum: `PredefinedKey.currentUser as i64 as HKEY`.
     @handle pub struct HKEY {}
 
     /// Service Control Manager handle.
@@ -208,34 +208,34 @@ pub enum EventLogType: u16 {
     /// Opens an existing subkey. `samDesired`: KeyAccess.*.
     /// Returns ERROR_SUCCESS (0) on success.
     @lib pub fn RegOpenKeyExA(
-        hKey:       *HKEY,
+        hKey:       HKEY,
         lpSubKey:   *const char,
         ulOptions:  u32,
         samDesired: u32,
-        phkResult:  **HKEY
+        phkResult:  *HKEY
     ): i32
 
     /// Creates or opens a subkey.
     /// `lpdwDisposition`: receives RegDisposition.createdNewKey or
     /// .openedExistingKey. Pass `0 as *u32` if not needed.
     @lib pub fn RegCreateKeyExA(
-        hKey:                *HKEY,
+        hKey:                HKEY,
         lpSubKey:            *const char,
         Reserved:            u32,
         lpClass:             *char,
         dwOptions:           u32,         // RegOptions.*
         samDesired:          u32,         // KeyAccess.*
         lpSecurityAttributes: *void,
-        phkResult:           **HKEY,
+        phkResult:           *HKEY,
         lpdwDisposition:     *u32
     ): i32
 
-    @lib pub fn RegCloseKey(hKey: *HKEY): i32
+    @lib pub fn RegCloseKey(hKey: HKEY): i32
 
     /// Reads a value. Pass `0 as *u32` for `lpType` / `0 as *void`
     /// for `lpData` / `0 as *u32` for `lpcbData` to query size.
     @lib pub fn RegQueryValueExA(
-        hKey:        *HKEY,
+        hKey:        HKEY,
         lpValueName: *const char,
         lpReserved:  *u32,
         lpType:      *u32,       // receives RegValueType.*
@@ -246,7 +246,7 @@ pub enum EventLogType: u16 {
     /// Writes a value. `dwType`: RegValueType.*, `cbData`: byte count
     /// including NUL for string types.
     @lib pub fn RegSetValueExA(
-        hKey:        *HKEY,
+        hKey:        HKEY,
         lpValueName: *const char,
         Reserved:    u32,
         dwType:      u32,
@@ -254,13 +254,13 @@ pub enum EventLogType: u16 {
         cbData:      u32
     ): i32
 
-    @lib pub fn RegDeleteValueA(hKey: *HKEY, lpValueName: *const char): i32
-    @lib pub fn RegDeleteKeyA(hKey: *HKEY, lpSubKey: *const char): i32
+    @lib pub fn RegDeleteValueA(hKey: HKEY, lpValueName: *const char): i32
+    @lib pub fn RegDeleteKeyA(hKey: HKEY, lpSubKey: *const char): i32
 
     /// Enumerates subkeys. `dwIndex` starts at 0 and increments until
     /// ERROR_NO_MORE_ITEMS (259) is returned.
     @lib pub fn RegEnumKeyExA(
-        hKey:          *HKEY,
+        hKey:          HKEY,
         dwIndex:       u32,
         lpName:        *char,
         lpcName:       *u32,
@@ -272,7 +272,7 @@ pub enum EventLogType: u16 {
 
     /// Enumerates values. `dwIndex` starts at 0.
     @lib pub fn RegEnumValueA(
-        hKey:          *HKEY,
+        hKey:          HKEY,
         dwIndex:       u32,
         lpValueName:   *char,
         lpcchValueName: *u32,
@@ -282,12 +282,12 @@ pub enum EventLogType: u16 {
         lpcbData:      *u32
     ): i32
 
-    @lib pub fn RegFlushKey(hKey: *HKEY): i32
+    @lib pub fn RegFlushKey(hKey: HKEY): i32
 
     /// Watches a key for changes. `hEvent` is signalled when a change
     /// occurs. Pass `0 as *HANDLE` to use asynchronous notification.
     @lib pub fn RegNotifyChangeKeyValue(
-        hKey:          *HKEY,
+        hKey:          HKEY,
         bWatchSubtree: i32,
         dwNotifyFilter: u32,       // RegNotifyFilter.*
         hEvent:        *void,      // *HANDLE
@@ -296,8 +296,8 @@ pub enum EventLogType: u16 {
 
     @lib pub fn RegConnectRegistryA(
         lpMachineName: *const char,
-        hKey:          *HKEY,
-        phkResult:     **HKEY
+        hKey:          HKEY,
+        phkResult:     *HKEY
     ): i32
 
     // ── Service Control Manager ───────────────────────────────────
@@ -358,23 +358,23 @@ pub enum EventLogType: u16 {
     @lib pub fn OpenEventLogA(
         lpUNCServerName: *const char,
         lpSourceName:    *const char
-    ): *HEVENTLOG
+    ): HEVENTLOG
 
-    @lib pub fn CloseEventLog(hEventLog: *HEVENTLOG): i32
+    @lib pub fn CloseEventLog(hEventLog: HEVENTLOG): i32
 
     /// Registers an event source handle for `ReportEventA`.
     @lib pub fn RegisterEventSourceA(
         lpUNCServerName: *const char,
         lpSourceName:    *const char
-    ): *HEVENTLOG
+    ): HEVENTLOG
 
-    @lib pub fn DeregisterEventSource(hEventLog: *HEVENTLOG): i32
+    @lib pub fn DeregisterEventSource(hEventLog: HEVENTLOG): i32
 
     /// Writes an event to the log.
     /// `lpStrings`: array of `wNumStrings` insertion strings.
     /// `lpRawData`: raw data bytes, or NULL.
     @lib pub fn ReportEventA(
-        hEventLog:   *HEVENTLOG,
+        hEventLog:   HEVENTLOG,
         wType:       u16,         // EventLogType.*
         wCategory:   u16,
         dwEventID:   u32,
