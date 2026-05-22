@@ -83,6 +83,13 @@ The extension looks for the `ilang-lsp` binary in this order:
   classes (with fields / methods / properties / static members),
   interfaces, enums (with variants), consts, and `@extern(C)`
   items
+- **Semantic tokens** — classifies identifiers as class /
+  interface / enum / enumMember / struct / function / method /
+  property / parameter / variable / namespace, with the
+  `declaration` / `static` / `readonly` modifiers where they
+  apply. Layered on top of the TextMate grammar to disambiguate
+  uses the grammar can't tell apart by syntax alone (full
+  document only — no range / delta requests)
 
 ## Scope
 

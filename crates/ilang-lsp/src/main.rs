@@ -10,6 +10,7 @@ mod handlers;
 mod helpers;
 mod imports;
 mod project;
+mod semantic_tokens;
 mod symbols;
 mod text;
 mod text_utils;

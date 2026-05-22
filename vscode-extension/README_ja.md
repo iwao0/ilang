@@ -84,6 +84,13 @@ language server も自動で起動する。
   fn / class (フィールド・メソッド・プロパティ・static を
   ぶら下げる) / interface / enum (variant をぶら下げる) /
   const / `@extern(C)` の項目を階層化して返す
+- **セマンティックトークン**: 識別子を class / interface /
+  enum / enumMember / struct / function / method / property /
+  parameter / variable / namespace に分類し、該当箇所に
+  `declaration` / `static` / `readonly` modifier を付与する。
+  TextMate grammar の上に重ねて、構文だけでは区別できない
+  使い方 (例: 関数呼び出しかローカル変数か) を色分けする
+  (full document のみ。range / delta 要求は未対応)
 
 ## 索引化の範囲
 

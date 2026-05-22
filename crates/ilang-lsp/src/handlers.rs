@@ -168,6 +168,21 @@ impl LanguageServer for Backend {
                     prepare_provider: Some(true),
                     work_done_progress_options: WorkDoneProgressOptions::default(),
                 })),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            work_done_progress_options:
+                                WorkDoneProgressOptions::default(),
+                            legend: SemanticTokensLegend {
+                                token_types: semantic_tokens::TOKEN_TYPES.to_vec(),
+                                token_modifiers: semantic_tokens::TOKEN_MODIFIERS
+                                    .to_vec(),
+                            },
+                            range: Some(false),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                        },
+                    ),
+                ),
                 code_action_provider: Some(CodeActionProviderCapability::Options(
                     CodeActionOptions {
                         code_action_kinds: Some(vec![
@@ -1591,6 +1606,25 @@ impl LanguageServer for Backend {
         } else {
             Ok(Some(DocumentSymbolResponse::Nested(out)))
         }
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        p: SemanticTokensParams,
+    ) -> LspResult<Option<SemanticTokensResult>> {
+        let uri = p.text_document.uri;
+        let docs = self.docs.lock().unwrap();
+        let Some(doc) = docs.get(&uri) else {
+            return Ok(None);
+        };
+        let data = semantic_tokens::build_tokens(doc);
+        if data.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data,
+        })))
     }
 
     async fn shutdown(&self) -> LspResult<()> {
