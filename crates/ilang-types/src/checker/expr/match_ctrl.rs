@@ -508,7 +508,7 @@ impl TypeChecker {
         ret_ty: Option<&Type>,
         in_class: Option<Symbol>,
         loop_depth: u32,
-        span: Span,
+        _span: Span,
     ) -> Result<Type, TypeError> {
         // Range iter: check both endpoints are integer types of
         // a single common int type, bind `var` to that type.
@@ -581,14 +581,9 @@ impl TypeChecker {
         let body_res =
             self.check_block(body, &inner, ret_ty, in_class, loop_depth + 1);
         self.loop_stack.borrow_mut().pop();
-        let body_ty = body_res?;
-        if body_ty != Type::Unit {
-            return Err(TypeError::Mismatch {
-                expected: Type::Unit,
-                got: body_ty,
-                span,
-            });
-        }
+        // For body is a statement — the trailing expression value
+        // is silently discarded.
+        let _body_ty = body_res?;
         Ok(Type::Unit)
     }
 }

@@ -744,9 +744,19 @@ impl<'a> BodyCx<'a> {
         }
         self.env.exit_scope();
 
-        let result_ty = match &then_tail {
-            Some((_, t)) => t.clone(),
-            None => MirTy::Unit,
+        // `if let some(x) = ... { ... }` without an else clause is
+        // a statement; the result is `Unit` and the then-branch's
+        // trailing value (if any) is silently discarded, matching
+        // the type checker (see `check_if_let` in
+        // `crates/ilang-types/.../match_ctrl.rs` "No else: the
+        // result is Unit even if then has a value").
+        let result_ty = if else_branch.is_none() {
+            MirTy::Unit
+        } else {
+            match &then_tail {
+                Some((_, t)) => t.clone(),
+                None => MirTy::Unit,
+            }
         };
         let cont = self.fb.new_block();
         let result_val = if matches!(result_ty, MirTy::Unit) {
@@ -772,15 +782,7 @@ impl<'a> BodyCx<'a> {
                     Box::new([v])
                 }
             }
-            None => {
-                if matches!(result_ty, MirTy::Unit) {
-                    Box::new([])
-                } else {
-                    return Err(LowerError::Other(
-                        "if-let in value position requires else branch".into(),
-                    ));
-                }
-            }
+            None => Box::new([]),
         };
         self.fb.set_terminator(Terminator::Br { dst: cont, args: else_arg });
 

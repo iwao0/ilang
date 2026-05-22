@@ -456,28 +456,19 @@ impl TypeChecker {
                 self.loop_stack.borrow_mut().push(LoopFrame::Other);
                 let body_res = self.check_block(body, env, ret_ty, in_class, loop_depth + 1);
                 self.loop_stack.borrow_mut().pop();
-                let body_ty = body_res?;
-                if body_ty != Type::Unit {
-                    return Err(TypeError::Mismatch {
-                        expected: Type::Unit,
-                        got: body_ty,
-                        span,
-                    });
-                }
+                // While body is a statement — any trailing
+                // expression value is silently discarded.
+                let _body_ty = body_res?;
                 Ok(Type::Unit)
             }
             ExprKind::Loop { body } => {
                 self.loop_stack.borrow_mut().push(LoopFrame::Loop(None));
                 let body_res = self.check_block(body, env, ret_ty, in_class, loop_depth + 1);
                 let frame = self.loop_stack.borrow_mut().pop();
-                let body_ty = body_res?;
-                if body_ty != Type::Unit {
-                    return Err(TypeError::Mismatch {
-                        expected: Type::Unit,
-                        got: body_ty,
-                        span,
-                    });
-                }
+                // Loop body is a statement — the trailing expression
+                // value is discarded (only `break v` produces the
+                // loop's overall value).
+                let _body_ty = body_res?;
                 // The loop's own type is the unified break-value type, or
                 // Unit if no `break v` was seen.
                 let break_ty = match frame {
