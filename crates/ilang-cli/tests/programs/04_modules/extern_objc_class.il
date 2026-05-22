@@ -13,7 +13,7 @@
 // jit: skip
 use test
 
-@extern(ObjC) {
+@extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
     @objc class NSObject {
         @objc("alloc")
         static alloc(): NSObject
@@ -46,5 +46,7 @@ test.expect(if ha != 0 { 1 } else { 0 }, 1)
 let same = a.isEqual(a)
 test.expect(same as i64, 1)
 
-a.release()
-b.release()
+// No explicit `release()` — ilang's ARC auto-releases `a` and `b`
+// at end-of-scope. The `@objc("release")` declaration is here so
+// that auto-release dispatches through libobjc's `objc_msgSend`
+// rather than emitting an unbound-symbol error.
