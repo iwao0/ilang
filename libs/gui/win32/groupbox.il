@@ -8,7 +8,7 @@ use windows {
     CreateWindowExW, SetWindowTextW, MoveWindow, ShowWindow,
     HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8 }
+use util { toWideUtf8, applyGuiFont }
 use core { windowHwnd }
 
 class GroupBoxSlot {
@@ -51,6 +51,7 @@ pub fn createNativeGroupBox(
     )
     HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
     HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
+    applyGuiFont(hwnd as i64)
     GROUPBOXES.push(new GroupBoxSlot(hwnd))
     id
 }

@@ -523,6 +523,8 @@ pub enum FontPitchFamily: u32 {
 
     /// Creates a logical font from explicit parameters. Most
     /// callers prefer `CreateFontIndirectA` with a filled LOGFONTA.
+    /// `HFONT` is `@handle` (pointer-sized opaque) — returned by
+    /// value, not as `*HFONT`.
     @lib pub fn CreateFontA(
         nHeight:          i32,
         nWidth:           i32,
@@ -538,9 +540,9 @@ pub enum FontPitchFamily: u32 {
         fdwQuality:       u32,
         fdwPitchAndFamily: u32,
         lpszFace:         *const char
-    ): *HFONT
+    ): HFONT
 
-    @lib pub fn CreateFontIndirectA(lplf: *const LOGFONTA): *HFONT
+    @lib pub fn CreateFontIndirectA(lplf: *const LOGFONTA): HFONT
 
     // ── Bitmap ────────────────────────────────────────────────────
 

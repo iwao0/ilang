@@ -7,7 +7,7 @@ use windows {
     CreateWindowExW, SetWindowTextW, MoveWindow, ShowWindow,
     HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8 }
+use util { toWideUtf8, applyGuiFont }
 use core { windowHwnd }
 
 class LabelSlot {
@@ -48,6 +48,7 @@ pub fn createNativeLabel(
     )
     HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
     HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
+    applyGuiFont(hwnd as i64)
     let id: i64 = LABELS.length as i64
     LABELS.push(new LabelSlot(hwnd))
     id

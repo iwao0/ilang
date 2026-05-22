@@ -13,7 +13,7 @@ use windows {
     HeapAlloc, HeapFree, GetProcessHeap,
     WideCharToMultiByte,
 }
-use util { toWideUtf8, noOpText }
+use util { toWideUtf8, applyGuiFont, noOpText }
 use core { windowHwnd }
 
 class EditSlot {
@@ -90,6 +90,7 @@ pub fn createNativeEdit(
     HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
+    applyGuiFont(hwnd as i64)
     EDITS.push(new EditSlot(hwnd))
     id
 }

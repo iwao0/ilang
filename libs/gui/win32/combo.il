@@ -10,7 +10,7 @@ use windows {
     SendMessageA, SendMessageW,
     HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8, noOpI32 }
+use util { toWideUtf8, applyGuiFont, noOpI32 }
 use core { windowHwnd }
 
 class ComboSlot {
@@ -83,6 +83,7 @@ pub fn createNativeCombo(
     HeapFree(GetProcessHeap(), 0 as u32, emptyW as *void)
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
+    applyGuiFont(hwnd as i64)
     COMBOS.push(new ComboSlot(hwnd))
     id
 }

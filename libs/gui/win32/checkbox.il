@@ -11,7 +11,7 @@ use windows {
     SendMessageA,
     HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8, applyExplorerTheme, noOpBool }
+use util { toWideUtf8, applyExplorerTheme, applyGuiFont, noOpBool }
 use core { windowHwnd }
 
 class CheckboxSlot {
@@ -85,6 +85,7 @@ pub fn createNativeCheckbox(
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
     applyExplorerTheme(hwnd as i64)
+    applyGuiFont(hwnd as i64)
     // BM_SETCHECK = 0x00F1.
     let checkedW: u64 = if checked { 1 as u64 } else { 0 as u64 }
     let _ = SendMessageA(hwnd, 0x00F1 as u32, checkedW, 0 as i64)

@@ -11,7 +11,7 @@ use windows {
     CreateWindowExW, SetWindowTextW, EnableWindow, MoveWindow, ShowWindow,
     HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8, applyExplorerTheme, noOpClick }
+use util { toWideUtf8, applyExplorerTheme, applyGuiFont, noOpClick }
 use core { windowHwnd }
 
 /// Per-button state. One instance per realised button.
@@ -88,6 +88,7 @@ pub fn createNativeButton(
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
     applyExplorerTheme(hwnd as i64)
+    applyGuiFont(hwnd as i64)
     BUTTONS.push(new ButtonSlot(hwnd))
     id
 }

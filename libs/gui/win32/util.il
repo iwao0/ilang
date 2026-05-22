@@ -16,7 +16,7 @@
 ///   then, which the call sites skip).
 
 use windows {
-    HINSTANCE, ACTCTXW,
+    HWND, HINSTANCE, ACTCTXW,
     CreateActCtxW, ActivateActCtx, GetTempPathA,
     CreateFileA, WriteFile, CloseHandle, HANDLE,
     FileAccess, FileCreation, FileAttribute,
@@ -24,6 +24,11 @@ use windows {
     MultiByteToWideChar,
     SetWindowTheme,
     INITCOMMONCONTROLSEX, InitCommonControlsEx, Icc,
+    // Modern UI font: Segoe UI 9pt via CreateFontA + WM_SETFONT.
+    CreateFontA,
+    FontWeight, FontCharset, FontOutPrecision, FontClipPrecision,
+    FontQuality, FontPitchFamily,
+    SendMessageA,
 }
 
 // True once `enableComctl32V6` has run; subsequent calls bail
@@ -59,6 +64,13 @@ pub fn noOpI32(i: i32) { let _ = i }
 /// Stored as `i64` (raw pointer) because ilang top-level let
 /// arrays can't hold `*u16` outside `@extern(C)` blocks.
 pub let EXPLORER_THEME: i64[] = [0 as i64]
+
+/// Cached `HFONT` for the modern Segoe UI 9pt UI font; populated
+/// lazily by `ensureGuiFont` on the first control creation and
+/// reused by every subsequent widget. Slot is `0` before the
+/// first call; held as `i64` for the same reason as
+/// `EXPLORER_THEME` above.
+pub let GUI_FONT: i64[] = [0 as i64]
 
 @extern(C) {
 
@@ -202,6 +214,56 @@ pub fn applyExplorerTheme(hwnd: i64) {
             0 as *const u16
         )
     }
+}
+
+/// Return the cached `HFONT` for Segoe UI 9pt (Win Vista+ system
+/// UI font), creating it on first call. The handle is leaked for
+/// the process lifetime — every widget shares the same font
+/// rather than each allocating its own.
+///
+/// `nHeight = -12` is the lfHeight wire value for a 9pt font at
+/// the standard 96-dpi mapping (negative = character height in
+/// logical units rather than the cell height the positive form
+/// gives). Hard-coded for now; per-monitor DPI scaling would
+/// recompute via `MulDiv(9, GetDeviceCaps(LOGPIXELSY), 72)`.
+pub fn ensureGuiFont(): i64 {
+    if GUI_FONT[0] != 0 as i64 { return GUI_FONT[0] }
+    let face = cstrFromString("Segoe UI")
+    let h = CreateFontA(
+        -12 as i32,                                // nHeight (9pt @ 96dpi)
+        0 as i32,                                  // nWidth (0 = best match)
+        0 as i32,                                  // nEscapement
+        0 as i32,                                  // nOrientation
+        FontWeight.normal as i32,                  // fnWeight
+        0 as u32,                                  // italic
+        0 as u32,                                  // underline
+        0 as u32,                                  // strikeOut
+        FontCharset.default as u32,                // charset
+        FontOutPrecision.default as u32,           // outPrecision
+        FontClipPrecision.default as u32,          // clipPrecision
+        FontQuality.cleartype as u32,              // quality
+        FontPitchFamily.defaultPitch as u32
+          | FontPitchFamily.ffSwiss as u32,        // pitchAndFamily
+        face
+    )
+    GUI_FONT[0] = h as i64
+    GUI_FONT[0]
+}
+
+/// Push the cached Segoe UI font onto `hwnd` via `WM_SETFONT`
+/// (`0x0030`). `wParam` = HFONT, `lParam` = TRUE to ask the
+/// control to redraw. Idempotent and a no-op if the font cache
+/// is empty (couldn't allocate the font for whatever reason —
+/// the control just keeps the system default).
+pub fn applyGuiFont(hwnd: i64) {
+    let h = ensureGuiFont()
+    if h == 0 as i64 { return }
+    let _ = SendMessageA(
+        hwnd as HWND,
+        0x0030 as u32,        // WM_SETFONT
+        h as u64,
+        1 as i64
+    )
 }
 
 } // @extern(C)
