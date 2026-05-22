@@ -164,7 +164,10 @@ impl LanguageServer for Backend {
                     work_done_progress_options: WorkDoneProgressOptions::default(),
                 }),
                 document_formatting_provider: Some(OneOf::Left(true)),
-                rename_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                })),
                 code_action_provider: Some(CodeActionProviderCapability::Options(
                     CodeActionOptions {
                         code_action_kinds: Some(vec![
@@ -1105,6 +1108,67 @@ impl LanguageServer for Backend {
         Ok(Some(locations))
     }
 
+    async fn prepare_rename(
+        &self,
+        p: TextDocumentPositionParams,
+    ) -> LspResult<Option<PrepareRenameResponse>> {
+        let uri = p.text_document.uri;
+        let pos = p.position;
+        let docs = self.docs.lock().unwrap();
+        let Some(doc) = docs.get(&uri) else {
+            return Ok(None);
+        };
+        // Reject when the cursor isn't on an identifier we can
+        // rename. Mirror the same rejection rules the `rename` call
+        // applies, so the editor's popup never opens for a no-op.
+        if let Some(entry) = lookup_ref(doc, pos) {
+            // `this` is a keyword. Builtins / external decls we can't
+            // navigate to (`no_definition`) have no decl site to
+            // rewrite either, so refuse cleanly here instead of
+            // silently rewriting only the use site.
+            if entry.signature.starts_with("this:") || entry.no_definition {
+                return Ok(None);
+            }
+            let range = Range {
+                start: Position {
+                    line: entry.line.saturating_sub(1),
+                    character: entry.start_col.saturating_sub(1),
+                },
+                end: Position {
+                    line: entry.line.saturating_sub(1),
+                    character: entry.end_col.saturating_sub(1),
+                },
+            };
+            Ok(Some(PrepareRenameResponse::Range(range)))
+        } else if let Some((word, start_col)) = word_at(&doc.text, pos) {
+            // Plain top-level decl whose use site we don't have a
+            // `RefEntry` for (e.g. cursor parked on the decl line
+            // itself). Anything that doesn't resolve to a known
+            // symbol — including bare keywords — is refused.
+            if is_keyword(&word) {
+                return Ok(None);
+            }
+            if !doc.symbols.contains_key(&AstSymbol::intern(&word)) {
+                return Ok(None);
+            }
+            let range = Range {
+                start: Position {
+                    line: pos.line,
+                    character: start_col.saturating_sub(1),
+                },
+                end: Position {
+                    line: pos.line,
+                    character: start_col
+                        .saturating_sub(1)
+                        .saturating_add(word.len() as u32),
+                },
+            };
+            Ok(Some(PrepareRenameResponse::Range(range)))
+        } else {
+            Ok(None)
+        }
+    }
+
     async fn rename(
         &self,
         p: RenameParams,
@@ -1112,6 +1176,20 @@ impl LanguageServer for Backend {
         let uri = p.text_document_position.text_document.uri;
         let pos = p.text_document_position.position;
         let new_name = p.new_name;
+        // Validate the proposed name before touching any buffers.
+        // Reporting an LSP error here lets VSCode show the message
+        // to the user instead of silently accepting an invalid name
+        // and producing un-parseable source.
+        if !is_valid_identifier(&new_name) {
+            return Err(tower_lsp::jsonrpc::Error::invalid_params(format!(
+                "`{new_name}` is not a valid ilang identifier"
+            )));
+        }
+        if is_keyword(&new_name) {
+            return Err(tower_lsp::jsonrpc::Error::invalid_params(format!(
+                "`{new_name}` is a reserved keyword"
+            )));
+        }
         let docs = self.docs.lock().unwrap();
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
@@ -1847,6 +1925,64 @@ fn class_symbol(text: &str, c: &ClassDecl) -> DocumentSymbol {
         text::span_full_to_range(c.span),
         sel,
         if children.is_empty() { None } else { Some(children) },
+    )
+}
+
+/// `true` when `s` is a syntactically valid ilang identifier:
+/// non-empty, first char is ASCII letter or `_`, rest is ASCII
+/// alphanumeric or `_`. Kept ASCII-only to match the lexer.
+fn is_valid_identifier(s: &str) -> bool {
+    let mut chars = s.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// `true` when `s` is one of ilang's reserved keywords. Used by
+/// rename validation to refuse `class`, `if`, etc. as a new name.
+fn is_keyword(s: &str) -> bool {
+    matches!(
+        s,
+        "fn" | "class"
+            | "interface"
+            | "enum"
+            | "use"
+            | "super"
+            | "override"
+            | "init"
+            | "deinit"
+            | "static"
+            | "get"
+            | "set"
+            | "let"
+            | "const"
+            | "if"
+            | "elif"
+            | "else"
+            | "while"
+            | "loop"
+            | "for"
+            | "in"
+            | "match"
+            | "new"
+            | "as"
+            | "true"
+            | "false"
+            | "none"
+            | "some"
+            | "return"
+            | "break"
+            | "continue"
+            | "this"
+            | "pub"
+            | "struct"
+            | "union"
+            | "async"
+            | "await"
     )
 }
 

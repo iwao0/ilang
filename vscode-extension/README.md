@@ -55,7 +55,12 @@ The extension looks for the `ilang-lsp` binary in this order:
   - Class bases, interface names, type annotations
 - **Find All References** — workspace-wide (`.il` files reachable
   from the file's `ilang.toml`, plus all open buffers)
-- **Rename** — same scope as Find References; refuses on `this`
+- **Rename** — same scope as Find References. `textDocument/prepareRename`
+  refuses up front on `this`, keywords, and identifiers that don't
+  resolve to a local decl (builtins / external imports). The new
+  name is validated as a non-keyword ASCII identifier; invalid
+  input surfaces as an error in the editor instead of corrupting
+  the file
 - **Completion**
   - Top-level decls, locals, params, enum variants
   - Member completion on `obj.` (fields / methods / getters /
