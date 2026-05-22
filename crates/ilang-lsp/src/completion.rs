@@ -72,6 +72,11 @@ const KEYWORDS: &[(&str, KwScope)] = &[
     ("interface", KwScope::TopLevel),
     ("enum", KwScope::TopLevel),
     ("use", KwScope::TopLevel),
+    // `super` shows up two ways:
+    //   - top-level `use super.M { ... }` — walk up the dep tree
+    //   - class-body `super.method()` / `super(args)`
+    // Tag as `Both` so completion offers it in either context.
+    ("super", KwScope::Both),
     ("override", KwScope::Block),
     ("init", KwScope::Block),
     ("deinit", KwScope::Block),
