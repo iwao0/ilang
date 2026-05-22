@@ -23,7 +23,7 @@
 
 @extern(ObjC) {
     @objc class NSObject {
-        @objc("release") release?()
+        @objc("release") release()
     }
     @objc pub interface Greeter {
         // Auto-derived selector (= `hello:`) — the parser appends
@@ -47,10 +47,11 @@ class A: Greeter {
     }
 }
 
-// B skips the helloWithSuffix — still legal because
-// `@optional` excuses it from the conformance check.
+// B skips the helloWithSuffix — still legal because that slot is
+// marked `?` (optional) on `Greeter`. `hello` itself is required
+// so no `?` here.
 class B: Greeter {
-    pub hello?(name: i64) {
+    pub hello(name: i64) {
         console.log("hello B")
     }
 }
