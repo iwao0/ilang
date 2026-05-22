@@ -11,9 +11,8 @@ use windows {
     CreateWindowExW, SetWindowTextW, EnableWindow, MoveWindow, ShowWindow,
     GetWindowTextW, GetWindowTextLengthW,
     HeapAlloc, HeapFree, GetProcessHeap,
-    WideCharToMultiByte,
 }
-use util { toWideUtf8, applyGuiFont, noOpText }
+use util { toWideUtf8, fromWideUtf8, applyGuiFont, noOpText }
 use core { windowHwnd }
 
 class EditSlot {
@@ -92,21 +91,8 @@ pub fn readEditText(handle: i64): string {
             let heap = GetProcessHeap()
             let wideBuf = HeapAlloc(heap, 8 as u32, (lenW as u64 + 1 as u64) * 2 as u64) as *u16
             GetWindowTextW(hwnd, wideBuf, lenW + 1)
-            let cap: i32 = (lenW + 1) * 3
-            let utf8Buf = HeapAlloc(heap, 8 as u32, cap as u64) as *char
-            WideCharToMultiByte(
-                65001 as u32,           // CP_UTF8
-                0 as u32,
-                wideBuf as *const u16,
-                -1 as i32,
-                utf8Buf,
-                cap,
-                0 as *const char,
-                0 as *i32
-            )
-            let s = stringFromCstr(utf8Buf as *const char)
+            let s = fromWideUtf8(wideBuf as i64, lenW)
             HeapFree(heap, 0 as u32, wideBuf as *void)
-            HeapFree(heap, 0 as u32, utf8Buf as *void)
             s
         }
     } else {

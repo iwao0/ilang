@@ -21,7 +21,7 @@ use windows {
     CreateFileA, WriteFile, CloseHandle, HANDLE,
     FileAccess, FileCreation, FileAttribute,
     HeapAlloc, HeapFree, GetProcessHeap,
-    MultiByteToWideChar,
+    MultiByteToWideChar, WideCharToMultiByte,
     SetWindowTheme,
     INITCOMMONCONTROLSEX, InitCommonControlsEx, Icc,
     // Modern UI font: Segoe UI 9pt via CreateFontA + WM_SETFONT.
@@ -97,6 +97,36 @@ pub fn toWideUtf8(s: string): i64 {
         cap
     )
     buf as i64
+}
+
+/// Inverse of `toWideUtf8`: NUL-terminated UTF-16 buffer at
+/// `wideBuf` → ilang `string` (UTF-8). `wlen` is the UTF-16
+/// code-unit count (excluding the terminator) — used to size the
+/// scratch UTF-8 buffer (`(wlen + 1) * 3` covers the worst case:
+/// BMP code points expand to 3 bytes, surrogate pairs cover 4
+/// bytes per 2 code units).
+///
+/// The caller still owns `wideBuf` — `fromWideUtf8` only
+/// allocates and frees the temporary UTF-8 scratch. Pass `0` for
+/// an empty / null buffer to get back `""`.
+pub fn fromWideUtf8(wideBuf: i64, wlen: i32): string {
+    if wideBuf == 0 as i64 || wlen <= 0 as i32 { return "" }
+    let heap = GetProcessHeap()
+    let cap: i32 = (wlen + 1) * 3
+    let utf8Buf = HeapAlloc(heap, 8 as u32, cap as u64) as *char
+    WideCharToMultiByte(
+        65001 as u32,           // CP_UTF8
+        0 as u32,
+        wideBuf as *const u16,
+        -1 as i32,              // NUL-terminated input
+        utf8Buf,
+        cap,
+        0 as *const char,
+        0 as *i32
+    )
+    let s = stringFromCstr(utf8Buf as *const char)
+    HeapFree(heap, 0 as u32, utf8Buf as *void)
+    s
 }
 
 /// Install a side-by-side activation context that pulls in
