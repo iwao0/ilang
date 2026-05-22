@@ -90,6 +90,52 @@ pub enum TokenKind {
     Eof,
 }
 
+impl TokenKind {
+    /// Source spelling for word-shaped keyword tokens (e.g. `Class`
+    /// → `Some("class")`). Returns `None` for non-keyword variants
+    /// and for symbol-shaped keywords like `FatArrow` (`=>`).
+    ///
+    /// Lets parsers that accept keywords in identifier positions
+    /// (e.g. `obj.class`, `Enum.return`) share one whitelist instead
+    /// of re-listing every variant.
+    pub fn keyword_str(&self) -> Option<&'static str> {
+        Some(match self {
+            TokenKind::Let => "let",
+            TokenKind::Fn => "fn",
+            TokenKind::If => "if",
+            TokenKind::Elif => "elif",
+            TokenKind::Else => "else",
+            TokenKind::While => "while",
+            TokenKind::Loop => "loop",
+            TokenKind::Break => "break",
+            TokenKind::Continue => "continue",
+            TokenKind::Return => "return",
+            TokenKind::True => "true",
+            TokenKind::False => "false",
+            TokenKind::Class => "class",
+            TokenKind::Interface => "interface",
+            TokenKind::New => "new",
+            TokenKind::This => "this",
+            TokenKind::As => "as",
+            TokenKind::Is => "is",
+            TokenKind::None_ => "none",
+            TokenKind::Some_ => "some",
+            TokenKind::Enum => "enum",
+            TokenKind::Match => "match",
+            TokenKind::For => "for",
+            TokenKind::In => "in",
+            TokenKind::Use => "use",
+            TokenKind::Const => "const",
+            TokenKind::Override => "override",
+            TokenKind::Super => "super",
+            TokenKind::Pub => "pub",
+            TokenKind::Async => "async",
+            TokenKind::Await => "await",
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,

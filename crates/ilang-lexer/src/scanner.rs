@@ -259,6 +259,19 @@ impl<'a> Lexer<'a> {
         self.peeked2.unwrap()
     }
 
+    /// Shared body for operators that come in a `<c>` / `<c>=` pair
+    /// (e.g. `+` / `+=`, `!` / `!=`). The leading char is at `peek`;
+    /// consume it, then look for an `=` suffix.
+    fn op_or_eq(&mut self, plain: TokenKind, with_eq: TokenKind) -> TokenKind {
+        self.bump();
+        if matches!(self.peek(), Some('=')) {
+            self.bump();
+            with_eq
+        } else {
+            plain
+        }
+    }
+
     fn next_token(&mut self) -> Result<Token, LexError> {
         self.skip_whitespace()?;
         let leading_newline = std::mem::take(&mut self.pending_newline);
@@ -279,51 +292,11 @@ impl<'a> Lexer<'a> {
         };
 
         let kind = match c {
-            '+' => {
-                self.bump();
-                if matches!(self.peek(), Some('=')) {
-                    self.bump();
-                    TokenKind::PlusEq
-                } else {
-                    TokenKind::Plus
-                }
-            }
-            '-' => {
-                self.bump();
-                if matches!(self.peek(), Some('=')) {
-                    self.bump();
-                    TokenKind::MinusEq
-                } else {
-                    TokenKind::Minus
-                }
-            }
-            '*' => {
-                self.bump();
-                if matches!(self.peek(), Some('=')) {
-                    self.bump();
-                    TokenKind::StarEq
-                } else {
-                    TokenKind::Star
-                }
-            }
-            '/' => {
-                self.bump();
-                if matches!(self.peek(), Some('=')) {
-                    self.bump();
-                    TokenKind::SlashEq
-                } else {
-                    TokenKind::Slash
-                }
-            }
-            '%' => {
-                self.bump();
-                if matches!(self.peek(), Some('=')) {
-                    self.bump();
-                    TokenKind::PercentEq
-                } else {
-                    TokenKind::Percent
-                }
-            }
+            '+' => self.op_or_eq(TokenKind::Plus, TokenKind::PlusEq),
+            '-' => self.op_or_eq(TokenKind::Minus, TokenKind::MinusEq),
+            '*' => self.op_or_eq(TokenKind::Star, TokenKind::StarEq),
+            '/' => self.op_or_eq(TokenKind::Slash, TokenKind::SlashEq),
+            '%' => self.op_or_eq(TokenKind::Percent, TokenKind::PercentEq),
             '(' => {
                 self.bump();
                 TokenKind::LParen
@@ -379,15 +352,7 @@ impl<'a> Lexer<'a> {
                     _ => TokenKind::Equals,
                 }
             }
-            '!' => {
-                self.bump();
-                if matches!(self.peek(), Some('=')) {
-                    self.bump();
-                    TokenKind::BangEq
-                } else {
-                    TokenKind::Bang
-                }
-            }
+            '!' => self.op_or_eq(TokenKind::Bang, TokenKind::BangEq),
             '<' => {
                 self.bump();
                 match self.peek() {
@@ -454,15 +419,7 @@ impl<'a> Lexer<'a> {
                     _ => TokenKind::Pipe,
                 }
             }
-            '^' => {
-                self.bump();
-                if matches!(self.peek(), Some('=')) {
-                    self.bump();
-                    TokenKind::CaretEq
-                } else {
-                    TokenKind::Caret
-                }
-            }
+            '^' => self.op_or_eq(TokenKind::Caret, TokenKind::CaretEq),
             '~' => {
                 self.bump();
                 TokenKind::Tilde

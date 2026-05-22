@@ -139,55 +139,20 @@ impl<'a> Parser<'a> {
         // for a full Token clone (which would copy the kind's String
         // payload when one is present).
         let t = self.peek();
-        let name: Option<&'static str> = match &t.kind {
-            TokenKind::Ident(n) => {
-                let s = n.clone();
-                self.bump();
-                return Ok(s.into());
-            }
-            TokenKind::Class => Some("class"),
-            TokenKind::Enum => Some("enum"),
-            TokenKind::Interface => Some("interface"),
-            TokenKind::Fn => Some("fn"),
-            TokenKind::Let => Some("let"),
-            TokenKind::Const => Some("const"),
-            TokenKind::Pub => Some("pub"),
-            TokenKind::Use => Some("use"),
-            TokenKind::If => Some("if"),
-            TokenKind::Elif => Some("elif"),
-            TokenKind::Else => Some("else"),
-            TokenKind::While => Some("while"),
-            TokenKind::For => Some("for"),
-            TokenKind::Loop => Some("loop"),
-            TokenKind::Match => Some("match"),
-            TokenKind::Break => Some("break"),
-            TokenKind::Continue => Some("continue"),
-            TokenKind::None_ => Some("none"),
-            TokenKind::Override => Some("override"),
-            TokenKind::True => Some("true"),
-            TokenKind::False => Some("false"),
-            TokenKind::Some_ => Some("some"),
-            TokenKind::As => Some("as"),
-            TokenKind::In => Some("in"),
-            TokenKind::Is => Some("is"),
-            TokenKind::New => Some("new"),
-            TokenKind::Super => Some("super"),
-            TokenKind::This => Some("this"),
-            TokenKind::Return => Some("return"),
-            TokenKind::Async => Some("async"),
-            TokenKind::Await => Some("await"),
-            _ => None,
-        };
-        if let Some(s) = name {
+        if let TokenKind::Ident(n) = &t.kind {
+            let s: ilang_ast::Symbol = n.clone().into();
             self.bump();
-            Ok(s.into())
-        } else {
-            Err(ParseError::Unexpected {
-                found: t.kind.clone(),
-                expected: label.into(),
-                span: t.span,
-            })
+            return Ok(s);
         }
+        if let Some(s) = t.kind.keyword_str() {
+            self.bump();
+            return Ok(s.into());
+        }
+        Err(ParseError::Unexpected {
+            found: t.kind.clone(),
+            expected: label.into(),
+            span: t.span,
+        })
     }
 
     /// After parsing an expression in statement-position, decide whether it
