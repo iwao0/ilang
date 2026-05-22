@@ -59,20 +59,20 @@ pub fn createNativeGroupBox(
 pub fn setGroupBoxText(handle: i64, text: string) {
     if let some(slot) = GROUPBOXES.get(handle) {
         let w = toWideUtf8(text) as *u16
-        let _ = SetWindowTextW(slot.hwnd, w)
-        let _ = HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        SetWindowTextW(slot.hwnd, w)
+        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
     }
 }
 pub fn setGroupBoxFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
     if let some(slot) = GROUPBOXES.get(handle) {
-        let _ = MoveWindow(slot.hwnd,
+        MoveWindow(slot.hwnd,
                    x as i32, y as i32, width as i32, height as i32, 1)
     }
 }
 pub fn setGroupBoxVisible(handle: i64, visible: bool) {
     if let some(slot) = GROUPBOXES.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-        let _ = ShowWindow(slot.hwnd, cmd)
+        ShowWindow(slot.hwnd, cmd)
     }
 }
 

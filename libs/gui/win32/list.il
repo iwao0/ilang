@@ -79,22 +79,22 @@ pub fn setOnListSelect(handle: i64, cb: fn(i32)) {
 pub fn addListItem(handle: i64, item: string) {
     if let some(slot) = LISTS.get(handle) {
         let w = toWideUtf8(item) as *u16
-        let _ = SendMessageW(slot.hwnd, 0x0180 as u32,
+        SendMessageW(slot.hwnd, 0x0180 as u32,
                              0 as u64, w as i64)
-        let _ = HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
     }
 }
 /// LB_RESETCONTENT = 0x0184.
 pub fn clearListItems(handle: i64) {
     if let some(slot) = LISTS.get(handle) {
-        let _ = SendMessageA(slot.hwnd, 0x0184 as u32,
+        SendMessageA(slot.hwnd, 0x0184 as u32,
                              0 as u64, 0 as i64)
     }
 }
 /// LB_SETCURSEL = 0x0186.
 pub fn setListSelectedIndex(handle: i64, index: i32) {
     if let some(slot) = LISTS.get(handle) {
-        let _ = SendMessageA(slot.hwnd, 0x0186 as u32,
+        SendMessageA(slot.hwnd, 0x0186 as u32,
                              index as i64 as u64, 0 as i64)
     }
 }
@@ -109,20 +109,20 @@ pub fn readListSelectedIndex(handle: i64): i32 {
 }
 pub fn setListFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
     if let some(slot) = LISTS.get(handle) {
-        let _ = MoveWindow(slot.hwnd,
+        MoveWindow(slot.hwnd,
                    x as i32, y as i32, width as i32, height as i32, 1)
     }
 }
 pub fn setListEnabled(handle: i64, enabled: bool) {
     if let some(slot) = LISTS.get(handle) {
         let flag: i32 = if enabled { 1 } else { 0 }
-        let _ = EnableWindow(slot.hwnd, flag)
+        EnableWindow(slot.hwnd, flag)
     }
 }
 pub fn setListVisible(handle: i64, visible: bool) {
     if let some(slot) = LISTS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-        let _ = ShowWindow(slot.hwnd, cmd)
+        ShowWindow(slot.hwnd, cmd)
     }
 }
 

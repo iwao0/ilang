@@ -57,9 +57,9 @@ pub fn createNativeProgress(
     let handle = hwnd as i64
     PROGRESS[handle] = new ProgressSlot(hwnd, min, max)
     // PBM_SETRANGE32 = 0x0406 (wParam = min, lParam = max).
-    let _ = SendMessageA(hwnd, 0x0406 as u32, min as i64 as u64, max as i64)
+    SendMessageA(hwnd, 0x0406 as u32, min as i64 as u64, max as i64)
     // PBM_SETPOS = 0x0402.
-    let _ = SendMessageA(hwnd, 0x0402 as u32, value as i64 as u64, 0 as i64)
+    SendMessageA(hwnd, 0x0402 as u32, value as i64 as u64, 0 as i64)
     handle
 }
 
@@ -67,26 +67,26 @@ pub fn setProgressRange(handle: i64, min: f64, max: f64) {
     if let some(slot) = PROGRESS.get(handle) {
         slot.min = min
         slot.max = max
-        let _ = SendMessageA(slot.hwnd, 0x0406 as u32,
+        SendMessageA(slot.hwnd, 0x0406 as u32,
                              min as i64 as u64, max as i64)
     }
 }
 pub fn setProgressValue(handle: i64, value: f64) {
     if let some(slot) = PROGRESS.get(handle) {
-        let _ = SendMessageA(slot.hwnd, 0x0402 as u32,
+        SendMessageA(slot.hwnd, 0x0402 as u32,
                              value as i64 as u64, 0 as i64)
     }
 }
 pub fn setProgressFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
     if let some(slot) = PROGRESS.get(handle) {
-        let _ = MoveWindow(slot.hwnd,
+        MoveWindow(slot.hwnd,
                    x as i32, y as i32, width as i32, height as i32, 1)
     }
 }
 pub fn setProgressVisible(handle: i64, visible: bool) {
     if let some(slot) = PROGRESS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-        let _ = ShowWindow(slot.hwnd, cmd)
+        ShowWindow(slot.hwnd, cmd)
     }
 }
 

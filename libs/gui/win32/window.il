@@ -50,7 +50,7 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         lpszClassName: classNameW as *const char,
         hIconSm:       0 as HICON,
     }
-    let _ = RegisterClassExW(&wc)
+    RegisterClassExW(&wc)
 
     let hwnd = CreateWindowExW(
         0,
@@ -77,8 +77,8 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
 pub fn setWindowTitle(handle: i64, title: string) {
     if let some(slot) = WINDOWS.get(handle) {
         let w = toWideUtf8(title) as *u16
-        let _ = SetWindowTextW(slot.hwnd, w)
-        let _ = HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        SetWindowTextW(slot.hwnd, w)
+        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
     }
 }
 
@@ -88,21 +88,21 @@ pub fn setWindowSize(handle: i64, width: f64, height: f64) {
         // window's screen position or Z-order siblings.
         let flags = (SetWindowPosFlags.noMove as u32)
                   | (SetWindowPosFlags.noZOrder as u32)
-        let _ = SetWindowPos(slot.hwnd, 0 as HWND,
+        SetWindowPos(slot.hwnd, 0 as HWND,
                              0, 0, width as i32, height as i32, flags)
     }
 }
 
 pub fn showNativeWindow(handle: i64) {
     if let some(slot) = WINDOWS.get(handle) {
-        let _ = ShowWindow(slot.hwnd, ShowCmd.show as i32)
-        let _ = UpdateWindow(slot.hwnd)
+        ShowWindow(slot.hwnd, ShowCmd.show as i32)
+        UpdateWindow(slot.hwnd)
     }
 }
 
 pub fn hideNativeWindow(handle: i64) {
     if let some(slot) = WINDOWS.get(handle) {
-        let _ = ShowWindow(slot.hwnd, ShowCmd.hide as i32)
+        ShowWindow(slot.hwnd, ShowCmd.hide as i32)
     }
 }
 
@@ -120,7 +120,7 @@ pub fn runEventLoop() {
         let r = GetMessageW(&msg, 0 as HWND, 0, 0)
         if r <= 0 { break }
         TranslateMessage(&msg)
-        let _ = DispatchMessageW(&msg)
+        DispatchMessageW(&msg)
     }
 }
 

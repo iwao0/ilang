@@ -92,7 +92,7 @@ pub fn toWideUtf8(s: string): i64 {
         8 as u32,
         (cap as u64) * 2 as u64
     )
-    let _ = MultiByteToWideChar(
+    MultiByteToWideChar(
         65001 as u32,           // CP_UTF8
         0 as u32,
         cstr,
@@ -121,7 +121,7 @@ pub fn enableComctl32V6() {
 
     // Compose the manifest path under %TEMP%.
     let tempBuf = HeapAlloc(heap, 8 as u32, 1024 as u64)
-    let _ = GetTempPathA(1024 as u32, tempBuf as *char)
+    GetTempPathA(1024 as u32, tempBuf as *char)
     let tempStr = stringFromCstr(tempBuf as *const char)
     let manifestPath = tempStr + "ilang_gui_v6.manifest"
     let pathC = cstrFromString(manifestPath)
@@ -143,7 +143,7 @@ pub fn enableComctl32V6() {
         return
     }
     let written: u32 = 0
-    let _ = WriteFile(
+    WriteFile(
         hFile,
         manifestC as *const void,
         manifestLen,
@@ -154,7 +154,7 @@ pub fn enableComctl32V6() {
 
     // ANSI path → wide for CreateActCtxW.
     let wideBuf = HeapAlloc(heap, 8 as u32, 2048 as u64) as *u16
-    let _ = MultiByteToWideChar(
+    MultiByteToWideChar(
         0 as u32,                   // CP_ACP
         0 as u32,
         pathC,
@@ -180,7 +180,7 @@ pub fn enableComctl32V6() {
     let h = CreateActCtxW(&actCtx)
     if h != -1 as i64 {
         let cookie: u64 = 0
-        let _ = ActivateActCtx(h, &cookie)
+        ActivateActCtx(h, &cookie)
     }
     HeapFree(heap, 0 as u32, tempBuf)
     // wideBuf intentionally not freed — the activation context
@@ -193,12 +193,12 @@ pub fn enableComctl32V6() {
               | Icc.barClasses as u32      // trackbar / toolbar
               | Icc.progressClass as u32,  // progress bar
     }
-    let _ = InitCommonControlsEx(&icc)
+    InitCommonControlsEx(&icc)
 
     // Cache a wide "Explorer" string for SetWindowTheme.
     let themeBuf = HeapAlloc(heap, 8 as u32, 32 as u64) as *u16
     let themeName = cstrFromString("Explorer")
-    let _ = MultiByteToWideChar(
+    MultiByteToWideChar(
         0 as u32, 0 as u32, themeName, -1 as i32,
         themeBuf, 16 as i32
     )
@@ -211,7 +211,7 @@ pub fn enableComctl32V6() {
 /// manifest already pinned an older theme, or the host lacks v6).
 pub fn applyExplorerTheme(hwnd: i64) {
     if EXPLORER_THEME[0] != 0 as i64 {
-        let _ = SetWindowTheme(
+        SetWindowTheme(
             hwnd,
             EXPLORER_THEME[0] as *const u16,
             0 as *const u16
@@ -261,7 +261,7 @@ pub fn ensureGuiFont(): i64 {
 pub fn applyGuiFont(hwnd: i64) {
     let h = ensureGuiFont()
     if h == 0 as i64 { return }
-    let _ = SendMessageA(
+    SendMessageA(
         hwnd as HWND,
         0x0030 as u32,        // WM_SETFONT
         h as u64,

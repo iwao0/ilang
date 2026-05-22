@@ -118,7 +118,7 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             // WM_CLOSE without destroying" path left a live HWND
             // that the OS tore down forcibly at process exit.
             dispatchClose(hwnd)
-            let _ = DestroyWindow(hwnd as HWND)
+            DestroyWindow(hwnd as HWND)
             return 0
         }
         WindowMessage.destroy {
@@ -134,9 +134,9 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             // uninitialised surface (= black).
             let hdc = wParam as i64 as HDC
             let rc = RECT { left: 0, top: 0, right: 0, bottom: 0 }
-            let _ = GetClientRect(hwnd as HWND, &rc)
+            GetClientRect(hwnd as HWND, &rc)
             let brush = GetSysColorBrush(15 as i32)   // COLOR_BTNFACE
-            let _ = FillRect(hdc, &rc, brush)
+            FillRect(hdc, &rc, brush)
             return 1
         }
         WindowMessage.setCursor {
@@ -148,7 +148,7 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                     0 as HINSTANCE,
                     SystemCursor.arrow as i64 as *const char
                 )
-                let _ = SetCursor(arrow)
+                SetCursor(arrow)
                 return 1
             }
         }
