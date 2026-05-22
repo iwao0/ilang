@@ -13,7 +13,10 @@
 
 use gui
 
-let w = new gui.Window("ilang × gui — controls", 460.0, 260.0)
+let w = new gui.Window()
+w.title  = "ilang × gui — controls"
+w.width  = 460.0
+w.height = 260.0
 
 let mirror = new gui.Checkbox()
 mirror.text   = "Drive progress from slider"
@@ -65,4 +68,5 @@ combo.onSelect.add(fn(e: gui.SelectEvent) {
 })
 w.addChild(combo)
 
+w.show()
 gui.run()

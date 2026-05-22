@@ -18,6 +18,8 @@ use event {
 }
 use gui_impl {
     createNativeWindow,
+    setWindowTitle, setWindowSize,
+    showNativeWindow, hideNativeWindow,
     setOnClose,
     setOnResize,
     setOnKeyDown,
@@ -27,15 +29,23 @@ use gui_impl {
     setOnMouseUp,
 }
 
-/// A top-level OS window. Construct with
-/// `new Window(title, width, height)`; the window appears
-/// immediately but no events fire until `gui.run()` is called.
+/// A top-level OS window. Construct with `new Window()`, then
+/// configure (`title` / `width` / `height` / `addChild`) before
+/// calling `show()` to display it.
+///
+/// The native window is created HIDDEN in `init` so callers can
+/// stage their initial layout without flashing an empty grey
+/// rectangle. The first `show()` brings it on screen; later
+/// `show()` / `hide()` toggle visibility.
 ///
 /// Each `on*` field is a `Signal<T>` users register on with
 /// `w.onClose.add(fn(e) { ... })`. Listeners fire on the main
 /// thread synchronously from inside `gui.run()`.
 pub class Window : EventTarget {
     pub handle: i64
+    _title:  string
+    _width:  f64
+    _height: f64
     pub onClose:     Signal<CloseEvent>
     pub onResize:    Signal<SizeEvent>
     pub onKeyDown:   Signal<KeyEvent>
@@ -44,9 +54,12 @@ pub class Window : EventTarget {
     pub onMouseDown: Signal<MouseEvent>
     pub onMouseUp:   Signal<MouseEvent>
 
-    pub init(title: string, width: f64, height: f64) {
+    pub init() {
         super()
-        this.handle      = createNativeWindow(title, width, height)
+        this._title  = ""
+        this._width  = 480.0
+        this._height = 320.0
+        this.handle  = createNativeWindow(this._title, this._width, this._height)
         this.onClose     = new Signal<CloseEvent>()
         this.onResize    = new Signal<SizeEvent>()
         this.onKeyDown   = new Signal<KeyEvent>()
@@ -84,6 +97,33 @@ pub class Window : EventTarget {
                 this.onMouseUp.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
             })
     }
+
+    pub get title(): string { this._title }
+    pub set title(v: string) {
+        this._title = v
+        setWindowTitle(this.handle, v)
+    }
+
+    pub get width(): f64 { this._width }
+    pub set width(v: f64) {
+        this._width = v
+        setWindowSize(this.handle, this._width, this._height)
+    }
+    pub get height(): f64 { this._height }
+    pub set height(v: f64) {
+        this._height = v
+        setWindowSize(this.handle, this._width, this._height)
+    }
+
+    /// Display the window. First call brings the hidden native
+    /// window on screen and activates the app; subsequent calls
+    /// re-show after a `hide()`.
+    pub show() { showNativeWindow(this.handle) }
+
+    /// Hide the window without destroying it. The HWND / NSWindow
+    /// stays alive so a later `show()` brings the same instance
+    /// (with its current children + state) back.
+    pub hide() { hideNativeWindow(this.handle) }
 
     /// Attach a child control. The native OS control is realized
     /// on this call; property setters invoked before `addChild`

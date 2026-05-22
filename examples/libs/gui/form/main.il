@@ -8,7 +8,10 @@
 
 use gui
 
-let w = new gui.Window("ilang × gui — form", 420.0, 200.0)
+let w = new gui.Window()
+w.title  = "ilang × gui — form"
+w.width  = 420.0
+w.height = 200.0
 
 let nameLabel = new gui.Label()
 nameLabel.text   = "Name:"
@@ -56,4 +59,5 @@ toggle.onClick.add(fn(e: gui.MouseEvent) {
 })
 w.addChild(toggle)
 
+w.show()
 gui.run()

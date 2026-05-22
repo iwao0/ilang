@@ -12,7 +12,8 @@ use windows {
     WNDCLASSEXA, MSG, POINT,
     ClassStyle, WindowStyle, ShowCmd, WindowLongIndex,
     RegisterClassExW, CreateWindowExW,
-    SetWindowLongPtrA,
+    SetWindowLongPtrA, SetWindowTextW, SetWindowPos,
+    SetWindowPosFlags,
     GetMessageW, DispatchMessageW, TranslateMessage,
     ShowWindow, UpdateWindow,
     HeapFree, GetProcessHeap,
@@ -70,9 +71,38 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     // Stash the slot index so guiWndProc can route back to us.
     let _ = SetWindowLongPtrA(hwnd, WindowLongIndex.userdata as i32, handle)
 
-    ShowWindow(hwnd, ShowCmd.show as i32)
-    UpdateWindow(hwnd)
+    // Created HIDDEN. The user controls first-paint via
+    // `Window.show()` so they can mutate title / size / add
+    // children before the window flashes on screen.
     handle
+}
+
+pub fn setWindowTitle(handle: i64, title: string) {
+    if handle < 0 || handle >= (WINDOWS.length as i64) { return }
+    let w = toWideUtf8(title) as *u16
+    let _ = SetWindowTextW(WINDOWS[handle].hwnd, w)
+    HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+}
+
+pub fn setWindowSize(handle: i64, width: f64, height: f64) {
+    if handle < 0 || handle >= (WINDOWS.length as i64) { return }
+    // SWP_NOMOVE | SWP_NOZORDER — resize without changing the
+    // window's screen position or Z-order siblings.
+    let flags = (SetWindowPosFlags.noMove as u32)
+              | (SetWindowPosFlags.noZOrder as u32)
+    let _ = SetWindowPos(WINDOWS[handle].hwnd, 0 as HWND,
+                         0, 0, width as i32, height as i32, flags)
+}
+
+pub fn showNativeWindow(handle: i64) {
+    if handle < 0 || handle >= (WINDOWS.length as i64) { return }
+    ShowWindow(WINDOWS[handle].hwnd, ShowCmd.show as i32)
+    UpdateWindow(WINDOWS[handle].hwnd)
+}
+
+pub fn hideNativeWindow(handle: i64) {
+    if handle < 0 || handle >= (WINDOWS.length as i64) { return }
+    ShowWindow(WINDOWS[handle].hwnd, ShowCmd.hide as i32)
 }
 
 pub fn runEventLoop() {

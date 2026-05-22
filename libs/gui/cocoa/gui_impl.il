@@ -24,7 +24,8 @@ use cocoa {
     NSNotification, NSEvent,
     NSRect, NSWindowStyleMask, NSApplicationActivationPolicy,
     NSEventModifierFlags, NSString,
-    nsstr, ilstr, makeRect, makeLabel, makeTextField, makeSlider,
+    nsstr, ilstr, makeRect, makeSize,
+    makeLabel, makeTextField, makeSlider,
     makeProgressBar, makeScrollView, selectorPtr, nil,
     sharedApplication, makeWindow,
 }
@@ -266,8 +267,9 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     win.setAcceptsMouseMovedEvents(true)
     win.makeFirstResponder(v)
 
-    win.makeKeyAndOrderFront(nil)
-    app.activate()
+    // Created HIDDEN. The user controls first-paint via
+    // `Window.show()` so they can mutate title / size / add
+    // children before the window flashes on screen.
 
     let handle: i64 = WINDOWS.length as i64
     WINDOWS.push(win)
@@ -304,6 +306,29 @@ pub fn setOnMouseDown(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 }
 pub fn setOnMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if handle >= 0 && handle < (ON_MOUSE_UP.length as i64) { ON_MOUSE_UP[handle] = cb }
+}
+
+pub fn setWindowTitle(handle: i64, title: string) {
+    if handle >= 0 && handle < (WINDOWS.length as i64) {
+        WINDOWS[handle].setTitle(nsstr(title))
+    }
+}
+pub fn setWindowSize(handle: i64, width: f64, height: f64) {
+    if handle >= 0 && handle < (WINDOWS.length as i64) {
+        WINDOWS[handle].setContentSize(makeSize(width, height))
+    }
+}
+pub fn showNativeWindow(handle: i64) {
+    if handle >= 0 && handle < (WINDOWS.length as i64) {
+        WINDOWS[handle].makeKeyAndOrderFront(nil)
+        let app = NSApplication.sharedApplication()
+        app.activate()
+    }
+}
+pub fn hideNativeWindow(handle: i64) {
+    if handle >= 0 && handle < (WINDOWS.length as i64) {
+        WINDOWS[handle].orderOut(nil)
+    }
 }
 
 // ─── buttons ──────────────────────────────────────────────────

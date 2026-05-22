@@ -11,7 +11,10 @@
 
 use gui
 
-let w = new gui.Window("ilang × gui — groups", 480.0, 280.0)
+let w = new gui.Window()
+w.title  = "ilang × gui — groups"
+w.width  = 480.0
+w.height = 280.0
 
 // Group #1 — size radios.
 let sizeBox = new gui.GroupBox()
@@ -65,4 +68,5 @@ list.onSelect.add(fn(e: gui.SelectEvent) {
 })
 w.addChild(list)
 
+w.show()
 gui.run()

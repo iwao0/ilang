@@ -6,13 +6,16 @@
 // Run on macOS:
 //   ilang run examples/libs/gui/window/main.il
 //
-// `[deps] @target` in `libs/gui/core/ilang.toml` swaps the backing
+// `[deps] @target` in `libs/gui/ilang.toml` swaps the backing
 // implementation between `libs/gui/cocoa` and `libs/gui/win32`,
 // so this file is identical on both hosts.
 
 use gui
 
-let w = new gui.Window("ilang × gui", 480.0, 320.0)
+let w = new gui.Window()
+w.title  = "ilang × gui"
+w.width  = 480.0
+w.height = 320.0
 
 w.onClose.add(fn(e: gui.CloseEvent) {
     let _ = e
@@ -55,4 +58,5 @@ b.onClick.add(fn(e: gui.MouseEvent) {
 })
 w.addChild(b)
 
+w.show()
 gui.run()

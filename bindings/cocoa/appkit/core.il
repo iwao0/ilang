@@ -138,6 +138,14 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub center()
         @objc("makeKeyAndOrderFront:")
         pub makeKeyAndOrderFront(sender: NSObject)
+        /// Hide the window without releasing it. Pair with
+        /// `makeKeyAndOrderFront:` for show/hide toggling.
+        @objc("orderOut:")
+        pub orderOut(sender: NSObject)
+        /// Resize the content area to `size` (excluding the
+        /// titlebar). Preserves the window's top-left position.
+        @objc("setContentSize:")
+        pub setContentSize(size: NSSize)
         @objc("contentView")
         pub get contentView(): NSView
         @objc("setContentView:")
