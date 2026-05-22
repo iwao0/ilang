@@ -246,3 +246,22 @@ fn parse_error_format_starts_with_span() {
     let s = format!("{err}");
     assert!(s.starts_with("[1:4]:"), "got: {s}");
 }
+
+#[test]
+fn match_unit_variant_named_with_keyword() {
+    // Regression: variants named with a keyword (e.g. `match`) used to
+    // confuse the match-arm lookahead. `X.match { body }` was misread
+    // as a struct-pattern instead of unit-variant + arm body, because
+    // the in-arm lookahead's keyword whitelist had drifted behind
+    // `expect_member_name`'s. Both now share `TokenKind::keyword_str`.
+    let src = "\
+enum X { match, ok }
+fn run(x: X): i64 {
+    match x {
+        X.match { 0 }
+        X.ok { 1 }
+    }
+}
+";
+    parse_str(src);
+}

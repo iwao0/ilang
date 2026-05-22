@@ -196,26 +196,12 @@ impl<'a> Parser<'a> {
         // For the short form we still want the same disambiguation.
         // (Wildcard `_` and `ok`/`err` Result short forms never end up
         // here — they're handled inside parse_pattern.)
-        // Variant names accept ident plus the promoted keywords.
-        // Mirrors `Parser::expect_member_name`.
+        // Variant names accept ident plus every word-shaped keyword,
+        // matching `Parser::expect_member_name`. Both whitelists used
+        // to be hand-rolled and drifted apart; routing through
+        // `TokenKind::keyword_str` keeps them in sync.
         let is_name = |k: &TokenKind| {
-            matches!(
-                k,
-                TokenKind::Ident(_)
-                    | TokenKind::Class
-                    | TokenKind::Enum
-                    | TokenKind::Fn
-                    | TokenKind::None_
-                    | TokenKind::Override
-                    | TokenKind::True
-                    | TokenKind::False
-                    | TokenKind::Some_
-                    | TokenKind::As
-                    | TokenKind::In
-                    | TokenKind::Super
-                    | TokenKind::This
-                    | TokenKind::Return
-            )
+            matches!(k, TokenKind::Ident(_)) || k.keyword_str().is_some()
         };
         let t0 = &self.tokens[self.pos].kind;
         if !is_name(t0) {
