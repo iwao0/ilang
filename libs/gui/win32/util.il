@@ -72,6 +72,12 @@ pub let EXPLORER_THEME: i64[] = [0 as i64]
 /// `EXPLORER_THEME` above.
 pub let GUI_FONT: i64[] = [0 as i64]
 
+// Manifest body — same content as a themed app's embedded
+// .manifest, naming the v6.0.0.0 common-controls assembly.
+// Written to `%TEMP%` by `enableComctl32V6` and fed to
+// `CreateActCtxW`.
+@embed("manifest.xml") const COMCTL32_V6_MANIFEST: string
+
 @extern(C) {
 
 /// UTF-8 `string` → fresh NUL-terminated UTF-16 buffer. Cast
@@ -120,11 +126,8 @@ pub fn enableComctl32V6() {
     let manifestPath = tempStr + "ilang_gui_v6.manifest"
     let pathC = cstrFromString(manifestPath)
 
-    // Manifest body — same content as a themed app's embedded
-    // .manifest, naming the v6.0.0.0 common-controls assembly.
-    let manifest = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\"><dependency><dependentAssembly><assemblyIdentity type=\"win32\" name=\"Microsoft.Windows.Common-Controls\" version=\"6.0.0.0\" processorArchitecture=\"*\" publicKeyToken=\"6595b64144ccf1df\" language=\"*\"/></dependentAssembly></dependency></assembly>"
-    let manifestC = cstrFromString(manifest)
-    let manifestLen = manifest.length as u32
+    let manifestC = cstrFromString(COMCTL32_V6_MANIFEST)
+    let manifestLen = COMCTL32_V6_MANIFEST.length as u32
 
     let hFile = CreateFileA(
         pathC,
