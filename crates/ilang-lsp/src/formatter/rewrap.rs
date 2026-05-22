@@ -15,18 +15,7 @@ use super::{INDENT, LINE_BUDGET};
 pub(super) fn rewrap_long_lines(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for line in s.split('\n') {
-        if line.chars().count() <= LINE_BUDGET {
-            out.push_str(line);
-            out.push('\n');
-            continue;
-        }
-        match try_break_long_line(line) {
-            Some(broken) => out.push_str(&broken),
-            None => {
-                out.push_str(line);
-                out.push('\n');
-            }
-        }
+        rewrap_line_recursive(line, &mut out);
     }
     // `split('\n')` produces an extra empty trailing element when
     // the input ends in `\n` — trim it back to a single newline.
@@ -34,6 +23,35 @@ pub(super) fn rewrap_long_lines(s: &str) -> String {
         out.pop();
     }
     out
+}
+
+/// Break `line` over budget, then re-check every line produced by
+/// the break — `test.expect(some.long.call(a, b, c) as i64, 0)`
+/// first breaks at the outer `test.expect(` group, leaving its
+/// first sub-line `some.long.call(a, b, c) as i64,` still over the
+/// budget. Without the recursion the second format pass would break
+/// it instead, costing idempotence.
+fn rewrap_line_recursive(line: &str, out: &mut String) {
+    if line.chars().count() <= LINE_BUDGET {
+        out.push_str(line);
+        out.push('\n');
+        return;
+    }
+    match try_break_long_line(line) {
+        Some(broken) => {
+            // `broken` is one or more `\n`-terminated lines. Recurse
+            // through each so any sub-line still over budget gets
+            // its own break.
+            for sub in broken.split_inclusive('\n') {
+                let sub_no_nl = sub.strip_suffix('\n').unwrap_or(sub);
+                rewrap_line_recursive(sub_no_nl, out);
+            }
+        }
+        None => {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
 }
 
 /// Find the outermost `(...)` / `[...]` group on `line` whose
@@ -54,6 +72,13 @@ fn try_break_long_line(line: &str) -> Option<String> {
     // (open_byte_idx, depth_at_open, has_top_level_comma)
     let mut group_open: Option<(usize, u8)> = None;
     let mut top_commas: Vec<usize> = Vec::new();
+    // Count of `{` opened on this line that are still unmatched when
+    // the rewrap target is hit. Each adds a level of indent that
+    // `format_tokens` will apply on the next pass — without bumping
+    // `base_depth` here, the two passes pick different indents and
+    // formatting isn't idempotent (`Vertex { pos: [ ... ]` is the
+    // canonical case).
+    let mut open_braces: i32 = 0;
     let mut i = 0usize;
     while i < bytes.len() {
         let c = bytes[i];
@@ -70,6 +95,16 @@ fn try_break_long_line(line: &str) -> Option<String> {
                     state = LineState::Str;
                     i += 1;
                     continue;
+                }
+                b'{' => {
+                    open_braces += 1;
+                    i += 1;
+                }
+                b'}' => {
+                    if open_braces > 0 {
+                        open_braces -= 1;
+                    }
+                    i += 1;
                 }
                 b'(' | b'[' => {
                     if stack.is_empty() && group_open.is_none() {
@@ -90,7 +125,7 @@ fn try_break_long_line(line: &str) -> Option<String> {
                                     open_idx,
                                     i,
                                     &top_commas,
-                                    base_depth,
+                                    base_depth + open_braces,
                                 ));
                             }
                             // Group ended without commas (e.g.
