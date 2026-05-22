@@ -1227,43 +1227,76 @@ impl LanguageServer for Backend {
         // decl every reference points at. When the cursor is on a
         // `use module` import the target lives in another file, so
         // we read its URI from the `RefEntry`.
-        let (target_uri, target, decl_name_span) = if let Some(entry) = lookup_ref(doc, pos)
-        {
-            // `this` is a keyword — its RefEntry shares (target_span,
-            // target_name_len) with the enclosing class, so letting
-            // the rename through would also rewrite every reference
-            // to the class. Refuse instead of silently corrupting
-            // the file.
-            if entry.signature.starts_with("this:") {
-                return Ok(None);
-            }
-            let owner = entry.target_uri.clone().unwrap_or_else(|| uri.clone());
-            (
-                owner,
-                (entry.target_span, entry.target_name_len),
-                entry.target_span,
-            )
-        } else if let Some((word, _)) = word_at(&doc.text, pos) {
-            if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&word)) {
-                let name_span = ["fn", "class", "enum", "const"]
-                    .iter()
-                    .find_map(|kw| {
-                        text::locate_let_name_with_kw(
-                            &doc.text, sym.span, kw, &sym.name,
-                        )
-                    })
-                    .unwrap_or(sym.span);
-                (
-                    uri.clone(),
-                    (sym.span, sym.name.as_str().len() as u32),
-                    name_span,
+        let (target_uri, target, decl_name_span, target_sig, target_old_name) =
+            if let Some(entry) = lookup_ref(doc, pos)
+            {
+                // `this` is a keyword — its RefEntry shares (target_span,
+                // target_name_len) with the enclosing class, so letting
+                // the rename through would also rewrite every reference
+                // to the class. Refuse instead of silently corrupting
+                // the file.
+                if entry.signature.starts_with("this:") {
+                    return Ok(None);
+                }
+                let owner = entry.target_uri.clone().unwrap_or_else(|| uri.clone());
+                // Read the old name straight out of the ref's text.
+                let old_name = read_word_at(
+                    &doc.text,
+                    entry.line,
+                    entry.start_col,
+                    entry.end_col,
                 )
+                .unwrap_or_default();
+                (
+                    owner,
+                    (entry.target_span, entry.target_name_len),
+                    entry.target_span,
+                    entry.signature.clone(),
+                    old_name,
+                )
+            } else if let Some((word, _)) = word_at(&doc.text, pos) {
+                if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&word)) {
+                    let name_span = ["fn", "class", "enum", "const"]
+                        .iter()
+                        .find_map(|kw| {
+                            text::locate_let_name_with_kw(
+                                &doc.text, sym.span, kw, &sym.name,
+                            )
+                        })
+                        .unwrap_or(sym.span);
+                    (
+                        uri.clone(),
+                        (sym.span, sym.name.as_str().len() as u32),
+                        name_span,
+                        sym.signature.clone(),
+                        sym.name.clone(),
+                    )
+                } else {
+                    return Ok(None);
+                }
             } else {
                 return Ok(None);
-            }
+            };
+
+        // Semantic scope-conflict check. Bail with an
+        // `invalid_params` error so the editor surfaces the message
+        // instead of silently corrupting the source.
+        let conflict_doc = if target_uri == uri {
+            Some(doc)
         } else {
-            return Ok(None);
+            docs.get(&target_uri)
         };
+        if let Some(target_doc) = conflict_doc {
+            if let Err(msg) = rename_conflicts::detect(
+                target_doc,
+                &target_sig,
+                decl_name_span,
+                &target_old_name,
+                &new_name,
+            ) {
+                return Err(tower_lsp::jsonrpc::Error::invalid_params(msg));
+            }
+        }
 
         // Collect edits per file. For the decl's owning file we
         // also include the decl-site edit; ref-only files only get
@@ -2249,6 +2282,16 @@ fn class_symbol(text: &str, c: &ClassDecl) -> DocumentSymbol {
         sel,
         if children.is_empty() { None } else { Some(children) },
     )
+}
+
+/// Read the source word sitting between the 1-based `start_col`
+/// and `end_col` (exclusive) on `line`. Returns `None` when the
+/// line / columns don't index a real slice (e.g. malformed span).
+fn read_word_at(text: &str, line: u32, start_col: u32, end_col: u32) -> Option<String> {
+    let line_str = text.lines().nth(line.checked_sub(1)? as usize)?;
+    let s = start_col.checked_sub(1)? as usize;
+    let e = end_col.checked_sub(1)? as usize;
+    line_str.get(s..e).map(|x| x.to_string())
 }
 
 /// `true` when `s` is a syntactically valid ilang identifier:

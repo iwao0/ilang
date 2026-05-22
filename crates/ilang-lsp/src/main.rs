@@ -13,6 +13,7 @@ mod implementation;
 mod imports;
 mod inlay_hints;
 mod project;
+mod rename_conflicts;
 mod semantic_tokens;
 mod symbols;
 mod text;

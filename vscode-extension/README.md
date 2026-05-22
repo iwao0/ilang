@@ -68,9 +68,13 @@ The extension looks for the `ilang-lsp` binary in this order:
 - **Rename** — same scope as Find References. `textDocument/prepareRename`
   refuses up front on `this`, keywords, and identifiers that don't
   resolve to a local decl (builtins / external imports). The new
-  name is validated as a non-keyword ASCII identifier; invalid
-  input surfaces as an error in the editor instead of corrupting
-  the file
+  name is validated as a non-keyword ASCII identifier, and a
+  semantic scope-conflict check runs before edits are applied:
+  same-block `let`s, same-fn parameters, class members (field /
+  method / property / getter / setter), top-level decls,
+  selectively imported names, and enum variants all surface as
+  `invalid_params` errors instead of producing an unparseable
+  file
 - **Completion**
   - Top-level decls, locals, params, enum variants
   - Member completion on `obj.` (fields / methods / getters /

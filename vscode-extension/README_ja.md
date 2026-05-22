@@ -69,8 +69,12 @@ language server も自動で起動する。
 - **リネーム**: 参照検索と同じ範囲。`textDocument/prepareRename` で
   `this` / キーワード / ローカル宣言に紐付かない識別子 (builtin や
   外部 import) は事前に拒否する。新しい名前は ASCII 識別子かつ
-  キーワードでないかを検証し、不正な入力はエディタ側にエラーとして
-  返す
+  キーワードでないかを検証したうえで、編集前にスコープ衝突
+  チェックを走らせる: 同一ブロック内の `let`、同一関数の
+  パラメータ、クラスメンバ (field / method / property / getter /
+  setter)、トップレベル宣言、selective import 名、enum variant
+  との衝突は `invalid_params` エラーとしてエディタ側に返し、
+  パースできないソースが残らないようにする
 - **補完**
   - トップレベル宣言 / ローカル / パラメータ / enum variant
   - `obj.` のメンバ補完 (フィールド / メソッド / getter /
