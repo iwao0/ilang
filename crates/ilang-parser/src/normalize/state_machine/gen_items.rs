@@ -442,175 +442,44 @@ fn rewrite_loop_jumps_expr(
     state_enum: Symbol,
     span: Span,
 ) {
+    // `break` / `continue` belonging to the current loop become a
+    // state-transition block; everything else falls through to the
+    // shared child walker. Nested `while` / `loop` / `for-in` are
+    // skipped — their `break` / `continue` belong to the inner
+    // header, not ours.
     match &mut e.kind {
         ExprKind::Break(_) => {
             let blk = mk_transition_block(
                 after_idx, all_segments, state_ref_param, poll_name, state_enum, span,
             );
             e.kind = ExprKind::Block(blk);
+            return;
         }
         ExprKind::Continue => {
             let blk = mk_transition_block(
                 header_idx, all_segments, state_ref_param, poll_name, state_enum, span,
             );
             e.kind = ExprKind::Block(blk);
+            return;
         }
-        // Nested loops would shadow break/continue — stop recursing.
-        ExprKind::While { .. } | ExprKind::Loop { .. } | ExprKind::ForIn { .. } => {}
-        ExprKind::Block(b) => rewrite_loop_jumps_block(
-            b, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum, span,
-        ),
-        ExprKind::If { cond, then_branch, else_branch } => {
-            rewrite_loop_jumps_expr(
-                cond, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
-                span,
-            );
-            rewrite_loop_jumps_block(
-                then_branch, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                state_enum, span,
-            );
-            if let Some(eb) = else_branch {
-                rewrite_loop_jumps_expr(
-                    eb, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                    state_enum, span,
-                );
-            }
-        }
-        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
-            rewrite_loop_jumps_expr(
-                expr, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
-                span,
-            );
-            rewrite_loop_jumps_block(
-                then_branch, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                state_enum, span,
-            );
-            if let Some(eb) = else_branch {
-                rewrite_loop_jumps_expr(
-                    eb, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                    state_enum, span,
-                );
-            }
-        }
-        ExprKind::Match { scrutinee, arms } => {
-            rewrite_loop_jumps_expr(
-                scrutinee, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                state_enum, span,
-            );
-            for a in arms.iter_mut() {
-                rewrite_loop_jumps_expr(
-                    &mut a.body, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                    state_enum, span,
-                );
-            }
-        }
-        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
-            rewrite_loop_jumps_expr(
-                lhs, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
-                span,
-            );
-            rewrite_loop_jumps_expr(
-                rhs, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
-                span,
-            );
-        }
-        ExprKind::Unary { expr, .. }
-        | ExprKind::Cast { expr, .. }
-        | ExprKind::TypeTest { expr, .. }
-        | ExprKind::TypeDowncast { expr, .. } => rewrite_loop_jumps_expr(
-            expr, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
-            span,
-        ),
-        ExprKind::Some(inner) | ExprKind::Await(inner) => rewrite_loop_jumps_expr(
-            inner, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
-            span,
-        ),
-        ExprKind::Return(opt) => {
-            if let Some(inner) = opt {
-                rewrite_loop_jumps_expr(
-                    inner, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                    state_enum, span,
-                );
-            }
-        }
-        ExprKind::Assign { value, .. } => rewrite_loop_jumps_expr(
-            value, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
-            span,
-        ),
-        ExprKind::AssignField { obj, value, .. } => {
-            rewrite_loop_jumps_expr(
-                obj, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
-                span,
-            );
-            rewrite_loop_jumps_expr(
-                value, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                state_enum, span,
-            );
-        }
-        ExprKind::AssignIndex { obj, index, value } => {
-            rewrite_loop_jumps_expr(
-                obj, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
-                span,
-            );
-            rewrite_loop_jumps_expr(
-                index, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                state_enum, span,
-            );
-            rewrite_loop_jumps_expr(
-                value, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                state_enum, span,
-            );
-        }
-        ExprKind::Call { args, .. }
-        | ExprKind::SuperCall { args, .. }
-        | ExprKind::New { args, .. } => {
-            for a in args.iter_mut() {
-                rewrite_loop_jumps_expr(
-                    a, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                    state_enum, span,
-                );
-            }
-        }
-        ExprKind::MethodCall { obj, args, .. } => {
-            rewrite_loop_jumps_expr(
-                obj, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
-                span,
-            );
-            for a in args.iter_mut() {
-                rewrite_loop_jumps_expr(
-                    a, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                    state_enum, span,
-                );
-            }
-        }
-        ExprKind::Field { obj, .. } => rewrite_loop_jumps_expr(
-            obj, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
-            span,
-        ),
-        ExprKind::Index { obj, index } => {
-            rewrite_loop_jumps_expr(
-                obj, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
-                span,
-            );
-            rewrite_loop_jumps_expr(
-                index, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                state_enum, span,
-            );
-        }
-        ExprKind::Tuple(es) | ExprKind::Array(es) => {
-            for e in es.iter_mut() {
-                rewrite_loop_jumps_expr(
-                    e, header_idx, after_idx, all_segments, state_ref_param, poll_name,
-                    state_enum, span,
-                );
-            }
-        }
-        ExprKind::FnExpr { body, .. } => rewrite_loop_jumps_block(
-            body, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
-            span,
-        ),
+        ExprKind::While { .. } | ExprKind::Loop { .. } | ExprKind::ForIn { .. } => return,
         _ => {}
     }
+    crate::walk::walk_expr_children_mut(
+        e,
+        &mut |child| {
+            rewrite_loop_jumps_expr(
+                child, header_idx, after_idx, all_segments, state_ref_param, poll_name,
+                state_enum, span,
+            )
+        },
+        &mut |b| {
+            rewrite_loop_jumps_block(
+                b, header_idx, after_idx, all_segments, state_ref_param, poll_name, state_enum,
+                span,
+            )
+        },
+    );
 }
 
 fn emit_segment_arm(

@@ -28,11 +28,10 @@ pub mod async_desugar;
 mod dealias;
 pub(crate) mod state_machine;
 mod validate;
-mod walk;
 
 use dealias::dealias_program;
 use validate::validate_program;
-use walk::fold_expr_default;
+use crate::walk::fold_expr_default;
 
 /// Built-in enum names that are always available.
 const BUILTIN_ENUMS: &[&str] = &["Result"];

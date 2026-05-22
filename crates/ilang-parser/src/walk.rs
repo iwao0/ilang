@@ -26,7 +26,7 @@ use ilang_ast::{Block, CtorArgs, Expr, ExprKind, MatchArm, Param};
 /// passing each to the appropriate callback. Types and bare symbols
 /// are NOT walked — passes that care invoke their own
 /// `check_type` / `dealias_sym` from the matching special arm.
-pub(super) fn walk_expr_children_ref<E>(
+pub(crate) fn walk_expr_children_ref<E>(
     e: &Expr,
     visit_child: &mut impl FnMut(&Expr) -> Result<(), E>,
     visit_block: &mut impl FnMut(&Block) -> Result<(), E>,
@@ -176,7 +176,7 @@ pub(super) fn walk_expr_children_ref<E>(
 
 /// Mutable-reference twin of [`walk_expr_children_ref`]. The
 /// callbacks mutate each child in place; the helper returns `()`.
-pub(super) fn walk_expr_children_mut(
+pub(crate) fn walk_expr_children_mut(
     e: &mut Expr,
     visit_child: &mut impl FnMut(&mut Expr),
     visit_block: &mut impl FnMut(&mut Block),
@@ -322,7 +322,7 @@ pub(super) fn walk_expr_children_mut(
 /// `fold_child` / `fold_block`. The rewrite caller's own FnExpr
 /// handler bypasses this default because it has scope-tracking
 /// requirements the generic default can't express.
-pub(super) fn fold_expr_default(
+pub(crate) fn fold_expr_default(
     kind: ExprKind,
     fold_child: &mut impl FnMut(Expr) -> Expr,
     fold_block: &mut impl FnMut(Block) -> Block,

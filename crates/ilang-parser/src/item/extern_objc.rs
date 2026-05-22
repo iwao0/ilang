@@ -1829,94 +1829,33 @@ fn rewrite_super_in_stmt(stmt: &mut ilang_ast::Stmt) {
 }
 
 fn rewrite_super_in_expr(expr: &mut Expr) {
-    // Recurse first so nested super calls inside args are
-    // rewritten too.
-    match &mut expr.kind {
-        ExprKind::SuperCall { method: Some(name), args } => {
-            for a in args.iter_mut() {
-                rewrite_super_in_expr(a);
-            }
-            let helper_name: Symbol = format!("__super_{}", name.as_str()).into();
-            let new_expr = Expr::new(
-                ExprKind::MethodCall {
-                    obj: Box::new(Expr::new(ExprKind::This, expr.span)),
-                    method: helper_name,
-                    args: std::mem::take(args),
-                },
-                expr.span,
-            );
-            *expr = new_expr;
+    // `super.method(args)` → `this.__super_method(args)`. The shared
+    // `walk_expr_children_mut` handles every other variant's child
+    // traversal, so a `super` call buried inside e.g. an `await`,
+    // `match` arm body, struct-literal field, or closure body now
+    // gets rewritten too (the previous hand-rolled match's
+    // `_ => {}` arm silently missed those positions).
+    if let ExprKind::SuperCall { method: Some(name), args } = &mut expr.kind {
+        for a in args.iter_mut() {
+            rewrite_super_in_expr(a);
         }
-        ExprKind::Unary { expr: inner, .. } | ExprKind::Cast { expr: inner, .. } => {
-            rewrite_super_in_expr(inner);
-        }
-        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
-            rewrite_super_in_expr(lhs);
-            rewrite_super_in_expr(rhs);
-        }
-        ExprKind::Call { args, .. } => {
-            for a in args.iter_mut() {
-                rewrite_super_in_expr(a);
-            }
-        }
-        ExprKind::MethodCall { obj, args, .. } => {
-            rewrite_super_in_expr(obj);
-            for a in args.iter_mut() {
-                rewrite_super_in_expr(a);
-            }
-        }
-        ExprKind::Field { obj, .. } => rewrite_super_in_expr(obj),
-        ExprKind::Block(b) => rewrite_super_in_block(b),
-        ExprKind::If { cond, then_branch, else_branch } => {
-            rewrite_super_in_expr(cond);
-            rewrite_super_in_block(then_branch);
-            if let Some(e) = else_branch.as_mut() {
-                rewrite_super_in_expr(e);
-            }
-        }
-        ExprKind::While { cond, body } => {
-            rewrite_super_in_expr(cond);
-            rewrite_super_in_block(body);
-        }
-        ExprKind::ForIn { iter, body, .. } => {
-            rewrite_super_in_expr(iter);
-            rewrite_super_in_block(body);
-        }
-        ExprKind::Loop { body } => rewrite_super_in_block(body),
-        ExprKind::Return(opt) | ExprKind::Break(opt) => {
-            if let Some(e) = opt.as_mut() {
-                rewrite_super_in_expr(e);
-            }
-        }
-        ExprKind::Array(items) | ExprKind::Tuple(items) => {
-            for it in items.iter_mut() {
-                rewrite_super_in_expr(it);
-            }
-        }
-        ExprKind::Assign { value, .. } => rewrite_super_in_expr(value),
-        ExprKind::AssignField { obj, value, .. } => {
-            rewrite_super_in_expr(obj);
-            rewrite_super_in_expr(value);
-        }
-        ExprKind::AssignIndex { obj, index, value } => {
-            rewrite_super_in_expr(obj);
-            rewrite_super_in_expr(index);
-            rewrite_super_in_expr(value);
-        }
-        ExprKind::Index { obj, index } => {
-            rewrite_super_in_expr(obj);
-            rewrite_super_in_expr(index);
-        }
-        ExprKind::Range { start, end, .. } => {
-            if let Some(s) = start.as_mut() {
-                rewrite_super_in_expr(s);
-            }
-            if let Some(e) = end.as_mut() {
-                rewrite_super_in_expr(e);
-            }
-        }
-        _ => {} // leaves and unhandled exotic cases
+        let helper_name: Symbol = format!("__super_{}", name.as_str()).into();
+        let new_expr = Expr::new(
+            ExprKind::MethodCall {
+                obj: Box::new(Expr::new(ExprKind::This, expr.span)),
+                method: helper_name,
+                args: std::mem::take(args),
+            },
+            expr.span,
+        );
+        *expr = new_expr;
+        return;
     }
+    crate::walk::walk_expr_children_mut(
+        expr,
+        &mut rewrite_super_in_expr,
+        &mut rewrite_super_in_block,
+    );
 }
 
 /// Records what the `register()` method needs to know about each

@@ -10,7 +10,7 @@ use ilang_ast::{
 };
 
 use crate::error::ParseError;
-use super::walk::walk_expr_children_ref;
+use crate::walk::walk_expr_children_ref;
 
 fn check_dotted_ref(
     name: &Symbol,

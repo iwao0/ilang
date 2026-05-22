@@ -6,6 +6,7 @@ mod normalize;
 mod parser;
 mod stmt;
 mod visibility;
+mod walk;
 
 use std::collections::HashSet;
 use std::sync::OnceLock;
