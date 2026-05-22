@@ -9,6 +9,7 @@ mod external;
 mod formatter;
 mod handlers;
 mod helpers;
+mod implementation;
 mod imports;
 mod inlay_hints;
 mod project;

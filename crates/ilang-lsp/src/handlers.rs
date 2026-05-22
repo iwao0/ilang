@@ -9,6 +9,9 @@ use std::sync::{Arc, Mutex};
 
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
+use tower_lsp::lsp_types::request::{
+    GotoImplementationParams, GotoImplementationResponse,
+};
 use tower_lsp::{Client, LanguageServer};
 
 use ilang_ast::{
@@ -136,6 +139,9 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                implementation_provider: Some(
+                    ImplementationProviderCapability::Simple(true),
+                ),
                 references_provider: Some(OneOf::Left(true)),
                 document_highlight_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
@@ -1665,6 +1671,49 @@ impl LanguageServer for Backend {
             Ok(None)
         } else {
             Ok(Some(out))
+        }
+    }
+
+    async fn goto_implementation(
+        &self,
+        p: GotoImplementationParams,
+    ) -> LspResult<Option<GotoImplementationResponse>> {
+        let uri = p.text_document_position_params.text_document.uri;
+        let pos = p.text_document_position_params.position;
+        let (target, iface_class, anchor, snapshot) = {
+            let docs = self.docs.lock().unwrap();
+            let Some(doc) = docs.get(&uri) else { return Ok(None) };
+            let Some(target) = implementation::resolve(doc, pos) else {
+                return Ok(None);
+            };
+            // For `(method) X.y`, X may be an interface even though
+            // the signature uses class syntax. Pass the doc-side
+            // interface-name check to the collector so it can route.
+            let iface_class = match &target {
+                implementation::Target::ClassMethod { class, .. } => {
+                    if implementation::name_is_interface(doc, class) {
+                        Some(class.clone())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            let anchor = uri.to_file_path().ok();
+            let snapshot = docs.clone();
+            (target, iface_class, anchor, snapshot)
+        };
+        let Some(anchor) = anchor else { return Ok(None) };
+        let locs = implementation::collect(
+            &target,
+            &anchor,
+            &snapshot,
+            iface_class.as_deref(),
+        );
+        if locs.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(GotoImplementationResponse::Array(locs)))
         }
     }
 

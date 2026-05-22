@@ -48,6 +48,11 @@ language server も自動で起動する。
   メソッド / getter/setter / enum variant / `use module` で
   取り込んだ名前 / 配列・文字列・Map のビルトインメソッドに
   対応
+- **実装ジャンプ (Cmd/Ctrl+F12)**: interface 名の上では実装
+  クラス一覧、interface メソッドの上では各クラスの実装、
+  親クラスのメソッドの上では override しているサブクラスの
+  メソッドにジャンプする。スキャン範囲は参照検索 / リネームと
+  同じ `ilang.toml` 配下
 - **定義ジャンプ (F12)**
   - 同一ファイルの宣言
   - `use module` 経由の別ファイル (stdlib や `ilang.toml` の
