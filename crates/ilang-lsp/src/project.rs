@@ -97,26 +97,58 @@ pub(crate) fn collect_dep_paths(entry: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 pub(crate) fn collect_dep_tree(entry: &Path) -> Result<DepTree, String> {
-    let entry_dir = entry
+    let entry_canon = entry
         .canonicalize()
-        .map_err(|e| format!("cannot resolve entry path: {e}"))?
+        .map_err(|e| format!("cannot resolve entry path: {e}"))?;
+    let entry_dir = entry_canon
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
-    let Some(project_file) = find_project_file(&entry_dir) else {
-        return Ok(DepTree::default());
-    };
+    // For a sub-package file (e.g. `libs/gui/cocoa/core.il`),
+    // the closest `ilang.toml` only describes the sub-package's
+    // own deps. Walk further up looking for an outer
+    // `ilang.toml` whose tree transitively includes the current
+    // file's package — that's the project root the dep DAG
+    // (and `super.M` resolution) should be built from.
     let host = current_os();
-    let mut visited: HashSet<PathBuf> = HashSet::new();
-    let mut out = DepTree::default();
-    let entry_pkg_dir = project_file
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."))
-        .canonicalize()
-        .unwrap_or_else(|_| PathBuf::from("."));
-    walk_project(&project_file, &entry_pkg_dir, host, &mut visited, &mut out)?;
-    Ok(out)
+    let mut best_tree: Option<DepTree> = None;
+    let mut search = entry_dir.clone();
+    loop {
+        if let Some(pf) = find_project_file(&search) {
+            let mut visited: HashSet<PathBuf> = HashSet::new();
+            let mut out = DepTree::default();
+            let pf_dir = pf
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| PathBuf::from("."))
+                .canonicalize()
+                .unwrap_or_else(|_| PathBuf::from("."));
+            if walk_project(&pf, &pf_dir, host, &mut visited, &mut out).is_ok() {
+                // The manifest "covers" the entry when the entry
+                // file sits inside the manifest's own package
+                // directory or inside one of its (transitive)
+                // dep directories.
+                let covers = entry_canon.starts_with(&pf_dir)
+                    || out.dirs.iter().any(|d| entry_canon.starts_with(d));
+                if covers {
+                    best_tree = Some(out);
+                }
+            }
+            // Move search one directory above this manifest to
+            // look for a still-outer one.
+            let parent = pf
+                .parent()
+                .and_then(|d| d.parent())
+                .map(|p| p.to_path_buf());
+            match parent {
+                Some(p) => search = p,
+                None => break,
+            }
+        } else {
+            break;
+        }
+    }
+    Ok(best_tree.unwrap_or_default())
 }
 
 fn walk_project(

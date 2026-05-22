@@ -136,7 +136,8 @@ pub(crate) fn harvest_from_program(
     docs: &mut HashMap<AstSymbol, String>,
     const_types: &mut HashMap<AstSymbol, Type>,
 ) {
-    let mut extra = collect_dep_paths(entry_path).unwrap_or_default();
+    let dep_tree = crate::project::collect_dep_tree(entry_path).unwrap_or_default();
+    let mut extra = dep_tree.dirs.clone();
     let entry_dir = entry_path
         .parent()
         .map(|p| p.to_path_buf())
@@ -145,6 +146,17 @@ pub(crate) fn harvest_from_program(
     let mut visited: HashSet<PathBuf> = HashSet::new();
     for item in &prog.items {
         let Item::Use(u) = item else { continue };
+        // `use super.M`: resolve `M` against an ancestor package
+        // directory rather than the importer's own. Walk up the
+        // dep tree's `child → parent` map `super_count` times to
+        // find the directory `M.il` should be looked up in;
+        // anything else (selective list / wildcard) flows through
+        // the existing helpers.
+        let base_dir: PathBuf = if u.super_count > 0 {
+            super_base_dir(&entry_dir, &dep_tree, u.super_count).unwrap_or(entry_dir.clone())
+        } else {
+            entry_dir.clone()
+        };
         if u.wildcard && u.selective.is_none() {
             // `use M { * }` — walk M, then re-key every `M.<X>`
             // entry as bare `<X>` so completion / hover / F12
@@ -154,7 +166,7 @@ pub(crate) fn harvest_from_program(
             // into `M.<X>` at call time.
             harvest_wildcard_names(
                 u.module.as_str(),
-                &entry_dir,
+                &base_dir,
                 &extra,
                 &mut visited,
                 out,
@@ -172,7 +184,7 @@ pub(crate) fn harvest_from_program(
             harvest_selective_names(
                 u.module.as_str(),
                 names,
-                &entry_dir,
+                &base_dir,
                 &extra,
                 out,
                 sources,
@@ -181,8 +193,32 @@ pub(crate) fn harvest_from_program(
             );
             continue;
         }
-        walk_module(u.module.as_str(), &entry_dir, &extra, &mut visited, out, sources, docs, const_types);
+        walk_module(u.module.as_str(), &base_dir, &extra, &mut visited, out, sources, docs, const_types);
     }
+}
+
+/// Walk the dep tree's `child → parent` map `count` times,
+/// starting from the package that contains `start_dir`. Returns
+/// the parent package's directory so the harvester can search
+/// for `super.M` modules there.
+fn super_base_dir(
+    start_dir: &Path,
+    dep_tree: &crate::project::DepTree,
+    count: u32,
+) -> Option<PathBuf> {
+    let canon = start_dir.canonicalize().ok()?;
+    // Find the deepest registered package that contains the
+    // importer file's directory.
+    let mut cur: PathBuf = dep_tree
+        .dirs
+        .iter()
+        .filter(|p| canon.starts_with(p))
+        .max_by_key(|p| p.components().count())
+        .cloned()?;
+    for _ in 0..count {
+        cur = dep_tree.parents.get(&cur)?.clone();
+    }
+    Some(cur)
 }
 
 /// Resolve each `name` in `names` against `module` (which may be an
@@ -403,10 +439,10 @@ pub(crate) fn walk_module(
     });
     // Top-of-file `///` block — the module-level doc. Surfaces on
     // hover over `use foundation` etc. The signature line is a
-    // simple `module {prefix}` placeholder so the hover renders
+    // simple `(module) {prefix}` placeholder so the hover renders
     // something even when the file has no top doc.
     out.entry(AstSymbol::intern(prefix))
-        .or_insert_with(|| format!("module {prefix}"));
+        .or_insert_with(|| format!("(module) {prefix}"));
     if let Some(d) = text::extract_module_doc(&module_src) {
         docs.entry(AstSymbol::intern(prefix)).or_insert(d);
     }
