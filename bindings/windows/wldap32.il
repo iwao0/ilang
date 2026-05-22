@@ -109,6 +109,7 @@ pub enum LdapError: u32 {
 
     /// Like `ldap_init` but adds SSL when `secure != 0`.
     @lib pub fn ldap_sslinitA(HostName: *const char, PortNumber: u32, secure: i32): *LDAP
+    @lib pub fn ldap_sslinitW(HostName: *const u16, PortNumber: u32, secure: i32): *LDAP
 
     /// `ldap_bind_sA(ld, dn, cred, method)`. Synchronous. `cred`
     /// is the password (Simple) or a `SEC_WINNT_AUTH_IDENTITY*`
@@ -174,6 +175,19 @@ pub enum LdapError: u32 {
         SizeLimit:    u32,
         res:          **LDAPMessage
     ): u32
+    @lib pub fn ldap_search_ext_sW(
+        ld:           *LDAP,
+        base:         *const u16,
+        scope:        i32,
+        filter:       *const u16,
+        attrs:        **const u16,
+        attrsonly:    i32,
+        ServerControls: *const void,
+        ClientControls: *const void,
+        timeout:      *const void,           // *LDAP_TIMEVAL
+        SizeLimit:    u32,
+        res:          **LDAPMessage
+    ): u32
 
     @lib pub fn ldap_msgfree(res: *LDAPMessage): u32
 
@@ -196,12 +210,22 @@ pub enum LdapError: u32 {
         entry: *LDAPMessage,
         ptr:   **void                       // *BerElement (state)
     ): *char
+    @lib pub fn ldap_first_attributeW(
+        ld:    *LDAP,
+        entry: *LDAPMessage,
+        ptr:   **void                       // *BerElement (state)
+    ): *u16
 
     @lib pub fn ldap_next_attributeA(
         ld:    *LDAP,
         entry: *LDAPMessage,
         ptr:   *void
     ): *char
+    @lib pub fn ldap_next_attributeW(
+        ld:    *LDAP,
+        entry: *LDAPMessage,
+        ptr:   *void
+    ): *u16
 
     @lib pub fn ber_free(pBerElement: *void, fbuf: i32)
 
@@ -212,6 +236,11 @@ pub enum LdapError: u32 {
         entry: *LDAPMessage,
         attr:  *const char
     ): **char
+    @lib pub fn ldap_get_valuesW(
+        ld:    *LDAP,
+        entry: *LDAPMessage,
+        attr:  *const u16
+    ): **u16
 
     @lib pub fn ldap_value_free(vals: **char): u32
 
@@ -221,6 +250,11 @@ pub enum LdapError: u32 {
         ld:    *LDAP,
         entry: *LDAPMessage,
         attr:  *const char
+    ): **berval
+    @lib pub fn ldap_get_values_lenW(
+        ld:    *LDAP,
+        entry: *LDAPMessage,
+        attr:  *const u16
     ): **berval
 
     @lib pub fn ldap_value_free_len(vals: **berval): u32
@@ -232,10 +266,20 @@ pub enum LdapError: u32 {
         dn:    *const char,
         mods:  **const void                 // *LDAPMod*[]
     ): u32
+    @lib pub fn ldap_add_sW(
+        ld:    *LDAP,
+        dn:    *const u16,
+        mods:  **const void                 // *LDAPMod*[]
+    ): u32
 
     @lib pub fn ldap_modify_sA(
         ld:    *LDAP,
         dn:    *const char,
+        mods:  **const void
+    ): u32
+    @lib pub fn ldap_modify_sW(
+        ld:    *LDAP,
+        dn:    *const u16,
         mods:  **const void
     ): u32
 
@@ -243,12 +287,26 @@ pub enum LdapError: u32 {
         ld:    *LDAP,
         dn:    *const char
     ): u32
+    @lib pub fn ldap_delete_sW(
+        ld:    *LDAP,
+        dn:    *const u16
+    ): u32
 
     @lib pub fn ldap_rename_extA(
         ld:           *LDAP,
         dn:           *const char,
         NewRDN:       *const char,
         NewParent:    *const char,
+        DeleteOldRdn: i32,
+        ServerControls: *const void,
+        ClientControls: *const void,
+        MessageNumber: *i32
+    ): u32
+    @lib pub fn ldap_rename_extW(
+        ld:           *LDAP,
+        dn:           *const u16,
+        NewRDN:       *const u16,
+        NewParent:    *const u16,
         DeleteOldRdn: i32,
         ServerControls: *const void,
         ClientControls: *const void,

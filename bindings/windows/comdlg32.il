@@ -189,21 +189,25 @@ use user32 { HWND, HINSTANCE, HDC }
 
     /// Shows the "Open" file dialog. Returns non-zero on OK.
     @lib pub fn GetOpenFileNameA(lpofn: *OPENFILENAMEA): i32
+    @lib pub fn GetOpenFileNameW(lpofn: *OPENFILENAMEA): i32
 
     /// Shows the "Save As" file dialog. Returns non-zero on OK.
     @lib pub fn GetSaveFileNameA(lpofn: *OPENFILENAMEA): i32
+    @lib pub fn GetSaveFileNameW(lpofn: *OPENFILENAMEA): i32
 
     // ── Colour picker ─────────────────────────────────────────────
 
     /// Shows the colour-picker dialog. Returns non-zero on OK;
     /// the selected COLORREF is written to `lpcc.rgbResult`.
     @lib pub fn ChooseColorA(lpcc: *CHOOSECOLORA): i32
+    @lib pub fn ChooseColorW(lpcc: *CHOOSECOLORA): i32
 
     // ── Font chooser ──────────────────────────────────────────────
 
     /// Shows the font-chooser dialog. Returns non-zero on OK;
     /// the selected font is written back to `*lpLogFont`.
     @lib pub fn ChooseFontA(lpcf: *CHOOSEFONTA): i32
+    @lib pub fn ChooseFontW(lpcf: *CHOOSEFONTA): i32
 
     // ── Error reporting ───────────────────────────────────────────
 

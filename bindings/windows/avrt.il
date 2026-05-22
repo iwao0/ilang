@@ -28,12 +28,21 @@ pub enum AvrtPriority: i32 {
         TaskName:  *const char,
         TaskIndex: *u32
     ): *void
+    @lib pub fn AvSetMmThreadCharacteristicsW(
+        TaskName:  *const u16,
+        TaskIndex: *u32
+    ): *void
 
     /// Joins two tasks at once. Useful for threads that need both
     /// audio and video priority.
     @lib pub fn AvSetMmMaxThreadCharacteristicsA(
         FirstTask:  *const char,
         SecondTask: *const char,
+        TaskIndex:  *u32
+    ): *void
+    @lib pub fn AvSetMmMaxThreadCharacteristicsW(
+        FirstTask:  *const u16,
+        SecondTask: *const u16,
         TaskIndex:  *u32
     ): *void
 

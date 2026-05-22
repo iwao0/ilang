@@ -65,6 +65,11 @@ pub enum PdhFormat: u32 {
         dwUserData:   u64,
         phQuery:      **HPdhQuery
     ): i32
+    @lib pub fn PdhOpenQueryW(
+        szDataSource: *const u16,
+        dwUserData:   u64,
+        phQuery:      **HPdhQuery
+    ): i32
 
     @lib pub fn PdhCloseQuery(hQuery: *HPdhQuery): i32
 
@@ -77,12 +82,24 @@ pub enum PdhFormat: u32 {
         dwUserData:  u64,
         phCounter:   **HPdhCounter
     ): i32
+    @lib pub fn PdhAddCounterW(
+        hQuery:      *HPdhQuery,
+        szFullCounterPath: *const u16,
+        dwUserData:  u64,
+        phCounter:   **HPdhCounter
+    ): i32
 
     /// Modern variant (Vista+) — better for English-vs-localised
     /// names; honours `PERF_DETAIL_*` user-class hints.
     @lib pub fn PdhAddEnglishCounterA(
         hQuery:      *HPdhQuery,
         szFullCounterPath: *const char,
+        dwUserData:  u64,
+        phCounter:   **HPdhCounter
+    ): i32
+    @lib pub fn PdhAddEnglishCounterW(
+        hQuery:      *HPdhQuery,
+        szFullCounterPath: *const u16,
         dwUserData:  u64,
         phCounter:   **HPdhCounter
     ): i32
@@ -141,6 +158,14 @@ pub enum PdhFormat: u32 {
         dwDetailLevel:  u32,
         bRefresh:       i32
     ): i32
+    @lib pub fn PdhEnumObjectsW(
+        szDataSource:   *const u16,
+        szMachineName:  *const u16,
+        mszObjectList:  *u16,
+        pcchBufferSize: *u32,
+        dwDetailLevel:  u32,
+        bRefresh:       i32
+    ): i32
 
     @lib pub fn PdhEnumObjectItemsA(
         szDataSource:   *const char,
@@ -149,6 +174,17 @@ pub enum PdhFormat: u32 {
         mszCounterList: *char,
         pcchCounterListSize: *u32,
         mszInstanceList: *char,
+        pcchInstanceListSize: *u32,
+        dwDetailLevel:  u32,
+        dwFlags:        u32
+    ): i32
+    @lib pub fn PdhEnumObjectItemsW(
+        szDataSource:   *const u16,
+        szMachineName:  *const u16,
+        szObjectName:   *const u16,
+        mszCounterList: *u16,
+        pcchCounterListSize: *u32,
+        mszInstanceList: *u16,
         pcchInstanceListSize: *u32,
         dwDetailLevel:  u32,
         dwFlags:        u32
@@ -166,6 +202,14 @@ pub enum PdhFormat: u32 {
         pcchPathListLength: *u32,
         dwFlags:        u32
     ): i32
+    @lib pub fn PdhExpandWildCardPathW(
+        szDataSource:   *const u16,
+        szWildCardPath: *const u16,
+        mszExpandedPathList: *u16,
+        pcchPathListLength: *u32,
+        dwFlags:        u32
+    ): i32
 
     @lib pub fn PdhValidatePathA(szFullPathBuffer: *const char): i32
+    @lib pub fn PdhValidatePathW(szFullPathBuffer: *const u16): i32
 }

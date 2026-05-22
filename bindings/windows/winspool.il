@@ -117,9 +117,23 @@ pub enum JobControl: u32 {
         pcbNeeded:     *u32,
         pcReturned:    *u32
     ): i32
+    @lib pub fn EnumPrintersW(
+        Flags:         u32,
+        Name:          *const u16,    // server name or NULL
+        Level:         u32,             // 1, 2, 4, or 5
+        pPrinterEnum:  *void,           // buffer for PRINTER_INFO_<Level>
+        cbBuf:         u32,
+        pcbNeeded:     *u32,
+        pcReturned:    *u32
+    ): i32
 
     @lib pub fn OpenPrinterA(
         pPrinterName: *const char,
+        phPrinter:    *HPRINTER,
+        pDefault:     *void              // *PRINTER_DEFAULTSA; NULL for read-only
+    ): i32
+    @lib pub fn OpenPrinterW(
+        pPrinterName: *const u16,
         phPrinter:    *HPRINTER,
         pDefault:     *void              // *PRINTER_DEFAULTSA; NULL for read-only
     ): i32
@@ -129,13 +143,20 @@ pub enum JobControl: u32 {
     /// Get the default printer name. `pszBuffer` is NULL-terminated
     /// on success; `*pcchBuffer` is in / out (capacity / actual).
     @lib pub fn GetDefaultPrinterA(pszBuffer: *char, pcchBuffer: *u32): i32
+    @lib pub fn GetDefaultPrinterW(pszBuffer: *u16, pcchBuffer: *u32): i32
 
     @lib pub fn SetDefaultPrinterA(pszPrinter: *const char): i32
+    @lib pub fn SetDefaultPrinterW(pszPrinter: *const u16): i32
 
     // ── Document / page lifecycle ────────────────────────────────
 
     /// `StartDocPrinterA` returns a non-zero job id on success.
     @lib pub fn StartDocPrinterA(
+        hPrinter:     HPRINTER,
+        Level:        u32,                // 1 for DOC_INFO_1A
+        pDocInfo:     *DOC_INFO_1A
+    ): u32
+    @lib pub fn StartDocPrinterW(
         hPrinter:     HPRINTER,
         Level:        u32,                // 1 for DOC_INFO_1A
         pDocInfo:     *DOC_INFO_1A
@@ -173,6 +194,14 @@ pub enum JobControl: u32 {
         cbBuf:       u32,
         pcbNeeded:   *u32
     ): i32
+    @lib pub fn GetJobW(
+        hPrinter:    HPRINTER,
+        JobId:       u32,
+        Level:       u32,                 // 1, 2, 3, or 4
+        pJob:        *void,
+        cbBuf:       u32,
+        pcbNeeded:   *u32
+    ): i32
 
     @lib pub fn SetJobA(
         hPrinter:    HPRINTER,
@@ -181,8 +210,25 @@ pub enum JobControl: u32 {
         pJob:        *void,               // NULL when Command-only
         Command:     u32                  // JobControl
     ): i32
+    @lib pub fn SetJobW(
+        hPrinter:    HPRINTER,
+        JobId:       u32,
+        Level:       u32,
+        pJob:        *void,               // NULL when Command-only
+        Command:     u32                  // JobControl
+    ): i32
 
     @lib pub fn EnumJobsA(
+        hPrinter:    HPRINTER,
+        FirstJob:    u32,
+        NoJobs:      u32,
+        Level:       u32,
+        pJob:        *void,
+        cbBuf:       u32,
+        pcbNeeded:   *u32,
+        pcReturned:  *u32
+    ): i32
+    @lib pub fn EnumJobsW(
         hPrinter:    HPRINTER,
         FirstJob:    u32,
         NoJobs:      u32,
@@ -202,10 +248,25 @@ pub enum JobControl: u32 {
         cbBuf:       u32,
         pcbNeeded:   *u32
     ): i32
+    @lib pub fn GetPrinterW(
+        hPrinter:    HPRINTER,
+        Level:       u32,
+        pPrinter:    *void,               // buffer
+        cbBuf:       u32,
+        pcbNeeded:   *u32
+    ): i32
 
     @lib pub fn GetPrinterDriverA(
         hPrinter:    HPRINTER,
         pEnvironment: *const char,        // NULL = default
+        Level:       u32,                 // 1..8
+        pDriverInfo: *void,
+        cbBuf:       u32,
+        pcbNeeded:   *u32
+    ): i32
+    @lib pub fn GetPrinterDriverW(
+        hPrinter:    HPRINTER,
+        pEnvironment: *const u16,        // NULL = default
         Level:       u32,                 // 1..8
         pDriverInfo: *void,
         cbBuf:       u32,

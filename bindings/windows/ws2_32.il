@@ -326,6 +326,14 @@ pub enum AddrInfoFlags: i32 {
         g:          u32,
         dwFlags:    u32
     ): u64
+    @lib pub fn WSASocketW(
+        af:         i32,
+        type_:      i32,
+        protocol:   i32,
+        lpProtocolInfo: *void,
+        g:          u32,
+        dwFlags:    u32
+    ): u64
 
     @lib pub fn closesocket(s: u64): i32
 

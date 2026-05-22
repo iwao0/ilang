@@ -94,6 +94,13 @@ use user32 { HWND }
         ppSessionInfo:  **WTS_SESSION_INFO,
         pCount:         *u32
     ): i32
+    @lib pub fn WTSEnumerateSessionsW(
+        hServer:        *void,
+        Reserved:       u32,
+        Version:        u32,
+        ppSessionInfo:  **WTS_SESSION_INFO,
+        pCount:         *u32
+    ): i32
 
     /// Frees memory returned by any WTS* enumeration function.
     @lib pub fn WTSFreeMemory(pMemory: *void)
@@ -108,6 +115,13 @@ use user32 { HWND }
         SessionId:      u32,            // or WTS_CURRENT_SESSION = -1 as u32
         WTSInfoClass:   u32,            // WtsInfoClass.*
         ppBuffer:       **char,
+        pBytesReturned: *u32
+    ): i32
+    @lib pub fn WTSQuerySessionInformationW(
+        hServer:        *void,
+        SessionId:      u32,            // or WTS_CURRENT_SESSION = -1 as u32
+        WTSInfoClass:   u32,            // WtsInfoClass.*
+        ppBuffer:       **u16,
         pBytesReturned: *u32
     ): i32
 
@@ -161,11 +175,24 @@ use user32 { HWND }
         pResponse:      *u32,
         bWait:          i32
     ): i32
+    @lib pub fn WTSSendMessageW(
+        hServer:        *void,
+        SessionId:      u32,
+        pTitle:         *const u16,
+        TitleLength:    u32,
+        pMessage:       *const u16,
+        MessageLength:  u32,
+        Style:          u32,
+        Timeout:        u32,
+        pResponse:      *u32,
+        bWait:          i32
+    ): i32
 
     // ── Server enumeration ────────────────────────────────────────
 
     /// Connects to a remote terminal server.  Pass NULL for local.
     @lib pub fn WTSOpenServerA(pServerName: *const char): *void
+    @lib pub fn WTSOpenServerW(pServerName: *const u16): *void
 
     @lib pub fn WTSCloseServer(hServer: *void)
 }

@@ -65,6 +65,21 @@ pub enum TtEmbedFlags: u32 {
         usLanguage:     u16,
         pTTEmbedInfo:   *void
     ): u32
+    @lib pub fn TTEmbedFontFromFileW(
+        hDC:            i64,
+        szFontFileName: *const u16,
+        usTTCIndex:     u16,
+        ulFlags:        u32,
+        ulCharSet:      u32,
+        pulPrivStatus:  *u32,
+        pulStatus:      *u32,
+        lpfnWriteToStream: fn(*const void, u32, u32): u32,
+        lpvWriteStream: *void,
+        pusCharCodeSet: *const u16,
+        usCharCodeCount: u16,
+        usLanguage:     u16,
+        pTTEmbedInfo:   *void
+    ): u32
 
     /// Load an embedded font into the current process. Pair with
     /// `TTDeleteEmbeddedFont`.

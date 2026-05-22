@@ -216,6 +216,13 @@ use kernel32 { HANDLE }
         samDesired: u32,
         phkResult:  *HKEY
     ): i32
+    @lib pub fn RegOpenKeyExW(
+        hKey:       HKEY,
+        lpSubKey:   *const u16,
+        ulOptions:  u32,
+        samDesired: u32,
+        phkResult:  *HKEY
+    ): i32
 
     /// Creates or opens a subkey.
     /// `lpdwDisposition`: receives RegDisposition.createdNewKey or
@@ -225,6 +232,17 @@ use kernel32 { HANDLE }
         lpSubKey:            *const char,
         Reserved:            u32,
         lpClass:             *char,
+        dwOptions:           u32,         // RegOptions.*
+        samDesired:          u32,         // KeyAccess.*
+        lpSecurityAttributes: *void,
+        phkResult:           *HKEY,
+        lpdwDisposition:     *u32
+    ): i32
+    @lib pub fn RegCreateKeyExW(
+        hKey:                HKEY,
+        lpSubKey:            *const u16,
+        Reserved:            u32,
+        lpClass:             *u16,
         dwOptions:           u32,         // RegOptions.*
         samDesired:          u32,         // KeyAccess.*
         lpSecurityAttributes: *void,
@@ -244,6 +262,14 @@ use kernel32 { HANDLE }
         lpData:      *void,
         lpcbData:    *u32
     ): i32
+    @lib pub fn RegQueryValueExW(
+        hKey:        HKEY,
+        lpValueName: *const u16,
+        lpReserved:  *u32,
+        lpType:      *u32,       // receives RegValueType.*
+        lpData:      *void,
+        lpcbData:    *u32
+    ): i32
 
     /// Writes a value. `dwType`: RegValueType.*, `cbData`: byte count
     /// including NUL for string types.
@@ -255,9 +281,19 @@ use kernel32 { HANDLE }
         lpData:      *const void,
         cbData:      u32
     ): i32
+    @lib pub fn RegSetValueExW(
+        hKey:        HKEY,
+        lpValueName: *const u16,
+        Reserved:    u32,
+        dwType:      u32,
+        lpData:      *const void,
+        cbData:      u32
+    ): i32
 
     @lib pub fn RegDeleteValueA(hKey: HKEY, lpValueName: *const char): i32
+    @lib pub fn RegDeleteValueW(hKey: HKEY, lpValueName: *const u16): i32
     @lib pub fn RegDeleteKeyA(hKey: HKEY, lpSubKey: *const char): i32
+    @lib pub fn RegDeleteKeyW(hKey: HKEY, lpSubKey: *const u16): i32
 
     /// Enumerates subkeys. `dwIndex` starts at 0 and increments until
     /// ERROR_NO_MORE_ITEMS (259) is returned.
@@ -271,12 +307,32 @@ use kernel32 { HANDLE }
         lpcClass:      *u32,
         lpftLastWriteTime: *void   // *FILETIME
     ): i32
+    @lib pub fn RegEnumKeyExW(
+        hKey:          HKEY,
+        dwIndex:       u32,
+        lpName:        *u16,
+        lpcName:       *u32,
+        lpReserved:    *u32,
+        lpClass:       *u16,
+        lpcClass:      *u32,
+        lpftLastWriteTime: *void   // *FILETIME
+    ): i32
 
     /// Enumerates values. `dwIndex` starts at 0.
     @lib pub fn RegEnumValueA(
         hKey:          HKEY,
         dwIndex:       u32,
         lpValueName:   *char,
+        lpcchValueName: *u32,
+        lpReserved:    *u32,
+        lpType:        *u32,
+        lpData:        *void,
+        lpcbData:      *u32
+    ): i32
+    @lib pub fn RegEnumValueW(
+        hKey:          HKEY,
+        dwIndex:       u32,
+        lpValueName:   *u16,
         lpcchValueName: *u32,
         lpReserved:    *u32,
         lpType:        *u32,
@@ -301,6 +357,11 @@ use kernel32 { HANDLE }
         hKey:          HKEY,
         phkResult:     *HKEY
     ): i32
+    @lib pub fn RegConnectRegistryW(
+        lpMachineName: *const u16,
+        hKey:          HKEY,
+        phkResult:     *HKEY
+    ): i32
 
     // ── Service Control Manager ───────────────────────────────────
 
@@ -311,10 +372,20 @@ use kernel32 { HANDLE }
         lpDatabaseName:  *const char,
         dwDesiredAccess: u32
     ): *SC_HANDLE
+    @lib pub fn OpenSCManagerW(
+        lpMachineName:   *const u16,
+        lpDatabaseName:  *const u16,
+        dwDesiredAccess: u32
+    ): *SC_HANDLE
 
     @lib pub fn OpenServiceA(
         hSCManager:      *SC_HANDLE,
         lpServiceName:   *const char,
+        dwDesiredAccess: u32         // ServiceAccess.*
+    ): *SC_HANDLE
+    @lib pub fn OpenServiceW(
+        hSCManager:      *SC_HANDLE,
+        lpServiceName:   *const u16,
         dwDesiredAccess: u32         // ServiceAccess.*
     ): *SC_HANDLE
 
@@ -333,11 +404,31 @@ use kernel32 { HANDLE }
         lpServiceStartName:   *const char,
         lpPassword:           *const char
     ): *SC_HANDLE
+    @lib pub fn CreateServiceW(
+        hSCManager:           *SC_HANDLE,
+        lpServiceName:        *const u16,
+        lpDisplayName:        *const u16,
+        dwDesiredAccess:      u32,
+        dwServiceType:        u32,
+        dwStartType:          u32,
+        dwErrorControl:       u32,
+        lpBinaryPathName:     *const u16,
+        lpLoadOrderGroup:     *const u16,
+        lpdwTagId:            *u32,
+        lpDependencies:       *const u16,
+        lpServiceStartName:   *const u16,
+        lpPassword:           *const u16
+    ): *SC_HANDLE
 
     @lib pub fn StartServiceA(
         hService:            *SC_HANDLE,
         dwNumServiceArgs:    u32,
         lpServiceArgVectors: **const char
+    ): i32
+    @lib pub fn StartServiceW(
+        hService:            *SC_HANDLE,
+        dwNumServiceArgs:    u32,
+        lpServiceArgVectors: **const u16
     ): i32
 
     @lib pub fn ControlService(
@@ -361,6 +452,10 @@ use kernel32 { HANDLE }
         lpUNCServerName: *const char,
         lpSourceName:    *const char
     ): HEVENTLOG
+    @lib pub fn OpenEventLogW(
+        lpUNCServerName: *const u16,
+        lpSourceName:    *const u16
+    ): HEVENTLOG
 
     @lib pub fn CloseEventLog(hEventLog: HEVENTLOG): i32
 
@@ -368,6 +463,10 @@ use kernel32 { HANDLE }
     @lib pub fn RegisterEventSourceA(
         lpUNCServerName: *const char,
         lpSourceName:    *const char
+    ): HEVENTLOG
+    @lib pub fn RegisterEventSourceW(
+        lpUNCServerName: *const u16,
+        lpSourceName:    *const u16
     ): HEVENTLOG
 
     @lib pub fn DeregisterEventSource(hEventLog: HEVENTLOG): i32
@@ -386,6 +485,17 @@ use kernel32 { HANDLE }
         lpStrings:   **const char,
         lpRawData:   *void
     ): i32
+    @lib pub fn ReportEventW(
+        hEventLog:   HEVENTLOG,
+        wType:       u16,         // EventLogType.*
+        wCategory:   u16,
+        dwEventID:   u32,
+        lpUserSid:   *void,
+        wNumStrings: u16,
+        dwDataSize:  u32,
+        lpStrings:   **const u16,
+        lpRawData:   *void
+    ): i32
 
     // ── Security / token ─────────────────────────────────────────
 
@@ -402,6 +512,11 @@ use kernel32 { HANDLE }
     @lib pub fn LookupPrivilegeValueA(
         lpSystemName: *const char,
         lpName:       *const char,
+        lpLuid:       *void      // *LUID (2 × u32)
+    ): i32
+    @lib pub fn LookupPrivilegeValueW(
+        lpSystemName: *const u16,
+        lpName:       *const u16,
         lpLuid:       *void      // *LUID (2 × u32)
     ): i32
 
@@ -426,6 +541,15 @@ use kernel32 { HANDLE }
         cchReferencedDomainName: *u32,
         peUse:             *u32
     ): i32
+    @lib pub fn LookupAccountSidW(
+        lpSystemName:      *const u16,
+        Sid:               *void,
+        Name:              *u16,
+        cchName:           *u32,
+        ReferencedDomainName: *u16,
+        cchReferencedDomainName: *u32,
+        peUse:             *u32
+    ): i32
 
     // ── Encryption / hashing (CryptoAPI lightweight) ──────────────
 
@@ -435,6 +559,13 @@ use kernel32 { HANDLE }
         phProv:      *u64,       // HCRYPTPROV (ULONG_PTR)
         szContainer: *const char,
         szProvider:  *const char,
+        dwProvType:  u32,
+        dwFlags:     u32
+    ): i32
+    @lib pub fn CryptAcquireContextW(
+        phProv:      *u64,       // HCRYPTPROV (ULONG_PTR)
+        szContainer: *const u16,
+        szProvider:  *const u16,
         dwProvType:  u32,
         dwFlags:     u32
     ): i32

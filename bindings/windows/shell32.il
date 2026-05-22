@@ -175,6 +175,14 @@ use user32 { HINSTANCE, HICON, HWND }
         lpDirectory: *const char,
         nShowCmd:    i32
     ): i64
+    @lib pub fn ShellExecuteW(
+        hwnd:        HWND,
+        lpOperation: *const u16,
+        lpFile:      *const u16,
+        lpParameters: *const u16,
+        lpDirectory: *const u16,
+        nShowCmd:    i32
+    ): i64
 
     // ── Folder paths ──────────────────────────────────────────────
 
@@ -188,6 +196,13 @@ use user32 { HINSTANCE, HICON, HWND }
         dwFlags: u32,
         pszPath: *char         // output buffer, at least MAX_PATH (260)
     ): i32
+    @lib pub fn SHGetFolderPathW(
+        hwnd:    HWND,
+        csidl:   i32,          // CSIDL.*
+        hToken:  i64,          // token, or 0
+        dwFlags: u32,
+        pszPath: *u16         // output buffer, at least MAX_PATH (260)
+    ): i32
 
     // ── File operations ───────────────────────────────────────────
 
@@ -195,6 +210,7 @@ use user32 { HINSTANCE, HICON, HWND }
     /// Returns 0 on success; non-zero error codes are Win32
     /// error codes. Fills `fAnyOperationsAborted` in the struct.
     @lib pub fn SHFileOperationA(lpFileOp: *SHFILEOPERATIONA): i32
+    @lib pub fn SHFileOperationW(lpFileOp: *SHFILEOPERATIONA): i32
 
     // ── Drag and drop ─────────────────────────────────────────────
 
@@ -212,6 +228,12 @@ use user32 { HINSTANCE, HICON, HWND }
         lpszFile: *char,
         cch:     u32
     ): u32
+    @lib pub fn DragQueryFileW(
+        hDrop:   HDROP,
+        iFile:   u32,
+        lpszFile: *u16,
+        cch:     u32
+    ): u32
 
     /// Releases memory allocated by the system for `hDrop`.
     /// Always call this after processing WM_DROPFILES.
@@ -223,6 +245,7 @@ use user32 { HINSTANCE, HICON, HWND }
     /// `dwMessage`: NotifyIconMessage.*, `lpdata` points to a
     /// NOTIFYICONDATAA struct with `cbSize` set correctly.
     @lib pub fn Shell_NotifyIconA(dwMessage: u32, lpdata: *void): i32
+    @lib pub fn Shell_NotifyIconW(dwMessage: u32, lpdata: *void): i32
 
     // ── Folder path helpers (extended) ───────────────────────────
 
@@ -231,6 +254,12 @@ use user32 { HINSTANCE, HICON, HWND }
     @lib pub fn SHGetSpecialFolderPathA(
         hwnd:    HWND,
         pszPath: *char,
+        csidl:   i32,
+        fCreate: i32
+    ): i32
+    @lib pub fn SHGetSpecialFolderPathW(
+        hwnd:    HWND,
+        pszPath: *u16,
         csidl:   i32,
         fCreate: i32
     ): i32
@@ -252,6 +281,11 @@ use user32 { HINSTANCE, HICON, HWND }
         pszPath: *const char,
         psa:     *void           // *SECURITY_ATTRIBUTES, may be 0
     ): i32
+    @lib pub fn SHCreateDirectoryExW(
+        hwnd:    HWND,
+        pszPath: *const u16,
+        psa:     *void           // *SECURITY_ATTRIBUTES, may be 0
+    ): i32
 
     // ── Recycle bin ──────────────────────────────────────────────
 
@@ -261,6 +295,11 @@ use user32 { HINSTANCE, HICON, HWND }
     @lib pub fn SHEmptyRecycleBinA(
         hwnd:        HWND,
         pszRootPath: *const char,
+        dwFlags:     u32
+    ): i32
+    @lib pub fn SHEmptyRecycleBinW(
+        hwnd:        HWND,
+        pszRootPath: *const u16,
         dwFlags:     u32
     ): i32
 
@@ -273,6 +312,10 @@ use user32 { HINSTANCE, HICON, HWND }
 
     @lib pub fn SHQueryRecycleBinA(
         pszRootPath: *const char,
+        pSHQueryRBInfo: *SHQUERYRBINFO
+    ): i32
+    @lib pub fn SHQueryRecycleBinW(
+        pszRootPath: *const u16,
         pSHQueryRBInfo: *SHQUERYRBINFO
     ): i32
 
@@ -288,12 +331,24 @@ use user32 { HINSTANCE, HICON, HWND }
         phiconSmall: *i64,
         nIcons:      u32
     ): u32
+    @lib pub fn ExtractIconExW(
+        lpszFile:    *const u16,
+        nIconIndex:  i32,
+        phiconLarge: *i64,
+        phiconSmall: *i64,
+        nIcons:      u32
+    ): u32
 
     /// `ExtractAssociatedIconA` — first icon associated with a
     /// file (looks up the extension's ProgID).
     @lib pub fn ExtractAssociatedIconA(
         hInst:      HINSTANCE,
         pszIconPath: *char,
+        piIcon:     *u16
+    ): HICON
+    @lib pub fn ExtractAssociatedIconW(
+        hInst:      HINSTANCE,
+        pszIconPath: *u16,
         piIcon:     *u16
     ): HICON
 
@@ -317,4 +372,5 @@ use user32 { HINSTANCE, HICON, HWND }
 
     /// Convert a PIDL (item id list) into a filesystem path.
     @lib pub fn SHGetPathFromIDListA(pidl: *const void, pszPath: *char): i32
+    @lib pub fn SHGetPathFromIDListW(pidl: *const void, pszPath: *u16): i32
 }

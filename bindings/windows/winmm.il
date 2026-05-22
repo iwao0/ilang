@@ -213,6 +213,11 @@ pub enum MixerLineFlags: u32 {
         hmod:     *void,      // HMODULE, or 0
         fdwSound: u32
     ): i32
+    @lib pub fn PlaySoundW(
+        pszSound: *const u16,
+        hmod:     *void,      // HMODULE, or 0
+        fdwSound: u32
+    ): i32
 
     // ── waveOut ───────────────────────────────────────────────────
 
@@ -358,6 +363,11 @@ pub enum MixerLineFlags: u32 {
         pwoc:      *WAVEOUTCAPSA,
         cbwoc:     u32
     ): u32
+    @lib pub fn waveOutGetDevCapsW(
+        uDeviceID: u64,
+        pwoc:      *WAVEOUTCAPSA,
+        cbwoc:     u32
+    ): u32
 
     @lib pub fn waveOutGetID(hwo: *HWAVEOUT, puDeviceID: *u32): u32
 
@@ -389,6 +399,11 @@ pub enum MixerLineFlags: u32 {
         pwic:      *WAVEINCAPSA,
         cbwic:     u32
     ): u32
+    @lib pub fn waveInGetDevCapsW(
+        uDeviceID: u64,
+        pwic:      *WAVEINCAPSA,
+        cbwic:     u32
+    ): u32
 
     /// Opens a waveform input (capture) device — mirror of
     /// `waveOutOpen`.
@@ -412,6 +427,11 @@ pub enum MixerLineFlags: u32 {
 
     @lib pub fn midiOutGetNumDevs(): u32
     @lib pub fn midiOutGetDevCapsA(
+        uDeviceID: u64,
+        pmoc:      *MIDIOUTCAPSA,
+        cbmoc:     u32
+    ): u32
+    @lib pub fn midiOutGetDevCapsW(
         uDeviceID: u64,
         pmoc:      *MIDIOUTCAPSA,
         cbmoc:     u32
@@ -469,11 +489,22 @@ pub enum MixerLineFlags: u32 {
         cchReturn:          u32,
         hwndCallback:       *void
     ): u32
+    @lib pub fn mciSendStringW(
+        lpszCommand:        *const u16,
+        lpszReturnString:   *u16,
+        cchReturn:          u32,
+        hwndCallback:       *void
+    ): u32
 
     /// Looks up a string for the most recent MCI error.
     @lib pub fn mciGetErrorStringA(
         fdwError: u32,
         lpszErrorText: *char,
+        cchErrorText: u32
+    ): i32
+    @lib pub fn mciGetErrorStringW(
+        fdwError: u32,
+        lpszErrorText: *u16,
         cchErrorText: u32
     ): i32
 

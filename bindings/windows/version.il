@@ -86,12 +86,22 @@ pub enum VsFileType: u32 {
         lptstrFilename: *const char,
         lpdwHandle:     *u32
     ): u32
+    @lib pub fn GetFileVersionInfoSizeW(
+        lptstrFilename: *const u16,
+        lpdwHandle:     *u32
+    ): u32
 
     /// Copies the version-info block into `lpData` (allocate `dwLen`
     /// bytes first using `GetFileVersionInfoSizeA`).
     /// `dwHandle`: must be 0.
     @lib pub fn GetFileVersionInfoA(
         lptstrFilename: *const char,
+        dwHandle:       u32,
+        dwLen:          u32,
+        lpData:         *void
+    ): i32
+    @lib pub fn GetFileVersionInfoW(
+        lptstrFilename: *const u16,
         dwHandle:       u32,
         dwLen:          u32,
         lpData:         *void
@@ -110,6 +120,12 @@ pub enum VsFileType: u32 {
         lplpBuffer: **void,
         puLen:      *u32
     ): i32
+    @lib pub fn VerQueryValueW(
+        pBlock:     *const void,
+        lpSubBlock: *const u16,
+        lplpBuffer: **void,
+        puLen:      *u32
+    ): i32
 
     // ── Language name lookup ──────────────────────────────────────
 
@@ -118,6 +134,11 @@ pub enum VsFileType: u32 {
     @lib pub fn VerLanguageNameA(
         wLang:       u32,
         szLang:      *char,
+        cchLang:     u32
+    ): u32
+    @lib pub fn VerLanguageNameW(
+        wLang:       u32,
+        szLang:      *u16,
         cchLang:     u32
     ): u32
 
@@ -136,6 +157,16 @@ pub enum VsFileType: u32 {
         szDestDir:    *char,
         lpuDestDirLen: *u32
     ): u32
+    @lib pub fn VerFindFileW(
+        uFlags:       u32,
+        szFileName:   *const u16,
+        szWinDir:     *const u16,
+        szAppDir:     *const u16,
+        szCurDir:     *u16,
+        lpuCurDirLen: *u32,
+        szDestDir:    *u16,
+        lpuDestDirLen: *u32
+    ): u32
 
     @lib pub fn VerInstallFileA(
         uFlags:        u32,
@@ -145,6 +176,16 @@ pub enum VsFileType: u32 {
         szDestDir:     *const char,
         szCurDir:      *const char,
         szTmpFile:     *char,
+        lpuTmpFileLen: *u32
+    ): u32
+    @lib pub fn VerInstallFileW(
+        uFlags:        u32,
+        szSrcFileName: *const u16,
+        szDestFileName: *const u16,
+        szSrcDir:      *const u16,
+        szDestDir:     *const u16,
+        szCurDir:      *const u16,
+        szTmpFile:     *u16,
         lpuTmpFileLen: *u32
     ): u32
 }

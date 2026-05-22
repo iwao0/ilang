@@ -34,6 +34,13 @@
         dwReserved: u32,
         lpfnCB:     *void
     ): i32
+    @lib pub fn URLOpenBlockingStreamW(
+        pCaller:    *void,
+        szURL:      *const u16,
+        ppStream:   **void,          // *IStream
+        dwReserved: u32,
+        lpfnCB:     *void
+    ): i32
 
     /// MIME sniffing. `pBC` may be 0; `pwzUrl` is optional context;
     /// `pBuffer` (`cbSize` bytes) is the sniffed prefix. Returns

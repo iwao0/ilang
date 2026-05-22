@@ -89,8 +89,14 @@ pub enum DcGetFlags: u32 {
         DnsDomainName:        *const char,
         phDS:                 *i64
     ): u32
+    @lib pub fn DsBindW(
+        DomainControllerName: *const u16,
+        DnsDomainName:        *const u16,
+        phDS:                 *i64
+    ): u32
 
     @lib pub fn DsUnBindA(phDS: *i64): u32
+    @lib pub fn DsUnBindW(phDS: *i64): u32
 
     /// `DsCrackNamesA(hDS, flags, formatOffered, formatDesired,
     ///                cNames, rpNames, &result)`. `result` is freed
@@ -104,8 +110,18 @@ pub enum DcGetFlags: u32 {
         rpNames:         **const char,
         ppResult:        **void         // *DS_NAME_RESULT_A
     ): u32
+    @lib pub fn DsCrackNamesW(
+        hDS:             i64,
+        flags:           u32,
+        formatOffered:   i32,           // DsNameFormat
+        formatDesired:   i32,
+        cNames:          u32,
+        rpNames:         **const u16,
+        ppResult:        **void         // *DS_NAME_RESULT_A
+    ): u32
 
     @lib pub fn DsFreeNameResultA(pResult: *void)
+    @lib pub fn DsFreeNameResultW(pResult: *void)
 
     // ── SPN helpers ─────────────────────────────────────────────
 
@@ -120,6 +136,15 @@ pub enum DcGetFlags: u32 {
         pcSpnLength:   *u32,
         pszSpn:        *char
     ): u32
+    @lib pub fn DsMakeSpnW(
+        ServiceClass:  *const u16,
+        ServiceName:   *const u16,
+        InstanceName:  *const u16,
+        InstancePort:  u16,
+        Referrer:      *const u16,
+        pcSpnLength:   *u32,
+        pszSpn:        *u16
+    ): u32
 
     @lib pub fn DsCrackSpnA(
         pszSpn:          *const char,
@@ -129,6 +154,16 @@ pub enum DcGetFlags: u32 {
         ServiceName:     *char,
         pcInstanceName:  *u32,
         InstanceName:    *char,
+        pInstancePort:   *u16
+    ): u32
+    @lib pub fn DsCrackSpnW(
+        pszSpn:          *const u16,
+        pcServiceClass:  *u32,
+        ServiceClass:    *u16,
+        pcServiceName:   *u32,
+        ServiceName:     *u16,
+        pcInstanceName:  *u32,
+        InstanceName:    *u16,
         pInstancePort:   *u16
     ): u32
 
@@ -143,6 +178,17 @@ pub enum DcGetFlags: u32 {
         pcSpn:          *u32,
         prpszSpn:       ***char
     ): u32
+    @lib pub fn DsGetSpnW(
+        ServiceType:   i32,
+        ServiceClass:  *const u16,
+        ServiceName:   *const u16,
+        InstancePort:  u16,
+        cInstanceNames: u16,
+        pInstanceNames: **const u16,
+        pInstancePorts: *const u16,
+        pcSpn:          *u32,
+        prpszSpn:       ***u16
+    ): u32
 
     @lib pub fn DsWriteAccountSpnA(
         hDS:           i64,
@@ -150,6 +196,13 @@ pub enum DcGetFlags: u32 {
         pszAccount:    *const char,
         cSpn:          u32,
         rpszSpn:       **const char
+    ): u32
+    @lib pub fn DsWriteAccountSpnW(
+        hDS:           i64,
+        Operation:     i32,             // 1=add, 2=replace, 3=delete
+        pszAccount:    *const u16,
+        cSpn:          u32,
+        rpszSpn:       **const u16
     ): u32
 
     // ── Forest topology ─────────────────────────────────────────
@@ -159,10 +212,19 @@ pub enum DcGetFlags: u32 {
         hDs:             i64,
         ppSites:         **void
     ): u32
+    @lib pub fn DsListSitesW(
+        hDs:             i64,
+        ppSites:         **void
+    ): u32
 
     @lib pub fn DsListDomainsInSiteA(
         hDs:             i64,
         site:            *const char,
+        ppDomains:       **void
+    ): u32
+    @lib pub fn DsListDomainsInSiteW(
+        hDs:             i64,
+        site:            *const u16,
         ppDomains:       **void
     ): u32
 
@@ -170,6 +232,12 @@ pub enum DcGetFlags: u32 {
         hDs:             i64,
         domain:          *const char,
         site:            *const char,
+        ppServers:       **void
+    ): u32
+    @lib pub fn DsListServersForDomainInSiteW(
+        hDs:             i64,
+        domain:          *const u16,
+        site:            *const u16,
         ppServers:       **void
     ): u32
 

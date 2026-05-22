@@ -116,4 +116,16 @@ use kernel32 { HANDLE }
         lpAliasBuffer: *char,
         lpdwAliasBufferLength: *u32
     ): i32
+    @lib pub fn GetAddressByNameW(
+        dwNameSpace:   u32,
+        lpServiceType: *const void,
+        lpServiceName: *u16,
+        lpiProtocols:  *i32,
+        dwResolution:  u32,
+        lpServiceAsyncInfo: *void,
+        lpCsaddrBuffer: *void,
+        lpdwBufferLength: *u32,
+        lpAliasBuffer: *u16,
+        lpdwAliasBufferLength: *u32
+    ): i32
 }

@@ -71,6 +71,10 @@ use user32 { HWND }
         pCertViewInfo:    *const CRYPTUI_VIEWCERTIFICATE_STRUCTA,
         pfPropertiesChanged: *i32
     ): i32
+    @lib pub fn CryptUIDlgViewCertificateW(
+        pCertViewInfo:    *const CRYPTUI_VIEWCERTIFICATE_STRUCTA,
+        pfPropertiesChanged: *i32
+    ): i32
 
     /// `CryptUIDlgSelectCertificate*` — pick a cert from a store
     /// or from the current user's "My" store. Returns the chosen

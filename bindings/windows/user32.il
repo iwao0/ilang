@@ -1169,6 +1169,10 @@ pub enum SpiAction: u32 {
         lpClassName:  *const char,
         lpWindowName: *const char
     ): HWND
+    @lib pub fn FindWindowW(
+        lpClassName:  *const u16,
+        lpWindowName: *const u16
+    ): HWND
 
     /// Returns the thread that owns `hwnd` and writes its process ID
     /// to `lpdwProcessId` (pass `0 as *u32` to skip).
@@ -1194,6 +1198,13 @@ pub enum SpiAction: u32 {
     /// Non-blocking message check. `wRemoveMsg`: 0=peek only,
     /// 1=remove (PM_REMOVE).
     @lib pub fn PeekMessageA(
+        lpMsg:         *MSG,
+        hwnd:          HWND,
+        wMsgFilterMin: u32,
+        wMsgFilterMax: u32,
+        wRemoveMsg:    u32
+    ): i32
+    @lib pub fn PeekMessageW(
         lpMsg:         *MSG,
         hwnd:          HWND,
         wMsgFilterMin: u32,
@@ -1231,6 +1242,12 @@ pub enum SpiAction: u32 {
 
     /// Posts a message asynchronously; returns immediately.
     @lib pub fn PostMessageA(
+        hwnd:   HWND,
+        msg:    u32,
+        wParam: u64,
+        lParam: i64
+    ): i32
+    @lib pub fn PostMessageW(
         hwnd:   HWND,
         msg:    u32,
         wParam: u64,
@@ -1317,6 +1334,10 @@ pub enum SpiAction: u32 {
         hInstance:  HINSTANCE,
         lpIconName: *const char
     ): HICON
+    @lib pub fn LoadIconW(
+        hInstance:  HINSTANCE,
+        lpIconName: *const u16
+    ): HICON
 
     /// Loads a predefined or application cursor.
     /// For system cursors pass `0 as HINSTANCE` and
@@ -1324,6 +1345,10 @@ pub enum SpiAction: u32 {
     @lib pub fn LoadCursorA(
         hInstance:    HINSTANCE,
         lpCursorName: *const char
+    ): HCURSOR
+    @lib pub fn LoadCursorW(
+        hInstance:    HINSTANCE,
+        lpCursorName: *const u16
     ): HCURSOR
 
     // ── Dialogs ──────────────────────────────────────────────
@@ -1333,6 +1358,12 @@ pub enum SpiAction: u32 {
         hwnd:      HWND,
         lpText:    *const char,
         lpCaption: *const char,
+        uType:     u32
+    ): i32
+    @lib pub fn MessageBoxW(
+        hwnd:      HWND,
+        lpText:    *const u16,
+        lpCaption: *const u16,
         uType:     u32
     ): i32
 
@@ -1358,6 +1389,7 @@ pub enum SpiAction: u32 {
     @lib pub fn MonitorFromRect(lprc: *const RECT, dwFlags: u32): HMONITOR
 
     @lib pub fn GetMonitorInfoA(hMonitor: HMONITOR, lpmi: *MONITORINFO): i32
+    @lib pub fn GetMonitorInfoW(hMonitor: HMONITOR, lpmi: *MONITORINFO): i32
 
     /// Calls `lpfnEnum(hMonitor, hdcMonitor, lprcMonitor, dwData)`
     /// for every monitor; stops when the callback returns FALSE.
@@ -1387,14 +1419,20 @@ pub enum SpiAction: u32 {
     /// Reads a window attribute by index (WindowLongIndex.*).
     /// Use this for pointer-sized values; use GetWindowLongA for u32.
     @lib pub fn GetWindowLongPtrA(hwnd: HWND, nIndex: i32): i64
+    @lib pub fn GetWindowLongPtrW(hwnd: HWND, nIndex: i32): i64
 
     @lib pub fn SetWindowLongPtrA(hwnd: HWND, nIndex: i32, dwNewLong: i64): i64
+    @lib pub fn SetWindowLongPtrW(hwnd: HWND, nIndex: i32, dwNewLong: i64): i64
 
     @lib pub fn GetWindowLongA(hwnd: HWND, nIndex: i32): i32
+    @lib pub fn GetWindowLongW(hwnd: HWND, nIndex: i32): i32
     @lib pub fn SetWindowLongA(hwnd: HWND, nIndex: i32, dwNewLong: i32): i32
+    @lib pub fn SetWindowLongW(hwnd: HWND, nIndex: i32, dwNewLong: i32): i32
 
     @lib pub fn GetClassLongPtrA(hwnd: HWND, nIndex: i32): u64
+    @lib pub fn GetClassLongPtrW(hwnd: HWND, nIndex: i32): u64
     @lib pub fn SetClassLongPtrA(hwnd: HWND, nIndex: i32, dwNewLong: i64): u64
+    @lib pub fn SetClassLongPtrW(hwnd: HWND, nIndex: i32, dwNewLong: i64): u64
 
     // ── System metrics ────────────────────────────────────────────
 
@@ -1469,6 +1507,7 @@ pub enum SpiAction: u32 {
     /// Translates a virtual key code to a scan code, or vice-versa.
     /// `uMapType`: 0=VK→scan, 1=scan→VK, 2=VK→char, 3=VK→unshifted char.
     @lib pub fn MapVirtualKeyA(uCode: u32, uMapType: u32): u32
+    @lib pub fn MapVirtualKeyW(uCode: u32, uMapType: u32): u32
 
     // ── SendInput ─────────────────────────────────────────────────
 
@@ -1558,6 +1597,12 @@ pub enum SpiAction: u32 {
         uIDNewItem:  u64,    // UINT_PTR — command ID or HMENU
         lpNewItem:   *const char
     ): i32
+    @lib pub fn AppendMenuW(
+        hMenu:       HMENU,
+        uFlags:      u32,
+        uIDNewItem:  u64,    // UINT_PTR — command ID or HMENU
+        lpNewItem:   *const u16
+    ): i32
 
     @lib pub fn InsertMenuA(
         hMenu:       HMENU,
@@ -1565,6 +1610,13 @@ pub enum SpiAction: u32 {
         uFlags:      u32,
         uIDNewItem:  u64,
         lpNewItem:   *const char
+    ): i32
+    @lib pub fn InsertMenuW(
+        hMenu:       HMENU,
+        uPosition:   u32,
+        uFlags:      u32,
+        uIDNewItem:  u64,
+        lpNewItem:   *const u16
     ): i32
 
     @lib pub fn DeleteMenu(hMenu: HMENU, uPosition: u32, uFlags: u32): i32
@@ -1575,6 +1627,13 @@ pub enum SpiAction: u32 {
         uFlags:      u32,
         uIDNewItem:  u64,
         lpNewItem:   *const char
+    ): i32
+    @lib pub fn ModifyMenuW(
+        hMenu:       HMENU,
+        uPosition:   u32,
+        uFlags:      u32,
+        uIDNewItem:  u64,
+        lpNewItem:   *const u16
     ): i32
 
     @lib pub fn EnableMenuItem(hMenu: HMENU, uIDEnableItem: u32, uEnable: u32): i32
@@ -1617,19 +1676,32 @@ pub enum SpiAction: u32 {
         cy:     i32,
         fuLoad: u32
     ): *void
+    @lib pub fn LoadImageW(
+        hInst:  *void,   // HINSTANCE
+        image:  *const u16,
+        type_:  u32,
+        cx:     i32,
+        cy:     i32,
+        fuLoad: u32
+    ): *void
 
     // ── Registered window messages ────────────────────────────────
 
     /// Registers a unique message for inter-application communication.
     /// Returns a value in 0xC000–0xFFFF, unique to the string.
     @lib pub fn RegisterWindowMessageA(lpString: *const char): u32
+    @lib pub fn RegisterWindowMessageW(lpString: *const u16): u32
 
     // ── Character conversion ──────────────────────────────────────
 
     @lib pub fn CharToOemA(pSrc: *const char, pDst: *char): i32
+    @lib pub fn CharToOemW(pSrc: *const u16, pDst: *u16): i32
     @lib pub fn OemToCharA(pSrc: *const char, pDst: *char): i32
+    @lib pub fn OemToCharW(pSrc: *const u16, pDst: *u16): i32
     @lib pub fn CharUpperA(lpsz: *char): *char
+    @lib pub fn CharUpperW(lpsz: *u16): *u16
     @lib pub fn CharLowerA(lpsz: *char): *char
+    @lib pub fn CharLowerW(lpsz: *u16): *u16
 
     // ── Window procedure calling ──────────────────────────────────
 
@@ -1642,12 +1714,25 @@ pub enum SpiAction: u32 {
         wParam:        u64,
         lParam:        i64
     ): i64
+    @lib pub fn CallWindowProcW(
+        lpPrevWndFunc: fn(i64, u32, u64, i64): i64,
+        hwnd:          HWND,
+        msg:           u32,
+        wParam:        u64,
+        lParam:        i64
+    ): i64
 
     // ── System parameters ─────────────────────────────────────────
 
     /// Gets or sets a system-wide parameter. `uiAction`: SpiAction.*.
     /// `lpvParam`: action-specific pointer; `fWinIni`: 0 = no broadcast.
     @lib pub fn SystemParametersInfoA(
+        uiAction:  u32,
+        uiParam:   u32,
+        pvParam:   *void,
+        fWinIni:   u32
+    ): i32
+    @lib pub fn SystemParametersInfoW(
         uiAction:  u32,
         uiParam:   u32,
         pvParam:   *void,
@@ -1692,11 +1777,17 @@ pub enum SpiAction: u32 {
     /// Registers a private clipboard format and returns a unique
     /// id in range 0xC000..0xFFFF.
     @lib pub fn RegisterClipboardFormatA(lpszFormat: *const char): u32
+    @lib pub fn RegisterClipboardFormatW(lpszFormat: *const u16): u32
 
     /// Returns the registered name of a private clipboard format.
     @lib pub fn GetClipboardFormatNameA(
         format:      u32,
         lpszFormatName: *char,
+        cchMaxCount: i32
+    ): i32
+    @lib pub fn GetClipboardFormatNameW(
+        format:      u32,
+        lpszFormatName: *u16,
         cchMaxCount: i32
     ): i32
 
@@ -1718,11 +1809,25 @@ pub enum SpiAction: u32 {
         lpDialogFunc:   fn(i64, u32, u64, i64): i64,
         dwInitParam:    i64
     ): i64
+    @lib pub fn DialogBoxParamW(
+        hInstance:      HINSTANCE,
+        lpTemplateName: *const u16,
+        hWndParent:     HWND,
+        lpDialogFunc:   fn(i64, u32, u64, i64): i64,
+        dwInitParam:    i64
+    ): i64
 
     /// Creates a modeless dialog.  Free with `DestroyWindow`.
     @lib pub fn CreateDialogParamA(
         hInstance:      HINSTANCE,
         lpTemplateName: *const char,
+        hWndParent:     HWND,
+        lpDialogFunc:   fn(i64, u32, u64, i64): i64,
+        dwInitParam:    i64
+    ): HWND
+    @lib pub fn CreateDialogParamW(
+        hInstance:      HINSTANCE,
+        lpTemplateName: *const u16,
         hWndParent:     HWND,
         lpDialogFunc:   fn(i64, u32, u64, i64): i64,
         dwInitParam:    i64
@@ -1744,12 +1849,26 @@ pub enum SpiAction: u32 {
         wParam:     u64,
         lParam:     i64
     ): i64
+    @lib pub fn SendDlgItemMessageW(
+        hDlg:       HWND,
+        nIDDlgItem: i32,
+        Msg:        u32,
+        wParam:     u64,
+        lParam:     i64
+    ): i64
 
     @lib pub fn SetDlgItemTextA(hDlg: HWND, nIDDlgItem: i32, lpString: *const char): i32
+    @lib pub fn SetDlgItemTextW(hDlg: HWND, nIDDlgItem: i32, lpString: *const u16): i32
     @lib pub fn GetDlgItemTextA(
         hDlg:       HWND,
         nIDDlgItem: i32,
         lpString:   *char,
+        nMaxCount:  i32
+    ): u32
+    @lib pub fn GetDlgItemTextW(
+        hDlg:       HWND,
+        nIDDlgItem: i32,
+        lpString:   *u16,
         nMaxCount:  i32
     ): u32
 
@@ -1785,6 +1904,7 @@ pub enum SpiAction: u32 {
     ): HWND
 
     @lib pub fn IsDialogMessageA(hDlg: HWND, lpMsg: *MSG): i32
+    @lib pub fn IsDialogMessageW(hDlg: HWND, lpMsg: *MSG): i32
 
     // ── Hooks ─────────────────────────────────────────────────────
 
@@ -1798,6 +1918,12 @@ pub enum SpiAction: u32 {
     /// `hMod`: module containing the procedure (NULL for current).
     /// `dwThreadId`: 0 = global hook (low-level only); else thread id.
     @lib pub fn SetWindowsHookExA(
+        idHook:     i32,
+        lpfn:       fn(i32, u64, i64): i64,
+        hMod:       HINSTANCE,
+        dwThreadId: u32
+    ): HHOOK
+    @lib pub fn SetWindowsHookExW(
         idHook:     i32,
         lpfn:       fn(i32, u64, i64): i64,
         hMod:       HINSTANCE,
@@ -1867,6 +1993,12 @@ pub enum SpiAction: u32 {
     ): u32
 
     @lib pub fn GetRawInputDeviceInfoA(
+        hDevice: *void,
+        uiCommand: u32,
+        pData:   *void,
+        pcbSize: *u32
+    ): u32
+    @lib pub fn GetRawInputDeviceInfoW(
         hDevice: *void,
         uiCommand: u32,
         pData:   *void,
@@ -1985,6 +2117,13 @@ pub enum SpiAction: u32 {
         wParam:     u64,
         lParam:     i64
     ): i64
+    @lib pub fn BroadcastSystemMessageW(
+        dwFlags:    u32,
+        lpInfo:     *u32,
+        Msg:        u32,
+        wParam:     u64,
+        lParam:     i64
+    ): i64
 
     // ── Device-change notifications ──────────────────────────────
 
@@ -1993,6 +2132,11 @@ pub enum SpiAction: u32 {
     /// `Flags`: DEVICE_NOTIFY_WINDOW_HANDLE=0, DEVICE_NOTIFY_SERVICE_HANDLE=1,
     /// DEVICE_NOTIFY_ALL_INTERFACE_CLASSES=4.
     @lib pub fn RegisterDeviceNotificationA(
+        hRecipient:        i64,
+        NotificationFilter: *const void,    // *DEV_BROADCAST_DEVICEINTERFACE_A
+        Flags:             u32
+    ): *void
+    @lib pub fn RegisterDeviceNotificationW(
         hRecipient:        i64,
         NotificationFilter: *const void,    // *DEV_BROADCAST_DEVICEINTERFACE_A
         Flags:             u32

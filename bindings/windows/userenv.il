@@ -29,16 +29,28 @@ use kernel32 { HANDLE }
         lpProfileDir: *char,
         lpcchSize:    *u32
     ): i32
+    @lib pub fn GetAllUsersProfileDirectoryW(
+        lpProfileDir: *u16,
+        lpcchSize:    *u32
+    ): i32
 
     /// Returns the default-user profile directory.
     @lib pub fn GetDefaultUserProfileDirectoryA(
         lpProfileDir: *char,
         lpcchSize:    *u32
     ): i32
+    @lib pub fn GetDefaultUserProfileDirectoryW(
+        lpProfileDir: *u16,
+        lpcchSize:    *u32
+    ): i32
 
     /// Returns the parent of all user profiles (e.g. C:\\Users).
     @lib pub fn GetProfilesDirectoryA(
         lpProfileDir: *char,
+        lpcchSize:    *u32
+    ): i32
+    @lib pub fn GetProfilesDirectoryW(
+        lpProfileDir: *u16,
         lpcchSize:    *u32
     ): i32
 
@@ -49,6 +61,10 @@ use kernel32 { HANDLE }
     /// `lpProfileInfo`: *PROFILEINFOA struct; set `dwSize`=44 and
     /// `lpUserName` before calling.
     @lib pub fn LoadUserProfileA(
+        hToken:        HANDLE,
+        lpProfileInfo: *void    // *PROFILEINFOA
+    ): i32
+    @lib pub fn LoadUserProfileW(
         hToken:        HANDLE,
         lpProfileInfo: *void    // *PROFILEINFOA
     ): i32

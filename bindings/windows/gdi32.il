@@ -404,6 +404,7 @@ pub enum FontPitchFamily: u32 {
     /// Fills `lpObject` with data about a GDI object. `nCount` is
     /// the byte size of the buffer (e.g. sizeof LOGFONTA for fonts).
     @lib pub fn GetObjectA(hObject: HGDIOBJ, nCount: i32, lpObject: *void): i32
+    @lib pub fn GetObjectW(hObject: HGDIOBJ, nCount: i32, lpObject: *void): i32
 
     // ── Pen ───────────────────────────────────────────────────────
 
@@ -494,6 +495,13 @@ pub enum FontPitchFamily: u32 {
         lpString: *const char,
         cbString: i32
     ): i32
+    @lib pub fn TextOutW(
+        hdc:      HDC,
+        nXStart:  i32,
+        nYStart:  i32,
+        lpString: *const u16,
+        cbString: i32
+    ): i32
 
     /// Draws formatted text within `lpRect`. `nCount` = −1 to use
     /// the NUL-terminated length. Returns height of the text in
@@ -501,6 +509,13 @@ pub enum FontPitchFamily: u32 {
     @lib pub fn DrawTextA(
         hdc:     HDC,
         lpchText: *const char,
+        nCount:  i32,
+        lpRect:  *void,   // *RECT
+        uFormat: u32
+    ): i32
+    @lib pub fn DrawTextW(
+        hdc:     HDC,
+        lpchText: *const u16,
         nCount:  i32,
         lpRect:  *void,   // *RECT
         uFormat: u32
@@ -514,12 +529,19 @@ pub enum FontPitchFamily: u32 {
         cbString: i32,
         lpSize:   *SIZE
     ): i32
+    @lib pub fn GetTextExtentPoint32W(
+        hdc:      HDC,
+        lpString: *const u16,
+        cbString: i32,
+        lpSize:   *SIZE
+    ): i32
 
     @lib pub fn SetTextAlign(hdc: HDC, fMode: u32): u32
     @lib pub fn GetTextAlign(hdc: HDC): u32
 
     /// Fills `lptm` with font metrics for the DC's current font.
     @lib pub fn GetTextMetricsA(hdc: HDC, lptm: *TEXTMETRICA): i32
+    @lib pub fn GetTextMetricsW(hdc: HDC, lptm: *TEXTMETRICA): i32
 
     // ── Font ──────────────────────────────────────────────────────
 
@@ -543,8 +565,25 @@ pub enum FontPitchFamily: u32 {
         fdwPitchAndFamily: u32,
         lpszFace:         *const char
     ): HFONT
+    @lib pub fn CreateFontW(
+        nHeight:          i32,
+        nWidth:           i32,
+        nEscapement:      i32,
+        nOrientation:     i32,
+        fnWeight:         i32,
+        fdwItalic:        u32,
+        fdwUnderline:     u32,
+        fdwStrikeOut:     u32,
+        fdwCharSet:       u32,
+        fdwOutputPrecision: u32,
+        fdwClipPrecision: u32,
+        fdwQuality:       u32,
+        fdwPitchAndFamily: u32,
+        lpszFace:         *const u16
+    ): HFONT
 
     @lib pub fn CreateFontIndirectA(lplf: *const LOGFONTA): HFONT
+    @lib pub fn CreateFontIndirectW(lplf: *const LOGFONTA): HFONT
 
     // ── Bitmap ────────────────────────────────────────────────────
 
@@ -776,6 +815,12 @@ pub enum FontPitchFamily: u32 {
         lpszOutput:  *const char,
         lpInitData:  *const void
     ): *void
+    @lib pub fn CreateDCW(
+        lpszDriver:  *const u16,
+        lpszDevice:  *const u16,
+        lpszOutput:  *const u16,
+        lpInitData:  *const void
+    ): *void
 
     // ── Color ─────────────────────────────────────────────────────
 
@@ -827,6 +872,13 @@ pub enum FontPitchFamily: u32 {
         lParam:     i64,
         dwFlags:    u32       // must be 0
     ): i32
+    @lib pub fn EnumFontFamiliesExW(
+        hdc:        HDC,
+        lpLogfont:  *const LOGFONTA,
+        lpProc:     fn(i64, i64, u32, i64): i32,
+        lParam:     i64,
+        dwFlags:    u32       // must be 0
+    ): i32
 
     /// Older variant — `lpszFamily` is the family-name filter (NULL = all).
     @lib pub fn EnumFontsA(
@@ -835,10 +887,22 @@ pub enum FontPitchFamily: u32 {
         lpFontFunc: fn(i64, i64, u32, i64): i32,
         lParam:     i64
     ): i32
+    @lib pub fn EnumFontsW(
+        hdc:        HDC,
+        lpFaceName: *const u16,
+        lpFontFunc: fn(i64, i64, u32, i64): i32,
+        lParam:     i64
+    ): i32
 
     /// Returns the per-character widths of the characters in
     /// [iFirstChar, iLastChar] for the currently selected font.
     @lib pub fn GetCharWidth32A(
+        hdc:        HDC,
+        iFirstChar: u32,
+        iLastChar:  u32,
+        lpBuffer:   *i32
+    ): i32
+    @lib pub fn GetCharWidth32W(
         hdc:        HDC,
         iFirstChar: u32,
         iLastChar:  u32,
@@ -853,6 +917,12 @@ pub enum FontPitchFamily: u32 {
         wLast:      u32,
         lpabc:      *void
     ): i32
+    @lib pub fn GetCharABCWidthsW(
+        hdc:        HDC,
+        wFirst:     u32,
+        wLast:      u32,
+        lpabc:      *void
+    ): i32
 
     /// Translates `c` characters to glyph indices for the current font.
     /// `lpgi`: output array of u16 glyph indices.
@@ -860,6 +930,13 @@ pub enum FontPitchFamily: u32 {
     @lib pub fn GetGlyphIndicesA(
         hdc:    HDC,
         lpstr:  *const char,
+        c:      i32,
+        pgi:    *u16,
+        fl:     u32
+    ): u32
+    @lib pub fn GetGlyphIndicesW(
+        hdc:    HDC,
+        lpstr:  *const u16,
         c:      i32,
         pgi:    *u16,
         fl:     u32

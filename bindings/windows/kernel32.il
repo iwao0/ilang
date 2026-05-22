@@ -109,6 +109,7 @@ pub enum StdHandle: u32 {
     /// Returns the HMODULE of the running EXE when
     /// `lpModuleName` is `0 as *const char` (NULL).
     @lib pub fn GetModuleHandleA(lpModuleName: *const char): HMODULE
+    @lib pub fn GetModuleHandleW(lpModuleName: *const u16): HMODULE
 
     // ── Error ─────────────────────────────────────────────────
     /// Returns the last Win32 error set on this thread.
@@ -150,6 +151,11 @@ pub enum StdHandle: u32 {
         bInitialOwner:     i32,
         lpName:            *const char
     ): HANDLE
+    @lib pub fn CreateMutexW(
+        lpMutexAttributes: *void,
+        bInitialOwner:     i32,
+        lpName:            *const u16
+    ): HANDLE
     @lib pub fn ReleaseMutex(hMutex: HANDLE): i32
 
     /// Creates a manual- or auto-reset event.
@@ -158,6 +164,12 @@ pub enum StdHandle: u32 {
         bManualReset:      i32,
         bInitialState:     i32,
         lpName:            *const char
+    ): HANDLE
+    @lib pub fn CreateEventW(
+        lpEventAttributes: *void,
+        bManualReset:      i32,
+        bInitialState:     i32,
+        lpName:            *const u16
     ): HANDLE
     @lib pub fn SetEvent(hEvent: HANDLE): i32
     @lib pub fn ResetEvent(hEvent: HANDLE): i32
@@ -177,6 +189,7 @@ pub enum StdHandle: u32 {
     // ── Debug / console ───────────────────────────────────────
     /// Sends a string to an attached debugger (e.g. DebugView).
     @lib pub fn OutputDebugStringA(lpOutputString: *const char)
+    @lib pub fn OutputDebugStringW(lpOutputString: *const u16)
 
     /// Returns the standard input/output/error handle.
     /// Pass `StdHandle.output as u32` etc.
@@ -189,15 +202,24 @@ pub enum StdHandle: u32 {
         lpNumberOfCharsWritten: *u32,
         lpReserved:             *void
     ): i32
+    @lib pub fn WriteConsoleW(
+        hConsoleOutput:         HANDLE,
+        lpBuffer:               *const u16,
+        nNumberOfCharsToWrite:  u32,
+        lpNumberOfCharsWritten: *u32,
+        lpReserved:             *void
+    ): i32
 
     /// Allocates a new console window for the current process.
     /// Useful for GUI apps that want debug console output.
     @lib pub fn AllocConsole(): i32
     @lib pub fn FreeConsole(): i32
     @lib pub fn SetConsoleTitleA(lpConsoleTitle: *const char): i32
+    @lib pub fn SetConsoleTitleW(lpConsoleTitle: *const u16): i32
 
     // ── DLL loading ───────────────────────────────────────────
     @lib pub fn LoadLibraryA(lpLibFileName: *const char): HMODULE
+    @lib pub fn LoadLibraryW(lpLibFileName: *const u16): HMODULE
     @lib pub fn FreeLibrary(hLibModule: HMODULE): i32
     /// Returns NULL if the export is not found.
     @lib pub fn GetProcAddress(
@@ -249,6 +271,15 @@ pub enum StdHandle: u32 {
         dwFlagsAndAttributes:  u32,
         hTemplateFile:         HANDLE
     ): HANDLE
+    @lib pub fn CreateFileW(
+        lpFileName:            *const u16,
+        dwDesiredAccess:       u32,
+        dwShareMode:           u32,
+        lpSecurityAttributes:  *void,
+        dwCreationDisposition: u32,
+        dwFlagsAndAttributes:  u32,
+        hTemplateFile:         HANDLE
+    ): HANDLE
 
     @lib pub fn ReadFile(
         hFile:                HANDLE,
@@ -276,18 +307,33 @@ pub enum StdHandle: u32 {
     ): i32
     @lib pub fn FlushFileBuffers(hFile: HANDLE): i32
     @lib pub fn DeleteFileA(lpFileName: *const char): i32
+    @lib pub fn DeleteFileW(lpFileName: *const u16): i32
     @lib pub fn CopyFileA(
         lpExistingFileName: *const char,
         lpNewFileName:      *const char,
+        bFailIfExists:      i32
+    ): i32
+    @lib pub fn CopyFileW(
+        lpExistingFileName: *const u16,
+        lpNewFileName:      *const u16,
         bFailIfExists:      i32
     ): i32
     @lib pub fn MoveFileA(
         lpExistingFileName: *const char,
         lpNewFileName:      *const char
     ): i32
+    @lib pub fn MoveFileW(
+        lpExistingFileName: *const u16,
+        lpNewFileName:      *const u16
+    ): i32
     @lib pub fn GetFileAttributesA(lpFileName: *const char): u32
+    @lib pub fn GetFileAttributesW(lpFileName: *const u16): u32
     @lib pub fn SetFileAttributesA(
         lpFileName:     *const char,
+        dwFileAttributes: u32
+    ): i32
+    @lib pub fn SetFileAttributesW(
+        lpFileName:     *const u16,
         dwFileAttributes: u32
     ): i32
 
@@ -296,9 +342,16 @@ pub enum StdHandle: u32 {
         lpPathName:           *const char,
         lpSecurityAttributes: *void
     ): i32
+    @lib pub fn CreateDirectoryW(
+        lpPathName:           *const u16,
+        lpSecurityAttributes: *void
+    ): i32
     @lib pub fn RemoveDirectoryA(lpPathName: *const char): i32
+    @lib pub fn RemoveDirectoryW(lpPathName: *const u16): i32
     @lib pub fn GetCurrentDirectoryA(nBufferLength: u32, lpBuffer: *char): u32
+    @lib pub fn GetCurrentDirectoryW(nBufferLength: u32, lpBuffer: *u16): u32
     @lib pub fn SetCurrentDirectoryA(lpPathName: *const char): i32
+    @lib pub fn SetCurrentDirectoryW(lpPathName: *const u16): i32
     @lib pub fn GetTempPathA(nBufferLength: u32, lpBuffer: *char): u32
     @lib pub fn GetTempPathW(nBufferLength: u32, lpBuffer: *u16): u32
     @lib pub fn GetTempFileNameA(
@@ -306,6 +359,12 @@ pub enum StdHandle: u32 {
         lpPrefixString: *const char,
         uUnique:       u32,
         lpTempFileName: *char
+    ): u32
+    @lib pub fn GetTempFileNameW(
+        lpPathName:    *const u16,
+        lpPrefixString: *const u16,
+        uUnique:       u32,
+        lpTempFileName: *u16
     ): u32
 
     // ── Activation Context (side-by-side assemblies) ─────────
@@ -346,22 +405,39 @@ pub enum StdHandle: u32 {
 
     // ── System / environment ──────────────────────────────────
     @lib pub fn GetCommandLineA(): *const char
+    @lib pub fn GetCommandLineW(): *const u16
     @lib pub fn GetEnvironmentVariableA(
         lpName:   *const char,
         lpBuffer: *char,
+        nSize:    u32
+    ): u32
+    @lib pub fn GetEnvironmentVariableW(
+        lpName:   *const u16,
+        lpBuffer: *u16,
         nSize:    u32
     ): u32
     @lib pub fn SetEnvironmentVariableA(
         lpName:  *const char,
         lpValue: *const char
     ): i32
+    @lib pub fn SetEnvironmentVariableW(
+        lpName:  *const u16,
+        lpValue: *const u16
+    ): i32
     @lib pub fn ExpandEnvironmentStringsA(
         lpSrc:    *const char,
         lpDst:    *char,
         nSize:    u32
     ): u32
+    @lib pub fn ExpandEnvironmentStringsW(
+        lpSrc:    *const u16,
+        lpDst:    *u16,
+        nSize:    u32
+    ): u32
     @lib pub fn GetComputerNameA(lpBuffer: *char, nSize: *u32): i32
+    @lib pub fn GetComputerNameW(lpBuffer: *u16, nSize: *u32): i32
     @lib pub fn GetUserNameA(lpBuffer: *char, pcbBuffer: *u32): i32
+    @lib pub fn GetUserNameW(lpBuffer: *u16, pcbBuffer: *u32): i32
 
     // ── Process creation ──────────────────────────────────────────
 
@@ -416,6 +492,18 @@ pub enum StdHandle: u32 {
         lpStartupInfo:        *const STARTUPINFOA,
         lpProcessInformation: *PROCESS_INFORMATION
     ): i32
+    @lib pub fn CreateProcessW(
+        lpApplicationName:    *const u16,
+        lpCommandLine:        *u16,
+        lpProcessAttributes:  *void,
+        lpThreadAttributes:   *void,
+        bInheritHandles:      i32,
+        dwCreationFlags:      u32,
+        lpEnvironment:        *void,
+        lpCurrentDirectory:   *const u16,
+        lpStartupInfo:        *const STARTUPINFOA,
+        lpProcessInformation: *PROCESS_INFORMATION
+    ): i32
 
     @lib pub fn OpenProcess(
         dwDesiredAccess: u32,
@@ -439,6 +527,15 @@ pub enum StdHandle: u32 {
         dwMessageId:  u32,
         dwLanguageId: u32,
         lpBuffer:     *char,
+        nSize:        u32,
+        arguments:    *void
+    ): u32
+    @lib pub fn FormatMessageW(
+        dwFlags:      u32,
+        lpSource:     *const void,
+        dwMessageId:  u32,
+        dwLanguageId: u32,
+        lpBuffer:     *u16,
         nSize:        u32,
         arguments:    *void
     ): u32
@@ -514,12 +611,18 @@ pub enum StdHandle: u32 {
     /// `VerifyVersionInfoA` or `RtlGetVersion` (ntdll) for accurate
     /// version detection.
     @lib pub fn GetVersionExA(lpVersionInformation: *OSVERSIONINFOA): i32
+    @lib pub fn GetVersionExW(lpVersionInformation: *OSVERSIONINFOA): i32
 
     // ── Path utilities ────────────────────────────────────────────
 
     @lib pub fn GetModuleFileNameA(
         hModule:  HMODULE,
         lpFilename: *char,
+        nSize:    u32
+    ): u32
+    @lib pub fn GetModuleFileNameW(
+        hModule:  HMODULE,
+        lpFilename: *u16,
         nSize:    u32
     ): u32
 
@@ -529,10 +632,21 @@ pub enum StdHandle: u32 {
         lpBuffer:     *char,
         lpFilePart:   **char
     ): u32
+    @lib pub fn GetFullPathNameW(
+        lpFileName:   *const u16,
+        nBufferLength: u32,
+        lpBuffer:     *u16,
+        lpFilePart:   **u16
+    ): u32
 
     @lib pub fn GetShortPathNameA(
         lpszLongPath:  *const char,
         lpszShortPath: *char,
+        cchBuffer:     u32
+    ): u32
+    @lib pub fn GetShortPathNameW(
+        lpszLongPath:  *const u16,
+        lpszShortPath: *u16,
         cchBuffer:     u32
     ): u32
 
@@ -543,6 +657,14 @@ pub enum StdHandle: u32 {
         nBufferLength: u32,
         lpBuffer:    *char,
         lpFilePart:  **char
+    ): u32
+    @lib pub fn SearchPathW(
+        lpPath:      *const u16,
+        lpFileName:  *const u16,
+        lpExtension: *const u16,
+        nBufferLength: u32,
+        lpBuffer:    *u16,
+        lpFilePart:  **u16
     ): u32
 
     // ── Pipe / anonymous IPC ──────────────────────────────────────
@@ -566,10 +688,27 @@ pub enum StdHandle: u32 {
         nDefaultTimeOut:      u32,
         lpSecurityAttributes: *void
     ): HANDLE
+    @lib pub fn CreateNamedPipeW(
+        lpName:               *const u16,
+        dwOpenMode:           u32,
+        dwPipeMode:           u32,
+        nMaxInstances:        u32,
+        nOutBufferSize:       u32,
+        nInBufferSize:        u32,
+        nDefaultTimeOut:      u32,
+        lpSecurityAttributes: *void
+    ): HANDLE
 
     // ── Console extended ──────────────────────────────────────────
 
     @lib pub fn ReadConsoleA(
+        hConsoleInput:          HANDLE,
+        lpBuffer:               *void,
+        nNumberOfCharsToRead:   u32,
+        lpNumberOfCharsRead:    *u32,
+        pInputControl:          *void
+    ): i32
+    @lib pub fn ReadConsoleW(
         hConsoleInput:          HANDLE,
         lpBuffer:               *void,
         nNumberOfCharsToRead:   u32,
@@ -614,9 +753,17 @@ pub enum StdHandle: u32 {
         lpFileName:  *const char,
         lpFindFileData: *WIN32_FIND_DATAA
     ): HANDLE
+    @lib pub fn FindFirstFileW(
+        lpFileName:  *const u16,
+        lpFindFileData: *WIN32_FIND_DATAA
+    ): HANDLE
 
     /// Advances to the next matching entry. Returns 0 when no more.
     @lib pub fn FindNextFileA(
+        hFindFile:   HANDLE,
+        lpFindFileData: *WIN32_FIND_DATAA
+    ): i32
+    @lib pub fn FindNextFileW(
         hFindFile:   HANDLE,
         lpFindFileData: *WIN32_FIND_DATAA
     ): i32
@@ -706,11 +853,24 @@ pub enum StdHandle: u32 {
         dwMaximumSizeLow:     u32,
         lpName:               *const char
     ): HANDLE
+    @lib pub fn CreateFileMappingW(
+        hFile:                HANDLE,
+        lpFileMappingAttributes: *void,
+        flProtect:            u32,
+        dwMaximumSizeHigh:    u32,
+        dwMaximumSizeLow:     u32,
+        lpName:               *const u16
+    ): HANDLE
 
     @lib pub fn OpenFileMappingA(
         dwDesiredAccess: u32,
         bInheritHandle:  i32,
         lpName:          *const char
+    ): HANDLE
+    @lib pub fn OpenFileMappingW(
+        dwDesiredAccess: u32,
+        bInheritHandle:  i32,
+        lpName:          *const u16
     ): HANDLE
 
     /// Maps the file/pagefile into the address space.
@@ -735,11 +895,22 @@ pub enum StdHandle: u32 {
         lMaximumCount:         i32,
         lpName:                *const char
     ): HANDLE
+    @lib pub fn CreateSemaphoreW(
+        lpSemaphoreAttributes: *void,
+        lInitialCount:         i32,
+        lMaximumCount:         i32,
+        lpName:                *const u16
+    ): HANDLE
 
     @lib pub fn OpenSemaphoreA(
         dwDesiredAccess: u32,
         bInheritHandle:  i32,
         lpName:          *const char
+    ): HANDLE
+    @lib pub fn OpenSemaphoreW(
+        dwDesiredAccess: u32,
+        bInheritHandle:  i32,
+        lpName:          *const u16
     ): HANDLE
 
     @lib pub fn ReleaseSemaphore(
@@ -770,6 +941,7 @@ pub enum StdHandle: u32 {
     ///   0=unknown, 1=no root, 2=removable, 3=fixed, 4=network,
     ///   5=CD-ROM, 6=RAM disk.
     @lib pub fn GetDriveTypeA(lpRootPathName: *const char): u32
+    @lib pub fn GetDriveTypeW(lpRootPathName: *const u16): u32
 
     /// Fills `lpFreeBytesAvailableToCaller`, `lpTotalNumberOfBytes`,
     /// and `lpTotalNumberOfFreeBytes` (each *i64) with disk space info.
@@ -779,12 +951,21 @@ pub enum StdHandle: u32 {
         lpTotalNumberOfBytes:         *i64,
         lpTotalNumberOfFreeBytes:     *i64
     ): i32
+    @lib pub fn GetDiskFreeSpaceExW(
+        lpDirectoryName:             *const u16,
+        lpFreeBytesAvailableToCaller: *i64,
+        lpTotalNumberOfBytes:         *i64,
+        lpTotalNumberOfFreeBytes:     *i64
+    ): i32
 
     // ── System directory paths ────────────────────────────────────
 
     @lib pub fn GetWindowsDirectoryA(lpBuffer: *char, uSize: u32): u32
+    @lib pub fn GetWindowsDirectoryW(lpBuffer: *u16, uSize: u32): u32
     @lib pub fn GetSystemDirectoryA(lpBuffer: *char, uSize: u32): u32
+    @lib pub fn GetSystemDirectoryW(lpBuffer: *u16, uSize: u32): u32
     @lib pub fn GetSystemWindowsDirectoryA(lpBuffer: *char, uSize: u32): u32
+    @lib pub fn GetSystemWindowsDirectoryW(lpBuffer: *u16, uSize: u32): u32
 
     // ── C-string helpers ─────────────────────────────────────────
     // Note: prefer using these only at OS API boundaries. These
@@ -792,18 +973,23 @@ pub enum StdHandle: u32 {
 
     /// Copies `lpString2` into `lpString1` (must have room).
     @lib pub fn lstrcpyA(lpString1: *char, lpString2: *const char): *char
+    @lib pub fn lstrcpyW(lpString1: *u16, lpString2: *const u16): *u16
 
     /// Appends `lpString2` to `lpString1`.
     @lib pub fn lstrcatA(lpString1: *char, lpString2: *const char): *char
+    @lib pub fn lstrcatW(lpString1: *u16, lpString2: *const u16): *u16
 
     /// Returns the length of `lpString` in characters (excluding NUL).
     @lib pub fn lstrlenA(lpString: *const char): i32
+    @lib pub fn lstrlenW(lpString: *const u16): i32
 
     /// Case-sensitive comparison. Returns 0 if equal.
     @lib pub fn lstrcmpA(lpString1: *const char, lpString2: *const char): i32
+    @lib pub fn lstrcmpW(lpString1: *const u16, lpString2: *const u16): i32
 
     /// Case-insensitive comparison.
     @lib pub fn lstrcmpiA(lpString1: *const char, lpString2: *const char): i32
+    @lib pub fn lstrcmpiW(lpString1: *const u16, lpString2: *const u16): i32
 
     // ── INI file I/O ─────────────────────────────────────────────
 
@@ -816,6 +1002,14 @@ pub enum StdHandle: u32 {
         nSize:         u32,
         lpFileName:    *const char
     ): u32
+    @lib pub fn GetPrivateProfileStringW(
+        lpAppName:     *const u16,
+        lpKeyName:     *const u16,
+        lpDefault:     *const u16,
+        lpReturnedString: *u16,
+        nSize:         u32,
+        lpFileName:    *const u16
+    ): u32
 
     @lib pub fn WritePrivateProfileStringA(
         lpAppName:  *const char,
@@ -823,12 +1017,24 @@ pub enum StdHandle: u32 {
         lpString:   *const char,
         lpFileName: *const char
     ): i32
+    @lib pub fn WritePrivateProfileStringW(
+        lpAppName:  *const u16,
+        lpKeyName:  *const u16,
+        lpString:   *const u16,
+        lpFileName: *const u16
+    ): i32
 
     @lib pub fn GetPrivateProfileIntA(
         lpAppName:  *const char,
         lpKeyName:  *const char,
         nDefault:   i32,
         lpFileName: *const char
+    ): u32
+    @lib pub fn GetPrivateProfileIntW(
+        lpAppName:  *const u16,
+        lpKeyName:  *const u16,
+        nDefault:   i32,
+        lpFileName: *const u16
     ): u32
 
     // ── Debugging ────────────────────────────────────────────────
@@ -969,6 +1175,11 @@ pub enum StdHandle: u32 {
     ///   0x00000100 (LOAD_LIBRARY_SEARCH_DEFAULT_DIRS) — secure
     @lib pub fn LoadLibraryExA(
         lpLibFileName: *const char,
+        hFile:         HANDLE,
+        dwFlags:       u32
+    ): HMODULE
+    @lib pub fn LoadLibraryExW(
+        lpLibFileName: *const u16,
         hFile:         HANDLE,
         dwFlags:       u32
     ): HMODULE

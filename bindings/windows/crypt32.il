@@ -164,6 +164,10 @@ pub enum CryptProtectFlags: u32 {
         hProv:            u64,
         szSubsystemProtocol: *const char
     ): HCERTSTORE
+    @lib pub fn CertOpenSystemStoreW(
+        hProv:            u64,
+        szSubsystemProtocol: *const u16
+    ): HCERTSTORE
 
     /// Closes a cert store. `dwFlags`:
     ///   0                        = release reference only
@@ -213,6 +217,14 @@ pub enum CryptProtectFlags: u32 {
         dwFlags:      u32,
         pvTypePara:   *const void,
         pszNameString: *char,
+        cchNameString: u32
+    ): u32
+    @lib pub fn CertGetNameStringW(
+        pCertContext: *const CERT_CONTEXT,
+        dwType:       u32,
+        dwFlags:      u32,
+        pvTypePara:   *const void,
+        pszNameString: *u16,
         cchNameString: u32
     ): u32
 
@@ -298,6 +310,15 @@ pub enum CryptProtectFlags: u32 {
         pdwSkip:      *u32,
         pdwFlags:     *u32
     ): i32
+    @lib pub fn CryptStringToBinaryW(
+        pszString:    *const u16,
+        cchString:    u32,
+        dwFlags:      u32,
+        pbBinary:     *u8,
+        pcbBinary:    *u32,
+        pdwSkip:      *u32,
+        pdwFlags:     *u32
+    ): i32
 
     /// Converts bytes to a hex / Base64 string.
     @lib pub fn CryptBinaryToStringA(
@@ -305,6 +326,13 @@ pub enum CryptProtectFlags: u32 {
         cbBinary:    u32,
         dwFlags:     u32,
         pszString:   *char,
+        pcchString:  *u32
+    ): i32
+    @lib pub fn CryptBinaryToStringW(
+        pbBinary:    *const u8,
+        cbBinary:    u32,
+        dwFlags:     u32,
+        pszString:   *u16,
         pcchString:  *u32
     ): i32
 }

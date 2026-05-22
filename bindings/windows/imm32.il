@@ -153,6 +153,14 @@ use user32 { HWND }
         lpRead:      *const void,
         dwReadLen:   u32
     ): i32
+    @lib pub fn ImmSetCompositionStringW(
+        himc:        HIMC,
+        dwIndex:     u32,
+        lpComp:      *const void,
+        dwCompLen:   u32,
+        lpRead:      *const void,
+        dwReadLen:   u32
+    ): i32
 
     // ── IME state / conversion mode ──────────────────────────────
 
@@ -219,10 +227,20 @@ use user32 { HWND }
         lpsz:    *char,
         uBufLen: u32
     ): u32
+    @lib pub fn ImmGetDescriptionW(
+        hkl:     i64,
+        lpsz:    *u16,
+        uBufLen: u32
+    ): u32
 
     @lib pub fn ImmGetIMEFileNameA(
         hkl:     i64,
         lpsz:    *char,
+        uBufLen: u32
+    ): u32
+    @lib pub fn ImmGetIMEFileNameW(
+        hkl:     i64,
+        lpsz:    *u16,
         uBufLen: u32
     ): u32
 
@@ -239,6 +257,14 @@ use user32 { HWND }
         hkl:      i64,
         himc:     HIMC,
         lpsrc:    *const char,
+        lpDst:    *void,
+        dwBufLen: u32,
+        uFlag:    u32
+    ): u32
+    @lib pub fn ImmGetConversionListW(
+        hkl:      i64,
+        himc:     HIMC,
+        lpsrc:    *const u16,
         lpDst:    *void,
         dwBufLen: u32,
         uFlag:    u32

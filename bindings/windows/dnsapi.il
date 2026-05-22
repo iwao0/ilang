@@ -90,4 +90,5 @@ pub enum DnsQueryOptions: u32 {
 
     /// Validate a host name. Returns 0 on success.
     @lib pub fn DnsValidateName_A(pszName: *const char, format: i32): i32
+    @lib pub fn DnsValidateName_W(pszName: *const u16, format: i32): i32
 }

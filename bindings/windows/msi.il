@@ -94,11 +94,20 @@ pub enum MsiError: u32 {
         szPackagePath: *const char,
         szCommandLine: *const char
     ): u32
+    @lib pub fn MsiInstallProductW(
+        szPackagePath: *const u16,
+        szCommandLine: *const u16
+    ): u32
 
     /// Re-configure an installed product. `szInstallLevel`
     /// 1..32767; INSTALLSTATE_LOCAL etc. for `eInstallState`.
     @lib pub fn MsiConfigureProductA(
         szProduct:     *const char,
+        iInstallLevel: i32,
+        eInstallState: i32
+    ): u32
+    @lib pub fn MsiConfigureProductW(
+        szProduct:     *const u16,
         iInstallLevel: i32,
         eInstallState: i32
     ): u32
@@ -109,10 +118,17 @@ pub enum MsiError: u32 {
         eInstallState: i32,
         szCommandLine: *const char
     ): u32
+    @lib pub fn MsiConfigureProductExW(
+        szProduct:     *const u16,
+        iInstallLevel: i32,
+        eInstallState: i32,
+        szCommandLine: *const u16
+    ): u32
 
     /// Uninstall by product code. Equivalent to
     /// `MsiConfigureProduct(code, 0, INSTALLSTATE_ABSENT)`.
     @lib pub fn MsiReinstallProductA(szProduct: *const char, dwReinstallMode: u32): u32
+    @lib pub fn MsiReinstallProductW(szProduct: *const u16, dwReinstallMode: u32): u32
 
     // ── Product enumeration / query ─────────────────────────────
 
@@ -120,6 +136,7 @@ pub enum MsiError: u32 {
     /// at 0 and increments until ERROR_NO_MORE_ITEMS (259).
     /// `lpProductBuf` must hold at least 39 chars.
     @lib pub fn MsiEnumProductsA(iProductIndex: u32, lpProductBuf: *char): u32
+    @lib pub fn MsiEnumProductsW(iProductIndex: u32, lpProductBuf: *u16): u32
 
     /// `MsiGetProductInfoA(product, property, valueBuf, &chCount)` —
     /// query a property of an installed product (e.g.
@@ -130,6 +147,12 @@ pub enum MsiError: u32 {
         lpValueBuf:  *char,
         pcchValueBuf: *u32
     ): u32
+    @lib pub fn MsiGetProductInfoW(
+        szProduct:   *const u16,
+        szAttribute: *const u16,
+        lpValueBuf:  *u16,
+        pcchValueBuf: *u32
+    ): u32
 
     /// Translate a product code GUID → human-readable product name
     /// (UI list / Programs & Features-style display).
@@ -137,14 +160,23 @@ pub enum MsiError: u32 {
         szComponent: *const char,
         lpBuf39:     *char
     ): u32
+    @lib pub fn MsiGetProductCodeW(
+        szComponent: *const u16,
+        lpBuf39:     *u16
+    ): u32
 
     /// Test whether a feature is installed.
     @lib pub fn MsiQueryFeatureStateA(
         szProduct: *const char,
         szFeature: *const char
     ): i32
+    @lib pub fn MsiQueryFeatureStateW(
+        szProduct: *const u16,
+        szFeature: *const u16
+    ): i32
 
     @lib pub fn MsiQueryProductStateA(szProduct: *const char): i32
+    @lib pub fn MsiQueryProductStateW(szProduct: *const u16): i32
 
     // ── UI control ──────────────────────────────────────────────
 
@@ -157,6 +189,11 @@ pub enum MsiError: u32 {
     @lib pub fn MsiEnableLogA(
         dwLogMode:  u32,
         szLogFile:  *const char,
+        dwLogAttributes: u32
+    ): u32
+    @lib pub fn MsiEnableLogW(
+        dwLogMode:  u32,
+        szLogFile:  *const u16,
         dwLogAttributes: u32
     ): u32
 
@@ -172,6 +209,11 @@ pub enum MsiError: u32 {
         szPersist:      *const char,
         phDatabase:     *MSIHANDLE
     ): u32
+    @lib pub fn MsiOpenDatabaseW(
+        szDatabasePath: *const u16,
+        szPersist:      *const u16,
+        phDatabase:     *MSIHANDLE
+    ): u32
 
     @lib pub fn MsiDatabaseCommit(hDatabase: MSIHANDLE): u32
     @lib pub fn MsiCloseHandle(hAny: MSIHANDLE): u32
@@ -183,6 +225,11 @@ pub enum MsiError: u32 {
     @lib pub fn MsiDatabaseOpenViewA(
         hDatabase: MSIHANDLE,
         szQuery:   *const char,
+        phView:    *MSIHANDLE
+    ): u32
+    @lib pub fn MsiDatabaseOpenViewW(
+        hDatabase: MSIHANDLE,
+        szQuery:   *const u16,
         phView:    *MSIHANDLE
     ): u32
 
@@ -197,10 +244,21 @@ pub enum MsiError: u32 {
         szValueBuf: *char,
         pcchValueBuf: *u32
     ): u32
+    @lib pub fn MsiRecordGetStringW(
+        hRecord: MSIHANDLE,
+        iField:  u32,
+        szValueBuf: *u16,
+        pcchValueBuf: *u32
+    ): u32
     @lib pub fn MsiRecordSetStringA(
         hRecord: MSIHANDLE,
         iField:  u32,
         szValue: *const char
+    ): u32
+    @lib pub fn MsiRecordSetStringW(
+        hRecord: MSIHANDLE,
+        iField:  u32,
+        szValue: *const u16
     ): u32
     @lib pub fn MsiRecordSetInteger(
         hRecord: MSIHANDLE,
@@ -218,12 +276,24 @@ pub enum MsiError: u32 {
         lpLangBuf:      *char,
         pcchLangBuf:    *u32
     ): u32
+    @lib pub fn MsiGetFileVersionW(
+        szFilePath:     *const u16,
+        lpVersionBuf:   *u16,
+        pcchVersionBuf: *u32,
+        lpLangBuf:      *u16,
+        pcchLangBuf:    *u32
+    ): u32
 
     /// File hash (computes the same hash that Windows Installer
     /// records in the MsiFileHash table). `pHash` is a struct of
     /// 5 u32 (size 20).
     @lib pub fn MsiGetFileHashA(
         szFilePath:     *const char,
+        dwOptions:      u32,
+        pHash:          *void
+    ): u32
+    @lib pub fn MsiGetFileHashW(
+        szFilePath:     *const u16,
         dwOptions:      u32,
         pHash:          *void
     ): u32

@@ -186,6 +186,13 @@ pub enum InternetOption: u32 {
         lpszProxyBypass: *const char,
         dwFlags:         u32
     ): *HINTERNET
+    @lib pub fn InternetOpenW(
+        lpszAgent:       *const u16,
+        dwAccessType:    u32,
+        lpszProxy:       *const u16,
+        lpszProxyBypass: *const u16,
+        dwFlags:         u32
+    ): *HINTERNET
 
     /// Connects to an HTTP/FTP/Gopher server.
     /// `nServerPort`: 0 = default for service; 80 / 443 / 21 typical.
@@ -196,6 +203,16 @@ pub enum InternetOption: u32 {
         nServerPort:    u16,
         lpszUserName:   *const char,
         lpszPassword:   *const char,
+        dwService:      u32,
+        dwFlags:        u32,
+        dwContext:      u64
+    ): *HINTERNET
+    @lib pub fn InternetConnectW(
+        hInternet:    *HINTERNET,
+        lpszServerName: *const u16,
+        nServerPort:    u16,
+        lpszUserName:   *const u16,
+        lpszPassword:   *const u16,
         dwService:      u32,
         dwFlags:        u32,
         dwContext:      u64
@@ -213,6 +230,14 @@ pub enum InternetOption: u32 {
         hInternet:     *HINTERNET,
         lpszUrl:       *const char,
         lpszHeaders:   *const char,
+        dwHeadersLength: u32,
+        dwFlags:       u32,
+        dwContext:     u64
+    ): *HINTERNET
+    @lib pub fn InternetOpenUrlW(
+        hInternet:     *HINTERNET,
+        lpszUrl:       *const u16,
+        lpszHeaders:   *const u16,
         dwHeadersLength: u32,
         dwFlags:       u32,
         dwContext:     u64
@@ -258,6 +283,16 @@ pub enum InternetOption: u32 {
         dwFlags:            u32,
         dwContext:          u64
     ): *HINTERNET
+    @lib pub fn HttpOpenRequestW(
+        hConnect:           *HINTERNET,
+        lpszVerb:           *const u16,
+        lpszObjectName:     *const u16,
+        lpszVersion:        *const u16,
+        lpszReferer:        *const u16,
+        lplpszAcceptTypes:  **const u16,
+        dwFlags:            u32,
+        dwContext:          u64
+    ): *HINTERNET
 
     /// Sends the request. `lpszHeaders` / `dwHeadersLength`:
     /// additional headers. `lpOptional` / `dwOptionalLength`: body data
@@ -265,6 +300,13 @@ pub enum InternetOption: u32 {
     @lib pub fn HttpSendRequestA(
         hRequest:        *HINTERNET,
         lpszHeaders:     *const char,
+        dwHeadersLength: u32,
+        lpOptional:      *void,
+        dwOptionalLength: u32
+    ): i32
+    @lib pub fn HttpSendRequestW(
+        hRequest:        *HINTERNET,
+        lpszHeaders:     *const u16,
         dwHeadersLength: u32,
         lpOptional:      *void,
         dwOptionalLength: u32
@@ -278,11 +320,24 @@ pub enum InternetOption: u32 {
         dwHeadersLength: u32,
         dwModifiers: u32
     ): i32
+    @lib pub fn HttpAddRequestHeadersW(
+        hRequest:    *HINTERNET,
+        lpszHeaders: *const u16,
+        dwHeadersLength: u32,
+        dwModifiers: u32
+    ): i32
 
     /// Queries response info. `dwInfoLevel`: HttpQuery.*.
     /// `lpvBuffer` / `lpdwBufferLength`: output buffer for the value.
     /// `lpdwIndex`: 0 for first instance; receives index for next call.
     @lib pub fn HttpQueryInfoA(
+        hRequest:      *HINTERNET,
+        dwInfoLevel:   u32,
+        lpvBuffer:     *void,
+        lpdwBufferLength: *u32,
+        lpdwIndex:     *u32
+    ): i32
+    @lib pub fn HttpQueryInfoW(
         hRequest:      *HINTERNET,
         dwInfoLevel:   u32,
         lpvBuffer:     *void,
@@ -301,6 +356,15 @@ pub enum InternetOption: u32 {
         dwFlags:        u32,
         dwContext:      u64
     ): i32
+    @lib pub fn FtpGetFileW(
+        hConnect:      *HINTERNET,
+        lpszRemoteFile: *const u16,
+        lpszNewFile:    *const u16,
+        fFailIfExists:  i32,
+        dwFlagsAndAttributes: u32,
+        dwFlags:        u32,
+        dwContext:      u64
+    ): i32
 
     @lib pub fn FtpPutFileA(
         hConnect:      *HINTERNET,
@@ -309,20 +373,41 @@ pub enum InternetOption: u32 {
         dwFlags:        u32,
         dwContext:      u64
     ): i32
+    @lib pub fn FtpPutFileW(
+        hConnect:      *HINTERNET,
+        lpszLocalFile:  *const u16,
+        lpszNewRemoteFile: *const u16,
+        dwFlags:        u32,
+        dwContext:      u64
+    ): i32
 
     @lib pub fn FtpDeleteFileA(hConnect: *HINTERNET, lpszFileName: *const char): i32
+    @lib pub fn FtpDeleteFileW(hConnect: *HINTERNET, lpszFileName: *const u16): i32
     @lib pub fn FtpRenameFileA(
         hConnect:      *HINTERNET,
         lpszExisting:  *const char,
         lpszNew:       *const char
     ): i32
+    @lib pub fn FtpRenameFileW(
+        hConnect:      *HINTERNET,
+        lpszExisting:  *const u16,
+        lpszNew:       *const u16
+    ): i32
 
     @lib pub fn FtpCreateDirectoryA(hConnect: *HINTERNET, lpszDirectory: *const char): i32
+    @lib pub fn FtpCreateDirectoryW(hConnect: *HINTERNET, lpszDirectory: *const u16): i32
     @lib pub fn FtpRemoveDirectoryA(hConnect: *HINTERNET, lpszDirectory: *const char): i32
+    @lib pub fn FtpRemoveDirectoryW(hConnect: *HINTERNET, lpszDirectory: *const u16): i32
     @lib pub fn FtpSetCurrentDirectoryA(hConnect: *HINTERNET, lpszDirectory: *const char): i32
+    @lib pub fn FtpSetCurrentDirectoryW(hConnect: *HINTERNET, lpszDirectory: *const u16): i32
     @lib pub fn FtpGetCurrentDirectoryA(
         hConnect:      *HINTERNET,
         lpszCurrentDirectory: *char,
+        lpdwCurrentDirectory: *u32
+    ): i32
+    @lib pub fn FtpGetCurrentDirectoryW(
+        hConnect:      *HINTERNET,
+        lpszCurrentDirectory: *u16,
         lpdwCurrentDirectory: *u32
     ): i32
 
@@ -334,16 +419,33 @@ pub enum InternetOption: u32 {
         lpszCookieData: *char,
         lpdwSize:       *u32
     ): i32
+    @lib pub fn InternetGetCookieW(
+        lpszUrl:        *const u16,
+        lpszCookieName: *const u16,
+        lpszCookieData: *u16,
+        lpdwSize:       *u32
+    ): i32
 
     @lib pub fn InternetSetCookieA(
         lpszUrl:        *const char,
         lpszCookieName: *const char,
         lpszCookieData: *const char
     ): i32
+    @lib pub fn InternetSetCookieW(
+        lpszUrl:        *const u16,
+        lpszCookieName: *const u16,
+        lpszCookieData: *const u16
+    ): i32
 
     // ── Options ───────────────────────────────────────────────────
 
     @lib pub fn InternetSetOptionA(
+        hInternet:   *HINTERNET,
+        dwOption:    u32,
+        lpBuffer:    *const void,
+        dwBufferLength: u32
+    ): i32
+    @lib pub fn InternetSetOptionW(
         hInternet:   *HINTERNET,
         dwOption:    u32,
         lpBuffer:    *const void,
@@ -356,11 +458,18 @@ pub enum InternetOption: u32 {
         lpBuffer:    *void,
         lpdwBufferLength: *u32
     ): i32
+    @lib pub fn InternetQueryOptionW(
+        hInternet:   *HINTERNET,
+        dwOption:    u32,
+        lpBuffer:    *void,
+        lpdwBufferLength: *u32
+    ): i32
 
     // ── Cache ─────────────────────────────────────────────────────
 
     /// Deletes a cached resource by URL.
     @lib pub fn DeleteUrlCacheEntryA(lpszUrlName: *const char): i32
+    @lib pub fn DeleteUrlCacheEntryW(lpszUrlName: *const u16): i32
 
     // ── Error retrieval ───────────────────────────────────────────
 
@@ -369,6 +478,11 @@ pub enum InternetOption: u32 {
     @lib pub fn InternetGetLastResponseInfoA(
         lpdwError:     *u32,
         lpszBuffer:    *char,
+        lpdwBufferLength: *u32
+    ): i32
+    @lib pub fn InternetGetLastResponseInfoW(
+        lpdwError:     *u32,
+        lpszBuffer:    *u16,
         lpdwBufferLength: *u32
     ): i32
 

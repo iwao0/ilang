@@ -98,6 +98,12 @@ pub enum ColorType: u32 {
         pBuffer:       *char,
         pdwSize:       *u32
     ): i32
+    @lib pub fn GetStandardColorSpaceProfileW(
+        pMachineName:  *const u16,
+        dwSCS:         u32,            // 1=sRGB, 2=AdobeRGB(98), …
+        pBuffer:       *u16,
+        pdwSize:       *u32
+    ): i32
 
     /// Default profile for `dwType`:
     ///   1=monitor, 2=printer, 3=scanner.
@@ -105,10 +111,19 @@ pub enum ColorType: u32 {
         pMachineName:  *const char,
         pProfileName:  *const char
     ): i32
+    @lib pub fn InstallColorProfileW(
+        pMachineName:  *const u16,
+        pProfileName:  *const u16
+    ): i32
 
     @lib pub fn UninstallColorProfileA(
         pMachineName:  *const char,
         pProfileName:  *const char,
+        bDelete:       i32
+    ): i32
+    @lib pub fn UninstallColorProfileW(
+        pMachineName:  *const u16,
+        pProfileName:  *const u16,
         bDelete:       i32
     ): i32
 
@@ -118,11 +133,21 @@ pub enum ColorType: u32 {
         pProfileName:  *const char,
         pDeviceName:   *const char
     ): i32
+    @lib pub fn AssociateColorProfileWithDeviceW(
+        pMachineName:  *const u16,
+        pProfileName:  *const u16,
+        pDeviceName:   *const u16
+    ): i32
 
     @lib pub fn DisassociateColorProfileFromDeviceA(
         pMachineName:  *const char,
         pProfileName:  *const char,
         pDeviceName:   *const char
+    ): i32
+    @lib pub fn DisassociateColorProfileFromDeviceW(
+        pMachineName:  *const u16,
+        pProfileName:  *const u16,
+        pDeviceName:   *const u16
     ): i32
 
     // ── Transforms ──────────────────────────────────────────────

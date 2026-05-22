@@ -78,6 +78,12 @@ pub enum WNetConnectFlags: u32 {
         lpUserName:    *const char,
         dwFlags:       u32
     ): u32
+    @lib pub fn WNetAddConnection2W(
+        lpNetResource: *const NETRESOURCE,
+        lpPassword:    *const u16,
+        lpUserName:    *const u16,
+        dwFlags:       u32
+    ): u32
 
     /// Simpler legacy variant — `lpName` is the local device,
     /// `lpRemoteName` is the UNC share.
@@ -85,6 +91,11 @@ pub enum WNetConnectFlags: u32 {
         lpRemoteName: *const char,
         lpPassword:   *const char,
         lpLocalName:  *const char
+    ): u32
+    @lib pub fn WNetAddConnectionW(
+        lpRemoteName: *const u16,
+        lpPassword:   *const u16,
+        lpLocalName:  *const u16
     ): u32
 
     /// Disconnects a resource. `lpName`: local device or remote name.
@@ -96,9 +107,18 @@ pub enum WNetConnectFlags: u32 {
         dwFlags:   u32,
         fForce:    i32
     ): u32
+    @lib pub fn WNetCancelConnection2W(
+        lpName:    *const u16,
+        dwFlags:   u32,
+        fForce:    i32
+    ): u32
 
     @lib pub fn WNetCancelConnectionA(
         lpName:    *const char,
+        fForce:    i32
+    ): u32
+    @lib pub fn WNetCancelConnectionW(
+        lpName:    *const u16,
         fForce:    i32
     ): u32
 
@@ -109,11 +129,21 @@ pub enum WNetConnectFlags: u32 {
         lpRemoteName: *char,
         lpnLength:    *u32
     ): u32
+    @lib pub fn WNetGetConnectionW(
+        lpLocalName:  *const u16,
+        lpRemoteName: *u16,
+        lpnLength:    *u32
+    ): u32
 
     /// Returns the user name that established the connection.
     @lib pub fn WNetGetUserA(
         lpName:    *const char,
         lpUserName: *char,
+        lpnLength: *u32
+    ): u32
+    @lib pub fn WNetGetUserW(
+        lpName:    *const u16,
+        lpUserName: *u16,
         lpnLength: *u32
     ): u32
 
@@ -130,11 +160,24 @@ pub enum WNetConnectFlags: u32 {
         lpNetResource: *const NETRESOURCE,
         phEnum:        **void
     ): u32
+    @lib pub fn WNetOpenEnumW(
+        dwScope:       u32,
+        dwType:        u32,
+        dwUsage:       u32,
+        lpNetResource: *const NETRESOURCE,
+        phEnum:        **void
+    ): u32
 
     /// Reads the next batch. `lpcCount`: in = max entries, out = actual.
     /// `lpBuffer`: receives `*lpcCount` NETRESOURCE records.
     /// Returns 259 (ERROR_NO_MORE_ITEMS) at end of enumeration.
     @lib pub fn WNetEnumResourceA(
+        hEnum:        *void,
+        lpcCount:     *u32,
+        lpBuffer:     *void,
+        lpBufferSize: *u32
+    ): u32
+    @lib pub fn WNetEnumResourceW(
         hEnum:        *void,
         lpcCount:     *u32,
         lpBuffer:     *void,
@@ -151,6 +194,12 @@ pub enum WNetConnectFlags: u32 {
         lpcbBuffer:     *u32,
         lplpSystem:     **char
     ): u32
+    @lib pub fn WNetGetResourceInformationW(
+        lpNetResource:  *const NETRESOURCE,
+        lpBuffer:       *void,
+        lpcbBuffer:     *u32,
+        lplpSystem:     **u16
+    ): u32
 
     // ── Error reporting ──────────────────────────────────────────
 
@@ -160,6 +209,13 @@ pub enum WNetConnectFlags: u32 {
         lpErrorBuf:     *char,
         nErrorBufSize:  u32,
         lpNameBuf:      *char,
+        nNameBufSize:   u32
+    ): u32
+    @lib pub fn WNetGetLastErrorW(
+        lpError:        *u32,
+        lpErrorBuf:     *u16,
+        nErrorBufSize:  u32,
+        lpNameBuf:      *u16,
         nNameBufSize:   u32
     ): u32
 }

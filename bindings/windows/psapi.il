@@ -95,6 +95,11 @@ use kernel32 { HMODULE, HANDLE }
         lpImageFileName: *char,
         nSize: u32
     ): u32
+    @lib pub fn GetProcessImageFileNameW(
+        hProcess: HANDLE,   // PROCESS_QUERY_LIMITED_INFORMATION
+        lpImageFileName: *u16,
+        nSize: u32
+    ): u32
 
     // ── Module enumeration ────────────────────────────────────────
 
@@ -123,11 +128,23 @@ use kernel32 { HMODULE, HANDLE }
         lpBaseName: *char,
         nSize:      u32
     ): u32
+    @lib pub fn GetModuleBaseNameW(
+        hProcess:   HANDLE,
+        hModule:    HMODULE,
+        lpBaseName: *u16,
+        nSize:      u32
+    ): u32
 
     @lib pub fn GetModuleFileNameExA(
         hProcess:   HANDLE,
         hModule:    HMODULE,
         lpFilename: *char,
+        nSize:      u32
+    ): u32
+    @lib pub fn GetModuleFileNameExW(
+        hProcess:   HANDLE,
+        hModule:    HMODULE,
+        lpFilename: *u16,
         nSize:      u32
     ): u32
 
@@ -163,6 +180,12 @@ use kernel32 { HMODULE, HANDLE }
         lpFilename: *char,
         nSize:    u32
     ): u32
+    @lib pub fn GetMappedFileNameW(
+        hProcess: HANDLE,
+        lpv:      *void,
+        lpFilename: *u16,
+        nSize:    u32
+    ): u32
 
     // ── Working set ───────────────────────────────────────────────
 
@@ -185,10 +208,20 @@ use kernel32 { HMODULE, HANDLE }
         lpFilename: *char,
         nSize:    u32
     ): u32
+    @lib pub fn GetDeviceDriverBaseNameW(
+        ImageBase: *void,
+        lpFilename: *u16,
+        nSize:    u32
+    ): u32
 
     @lib pub fn GetDeviceDriverFileNameA(
         ImageBase: *void,
         lpFilename: *char,
+        nSize:    u32
+    ): u32
+    @lib pub fn GetDeviceDriverFileNameW(
+        ImageBase: *void,
+        lpFilename: *u16,
         nSize:    u32
     ): u32
 }

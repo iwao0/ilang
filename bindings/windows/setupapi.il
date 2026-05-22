@@ -104,6 +104,12 @@ pub enum DevRegProp: u32 {
         hwndParent: *void,
         Flags:      u32
     ): *void
+    @lib pub fn SetupDiGetClassDevsW(
+        ClassGuid:  *const void,    // *GUID, or NULL
+        Enumerator: *const u16,
+        hwndParent: *void,
+        Flags:      u32
+    ): *void
 
     @lib pub fn SetupDiDestroyDeviceInfoList(DeviceInfoSet: *void): i32
 
@@ -142,8 +148,24 @@ pub enum DevRegProp: u32 {
         PropertyBufferSize:  u32,
         RequiredSize:        *u32
     ): i32
+    @lib pub fn SetupDiGetDeviceRegistryPropertyW(
+        DeviceInfoSet:       *void,
+        DeviceInfoData:      *const SP_DEVINFO_DATA,
+        Property:            u32,
+        PropertyRegDataType: *u32,
+        PropertyBuffer:      *u8,
+        PropertyBufferSize:  u32,
+        RequiredSize:        *u32
+    ): i32
 
     @lib pub fn SetupDiSetDeviceRegistryPropertyA(
+        DeviceInfoSet:    *void,
+        DeviceInfoData:   *SP_DEVINFO_DATA,
+        Property:         u32,
+        PropertyBuffer:   *const u8,
+        PropertyBufferSize: u32
+    ): i32
+    @lib pub fn SetupDiSetDeviceRegistryPropertyW(
         DeviceInfoSet:    *void,
         DeviceInfoData:   *SP_DEVINFO_DATA,
         Property:         u32,
@@ -160,6 +182,13 @@ pub enum DevRegProp: u32 {
         DeviceInstanceIdSize: u32,
         RequiredSize:   *u32
     ): i32
+    @lib pub fn SetupDiGetDeviceInstanceIdW(
+        DeviceInfoSet:  *void,
+        DeviceInfoData: *const SP_DEVINFO_DATA,
+        DeviceInstanceId: *u16,
+        DeviceInstanceIdSize: u32,
+        RequiredSize:   *u32
+    ): i32
 
     // ── Device interface detail ───────────────────────────────────
 
@@ -169,6 +198,14 @@ pub enum DevRegProp: u32 {
     /// begins with a u32 `cbSize` field set to 8 on x64 (one DWORD +
     /// alignment), followed by the path string.
     @lib pub fn SetupDiGetDeviceInterfaceDetailA(
+        DeviceInfoSet:  *void,
+        DeviceInterfaceData: *const SP_DEVICE_INTERFACE_DATA,
+        DeviceInterfaceDetailData: *void,
+        DeviceInterfaceDetailDataSize: u32,
+        RequiredSize:   *u32,
+        DeviceInfoData: *SP_DEVINFO_DATA
+    ): i32
+    @lib pub fn SetupDiGetDeviceInterfaceDetailW(
         DeviceInfoSet:  *void,
         DeviceInterfaceData: *const SP_DEVICE_INTERFACE_DATA,
         DeviceInterfaceDetailData: *void,
@@ -189,6 +226,12 @@ pub enum DevRegProp: u32 {
         InfStyle:  u32,
         ErrorLine: *u32
     ): *void
+    @lib pub fn SetupOpenInfFileW(
+        FileName:  *const u16,
+        InfClass:  *const u16,
+        InfStyle:  u32,
+        ErrorLine: *u32
+    ): *void
 
     @lib pub fn SetupCloseInfFile(InfHandle: *void)
 
@@ -196,6 +239,12 @@ pub enum DevRegProp: u32 {
         InfHandle: *void,
         Section:   *const char,
         Key:       *const char,
+        Context:   *void          // *INFCONTEXT
+    ): i32
+    @lib pub fn SetupFindFirstLineW(
+        InfHandle: *void,
+        Section:   *const u16,
+        Key:       *const u16,
         Context:   *void          // *INFCONTEXT
     ): i32
 
@@ -208,6 +257,13 @@ pub enum DevRegProp: u32 {
         Context:   *void,
         FieldIndex: u32,
         ReturnBuffer: *char,
+        ReturnBufferSize: u32,
+        RequiredSize: *u32
+    ): i32
+    @lib pub fn SetupGetStringFieldW(
+        Context:   *void,
+        FieldIndex: u32,
+        ReturnBuffer: *u16,
         ReturnBufferSize: u32,
         RequiredSize: *u32
     ): i32

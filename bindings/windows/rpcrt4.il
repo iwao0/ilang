@@ -67,13 +67,16 @@ pub enum RpcStatus: i32 {
     /// `StringUuid` receives a heap-allocated buffer; free with
     /// `RpcStringFreeA`.
     @lib pub fn UuidToStringA(Uuid: *const UUID, StringUuid: **char): i32
+    @lib pub fn UuidToStringW(Uuid: *const UUID, StringUuid: **u16): i32
 
     /// Parses an ASCII UUID string back into a UUID.
     @lib pub fn UuidFromStringA(StringUuid: *const char, Uuid: *UUID): i32
+    @lib pub fn UuidFromStringW(StringUuid: *const u16, Uuid: *UUID): i32
 
     /// Frees a string returned by UuidToStringA / similar.
     /// Sets `*String` to NULL when it returns.
     @lib pub fn RpcStringFreeA(String: **char): i32
+    @lib pub fn RpcStringFreeW(String: **u16): i32
 
     // ── Error info ────────────────────────────────────────────────
 
