@@ -25,7 +25,7 @@ use ilang_ast::{
     PatternBindings, PatternKind, Span, Stmt, StmtKind, Symbol, Type, Variant, VariantPayload,
 };
 
-use super::segments::{SegTerm, Segment};
+use super::segments::{MatchTArm, SegTerm, Segment};
 use super::{
     mk_assign_field, mk_call, mk_enum_ctor_struct, mk_expr_stmt, mk_field, mk_int, mk_let,
     mk_method_call, mk_var,
@@ -183,7 +183,6 @@ pub fn gen_poll_fn(
     state_ref_class: Symbol,
     state_enum: Symbol,
     segments: &[Segment],
-    enclosing_class: Option<Symbol>,
     span: Span,
     type_params: Box<[Symbol]>,
 ) -> FnDecl {
@@ -216,7 +215,6 @@ pub fn gen_poll_fn(
             state_ref_param,
             poll_name,
             state_enum,
-            enclosing_class,
             span,
         );
         let pattern = Pattern {
@@ -482,21 +480,244 @@ fn rewrite_loop_jumps_expr(
     );
 }
 
+/// Shared per-segment-arm builder state. Holds every parameter
+/// each terminator emitter needs so the per-terminator methods
+/// don't take a half-dozen positional args each.
+struct EmitCtx<'a> {
+    all_segments: &'a [&'a Segment],
+    state_ref_param: Symbol,
+    poll_name: Symbol,
+    state_enum: Symbol,
+    span: Span,
+    /// `(header_idx, after_idx)` when this segment lives inside a
+    /// `while` body. `break` / `continue` in the segment's stmts
+    /// (and in a tail-position Branch's cond) get rewritten to the
+    /// corresponding transition blocks.
+    loop_info: Option<(u32, u32)>,
+}
+
+impl<'a> EmitCtx<'a> {
+    /// Clone `e` and rewrite every `this` → `Var(__this)`. The poll
+    /// fn's body destructures `__this` from the variant payload, so
+    /// references in the original async-fn body must be redirected.
+    fn cloned_rewriting_this(&self, e: &Expr) -> Expr {
+        let mut x = e.clone();
+        rewrite_this_in_expr(&mut x);
+        x
+    }
+
+    /// `return;` — the trailing statement for terminators that end
+    /// the current poll iteration (Suspend / Branch / MatchT / Settle).
+    fn return_none_stmt(&self) -> Stmt {
+        mk_expr_stmt(Expr::new(ExprKind::Return(None), self.span), self.span)
+    }
+
+    /// `mk_transition_block` with `self`'s captured context bound.
+    fn transition_block(&self, target_idx: u32) -> Block {
+        mk_transition_block(
+            target_idx,
+            self.all_segments,
+            self.state_ref_param,
+            self.poll_name,
+            self.state_enum,
+            self.span,
+        )
+    }
+
+    fn emit_suspend(
+        &self,
+        promise: &Expr,
+        binding: Symbol,
+        binding_ty: &Type,
+        next_idx: u32,
+    ) -> Vec<Stmt> {
+        // Continuation closure builds V_{next}: the await binding
+        // takes the closure parameter, every other field carries
+        // over from this arm's locals (after `this` rewriting).
+        let next_seg = &self.all_segments[next_idx as usize];
+        let mut ctor_args: Vec<(Symbol, Expr)> = next_seg
+            .fields
+            .iter()
+            .map(|(n, _)| {
+                if *n == binding {
+                    (*n, mk_var(*n, self.span))
+                } else {
+                    (*n, self.cloned_rewriting_this(&mk_var(*n, self.span)))
+                }
+            })
+            .collect();
+        // Defensive: if next_seg's layout omitted `binding`, append it.
+        if !next_seg.fields.iter().any(|(n, _)| *n == binding) {
+            ctor_args.push((binding, mk_var(binding, self.span)));
+        }
+
+        let new_variant = mk_enum_ctor_struct(
+            self.state_enum,
+            Symbol::intern(&format!("S{}", next_idx)),
+            ctor_args,
+            self.span,
+        );
+        let closure_body = Block {
+            stmts: vec![
+                mk_expr_stmt(
+                    mk_assign_field(
+                        mk_var(self.state_ref_param, self.span),
+                        Symbol::intern("current"),
+                        new_variant,
+                        self.span,
+                    ),
+                    self.span,
+                ),
+                mk_expr_stmt(
+                    mk_call(
+                        self.poll_name,
+                        vec![
+                            mk_var(self.state_ref_param, self.span),
+                            mk_int(0, self.span),
+                        ],
+                        self.span,
+                    ),
+                    self.span,
+                ),
+            ],
+            tail: Some(Box::new(mk_var(binding, self.span))),
+        };
+        let closure = Expr::new(
+            ExprKind::FnExpr {
+                params: Box::new([Param {
+                    name: binding,
+                    ty: binding_ty.clone(),
+                    span: self.span,
+                    default: None,
+                }]),
+                ret: Some(binding_ty.clone()),
+                body: closure_body,
+            },
+            self.span,
+        );
+        let then_call = mk_method_call(
+            self.cloned_rewriting_this(promise),
+            Symbol::intern("then"),
+            vec![closure],
+            self.span,
+        );
+        vec![
+            mk_let(Symbol::intern("_"), None, then_call, self.span),
+            self.return_none_stmt(),
+        ]
+    }
+
+    fn emit_branch(&self, cond: &Expr, then_idx: u32, else_idx: u32) -> Vec<Stmt> {
+        let mut cond_e = self.cloned_rewriting_this(cond);
+        // Branch in a loop body's tail position can hold its own
+        // break/continue — not currently emitted but covered
+        // defensively.
+        if let Some((header_idx, after_idx)) = self.loop_info {
+            rewrite_loop_jumps_expr(
+                &mut cond_e,
+                header_idx,
+                after_idx,
+                self.all_segments,
+                self.state_ref_param,
+                self.poll_name,
+                self.state_enum,
+                self.span,
+            );
+        }
+        let then_blk = self.transition_block(then_idx);
+        let else_blk = self.transition_block(else_idx);
+        let if_expr = Expr::new(
+            ExprKind::If {
+                cond: Box::new(cond_e),
+                then_branch: then_blk,
+                else_branch: Some(Box::new(Expr::new(ExprKind::Block(else_blk), self.span))),
+            },
+            self.span,
+        );
+        vec![mk_expr_stmt(if_expr, self.span), self.return_none_stmt()]
+    }
+
+    fn emit_jump(&self, target_idx: u32) -> Vec<Stmt> {
+        // Unconditional fall-through: inline the transition block's
+        // stmts so they execute in this arm's tail position.
+        self.transition_block(target_idx).stmts
+    }
+
+    fn emit_jump_bind(&self, target_idx: u32, binding: Symbol, value: &Expr) -> Vec<Stmt> {
+        let v = self.cloned_rewriting_this(value);
+        mk_transition_block_override(
+            target_idx,
+            self.all_segments,
+            self.state_ref_param,
+            self.poll_name,
+            self.state_enum,
+            self.span,
+            &[(binding, v)],
+        )
+        .stmts
+    }
+
+    fn emit_match(&self, scrutinee: &Expr, arms: &[MatchTArm]) -> Vec<Stmt> {
+        let scrut_e = self.cloned_rewriting_this(scrutinee);
+        let match_arms: Vec<MatchArm> = arms
+            .iter()
+            .map(|a| MatchArm {
+                pattern: a.pattern.clone(),
+                body: Expr::new(ExprKind::Block(self.transition_block(a.target_idx)), self.span),
+                span: self.span,
+            })
+            .collect();
+        let match_expr = Expr::new(
+            ExprKind::Match {
+                scrutinee: Box::new(scrut_e),
+                arms: match_arms.into_boxed_slice(),
+            },
+            self.span,
+        );
+        vec![mk_expr_stmt(match_expr, self.span), self.return_none_stmt()]
+    }
+
+    fn emit_settle(&self, value: &Expr) -> Vec<Stmt> {
+        let v = self.cloned_rewriting_this(value);
+        let settle_call = mk_method_call(
+            mk_var(Symbol::intern("Promise"), self.span),
+            Symbol::intern("__settleResolve"),
+            vec![
+                mk_field(
+                    mk_var(self.state_ref_param, self.span),
+                    Symbol::intern("__async_promise"),
+                    self.span,
+                ),
+                v,
+            ],
+            self.span,
+        );
+        vec![mk_expr_stmt(settle_call, self.span), self.return_none_stmt()]
+    }
+}
+
 fn emit_segment_arm(
     seg: &Segment,
     all_segments: &[&Segment],
     state_ref_param: Symbol,
     poll_name: Symbol,
     state_enum: Symbol,
-    _enclosing_class: Option<Symbol>,
     span: Span,
 ) -> Block {
-    let mut stmts: Vec<Stmt> = Vec::new();
+    let ctx = EmitCtx {
+        all_segments,
+        state_ref_param,
+        poll_name,
+        state_enum,
+        span,
+        loop_info: seg.loop_info,
+    };
+    // Phase 1: copy the segment's sync stmts, rewriting `this` and
+    // (when inside a loop body) the loop's `break` / `continue`.
+    let mut stmts: Vec<Stmt> = Vec::with_capacity(seg.stmts.len() + 2);
     for s in &seg.stmts {
         let mut s2 = s.clone();
         rewrite_this_in_stmt(&mut s2);
-        // If this segment lives inside a loop, rewrite break/continue
-        // inside its stmts to transition Blocks.
         if let Some((header_idx, after_idx)) = seg.loop_info {
             rewrite_loop_jumps_stmt(
                 &mut s2,
@@ -511,235 +732,22 @@ fn emit_segment_arm(
         }
         stmts.push(s2);
     }
-    match &seg.terminator {
-        SegTerm::Suspend {
-            promise,
-            binding,
-            binding_ty,
-            next_idx,
-        } => {
-            // The continuation closure builds the next variant
-            // with: (a) the binding name = the resolved value,
-            // (b) every other field of the next variant carried
-            // over from the current arm body's locals.
-            //
-            // The destination variant's field set is computed at
-            // build time but we don't have it here — the segments
-            // vec encodes it on segment[next_idx]. We approximate
-            // by including every current-arm local that the
-            // surrounding fn has visibility of.
-            // (See enum_state_machine module's call site for the
-            // resolved next_fields list.)
-            //
-            // For now we pass the resolved next_fields via the
-            // SegTerm; emit it as the EnumCtor args.
-            // Build ctor args for V_{next}: every field of the next
-            // variant. For the await binding itself, use the closure
-            // parameter; for all others, use the local of the same
-            // name (either destructured from V_K or bound by S_K's
-            // sync stmts above).
-            let next_seg = &all_segments[*next_idx as usize];
-            let mut ctor_args: Vec<(Symbol, Expr)> = next_seg
-                .fields
-                .iter()
-                .map(|(n, _)| {
-                    if n == binding {
-                        (*n, mk_var(*n, span))
-                    } else {
-                        let mut expr = mk_var(*n, span);
-                        rewrite_this_in_expr(&mut expr);
-                        (*n, expr)
-                    }
-                })
-                .collect();
-            // If next_seg didn't include `binding` (shouldn't happen),
-            // append defensively.
-            if !next_seg.fields.iter().any(|(n, _)| n == binding) {
-                ctor_args.push((*binding, mk_var(*binding, span)));
-            }
-
-            let mut prom_expr = promise.clone();
-            rewrite_this_in_expr(&mut prom_expr);
-
-            let v_name = *binding;
-            let new_variant = mk_enum_ctor_struct(
-                state_enum,
-                Symbol::intern(&format!("S{}", next_idx)),
-                ctor_args,
-                span,
-            );
-            let closure_body = Block {
-                stmts: vec![
-                    mk_expr_stmt(
-                        mk_assign_field(
-                            mk_var(state_ref_param, span),
-                            Symbol::intern("current"),
-                            new_variant,
-                            span,
-                        ),
-                        span,
-                    ),
-                    mk_expr_stmt(
-                        mk_call(
-                            poll_name,
-                            vec![mk_var(state_ref_param, span), mk_int(0, span)],
-                            span,
-                        ),
-                        span,
-                    ),
-                ],
-                tail: Some(Box::new(mk_var(v_name, span))),
-            };
-            let closure = Expr::new(
-                ExprKind::FnExpr {
-                    params: Box::new([Param {
-                        name: v_name,
-                        ty: binding_ty.clone(),
-                        span,
-                        default: None,
-                    }]),
-                    ret: Some(binding_ty.clone()),
-                    body: closure_body,
-                },
-                span,
-            );
-            let then_call = mk_method_call(
-                prom_expr,
-                Symbol::intern("then"),
-                vec![closure],
-                span,
-            );
-            stmts.push(mk_let(Symbol::intern("_"), None, then_call, span));
-            stmts.push(mk_expr_stmt(
-                Expr::new(ExprKind::Return(None), span),
-                span,
-            ));
+    // Phase 2: dispatch to the per-terminator emitter.
+    let tail_stmts = match &seg.terminator {
+        SegTerm::Suspend { promise, binding, binding_ty, next_idx } => {
+            ctx.emit_suspend(promise, *binding, binding_ty, *next_idx)
         }
         SegTerm::Branch { cond, then_idx, else_idx } => {
-            let mut cond_e = cond.clone();
-            rewrite_this_in_expr(&mut cond_e);
-            // If this Branch lives inside a loop body (only happens
-            // when the Branch is itself the tail of the loop body —
-            // not currently emitted but supported defensively),
-            // rewrite break/continue in cond too.
-            if let Some((header_idx, after_idx)) = seg.loop_info {
-                rewrite_loop_jumps_expr(
-                    &mut cond_e,
-                    header_idx,
-                    after_idx,
-                    all_segments,
-                    state_ref_param,
-                    poll_name,
-                    state_enum,
-                    span,
-                );
-            }
-            let then_blk = mk_transition_block(
-                *then_idx, all_segments, state_ref_param, poll_name, state_enum, span,
-            );
-            let else_blk = mk_transition_block(
-                *else_idx, all_segments, state_ref_param, poll_name, state_enum, span,
-            );
-            let if_expr = Expr::new(
-                ExprKind::If {
-                    cond: Box::new(cond_e),
-                    then_branch: then_blk,
-                    else_branch: Some(Box::new(Expr::new(
-                        ExprKind::Block(else_blk),
-                        span,
-                    ))),
-                },
-                span,
-            );
-            stmts.push(mk_expr_stmt(if_expr, span));
-            stmts.push(mk_expr_stmt(
-                Expr::new(ExprKind::Return(None), span),
-                span,
-            ));
+            ctx.emit_branch(cond, *then_idx, *else_idx)
         }
-        SegTerm::Jump { target_idx } => {
-            let blk = mk_transition_block(
-                *target_idx, all_segments, state_ref_param, poll_name, state_enum, span,
-            );
-            for s in blk.stmts {
-                stmts.push(s);
-            }
-        }
+        SegTerm::Jump { target_idx } => ctx.emit_jump(*target_idx),
         SegTerm::JumpBind { target_idx, binding, value } => {
-            let mut v = value.clone();
-            rewrite_this_in_expr(&mut v);
-            let blk = mk_transition_block_override(
-                *target_idx,
-                all_segments,
-                state_ref_param,
-                poll_name,
-                state_enum,
-                span,
-                &[(*binding, v)],
-            );
-            for s in blk.stmts {
-                stmts.push(s);
-            }
+            ctx.emit_jump_bind(*target_idx, *binding, value)
         }
-        SegTerm::MatchT { scrutinee, arms } => {
-            let mut scrut_e = scrutinee.clone();
-            rewrite_this_in_expr(&mut scrut_e);
-            let match_arms: Vec<MatchArm> = arms
-                .iter()
-                .map(|a| {
-                    let transition = mk_transition_block(
-                        a.target_idx,
-                        all_segments,
-                        state_ref_param,
-                        poll_name,
-                        state_enum,
-                        span,
-                    );
-                    MatchArm {
-                        pattern: a.pattern.clone(),
-                        body: Expr::new(ExprKind::Block(transition), span),
-                        span,
-                    }
-                })
-                .collect();
-            let match_expr = Expr::new(
-                ExprKind::Match {
-                    scrutinee: Box::new(scrut_e),
-                    arms: match_arms.into_boxed_slice(),
-                },
-                span,
-            );
-            stmts.push(mk_expr_stmt(match_expr, span));
-            stmts.push(mk_expr_stmt(
-                Expr::new(ExprKind::Return(None), span),
-                span,
-            ));
-        }
-        SegTerm::Settle { value } => {
-            let mut v = value.clone();
-            rewrite_this_in_expr(&mut v);
-            stmts.push(mk_expr_stmt(
-                mk_method_call(
-                    mk_var(Symbol::intern("Promise"), span),
-                    Symbol::intern("__settleResolve"),
-                    vec![
-                        mk_field(
-                            mk_var(state_ref_param, span),
-                            Symbol::intern("__async_promise"),
-                            span,
-                        ),
-                        v,
-                    ],
-                    span,
-                ),
-                span,
-            ));
-            stmts.push(mk_expr_stmt(
-                Expr::new(ExprKind::Return(None), span),
-                span,
-            ));
-        }
-    }
+        SegTerm::MatchT { scrutinee, arms } => ctx.emit_match(scrutinee, arms),
+        SegTerm::Settle { value } => ctx.emit_settle(value),
+    };
+    stmts.extend(tail_stmts);
     Block { stmts, tail: None }
 }
 

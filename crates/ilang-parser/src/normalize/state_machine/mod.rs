@@ -267,7 +267,7 @@ pub fn lower(
     let tp = || f.type_params.clone();
     let state_enum = gen_state_enum(enum_name, &segments, span, tp());
     let state_ref_class = gen_state_ref_class(ref_name, enum_name, &promise_ret, span, tp());
-    let poll_fn = gen_poll_fn(poll_name, ref_name, enum_name, &segments, enclosing_class, span, tp());
+    let poll_fn = gen_poll_fn(poll_name, ref_name, enum_name, &segments, span, tp());
     let wrapper = gen_wrapper_fn(
         f,
         ref_name,
