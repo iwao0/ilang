@@ -875,6 +875,25 @@ fn apply_use(
         .find_map(|(p, pref)| (p == &canon && !pref.starts_with("@sel:")).then(|| pref.clone()));
     let effective_prefix: String =
         existing_prefix.clone().unwrap_or_else(|| nominal_prefix.clone());
+    // If this importer addresses the module under a different
+    // prefix than where it was actually merged (typical of
+    // `use super.M` reaching a module that the parent umbrella
+    // already re-exported under its own prefix), mint per-item
+    // rename rules so qualified references like `event.X` in
+    // the importer's body route to the registered `gui.X` form.
+    if existing_prefix.as_deref() != Some(nominal_prefix.as_str()) {
+        if let Some(existing_pref) = existing_prefix.as_deref() {
+            if let Some(module_prog_ref) = loaded.get(&canon) {
+                for item in &module_prog_ref.items {
+                    if let Some(name) = item_name_of(item) {
+                        let from = Symbol::intern(&format!("{nominal_prefix}.{name}"));
+                        let to   = Symbol::intern(&format!("{existing_pref}.{name}"));
+                        rename_rules.insert(from, to);
+                    }
+                }
+            }
+        }
+    }
     // Selective and whole imports both produce the same prefix-merged
     // view of the module — bare references in selective imports get
     // rewritten to the prefixed form by the rename pass at the end of
@@ -920,6 +939,15 @@ fn apply_use(
         // `prefix_item` so a `use N { Y }` inside M rewrites the
         // bare `Y` references in M's body to `N.Y`.
         let mut module_rename_rules: HashMap<Symbol, Symbol> = HashMap::new();
+        // Process `pub use M.*` re-exports BEFORE other uses so
+        // the umbrella's publication of a module's items wins the
+        // prefix race against any sub-package's
+        // `use super.M { ... }` inside the same umbrella. Without
+        // this, a non-re-export selective import that runs first
+        // claims the dedup slot under module-stem prefix and the
+        // umbrella's `pub use M.*` silently no-ops, leaving the
+        // umbrella-prefixed view (`gui.M.X`) unregistered.
+        nested_uses.sort_by_key(|u| if u.re_export { 0 } else { 1 });
         for nu in nested_uses {
             // `pub use M as _ { * }` (wildcard): flatten M's items
             // into the umbrella's namespace — override = umbrella prefix.
