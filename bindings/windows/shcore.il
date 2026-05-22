@@ -62,7 +62,7 @@ use kernel32 { HANDLE }
     @lib pub fn SetProcessDpiAwareness(value: i32): i32
 
     @lib pub fn GetProcessDpiAwareness(
-        hProcess: *void,    // 0 for current process
+        hProcess: HANDLE,   // 0 for current process
         value:    *i32      // out: DpiAwareness.*
     ): i32
 

@@ -131,6 +131,7 @@ pub enum NotifyIconDataFlags: u32 {
 }
 
 use user32 { HINSTANCE, HICON, HWND }
+use kernel32 { HANDLE }
 
 @extern(C, "shell32") {
     // ── Shell handle type ─────────────────────────────────────────
@@ -192,14 +193,14 @@ use user32 { HINSTANCE, HICON, HWND }
     @lib pub fn SHGetFolderPathA(
         hwnd:    HWND,
         csidl:   i32,          // CSIDL.*
-        hToken:  i64,          // token, or 0
+        hToken:  HANDLE,       // token, or 0
         dwFlags: u32,
         pszPath: *char         // output buffer, at least MAX_PATH (260)
     ): i32
     @lib pub fn SHGetFolderPathW(
         hwnd:    HWND,
         csidl:   i32,          // CSIDL.*
-        hToken:  i64,          // token, or 0
+        hToken:  HANDLE,       // token, or 0
         dwFlags: u32,
         pszPath: *u16         // output buffer, at least MAX_PATH (260)
     ): i32
@@ -271,7 +272,7 @@ use user32 { HINSTANCE, HICON, HWND }
     @lib pub fn SHGetKnownFolderPath(
         rfid:     *const void,    // *const GUID — pass ole32.GUID
         dwFlags:  u32,
-        hToken:   i64,
+        hToken:   HANDLE,
         ppszPath: **u16
     ): i32
 

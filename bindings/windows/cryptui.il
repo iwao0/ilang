@@ -35,6 +35,7 @@ pub enum CryptUiWizExportFlags: u32 {
 }
 
 use user32 { HWND }
+use crypt32 { HCERTSTORE }
 
 @extern(C, "cryptui") {
     /// CRYPTUI_VIEWCERTIFICATE_STRUCTA — pass to
@@ -59,7 +60,7 @@ use user32 { HWND }
         idxCounterSigner:    u32
         cStores:             u32
         _pad3:               u32
-        rghStores:           *const i64
+        rghStores:           *const HCERTSTORE
         cPropSheetPages:     u32
         _pad4:               u32
         rgPropSheetPages:    *const void
@@ -80,7 +81,7 @@ use user32 { HWND }
     /// or from the current user's "My" store. Returns the chosen
     /// `*CERT_CONTEXT` or NULL on cancel.
     @lib pub fn CryptUIDlgSelectCertificateFromStore(
-        hCertStore:    i64,
+        hCertStore:    HCERTSTORE,
         hwnd:          HWND,
         pwszTitle:     *const u16,
         pwszDisplayString: *const u16,
@@ -95,7 +96,7 @@ use user32 { HWND }
         hwndParent:     HWND,
         pwszWizardTitle: *const u16,
         pImportSrc:     *const void,        // *CRYPTUI_WIZ_IMPORT_SRC_INFO
-        hDestCertStore: i64
+        hDestCertStore: HCERTSTORE
     ): i32
 
     /// Export to .pfx / .cer / .p7b.

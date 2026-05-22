@@ -62,6 +62,8 @@ pub enum WerFaultReporting: u32 {
     disableThreadSuspension = 0x0040
 }
 
+use kernel32 { HANDLE }
+
 @extern(C, "wer") {
     /// `WerReportCreate(pwzEventType, repType, pReportInformation,
     ///                  &hReportHandle)`.
@@ -110,7 +112,7 @@ pub enum WerFaultReporting: u32 {
     /// Enable / disable WER for the calling process.
     /// 1 = enable, 0 = disable.
     @lib pub fn WerSetFlags(dwFlags: u32): i32
-    @lib pub fn WerGetFlags(hProcess: i64, pdwFlags: *u32): i32
+    @lib pub fn WerGetFlags(hProcess: HANDLE, pdwFlags: *u32): i32
 
     /// Add a file to be included in any crash dump for this process.
     @lib pub fn WerRegisterFile(

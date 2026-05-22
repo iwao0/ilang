@@ -67,6 +67,8 @@ pub enum SymOpt: u32 {
     debug            = 0x80000000
 }
 
+use kernel32 { HANDLE }
+
 @extern(C, "dbghelp") {
     // ── SYMBOL_INFO — 88 bytes + Name buffer ─────────────────────
 
@@ -119,30 +121,30 @@ pub enum SymOpt: u32 {
     /// `fInvadeProcess`: 1 = automatically load symbols for every
     /// already-loaded module.
     @lib pub fn SymInitialize(
-        hProcess:       *void,
+        hProcess:       HANDLE,
         UserSearchPath: *const char,
         fInvadeProcess: i32
     ): i32
 
-    @lib pub fn SymCleanup(hProcess: *void): i32
+    @lib pub fn SymCleanup(hProcess: HANDLE): i32
 
     @lib pub fn SymSetOptions(SymOptions: u32): u32
     @lib pub fn SymGetOptions(): u32
 
-    @lib pub fn SymRefreshModuleList(hProcess: *void): i32
+    @lib pub fn SymRefreshModuleList(hProcess: HANDLE): i32
 
     /// Loads symbols for a single module at `BaseOfDll`.
     /// Returns the module base on success, 0 on failure.
     @lib pub fn SymLoadModule64(
-        hProcess:    *void,
-        hFile:       *void,
+        hProcess:    HANDLE,
+        hFile:       HANDLE,
         ImageName:   *const char,
         ModuleName:  *const char,
         BaseOfDll:   u64,
         SizeOfDll:   u32
     ): u64
 
-    @lib pub fn SymUnloadModule64(hProcess: *void, BaseOfDll: u64): i32
+    @lib pub fn SymUnloadModule64(hProcess: HANDLE, BaseOfDll: u64): i32
 
     // ── Address → symbol ─────────────────────────────────────────
 
@@ -151,7 +153,7 @@ pub enum SymOpt: u32 {
     /// `Displacement`: receives offset from start of symbol.
     /// `Symbol`: filled SYMBOL_INFO; must have SizeOfStruct/MaxNameLen set.
     @lib pub fn SymFromAddr(
-        hProcess:     *void,
+        hProcess:     HANDLE,
         Address:      u64,
         Displacement: *u64,
         Symbol:       *SYMBOL_INFO
@@ -159,7 +161,7 @@ pub enum SymOpt: u32 {
 
     /// Resolves an address to a source file and line.
     @lib pub fn SymGetLineFromAddr64(
-        hProcess:        *void,
+        hProcess:        HANDLE,
         qwAddr:          u64,
         pdwDisplacement: *u32,
         Line:            *IMAGEHLP_LINE64
@@ -181,8 +183,8 @@ pub enum SymOpt: u32 {
     /// on x64.
     @lib pub fn StackWalk64(
         MachineType:    u32,
-        hProcess:       *void,
-        hThread:        *void,
+        hProcess:       HANDLE,
+        hThread:        HANDLE,
         StackFrame:     *void,    // *STACKFRAME64 (264 bytes)
         ContextRecord:  *void,    // *CONTEXT
         ReadMemoryRoutine:    *void,
@@ -194,8 +196,8 @@ pub enum SymOpt: u32 {
     /// Standard symbol-handler helpers, suitable as the
     /// `FunctionTableAccessRoutine` / `GetModuleBaseRoutine` arguments
     /// to StackWalk64.
-    @lib pub fn SymFunctionTableAccess64(hProcess: *void, AddrBase: u64): *void
-    @lib pub fn SymGetModuleBase64(hProcess: *void, qwAddr: u64): u64
+    @lib pub fn SymFunctionTableAccess64(hProcess: HANDLE, AddrBase: u64): *void
+    @lib pub fn SymGetModuleBase64(hProcess: HANDLE, qwAddr: u64): u64
 
     // ── Mini-dump ─────────────────────────────────────────────────
 
@@ -204,9 +206,9 @@ pub enum SymOpt: u32 {
     /// `ExceptionParam`: pointer to MINIDUMP_EXCEPTION_INFORMATION or NULL.
     /// `DumpType`: MiniDumpType.*.
     @lib pub fn MiniDumpWriteDump(
-        hProcess:    *void,
+        hProcess:    HANDLE,
         ProcessId:   u32,
-        hFile:       *void,
+        hFile:       HANDLE,
         DumpType:    u32,
         ExceptionParam:    *const void,
         UserStreamParam:   *const void,

@@ -50,6 +50,14 @@ pub enum ColorType: u32 {
 }
 
 @extern(C, "mscms") {
+    /// Opaque color-profile handle (returned by OpenColorProfile*).
+    @handle pub struct HPROFILE {}
+
+    /// Opaque color-transform handle (returned by CreateColorTransform /
+    /// CreateMultiProfileTransform).
+    @handle pub struct HTRANSFORM {}
+
+
     /// File-based profile descriptor — set `dwType = fileName` and
     /// `pProfileData = path`, `cbDataSize = byte length of path`.
     pub struct PROFILE {
@@ -63,31 +71,31 @@ pub enum ColorType: u32 {
     /// `OpenColorProfileA(profile, access, shareMode, creationMode)`.
     /// `access` is `ProfileAccess.*`; `shareMode` is FILE_SHARE_*;
     /// `creationMode` is OPEN_EXISTING (3) typically. Returns
-    /// HPROFILE (cast to i64), or 0 on failure.
+    /// HPROFILE, or 0 on failure.
     @lib pub fn OpenColorProfileA(
         pProfile:     *const PROFILE,
         dwDesiredAccess: u32,
         dwShareMode:  u32,
         dwCreationMode: u32
-    ): i64
+    ): HPROFILE
 
     @lib pub fn OpenColorProfileW(
         pProfile:     *const PROFILE,
         dwDesiredAccess: u32,
         dwShareMode:  u32,
         dwCreationMode: u32
-    ): i64
+    ): HPROFILE
 
-    @lib pub fn CloseColorProfile(hProfile: i64): i32
+    @lib pub fn CloseColorProfile(hProfile: HPROFILE): i32
 
     /// Read the 128-byte ICC profile header.
     @lib pub fn GetColorProfileHeader(
-        hProfile: i64,
+        hProfile: HPROFILE,
         pHeader:  *void          // *PROFILEHEADER (128 bytes)
     ): i32
 
     @lib pub fn SetColorProfileHeader(
-        hProfile: i64,
+        hProfile: HPROFILE,
         pHeader:  *const void
     ): i32
 
@@ -161,19 +169,19 @@ pub enum ColorType: u32 {
     ///   2 INTENT_SATURATION
     ///   3 INTENT_ABSOLUTE_COLORIMETRIC
     @lib pub fn CreateMultiProfileTransform(
-        pahProfiles:   *i64,
+        pahProfiles:   *HPROFILE,
         nProfiles:     u32,
         padwIntent:    *u32,
         nIntents:      u32,
         dwFlags:       u32,
         indexPreferredCMM: u32
-    ): i64
+    ): HTRANSFORM
 
-    @lib pub fn DeleteColorTransform(hxform: i64): i32
+    @lib pub fn DeleteColorTransform(hxform: HTRANSFORM): i32
 
     /// Apply the transform to a 2-D bitmap of `cPixels` per row.
     @lib pub fn TranslateBitmapBits(
-        hColorTransform: i64,
+        hColorTransform: HTRANSFORM,
         pSrcBits:        *const void,
         bmInput:         i32,           // BmFormat
         dwWidth:         u32,
@@ -188,7 +196,7 @@ pub enum ColorType: u32 {
 
     /// Apply the transform to a flat array of colour values.
     @lib pub fn TranslateColors(
-        hColorTransform: i64,
+        hColorTransform: HTRANSFORM,
         paInputColors:   *const void,
         nColors:         u32,
         ctInput:         u32,           // ColorType

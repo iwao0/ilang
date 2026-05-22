@@ -18,6 +18,16 @@ pub enum BluetoothSearchFlag: u32 {
 use user32 { HWND }
 
 @extern(C, "BluetoothApis", "bthprops.cpl") {
+    /// Opaque radio handle (returned by BluetoothFindFirstRadio).
+    @handle pub struct HBLUETOOTH_RADIO {}
+
+    /// Opaque device-enumeration handle (BluetoothFindFirstDevice).
+    @handle pub struct HBLUETOOTH_DEVICE_FIND {}
+
+    /// Opaque radio-enumeration handle (BluetoothFindFirstRadio).
+    @handle pub struct HBLUETOOTH_RADIO_FIND {}
+
+
     /// 48-bit MAC address (8 bytes — 6 active + 2 padding).
     pub struct BLUETOOTH_ADDRESS {
         ullLong: u64
@@ -33,7 +43,7 @@ use user32 { HWND }
         fIssueInquiry:        i32
         cTimeoutMultiplier:   u8
         _pad:                 u8[3]
-        hRadio:               i64
+        hRadio:               HBLUETOOTH_RADIO
     }
 
     /// 560 bytes on x64 — minus the name buffer this is mostly
@@ -57,41 +67,41 @@ use user32 { HWND }
     @lib pub fn BluetoothFindFirstDevice(
         pbtsp:        *const BLUETOOTH_DEVICE_SEARCH_PARAMS,
         pbtdi:        *BLUETOOTH_DEVICE_INFO
-    ): i64
+    ): HBLUETOOTH_DEVICE_FIND
 
     @lib pub fn BluetoothFindNextDevice(
-        hFind:        i64,
+        hFind:        HBLUETOOTH_DEVICE_FIND,
         pbtdi:        *BLUETOOTH_DEVICE_INFO
     ): i32
 
-    @lib pub fn BluetoothFindDeviceClose(hFind: i64): i32
+    @lib pub fn BluetoothFindDeviceClose(hFind: HBLUETOOTH_DEVICE_FIND): i32
 
     /// `BluetoothFindFirstRadio(params, &handle)`.
     @lib pub fn BluetoothFindFirstRadio(
         pbtfrp:       *const void,        // *BLUETOOTH_FIND_RADIO_PARAMS
-        phRadio:      *i64
-    ): i64
+        phRadio:      *HBLUETOOTH_RADIO
+    ): HBLUETOOTH_RADIO_FIND
 
-    @lib pub fn BluetoothFindNextRadio(hFind: i64, phRadio: *i64): i32
-    @lib pub fn BluetoothFindRadioClose(hFind: i64): i32
+    @lib pub fn BluetoothFindNextRadio(hFind: HBLUETOOTH_RADIO_FIND, phRadio: *HBLUETOOTH_RADIO): i32
+    @lib pub fn BluetoothFindRadioClose(hFind: HBLUETOOTH_RADIO_FIND): i32
 
     /// Radio info — 528 bytes.
     @lib pub fn BluetoothGetRadioInfo(
-        hRadio:       i64,
+        hRadio:       HBLUETOOTH_RADIO,
         pRadioInfo:   *void
     ): u32
 
-    @lib pub fn BluetoothIsDiscoverable(hRadio: i64): i32
-    @lib pub fn BluetoothEnableDiscovery(hRadio: i64, fEnabled: i32): i32
+    @lib pub fn BluetoothIsDiscoverable(hRadio: HBLUETOOTH_RADIO): i32
+    @lib pub fn BluetoothEnableDiscovery(hRadio: HBLUETOOTH_RADIO, fEnabled: i32): i32
 
-    @lib pub fn BluetoothIsConnectable(hRadio: i64): i32
-    @lib pub fn BluetoothEnableIncomingConnections(hRadio: i64, fEnabled: i32): i32
+    @lib pub fn BluetoothIsConnectable(hRadio: HBLUETOOTH_RADIO): i32
+    @lib pub fn BluetoothEnableIncomingConnections(hRadio: HBLUETOOTH_RADIO, fEnabled: i32): i32
 
     // ── Pairing / authentication ────────────────────────────────
 
     @lib pub fn BluetoothAuthenticateDeviceEx(
         hwndParentIn: HWND,
-        hRadioIn:     i64,
+        hRadioIn:     HBLUETOOTH_RADIO,
         pbtdiInOut:   *BLUETOOTH_DEVICE_INFO,
         pbtOobData:   *void,
         authMethod:   i32              // BLUETOOTH_AUTHENTICATION_METHOD
