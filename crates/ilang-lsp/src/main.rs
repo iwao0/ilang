@@ -10,6 +10,7 @@ mod formatter;
 mod handlers;
 mod helpers;
 mod imports;
+mod inlay_hints;
 mod project;
 mod semantic_tokens;
 mod symbols;

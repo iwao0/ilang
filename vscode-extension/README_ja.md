@@ -90,6 +90,13 @@ language server も自動で起動する。
   fn / class (フィールド・メソッド・プロパティ・static を
   ぶら下げる) / interface / enum (variant をぶら下げる) /
   const / `@extern(C)` の項目を階層化して返す
+- **インレイヒント**: 2種類提供する。型ヒントは型注釈のない
+  `let x = expr` / `for x in iter` の後ろに推論型を `: T` として
+  表示。パラメータ名ヒントは関数呼び出しのリテラル引数 (数値 /
+  文字列 / bool / `none` / 配列リテラル) の前に `name:` を出す。
+  識別子引数はもとから名前を持っているのでヒントを出さない。
+  パラメータ名解決は同一ファイル内の fn / method / `init` 限定で、
+  別ファイルの呼び出しはスキップする
 - **コールヒエラルキー**: fn / method / static method 上で
   `Show Call Hierarchy` を呼ぶと、呼び出し元 (incoming) と
   呼び出し先 (outgoing) のツリーが開く。呼び出し元は

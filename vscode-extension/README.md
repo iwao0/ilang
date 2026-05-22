@@ -89,6 +89,14 @@ The extension looks for the `ilang-lsp` binary in this order:
   classes (with fields / methods / properties / static members),
   interfaces, enums (with variants), consts, and `@extern(C)`
   items
+- **Inlay hints** — two families: type hints after `let x = expr` /
+  `for x in iter` when no explicit annotation is present (renders
+  the inferred type as `: T`), and parameter-name hints at literal
+  arguments to calls (numbers / strings / bools / `none` / array
+  literals get a `name:` chip in front; identifier args stay
+  untouched so the hint stream doesn't compete with the variable's
+  own name). Parameter hints resolve against in-file fns / methods
+  / `init` only — cross-file calls fall through
 - **Call hierarchy** — `Show Call Hierarchy` on a fn / method /
   static method opens a tree of callers (incoming) and callees
   (outgoing). Caller resolution scans every `.il` reachable from
