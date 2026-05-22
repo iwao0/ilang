@@ -150,9 +150,11 @@ impl LanguageServer for Backend {
                     CallHierarchyServerCapability::Simple(true),
                 ),
                 inlay_hint_provider: Some(OneOf::Left(true)),
-                code_lens_provider: Some(CodeLensOptions {
-                    resolve_provider: Some(true),
-                }),
+                // CodeLens は見た目負荷と "N references" の
+                // ワークスペーススキャン負荷の双方で off にして
+                // ある。再開する場合は capability を戻し、resolve
+                // 側でキャッシュを入れてから有効化する。
+                // code_lens_provider: Some(CodeLensOptions { resolve_provider: Some(true) }),
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(
                     true,
                 )),
