@@ -136,7 +136,7 @@ use user32 { HWND }
 
     /// HWND-specific render-target properties.
     pub struct D2D1_HWND_RENDER_TARGET_PROPERTIES {
-        hwnd:           HWND                // *HWND
+        hwnd:           HWND
         pixelSize:      D2D1_SIZE_U
         presentOptions: u32                // D2dPresentOptions
     }

@@ -15,6 +15,8 @@
 /// discouraged); the exports below let you skip that hop in
 /// prototypes.
 
+use kernel32 { HANDLE }
+
 @extern(C, "mswsock") {
     /// Per-call data for `TransmitFile`. Either of the head /
     /// tail buffers can be NULL.
@@ -69,7 +71,7 @@
     /// TF_REUSE_SOCKET (2), TF_WRITE_BEHIND (4).
     @lib pub fn TransmitFile(
         hSocket:    u64,
-        hFile:      i64,                // *HANDLE
+        hFile:      HANDLE,
         nNumberOfBytesToWrite: u32,
         nNumberOfBytesPerSend: u32,
         lpOverlapped: *void,

@@ -8,6 +8,8 @@
 ///
 /// `WLAN_API_VERSION_2_0` = 2.
 
+use kernel32 { HANDLE }
+
 @extern(C, "wlanapi") {
     /// 144-byte info struct per wireless interface (GUID + name +
     /// state). Layout is simplified to what callers need most.
@@ -31,13 +33,13 @@
         dwClientVersion:       u32,
         pReserved:             *void,
         pdwNegotiatedVersion:  *u32,
-        phClientHandle:        *i64       // *HANDLE
+        phClientHandle:        *HANDLE
     ): u32
 
-    @lib pub fn WlanCloseHandle(hClientHandle: i64, pReserved: *void): u32
+    @lib pub fn WlanCloseHandle(hClientHandle: HANDLE, pReserved: *void): u32
 
     @lib pub fn WlanEnumInterfaces(
-        hClientHandle: i64,
+        hClientHandle: HANDLE,
         pReserved:     *void,
         ppInterfaceList: **WLAN_INTERFACE_INFO_LIST
     ): u32
@@ -47,7 +49,7 @@
 
     /// Scan the named interface for visible BSSIDs / SSIDs.
     @lib pub fn WlanScan(
-        hClientHandle:    i64,
+        hClientHandle:    HANDLE,
         pInterfaceGuid:   *const void,    // *GUID
         pDot11Ssid:       *const void,    // *DOT11_SSID — may be 0
         pIeData:          *const void,    // optional
@@ -56,7 +58,7 @@
 
     /// Get the available networks (post-scan).
     @lib pub fn WlanGetAvailableNetworkList(
-        hClientHandle:           i64,
+        hClientHandle:           HANDLE,
         pInterfaceGuid:          *const void,
         dwFlags:                 u32,
         pReserved:               *void,
@@ -65,14 +67,14 @@
 
     /// Connect to a profile by name.
     @lib pub fn WlanConnect(
-        hClientHandle:   i64,
+        hClientHandle:   HANDLE,
         pInterfaceGuid:  *const void,
         pConnectionParameters: *const void,   // *WLAN_CONNECTION_PARAMETERS
         pReserved:       *void
     ): u32
 
     @lib pub fn WlanDisconnect(
-        hClientHandle:   i64,
+        hClientHandle:   HANDLE,
         pInterfaceGuid:  *const void,
         pReserved:       *void
     ): u32
@@ -80,7 +82,7 @@
     /// Get the current connection attributes (SSID, BSSID, signal,
     /// rx/tx rate). Free `*ppData` with `WlanFreeMemory`.
     @lib pub fn WlanQueryInterface(
-        hClientHandle:  i64,
+        hClientHandle:  HANDLE,
         pInterfaceGuid: *const void,
         OpCode:         u32,
         pReserved:      *void,
@@ -91,7 +93,7 @@
 
     /// Enumerate stored profiles.
     @lib pub fn WlanGetProfileList(
-        hClientHandle:    i64,
+        hClientHandle:    HANDLE,
         pInterfaceGuid:   *const void,
         pReserved:        *void,
         ppProfileList:    **void
@@ -101,7 +103,7 @@
     /// + caller has the right). `pdwFlags` may carry
     /// WLAN_PROFILE_GET_PLAINTEXT_KEY = 4.
     @lib pub fn WlanGetProfile(
-        hClientHandle: i64,
+        hClientHandle: HANDLE,
         pInterfaceGuid: *const void,
         strProfileName: *const u16,
         pReserved:      *void,

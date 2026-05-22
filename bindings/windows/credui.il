@@ -37,16 +37,17 @@ pub enum CredUiResult: u32 {
 }
 
 use user32 { HWND }
+use gdi32 { HBITMAP }
 
 @extern(C, "credui") {
     /// `CREDUI_INFOW` — visual customisation for the prompt.
     /// All fields except `cbSize` (must be 40 on x64) are optional.
     pub struct CREDUI_INFOW {
         cbSize:         u32
-        hwndParent:     HWND                  // *HWND
+        hwndParent:     HWND
         pszMessageText: *const u16
         pszCaptionText: *const u16
-        hbmBanner:      i64                  // *HBITMAP — optional
+        hbmBanner:      HBITMAP              // optional
     }
 
     /// Wide-string credential prompt. `pszTargetName` doubles as

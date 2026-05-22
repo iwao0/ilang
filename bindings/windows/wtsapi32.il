@@ -125,7 +125,7 @@ use user32 { HWND }
     ///   0x6=remote disconnect, 0x7=session logon, 0x8=session logoff,
     ///   0x9=session lock, 0xA=session unlock, 0xB=session remote control.
     @lib pub fn WTSRegisterSessionNotification(
-        hwnd:    HWND,                // *HWND
+        hwnd:    HWND,
         dwFlags: u32
     ): i32
 

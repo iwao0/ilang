@@ -95,7 +95,7 @@ pub enum ImageListFlags: u32 {
     highQualityScale = 0x00020000
 }
 
-use user32 { HWND }
+use user32 { HWND, HINSTANCE }
 
 @extern(C, "comctl32") {
     // ── Bootstrap ────────────────────────────────────────────────
@@ -122,8 +122,8 @@ use user32 { HWND }
     /// Returns 0 (S_OK) on success and writes the chosen button id
     /// to `*pnButton` (TaskDialogResult or a custom radio id).
     @lib pub fn TaskDialog(
-        hwndOwner:        HWND,                 // *HWND
-        hInstance:        i64,                 // *HINSTANCE for resource ids
+        hwndOwner:        HWND,
+        hInstance:        HINSTANCE,           // for resource ids
         pszWindowTitle:   *const u16,
         pszMainInstruction: *const u16,
         pszContent:       *const u16,

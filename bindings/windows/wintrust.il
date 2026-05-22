@@ -50,6 +50,7 @@ pub enum WtdStateAction: u32 {
 }
 
 use user32 { HWND }
+use kernel32 { HANDLE }
 
 @extern(C, "wintrust") {
     /// File-based info — point `pcwszFilePath` at the file to verify.
@@ -57,7 +58,7 @@ use user32 { HWND }
         cbStruct:       u32
         _pad:           u32
         pcwszFilePath:  *const u16
-        hFile:          i64                // *HANDLE — optional, 0
+        hFile:          HANDLE             // optional, 0
         pgKnownSubject: *const void        // optional, 0
     }
 
@@ -73,7 +74,7 @@ use user32 { HWND }
         pInfo:                  *void      // *WINTRUST_FILE_INFO or sibling
         dwStateAction:          u32        // WtdStateAction
         _pad2:                  u32
-        hWVTStateData:          i64        // *HANDLE — cleared by close
+        hWVTStateData:          HANDLE     // cleared by close
         pwszURLReference:       *const u16
         dwProvFlags:            u32
         dwUIContext:            u32
@@ -85,7 +86,7 @@ use user32 { HWND }
     /// above. Pass the same call again with `dwStateAction = close`
     /// to release the cached chain.
     @lib pub fn WinVerifyTrust(
-        hwnd:        HWND,           // *HWND, or 0 for non-interactive
+        hwnd:        HWND,
         pgActionID:  *const void,   // *GUID
         pWVTData:    *void
     ): i32

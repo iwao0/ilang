@@ -144,7 +144,7 @@ use user32 { HINSTANCE, HICON, HWND }
     /// Describes a file-system operation for `SHFileOperationA`.
     /// `pFrom` and `pTo` are double-NUL-terminated string lists.
     pub struct SHFILEOPERATIONA {
-        hwnd:                  HWND      // *HWND — owner window
+        hwnd:                  HWND
         wFunc:                 u32      // FileOpFunc
         // 4 bytes implicit padding before pointer
         pFrom:                 *const char
@@ -168,7 +168,7 @@ use user32 { HINSTANCE, HICON, HWND }
     /// `nShowCmd`: ShowCmd.show etc. Returns a pseudo-HINSTANCE;
     /// values > 32 mean success.
     @lib pub fn ShellExecuteA(
-        hwnd:        HWND,           // *HWND, or 0
+        hwnd:        HWND,
         lpOperation: *const char,
         lpFile:      *const char,
         lpParameters: *const char,
@@ -182,7 +182,7 @@ use user32 { HINSTANCE, HICON, HWND }
     /// CSIDL folder. `hToken`: 0 for the current user.
     /// `dwFlags`: 0 = return verified path; CSIDL.flagCreate to create.
     @lib pub fn SHGetFolderPathA(
-        hwnd:    HWND,          // *HWND owner, or 0
+        hwnd:    HWND,
         csidl:   i32,          // CSIDL.*
         hToken:  i64,          // token, or 0
         dwFlags: u32,

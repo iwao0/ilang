@@ -91,7 +91,7 @@ use kernel32 { HMODULE, HANDLE }
 
     /// Returns the path to the executable image of the process.
     @lib pub fn GetProcessImageFileNameA(
-        hProcess: *void,    // *HANDLE (PROCESS_QUERY_LIMITED_INFORMATION)
+        hProcess: HANDLE,   // PROCESS_QUERY_LIMITED_INFORMATION
         lpImageFileName: *char,
         nSize: u32
     ): u32
@@ -118,22 +118,22 @@ use kernel32 { HMODULE, HANDLE }
     ): i32
 
     @lib pub fn GetModuleBaseNameA(
-        hProcess:   *void,
-        hModule:    *void,
+        hProcess:   HANDLE,
+        hModule:    HMODULE,
         lpBaseName: *char,
         nSize:      u32
     ): u32
 
     @lib pub fn GetModuleFileNameExA(
-        hProcess:   *void,
-        hModule:    *void,
+        hProcess:   HANDLE,
+        hModule:    HMODULE,
         lpFilename: *char,
         nSize:      u32
     ): u32
 
     @lib pub fn GetModuleInformation(
-        hProcess: *void,
-        hModule:  *void,
+        hProcess: HANDLE,
+        hModule:  HMODULE,
         lpmodinfo: *MODULEINFO,
         cb:       u32
     ): i32
@@ -144,7 +144,7 @@ use kernel32 { HMODULE, HANDLE }
     /// For PROCESS_MEMORY_COUNTERS_EX, cast the pointer:
     /// `GetProcessMemoryInfo(hp, &pmcEx as *PROCESS_MEMORY_COUNTERS, 80)`.
     @lib pub fn GetProcessMemoryInfo(
-        Process:        *void,
+        Process:        HANDLE,
         ppsmemCounters: *PROCESS_MEMORY_COUNTERS,
         cb:             u32
     ): i32
@@ -158,7 +158,7 @@ use kernel32 { HMODULE, HANDLE }
     /// Returns the file name of the executable that owns the mapped
     /// view at `lpv` in `hProcess`.
     @lib pub fn GetMappedFileNameA(
-        hProcess: *void,
+        hProcess: HANDLE,
         lpv:      *void,
         lpFilename: *char,
         nSize:    u32
@@ -168,7 +168,7 @@ use kernel32 { HMODULE, HANDLE }
 
     /// Empties the working set, forcing pages to swap.  Useful for
     /// measuring true working-set growth on subsequent allocations.
-    @lib pub fn EmptyWorkingSet(hProcess: *void): i32
+    @lib pub fn EmptyWorkingSet(hProcess: HANDLE): i32
 
     // ── Device drivers ────────────────────────────────────────────
 

@@ -3,6 +3,8 @@
 /// and creates the environment block used by CreateProcess for
 /// running code as a different user.
 
+use kernel32 { HANDLE }
+
 @extern(C, "userenv") {
     // ── User profile paths ────────────────────────────────────────
 
@@ -11,13 +13,13 @@
     /// (including NUL).  Pass `0 as *char` for `lpProfileDir` to
     /// query the required size.
     @lib pub fn GetUserProfileDirectoryA(
-        hToken:       *void,    // *HANDLE — open process token (TOKEN_QUERY)
+        hToken:       HANDLE,  // open process token (TOKEN_QUERY)
         lpProfileDir: *char,
         lpcchSize:    *u32
     ): i32
 
     @lib pub fn GetUserProfileDirectoryW(
-        hToken:       *void,
+        hToken:       HANDLE,
         lpProfileDir: *u16,
         lpcchSize:    *u32
     ): i32
@@ -47,11 +49,11 @@
     /// `lpProfileInfo`: *PROFILEINFOA struct; set `dwSize`=44 and
     /// `lpUserName` before calling.
     @lib pub fn LoadUserProfileA(
-        hToken:        *void,
+        hToken:        HANDLE,
         lpProfileInfo: *void    // *PROFILEINFOA
     ): i32
 
-    @lib pub fn UnloadUserProfile(hToken: *void, hProfile: *void): i32
+    @lib pub fn UnloadUserProfile(hToken: HANDLE, hProfile: HANDLE): i32
 
     // ── Environment block ─────────────────────────────────────────
 
@@ -61,7 +63,7 @@
     /// Free with `DestroyEnvironmentBlock`.
     @lib pub fn CreateEnvironmentBlock(
         lpEnvironment: **void,
-        hToken:        *void,    // 0 = current user, else *HANDLE
+        hToken:        HANDLE,   // 0 = current user
         bInherit:      i32
     ): i32
 
@@ -71,14 +73,14 @@
     /// `lpSrc`: UTF-16 input string; `lpDst`: UTF-16 output buffer.
     /// `dwSize`: size of `lpDst` in characters (not bytes).
     @lib pub fn ExpandEnvironmentStringsForUserA(
-        hToken:    *void,
+        hToken:    HANDLE,
         lpSrc:     *const char,
         lpDst:     *char,
         dwSize:    u32
     ): i32
 
     @lib pub fn ExpandEnvironmentStringsForUserW(
-        hToken: *void,
+        hToken: HANDLE,
         lpSrc:  *const u16,
         lpDst:  *u16,
         dwSize: u32
@@ -99,8 +101,8 @@
 
     /// Notifies that user policy has changed.  Combine with
     /// `RegisterGPNotification` to receive updates.
-    @lib pub fn RegisterGPNotification(hEvent: *void, bMachine: i32): i32
-    @lib pub fn UnregisterGPNotification(hEvent: *void): i32
+    @lib pub fn RegisterGPNotification(hEvent: HANDLE, bMachine: i32): i32
+    @lib pub fn UnregisterGPNotification(hEvent: HANDLE): i32
 
     // Note: app-data paths are not in userenv — use SHGetFolderPathA
     // (shell32) or SHGetKnownFolderPath for AppData/LocalAppData.

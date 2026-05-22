@@ -105,7 +105,7 @@ pub enum CommDlgError: u32 {
     subtaskfailure    = 0x0006   // FNERR_SUBCLASSFAILURE
 }
 
-use user32 { HWND }
+use user32 { HWND, HINSTANCE, HDC }
 
 @extern(C, "comdlg32") {
     // ── OPENFILENAMEA — 88 bytes on x64 ──────────────────────────
@@ -118,8 +118,8 @@ use user32 { HWND }
     /// Set `lStructSize` = 88 before calling.
     pub struct OPENFILENAMEA {
         lStructSize:       u32
-        hwndOwner:         HWND         // *HWND
-        hInstance:         i64         // *HINSTANCE (template resource)
+        hwndOwner:         HWND
+        hInstance:         HINSTANCE   // template resource
         lpstrFilter:       *const char
         lpstrCustomFilter: *char
         nMaxCustFilter:    u32
@@ -151,8 +151,8 @@ use user32 { HWND }
     /// Set `lStructSize` = 36 before calling.
     pub struct CHOOSECOLORA {
         lStructSize:    u32
-        hwndOwner:      HWND     // *HWND
-        hInstance:      i64     // *HWND (template parent, rarely used)
+        hwndOwner:      HWND
+        hInstance:      HINSTANCE  // template parent, rarely used
         rgbResult:      u32     // COLORREF — initial and returned color
         lpCustColors:   *u32    // [16] custom colours (caller-allocated)
         Flags:          u32     // ChooseColorFlags
@@ -168,8 +168,8 @@ use user32 { HWND }
     /// Set `lStructSize` = 60 before calling.
     pub struct CHOOSEFONTA {
         lStructSize:      u32
-        hwndOwner:        HWND   // *HWND
-        hDC:              i64   // *HDC — printer DC, or NULL for screen
+        hwndOwner:        HWND
+        hDC:              HDC   // printer DC, or NULL for screen
         lpLogFont:        *void // *LOGFONTA
         iPointSize:       i32   // selected size × 10
         Flags:            u32   // ChooseFontFlags
@@ -177,7 +177,7 @@ use user32 { HWND }
         lCustData:        i64
         lpfnHook:         *void // LPCFHOOKPROC
         lpTemplateName:   *const char
-        hInstance:        i64   // *HINSTANCE
+        hInstance:        HINSTANCE
         lpszStyle:        *char // style name buffer (CF_USESTYLE)
         nFontType:        u16   // SCREEN_FONTTYPE etc.
         _pad:             u16

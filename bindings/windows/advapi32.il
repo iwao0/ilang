@@ -178,6 +178,8 @@ pub enum EventLogType: u16 {
     auditFailure    = 0x0010
 }
 
+use kernel32 { HANDLE }
+
 @extern(C, "advapi32") {
     // ── Opaque handles ────────────────────────────────────────────
 
@@ -290,7 +292,7 @@ pub enum EventLogType: u16 {
         hKey:          HKEY,
         bWatchSubtree: i32,
         dwNotifyFilter: u32,       // RegNotifyFilter.*
-        hEvent:        *void,      // *HANDLE
+        hEvent:        HANDLE,
         fAsynchronous: i32
     ): i32
 
@@ -390,9 +392,9 @@ pub enum EventLogType: u16 {
     /// Opens the access token of a process.
     /// `DesiredAccess`: 0x0008 = TOKEN_QUERY, 0x0020 = TOKEN_ADJUST_PRIVILEGES.
     @lib pub fn OpenProcessToken(
-        ProcessHandle: *void,    // *HANDLE
+        ProcessHandle: HANDLE,
         DesiredAccess: u32,
-        TokenHandle:   **void    // **HANDLE
+        TokenHandle:   *HANDLE
     ): i32
 
     /// Looks up the LUID of a privilege by name, e.g. "SeShutdownPrivilege".
@@ -406,7 +408,7 @@ pub enum EventLogType: u16 {
     /// Adjusts token privileges. `pNewState` points to a
     /// TOKEN_PRIVILEGES struct (see Win32 docs).
     @lib pub fn AdjustTokenPrivileges(
-        TokenHandle:          *void,    // *HANDLE
+        TokenHandle:          HANDLE,
         DisableAllPrivileges: i32,
         NewState:             *void,    // *TOKEN_PRIVILEGES
         BufferLength:         u32,
@@ -430,7 +432,7 @@ pub enum EventLogType: u16 {
     /// Acquires a CSP (Cryptographic Service Provider) handle.
     /// `dwProvType`: 1 = PROV_RSA_FULL. `dwFlags`: 0 for default.
     @lib pub fn CryptAcquireContextA(
-        phProv:      *u64,       // *HCRYPTPROV
+        phProv:      *u64,       // HCRYPTPROV (ULONG_PTR)
         szContainer: *const char,
         szProvider:  *const char,
         dwProvType:  u32,
@@ -446,7 +448,7 @@ pub enum EventLogType: u16 {
         Algid:     u32,
         hKey:      u64,    // 0 for non-keyed hashes
         dwFlags:   u32,
-        phHash:    *u64    // *HCRYPTHASH
+        phHash:    *u64    // HCRYPTHASH (ULONG_PTR)
     ): i32
 
     @lib pub fn CryptHashData(

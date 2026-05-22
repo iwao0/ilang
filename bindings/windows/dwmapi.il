@@ -150,7 +150,7 @@ use user32 { HWND }
     /// Extends the glass frame into the client area.
     /// Pass `MARGINS {-1,-1,-1,-1}` to paint the entire window as glass.
     @lib pub fn DwmExtendFrameIntoClientArea(
-        hwnd:   HWND,          // *HWND
+        hwnd:   HWND,
         pMarInset: *const MARGINS
     ): i32
 
@@ -161,7 +161,7 @@ use user32 { HWND }
     /// to the value (typically `*i32` or `*u32`), `cbAttribute`:
     /// size in bytes of that value.
     @lib pub fn DwmSetWindowAttribute(
-        hwnd:        HWND,      // *HWND
+        hwnd:        HWND,
         dwAttribute: u32,
         pvAttribute: *const void,
         cbAttribute: u32
@@ -169,7 +169,7 @@ use user32 { HWND }
 
     /// Reads a DWM attribute into `pvAttribute`.
     @lib pub fn DwmGetWindowAttribute(
-        hwnd:        HWND,      // *HWND
+        hwnd:        HWND,
         dwAttribute: u32,
         pvAttribute: *void,
         cbAttribute: u32
@@ -179,7 +179,7 @@ use user32 { HWND }
 
     /// Enables or disables blur-behind for `hwnd`.
     @lib pub fn DwmEnableBlurBehindWindow(
-        hwnd:  HWND,            // *HWND
+        hwnd:  HWND,
         pBlurBehind: *const DWM_BLURBEHIND
     ): i32
 
@@ -188,8 +188,8 @@ use user32 { HWND }
     /// Registers a thumbnail relationship between `hwndDestination`
     /// and `hwndSource`. The handle is returned in `phThumbnailId`.
     @lib pub fn DwmRegisterThumbnail(
-        hwndDestination: HWND,  // *HWND
-        hwndSource:      HWND,  // *HWND
+        hwndDestination: HWND,
+        hwndSource:      HWND,
         phThumbnailId:   *HTHUMBNAIL
     ): i32
 

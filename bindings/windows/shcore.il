@@ -50,6 +50,7 @@ pub enum ScaleFactor: i32 {
 }
 
 use user32 { HMONITOR }
+use kernel32 { HANDLE }
 
 @extern(C, "shcore") {
     // ── Process-level DPI awareness ──────────────────────────────
@@ -84,7 +85,7 @@ use user32 { HMONITOR }
 
     /// Registers a callback for scale-factor change notifications.
     @lib pub fn RegisterScaleChangeEvent(
-        hEvent:  *void,       // *HANDLE
+        hEvent:  HANDLE,
         pdwCookie: *u32
     ): i32
 
