@@ -72,6 +72,57 @@ fn flatten_var_dot_chain(e: &Expr) -> Option<String> {
     }
 }
 
+/// Map a compound-assignment token to its underlying binary op
+/// (`+=` → `Add`). Returns `None` for plain `=` and unrelated tokens.
+fn compound_assign_op(k: &TokenKind) -> Option<BinOp> {
+    Some(match k {
+        TokenKind::PlusEq => BinOp::Add,
+        TokenKind::MinusEq => BinOp::Sub,
+        TokenKind::StarEq => BinOp::Mul,
+        TokenKind::SlashEq => BinOp::Div,
+        TokenKind::PercentEq => BinOp::Rem,
+        TokenKind::AmpEq => BinOp::BitAnd,
+        TokenKind::PipeEq => BinOp::BitOr,
+        TokenKind::CaretEq => BinOp::BitXor,
+        TokenKind::LtLtEq => BinOp::Shl,
+        TokenKind::GtGtEq => BinOp::Shr,
+        _ => return None,
+    })
+}
+
+/// Recognise short-circuit logical operators and their (l_bp, r_bp).
+fn logical_op_bp(k: &TokenKind) -> Option<(LogicalOp, u8, u8)> {
+    match k {
+        TokenKind::PipePipe => Some((LogicalOp::Or, 5, 6)),
+        TokenKind::AmpAmp => Some((LogicalOp::And, 7, 8)),
+        _ => None,
+    }
+}
+
+/// Precedence table for the standard left-associative binary
+/// operators. Returns `(op, l_bp, r_bp)` for each recognised token.
+fn binary_op_bp(k: &TokenKind) -> Option<(BinOp, u8, u8)> {
+    Some(match k {
+        TokenKind::Pipe => (BinOp::BitOr, 9, 10),
+        TokenKind::Caret => (BinOp::BitXor, 11, 12),
+        TokenKind::Amp => (BinOp::BitAnd, 13, 14),
+        TokenKind::EqEq => (BinOp::Eq, 15, 16),
+        TokenKind::BangEq => (BinOp::Ne, 15, 16),
+        TokenKind::Lt => (BinOp::Lt, 17, 18),
+        TokenKind::LtEq => (BinOp::Le, 17, 18),
+        TokenKind::Gt => (BinOp::Gt, 17, 18),
+        TokenKind::GtEq => (BinOp::Ge, 17, 18),
+        TokenKind::LtLt => (BinOp::Shl, 19, 20),
+        TokenKind::GtGt => (BinOp::Shr, 19, 20),
+        TokenKind::Plus => (BinOp::Add, 21, 22),
+        TokenKind::Minus => (BinOp::Sub, 21, 22),
+        TokenKind::Star => (BinOp::Mul, 23, 24),
+        TokenKind::Slash => (BinOp::Div, 23, 24),
+        TokenKind::Percent => (BinOp::Rem, 23, 24),
+        _ => return None,
+    })
+}
+
 impl<'a> Parser<'a> {
     pub(crate) fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_prefix()?;
@@ -79,132 +130,29 @@ impl<'a> Parser<'a> {
         // than any infix operator.
         lhs = self.parse_postfix(lhs)?;
         loop {
-            // Assignment is right-associative; lhs must be Var or Field.
-            // Compound forms (`+=`, `-=`, ...) are desugared here into the
-            // equivalent `lhs = lhs <op> rhs` so the rest of the pipeline
-            // (type checker, evaluator) needs no new cases.
-            let compound_op = match self.peek().kind {
-                TokenKind::PlusEq => Some(BinOp::Add),
-                TokenKind::MinusEq => Some(BinOp::Sub),
-                TokenKind::StarEq => Some(BinOp::Mul),
-                TokenKind::SlashEq => Some(BinOp::Div),
-                TokenKind::PercentEq => Some(BinOp::Rem),
-                TokenKind::AmpEq => Some(BinOp::BitAnd),
-                TokenKind::PipeEq => Some(BinOp::BitOr),
-                TokenKind::CaretEq => Some(BinOp::BitXor),
-                TokenKind::LtLtEq => Some(BinOp::Shl),
-                TokenKind::GtGtEq => Some(BinOp::Shr),
-                _ => None,
-            };
-            if matches!(self.peek().kind, TokenKind::Equals) || compound_op.is_some() {
-                let l_bp = 2u8;
-                let r_bp = 1u8;
-                if l_bp < min_bp {
+            // Assignment (`=` / `+=` / `-=` / ...): bp 2/1, right-assoc.
+            let compound = compound_assign_op(&self.peek().kind);
+            if matches!(self.peek().kind, TokenKind::Equals) || compound.is_some() {
+                if 2u8 < min_bp {
                     break;
                 }
-                let eq_tok = self.peek().clone();
-                self.bump();
-                let rhs = self.parse_expr(r_bp)?;
-                let lhs_span = lhs.span;
-                let value = match compound_op {
-                    Some(op) => Expr::new(
-                        ExprKind::Binary {
-                            op,
-                            lhs: Box::new(lhs.clone()),
-                            rhs: Box::new(rhs),
-                        },
-                        lhs_span,
-                    ),
-                    None => rhs,
-                };
-                lhs = match lhs.kind {
-                    ExprKind::Var(name) => Expr::new(
-                        ExprKind::Assign {
-                            target: name,
-                            value: Box::new(value),
-                        },
-                        lhs_span,
-                    ),
-                    ExprKind::Field { obj, name } => Expr::new(
-                        ExprKind::AssignField {
-                            obj,
-                            field: name,
-                            value: Box::new(value),
-                            is_init: false,
-                        },
-                        lhs_span,
-                    ),
-                    ExprKind::Index { obj, index } => Expr::new(
-                        ExprKind::AssignIndex {
-                            obj,
-                            index,
-                            value: Box::new(value),
-                        },
-                        lhs_span,
-                    ),
-                    _ => {
-                        return Err(ParseError::InvalidAssignTarget { span: eq_tok.span });
-                    }
-                };
+                lhs = self.parse_assignment_continuation(lhs, compound)?;
                 continue;
             }
 
-            // Range: `a..b` (exclusive) / `a..=b` (inclusive). Lowest
-            // precedence among non-assignment operators so `1..n+1`
-            // parses as `1..(n+1)` and `for i in 1..len(xs)` works.
-            // Standalone use (anything outside a `for-in` iter slot)
-            // is rejected by the type checker.
+            // Range (`..` / `..=`): bp 3/4. Lowest non-assignment so
+            // `1..n+1` parses as `1..(n+1)` and `for i in 1..len(xs)`
+            // works.
             if matches!(self.peek().kind, TokenKind::DotDot | TokenKind::DotDotEq) {
-                let l_bp = 3u8;
-                let r_bp = 4u8;
-                if l_bp < min_bp {
+                if 3u8 < min_bp {
                     break;
                 }
-                let inclusive = matches!(self.peek().kind, TokenKind::DotDotEq);
-                let r_span = self.peek().span;
-                self.bump();
-                // Postfix `1..` form: when the next token can't
-                // start an expression (block, separator, or
-                // closing bracket), treat as an open-ended
-                // RangeFrom (`end = None`). Anything else is the
-                // usual `1..end` parse.
-                let end = if matches!(
-                    self.peek().kind,
-                    TokenKind::LBrace
-                        | TokenKind::Comma
-                        | TokenKind::Semicolon
-                        | TokenKind::RParen
-                        | TokenKind::RBracket
-                        | TokenKind::Eof
-                ) {
-                    None
-                } else {
-                    Some(Box::new(self.parse_expr(r_bp)?))
-                };
-                if inclusive && end.is_none() {
-                    return Err(ParseError::Unexpected {
-                        found: self.peek().kind.clone(),
-                        expected: "`..=` requires an upper bound (try `..` for open-ended)".into(),
-                        span: r_span,
-                    });
-                }
-                lhs = Expr::new(
-                    ExprKind::Range {
-                        start: Some(Box::new(lhs)),
-                        end,
-                        inclusive,
-                    },
-                    r_span,
-                );
+                lhs = self.parse_range_continuation(lhs)?;
                 continue;
             }
 
-            // Short-circuit logical operators.
-            if let Some((logop, l_bp, r_bp)) = match self.peek().kind {
-                TokenKind::PipePipe => Some((LogicalOp::Or, 5u8, 6u8)),
-                TokenKind::AmpAmp => Some((LogicalOp::And, 7u8, 8u8)),
-                _ => None,
-            } {
+            // Short-circuit logical (`||` / `&&`).
+            if let Some((logop, l_bp, r_bp)) = logical_op_bp(&self.peek().kind) {
                 if l_bp < min_bp {
                     break;
                 }
@@ -212,86 +160,32 @@ impl<'a> Parser<'a> {
                 let rhs = self.parse_expr(r_bp)?;
                 let span = lhs.span.to(rhs.span);
                 lhs = Expr::new(
-                    ExprKind::Logical {
-                        op: logop,
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    },
+                    ExprKind::Logical { op: logop, lhs: Box::new(lhs), rhs: Box::new(rhs) },
                     span,
                 );
                 continue;
             }
 
-            // `as`-cast / `as?`-downcast: postfix-style infix that
-            // takes a type instead of an expression. Tighter than any
-            // binary op so `1 + 2 as f64` parses as `1 + ((2) as f64)`.
+            // Cast (`as T` / `as? T`): bp 25, postfix-style infix.
             if matches!(self.peek().kind, TokenKind::As) {
-                let l_bp = 25u8;
-                if l_bp < min_bp {
+                if 25u8 < min_bp {
                     break;
                 }
-                self.bump();
-                let is_downcast = matches!(self.peek().kind, TokenKind::Question);
-                if is_downcast {
-                    self.bump();
-                }
-                let target = self.parse_type()?;
-                let span = lhs.span;
-                lhs = Expr::new(
-                    if is_downcast {
-                        ExprKind::TypeDowncast {
-                            expr: Box::new(lhs),
-                            ty: target,
-                        }
-                    } else {
-                        ExprKind::Cast {
-                            expr: Box::new(lhs),
-                            ty: target,
-                        }
-                    },
-                    span,
-                );
+                lhs = self.parse_cast_continuation(lhs)?;
                 continue;
             }
-            // `is T` — runtime type test, returns bool. Same precedence
-            // as `as` (postfix-style on the lhs).
+            // Type test (`is T`): bp 25, postfix-style infix.
             if matches!(self.peek().kind, TokenKind::Is) {
-                let l_bp = 25u8;
-                if l_bp < min_bp {
+                if 25u8 < min_bp {
                     break;
                 }
-                self.bump();
-                let target = self.parse_type()?;
-                let span = lhs.span;
-                lhs = Expr::new(
-                    ExprKind::TypeTest {
-                        expr: Box::new(lhs),
-                        ty: target,
-                    },
-                    span,
-                );
+                lhs = self.parse_is_continuation(lhs)?;
                 continue;
             }
 
-            // Regular binary operators.
-            let (op, l_bp, r_bp) = match &self.peek().kind {
-                TokenKind::Pipe => (BinOp::BitOr, 9, 10),
-                TokenKind::Caret => (BinOp::BitXor, 11, 12),
-                TokenKind::Amp => (BinOp::BitAnd, 13, 14),
-                TokenKind::EqEq => (BinOp::Eq, 15, 16),
-                TokenKind::BangEq => (BinOp::Ne, 15, 16),
-                TokenKind::Lt => (BinOp::Lt, 17, 18),
-                TokenKind::LtEq => (BinOp::Le, 17, 18),
-                TokenKind::Gt => (BinOp::Gt, 17, 18),
-                TokenKind::GtEq => (BinOp::Ge, 17, 18),
-                TokenKind::LtLt => (BinOp::Shl, 19, 20),
-                TokenKind::GtGt => (BinOp::Shr, 19, 20),
-                TokenKind::Plus => (BinOp::Add, 21, 22),
-                TokenKind::Minus => (BinOp::Sub, 21, 22),
-                TokenKind::Star => (BinOp::Mul, 23, 24),
-                TokenKind::Slash => (BinOp::Div, 23, 24),
-                TokenKind::Percent => (BinOp::Rem, 23, 24),
-                _ => break,
+            // Standard left-assoc binary (`+`, `*`, `==`, ...).
+            let Some((op, l_bp, r_bp)) = binary_op_bp(&self.peek().kind) else {
+                break;
             };
             if l_bp < min_bp {
                 break;
@@ -300,15 +194,123 @@ impl<'a> Parser<'a> {
             let rhs = self.parse_expr(r_bp)?;
             let span = lhs.span.to(rhs.span);
             lhs = Expr::new(
-                ExprKind::Binary {
-                    op,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                },
+                ExprKind::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
                 span,
             );
         }
         Ok(lhs)
+    }
+
+    /// `=` (or a compound `+=`/`-=`/...) is at `peek`. Consume it,
+    /// parse the rhs at the assignment right-bp, desugar compound
+    /// forms into `lhs <op> rhs`, and validate the target is one of
+    /// `Var` / `Field` / `Index`.
+    fn parse_assignment_continuation(
+        &mut self,
+        lhs: Expr,
+        compound: Option<BinOp>,
+    ) -> Result<Expr, ParseError> {
+        let eq_span = self.peek().span;
+        self.bump();
+        let rhs = self.parse_expr(1)?;
+        let lhs_span = lhs.span;
+        // `lhs += rhs` ⇒ `lhs = lhs <op> rhs`. The desugar happens
+        // here so the type checker / evaluator only see plain Assign.
+        let value = match compound {
+            Some(op) => Expr::new(
+                ExprKind::Binary {
+                    op,
+                    lhs: Box::new(lhs.clone()),
+                    rhs: Box::new(rhs),
+                },
+                lhs_span,
+            ),
+            None => rhs,
+        };
+        Ok(match lhs.kind {
+            ExprKind::Var(name) => Expr::new(
+                ExprKind::Assign { target: name, value: Box::new(value) },
+                lhs_span,
+            ),
+            ExprKind::Field { obj, name } => Expr::new(
+                ExprKind::AssignField {
+                    obj,
+                    field: name,
+                    value: Box::new(value),
+                    is_init: false,
+                },
+                lhs_span,
+            ),
+            ExprKind::Index { obj, index } => Expr::new(
+                ExprKind::AssignIndex { obj, index, value: Box::new(value) },
+                lhs_span,
+            ),
+            _ => return Err(ParseError::InvalidAssignTarget { span: eq_span }),
+        })
+    }
+
+    /// `..` or `..=` is at `peek`. Consume it, then parse the upper
+    /// bound — or treat as open-ended `1..` when the next token can't
+    /// start an expression. `..=` requires an upper bound (open-ended
+    /// inclusive ranges are nonsensical).
+    fn parse_range_continuation(&mut self, lhs: Expr) -> Result<Expr, ParseError> {
+        let inclusive = matches!(self.peek().kind, TokenKind::DotDotEq);
+        let r_span = self.peek().span;
+        self.bump();
+        let end = if matches!(
+            self.peek().kind,
+            TokenKind::LBrace
+                | TokenKind::Comma
+                | TokenKind::Semicolon
+                | TokenKind::RParen
+                | TokenKind::RBracket
+                | TokenKind::Eof
+        ) {
+            None
+        } else {
+            Some(Box::new(self.parse_expr(4)?))
+        };
+        if inclusive && end.is_none() {
+            return Err(ParseError::Unexpected {
+                found: self.peek().kind.clone(),
+                expected: "`..=` requires an upper bound (try `..` for open-ended)".into(),
+                span: r_span,
+            });
+        }
+        Ok(Expr::new(
+            ExprKind::Range { start: Some(Box::new(lhs)), end, inclusive },
+            r_span,
+        ))
+    }
+
+    /// `as` is at `peek`. Distinguish `as T` (Cast) from `as? T`
+    /// (TypeDowncast) by the optional `?` that follows.
+    fn parse_cast_continuation(&mut self, lhs: Expr) -> Result<Expr, ParseError> {
+        self.bump();
+        let is_downcast = matches!(self.peek().kind, TokenKind::Question);
+        if is_downcast {
+            self.bump();
+        }
+        let target = self.parse_type()?;
+        let span = lhs.span;
+        let kind = if is_downcast {
+            ExprKind::TypeDowncast { expr: Box::new(lhs), ty: target }
+        } else {
+            ExprKind::Cast { expr: Box::new(lhs), ty: target }
+        };
+        Ok(Expr::new(kind, span))
+    }
+
+    /// `is` is at `peek`. Parse `is T` into a runtime type test
+    /// returning `bool`.
+    fn parse_is_continuation(&mut self, lhs: Expr) -> Result<Expr, ParseError> {
+        self.bump();
+        let target = self.parse_type()?;
+        let span = lhs.span;
+        Ok(Expr::new(
+            ExprKind::TypeTest { expr: Box::new(lhs), ty: target },
+            span,
+        ))
     }
 
     /// Apply postfix `.field` / `.method(args)` chains, repeatedly, to a

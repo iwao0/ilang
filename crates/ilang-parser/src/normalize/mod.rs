@@ -93,6 +93,56 @@ impl Ctx {
     fn push_local(&self, name: Symbol) {
         self.locals.borrow_mut().insert(name);
     }
+
+    /// Decide how a `Var(receiver).suffix` (Field) or
+    /// `Var(receiver).suffix(args)` (MethodCall) should be rewritten.
+    /// Both call sites used to repeat the four-step cascade
+    /// (shadowing → module bump → namespaced re-export → enum ctor);
+    /// this method is the one source of truth so they stay aligned.
+    fn resolve_dotted_receiver(
+        &self,
+        receiver: &Symbol,
+        suffix: &Symbol,
+    ) -> DottedResolution {
+        // A local binding shadows everything — fall back to a plain
+        // value access (`device.newLibraryWithSource(...)` stays a
+        // method call instead of collapsing to a static reference).
+        if self.is_local_shadow(receiver) {
+            return DottedResolution::None;
+        }
+        // `use M [as alias]` — qualify under the module's canonical name.
+        if let Some(canonical) = self.modules.get(&Symbol::intern(receiver.as_str())) {
+            return DottedResolution::Qualified(format!(
+                "{}.{}",
+                canonical.as_str(),
+                suffix.as_str()
+            ));
+        }
+        // Namespaced re-export path: `umbrella.inner.X` whose joined
+        // form actually names a merged top-level item. Only fires in
+        // `renormalize_merged` (per-file pass leaves `items` empty).
+        let qualified = format!("{}.{}", receiver.as_str(), suffix.as_str());
+        if !self.items.is_empty() && self.items.contains(&Symbol::intern(&qualified)) {
+            return DottedResolution::Qualified(qualified);
+        }
+        // Receiver is an enum name — unit / tuple ctor depending on
+        // whether the caller is Field or MethodCall.
+        if self.enums.contains(&Symbol::intern(receiver.as_str())) {
+            return DottedResolution::EnumCtor;
+        }
+        DottedResolution::None
+    }
+}
+
+/// Outcome of [`Ctx::resolve_dotted_receiver`].
+enum DottedResolution {
+    /// Replace the access with a qualified `Var` (Field) or `Call`
+    /// (MethodCall) using this already-formatted name.
+    Qualified(String),
+    /// Lift into an `EnumCtor`. Caller picks `Unit` vs `Tuple(args)`.
+    EnumCtor,
+    /// No collapse — keep the original Field / MethodCall.
+    None,
 }
 
 /// Per-file normalize entry point. Validates that every dotted
@@ -419,41 +469,12 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         // check. Module-name bumping is itself a Field rewrite below.
         ExprKind::Field { obj, name } => {
             let obj = rewrite_expr(*obj, ctx);
-            // Whole-module reference: `module.X` collapses to a
-            // qualified `Var("module.X")` so the loader-merged
-            // top-level item with that exact name is found.
             if let ExprKind::Var(receiver) = &obj.kind {
-                // Skip module / enum-ctor collapse when the receiver
-                // name shadows a local binding (param or `let`). A
-                // value method like `device.newLibraryWithSource(...)`
-                // must dispatch on the local `device` value rather
-                // than re-resolve as `<imported-module-device>.foo`.
-                let shadowed = ctx.is_local_shadow(receiver);
-                if !shadowed {
-                    if let Some(canonical) =
-                        ctx.modules.get(&Symbol::intern(receiver.as_str()))
-                    {
-                        return Expr::new(
-                            ExprKind::Var(Symbol::intern(&format!("{}.{name}", canonical.as_str()))),
-                            span,
-                        );
+                match ctx.resolve_dotted_receiver(receiver, &name) {
+                    DottedResolution::Qualified(s) => {
+                        return Expr::new(ExprKind::Var(Symbol::intern(&s)), span);
                     }
-                    // Namespaced re-export path: `umbrella.inner.X`. The
-                    // first level (`umbrella.inner`) already collapsed
-                    // via the rule above; this branch only fires in
-                    // `renormalize_merged` (where `ctx.items` is
-                    // populated). The disambiguator between
-                    // "sub-module field" and "enum-variant access" is
-                    // whether the fully-qualified name appears in the
-                    // merged item set.
-                    let qualified = format!("{}.{name}", receiver.as_str());
-                    if !ctx.items.is_empty()
-                        && ctx.items.contains(&Symbol::intern(&qualified))
-                    {
-                        return Expr::new(ExprKind::Var(Symbol::intern(&qualified)), span);
-                    }
-                    // Existing rule: enum unit ctor.
-                    if ctx.enums.contains(&Symbol::intern(receiver.as_str())) {
+                    DottedResolution::EnumCtor => {
                         return Expr::new(
                             ExprKind::EnumCtor {
                                 enum_name: receiver.clone(),
@@ -463,57 +484,27 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                             span,
                         );
                     }
+                    DottedResolution::None => {}
                 }
             }
-            ExprKind::Field {
-                obj: Box::new(obj),
-                name,
-            }
+            ExprKind::Field { obj: Box::new(obj), name }
         }
         ExprKind::MethodCall { obj, method, args } => {
             let obj = rewrite_expr(*obj, ctx);
             let new_args: Vec<Expr> =
                 Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect();
             if let ExprKind::Var(receiver) = &obj.kind {
-                // Same shadowing carve-out as the `Field` arm above:
-                // a local `device.newLibraryWithSource(...)` stays a
-                // value method call instead of collapsing to a
-                // module-qualified static reference.
-                let shadowed = ctx.is_local_shadow(receiver);
-                if !shadowed {
-                    // Whole-module function call: `module.foo(args)`
-                    // becomes `Call("module.foo", args)`.
-                    if let Some(canonical) =
-                        ctx.modules.get(&Symbol::intern(receiver.as_str()))
-                    {
+                match ctx.resolve_dotted_receiver(receiver, &method) {
+                    DottedResolution::Qualified(s) => {
                         return Expr::new(
                             ExprKind::Call {
-                                callee: Symbol::intern(&format!(
-                                    "{}.{method}",
-                                    canonical.as_str()
-                                )),
+                                callee: Symbol::intern(&s),
                                 args: new_args.into(),
                             },
                             span,
                         );
                     }
-                    // Namespaced re-export path: `umbrella.inner.fn(args)`.
-                    // Only fires in `renormalize_merged` — disambiguated
-                    // by checking the merged item set rather than the
-                    // per-file module table.
-                    let qualified = format!("{}.{method}", receiver.as_str());
-                    if !ctx.items.is_empty()
-                        && ctx.items.contains(&Symbol::intern(&qualified))
-                    {
-                        return Expr::new(
-                            ExprKind::Call {
-                                callee: Symbol::intern(&qualified),
-                                args: new_args.into(),
-                            },
-                            span,
-                        );
-                    }
-                    if ctx.enums.contains(&Symbol::intern(receiver.as_str())) {
+                    DottedResolution::EnumCtor => {
                         return Expr::new(
                             ExprKind::EnumCtor {
                                 enum_name: receiver.clone(),
@@ -523,13 +514,10 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                             span,
                         );
                     }
+                    DottedResolution::None => {}
                 }
             }
-            ExprKind::MethodCall {
-                obj: Box::new(obj),
-                method,
-                args: new_args.into(),
-            }
+            ExprKind::MethodCall { obj: Box::new(obj), method, args: new_args.into() }
         }
         // Recurse through everything else.
         ExprKind::Unary { op, expr } => ExprKind::Unary {
