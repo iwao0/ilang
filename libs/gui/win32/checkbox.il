@@ -23,29 +23,15 @@ class CheckboxSlot {
     }
 }
 
-let CHECKBOXES: CheckboxSlot[] = []
-
-fn findCheckboxSlot(hwnd: i64): i64 {
-    let n = CHECKBOXES.length
-    let i: i64 = 0
-    let found: i64 = -1
-    while i < n {
-        if CHECKBOXES[i].hwnd as i64 == hwnd {
-            found = i
-            i = n
-        } else {
-            i = i + 1
-        }
-    }
-    found
-}
+let CHECKBOXES = new Map<i64, CheckboxSlot>()
 
 pub fn tryCheckboxToggle(hwnd: i64): bool {
-    let ix = findCheckboxSlot(hwnd)
-    if ix < 0 { return false }
-    let cb = CHECKBOXES[ix].onToggle
-    cb(readCheckboxChecked(ix))
-    true
+    if let some(slot) = CHECKBOXES.get(hwnd) {
+        let cb = slot.onToggle
+        cb(readCheckboxChecked(hwnd))
+        return true
+    }
+    false
 }
 
 @extern(C) {
@@ -58,7 +44,6 @@ pub fn createNativeCheckbox(
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
-    let id: i64 = CHECKBOXES.length as i64
     let classW = toWideUtf8("BUTTON") as *u16
     let textW  = toWideUtf8(text) as *u16
     let visibleBits: u32 = if visible {
@@ -89,50 +74,51 @@ pub fn createNativeCheckbox(
     // BM_SETCHECK = 0x00F1.
     let checkedW: u64 = if checked { 1 as u64 } else { 0 as u64 }
     let _ = SendMessageA(hwnd, 0x00F1 as u32, checkedW, 0 as i64)
-    CHECKBOXES.push(new CheckboxSlot(hwnd))
-    id
+    let handle = hwnd as i64
+    CHECKBOXES[handle] = new CheckboxSlot(hwnd)
+    handle
 }
 
 pub fn setOnCheckboxToggle(handle: i64, cb: fn(bool)) {
-    if handle >= 0 && handle < (CHECKBOXES.length as i64) {
-        CHECKBOXES[handle].onToggle = cb
-    }
+    if let some(slot) = CHECKBOXES.get(handle) { slot.onToggle = cb }
 }
 pub fn setCheckboxText(handle: i64, text: string) {
-    if handle >= 0 && handle < (CHECKBOXES.length as i64) {
+    if let some(slot) = CHECKBOXES.get(handle) {
         let w = toWideUtf8(text) as *u16
-        let _ = SetWindowTextW(CHECKBOXES[handle].hwnd, w)
+        let _ = SetWindowTextW(slot.hwnd, w)
         HeapFree(GetProcessHeap(), 0 as u32, w as *void)
     }
 }
 pub fn setCheckboxChecked(handle: i64, checked: bool) {
-    if handle >= 0 && handle < (CHECKBOXES.length as i64) {
+    if let some(slot) = CHECKBOXES.get(handle) {
         let v: u64 = if checked { 1 as u64 } else { 0 as u64 }
-        let _ = SendMessageA(CHECKBOXES[handle].hwnd, 0x00F1 as u32, v, 0 as i64)
+        let _ = SendMessageA(slot.hwnd, 0x00F1 as u32, v, 0 as i64)
     }
 }
 /// BM_GETCHECK = 0x00F0; returns BST_CHECKED (1) when ticked.
 pub fn readCheckboxChecked(handle: i64): bool {
-    if handle < 0 || handle >= (CHECKBOXES.length as i64) { return false }
-    let r = SendMessageA(CHECKBOXES[handle].hwnd, 0x00F0 as u32, 0 as u64, 0 as i64)
-    r == 1 as i64
+    if let some(slot) = CHECKBOXES.get(handle) {
+        let r = SendMessageA(slot.hwnd, 0x00F0 as u32, 0 as u64, 0 as i64)
+        return r == 1 as i64
+    }
+    false
 }
 pub fn setCheckboxFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
-    if handle >= 0 && handle < (CHECKBOXES.length as i64) {
-        MoveWindow(CHECKBOXES[handle].hwnd,
+    if let some(slot) = CHECKBOXES.get(handle) {
+        MoveWindow(slot.hwnd,
                    x as i32, y as i32, width as i32, height as i32, 1)
     }
 }
 pub fn setCheckboxEnabled(handle: i64, enabled: bool) {
-    if handle >= 0 && handle < (CHECKBOXES.length as i64) {
+    if let some(slot) = CHECKBOXES.get(handle) {
         let flag: i32 = if enabled { 1 } else { 0 }
-        EnableWindow(CHECKBOXES[handle].hwnd, flag)
+        EnableWindow(slot.hwnd, flag)
     }
 }
 pub fn setCheckboxVisible(handle: i64, visible: bool) {
-    if handle >= 0 && handle < (CHECKBOXES.length as i64) {
+    if let some(slot) = CHECKBOXES.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-        ShowWindow(CHECKBOXES[handle].hwnd, cmd)
+        ShowWindow(slot.hwnd, cmd)
     }
 }
 

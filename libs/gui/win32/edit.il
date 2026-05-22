@@ -2,7 +2,7 @@
 ///
 /// EN_CHANGE notifications come in via `wnd_proc`'s WM_COMMAND
 /// arm; we expose `tryEditChange(hwnd)` so the proc doesn't have
-/// to reach into our `EDITS` array directly.
+/// to reach into our `EDITS` map directly.
 
 use windows {
     HWND, HINSTANCE, HMENU,
@@ -25,30 +25,16 @@ class EditSlot {
     }
 }
 
-let EDITS: EditSlot[] = []
-
-fn findEditSlot(hwnd: i64): i64 {
-    let n = EDITS.length
-    let i: i64 = 0
-    let found: i64 = -1
-    while i < n {
-        if EDITS[i].hwnd as i64 == hwnd {
-            found = i
-            i = n
-        } else {
-            i = i + 1
-        }
-    }
-    found
-}
+let EDITS = new Map<i64, EditSlot>()
 
 /// Called by `wnd_proc` for WM_COMMAND / EN_CHANGE.
 pub fn tryEditChange(hwnd: i64): bool {
-    let ix = findEditSlot(hwnd)
-    if ix < 0 { return false }
-    let cb = EDITS[ix].onChange
-    cb(readEditText(ix))
-    true
+    if let some(slot) = EDITS.get(hwnd) {
+        let cb = slot.onChange
+        cb(readEditText(hwnd))
+        return true
+    }
+    false
 }
 
 @extern(C) {
@@ -60,7 +46,6 @@ pub fn createNativeEdit(
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
-    let id: i64 = EDITS.length as i64
     let classW = toWideUtf8("EDIT") as *u16
     let textW  = toWideUtf8(text) as *u16
     let visibleBits: u32 = if visible {
@@ -82,7 +67,7 @@ pub fn createNativeEdit(
         style,
         x as i32, y as i32, width as i32, height as i32,
         parent,
-        id as HMENU,
+        0 as HMENU,
         hInstance as HINSTANCE,
         0 as *void
     )
@@ -91,65 +76,66 @@ pub fn createNativeEdit(
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
     applyGuiFont(hwnd as i64)
-    EDITS.push(new EditSlot(hwnd))
-    id
+    let handle = hwnd as i64
+    EDITS[handle] = new EditSlot(hwnd)
+    handle
 }
 
 /// Read the current contents of edit `handle` as a UTF-8 string.
 pub fn readEditText(handle: i64): string {
-    if handle < 0 || handle >= (EDITS.length as i64) { return "" }
-    let hwnd = EDITS[handle].hwnd
-    let lenW = GetWindowTextLengthW(hwnd) as i32
-    if lenW <= 0 { return "" }
-    let heap = GetProcessHeap()
-    let wideBuf = HeapAlloc(heap, 8 as u32, (lenW as u64 + 1 as u64) * 2 as u64) as *u16
-    let _ = GetWindowTextW(hwnd, wideBuf, lenW + 1)
-    let cap: i32 = (lenW + 1) * 3
-    let utf8Buf = HeapAlloc(heap, 8 as u32, cap as u64) as *char
-    let _ = WideCharToMultiByte(
-        65001 as u32,           // CP_UTF8
-        0 as u32,
-        wideBuf as *const u16,
-        -1 as i32,
-        utf8Buf,
-        cap,
-        0 as *const char,
-        0 as *i32
-    )
-    let s = stringFromCstr(utf8Buf as *const char)
-    HeapFree(heap, 0 as u32, wideBuf as *void)
-    HeapFree(heap, 0 as u32, utf8Buf as *void)
-    s
+    if let some(slot) = EDITS.get(handle) {
+        let hwnd = slot.hwnd
+        let lenW = GetWindowTextLengthW(hwnd) as i32
+        if lenW <= 0 { return "" }
+        let heap = GetProcessHeap()
+        let wideBuf = HeapAlloc(heap, 8 as u32, (lenW as u64 + 1 as u64) * 2 as u64) as *u16
+        let _ = GetWindowTextW(hwnd, wideBuf, lenW + 1)
+        let cap: i32 = (lenW + 1) * 3
+        let utf8Buf = HeapAlloc(heap, 8 as u32, cap as u64) as *char
+        let _ = WideCharToMultiByte(
+            65001 as u32,           // CP_UTF8
+            0 as u32,
+            wideBuf as *const u16,
+            -1 as i32,
+            utf8Buf,
+            cap,
+            0 as *const char,
+            0 as *i32
+        )
+        let s = stringFromCstr(utf8Buf as *const char)
+        HeapFree(heap, 0 as u32, wideBuf as *void)
+        HeapFree(heap, 0 as u32, utf8Buf as *void)
+        return s
+    }
+    ""
 }
 
 pub fn setOnEditChange(handle: i64, cb: fn(string)) {
-    if handle >= 0 && handle < (EDITS.length as i64) {
-        EDITS[handle].onChange = cb
-    }
+    if let some(slot) = EDITS.get(handle) { slot.onChange = cb }
 }
 pub fn setEditText(handle: i64, text: string) {
-    if handle >= 0 && handle < (EDITS.length as i64) {
+    if let some(slot) = EDITS.get(handle) {
         let w = toWideUtf8(text) as *u16
-        let _ = SetWindowTextW(EDITS[handle].hwnd, w)
+        let _ = SetWindowTextW(slot.hwnd, w)
         HeapFree(GetProcessHeap(), 0 as u32, w as *void)
     }
 }
 pub fn setEditFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
-    if handle >= 0 && handle < (EDITS.length as i64) {
-        MoveWindow(EDITS[handle].hwnd,
+    if let some(slot) = EDITS.get(handle) {
+        MoveWindow(slot.hwnd,
                    x as i32, y as i32, width as i32, height as i32, 1)
     }
 }
 pub fn setEditEnabled(handle: i64, enabled: bool) {
-    if handle >= 0 && handle < (EDITS.length as i64) {
+    if let some(slot) = EDITS.get(handle) {
         let flag: i32 = if enabled { 1 } else { 0 }
-        EnableWindow(EDITS[handle].hwnd, flag)
+        EnableWindow(slot.hwnd, flag)
     }
 }
 pub fn setEditVisible(handle: i64, visible: bool) {
-    if handle >= 0 && handle < (EDITS.length as i64) {
+    if let some(slot) = EDITS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-        ShowWindow(EDITS[handle].hwnd, cmd)
+        ShowWindow(slot.hwnd, cmd)
     }
 }
 

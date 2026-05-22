@@ -15,7 +15,7 @@ class LabelSlot {
     pub init(hwnd: HWND) { this.hwnd = hwnd }
 }
 
-let LABELS: LabelSlot[] = []
+let LABELS = new Map<i64, LabelSlot>()
 
 @extern(C) {
 
@@ -49,28 +49,28 @@ pub fn createNativeLabel(
     HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
     HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
     applyGuiFont(hwnd as i64)
-    let id: i64 = LABELS.length as i64
-    LABELS.push(new LabelSlot(hwnd))
-    id
+    let handle = hwnd as i64
+    LABELS[handle] = new LabelSlot(hwnd)
+    handle
 }
 
 pub fn setLabelText(handle: i64, text: string) {
-    if handle >= 0 && handle < (LABELS.length as i64) {
+    if let some(slot) = LABELS.get(handle) {
         let w = toWideUtf8(text) as *u16
-        let _ = SetWindowTextW(LABELS[handle].hwnd, w)
+        let _ = SetWindowTextW(slot.hwnd, w)
         HeapFree(GetProcessHeap(), 0 as u32, w as *void)
     }
 }
 pub fn setLabelFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
-    if handle >= 0 && handle < (LABELS.length as i64) {
-        MoveWindow(LABELS[handle].hwnd,
+    if let some(slot) = LABELS.get(handle) {
+        MoveWindow(slot.hwnd,
                    x as i32, y as i32, width as i32, height as i32, 1)
     }
 }
 pub fn setLabelVisible(handle: i64, visible: bool) {
-    if handle >= 0 && handle < (LABELS.length as i64) {
+    if let some(slot) = LABELS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-        ShowWindow(LABELS[handle].hwnd, cmd)
+        ShowWindow(slot.hwnd, cmd)
     }
 }
 

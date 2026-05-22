@@ -2,7 +2,7 @@
 ///
 /// `BN_CLICKED` notifications come in via `wnd_proc.guiWndProc`'s
 /// WM_COMMAND arm; we expose `tryButtonClick(hwnd)` so the proc
-/// doesn't have to reach into our `BUTTONS` array directly.
+/// doesn't have to reach into our `BUTTONS` map directly.
 
 use windows {
     HWND, HINSTANCE, HMENU,
@@ -14,7 +14,10 @@ use windows {
 use util { toWideUtf8, applyExplorerTheme, applyGuiFont, noOpClick }
 use core { windowHwnd }
 
-/// Per-button state. One instance per realised button.
+/// Per-button state. Stored in `BUTTONS` keyed by the button's
+/// HWND (`hwnd as i64`) — same key gui-core sees as the public
+/// `handle: i64`, so both the public setters and the
+/// wnd_proc-side sender lookup are O(1) Map gets.
 class ButtonSlot {
     pub hwnd:    HWND
     pub onClick: fn(f64, f64, i32)
@@ -24,33 +27,18 @@ class ButtonSlot {
     }
 }
 
-let BUTTONS: ButtonSlot[] = []
-
-/// Find the slot index for `hwnd`. Returns `-1` if not a button.
-fn findButtonSlot(hwnd: i64): i64 {
-    let n = BUTTONS.length
-    let i: i64 = 0
-    let found: i64 = -1
-    while i < n {
-        if BUTTONS[i].hwnd as i64 == hwnd {
-            found = i
-            i = n
-        } else {
-            i = i + 1
-        }
-    }
-    found
-}
+let BUTTONS = new Map<i64, ButtonSlot>()
 
 /// Called by `wnd_proc` for WM_COMMAND / BN_CLICKED. Returns
 /// `true` when the HWND matched a button (so the dispatcher
 /// stops walking).
 pub fn tryButtonClick(hwnd: i64): bool {
-    let ix = findButtonSlot(hwnd)
-    if ix < 0 { return false }
-    let cb = BUTTONS[ix].onClick
-    cb(0.0, 0.0, 0)
-    true
+    if let some(slot) = BUTTONS.get(hwnd) {
+        let cb = slot.onClick
+        cb(0.0, 0.0, 0)
+        return true
+    }
+    false
 }
 
 @extern(C) {
@@ -62,7 +50,6 @@ pub fn createNativeButton(
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
-    let id: i64 = BUTTONS.length as i64
     let classW = toWideUtf8("BUTTON") as *u16
     let textW  = toWideUtf8(text) as *u16
     let visibleBits: u32 = if visible {
@@ -79,7 +66,7 @@ pub fn createNativeButton(
         style,
         x as i32, y as i32, width as i32, height as i32,
         parent,
-        id as HMENU,
+        0 as HMENU,
         hInstance as HINSTANCE,
         0 as *void
     )
@@ -89,38 +76,37 @@ pub fn createNativeButton(
     EnableWindow(hwnd, enabledFlag)
     applyExplorerTheme(hwnd as i64)
     applyGuiFont(hwnd as i64)
-    BUTTONS.push(new ButtonSlot(hwnd))
-    id
+    let handle = hwnd as i64
+    BUTTONS[handle] = new ButtonSlot(hwnd)
+    handle
 }
 
 pub fn setOnButtonClick(handle: i64, cb: fn(f64, f64, i32)) {
-    if handle >= 0 && handle < (BUTTONS.length as i64) {
-        BUTTONS[handle].onClick = cb
-    }
+    if let some(slot) = BUTTONS.get(handle) { slot.onClick = cb }
 }
 pub fn setButtonText(handle: i64, text: string) {
-    if handle >= 0 && handle < (BUTTONS.length as i64) {
+    if let some(slot) = BUTTONS.get(handle) {
         let w = toWideUtf8(text) as *u16
-        let _ = SetWindowTextW(BUTTONS[handle].hwnd, w)
+        let _ = SetWindowTextW(slot.hwnd, w)
         HeapFree(GetProcessHeap(), 0 as u32, w as *void)
     }
 }
 pub fn setButtonFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
-    if handle >= 0 && handle < (BUTTONS.length as i64) {
-        MoveWindow(BUTTONS[handle].hwnd,
+    if let some(slot) = BUTTONS.get(handle) {
+        MoveWindow(slot.hwnd,
                    x as i32, y as i32, width as i32, height as i32, 1)
     }
 }
 pub fn setButtonEnabled(handle: i64, enabled: bool) {
-    if handle >= 0 && handle < (BUTTONS.length as i64) {
+    if let some(slot) = BUTTONS.get(handle) {
         let flag: i32 = if enabled { 1 } else { 0 }
-        EnableWindow(BUTTONS[handle].hwnd, flag)
+        EnableWindow(slot.hwnd, flag)
     }
 }
 pub fn setButtonVisible(handle: i64, visible: bool) {
-    if handle >= 0 && handle < (BUTTONS.length as i64) {
+    if let some(slot) = BUTTONS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-        ShowWindow(BUTTONS[handle].hwnd, cmd)
+        ShowWindow(slot.hwnd, cmd)
     }
 }
 

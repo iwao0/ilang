@@ -31,34 +31,20 @@ class SliderSlot {
     }
 }
 
-let SLIDERS: SliderSlot[] = []
-
-fn findSliderSlot(hwnd: i64): i64 {
-    let n = SLIDERS.length
-    let i: i64 = 0
-    let found: i64 = -1
-    while i < n {
-        if SLIDERS[i].hwnd as i64 == hwnd {
-            found = i
-            i = n
-        } else {
-            i = i + 1
-        }
-    }
-    found
-}
+let SLIDERS = new Map<i64, SliderSlot>()
 
 pub fn trySliderChange(hwnd: i64): bool {
-    let ix = findSliderSlot(hwnd)
-    if ix < 0 { return false }
-    let cb = SLIDERS[ix].onChange
-    cb(readSliderValue(ix))
-    true
+    if let some(slot) = SLIDERS.get(hwnd) {
+        let cb = slot.onChange
+        cb(readSliderValue(hwnd))
+        return true
+    }
+    false
 }
 
-fn rangeBits(ix: i64): i64 {
-    let mn = SLIDERS[ix].min as i32
-    let mx = SLIDERS[ix].max as i32
+fn rangeBits(min: f64, max: f64): i64 {
+    let mn = min as i32
+    let mx = max as i32
     (mn as i64 & 0xFFFF) | ((mx as i64 & 0xFFFF) << 16)
 }
 
@@ -72,7 +58,6 @@ pub fn createNativeSlider(
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
-    let id: i64 = SLIDERS.length as i64
     let classW = toWideUtf8("msctls_trackbar32") as *u16
     let emptyW = toWideUtf8("") as *u16
     let visibleBits: u32 = if visible { WindowStyle.visible as u32 } else { 0 as u32 }
@@ -95,55 +80,56 @@ pub fn createNativeSlider(
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
 
-    SLIDERS.push(new SliderSlot(hwnd, min, max))
+    let handle = hwnd as i64
+    SLIDERS[handle] = new SliderSlot(hwnd, min, max)
     // TBM_SETRANGE = 0x0406 (wParam = redraw, lParam = LOWORD min / HIWORD max).
-    let _ = SendMessageA(hwnd, 0x0406 as u32, 1 as u64, rangeBits(id))
+    let _ = SendMessageA(hwnd, 0x0406 as u32, 1 as u64, rangeBits(min, max))
     // TBM_SETPOS = 0x0405.
     let _ = SendMessageA(hwnd, 0x0405 as u32, 1 as u64, value as i64)
-    id
+    handle
 }
 
 pub fn setOnSliderChange(handle: i64, cb: fn(f64)) {
-    if handle >= 0 && handle < (SLIDERS.length as i64) {
-        SLIDERS[handle].onChange = cb
-    }
+    if let some(slot) = SLIDERS.get(handle) { slot.onChange = cb }
 }
 pub fn setSliderRange(handle: i64, min: f64, max: f64) {
-    if handle >= 0 && handle < (SLIDERS.length as i64) {
-        SLIDERS[handle].min = min
-        SLIDERS[handle].max = max
-        let _ = SendMessageA(SLIDERS[handle].hwnd, 0x0406 as u32,
-                             1 as u64, rangeBits(handle))
+    if let some(slot) = SLIDERS.get(handle) {
+        slot.min = min
+        slot.max = max
+        let _ = SendMessageA(slot.hwnd, 0x0406 as u32,
+                             1 as u64, rangeBits(min, max))
     }
 }
 pub fn setSliderValue(handle: i64, value: f64) {
-    if handle >= 0 && handle < (SLIDERS.length as i64) {
-        let _ = SendMessageA(SLIDERS[handle].hwnd, 0x0405 as u32,
+    if let some(slot) = SLIDERS.get(handle) {
+        let _ = SendMessageA(slot.hwnd, 0x0405 as u32,
                              1 as u64, value as i64)
     }
 }
 /// TBM_GETPOS = 0x0400.
 pub fn readSliderValue(handle: i64): f64 {
-    if handle < 0 || handle >= (SLIDERS.length as i64) { return 0.0 }
-    let r = SendMessageA(SLIDERS[handle].hwnd, 0x0400 as u32, 0 as u64, 0 as i64)
-    r as f64
+    if let some(slot) = SLIDERS.get(handle) {
+        let r = SendMessageA(slot.hwnd, 0x0400 as u32, 0 as u64, 0 as i64)
+        return r as f64
+    }
+    0.0
 }
 pub fn setSliderFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
-    if handle >= 0 && handle < (SLIDERS.length as i64) {
-        MoveWindow(SLIDERS[handle].hwnd,
+    if let some(slot) = SLIDERS.get(handle) {
+        MoveWindow(slot.hwnd,
                    x as i32, y as i32, width as i32, height as i32, 1)
     }
 }
 pub fn setSliderEnabled(handle: i64, enabled: bool) {
-    if handle >= 0 && handle < (SLIDERS.length as i64) {
+    if let some(slot) = SLIDERS.get(handle) {
         let flag: i32 = if enabled { 1 } else { 0 }
-        EnableWindow(SLIDERS[handle].hwnd, flag)
+        EnableWindow(slot.hwnd, flag)
     }
 }
 pub fn setSliderVisible(handle: i64, visible: bool) {
-    if handle >= 0 && handle < (SLIDERS.length as i64) {
+    if let some(slot) = SLIDERS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-        ShowWindow(SLIDERS[handle].hwnd, cmd)
+        ShowWindow(slot.hwnd, cmd)
     }
 }
 
