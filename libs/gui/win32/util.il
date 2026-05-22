@@ -45,15 +45,11 @@ let SXS_INITIALIZED: bool[] = [false]
 // `gui_impl.*` and duplicate per-widget definitions would
 // collide on that namespace.
 
-pub fn noOpClick(x: f64, y: f64, b: i32) {
-    let _ = x
-    let _ = y
-    let _ = b
-}
-pub fn noOpBool(b: bool) { let _ = b }
-pub fn noOpText(s: string) { let _ = s }
-pub fn noOpF64(v: f64) { let _ = v }
-pub fn noOpI32(i: i32) { let _ = i }
+pub fn noOpClick(x: f64, y: f64, b: i32) {}
+pub fn noOpBool(b: bool) {}
+pub fn noOpText(s: string) {}
+pub fn noOpF64(v: f64) {}
+pub fn noOpI32(i: i32) {}
 
 /// Wide "Explorer" string (UTF-16 NUL-terminated), set by
 /// `enableComctl32V6`. Widget modules feed this into

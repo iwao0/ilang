@@ -39,26 +39,9 @@ pub class WindowSlot {
 pub let WINDOWS = new Map<i64, WindowSlot>()
 
 fn noOp1() {}
-fn noOp2(w: f64, h: f64) {
-    let _ = w
-    let _ = h
-}
-fn noOpKey(c: string, k1: bool, k2: bool, k3: bool, k4: bool) {
-    let _ = c
-    let _ = k1
-    let _ = k2
-    let _ = k3
-    let _ = k4
-}
-fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {
-    let _ = x
-    let _ = y
-    let _ = b
-    let _ = k1
-    let _ = k2
-    let _ = k3
-    let _ = k4
-}
+fn noOp2(w: f64, h: f64) {}
+fn noOpKey(c: string, k1: bool, k2: bool, k3: bool, k4: bool) {}
+fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {}
 
 /// Lookup the raw HWND for window `handle`. Used by widget
 /// modules' `createNative*` to find the parent HWND for
