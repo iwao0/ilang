@@ -19,7 +19,6 @@
 use windows {
     HWND, HINSTANCE,
     DefWindowProcW, PostQuitMessage, DestroyWindow,
-    GetWindowLongPtrA, WindowLongIndex,
     WindowMessage, VirtualKey,
     GetKeyState,
     LoadCursorA, SetCursor, SystemCursor,
@@ -104,10 +103,9 @@ fn vkToString(vk: u32): string {
 @extern(C) {
 
 /// Window procedure shared by every gui-win32 window. Per-instance
-/// state is found via the slot index stashed in `GWLP_USERDATA` at
-/// create time.
+/// state is keyed by the window's HWND in `core.WINDOWS`; the
+/// `dispatchXxx` helpers do the Map lookup themselves.
 pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
-    let ix = GetWindowLongPtrA(hwnd as HWND, WindowLongIndex.userdata as i32)
     // lParam packs (x, y) for mouse messages and (width, height)
     // for WM_SIZE — same low/high u16 split, pulled here once.
     let lo = (lParam & 0xFFFF) as f64
@@ -119,7 +117,7 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             // window is gone. The old "PostQuitMessage from
             // WM_CLOSE without destroying" path left a live HWND
             // that the OS tore down forcibly at process exit.
-            dispatchClose(ix)
+            dispatchClose(hwnd)
             let _ = DestroyWindow(hwnd as HWND)
             return 0
         }
@@ -155,51 +153,51 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             }
         }
         WindowMessage.size {
-            dispatchSize(ix, lo, hi)
+            dispatchSize(hwnd, lo, hi)
             return 0
         }
         WindowMessage.keydown {
-            dispatchKeyDown(ix, vkToString(wParam as u32),
+            dispatchKeyDown(hwnd, vkToString(wParam as u32),
                             modCtrl(), modShift(), modAlt(), modMeta())
             return 0
         }
         WindowMessage.keyup {
-            dispatchKeyUp(ix, vkToString(wParam as u32),
+            dispatchKeyUp(hwnd, vkToString(wParam as u32),
                           modCtrl(), modShift(), modAlt(), modMeta())
             return 0
         }
         WindowMessage.mouseMove {
-            dispatchMouseMove(ix, lo, hi, 0,
+            dispatchMouseMove(hwnd, lo, hi, 0,
                               modCtrl(), modShift(), modAlt(), modMeta())
             return 0
         }
         WindowMessage.lbuttondown {
-            dispatchMouseDown(ix, lo, hi, 0,
+            dispatchMouseDown(hwnd, lo, hi, 0,
                               modCtrl(), modShift(), modAlt(), modMeta())
             return 0
         }
         WindowMessage.lbuttonup {
-            dispatchMouseUp(ix, lo, hi, 0,
+            dispatchMouseUp(hwnd, lo, hi, 0,
                             modCtrl(), modShift(), modAlt(), modMeta())
             return 0
         }
         WindowMessage.mButtonDown {
-            dispatchMouseDown(ix, lo, hi, 1,
+            dispatchMouseDown(hwnd, lo, hi, 1,
                               modCtrl(), modShift(), modAlt(), modMeta())
             return 0
         }
         WindowMessage.mButtonUp {
-            dispatchMouseUp(ix, lo, hi, 1,
+            dispatchMouseUp(hwnd, lo, hi, 1,
                             modCtrl(), modShift(), modAlt(), modMeta())
             return 0
         }
         WindowMessage.rButtonDown {
-            dispatchMouseDown(ix, lo, hi, 2,
+            dispatchMouseDown(hwnd, lo, hi, 2,
                               modCtrl(), modShift(), modAlt(), modMeta())
             return 0
         }
         WindowMessage.rButtonUp {
-            dispatchMouseUp(ix, lo, hi, 2,
+            dispatchMouseUp(hwnd, lo, hi, 2,
                             modCtrl(), modShift(), modAlt(), modMeta())
             return 0
         }

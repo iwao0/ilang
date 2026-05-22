@@ -1,4 +1,4 @@
-/// Shared per-window state and the dispatch entry points the
+/// Shared per-window state plus the dispatch entry points the
 /// wnd-proc calls.
 ///
 /// This module sits at the bottom of the win32 dependency graph
@@ -10,11 +10,10 @@
 
 use windows { HWND }
 
-/// One callback bundle per top-level window. Stored in
-/// `WINDOWS`, looked up by the parallel-array index we stash
-/// into `GWLP_USERDATA` at create time so `guiWndProc` can
-/// recover the per-window state from any HWND it's called
-/// against.
+/// One callback bundle per top-level window. Stored in `WINDOWS`
+/// keyed by the window's HWND (`hwnd as i64`) — same key gui-core
+/// sees as the public `handle: i64`, so both the public setters
+/// and the wnd_proc-side dispatch are O(1) Map gets.
 pub class WindowSlot {
     pub hwnd: HWND
     pub onClose:      fn()
@@ -37,7 +36,7 @@ pub class WindowSlot {
     }
 }
 
-pub let WINDOWS: WindowSlot[] = []
+pub let WINDOWS = new Map<i64, WindowSlot>()
 
 fn noOp1() {}
 fn noOp2(w: f64, h: f64) {
@@ -61,102 +60,96 @@ fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {
     let _ = k4
 }
 
-/// Lookup the raw HWND for window slot `handle`. Used by widget
+/// Lookup the raw HWND for window `handle`. Used by widget
 /// modules' `createNative*` to find the parent HWND for
-/// `CreateWindowExW`. Returns `0 as HWND` on out-of-range.
+/// `CreateWindowExW`. Returns `0 as HWND` when `handle` is not a
+/// registered window.
 pub fn windowHwnd(handle: i64): HWND {
-    if handle < 0 || handle >= (WINDOWS.length as i64) { return 0 as HWND }
-    WINDOWS[handle].hwnd
+    if let some(slot) = WINDOWS.get(handle) { return slot.hwnd }
+    0 as HWND
 }
 
 /// Number of currently-registered top-level windows.
-pub fn windowCount(): i64 { WINDOWS.length }
+pub fn windowCount(): i64 { WINDOWS.size }
 
 // ─── setters (`gui-core` calls these via gui_impl re-exports) ─
 
 pub fn setOnClose(handle: i64, cb: fn()) {
-    if handle >= 0 && handle < (WINDOWS.length as i64) {
-        WINDOWS[handle].onClose = cb
-    }
+    if let some(slot) = WINDOWS.get(handle) { slot.onClose = cb }
 }
 pub fn setOnResize(handle: i64, cb: fn(f64, f64)) {
-    if handle >= 0 && handle < (WINDOWS.length as i64) {
-        WINDOWS[handle].onResize = cb
-    }
+    if let some(slot) = WINDOWS.get(handle) { slot.onResize = cb }
 }
 pub fn setOnKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
-    if handle >= 0 && handle < (WINDOWS.length as i64) {
-        WINDOWS[handle].onKeyDown = cb
-    }
+    if let some(slot) = WINDOWS.get(handle) { slot.onKeyDown = cb }
 }
 pub fn setOnKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
-    if handle >= 0 && handle < (WINDOWS.length as i64) {
-        WINDOWS[handle].onKeyUp = cb
-    }
+    if let some(slot) = WINDOWS.get(handle) { slot.onKeyUp = cb }
 }
 pub fn setOnMouseMove(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
-    if handle >= 0 && handle < (WINDOWS.length as i64) {
-        WINDOWS[handle].onMouseMove = cb
-    }
+    if let some(slot) = WINDOWS.get(handle) { slot.onMouseMove = cb }
 }
 pub fn setOnMouseDown(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
-    if handle >= 0 && handle < (WINDOWS.length as i64) {
-        WINDOWS[handle].onMouseDown = cb
-    }
+    if let some(slot) = WINDOWS.get(handle) { slot.onMouseDown = cb }
 }
 pub fn setOnMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
-    if handle >= 0 && handle < (WINDOWS.length as i64) {
-        WINDOWS[handle].onMouseUp = cb
-    }
+    if let some(slot) = WINDOWS.get(handle) { slot.onMouseUp = cb }
 }
 
 // ─── dispatch entry points — called by `wnd_proc.guiWndProc` ─
 
-pub fn dispatchClose(ix: i64) {
-    if ix < 0 || ix >= (WINDOWS.length as i64) { return }
-    let cb = WINDOWS[ix].onClose
-    cb()
+pub fn dispatchClose(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let cb = slot.onClose
+        cb()
+    }
 }
-pub fn dispatchSize(ix: i64, w: f64, h: f64) {
-    if ix < 0 || ix >= (WINDOWS.length as i64) { return }
-    let cb = WINDOWS[ix].onResize
-    cb(w, h)
+pub fn dispatchSize(handle: i64, w: f64, h: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let cb = slot.onResize
+        cb(w, h)
+    }
 }
 pub fn dispatchKeyDown(
-    ix: i64, code: string, ctrl: bool, shift: bool, alt: bool, meta: bool
+    handle: i64, code: string, ctrl: bool, shift: bool, alt: bool, meta: bool
 ) {
-    if ix < 0 || ix >= (WINDOWS.length as i64) { return }
-    let cb = WINDOWS[ix].onKeyDown
-    cb(code, ctrl, shift, alt, meta)
+    if let some(slot) = WINDOWS.get(handle) {
+        let cb = slot.onKeyDown
+        cb(code, ctrl, shift, alt, meta)
+    }
 }
 pub fn dispatchKeyUp(
-    ix: i64, code: string, ctrl: bool, shift: bool, alt: bool, meta: bool
+    handle: i64, code: string, ctrl: bool, shift: bool, alt: bool, meta: bool
 ) {
-    if ix < 0 || ix >= (WINDOWS.length as i64) { return }
-    let cb = WINDOWS[ix].onKeyUp
-    cb(code, ctrl, shift, alt, meta)
+    if let some(slot) = WINDOWS.get(handle) {
+        let cb = slot.onKeyUp
+        cb(code, ctrl, shift, alt, meta)
+    }
 }
 pub fn dispatchMouseMove(
-    ix: i64, x: f64, y: f64, b: i32,
+    handle: i64, x: f64, y: f64, b: i32,
     ctrl: bool, shift: bool, alt: bool, meta: bool
 ) {
-    if ix < 0 || ix >= (WINDOWS.length as i64) { return }
-    let cb = WINDOWS[ix].onMouseMove
-    cb(x, y, b, ctrl, shift, alt, meta)
+    if let some(slot) = WINDOWS.get(handle) {
+        let cb = slot.onMouseMove
+        cb(x, y, b, ctrl, shift, alt, meta)
+    }
 }
 pub fn dispatchMouseDown(
-    ix: i64, x: f64, y: f64, b: i32,
+    handle: i64, x: f64, y: f64, b: i32,
     ctrl: bool, shift: bool, alt: bool, meta: bool
 ) {
-    if ix < 0 || ix >= (WINDOWS.length as i64) { return }
-    let cb = WINDOWS[ix].onMouseDown
-    cb(x, y, b, ctrl, shift, alt, meta)
+    if let some(slot) = WINDOWS.get(handle) {
+        let cb = slot.onMouseDown
+        cb(x, y, b, ctrl, shift, alt, meta)
+    }
 }
 pub fn dispatchMouseUp(
-    ix: i64, x: f64, y: f64, b: i32,
+    handle: i64, x: f64, y: f64, b: i32,
     ctrl: bool, shift: bool, alt: bool, meta: bool
 ) {
-    if ix < 0 || ix >= (WINDOWS.length as i64) { return }
-    let cb = WINDOWS[ix].onMouseUp
-    cb(x, y, b, ctrl, shift, alt, meta)
+    if let some(slot) = WINDOWS.get(handle) {
+        let cb = slot.onMouseUp
+        cb(x, y, b, ctrl, shift, alt, meta)
+    }
 }

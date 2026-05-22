@@ -10,9 +10,9 @@ use windows {
     GetModuleHandleA,
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU,
     WNDCLASSEXA, MSG, POINT,
-    ClassStyle, WindowStyle, ShowCmd, WindowLongIndex,
+    ClassStyle, WindowStyle, ShowCmd,
     RegisterClassExW, CreateWindowExW,
-    SetWindowLongPtrA, SetWindowTextW, SetWindowPos,
+    SetWindowTextW, SetWindowPos,
     SetWindowPosFlags,
     GetMessageW, DispatchMessageW, TranslateMessage,
     ShowWindow, UpdateWindow,
@@ -66,11 +66,8 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     )
     HeapFree(GetProcessHeap(), 0 as u32, titleW as *void)
 
-    let handle: i64 = WINDOWS.length as i64
-    WINDOWS.push(new WindowSlot(hwnd))
-    // Stash the slot index so guiWndProc can route back to us.
-    let _ = SetWindowLongPtrA(hwnd, WindowLongIndex.userdata as i32, handle)
-
+    let handle = hwnd as i64
+    WINDOWS[handle] = new WindowSlot(hwnd)
     // Created HIDDEN. The user controls first-paint via
     // `Window.show()` so they can mutate title / size / add
     // children before the window flashes on screen.
@@ -78,31 +75,35 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
 }
 
 pub fn setWindowTitle(handle: i64, title: string) {
-    if handle < 0 || handle >= (WINDOWS.length as i64) { return }
-    let w = toWideUtf8(title) as *u16
-    let _ = SetWindowTextW(WINDOWS[handle].hwnd, w)
-    HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+    if let some(slot) = WINDOWS.get(handle) {
+        let w = toWideUtf8(title) as *u16
+        let _ = SetWindowTextW(slot.hwnd, w)
+        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+    }
 }
 
 pub fn setWindowSize(handle: i64, width: f64, height: f64) {
-    if handle < 0 || handle >= (WINDOWS.length as i64) { return }
-    // SWP_NOMOVE | SWP_NOZORDER — resize without changing the
-    // window's screen position or Z-order siblings.
-    let flags = (SetWindowPosFlags.noMove as u32)
-              | (SetWindowPosFlags.noZOrder as u32)
-    let _ = SetWindowPos(WINDOWS[handle].hwnd, 0 as HWND,
-                         0, 0, width as i32, height as i32, flags)
+    if let some(slot) = WINDOWS.get(handle) {
+        // SWP_NOMOVE | SWP_NOZORDER — resize without changing the
+        // window's screen position or Z-order siblings.
+        let flags = (SetWindowPosFlags.noMove as u32)
+                  | (SetWindowPosFlags.noZOrder as u32)
+        let _ = SetWindowPos(slot.hwnd, 0 as HWND,
+                             0, 0, width as i32, height as i32, flags)
+    }
 }
 
 pub fn showNativeWindow(handle: i64) {
-    if handle < 0 || handle >= (WINDOWS.length as i64) { return }
-    ShowWindow(WINDOWS[handle].hwnd, ShowCmd.show as i32)
-    UpdateWindow(WINDOWS[handle].hwnd)
+    if let some(slot) = WINDOWS.get(handle) {
+        ShowWindow(slot.hwnd, ShowCmd.show as i32)
+        UpdateWindow(slot.hwnd)
+    }
 }
 
 pub fn hideNativeWindow(handle: i64) {
-    if handle < 0 || handle >= (WINDOWS.length as i64) { return }
-    ShowWindow(WINDOWS[handle].hwnd, ShowCmd.hide as i32)
+    if let some(slot) = WINDOWS.get(handle) {
+        ShowWindow(slot.hwnd, ShowCmd.hide as i32)
+    }
 }
 
 pub fn runEventLoop() {
