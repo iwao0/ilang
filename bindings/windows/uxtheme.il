@@ -102,6 +102,8 @@ pub enum DttFlags: u32 {
     composited  = 0x00002000
 }
 
+use user32 { HDC }
+
 @extern(C, "uxtheme") {
     // ── Theme handle ──────────────────────────────────────────────
 
@@ -148,7 +150,7 @@ pub enum DttFlags: u32 {
     /// `pClipRect`: NULL to use the full DC.
     @lib pub fn DrawThemeBackground(
         hTheme:    *HTHEME,
-        hdc:       *void,
+        hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
         pRect:     *const void,    // *RECT
@@ -158,7 +160,7 @@ pub enum DttFlags: u32 {
     /// Extended variant with explicit options (DtBgFlags.*).
     @lib pub fn DrawThemeBackgroundEx(
         hTheme:    *HTHEME,
-        hdc:       *void,
+        hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
         pRect:     *const void,
@@ -169,7 +171,7 @@ pub enum DttFlags: u32 {
     /// `dwTextFlags2`: typically 0.
     @lib pub fn DrawThemeText(
         hTheme:        *HTHEME,
-        hdc:           *void,
+        hdc:           HDC,
         iPartId:       i32,
         iStateId:      i32,
         pszText:       *const u16,
@@ -182,7 +184,7 @@ pub enum DttFlags: u32 {
     /// Extended text with shadow/glow/color overrides (DTTOPTS).
     @lib pub fn DrawThemeTextEx(
         hTheme:    *HTHEME,
-        hdc:       *void,
+        hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
         pszText:   *const u16,
@@ -197,7 +199,7 @@ pub enum DttFlags: u32 {
     /// Returns the rect that the part would draw inside `pRect`.
     @lib pub fn GetThemeBackgroundContentRect(
         hTheme:    *HTHEME,
-        hdc:       *void,
+        hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
         pBoundingRect: *const void,
@@ -207,7 +209,7 @@ pub enum DttFlags: u32 {
     /// Returns the rect of the themed background surrounding `pRect`.
     @lib pub fn GetThemeBackgroundExtent(
         hTheme:    *HTHEME,
-        hdc:       *void,
+        hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
         pContentRect: *const void,
@@ -217,7 +219,7 @@ pub enum DttFlags: u32 {
     /// Returns the natural size of a part. `eSize`: 0=min, 1=true, 2=draw.
     @lib pub fn GetThemePartSize(
         hTheme:    *HTHEME,
-        hdc:       *void,
+        hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
         prc:       *const void,
@@ -238,7 +240,7 @@ pub enum DttFlags: u32 {
 
     @lib pub fn GetThemeFont(
         hTheme:    *HTHEME,
-        hdc:       *void,
+        hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
         iPropId:   i32,
@@ -247,7 +249,7 @@ pub enum DttFlags: u32 {
 
     @lib pub fn GetThemeMargins(
         hTheme:    *HTHEME,
-        hdc:       *void,
+        hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
         iPropId:   i32,
@@ -274,7 +276,7 @@ pub enum DttFlags: u32 {
 
     @lib pub fn GetThemeMetric(
         hTheme:    *HTHEME,
-        hdc:       *void,
+        hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
         iPropId:   i32,
@@ -350,11 +352,11 @@ pub enum DttFlags: u32 {
     /// to EndBufferedPaint / BufferedPaintClear.  `phdc`: receives an
     /// HDC for the off-screen buffer.
     @lib pub fn BeginBufferedPaint(
-        hdcTarget: *void,
+        hdcTarget: HDC,
         prcTarget: *const void,
         dwFormat:  u32,
         pPaintParams: *const void,
-        phdc:      **void
+        phdc:      *HDC
     ): *void
 
     /// `fUpdateTarget`: 1 = copy buffer to target, 0 = discard.

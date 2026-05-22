@@ -1362,7 +1362,7 @@ pub enum SpiAction: u32 {
     /// Calls `lpfnEnum(hMonitor, hdcMonitor, lprcMonitor, dwData)`
     /// for every monitor; stops when the callback returns FALSE.
     @lib pub fn EnumDisplayMonitors(
-        hdc:       *void,      // HDC filter, or NULL for all
+        hdc:       HDC,        // filter, or NULL for all
         lprcClip:  *const RECT,
         lpfnEnum:  fn(i64, i64, i64, i64): i32,  // MONITORENUMPROC
         dwData:    i64

@@ -117,6 +117,8 @@ pub enum GpUnit: i32 {
     millimeter = 6
 }
 
+use user32 { HDC }
+
 @extern(C, "gdiplus") {
     // ── Opaque handles ────────────────────────────────────────────
 
@@ -160,12 +162,12 @@ pub enum GpUnit: i32 {
     // ── Graphics object lifecycle ─────────────────────────────────
 
     /// Creates a Graphics object from an HDC.
-    @lib pub fn GdipCreateFromHDC(hdc: *void, graphics: **GpGraphics): i32
-    @lib pub fn GdipCreateFromHWND(hwnd: i64, graphics: **GpGraphics): i32
+    @lib pub fn GdipCreateFromHDC(hdc: HDC, graphics: **GpGraphics): i32
+    @lib pub fn GdipCreateFromHWND(hwnd: HWND, graphics: **GpGraphics): i32
     @lib pub fn GdipDeleteGraphics(graphics: *GpGraphics): i32
 
-    @lib pub fn GdipGetDC(graphics: *GpGraphics, hdc: **void): i32
-    @lib pub fn GdipReleaseDC(graphics: *GpGraphics, hdc: *void): i32
+    @lib pub fn GdipGetDC(graphics: *GpGraphics, hdc: *HDC): i32
+    @lib pub fn GdipReleaseDC(graphics: *GpGraphics, hdc: HDC): i32
 
     /// Sets quality / smoothing modes.
     @lib pub fn GdipSetSmoothingMode(graphics: *GpGraphics, mode: i32): i32

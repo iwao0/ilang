@@ -5,6 +5,8 @@
 /// when using stock-object IDs.  The Win64 ABI treats `*T` and `i64`
 /// identically in registers, so unsafe casts are safe at the boundary.
 
+use user32 { HDC, HWND }
+
 // ─── Raster-operation codes (SRCCOPY etc.) ───────────────────────
 pub enum RasterOp: u32 {
     blackness   = 0x00000042   // dest = BLACK
@@ -373,23 +375,23 @@ pub enum FontPitchFamily: u32 {
     // ── Device context ────────────────────────────────────────────
 
     /// Creates an in-memory DC compatible with `hdc`.
-    /// Pass `0 as *HDC` to create a screen-compatible DC.
-    @lib pub fn CreateCompatibleDC(hdc: *void): *void
+    /// Pass `0 as HDC` to create a screen-compatible DC.
+    @lib pub fn CreateCompatibleDC(hdc: HDC): HDC
 
-    @lib pub fn DeleteDC(hdc: *void): i32
+    @lib pub fn DeleteDC(hdc: HDC): i32
 
     /// Saves the current state of `hdc` and returns a save-state
     /// index. Restored with `RestoreDC(hdc, savedIndex)` or
     /// `RestoreDC(hdc, -1)` to restore the most recent save.
-    @lib pub fn SaveDC(hdc: *void): i32
-    @lib pub fn RestoreDC(hdc: *void, nSavedDC: i32): i32
+    @lib pub fn SaveDC(hdc: HDC): i32
+    @lib pub fn RestoreDC(hdc: HDC, nSavedDC: i32): i32
 
     // ── Object selection / deletion ───────────────────────────────
 
     /// Selects `hObject` into `hdc`, returning the previously
     /// selected object of the same type (or NULL on error).
     /// Returned HGDIOBJ must be selected back before DeleteObject.
-    @lib pub fn SelectObject(hdc: *void, hObject: *HGDIOBJ): *HGDIOBJ
+    @lib pub fn SelectObject(hdc: HDC, hObject: *HGDIOBJ): *HGDIOBJ
 
     /// Deletes a GDI object (pen, brush, font, bitmap, region,
     /// palette). Never delete an object while it is selected.
@@ -423,52 +425,52 @@ pub enum FontPitchFamily: u32 {
     // ── Color / background ────────────────────────────────────────
 
     /// Sets the foreground text color. Returns the previous value.
-    @lib pub fn SetTextColor(hdc: *void, color: u32): u32
-    @lib pub fn GetTextColor(hdc: *void): u32
+    @lib pub fn SetTextColor(hdc: HDC, color: u32): u32
+    @lib pub fn GetTextColor(hdc: HDC): u32
 
     /// Sets the background color used to fill gaps in hatched brushes,
     /// character cells, and dashed lines.
-    @lib pub fn SetBkColor(hdc: *void, color: u32): u32
-    @lib pub fn GetBkColor(hdc: *void): u32
+    @lib pub fn SetBkColor(hdc: HDC, color: u32): u32
+    @lib pub fn GetBkColor(hdc: HDC): u32
 
     /// Sets background mix mode (BackgroundMode.transparent or .opaque).
-    @lib pub fn SetBkMode(hdc: *void, iBkMode: i32): i32
-    @lib pub fn GetBkMode(hdc: *void): i32
+    @lib pub fn SetBkMode(hdc: HDC, iBkMode: i32): i32
+    @lib pub fn GetBkMode(hdc: HDC): i32
 
     // ── Drawing ───────────────────────────────────────────────────
 
     /// Moves the current position to `(X, Y)`. `lpPoint` receives
     /// the previous position; pass `0 as *void` to discard.
-    @lib pub fn MoveToEx(hdc: *void, X: i32, Y: i32, lpPoint: *void): i32
+    @lib pub fn MoveToEx(hdc: HDC, X: i32, Y: i32, lpPoint: *void): i32
 
     /// Draws a line from the current position to `(nXEnd, nYEnd)`,
     /// then updates the current position to `(nXEnd, nYEnd)`.
-    @lib pub fn LineTo(hdc: *void, nXEnd: i32, nYEnd: i32): i32
+    @lib pub fn LineTo(hdc: HDC, nXEnd: i32, nYEnd: i32): i32
 
     /// Draws a filled rectangle using the current pen and brush.
-    @lib pub fn Rectangle(hdc: *void, left: i32, top: i32, right: i32, bottom: i32): i32
+    @lib pub fn Rectangle(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32): i32
 
     /// Draws a filled ellipse inscribed in the given bounding rect.
-    @lib pub fn Ellipse(hdc: *void, left: i32, top: i32, right: i32, bottom: i32): i32
+    @lib pub fn Ellipse(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32): i32
 
     /// Draws a filled rectangle with rounded corners.
     @lib pub fn RoundRect(
-        hdc: *void,
+        hdc: HDC,
         left: i32, top: i32, right: i32, bottom: i32,
         width: i32, height: i32
     ): i32
 
     /// Draws a filled polygon through `cPoints` vertices in `lpPoints`.
     /// `lpPoints` is a pointer to an array of POINT structs.
-    @lib pub fn Polygon(hdc: *void, lpPoints: *void, cPoints: i32): i32
+    @lib pub fn Polygon(hdc: HDC, lpPoints: *void, cPoints: i32): i32
 
     /// Draws connected line segments through `cPoints` vertices.
-    @lib pub fn Polyline(hdc: *void, lpPoints: *void, cPoints: i32): i32
+    @lib pub fn Polyline(hdc: HDC, lpPoints: *void, cPoints: i32): i32
 
     /// Draws an arc. `(nXStartArc,nYStartArc)` and `(nXEndArc,nYEndArc)`
     /// are radial endpoints of the arc (not on the ellipse itself).
     @lib pub fn Arc(
-        hdc: *void,
+        hdc: HDC,
         left: i32, top: i32, right: i32, bottom: i32,
         nXStartArc: i32, nYStartArc: i32,
         nXEndArc:   i32, nYEndArc:   i32
@@ -476,17 +478,17 @@ pub enum FontPitchFamily: u32 {
 
     /// Sets a single pixel to `color` (COLORREF). Returns the
     /// previous color at that position.
-    @lib pub fn SetPixel(hdc: *void, X: i32, Y: i32, color: u32): u32
+    @lib pub fn SetPixel(hdc: HDC, X: i32, Y: i32, color: u32): u32
 
     /// Returns the COLORREF of the pixel at `(X, Y)`, or
     /// `0xFFFFFFFF` (CLR_INVALID) on error.
-    @lib pub fn GetPixel(hdc: *void, X: i32, Y: i32): u32
+    @lib pub fn GetPixel(hdc: HDC, X: i32, Y: i32): u32
 
     // ── Text output ───────────────────────────────────────────────
 
     /// Writes `cbString` bytes of `lpString` at `(nXStart, nYStart)`.
     @lib pub fn TextOutA(
-        hdc:      *void,
+        hdc:      HDC,
         nXStart:  i32,
         nYStart:  i32,
         lpString: *const char,
@@ -497,7 +499,7 @@ pub enum FontPitchFamily: u32 {
     /// the NUL-terminated length. Returns height of the text in
     /// logical units, or 0 on error.
     @lib pub fn DrawTextA(
-        hdc:     *void,
+        hdc:     HDC,
         lpchText: *const char,
         nCount:  i32,
         lpRect:  *void,   // *RECT
@@ -507,17 +509,17 @@ pub enum FontPitchFamily: u32 {
     /// Fills `lpSize` with the width and height of `lpString` using
     /// the DC's current font.
     @lib pub fn GetTextExtentPoint32A(
-        hdc:      *void,
+        hdc:      HDC,
         lpString: *const char,
         cbString: i32,
         lpSize:   *SIZE
     ): i32
 
-    @lib pub fn SetTextAlign(hdc: *void, fMode: u32): u32
-    @lib pub fn GetTextAlign(hdc: *void): u32
+    @lib pub fn SetTextAlign(hdc: HDC, fMode: u32): u32
+    @lib pub fn GetTextAlign(hdc: HDC): u32
 
     /// Fills `lptm` with font metrics for the DC's current font.
-    @lib pub fn GetTextMetricsA(hdc: *void, lptm: *TEXTMETRICA): i32
+    @lib pub fn GetTextMetricsA(hdc: HDC, lptm: *TEXTMETRICA): i32
 
     // ── Font ──────────────────────────────────────────────────────
 
@@ -548,7 +550,7 @@ pub enum FontPitchFamily: u32 {
 
     /// Creates a device-compatible bitmap with the same colour format
     /// as `hdc`, sized `nWidth` × `nHeight` pixels.
-    @lib pub fn CreateCompatibleBitmap(hdc: *void, nWidth: i32, nHeight: i32): *HBITMAP
+    @lib pub fn CreateCompatibleBitmap(hdc: HDC, nWidth: i32, nHeight: i32): *HBITMAP
 
     /// Creates a DDB with explicitly specified planes and bits-per-pixel.
     @lib pub fn CreateBitmap(
@@ -562,26 +564,26 @@ pub enum FontPitchFamily: u32 {
     /// Block-transfers `nWidth`×`nHeight` pixels from `hdcSrc`
     /// to `hdcDest`. `dwRop`: RasterOp.srcCopy for a plain copy.
     @lib pub fn BitBlt(
-        hdcDest: *void,
+        hdcDest: HDC,
         nXDest: i32, nYDest: i32,
         nWidth: i32, nHeight: i32,
-        hdcSrc: *void,
+        hdcSrc: HDC,
         nXSrc: i32, nYSrc: i32,
         dwRop: u32
     ): i32
 
     /// Block-transfers with scaling. `iStretchMode`: StretchBltMode.*.
     @lib pub fn StretchBlt(
-        hdcDest: *void,
+        hdcDest: HDC,
         nXOriginDest: i32, nYOriginDest: i32,
         nWidthDest: i32, nHeightDest: i32,
-        hdcSrc: *void,
+        hdcSrc: HDC,
         nXOriginSrc: i32, nYOriginSrc: i32,
         nWidthSrc: i32, nHeightSrc: i32,
         dwRop: u32
     ): i32
 
-    @lib pub fn SetStretchBltMode(hdc: *void, iStretchMode: i32): i32
+    @lib pub fn SetStretchBltMode(hdc: HDC, iStretchMode: i32): i32
 
     // ── Region ────────────────────────────────────────────────────
 
@@ -599,44 +601,44 @@ pub enum FontPitchFamily: u32 {
 
     /// Replaces the DC clipping region with `hRgn`.
     /// Pass `0 as *HRGN` to remove clipping.
-    @lib pub fn SelectClipRgn(hdc: *void, hRgn: *HRGN): i32
+    @lib pub fn SelectClipRgn(hdc: HDC, hRgn: *HRGN): i32
 
     @lib pub fn OffsetRgn(hRgn: *HRGN, nXOffset: i32, nYOffset: i32): i32
 
     // ── Path ──────────────────────────────────────────────────────
 
-    @lib pub fn BeginPath(hdc: *void): i32
-    @lib pub fn EndPath(hdc: *void): i32
-    @lib pub fn StrokePath(hdc: *void): i32
-    @lib pub fn FillPath(hdc: *void): i32
-    @lib pub fn StrokeAndFillPath(hdc: *void): i32
-    @lib pub fn PathToRegion(hdc: *void): *HRGN
+    @lib pub fn BeginPath(hdc: HDC): i32
+    @lib pub fn EndPath(hdc: HDC): i32
+    @lib pub fn StrokePath(hdc: HDC): i32
+    @lib pub fn FillPath(hdc: HDC): i32
+    @lib pub fn StrokeAndFillPath(hdc: HDC): i32
+    @lib pub fn PathToRegion(hdc: HDC): *HRGN
 
     // ── Coordinate transforms ─────────────────────────────────────
 
-    @lib pub fn SetMapMode(hdc: *void, fnMapMode: i32): i32
-    @lib pub fn GetMapMode(hdc: *void): i32
+    @lib pub fn SetMapMode(hdc: HDC, fnMapMode: i32): i32
+    @lib pub fn GetMapMode(hdc: HDC): i32
 
-    @lib pub fn SetViewportOrgEx(hdc: *void, X: i32, Y: i32, lpPoint: *void): i32
-    @lib pub fn SetWindowOrgEx(hdc: *void, X: i32, Y: i32, lpPoint: *void): i32
-    @lib pub fn SetViewportExtEx(hdc: *void, nXExtent: i32, nYExtent: i32, lpSize: *void): i32
-    @lib pub fn SetWindowExtEx(hdc: *void, nXExtent: i32, nYExtent: i32, lpSize: *void): i32
-    @lib pub fn GetViewportOrgEx(hdc: *void, lpPoint: *void): i32
-    @lib pub fn GetWindowOrgEx(hdc: *void, lpPoint: *void): i32
+    @lib pub fn SetViewportOrgEx(hdc: HDC, X: i32, Y: i32, lpPoint: *void): i32
+    @lib pub fn SetWindowOrgEx(hdc: HDC, X: i32, Y: i32, lpPoint: *void): i32
+    @lib pub fn SetViewportExtEx(hdc: HDC, nXExtent: i32, nYExtent: i32, lpSize: *void): i32
+    @lib pub fn SetWindowExtEx(hdc: HDC, nXExtent: i32, nYExtent: i32, lpSize: *void): i32
+    @lib pub fn GetViewportOrgEx(hdc: HDC, lpPoint: *void): i32
+    @lib pub fn GetWindowOrgEx(hdc: HDC, lpPoint: *void): i32
 
     // ── Device capabilities ───────────────────────────────────────
 
     /// Returns a capability value for the DC.  Common `nIndex` values:
     ///   HORZRES=8, VERTRES=10, BITSPIXEL=12, PLANES=14,
     ///   LOGPIXELSX=88, LOGPIXELSY=90, SIZEPALETTE=104.
-    @lib pub fn GetDeviceCaps(hdc: *void, nIndex: i32): i32
+    @lib pub fn GetDeviceCaps(hdc: HDC, nIndex: i32): i32
 
     // ── Pattern blit ──────────────────────────────────────────────
 
     /// Fills a rectangle using the current brush and a raster op.
     /// Useful for fast solid fills without creating a RECT.
     @lib pub fn PatBlt(
-        hdc:   *void,
+        hdc:   HDC,
         nXLeft: i32,
         nYLeft: i32,
         nWidth: i32,
@@ -650,7 +652,7 @@ pub enum FontPitchFamily: u32 {
     /// `fuFillType`: 0=FLOODFILLBORDER (stop at `crColor` boundary),
     ///               1=FLOODFILLSURFACE (fill while pixel == crColor).
     @lib pub fn ExtFloodFill(
-        hdc:      *void,
+        hdc:      HDC,
         nXStart:  i32,
         nYStart:  i32,
         crColor:  u32,
@@ -661,17 +663,17 @@ pub enum FontPitchFamily: u32 {
 
     /// Draws a series of cubic Bézier curves.
     /// `lpPoints`: array of POINT structs; count must be 3n+1.
-    @lib pub fn PolyBezier(hdc: *void, lpPoints: *void, cPoints: u32): i32
+    @lib pub fn PolyBezier(hdc: HDC, lpPoints: *void, cPoints: u32): i32
 
     /// Draws Bézier segments from current position; count must be 3n.
-    @lib pub fn PolyBezierTo(hdc: *void, lpPoints: *void, cCount: u32): i32
+    @lib pub fn PolyBezierTo(hdc: HDC, lpPoints: *void, cCount: u32): i32
 
     /// Draws connected line segments updating current position.
-    @lib pub fn PolylineTo(hdc: *void, lpPoints: *void, cCount: u32): i32
+    @lib pub fn PolylineTo(hdc: HDC, lpPoints: *void, cCount: u32): i32
 
     /// Draws a pie wedge (filled arc + two radii).
     @lib pub fn Pie(
-        hdc: *void,
+        hdc: HDC,
         left: i32, top: i32, right: i32, bottom: i32,
         xStartArc: i32, yStartArc: i32,
         xEndArc:   i32, yEndArc:   i32
@@ -679,34 +681,34 @@ pub enum FontPitchFamily: u32 {
 
     /// Draws a chord (filled arc + chord line).
     @lib pub fn Chord(
-        hdc: *void,
+        hdc: HDC,
         left: i32, top: i32, right: i32, bottom: i32,
         xStartArc: i32, yStartArc: i32,
         xEndArc:   i32, yEndArc:   i32
     ): i32
 
     /// Sets the arc direction: 1=AD_COUNTERCLOCKWISE, 2=AD_CLOCKWISE.
-    @lib pub fn SetArcDirection(hdc: *void, ArcDirection: i32): i32
+    @lib pub fn SetArcDirection(hdc: HDC, ArcDirection: i32): i32
 
     // ── Current position ──────────────────────────────────────────
 
     /// Fills `lpPoint` with the current pen position in logical coords.
-    @lib pub fn GetCurrentPositionEx(hdc: *void, lpPoint: *void): i32
+    @lib pub fn GetCurrentPositionEx(hdc: HDC, lpPoint: *void): i32
 
     // ── Clip rect helpers ─────────────────────────────────────────
 
     /// Returns the bounding rect of the current clip region.
     /// Return value: 0=null region, 1=simple, 2=complex.
-    @lib pub fn GetClipBox(hdc: *void, lpRect: *void): i32
+    @lib pub fn GetClipBox(hdc: HDC, lpRect: *void): i32
 
     /// Subtracts a rect from the current clip region.
     @lib pub fn ExcludeClipRect(
-        hdc: *void, left: i32, top: i32, right: i32, bottom: i32
+        hdc: HDC, left: i32, top: i32, right: i32, bottom: i32
     ): i32
 
     /// Intersects the current clip region with a rect.
     @lib pub fn IntersectClipRect(
-        hdc: *void, left: i32, top: i32, right: i32, bottom: i32
+        hdc: HDC, left: i32, top: i32, right: i32, bottom: i32
     ): i32
 
     // ── DIB sections ──────────────────────────────────────────────
@@ -715,7 +717,7 @@ pub enum FontPitchFamily: u32 {
     /// `hSection`/`dwOffset`: 0 for a pagefile-backed section.
     /// `ppvBits` receives a pointer to the raw pixel data.
     @lib pub fn CreateDIBSection(
-        hdc:        *void,
+        hdc:        HDC,
         pbmi:       *const void,   // *BITMAPINFO
         iUsage:     u32,           // DIBColorMode.*
         ppvBits:    **void,        // receives pointer to pixel data
@@ -725,7 +727,7 @@ pub enum FontPitchFamily: u32 {
 
     /// Draws `cScanLines` scan lines of DIB data.
     @lib pub fn SetDIBitsToDevice(
-        hdc:           *void,
+        hdc:           HDC,
         XDest:         i32,
         YDest:         i32,
         dwWidth:       u32,
@@ -741,7 +743,7 @@ pub enum FontPitchFamily: u32 {
 
     /// Copies and stretches DIB bits. Negative `nSrcHeight` flips vertically.
     @lib pub fn StretchDIBits(
-        hdc:       *void,
+        hdc:       HDC,
         XDest:     i32, YDest:   i32, nDestWidth: i32, nDestHeight: i32,
         XSrc:      i32, YSrc:    i32, nSrcWidth:  i32, nSrcHeight:  i32,
         lpBits:    *const void,
@@ -754,15 +756,15 @@ pub enum FontPitchFamily: u32 {
 
     /// Draws a 3-D border around `lprc`. `edge`: BDR_* flags (0x0..0x9),
     /// `grfFlags`: BF_* flags (BF_RECT=0x0F for all sides).
-    @lib pub fn DrawEdge(hdc: *void, qrc: *void, edge: u32, grfFlags: u32): i32
+    @lib pub fn DrawEdge(hdc: HDC, qrc: *void, edge: u32, grfFlags: u32): i32
 
     /// Draws a standard button, caption, or scroll-bar control.
     /// `uType`: DFC_* (1=CAPTION, 2=MENU, 3=SCROLL, 4=BUTTON),
     /// `uState`: DFCS_* state flags.
-    @lib pub fn DrawFrameControl(hdc: *void, lprc: *void, uType: u32, uState: u32): i32
+    @lib pub fn DrawFrameControl(hdc: HDC, lprc: *void, uType: u32, uState: u32): i32
 
     /// Draws a focus rect (XOR'd dotted rectangle).
-    @lib pub fn DrawFocusRect(hdc: *void, lprc: *const void): i32
+    @lib pub fn DrawFocusRect(hdc: HDC, lprc: *const void): i32
 
     // ── DC creation for device names ─────────────────────────────
 
@@ -778,18 +780,18 @@ pub enum FontPitchFamily: u32 {
     // ── Color ─────────────────────────────────────────────────────
 
     /// Returns the nearest solid colour supported by the device.
-    @lib pub fn GetNearestColor(hdc: *void, crColor: u32): u32
+    @lib pub fn GetNearestColor(hdc: HDC, crColor: u32): u32
 
     /// Returns the DIB colour table entries.
     @lib pub fn GetDIBColorTable(
-        hdc:        *void,
+        hdc:        HDC,
         uStartIndex: u32,
         cEntries:   u32,
         prgbq:      *RGBQUAD
     ): u32
 
     @lib pub fn SetDIBColorTable(
-        hdc:        *void,
+        hdc:        HDC,
         uStartIndex: u32,
         cEntries:   u32,
         prgbq:      *const RGBQUAD
@@ -798,7 +800,7 @@ pub enum FontPitchFamily: u32 {
     // ── Clipping figure ───────────────────────────────────────────
 
     /// Closes the open figure in a path (connects last point to first).
-    @lib pub fn CloseFigure(hdc: *void): i32
+    @lib pub fn CloseFigure(hdc: HDC): i32
 
     // ── Misc ──────────────────────────────────────────────────────
 
@@ -819,7 +821,7 @@ pub enum FontPitchFamily: u32 {
     ///   LPARAM lParam (user-supplied).
     /// Returning 0 stops enumeration; non-zero continues.
     @lib pub fn EnumFontFamiliesExA(
-        hdc:        *void,
+        hdc:        HDC,
         lpLogfont:  *const LOGFONTA,
         lpProc:     fn(i64, i64, u32, i64): i32,
         lParam:     i64,
@@ -828,7 +830,7 @@ pub enum FontPitchFamily: u32 {
 
     /// Older variant — `lpszFamily` is the family-name filter (NULL = all).
     @lib pub fn EnumFontsA(
-        hdc:        *void,
+        hdc:        HDC,
         lpFaceName: *const char,
         lpFontFunc: fn(i64, i64, u32, i64): i32,
         lParam:     i64
@@ -837,7 +839,7 @@ pub enum FontPitchFamily: u32 {
     /// Returns the per-character widths of the characters in
     /// [iFirstChar, iLastChar] for the currently selected font.
     @lib pub fn GetCharWidth32A(
-        hdc:        *void,
+        hdc:        HDC,
         iFirstChar: u32,
         iLastChar:  u32,
         lpBuffer:   *i32
@@ -846,7 +848,7 @@ pub enum FontPitchFamily: u32 {
     /// Returns ABC width metrics (a,b,c) for a range of characters.
     /// `lpabc`: array of `iLastChar-iFirstChar+1` ABC structs (12 bytes each).
     @lib pub fn GetCharABCWidthsA(
-        hdc:        *void,
+        hdc:        HDC,
         wFirst:     u32,
         wLast:      u32,
         lpabc:      *void
@@ -856,7 +858,7 @@ pub enum FontPitchFamily: u32 {
     /// `lpgi`: output array of u16 glyph indices.
     /// `fl`: 0 (default) or 1 (GGI_MARK_NONEXISTING_GLYPHS).
     @lib pub fn GetGlyphIndicesA(
-        hdc:    *void,
+        hdc:    HDC,
         lpstr:  *const char,
         c:      i32,
         pgi:    *u16,
@@ -868,7 +870,7 @@ pub enum FontPitchFamily: u32 {
     /// Enumerates the pens or brushes available in `hdc`.
     /// `nObjectType`: 1=OBJ_PEN, 2=OBJ_BRUSH.
     @lib pub fn EnumObjects(
-        hdc:         *void,
+        hdc:         HDC,
         nObjectType: i32,
         lpFunc:      fn(i64, i64): i32,
         lParam:      i64
@@ -876,21 +878,21 @@ pub enum FontPitchFamily: u32 {
 
     // ── Path abort ────────────────────────────────────────────────
 
-    @lib pub fn AbortPath(hdc: *void): i32
-    @lib pub fn WidenPath(hdc: *void): i32
-    @lib pub fn FlattenPath(hdc: *void): i32
+    @lib pub fn AbortPath(hdc: HDC): i32
+    @lib pub fn WidenPath(hdc: HDC): i32
+    @lib pub fn FlattenPath(hdc: HDC): i32
 
     // ── DC metadata ───────────────────────────────────────────────
 
     /// Cancels an outstanding drawing or printing operation.
-    @lib pub fn CancelDC(hdc: *void): i32
+    @lib pub fn CancelDC(hdc: HDC): i32
 
     /// Returns the type of `hdc` (0=OBJ_DC, …); see GetObjectType.
     @lib pub fn GetObjectType(h: *void): u32
 
     /// Snaps `hdc` to the current display device's identification.
-    @lib pub fn GetDCBrushColor(hdc: *void): u32
-    @lib pub fn SetDCBrushColor(hdc: *void, crColor: u32): u32
-    @lib pub fn GetDCPenColor(hdc: *void): u32
-    @lib pub fn SetDCPenColor(hdc: *void, crColor: u32): u32
+    @lib pub fn GetDCBrushColor(hdc: HDC): u32
+    @lib pub fn SetDCBrushColor(hdc: HDC, crColor: u32): u32
+    @lib pub fn GetDCPenColor(hdc: HDC): u32
+    @lib pub fn SetDCPenColor(hdc: HDC, crColor: u32): u32
 }

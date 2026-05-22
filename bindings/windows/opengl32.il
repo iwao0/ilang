@@ -110,6 +110,8 @@ pub enum GlBlend: u32 {
     srcAlphaSaturate   = 0x0308
 }
 
+use user32 { HDC }
+
 @extern(C, "opengl32") {
     // ── PIXELFORMATDESCRIPTOR — 40 bytes ─────────────────────────
 
@@ -149,21 +151,21 @@ pub enum GlBlend: u32 {
 
     /// Returns the index of a pixel format on `hdc` matching the
     /// requested PIXELFORMATDESCRIPTOR fields, or 0 on failure.
-    @lib pub fn ChoosePixelFormat(hdc: *void, ppfd: *const PIXELFORMATDESCRIPTOR): i32
+    @lib pub fn ChoosePixelFormat(hdc: HDC, ppfd: *const PIXELFORMATDESCRIPTOR): i32
 
     /// Sets the pixel format. Each HDC can have its format set only once.
     @lib pub fn SetPixelFormat(
-        hdc:    *void,
+        hdc:    HDC,
         format: i32,
         ppfd:   *const PIXELFORMATDESCRIPTOR
     ): i32
 
     /// Retrieves the current pixel format index for `hdc`.
-    @lib pub fn GetPixelFormat(hdc: *void): i32
+    @lib pub fn GetPixelFormat(hdc: HDC): i32
 
     /// Describes a pixel format. Returns the maximum format index.
     @lib pub fn DescribePixelFormat(
-        hdc:    *void,
+        hdc:    HDC,
         format: i32,
         nBytes: u32,
         ppfd:   *PIXELFORMATDESCRIPTOR
@@ -172,13 +174,13 @@ pub enum GlBlend: u32 {
     /// Creates a GL 1.x rendering context for `hdc`.
     /// For GL 3.0+ use the WGL_ARB_create_context extension via
     /// wglGetProcAddress.
-    @lib pub fn wglCreateContext(hdc: *void): *HGLRC
+    @lib pub fn wglCreateContext(hdc: HDC): *HGLRC
 
     @lib pub fn wglDeleteContext(hglrc: *HGLRC): i32
 
     /// Makes `hglrc` the active context on the calling thread.
     /// Pass NULL for both to detach.
-    @lib pub fn wglMakeCurrent(hdc: *void, hglrc: *HGLRC): i32
+    @lib pub fn wglMakeCurrent(hdc: HDC, hglrc: *HGLRC): i32
 
     @lib pub fn wglGetCurrentContext(): *HGLRC
     @lib pub fn wglGetCurrentDC(): *void

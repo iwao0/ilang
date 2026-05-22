@@ -8,6 +8,8 @@ pub enum GradientFillMode: u32 {
     triangle = 2   // filled gradient triangle
 }
 
+use user32 { HDC }
+
 @extern(C, "msimg32") {
     // ── BLENDFUNCTION — 4 bytes ───────────────────────────────────
 
@@ -46,12 +48,12 @@ pub enum GradientFillMode: u32 {
     ///   `let bf = BLENDFUNCTION { BlendOp:0, BlendFlags:0, SourceConstantAlpha:255, AlphaFormat:1 }`
     ///   then `AlphaBlend(..., bf as u32)`.
     @lib pub fn AlphaBlend(
-        hdcDest:      *void,
+        hdcDest:      HDC,
         xOriginDest:  i32,
         yOriginDest:  i32,
         wDest:        i32,
         hDest:        i32,
-        hdcSrc:       *void,
+        hdcSrc:       HDC,
         xOriginSrc:   i32,
         yOriginSrc:   i32,
         wSrc:         i32,
@@ -69,7 +71,7 @@ pub enum GradientFillMode: u32 {
     ///   - TRIANGLE mode: triples `{ u32 Vertex1, u32 Vertex2, u32 Vertex3 }`
     /// `dwMode`:   GradientFillMode.*
     @lib pub fn GradientFill(
-        hdc:     *void,
+        hdc:     HDC,
         pVertex: *TRIVERTEX,
         nVertex: u32,
         pMesh:   *void,
@@ -82,12 +84,12 @@ pub enum GradientFillMode: u32 {
     /// Copies `hdcSrc` to `hdcDest`, treating pixels with colour
     /// `crTransparent` as transparent (not copied).
     @lib pub fn TransparentBlt(
-        hdcDest:     *void,
+        hdcDest:     HDC,
         xoriginDest: i32,
         yoriginDest: i32,
         wDest:       i32,
         hDest:       i32,
-        hdcSrc:      *void,
+        hdcSrc:      HDC,
         xoriginSrc:  i32,
         yoriginSrc:  i32,
         wSrc:        i32,
