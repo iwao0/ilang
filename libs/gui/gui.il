@@ -29,18 +29,18 @@
 
 use gui_impl { runEventLoop }
 
-pub use event as _ { * }
-pub use window as _ { * }
-pub use button as _ { * }
-pub use label as _ { * }
-pub use textfield as _ { * }
-pub use checkbox as _ { * }
-pub use radio as _ { * }
-pub use slider as _ { * }
-pub use progressbar as _ { * }
-pub use combobox as _ { * }
-pub use listbox as _ { * }
-pub use groupbox as _ { * }
+pub use event.*
+pub use window.*
+pub use button.*
+pub use label.*
+pub use textfield.*
+pub use checkbox.*
+pub use radio.*
+pub use slider.*
+pub use progressbar.*
+pub use combobox.*
+pub use listbox.*
+pub use groupbox.*
 
 /// Run the platform event loop until every window has closed
 /// (macOS: `NSApp.run()` until `terminate:`; Windows:
