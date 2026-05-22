@@ -48,10 +48,11 @@ The extension looks for the `ilang-lsp` binary in this order:
   getters/setters, enum variants, imported `use module` names,
   builtin array/string/map methods
 - **Go-to-implementation** — `Cmd/Ctrl+F12` on an interface name
-  returns every class that implements it; on an interface method
-  returns each implementing class's method; on a parent-class
-  method returns every subclass that overrides it. Workspace scan
-  anchored on the same `ilang.toml` as references / rename
+  returns every class that implements it; on a class name returns
+  every direct subclass; on an interface method returns each
+  implementing class's method; on a parent-class method returns
+  every subclass that overrides it. Workspace scan anchored on
+  the same `ilang.toml` as references / rename
 - **Go-to-definition (F12)**
   - Same-file decls
   - Cross-file via `use module` (including stdlib and `ilang.toml`

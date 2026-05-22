@@ -29,6 +29,8 @@ pub(crate) enum Target {
     /// Cursor on a method of an interface — return every
     /// implementing class's same-named method.
     InterfaceMethod { iface: String, method: String },
+    /// Cursor on a class name — return every direct subclass.
+    Class { name: String },
     /// Cursor on a class method — return every subclass method
     /// that overrides it. `class` is the declaring class.
     ClassMethod { class: String, method: String },
@@ -65,6 +67,20 @@ fn target_from_signature(sig: &str) -> Option<Target> {
         return Some(Target::Interface {
             name: name.to_string(),
         });
+    }
+    // Class header: `[@attrs\n]class Foo[: Base]`. The attribute
+    // prefix may carry newlines, so trim through `lines().last()`
+    // before stripping the `class ` keyword.
+    let last_line = sig.lines().last().unwrap_or(sig);
+    for kw in ["class ", "struct ", "union "] {
+        if let Some(rest) = last_line.strip_prefix(kw) {
+            let name = rest
+                .split(|c: char| c.is_whitespace() || c == ':')
+                .next()?;
+            return Some(Target::Class {
+                name: name.to_string(),
+            });
+        }
     }
     None
 }
@@ -178,6 +194,14 @@ fn visit_class(
             }
             if let Some(m) = find_method_by_name(c, method) {
                 push_method_name(uri, text, m, out);
+            }
+        }
+        Target::Class { name } => {
+            // Direct subclass = parent matches OR (interfaces list
+            // contains it, in case the target turned out to be an
+            // interface after typecheck and we missed the flip).
+            if names_first_then_rest.clone().any(|n| n == name.as_str()) {
+                push_class_name(uri, text, c, out);
             }
         }
         Target::ClassMethod { class, method } => {
@@ -332,5 +356,37 @@ run()
             2,
             "ClassMethod-on-interface target: {locs:?}"
         );
+    }
+
+    #[test]
+    fn finds_class_subclasses() {
+        let tmp = std::env::temp_dir().join("ilang_impl_test_class");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("ilang.toml"), "[package]\nname = \"t\"\n").unwrap();
+        let src = r#"class Animal {
+}
+
+class Dog : Animal {
+}
+
+class Cat : Animal {
+}
+
+fn run() { let _ = new Dog(); let _ = new Cat() }
+run()
+"#;
+        let path = tmp.join("a.il");
+        std::fs::write(&path, src).unwrap();
+        let doc = analyse_path_to_doc(&path).expect("analyse");
+        let uri = Url::from_file_path(&path).unwrap();
+        let mut docs = std::collections::HashMap::new();
+        docs.insert(uri.clone(), doc);
+        // Cursor on `class Animal` decl — Class target.
+        let locs = collect(
+            &Target::Class { name: "Animal".into() },
+            &path, &docs, None,
+        );
+        assert_eq!(locs.len(), 2, "Animal subclasses: {locs:?}");
     }
 }
