@@ -53,6 +53,10 @@ The extension looks for the `ilang-lsp` binary in this order:
     `[deps]` paths)
   - `use super.M` — walks the parent package in the dep DAG
   - Class bases, interface names, type annotations
+- **Document highlight** — when the cursor lands on an identifier
+  the editor highlights every occurrence of that decl in the
+  current file. Same target resolution as Find All References but
+  scoped to the buffer
 - **Find All References** — workspace-wide (`.il` files reachable
   from the file's `ilang.toml`, plus all open buffers)
 - **Rename** — same scope as Find References. `textDocument/prepareRename`

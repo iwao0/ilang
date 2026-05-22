@@ -137,6 +137,7 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
+                document_highlight_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
                 call_hierarchy_provider: Some(
@@ -1664,6 +1665,106 @@ impl LanguageServer for Backend {
             Ok(None)
         } else {
             Ok(Some(out))
+        }
+    }
+
+    async fn document_highlight(
+        &self,
+        p: DocumentHighlightParams,
+    ) -> LspResult<Option<Vec<DocumentHighlight>>> {
+        let uri = p.text_document_position_params.text_document.uri;
+        let pos = p.text_document_position_params.position;
+        let docs = self.docs.lock().unwrap();
+        let Some(doc) = docs.get(&uri) else { return Ok(None) };
+        // Resolve the cursor to the same (target_span, name_len) the
+        // rename / references handlers use, then collect every
+        // in-file ref pointing at that target. Decl-name span is
+        // included so the cursor on the decl itself still highlights
+        // its uses below.
+        let (target, decl_name_span, decl_name_len) =
+            if let Some(entry) = lookup_ref(doc, pos) {
+                if entry.signature.starts_with("this:") {
+                    return Ok(None);
+                }
+                (
+                    (entry.target_span, entry.target_name_len),
+                    entry.target_span,
+                    entry.target_name_len,
+                )
+            } else if let Some((word, _)) = word_at(&doc.text, pos) {
+                if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&word)) {
+                    let name_span = ["fn", "class", "enum", "const"]
+                        .iter()
+                        .find_map(|kw| {
+                            text::locate_let_name_with_kw(
+                                &doc.text, sym.span, kw, &sym.name,
+                            )
+                        })
+                        .unwrap_or(sym.span);
+                    (
+                        (sym.span, sym.name.as_str().len() as u32),
+                        name_span,
+                        sym.name.as_str().len() as u32,
+                    )
+                } else {
+                    return Ok(None);
+                }
+            } else {
+                return Ok(None);
+            };
+        let mut hits: Vec<DocumentHighlight> = Vec::new();
+        // Cross-file refs (where `target_uri` is set) point at a decl
+        // in another file — skip them, document highlight is local.
+        for r in &doc.refs {
+            if r.signature.starts_with("this:") {
+                continue;
+            }
+            if r.target_uri.is_some() {
+                continue;
+            }
+            if r.target_span != target.0 || r.target_name_len != target.1 {
+                continue;
+            }
+            hits.push(DocumentHighlight {
+                range: Range {
+                    start: Position {
+                        line: r.line.saturating_sub(1),
+                        character: r.start_col.saturating_sub(1),
+                    },
+                    end: Position {
+                        line: r.line.saturating_sub(1),
+                        character: r.end_col.saturating_sub(1),
+                    },
+                },
+                kind: Some(DocumentHighlightKind::TEXT),
+            });
+        }
+        // Include the decl itself when we can locate it in this file.
+        hits.push(DocumentHighlight {
+            range: Range {
+                start: Position {
+                    line: decl_name_span.line.saturating_sub(1),
+                    character: decl_name_span.col.saturating_sub(1),
+                },
+                end: Position {
+                    line: decl_name_span.line.saturating_sub(1),
+                    character: decl_name_span
+                        .col
+                        .saturating_sub(1)
+                        .saturating_add(decl_name_len),
+                },
+            },
+            kind: Some(DocumentHighlightKind::TEXT),
+        });
+        hits.sort_by(|a, b| {
+            (a.range.start.line, a.range.start.character)
+                .cmp(&(b.range.start.line, b.range.start.character))
+        });
+        hits.dedup_by(|a, b| a.range == b.range);
+        if hits.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(hits))
         }
     }
 
