@@ -159,13 +159,20 @@ pub enum NSTableViewGridLineStyle: u64 {
         pub set columnAutoresizingStyle(s: NSTableViewColumnAutoresizingStyle)
 
         @objc("headerView")
-        pub get headerView(): NSView
+        pub headerView(): NSView
+        /// `setHeaderView:` overloads — typed NSView for normal
+        /// use, NSObject for `setHeaderView(nil)` (clear the
+        /// header row).
         @objc("setHeaderView:")
-        pub set headerView(v: NSView)
+        pub setHeaderView(v: NSView)
+        @objc("setHeaderView:")
+        pub setHeaderView(v: NSObject)
         @objc("cornerView")
-        pub get cornerView(): NSView
+        pub cornerView(): NSView
         @objc("setCornerView:")
-        pub set cornerView(v: NSView)
+        pub setCornerView(v: NSView)
+        @objc("setCornerView:")
+        pub setCornerView(v: NSObject)
 
         @objc("clickedRow")
         pub get clickedRow(): i64

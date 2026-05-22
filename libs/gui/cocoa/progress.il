@@ -1,0 +1,48 @@
+/// Progress indicator. NSProgressIndicator in `bar` style;
+/// driven via `doubleValue` (no callbacks).
+
+use cocoa { NSProgressIndicator, NSView, makeRect, makeProgressBar }
+use core { WINDOWS }
+
+class ProgressSlot {
+    pub bar: NSProgressIndicator
+    pub init(bar: NSProgressIndicator) { this.bar = bar }
+}
+
+let PROGRESS_BARS = new Map<i64, ProgressSlot>()
+
+pub fn createNativeProgress(
+    windowHandle: i64,
+    min: f64, max: f64, value: f64,
+    x: f64, y: f64, width: f64, height: f64,
+    visible: bool
+): i64 {
+    let winSlot = match WINDOWS.get(windowHandle) {
+        some(s) { s }
+        none    { return -1 }
+    }
+    let p = makeProgressBar(min, max, value, x, y, width, height)
+    p.setHidden(!visible)
+    winSlot.win.contentView.addSubview(p as NSView)
+    let handle = (p as NSView).handle
+    PROGRESS_BARS[handle] = new ProgressSlot(p)
+    handle
+}
+
+pub fn setProgressRange(handle: i64, min: f64, max: f64) {
+    if let some(slot) = PROGRESS_BARS.get(handle) {
+        slot.bar.setMinValue(min)
+        slot.bar.setMaxValue(max)
+    }
+}
+pub fn setProgressValue(handle: i64, value: f64) {
+    if let some(slot) = PROGRESS_BARS.get(handle) { slot.bar.doubleValue = value }
+}
+pub fn setProgressFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
+    if let some(slot) = PROGRESS_BARS.get(handle) {
+        slot.bar.setFrame(makeRect(x, y, width, height))
+    }
+}
+pub fn setProgressVisible(handle: i64, visible: bool) {
+    if let some(slot) = PROGRESS_BARS.get(handle) { slot.bar.setHidden(!visible) }
+}
