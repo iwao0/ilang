@@ -11,19 +11,19 @@ use test
 
 @extern(ObjC) {
     @objc class NSObject {
-        @objc("release") fn release()
-        @objc("hash") fn hash(): i64
+        @objc("release") release()
+        @objc("hash") hash(): i64
     }
 
     @objc class MyOverrider : NSObject {
-        @objc("alloc") static fn alloc(): MyOverrider
+        @objc("alloc") static alloc(): MyOverrider
 
         // Override `hash` so dispatching `[obj hash]` lands here.
         // The body forwards to NSObject's hash via `super.hash()`
         // (which routes through `objc_msgSendSuper`) and adds 1
         // — so the observable return is (super_hash + 1).
         @objc("hash")
-        fn hash(): i64 {
+        hash(): i64 {
             super.hash() + 1
         }
     }

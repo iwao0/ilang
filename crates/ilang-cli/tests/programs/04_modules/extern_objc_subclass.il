@@ -9,20 +9,20 @@ use test
 
 @extern(ObjC) {
     @objc class NSObject {
-        @objc("release") fn release()
-        @objc("hash") fn hash(): i64
+        @objc("release") release()
+        @objc("hash") hash(): i64
     }
 
     @objc class MyDispatchTarget : NSObject {
-        @objc("alloc") static fn alloc(): MyDispatchTarget
-        @objc("hash") fn hash(): i64
+        @objc("alloc") static alloc(): MyDispatchTarget
+        @objc("hash") hash(): i64
 
         // Body present: this is a subclass override. The parser
         // generates an IMP (`ilang_objc_imp__MyDispatchTarget__answer`)
         // and `register()` attaches it via class_addMethod with
         // type encoding `"q@:"` (returns i64, self + _cmd).
         @objc("answer")
-        fn answer(): i64 {
+        answer(): i64 {
             12345
         }
     }

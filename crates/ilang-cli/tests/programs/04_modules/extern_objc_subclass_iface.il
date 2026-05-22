@@ -18,7 +18,7 @@ use test
 
 @extern(ObjC) {
     @objc class NSObject {
-        @objc("release") fn release()
+        @objc("release") release()
     }
 
     @objc pub interface Greeter {
@@ -28,8 +28,8 @@ use test
     }
 
     @objc class Impl : NSObject, Greeter {
-        @objc("alloc") static fn alloc(): Impl
-        @objc("init") fn init(): Impl
+        @objc("alloc") static alloc(): Impl
+        @objc("init") init(): Impl
 
         @objc("hello:")
         hello(n: i64) {
@@ -38,4 +38,4 @@ use test
     }
 }
 
-test.assert(true)
+test.expectTrue(true)

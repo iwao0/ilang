@@ -16,16 +16,16 @@ use test
 @extern(ObjC) {
     @objc class NSObject {
         @objc("alloc")
-        static fn alloc(): NSObject
+        static alloc(): NSObject
 
         @objc("hash")
-        fn hash(): i64
+        hash(): i64
 
         @objc("isEqual:")
-        fn isEqual(other: NSObject): i8
+        isEqual(other: NSObject): i8
 
         @objc("release")
-        fn release()
+        release()
     }
 }
 
