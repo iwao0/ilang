@@ -28,6 +28,13 @@ pub(crate) struct Backend {
     /// schedules a debounced refresh; when the timer fires we skip
     /// the work if a newer version has arrived in the meantime.
     pub(crate) latest_versions: Arc<Mutex<HashMap<Url, i32>>>,
+    /// Per-file workspace-symbol cache, keyed by canonicalised path.
+    /// Reuses a previously-parsed entry list when the file's mtime
+    /// hasn't changed — the parse + walk is by far the most
+    /// expensive part of a `workspace/symbol` request on a large
+    /// workspace.
+    pub(crate) workspace_sym_cache:
+        Arc<Mutex<HashMap<PathBuf, crate::workspace_symbol_cache::Entry>>>,
 }
 
 impl Backend {
@@ -36,6 +43,7 @@ impl Backend {
             client,
             docs: Arc::new(Mutex::new(HashMap::new())),
             latest_versions: Arc::new(Mutex::new(HashMap::new())),
+            workspace_sym_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

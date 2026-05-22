@@ -20,6 +20,7 @@ mod text;
 mod text_utils;
 mod types;
 mod walker;
+mod workspace_symbol_cache;
 
 use analyse::*;
 use backend::*;

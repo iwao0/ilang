@@ -1663,18 +1663,11 @@ impl LanguageServer for Backend {
         // `collect_workspace_il_files` finds the right ilang.toml.
         // When no buffer is open, fall back to the current working
         // directory.
-        let (open_paths, anchor) = {
+        let anchor: Option<PathBuf> = {
             let docs = self.docs.lock().unwrap();
-            let anchor: Option<PathBuf> = docs
-                .keys()
+            docs.keys()
                 .find_map(|u| u.to_file_path().ok())
-                .or_else(|| std::env::current_dir().ok());
-            let open: HashSet<PathBuf> = docs
-                .keys()
-                .filter_map(|u| u.to_file_path().ok())
-                .filter_map(|p| p.canonicalize().ok())
-                .collect();
-            (open, anchor)
+                .or_else(|| std::env::current_dir().ok())
         };
         let Some(anchor) = anchor else { return Ok(None) };
         let files = collect_workspace_il_files(&anchor);
@@ -1683,21 +1676,76 @@ impl LanguageServer for Backend {
         // large workspaces. Picked to be well above any realistic
         // result count for an ilang project.
         const MAX_RESULTS: usize = 2000;
+        // Snapshot open-buffer texts so we don't hold the docs lock
+        // across the workspace walk.
+        let open_texts: HashMap<PathBuf, String> = {
+            let docs = self.docs.lock().unwrap();
+            docs.iter()
+                .filter_map(|(u, d)| {
+                    let p = u.to_file_path().ok()?;
+                    let canon = p.canonicalize().ok()?;
+                    Some((canon, d.text.clone()))
+                })
+                .collect()
+        };
         for path in files {
             if out.len() >= MAX_RESULTS {
                 break;
             }
-            let _ = &open_paths; // open buffers are read from disk
-                                  // anyway; consistency of view across
-                                  // unsaved edits isn't required for
-                                  // workspace-symbol.
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
-            let Ok(tokens) = tokenize(&text) else { continue };
-            let Ok(prog) = parse(&tokens) else { continue };
             let Ok(uri) = Url::from_file_path(&path) else { continue };
-            collect_workspace_symbols_from_program(
-                &uri, &text, &prog, &q_lower, &mut out, MAX_RESULTS,
-            );
+            let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
+            // Open buffer: parse the live text (may have unsaved
+            // edits), don't touch cache.
+            let entries: Vec<workspace_symbol_cache::Symbol> =
+                if let Some(text) = open_texts.get(&canon) {
+                    workspace_symbol_cache::build(text)
+                } else {
+                    // Closed file: serve from cache when its on-disk
+                    // mtime matches the cached entry; else parse and
+                    // refresh the cache.
+                    let disk_mtime = workspace_symbol_cache::mtime(&canon);
+                    let cache = self.workspace_sym_cache.lock().unwrap();
+                    let hit = cache
+                        .get(&canon)
+                        .filter(|e| e.mtime == disk_mtime)
+                        .map(|e| e.items.clone());
+                    match hit {
+                        Some(items) => items,
+                        None => {
+                            drop(cache);
+                            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+                            let items = workspace_symbol_cache::build(&text);
+                            self.workspace_sym_cache.lock().unwrap().insert(
+                                canon.clone(),
+                                workspace_symbol_cache::Entry {
+                                    mtime: disk_mtime,
+                                    items: items.clone(),
+                                },
+                            );
+                            items
+                        }
+                    }
+                };
+            for s in entries {
+                if !subsequence_ci(&s.name, &q_lower) {
+                    continue;
+                }
+                if out.len() >= MAX_RESULTS {
+                    break;
+                }
+                #[allow(deprecated)]
+                out.push(SymbolInformation {
+                    name: s.name,
+                    kind: s.kind,
+                    tags: None,
+                    deprecated: None,
+                    location: Location {
+                        uri: uri.clone(),
+                        range: s.range,
+                    },
+                    container_name: s.container,
+                });
+            }
         }
         out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         if out.is_empty() {
@@ -2352,284 +2400,6 @@ fn is_keyword(s: &str) -> bool {
     )
 }
 
-/// Visit a parsed `Program`, emitting `SymbolInformation` for every
-/// top-level decl plus class members (fields / methods / properties /
-/// static_methods / static_fields) and enum variants. Filtered by
-/// `q_lower` using a case-insensitive subsequence match — the same
-/// fuzzy rule VSCode uses on its end of `workspace/symbol` queries,
-/// so an empty query returns everything.
-fn collect_workspace_symbols_from_program(
-    uri: &Url,
-    text: &str,
-    prog: &Program,
-    q_lower: &str,
-    out: &mut Vec<SymbolInformation>,
-    cap: usize,
-) {
-    for item in &prog.items {
-        if out.len() >= cap {
-            return;
-        }
-        collect_ws_item(uri, text, item, None, q_lower, out, cap);
-    }
-}
-
-fn collect_ws_item(
-    uri: &Url,
-    text: &str,
-    item: &Item,
-    container: Option<&str>,
-    q_lower: &str,
-    out: &mut Vec<SymbolInformation>,
-    cap: usize,
-) {
-    match item {
-        Item::Fn(f) => {
-            push_ws_sym(
-                uri, text, f.span, "fn", f.name.as_str(),
-                SymbolKind::FUNCTION, container, q_lower, out,
-            );
-        }
-        Item::Class(c) => {
-            push_ws_class(uri, text, c, container, q_lower, out, cap);
-        }
-        Item::Interface(i) => {
-            push_ws_sym(
-                uri, text, i.span, "interface", i.name.as_str(),
-                SymbolKind::INTERFACE, container, q_lower, out,
-            );
-            for m in i.methods.iter() {
-                if out.len() >= cap {
-                    return;
-                }
-                push_ws_sym(
-                    uri, text, m.span, "fn", m.name.as_str(),
-                    SymbolKind::METHOD, Some(i.name.as_str()),
-                    q_lower, out,
-                );
-            }
-        }
-        Item::Enum(e) => {
-            push_ws_sym(
-                uri, text, e.span, "enum", e.name.as_str(),
-                SymbolKind::ENUM, container, q_lower, out,
-            );
-            for v in e.variants.iter() {
-                if out.len() >= cap {
-                    return;
-                }
-                push_ws_sym_at_span(
-                    uri, v.span, v.name.as_str(),
-                    SymbolKind::ENUM_MEMBER, Some(e.name.as_str()),
-                    q_lower, out,
-                );
-            }
-        }
-        Item::Const(c) => {
-            push_ws_sym(
-                uri, text, c.span, "const", c.name.as_str(),
-                SymbolKind::CONSTANT, container, q_lower, out,
-            );
-        }
-        Item::ExternC(b) => {
-            for inner in b.items.iter() {
-                if out.len() >= cap {
-                    return;
-                }
-                match inner {
-                    ilang_ast::ExternCItem::FnDef(f) => {
-                        push_ws_sym(
-                            uri, text, f.span, "fn", f.name.as_str(),
-                            SymbolKind::FUNCTION, container, q_lower, out,
-                        );
-                    }
-                    ilang_ast::ExternCItem::FnDecl { name, span, .. } => {
-                        push_ws_sym(
-                            uri, text, *span, "fn", name.as_str(),
-                            SymbolKind::FUNCTION, container, q_lower, out,
-                        );
-                    }
-                    ilang_ast::ExternCItem::Class(c) => {
-                        push_ws_class(uri, text, c, container, q_lower, out, cap);
-                    }
-                    ilang_ast::ExternCItem::Struct { name, fields, span, .. } => {
-                        push_ws_sym(
-                            uri, text, *span, "struct", name.as_str(),
-                            SymbolKind::STRUCT, container, q_lower, out,
-                        );
-                        for f in fields.iter() {
-                            if out.len() >= cap { return; }
-                            push_ws_sym_at_span(
-                                uri, f.span, f.name.as_str(),
-                                SymbolKind::FIELD, Some(name.as_str()),
-                                q_lower, out,
-                            );
-                        }
-                    }
-                    ilang_ast::ExternCItem::Union { name, fields, span, .. } => {
-                        push_ws_sym(
-                            uri, text, *span, "union", name.as_str(),
-                            SymbolKind::STRUCT, container, q_lower, out,
-                        );
-                        for f in fields.iter() {
-                            if out.len() >= cap { return; }
-                            push_ws_sym_at_span(
-                                uri, f.span, f.name.as_str(),
-                                SymbolKind::FIELD, Some(name.as_str()),
-                                q_lower, out,
-                            );
-                        }
-                    }
-                }
-            }
-            for iface in b.interfaces.iter() {
-                if out.len() >= cap { return; }
-                collect_ws_item(
-                    uri, text,
-                    &Item::Interface(iface.clone()),
-                    container, q_lower, out, cap,
-                );
-            }
-            for c in b.consts.iter() {
-                if out.len() >= cap { return; }
-                collect_ws_item(
-                    uri, text,
-                    &Item::Const(c.clone()),
-                    container, q_lower, out, cap,
-                );
-            }
-        }
-        Item::Use(_) => {}
-    }
-}
-
-fn push_ws_class(
-    uri: &Url,
-    text: &str,
-    c: &ClassDecl,
-    container: Option<&str>,
-    q_lower: &str,
-    out: &mut Vec<SymbolInformation>,
-    cap: usize,
-) {
-    let kw = if c.is_union {
-        "union"
-    } else if c.is_repr_c {
-        "struct"
-    } else {
-        "class"
-    };
-    let kind = if c.is_union || c.is_repr_c {
-        SymbolKind::STRUCT
-    } else {
-        SymbolKind::CLASS
-    };
-    push_ws_sym(
-        uri, text, c.span, kw, c.name.as_str(), kind, container, q_lower, out,
-    );
-    let class_name = c.name.as_str();
-    for f in c.fields.iter() {
-        if out.len() >= cap { return; }
-        push_ws_sym_at_span(
-            uri, f.span, f.name.as_str(),
-            SymbolKind::FIELD, Some(class_name), q_lower, out,
-        );
-    }
-    for f in c.static_fields.iter() {
-        if out.len() >= cap { return; }
-        let k = if f.is_const { SymbolKind::CONSTANT } else { SymbolKind::FIELD };
-        push_ws_sym_at_span(
-            uri, f.span, f.name.as_str(),
-            k, Some(class_name), q_lower, out,
-        );
-    }
-    for p in c.properties.iter() {
-        if out.len() >= cap { return; }
-        push_ws_sym_at_span(
-            uri, p.span, p.name.as_str(),
-            SymbolKind::PROPERTY, Some(class_name), q_lower, out,
-        );
-    }
-    for m in c.methods.iter() {
-        if out.len() >= cap { return; }
-        let k = if m.name.as_str() == "init" {
-            SymbolKind::CONSTRUCTOR
-        } else {
-            SymbolKind::METHOD
-        };
-        push_ws_sym(
-            uri, text, m.span, "fn", m.name.as_str(),
-            k, Some(class_name), q_lower, out,
-        );
-    }
-    for m in c.static_methods.iter() {
-        if out.len() >= cap { return; }
-        push_ws_sym(
-            uri, text, m.span, "fn", m.name.as_str(),
-            SymbolKind::METHOD, Some(class_name), q_lower, out,
-        );
-    }
-}
-
-/// Push a `SymbolInformation` using `locate_let_name_with_kw` to
-/// find the name's exact position; falls back to the decl span when
-/// the locate misses.
-fn push_ws_sym(
-    uri: &Url,
-    text: &str,
-    decl_span: Span,
-    kw: &str,
-    name: &str,
-    kind: SymbolKind,
-    container: Option<&str>,
-    q_lower: &str,
-    out: &mut Vec<SymbolInformation>,
-) {
-    if !subsequence_ci(name, q_lower) {
-        return;
-    }
-    let name_span = text::locate_let_name_with_kw(text, decl_span, kw, name)
-        .unwrap_or(decl_span);
-    let range = text::span_to_range(name_span, name.len());
-    push_sym(uri, range, name, kind, container, out);
-}
-
-/// Variant of `push_ws_sym` for decls whose `span` already sits at
-/// the name (struct / union fields, enum variants, properties).
-fn push_ws_sym_at_span(
-    uri: &Url,
-    name_span: Span,
-    name: &str,
-    kind: SymbolKind,
-    container: Option<&str>,
-    q_lower: &str,
-    out: &mut Vec<SymbolInformation>,
-) {
-    if !subsequence_ci(name, q_lower) {
-        return;
-    }
-    let range = text::span_to_range(name_span, name.len());
-    push_sym(uri, range, name, kind, container, out);
-}
-
-#[allow(deprecated)]
-fn push_sym(
-    uri: &Url,
-    range: Range,
-    name: &str,
-    kind: SymbolKind,
-    container: Option<&str>,
-    out: &mut Vec<SymbolInformation>,
-) {
-    out.push(SymbolInformation {
-        name: name.to_string(),
-        kind,
-        tags: None,
-        deprecated: None,
-        location: Location { uri: uri.clone(), range },
-        container_name: container.map(|s| s.to_string()),
-    });
-}
 
 fn render_fn_detail(f: &FnDecl) -> String {
     let params = f

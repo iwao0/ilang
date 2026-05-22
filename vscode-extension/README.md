@@ -98,7 +98,9 @@ The extension looks for the `ilang-lsp` binary in this order:
   classes / interfaces / enums / consts / structs / unions and
   their members (fields, methods, properties, static members,
   enum variants). Query matches case-insensitive subsequence;
-  results capped at 2000
+  results capped at 2000. Per-file results are cached by mtime so
+  repeat queries only re-parse files whose source has actually
+  changed (open buffers always use their live text)
 - **Document symbol (outline)** — nested tree of top-level fns,
   classes (with fields / methods / properties / static members),
   interfaces, enums (with variants), consts, and `@extern(C)`

@@ -98,7 +98,9 @@ language server も自動で起動する。
   レベルの fn / class / interface / enum / const / struct /
   union と、クラスメンバ (field / method / property / static) /
   enum variant が対象。クエリは case-insensitive な subsequence
-  マッチ。最大 2000 件
+  マッチ。最大 2000 件。ファイルごとの結果は mtime をキーに
+  キャッシュし、ソースが実際に変わったファイルだけ再パース
+  する (open バッファは常にライブテキストを使用)
 - **ドキュメントシンボル (アウトライン)**: トップレベルの
   fn / class (フィールド・メソッド・プロパティ・static を
   ぶら下げる) / interface / enum (variant をぶら下げる) /
