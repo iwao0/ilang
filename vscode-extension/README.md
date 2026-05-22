@@ -79,6 +79,12 @@ The extension looks for the `ilang-lsp` binary in this order:
   - Generate `init(...)` from class fields
   - Implement missing interface methods
   - Fill match arms with all enum variants
+- **Workspace symbol** — `Cmd/Ctrl+T` search across every `.il`
+  file under the workspace's `ilang.toml`. Returns top-level fns /
+  classes / interfaces / enums / consts / structs / unions and
+  their members (fields, methods, properties, static members,
+  enum variants). Query matches case-insensitive subsequence;
+  results capped at 2000
 - **Document symbol (outline)** — nested tree of top-level fns,
   classes (with fields / methods / properties / static members),
   interfaces, enums (with variants), consts, and `@extern(C)`

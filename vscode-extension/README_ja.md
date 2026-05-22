@@ -80,6 +80,12 @@ language server も自動で起動する。
   - クラスのフィールドから `init(...)` を生成
   - 未実装のインターフェースメソッドを生成
   - match のアームを enum の全 variant で埋める
+- **ワークスペースシンボル**: `Cmd/Ctrl+T` でワークスペース
+  (ilang.toml 配下の `.il`) 全体からシンボル検索する。トップ
+  レベルの fn / class / interface / enum / const / struct /
+  union と、クラスメンバ (field / method / property / static) /
+  enum variant が対象。クエリは case-insensitive な subsequence
+  マッチ。最大 2000 件
 - **ドキュメントシンボル (アウトライン)**: トップレベルの
   fn / class (フィールド・メソッド・プロパティ・static を
   ぶら下げる) / interface / enum (variant をぶら下げる) /
