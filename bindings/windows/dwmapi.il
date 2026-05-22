@@ -85,6 +85,8 @@ pub enum DwmThumbnailFlags: u32 {
     sourceclientareaonly = 0x00000010
 }
 
+use user32 { HWND }
+
 @extern(C, "dwmapi") {
     // ── Opaque thumbnail handle ───────────────────────────────────
 
@@ -148,7 +150,7 @@ pub enum DwmThumbnailFlags: u32 {
     /// Extends the glass frame into the client area.
     /// Pass `MARGINS {-1,-1,-1,-1}` to paint the entire window as glass.
     @lib pub fn DwmExtendFrameIntoClientArea(
-        hwnd:   i64,          // *HWND
+        hwnd:   HWND,          // *HWND
         pMarInset: *const MARGINS
     ): i32
 
@@ -159,7 +161,7 @@ pub enum DwmThumbnailFlags: u32 {
     /// to the value (typically `*i32` or `*u32`), `cbAttribute`:
     /// size in bytes of that value.
     @lib pub fn DwmSetWindowAttribute(
-        hwnd:        i64,      // *HWND
+        hwnd:        HWND,      // *HWND
         dwAttribute: u32,
         pvAttribute: *const void,
         cbAttribute: u32
@@ -167,7 +169,7 @@ pub enum DwmThumbnailFlags: u32 {
 
     /// Reads a DWM attribute into `pvAttribute`.
     @lib pub fn DwmGetWindowAttribute(
-        hwnd:        i64,      // *HWND
+        hwnd:        HWND,      // *HWND
         dwAttribute: u32,
         pvAttribute: *void,
         cbAttribute: u32
@@ -177,7 +179,7 @@ pub enum DwmThumbnailFlags: u32 {
 
     /// Enables or disables blur-behind for `hwnd`.
     @lib pub fn DwmEnableBlurBehindWindow(
-        hwnd:  i64,            // *HWND
+        hwnd:  HWND,            // *HWND
         pBlurBehind: *const DWM_BLURBEHIND
     ): i32
 
@@ -186,8 +188,8 @@ pub enum DwmThumbnailFlags: u32 {
     /// Registers a thumbnail relationship between `hwndDestination`
     /// and `hwndSource`. The handle is returned in `phThumbnailId`.
     @lib pub fn DwmRegisterThumbnail(
-        hwndDestination: i64,  // *HWND
-        hwndSource:      i64,  // *HWND
+        hwndDestination: HWND,  // *HWND
+        hwndSource:      HWND,  // *HWND
         phThumbnailId:   *HTHUMBNAIL
     ): i32
 

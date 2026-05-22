@@ -102,7 +102,7 @@ pub enum DttFlags: u32 {
     composited  = 0x00002000
 }
 
-use user32 { HDC }
+use user32 { HDC, HWND }
 
 @extern(C, "uxtheme") {
     // ── Theme handle ──────────────────────────────────────────────
@@ -136,13 +136,13 @@ use user32 { HDC }
     /// Opens a theme handle for the given class name (e.g. "BUTTON",
     /// "EDIT", "SCROLLBAR", "HEADER", "TAB"). Returns NULL if themes
     /// are disabled or the class is unknown.
-    @lib pub fn OpenThemeData(hwnd: i64, pszClassList: *const u16): HTHEME
+    @lib pub fn OpenThemeData(hwnd: HWND, pszClassList: *const u16): HTHEME
 
     @lib pub fn CloseThemeData(hTheme: HTHEME): i32
 
     /// Re-opens the theme for an HWND after the OS theme changed
     /// (call from WM_THEMECHANGED).
-    @lib pub fn OpenThemeDataEx(hwnd: i64, pszClassList: *const u16, dwFlags: u32): HTHEME
+    @lib pub fn OpenThemeDataEx(hwnd: HWND, pszClassList: *const u16, dwFlags: u32): HTHEME
 
     // ── Drawing ───────────────────────────────────────────────────
 
@@ -327,13 +327,13 @@ use user32 { HDC }
     /// Sets a window's theme name override (e.g. L"Explorer"
     /// for the modern list/tree look). NULL to clear.
     @lib pub fn SetWindowTheme(
-        hwnd:           i64,
+        hwnd:           HWND,
         pszSubAppName:  *const u16,
         pszSubIdList:   *const u16
     ): i32
 
     /// Reapplies the active theme to `hwnd` (call from WM_THEMECHANGED).
-    @lib pub fn EnableThemeDialogTexture(hwnd: i64, dwFlags: u32): i32
+    @lib pub fn EnableThemeDialogTexture(hwnd: HWND, dwFlags: u32): i32
     @lib pub fn EnableTheming(fEnable: i32): i32
 
     /// Returns the file system path to the .msstyles file currently active.

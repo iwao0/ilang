@@ -17,6 +17,8 @@
 /// IDCompositionDevice / Visual / Target methods aren't bound at
 /// the ilang call level — walk the COM vtables.
 
+use user32 { HWND }
+
 @extern(C, "dcomp") {
     /// `DCompositionCreateDevice(dxgiDevice, iid, ppDevice)`.
     /// `dxgiDevice` is an `*IDXGIDevice` (or NULL for a Software
@@ -87,13 +89,13 @@
     /// Notify the compositor that the calling visual / surface is
     /// off-screen and animations can pause.
     @lib pub fn DCompositionAttachMouseDragToHwnd(
-        hwnd:    i64,
+        hwnd:    HWND,
         enable:  i32
     ): i32
 
     /// Wheel-drag attach — see Win10 build 19041+.
     @lib pub fn DCompositionAttachMouseWheelToHwnd(
-        hwnd:    i64,
+        hwnd:    HWND,
         enable:  i32
     ): i32
 }

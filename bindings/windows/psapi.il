@@ -14,6 +14,8 @@ pub enum ListModulesFilter: u32 {
     all     = 0x03   // bit32 | bit64
 }
 
+use kernel32 { HMODULE, HANDLE }
+
 @extern(C, "psapi") {
     // ── MODULEINFO — 24 bytes on x64 ─────────────────────────────
 
@@ -100,16 +102,16 @@ pub enum ListModulesFilter: u32 {
     /// `lphModule`: receives HMODULE values; `cb` is buffer byte size;
     /// `lpcbNeeded`: receives required byte count.
     @lib pub fn EnumProcessModules(
-        hProcess:   *void,
-        lphModule:  *void,    // *HMODULE array
+        hProcess:   HANDLE,
+        lphModule:  *HMODULE,
         cb:         u32,
         lpcbNeeded: *u32
     ): i32
 
     /// Like EnumProcessModules but with explicit bitness filter.
     @lib pub fn EnumProcessModulesEx(
-        hProcess:   *void,
-        lphModule:  *void,
+        hProcess:   HANDLE,
+        lphModule:  *HMODULE,
         cb:         u32,
         lpcbNeeded: *u32,
         dwFilterFlag: u32      // ListModulesFilter.*

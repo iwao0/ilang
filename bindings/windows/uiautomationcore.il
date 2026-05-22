@@ -100,11 +100,13 @@ pub enum UiaTreeScope: i32 {
     subtree     = 0x7        // element | children | descendants
 }
 
+use user32 { HWND }
+
 @extern(C, "UIAutomationCore") {
     /// Provider-side return helper. Call from WM_GETOBJECT.
     /// Returns the LRESULT to pass back from your WndProc.
     @lib pub fn UiaReturnRawElementProvider(
-        hwnd:     i64,
+        hwnd:     HWND,
         wParam:   u64,
         lParam:   i64,
         el:       *void          // *IRawElementProviderSimple
@@ -160,7 +162,7 @@ pub enum UiaTreeScope: i32 {
 
     /// Element from an HWND.
     @lib pub fn UiaNodeFromHandle(
-        hwnd:    i64,
+        hwnd:    HWND,
         ppNode:  **void
     ): i32
 
@@ -173,7 +175,7 @@ pub enum UiaTreeScope: i32 {
     /// `UiaHostProviderFromHwnd(hwnd, &provider)` — system-supplied
     /// fragment root for a vanilla HWND.
     @lib pub fn UiaHostProviderFromHwnd(
-        hwnd:        i64,
+        hwnd:        HWND,
         ppProvider:  **void
     ): i32
 

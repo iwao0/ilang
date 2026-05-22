@@ -16,7 +16,7 @@
 ///   then, which the call sites skip).
 
 use windows {
-    HWND, HINSTANCE, ACTCTXW,
+    HWND, HINSTANCE, HMODULE, ACTCTXW,
     CreateActCtxW, ActivateActCtx, GetTempPathA,
     CreateFileA, WriteFile, CloseHandle, HANDLE,
     FileAccess, FileCreation, FileAttribute,
@@ -201,7 +201,7 @@ pub fn enableComctl32V6() {
         lpAssemblyDirectory:    0 as *const u16,
         lpResourceName:         0 as *const u16,
         lpApplicationName:      0 as *const u16,
-        hModule:                0 as i64,
+        hModule:                0 as HMODULE,
     }
     let h = CreateActCtxW(&actCtx)
     if h != -1 as i64 {
@@ -235,7 +235,7 @@ pub fn enableComctl32V6() {
 /// controls pick up the modern rounded / hover-shaded look. No-op
 /// when the v6 activation context isn't live (i.e. the EXE's
 /// manifest already pinned an older theme, or the host lacks v6).
-pub fn applyExplorerTheme(hwnd: i64) {
+pub fn applyExplorerTheme(hwnd: HWND) {
     if EXPLORER_THEME[0] != 0 as i64 {
         SetWindowTheme(
             hwnd,
@@ -284,11 +284,11 @@ pub fn ensureGuiFont(): i64 {
 /// control to redraw. Idempotent and a no-op if the font cache
 /// is empty (couldn't allocate the font for whatever reason —
 /// the control just keeps the system default).
-pub fn applyGuiFont(hwnd: i64) {
+pub fn applyGuiFont(hwnd: HWND) {
     let h = ensureGuiFont()
     if h == 0 as i64 { return }
     SendMessageA(
-        hwnd as HWND,
+        hwnd,
         0x0030 as u32,        // WM_SETFONT
         h as u64,
         1 as i64

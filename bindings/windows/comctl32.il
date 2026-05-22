@@ -95,6 +95,8 @@ pub enum ImageListFlags: u32 {
     highQualityScale = 0x00020000
 }
 
+use user32 { HWND }
+
 @extern(C, "comctl32") {
     // ── Bootstrap ────────────────────────────────────────────────
 
@@ -120,7 +122,7 @@ pub enum ImageListFlags: u32 {
     /// Returns 0 (S_OK) on success and writes the chosen button id
     /// to `*pnButton` (TaskDialogResult or a custom radio id).
     @lib pub fn TaskDialog(
-        hwndOwner:        i64,                 // *HWND
+        hwndOwner:        HWND,                 // *HWND
         hInstance:        i64,                 // *HINSTANCE for resource ids
         pszWindowTitle:   *const u16,
         pszMainInstruction: *const u16,
@@ -163,19 +165,19 @@ pub enum ImageListFlags: u32 {
 
     /// Default window procedure for subclassed controls. Bind via
     /// `MAKELONG(ctrlId, 0)` callbacks etc.
-    @lib pub fn DefSubclassProc(hWnd: i64, uMsg: u32, wParam: u64, lParam: i64): i64
+    @lib pub fn DefSubclassProc(hWnd: HWND, uMsg: u32, wParam: u64, lParam: i64): i64
 
     /// Subclass a window. `uIdSubclass` distinguishes multiple
     /// subclassings on the same HWND. Returns TRUE on success.
     @lib pub fn SetWindowSubclass(
-        hWnd:        i64,
+        hWnd:        HWND,
         pfnSubclass: fn(i64, u32, u64, i64, u64, u64): i64,
         uIdSubclass: u64,
         dwRefData:   u64
     ): i32
 
     @lib pub fn RemoveWindowSubclass(
-        hWnd:        i64,
+        hWnd:        HWND,
         pfnSubclass: fn(i64, u32, u64, i64, u64, u64): i64,
         uIdSubclass: u64
     ): i32

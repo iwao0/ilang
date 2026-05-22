@@ -132,11 +132,13 @@ pub enum AccState: u32 {
     hasPopup       = 0x40000000
 }
 
+use user32 { HWND }
+
 @extern(C, "oleacc") {
     /// Get an `IAccessible` for `hwnd`. `dwObjectID` is `AccObjId.*`.
     /// `riid` is `IID_IAccessible` or `IID_IDispatch`. Returns S_OK.
     @lib pub fn AccessibleObjectFromWindow(
-        hwnd:        i64,
+        hwnd:        HWND,
         dwObjectID:  u32,
         riid:        *const void,        // *GUID
         ppvObject:   **void
@@ -152,7 +154,7 @@ pub enum AccState: u32 {
 
     /// `IAccessible` from an `IAccessible.accNavigate` event payload.
     @lib pub fn AccessibleObjectFromEvent(
-        hwnd:        i64,
+        hwnd:        HWND,
         dwObjectID:  u32,
         dwChildID:   u32,
         ppacc:       **void,
@@ -187,7 +189,7 @@ pub enum AccState: u32 {
     /// Helper for legacy controls — wraps `OBJID_NATIVEOM` for
     /// objects that store private data outside MSAA.
     @lib pub fn CreateStdAccessibleObject(
-        hwnd: i64,
+        hwnd: HWND,
         idObject: i32,
         riid: *const void,
         ppvObject: **void
@@ -210,7 +212,7 @@ pub enum AccState: u32 {
     /// also exported by user32, mirrored here for completeness.
     @lib pub fn NotifyWinEvent(
         event:    u32,
-        hwnd:     i64,
+        hwnd:     HWND,
         idObject: i32,
         idChild:  i32
     )

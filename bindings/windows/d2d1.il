@@ -76,6 +76,8 @@ pub enum D2dPresentOptions: u32 {
     immediately     = 2
 }
 
+use user32 { HWND }
+
 @extern(C, "d2d1") {
     /// 32-bpp pixel format spec used by render targets / bitmaps.
     pub struct D2D1_PIXEL_FORMAT {
@@ -134,7 +136,7 @@ pub enum D2dPresentOptions: u32 {
 
     /// HWND-specific render-target properties.
     pub struct D2D1_HWND_RENDER_TARGET_PROPERTIES {
-        hwnd:           i64                // *HWND
+        hwnd:           HWND                // *HWND
         pixelSize:      D2D1_SIZE_U
         presentOptions: u32                // D2dPresentOptions
     }

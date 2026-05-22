@@ -50,7 +50,7 @@ pub fn createNativeGroupBox(
     )
     HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
     HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
-    applyGuiFont(hwnd as i64)
+    applyGuiFont(hwnd)
     let handle = hwnd as i64
     GROUPBOXES[handle] = new GroupBoxSlot(hwnd)
     handle

@@ -15,6 +15,8 @@ pub enum BluetoothSearchFlag: u32 {
     returnAll         = 0x1F
 }
 
+use user32 { HWND }
+
 @extern(C, "BluetoothApis", "bthprops.cpl") {
     /// 48-bit MAC address (8 bytes — 6 active + 2 padding).
     pub struct BLUETOOTH_ADDRESS {
@@ -88,7 +90,7 @@ pub enum BluetoothSearchFlag: u32 {
     // ── Pairing / authentication ────────────────────────────────
 
     @lib pub fn BluetoothAuthenticateDeviceEx(
-        hwndParentIn: i64,
+        hwndParentIn: HWND,
         hRadioIn:     i64,
         pbtdiInOut:   *BLUETOOTH_DEVICE_INFO,
         pbtOobData:   *void,

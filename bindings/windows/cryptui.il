@@ -34,6 +34,8 @@ pub enum CryptUiWizExportFlags: u32 {
     ignoreErr           = 0x00000004
 }
 
+use user32 { HWND }
+
 @extern(C, "cryptui") {
     /// CRYPTUI_VIEWCERTIFICATE_STRUCTA — pass to
     /// `CryptUIDlgViewCertificateA` to show the standard
@@ -42,7 +44,7 @@ pub enum CryptUiWizExportFlags: u32 {
     pub struct CRYPTUI_VIEWCERTIFICATE_STRUCTA {
         dwSize:              u32
         _pad:                u32
-        hwndParent:          i64
+        hwndParent:          HWND
         dwFlags:             u32
         szTitle:             *const char
         pCertContext:        *const void   // *CERT_CONTEXT
@@ -75,7 +77,7 @@ pub enum CryptUiWizExportFlags: u32 {
     /// `*CERT_CONTEXT` or NULL on cancel.
     @lib pub fn CryptUIDlgSelectCertificateFromStore(
         hCertStore:    i64,
-        hwnd:          i64,
+        hwnd:          HWND,
         pwszTitle:     *const u16,
         pwszDisplayString: *const u16,
         dwDontUseColumn: u32,
@@ -86,7 +88,7 @@ pub enum CryptUiWizExportFlags: u32 {
     /// "Add to Trusted Roots" prompt.
     @lib pub fn CryptUIWizImport(
         dwFlags:        u32,
-        hwndParent:     i64,
+        hwndParent:     HWND,
         pwszWizardTitle: *const u16,
         pImportSrc:     *const void,        // *CRYPTUI_WIZ_IMPORT_SRC_INFO
         hDestCertStore: i64
@@ -95,7 +97,7 @@ pub enum CryptUiWizExportFlags: u32 {
     /// Export to .pfx / .cer / .p7b.
     @lib pub fn CryptUIWizExport(
         dwFlags:        u32,
-        hwndParent:     i64,
+        hwndParent:     HWND,
         pwszWizardTitle: *const u16,
         pExportInfo:    *const void,        // *CRYPTUI_WIZ_EXPORT_INFO
         pvoid:          *const void
@@ -108,7 +110,7 @@ pub enum CryptUiWizExportFlags: u32 {
     @lib pub fn CryptUIDlgViewContext(
         dwContextType:  u32,                // CERT_STORE_CERTIFICATE_CONTEXT etc.
         pvContext:      *const void,
-        hwnd:           i64,
+        hwnd:           HWND,
         pwszTitle:      *const u16,
         dwFlags:        u32,
         pvReserved:     *void

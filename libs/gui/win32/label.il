@@ -48,7 +48,7 @@ pub fn createNativeLabel(
     )
     HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
     HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
-    applyGuiFont(hwnd as i64)
+    applyGuiFont(hwnd)
     let handle = hwnd as i64
     LABELS[handle] = new LabelSlot(hwnd)
     handle

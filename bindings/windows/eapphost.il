@@ -5,6 +5,8 @@
 /// disk). Pair with `wlanapi.WlanSetProfile` to install the
 /// resulting profile.
 
+use user32 { HWND }
+
 @extern(C, "eappcfg") {
     /// 8-byte EAP method id — (vendor_id, type_id) pair plus a 3-byte
     /// reserved field, packed.
@@ -54,7 +56,7 @@
     ): u32
 
     @lib pub fn EapHostPeerInvokeConfigUI(
-        hwndParent:     i64,
+        hwndParent:     HWND,
         dwFlags:        u32,
         eapMethodType:  *const EAP_METHOD_TYPE,
         dwSizeOfConfigIn: u32,
@@ -75,7 +77,7 @@
     ): u32
 
     @lib pub fn EapHostPeerInvokeIdentityUI(
-        hwndParent:     i64,
+        hwndParent:     HWND,
         dwVersion:      u32,
         dwFlags:        u32,
         eapMethodType:  *const EAP_METHOD_TYPE,

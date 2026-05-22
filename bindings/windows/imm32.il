@@ -74,6 +74,8 @@ pub enum ImeNotifyAction: u32 {
     imeMenuSelected   = 0x0018
 }
 
+use user32 { HWND }
+
 @extern(C, "imm32") {
     // ── Opaque handle ─────────────────────────────────────────────
 
@@ -110,9 +112,9 @@ pub enum ImeNotifyAction: u32 {
 
     /// Returns the IME context for `hwnd`.  Always pair with
     /// `ImmReleaseContext`.
-    @lib pub fn ImmGetContext(hwnd: i64): HIMC
+    @lib pub fn ImmGetContext(hwnd: HWND): HIMC
 
-    @lib pub fn ImmReleaseContext(hwnd: i64, himc: HIMC): i32
+    @lib pub fn ImmReleaseContext(hwnd: HWND, himc: HIMC): i32
 
     /// Creates a new IME context; rarely needed (default contexts
     /// are created automatically per window).
@@ -122,7 +124,7 @@ pub enum ImeNotifyAction: u32 {
 
     /// Associates `himc` with `hwnd`.  Returns the previously
     /// associated context.
-    @lib pub fn ImmAssociateContext(hwnd: i64, himc: HIMC): HIMC
+    @lib pub fn ImmAssociateContext(hwnd: HWND, himc: HIMC): HIMC
 
     // ── Composition string ────────────────────────────────────────
 

@@ -69,8 +69,8 @@ pub fn createNativeCheckbox(
     HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
-    applyExplorerTheme(hwnd as i64)
-    applyGuiFont(hwnd as i64)
+    applyExplorerTheme(hwnd)
+    applyGuiFont(hwnd)
     // BM_SETCHECK = 0x00F1.
     let checkedW: u64 = if checked { 1 as u64 } else { 0 as u64 }
     SendMessageA(hwnd, 0x00F1 as u32, checkedW, 0 as i64)

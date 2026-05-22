@@ -144,7 +144,7 @@ use user32 { HINSTANCE, HICON, HWND }
     /// Describes a file-system operation for `SHFileOperationA`.
     /// `pFrom` and `pTo` are double-NUL-terminated string lists.
     pub struct SHFILEOPERATIONA {
-        hwnd:                  i64      // *HWND — owner window
+        hwnd:                  HWND      // *HWND — owner window
         wFunc:                 u32      // FileOpFunc
         // 4 bytes implicit padding before pointer
         pFrom:                 *const char
@@ -168,7 +168,7 @@ use user32 { HINSTANCE, HICON, HWND }
     /// `nShowCmd`: ShowCmd.show etc. Returns a pseudo-HINSTANCE;
     /// values > 32 mean success.
     @lib pub fn ShellExecuteA(
-        hwnd:        i64,           // *HWND, or 0
+        hwnd:        HWND,           // *HWND, or 0
         lpOperation: *const char,
         lpFile:      *const char,
         lpParameters: *const char,
@@ -182,7 +182,7 @@ use user32 { HINSTANCE, HICON, HWND }
     /// CSIDL folder. `hToken`: 0 for the current user.
     /// `dwFlags`: 0 = return verified path; CSIDL.flagCreate to create.
     @lib pub fn SHGetFolderPathA(
-        hwnd:    i64,          // *HWND owner, or 0
+        hwnd:    HWND,          // *HWND owner, or 0
         csidl:   i32,          // CSIDL.*
         hToken:  i64,          // token, or 0
         dwFlags: u32,
@@ -201,7 +201,7 @@ use user32 { HINSTANCE, HICON, HWND }
     /// Registers `hwnd` to accept WM_DROPFILES messages when
     /// files are dragged onto the window.
     /// Call `DragAcceptFiles(hwnd, 0)` to unregister.
-    @lib pub fn DragAcceptFiles(hwnd: i64, fAccept: i32)
+    @lib pub fn DragAcceptFiles(hwnd: HWND, fAccept: i32)
 
     /// Returns the number of files in the drop, or 0xFFFFFFFF if
     /// `iFile` is 0xFFFFFFFF (returns count without copying).
@@ -229,7 +229,7 @@ use user32 { HINSTANCE, HICON, HWND }
     /// Legacy CSIDL → path. Same as SHGetFolderPathA with hToken
     /// = 0; kept for Win9x compatibility code.
     @lib pub fn SHGetSpecialFolderPathA(
-        hwnd:    i64,
+        hwnd:    HWND,
         pszPath: *char,
         csidl:   i32,
         fCreate: i32
@@ -248,7 +248,7 @@ use user32 { HINSTANCE, HICON, HWND }
 
     /// Create a directory and any missing parents.
     @lib pub fn SHCreateDirectoryExA(
-        hwnd:    i64,
+        hwnd:    HWND,
         pszPath: *const char,
         psa:     *void           // *SECURITY_ATTRIBUTES, may be 0
     ): i32
@@ -259,7 +259,7 @@ use user32 { HINSTANCE, HICON, HWND }
     /// `pszRootPath` is NULL). `dwFlags`: 1 = no confirmation,
     /// 2 = no progress, 4 = no sound.
     @lib pub fn SHEmptyRecycleBinA(
-        hwnd:        i64,
+        hwnd:        HWND,
         pszRootPath: *const char,
         dwFlags:     u32
     ): i32

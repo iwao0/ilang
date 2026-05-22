@@ -65,6 +65,8 @@ pub enum SessionNotifyFlags: u32 {
 //   WTS_CURRENT_SESSION = 0xFFFFFFFF  → current session
 //   WTS_CURRENT_SERVER  = 0 as *void  → local server
 
+use user32 { HWND }
+
 @extern(C, "wtsapi32") {
     // ── WTS_SESSION_INFO — 32 bytes on x64 ───────────────────────
 
@@ -123,11 +125,11 @@ pub enum SessionNotifyFlags: u32 {
     ///   0x6=remote disconnect, 0x7=session logon, 0x8=session logoff,
     ///   0x9=session lock, 0xA=session unlock, 0xB=session remote control.
     @lib pub fn WTSRegisterSessionNotification(
-        hwnd:    i64,                // *HWND
+        hwnd:    HWND,                // *HWND
         dwFlags: u32
     ): i32
 
-    @lib pub fn WTSUnRegisterSessionNotification(hwnd: i64): i32
+    @lib pub fn WTSUnRegisterSessionNotification(hwnd: HWND): i32
 
     // ── Session control ──────────────────────────────────────────
 

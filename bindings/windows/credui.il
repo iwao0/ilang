@@ -36,12 +36,14 @@ pub enum CredUiResult: u32 {
     insufficientBuffer = 122
 }
 
+use user32 { HWND }
+
 @extern(C, "credui") {
     /// `CREDUI_INFOW` — visual customisation for the prompt.
     /// All fields except `cbSize` (must be 40 on x64) are optional.
     pub struct CREDUI_INFOW {
         cbSize:         u32
-        hwndParent:     i64                  // *HWND
+        hwndParent:     HWND                  // *HWND
         pszMessageText: *const u16
         pszCaptionText: *const u16
         hbmBanner:      i64                  // *HBITMAP — optional

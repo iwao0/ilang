@@ -322,7 +322,7 @@ pub enum StdHandle: u32 {
         lpAssemblyDirectory:   *const u16
         lpResourceName:        *const u16
         lpApplicationName:     *const u16
-        hModule:               i64        // *HMODULE
+        hModule:               HMODULE
     }
 
     /// Build a side-by-side activation context. Use this to load

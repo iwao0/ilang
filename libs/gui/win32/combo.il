@@ -68,7 +68,7 @@ pub fn createNativeCombo(
     HeapFree(GetProcessHeap(), 0 as u32, emptyW as *void)
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
-    applyGuiFont(hwnd as i64)
+    applyGuiFont(hwnd)
     let handle = hwnd as i64
     COMBOS[handle] = new ComboSlot(hwnd)
     handle
