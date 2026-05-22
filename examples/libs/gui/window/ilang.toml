@@ -2,4 +2,4 @@
 name = "gui_window_example"
 
 [deps]
-gui = "../../../../libs/gui/core"
+gui = "../../../../libs/gui"
