@@ -36,6 +36,7 @@ use edit     { tryEditChange }
 use combo    { tryComboSelect }
 use list     { tryListSelect }
 use slider   { trySliderChange }
+use super.event
 
 // ─── modifier helpers (GetKeyState high-bit set ⇒ pressed) ─────
 
@@ -49,54 +50,63 @@ fn modMeta():  bool { keyDown(VirtualKey.lWin as i32) || keyDown(VirtualKey.rWin
 
 // ─── VirtualKey → W3C KeyboardEvent.code ──────────────────────
 
-fn vkToString(vk: u32): string {
+fn vkToString(vk: VirtualKey): string {
+    vkToEnum(vk) as string
+}
+
+/// Win32 virtual key codes (`windows.VirtualKey`) → the parent
+/// package's `event.KeyCode` (W3C `KeyboardEvent.code`). Unmapped
+/// keys fall through to `event.KeyCode.unknown`; the caller then
+/// serialises that into the discriminant string for the
+/// cross-package callback ABI.
+fn vkToEnum(vk: VirtualKey): event.KeyCode {
     match vk {
-        0x41 { "KeyA" }
-        0x42 { "KeyB" }
-        0x43 { "KeyC" }
-        0x44 { "KeyD" }
-        0x45 { "KeyE" }
-        0x46 { "KeyF" }
-        0x47 { "KeyG" }
-        0x48 { "KeyH" }
-        0x49 { "KeyI" }
-        0x4A { "KeyJ" }
-        0x4B { "KeyK" }
-        0x4C { "KeyL" }
-        0x4D { "KeyM" }
-        0x4E { "KeyN" }
-        0x4F { "KeyO" }
-        0x50 { "KeyP" }
-        0x51 { "KeyQ" }
-        0x52 { "KeyR" }
-        0x53 { "KeyS" }
-        0x54 { "KeyT" }
-        0x55 { "KeyU" }
-        0x56 { "KeyV" }
-        0x57 { "KeyW" }
-        0x58 { "KeyX" }
-        0x59 { "KeyY" }
-        0x5A { "KeyZ" }
-        0x30 { "Digit0" }
-        0x31 { "Digit1" }
-        0x32 { "Digit2" }
-        0x33 { "Digit3" }
-        0x34 { "Digit4" }
-        0x35 { "Digit5" }
-        0x36 { "Digit6" }
-        0x37 { "Digit7" }
-        0x38 { "Digit8" }
-        0x39 { "Digit9" }
-        0x0D { "Enter" }
-        0x1B { "Escape" }
-        0x08 { "Backspace" }
-        0x09 { "Tab" }
-        0x20 { "Space" }
-        0x25 { "ArrowLeft" }
-        0x26 { "ArrowUp" }
-        0x27 { "ArrowRight" }
-        0x28 { "ArrowDown" }
-        _    { "" }
+        VirtualKey.a       { event.KeyCode.keyA }
+        VirtualKey.b       { event.KeyCode.keyB }
+        VirtualKey.c       { event.KeyCode.keyC }
+        VirtualKey.d       { event.KeyCode.keyD }
+        VirtualKey.e       { event.KeyCode.keyE }
+        VirtualKey.f       { event.KeyCode.keyF }
+        VirtualKey.g       { event.KeyCode.keyG }
+        VirtualKey.h       { event.KeyCode.keyH }
+        VirtualKey.i       { event.KeyCode.keyI }
+        VirtualKey.j       { event.KeyCode.keyJ }
+        VirtualKey.k       { event.KeyCode.keyK }
+        VirtualKey.l       { event.KeyCode.keyL }
+        VirtualKey.m       { event.KeyCode.keyM }
+        VirtualKey.n       { event.KeyCode.keyN }
+        VirtualKey.o       { event.KeyCode.keyO }
+        VirtualKey.p       { event.KeyCode.keyP }
+        VirtualKey.q       { event.KeyCode.keyQ }
+        VirtualKey.r       { event.KeyCode.keyR }
+        VirtualKey.s       { event.KeyCode.keyS }
+        VirtualKey.t       { event.KeyCode.keyT }
+        VirtualKey.u       { event.KeyCode.keyU }
+        VirtualKey.v       { event.KeyCode.keyV }
+        VirtualKey.w       { event.KeyCode.keyW }
+        VirtualKey.x       { event.KeyCode.keyX }
+        VirtualKey.y       { event.KeyCode.keyY }
+        VirtualKey.z       { event.KeyCode.keyZ }
+        VirtualKey.d0      { event.KeyCode.digit0 }
+        VirtualKey.d1      { event.KeyCode.digit1 }
+        VirtualKey.d2      { event.KeyCode.digit2 }
+        VirtualKey.d3      { event.KeyCode.digit3 }
+        VirtualKey.d4      { event.KeyCode.digit4 }
+        VirtualKey.d5      { event.KeyCode.digit5 }
+        VirtualKey.d6      { event.KeyCode.digit6 }
+        VirtualKey.d7      { event.KeyCode.digit7 }
+        VirtualKey.d8      { event.KeyCode.digit8 }
+        VirtualKey.d9      { event.KeyCode.digit9 }
+        VirtualKey.enter   { event.KeyCode.enter }
+        VirtualKey.escape  { event.KeyCode.escape }
+        VirtualKey.back    { event.KeyCode.backspace }
+        VirtualKey.tab     { event.KeyCode.tab }
+        VirtualKey.space   { event.KeyCode.space }
+        VirtualKey.left    { event.KeyCode.arrowLeft }
+        VirtualKey.right   { event.KeyCode.arrowRight }
+        VirtualKey.down    { event.KeyCode.arrowDown }
+        VirtualKey.up      { event.KeyCode.arrowUp }
+        _                  { event.KeyCode.unknown }
     }
 }
 
@@ -157,12 +167,12 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             return 0
         }
         WindowMessage.keydown {
-            dispatchKeyDown(hwnd, vkToString(wParam as u32),
+            dispatchKeyDown(hwnd, vkToString(wParam as u32 as VirtualKey),
                             modCtrl(), modShift(), modAlt(), modMeta())
             return 0
         }
         WindowMessage.keyup {
-            dispatchKeyUp(hwnd, vkToString(wParam as u32),
+            dispatchKeyUp(hwnd, vkToString(wParam as u32 as VirtualKey),
                           modCtrl(), modShift(), modAlt(), modMeta())
             return 0
         }
