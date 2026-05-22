@@ -139,6 +139,9 @@ impl LanguageServer for Backend {
                 references_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
+                call_hierarchy_provider: Some(
+                    CallHierarchyServerCapability::Simple(true),
+                ),
                 completion_provider: Some(CompletionOptions {
                     // `:` triggers type-position completion
                     // (`let x: …`, `fn f(p: …)`, `class C : …`).
@@ -1661,6 +1664,75 @@ impl LanguageServer for Backend {
         } else {
             Ok(Some(out))
         }
+    }
+
+    async fn prepare_call_hierarchy(
+        &self,
+        p: CallHierarchyPrepareParams,
+    ) -> LspResult<Option<Vec<CallHierarchyItem>>> {
+        let uri = p.text_document_position_params.text_document.uri;
+        let pos = p.text_document_position_params.position;
+        let docs = self.docs.lock().unwrap();
+        let Some(doc) = docs.get(&uri) else { return Ok(None) };
+        let text = doc.text.clone();
+        let Some(item) = call_hierarchy::prepare(uri, pos, doc, &text) else {
+            return Ok(None);
+        };
+        drop(docs);
+        // Resolve full_range against the file's text — `doc.text`
+        // when same file, otherwise read from disk.
+        let same_file_text = self
+            .docs
+            .lock()
+            .unwrap()
+            .get(&item.uri)
+            .map(|d| d.text.clone());
+        let target_text = same_file_text.unwrap_or_else(|| {
+            item.uri
+                .to_file_path()
+                .ok()
+                .and_then(|p| std::fs::read_to_string(&p).ok())
+                .unwrap_or_default()
+        });
+        let full_range = call_hierarchy::full_range_for(&item, &target_text);
+        Ok(Some(vec![item.to_item(full_range)]))
+    }
+
+    async fn incoming_calls(
+        &self,
+        p: CallHierarchyIncomingCallsParams,
+    ) -> LspResult<Option<Vec<CallHierarchyIncomingCall>>> {
+        let Some(data) = p.item.data.as_ref() else { return Ok(None) };
+        let Some(item) = call_hierarchy::ItemRef::from_data(data) else {
+            return Ok(None);
+        };
+        let snapshot: HashMap<Url, crate::types::Doc> =
+            self.docs.lock().unwrap().clone();
+        let calls = call_hierarchy::incoming_calls(&item, &snapshot);
+        if calls.is_empty() { Ok(None) } else { Ok(Some(calls)) }
+    }
+
+    async fn outgoing_calls(
+        &self,
+        p: CallHierarchyOutgoingCallsParams,
+    ) -> LspResult<Option<Vec<CallHierarchyOutgoingCall>>> {
+        let Some(data) = p.item.data.as_ref() else { return Ok(None) };
+        let Some(item) = call_hierarchy::ItemRef::from_data(data) else {
+            return Ok(None);
+        };
+        // Outgoing analysis runs against the item's home file. Prefer
+        // the live buffer when open, else load from disk.
+        let live = self.docs.lock().unwrap().get(&item.uri).cloned();
+        let doc = match live {
+            Some(d) => d,
+            None => {
+                let Ok(p) = item.uri.to_file_path() else { return Ok(None) };
+                let Some(d) = analyse_path_to_doc(&p) else { return Ok(None) };
+                d
+            }
+        };
+        let calls = call_hierarchy::outgoing_calls(&item, &doc);
+        if calls.is_empty() { Ok(None) } else { Ok(Some(calls)) }
     }
 
     async fn semantic_tokens_full(

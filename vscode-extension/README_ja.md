@@ -90,6 +90,13 @@ language server も自動で起動する。
   fn / class (フィールド・メソッド・プロパティ・static を
   ぶら下げる) / interface / enum (variant をぶら下げる) /
   const / `@extern(C)` の項目を階層化して返す
+- **コールヒエラルキー**: fn / method / static method 上で
+  `Show Call Hierarchy` を呼ぶと、呼び出し元 (incoming) と
+  呼び出し先 (outgoing) のツリーが開く。呼び出し元は
+  ワークスペースの `ilang.toml` から辿れる `.il` 全体を、呼び
+  出し先は関数本体内の解決済み参照を集める。型ヒエラルキーは
+  ピン留めされている `lsp-types 0.94` が LSP 3.17 の
+  `typeHierarchyProvider` に対応していないため未提供
 - **セマンティックトークン**: 識別子を class / interface /
   enum / enumMember / struct / function / method / property /
   parameter / variable / namespace に分類し、該当箇所に

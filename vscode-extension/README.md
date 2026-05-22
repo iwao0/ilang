@@ -89,6 +89,13 @@ The extension looks for the `ilang-lsp` binary in this order:
   classes (with fields / methods / properties / static members),
   interfaces, enums (with variants), consts, and `@extern(C)`
   items
+- **Call hierarchy** — `Show Call Hierarchy` on a fn / method /
+  static method opens a tree of callers (incoming) and callees
+  (outgoing). Caller resolution scans every `.il` reachable from
+  the workspace's `ilang.toml`; callee resolution walks the
+  function body's resolved references. Type hierarchy isn't shipped
+  because the pinned `lsp-types 0.94` predates LSP 3.17's
+  `typeHierarchyProvider` capability
 - **Semantic tokens** — classifies identifiers as class /
   interface / enum / enumMember / struct / function / method /
   property / parameter / variable / namespace, with the

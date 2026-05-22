@@ -1,6 +1,7 @@
 mod analyse;
 mod backend;
 mod builtins;
+mod call_hierarchy;
 mod code_actions;
 mod completion;
 mod diag;
