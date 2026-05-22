@@ -6,10 +6,11 @@
 use std::collections::HashMap;
 
 use ilang_ast::{
-    Block, ClassDecl, CtorArgs, Expr, ExprKind, Item, Program, Span, Stmt, StmtKind, Symbol, Type,
+    Block, ClassDecl, Expr, ExprKind, Item, Program, Span, Stmt, StmtKind, Symbol, Type,
 };
 
 use crate::error::ParseError;
+use super::walk::walk_expr_children_ref;
 
 fn check_dotted_ref(
     name: &Symbol,
@@ -88,151 +89,38 @@ fn validate_stmt(s: &Stmt, modules: &HashMap<Symbol, Symbol>) -> Result<(), Pars
 }
 
 fn validate_expr(e: &Expr, modules: &HashMap<Symbol, Symbol>) -> Result<(), ParseError> {
+    // Special arms: do the dotted-ref / type checks. The default
+    // child walk below recurses into every Expr / Block child.
     match &e.kind {
-        ExprKind::New { class, type_args, args, .. } => {
+        ExprKind::New { class, type_args, .. } => {
             check_dotted_ref(class, "", e.span, modules)?;
             for ta in type_args.iter() {
                 validate_type(ta, e.span, modules)?;
             }
-            for a in args.iter() {
-                validate_expr(a, modules)?;
-            }
         }
-        ExprKind::Cast { expr, ty }
-        | ExprKind::TypeTest { expr, ty }
-        | ExprKind::TypeDowncast { expr, ty } => {
-            validate_expr(expr, modules)?;
+        ExprKind::Cast { ty, .. }
+        | ExprKind::TypeTest { ty, .. }
+        | ExprKind::TypeDowncast { ty, .. } => {
             validate_type(ty, e.span, modules)?;
         }
-        ExprKind::FnExpr { params, ret, body } => {
+        ExprKind::FnExpr { params, ret, .. } => {
             for p in params.iter() {
                 validate_type(&p.ty, p.span, modules)?;
-                if let Some(d) = &p.default {
-                    validate_expr(d, modules)?;
-                }
             }
             if let Some(r) = ret {
                 validate_type(r, e.span, modules)?;
             }
-            validate_block(body, modules)?;
         }
-        ExprKind::Unary { expr, .. }
-        | ExprKind::Some(expr)
-        | ExprKind::Await(expr)
-        | ExprKind::Return(Some(expr))
-        | ExprKind::Break(Some(expr)) => validate_expr(expr, modules)?,
-        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
-            validate_expr(lhs, modules)?;
-            validate_expr(rhs, modules)?;
-        }
-        ExprKind::Call { args, .. } | ExprKind::SuperCall { args, .. } => {
-            for a in args.iter() {
-                validate_expr(a, modules)?;
-            }
-        }
-        ExprKind::MethodCall { obj, args, .. } => {
-            validate_expr(obj, modules)?;
-            for a in args.iter() {
-                validate_expr(a, modules)?;
-            }
-        }
-        ExprKind::Field { obj, .. } => validate_expr(obj, modules)?,
-        ExprKind::Assign { value, .. } => validate_expr(value, modules)?,
-        ExprKind::AssignField { obj, value, .. } => {
-            validate_expr(obj, modules)?;
-            validate_expr(value, modules)?;
-        }
-        ExprKind::AssignIndex { obj, index, value } => {
-            validate_expr(obj, modules)?;
-            validate_expr(index, modules)?;
-            validate_expr(value, modules)?;
-        }
-        ExprKind::EnumCtor { args, .. } => match args {
-            CtorArgs::Unit => {}
-            CtorArgs::Tuple(es) => {
-                for a in es.iter() {
-                    validate_expr(a, modules)?;
-                }
-            }
-            CtorArgs::Struct(fs) => {
-                for (_, a) in fs.iter() {
-                    validate_expr(a, modules)?;
-                }
-            }
-        },
-        ExprKind::If { cond, then_branch, else_branch } => {
-            validate_expr(cond, modules)?;
-            validate_block(then_branch, modules)?;
-            if let Some(e2) = else_branch {
-                validate_expr(e2, modules)?;
-            }
-        }
-        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
-            validate_expr(expr, modules)?;
-            validate_block(then_branch, modules)?;
-            if let Some(e2) = else_branch {
-                validate_expr(e2, modules)?;
-            }
-        }
-        ExprKind::While { cond, body } => {
-            validate_expr(cond, modules)?;
-            validate_block(body, modules)?;
-        }
-        ExprKind::Loop { body } => validate_block(body, modules)?,
-        ExprKind::ForIn { iter, body, .. } => {
-            validate_expr(iter, modules)?;
-            validate_block(body, modules)?;
-        }
-        ExprKind::Range { start, end, .. } => {
-            if let Some(s) = start {
-                validate_expr(s, modules)?;
-            }
-            if let Some(e2) = end {
-                validate_expr(e2, modules)?;
-            }
-        }
-        ExprKind::Block(b) => validate_block(b, modules)?,
-        ExprKind::Array(es) | ExprKind::Tuple(es) => {
-            for x in es.iter() {
-                validate_expr(x, modules)?;
-            }
-        }
-        ExprKind::StructLit { class, fields, .. } => {
+        ExprKind::StructLit { class, .. } => {
             check_dotted_ref(class, "", e.span, modules)?;
-            for (_, x) in fields.iter() {
-                validate_expr(x, modules)?;
-            }
         }
-        ExprKind::MapLit(entries) => {
-            for (k, v) in entries.iter() {
-                validate_expr(k, modules)?;
-                validate_expr(v, modules)?;
-            }
-        }
-        ExprKind::Match { scrutinee, arms } => {
-            validate_expr(scrutinee, modules)?;
-            for arm in arms.iter() {
-                validate_expr(&arm.body, modules)?;
-            }
-        }
-        ExprKind::Index { obj, index } => {
-            validate_expr(obj, modules)?;
-            validate_expr(index, modules)?;
-        }
-        // Leaf nodes / nodes with nothing module-qualifiable inside.
-        ExprKind::Int(_)
-        | ExprKind::Float(_)
-        | ExprKind::Bool(_)
-        | ExprKind::Str(_)
-        | ExprKind::Var(_)
-        | ExprKind::This
-        | ExprKind::None
-        | ExprKind::Continue
-        | ExprKind::Closure { .. }
-        | ExprKind::Return(None)
-        | ExprKind::Break(None) => {}
+        _ => {}
     }
-    Ok(())
+    walk_expr_children_ref(
+        e,
+        &mut |child| validate_expr(child, modules),
+        &mut |b| validate_block(b, modules),
+    )
 }
 
 fn validate_class(c: &ClassDecl, modules: &HashMap<Symbol, Symbol>) -> Result<(), ParseError> {

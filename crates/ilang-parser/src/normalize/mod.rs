@@ -19,7 +19,7 @@
 use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
-    Block, CtorArgs, Expr, ExprKind, Item, MatchArm, Program, Stmt, StmtKind, Symbol, UseAlias,
+    Block, CtorArgs, Expr, ExprKind, Item, Program, Span, Stmt, StmtKind, Symbol, UseAlias,
 };
 
 use crate::error::ParseError;
@@ -28,9 +28,11 @@ pub mod async_desugar;
 mod dealias;
 pub(crate) mod state_machine;
 mod validate;
+mod walk;
 
 use dealias::dealias_program;
 use validate::validate_program;
+use walk::fold_expr_default;
 
 /// Built-in enum names that are always available.
 const BUILTIN_ENUMS: &[&str] = &["Result"];
@@ -463,125 +465,27 @@ fn rewrite_body_with_params(body: Block, params: &[ilang_ast::Param], ctx: &Ctx)
 fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
     let span = e.span;
     let kind = match e.kind {
-        // Recurse first so any nested `module.Enum` chain in `obj`
-        // collapses (`Field(Field(Var("utils"), "Color"), "red")` →
-        // `Field(Var("utils.Color"), "red")`) before the enum-ctor
-        // check. Module-name bumping is itself a Field rewrite below.
-        ExprKind::Field { obj, name } => {
-            let obj = rewrite_expr(*obj, ctx);
-            if let ExprKind::Var(receiver) = &obj.kind {
-                match ctx.resolve_dotted_receiver(receiver, &name) {
-                    DottedResolution::Qualified(s) => {
-                        return Expr::new(ExprKind::Var(Symbol::intern(&s)), span);
-                    }
-                    DottedResolution::EnumCtor => {
-                        return Expr::new(
-                            ExprKind::EnumCtor {
-                                enum_name: receiver.clone(),
-                                variant: name,
-                                args: CtorArgs::Unit,
-                            },
-                            span,
-                        );
-                    }
-                    DottedResolution::None => {}
-                }
-            }
-            ExprKind::Field { obj: Box::new(obj), name }
-        }
+        // Receiver resolution: `module.foo` / `Enum.Variant` collapse.
+        // Recurse first so a nested chain (`Field(Field(Var("utils"),
+        // "Color"), "red")`) flattens before the enum-ctor check.
+        ExprKind::Field { obj, name } => return rewrite_field(obj, name, span, ctx),
         ExprKind::MethodCall { obj, method, args } => {
-            let obj = rewrite_expr(*obj, ctx);
-            let new_args: Vec<Expr> =
-                Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect();
-            if let ExprKind::Var(receiver) = &obj.kind {
-                match ctx.resolve_dotted_receiver(receiver, &method) {
-                    DottedResolution::Qualified(s) => {
-                        return Expr::new(
-                            ExprKind::Call {
-                                callee: Symbol::intern(&s),
-                                args: new_args.into(),
-                            },
-                            span,
-                        );
-                    }
-                    DottedResolution::EnumCtor => {
-                        return Expr::new(
-                            ExprKind::EnumCtor {
-                                enum_name: receiver.clone(),
-                                variant: method,
-                                args: CtorArgs::Tuple(new_args.into()),
-                            },
-                            span,
-                        );
-                    }
-                    DottedResolution::None => {}
-                }
-            }
-            ExprKind::MethodCall { obj: Box::new(obj), method, args: new_args.into() }
+            return rewrite_method_call(obj, method, args, span, ctx);
         }
-        // Recurse through everything else.
-        ExprKind::Unary { op, expr } => ExprKind::Unary {
-            op,
-            expr: Box::new(rewrite_expr(*expr, ctx)),
-        },
-        ExprKind::Binary { op, lhs, rhs } => ExprKind::Binary {
-            op,
-            lhs: Box::new(rewrite_expr(*lhs, ctx)),
-            rhs: Box::new(rewrite_expr(*rhs, ctx)),
-        },
-        ExprKind::Logical { op, lhs, rhs } => ExprKind::Logical {
-            op,
-            lhs: Box::new(rewrite_expr(*lhs, ctx)),
-            rhs: Box::new(rewrite_expr(*rhs, ctx)),
-        },
-        ExprKind::Cast { expr, ty } => ExprKind::Cast {
-            expr: Box::new(rewrite_expr(*expr, ctx)),
-            ty,
-        },
-        ExprKind::TypeTest { expr, ty } => ExprKind::TypeTest {
-            expr: Box::new(rewrite_expr(*expr, ctx)),
-            ty,
-        },
-        ExprKind::TypeDowncast { expr, ty } => ExprKind::TypeDowncast {
-            expr: Box::new(rewrite_expr(*expr, ctx)),
-            ty,
-        },
+        // FnExpr: closures introduce their own scope. Push the
+        // params so a closure body like `fn(device: …) { device.foo() }`
+        // dispatches `device.foo` as a value method rather than a
+        // module call. Param defaults are NOT rewritten (preserving
+        // the pre-refactor behaviour).
         ExprKind::FnExpr { params, ret, body } => {
-            // Closures introduce their own scope. Push the params so
-            // a closure body like `fn(device: …) { device.foo() }`
-            // dispatches `device.foo` as a value method rather than
-            // a module call.
             let body = rewrite_body_with_params(body, &params, ctx);
             ExprKind::FnExpr { params, ret, body }
         }
-        ExprKind::Call { callee, args } => ExprKind::Call {
-            callee,
-            args: Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
-        },
-        ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
-            class,
-            type_args,
-            args: Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
-            init_method,
-        },
-        ExprKind::Block(b) => ExprKind::Block(rewrite_block(b, ctx)),
-        ExprKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => ExprKind::If {
-            cond: Box::new(rewrite_expr(*cond, ctx)),
-            then_branch: rewrite_block(then_branch, ctx),
-            else_branch: else_branch.map(|e| Box::new(rewrite_expr(*e, ctx))),
-        },
-        ExprKind::IfLet {
-            name,
-            expr,
-            then_branch,
-            else_branch,
-        } => {
+        // IfLet: the `name` binding is in scope only for the
+        // then-branch. Push it inside `with_scope` so it doesn't
+        // leak into the else-branch or the surrounding expression.
+        ExprKind::IfLet { name, expr, then_branch, else_branch } => {
             let expr = Box::new(rewrite_expr(*expr, ctx));
-            // `if let X = …` binds `X` for the then-branch only.
             let then_branch = ctx.with_scope(|| {
                 ctx.push_local(name);
                 rewrite_block(then_branch, ctx)
@@ -589,135 +493,84 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             let else_branch = else_branch.map(|e| Box::new(rewrite_expr(*e, ctx)));
             ExprKind::IfLet { name, expr, then_branch, else_branch }
         }
-        ExprKind::While { cond, body } => ExprKind::While {
-            cond: Box::new(rewrite_expr(*cond, ctx)),
-            body: rewrite_block(body, ctx),
-        },
-        ExprKind::Loop { body } => ExprKind::Loop {
-            body: rewrite_block(body, ctx),
-        },
+        // ForIn: same scope dance for the loop variable.
         ExprKind::ForIn { var, iter, body } => {
             let iter = Box::new(rewrite_expr(*iter, ctx));
-            // `for x in …` binds `x` for the body only.
             let body = ctx.with_scope(|| {
                 ctx.push_local(var);
                 rewrite_block(body, ctx)
             });
             ExprKind::ForIn { var, iter, body }
         }
-        ExprKind::Range { start, end, inclusive } => ExprKind::Range {
-            start: start.map(|s| Box::new(rewrite_expr(*s, ctx))),
-            end: end.map(|e| Box::new(rewrite_expr(*e, ctx))),
-            inclusive,
-        },
-        ExprKind::Closure { fn_name, captures } => {
-            ExprKind::Closure { fn_name, captures }
-        }
-        ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
-            method,
-            args: Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
-        },
-        ExprKind::Return(opt) => {
-            ExprKind::Return(opt.map(|e| Box::new(rewrite_expr(*e, ctx))))
-        }
-        ExprKind::Break(opt) => {
-            ExprKind::Break(opt.map(|e| Box::new(rewrite_expr(*e, ctx))))
-        }
-        ExprKind::Assign { target, value } => ExprKind::Assign {
-            target,
-            value: Box::new(rewrite_expr(*value, ctx)),
-        },
-        ExprKind::AssignField { obj, field, value, is_init } => ExprKind::AssignField {
-            obj: Box::new(rewrite_expr(*obj, ctx)),
-            field,
-            value: Box::new(rewrite_expr(*value, ctx)),
-            is_init,
-        },
-        ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
-            obj: Box::new(rewrite_expr(*obj, ctx)),
-            index: Box::new(rewrite_expr(*index, ctx)),
-            value: Box::new(rewrite_expr(*value, ctx)),
-        },
-        ExprKind::Array(items) => {
-            ExprKind::Array(Vec::from(items).into_iter().map(|e| rewrite_expr(e, ctx)).collect())
-        }
-        ExprKind::Tuple(items) => {
-            ExprKind::Tuple(Vec::from(items).into_iter().map(|e| rewrite_expr(e, ctx)).collect())
-        }
-        // Struct literal: leave the `StructLit` node intact and just
-        // recurse into the field expressions. Validation (CRepr
-        // structs require every declared field; `class` literals are
-        // already rejected by the type checker) and the actual
-        // construction (NewObject + StoreField sequence) happen in
-        // the type checker / MIR lower respectively. Keeping the
-        // node alive past normalize is what lets those passes see
-        // the full literal — including which field names the author
-        // wrote — instead of an already-desugared `__sl.x = ...`
-        // sequence that loses the "this was a struct literal" intent.
-        ExprKind::StructLit { class, fields, field_name_spans } => {
-            return Expr::new(
-                ExprKind::StructLit {
-                    class,
-                    fields: fields
-                        .into_iter()
-                        .map(|(n, e)| (n, rewrite_expr(e, ctx)))
-                        .collect(),
-                    field_name_spans,
-                },
-                span,
-            );
-        }
-        ExprKind::MapLit(entries) => ExprKind::MapLit(
-            entries
-                .into_iter()
-                .map(|(k, v)| (rewrite_expr(k, ctx), rewrite_expr(v, ctx)))
-                .collect(),
+        // Everything else: mechanical recursion through children.
+        other => fold_expr_default(
+            other,
+            &mut |c| rewrite_expr(c, ctx),
+            &mut |b| rewrite_block(b, ctx),
         ),
-        ExprKind::Index { obj, index } => ExprKind::Index {
-            obj: Box::new(rewrite_expr(*obj, ctx)),
-            index: Box::new(rewrite_expr(*index, ctx)),
-        },
-        ExprKind::Some(inner) => ExprKind::Some(Box::new(rewrite_expr(*inner, ctx))),
-        ExprKind::Await(inner) => ExprKind::Await(Box::new(rewrite_expr(*inner, ctx))),
-        ExprKind::EnumCtor {
-            enum_name,
-            variant,
-            args,
-        } => ExprKind::EnumCtor {
-            enum_name,
-            variant,
-            args: match args {
-                CtorArgs::Unit => CtorArgs::Unit,
-                CtorArgs::Tuple(es) => CtorArgs::Tuple(
-                    Vec::from(es).into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
-                ),
-                CtorArgs::Struct(fs) => CtorArgs::Struct(
-                    fs.into_iter()
-                        .map(|(n, e)| (n, rewrite_expr(e, ctx)))
-                        .collect(),
-                ),
-            },
-        },
-        ExprKind::Match { scrutinee, arms } => ExprKind::Match {
-            scrutinee: Box::new(rewrite_expr(*scrutinee, ctx)),
-            arms: arms
-                .into_iter()
-                .map(|arm: MatchArm| MatchArm {
-                    pattern: arm.pattern,
-                    body: rewrite_expr(arm.body, ctx),
-                    span: arm.span,
-                })
-                .collect(),
-        },
-        // Trivial nodes
-        other @ (ExprKind::Int(_)
-        | ExprKind::Float(_)
-        | ExprKind::Bool(_)
-        | ExprKind::Str(_)
-        | ExprKind::Var(_)
-        | ExprKind::This
-        | ExprKind::None
-        | ExprKind::Continue) => other,
     };
     Expr { kind, span }
+}
+
+fn rewrite_field(obj: Box<Expr>, name: Symbol, span: Span, ctx: &Ctx) -> Expr {
+    let obj = rewrite_expr(*obj, ctx);
+    if let ExprKind::Var(receiver) = &obj.kind {
+        match ctx.resolve_dotted_receiver(receiver, &name) {
+            DottedResolution::Qualified(s) => {
+                return Expr::new(ExprKind::Var(Symbol::intern(&s)), span);
+            }
+            DottedResolution::EnumCtor => {
+                return Expr::new(
+                    ExprKind::EnumCtor {
+                        enum_name: receiver.clone(),
+                        variant: name,
+                        args: CtorArgs::Unit,
+                    },
+                    span,
+                );
+            }
+            DottedResolution::None => {}
+        }
+    }
+    Expr::new(ExprKind::Field { obj: Box::new(obj), name }, span)
+}
+
+fn rewrite_method_call(
+    obj: Box<Expr>,
+    method: Symbol,
+    args: Box<[Expr]>,
+    span: Span,
+    ctx: &Ctx,
+) -> Expr {
+    let obj = rewrite_expr(*obj, ctx);
+    let new_args: Vec<Expr> =
+        Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect();
+    if let ExprKind::Var(receiver) = &obj.kind {
+        match ctx.resolve_dotted_receiver(receiver, &method) {
+            DottedResolution::Qualified(s) => {
+                return Expr::new(
+                    ExprKind::Call {
+                        callee: Symbol::intern(&s),
+                        args: new_args.into(),
+                    },
+                    span,
+                );
+            }
+            DottedResolution::EnumCtor => {
+                return Expr::new(
+                    ExprKind::EnumCtor {
+                        enum_name: receiver.clone(),
+                        variant: method,
+                        args: CtorArgs::Tuple(new_args.into()),
+                    },
+                    span,
+                );
+            }
+            DottedResolution::None => {}
+        }
+    }
+    Expr::new(
+        ExprKind::MethodCall { obj: Box::new(obj), method, args: new_args.into() },
+        span,
+    )
 }
