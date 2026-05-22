@@ -2571,23 +2571,82 @@ fn locate_decl_name_range(
         &owned
     };
     if !name.is_empty() {
-        for kw in [
-            "class",
-            "fn",
-            "enum",
-            "interface",
-            "const",
-            "struct",
-            "union",
-        ] {
-            if let Some(span) =
-                text::locate_let_name_with_kw(target_text, decl_span, kw, name)
-            {
-                return text::span_to_range(span, name.len());
-            }
+        if let Some(span) = scan_decl_name(target_text, decl_span, name) {
+            return text::span_to_range(span, name.len());
         }
     }
     text::span_to_range(decl_span, name_len)
+}
+
+/// Forward-scan `text` from `decl_span` for the identifier `name`
+/// preceded by a decl keyword (`class` / `fn` / ...). Tolerates
+/// any leading attribute / modifier sequence (`@objc pub static
+/// fn …`) by walking past them token-by-token until a keyword
+/// matches, then matching the name on the same line. Returns the
+/// span of the matched identifier when found.
+fn scan_decl_name(
+    text: &str,
+    decl_span: ilang_ast::Span,
+    name: &str,
+) -> Option<ilang_ast::Span> {
+    let bytes = text.as_bytes();
+    let start = text::line_col_to_offset(text, decl_span.line, decl_span.col)?;
+    let name_bytes = name.as_bytes();
+    let keywords: &[&str] = &[
+        "class",
+        "interface",
+        "enum",
+        "struct",
+        "union",
+        "const",
+        "fn",
+    ];
+    let mut i = start;
+    // Bounded scan — decls rarely have more than a couple of
+    // attribute / modifier tokens before the keyword. Cap so a
+    // pathological line can't blow up the search.
+    let limit = (start + 256).min(bytes.len());
+    while i < limit {
+        // Try each keyword at position i.
+        for kw in keywords {
+            let kb = kw.as_bytes();
+            if i + kb.len() > bytes.len() {
+                continue;
+            }
+            if &bytes[i..i + kb.len()] != kb {
+                continue;
+            }
+            // Keyword's right boundary must be a word break so
+            // `class` doesn't match the middle of `classified`.
+            let after_kw = bytes.get(i + kb.len()).copied().unwrap_or(b' ');
+            if after_kw.is_ascii_alphanumeric() || after_kw == b'_' {
+                continue;
+            }
+            let mut j = i + kb.len();
+            while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
+                j += 1;
+            }
+            if j + name_bytes.len() > bytes.len() {
+                continue;
+            }
+            if &bytes[j..j + name_bytes.len()] != name_bytes {
+                continue;
+            }
+            let after_name = bytes.get(j + name_bytes.len()).copied().unwrap_or(b' ');
+            if after_name.is_ascii_alphanumeric() || after_name == b'_' {
+                continue;
+            }
+            let (line, col) = text::offset_to_line_col(text, j)?;
+            return Some(ilang_ast::Span::new(line, col));
+        }
+        // Stop at the end of the decl's first source line — the
+        // name lives in the header, not in the body.
+        if bytes[i] == b'\n' {
+            break;
+        }
+        i += 1;
+    }
+    None
 }
 
 /// Read the source word sitting between the 1-based `start_col`
