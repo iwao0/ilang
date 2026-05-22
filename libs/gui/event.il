@@ -46,12 +46,74 @@ pub class SizeEvent : Event {
     }
 }
 
+/// W3C UI Events `KeyboardEvent.code` values. The discriminant
+/// string matches the standard (e.g. `KeyCode.keyA as string ==
+/// "KeyA"`) — same identifier the DOM exposes — so user code can
+/// compare `e.code` against the enum variants or read the string
+/// form for logging:
+///
+///     if e.code == gui.KeyCode.enter { ... }
+///     console.log("code =", e.code as string)
+///
+/// `unknown` (= `""`) is the fallback for keys the backend
+/// doesn't map yet; user code should usually treat it like a
+/// "did-not-fire" no-op.
+pub enum KeyCode: string {
+    unknown    = ""
+    keyA       = "KeyA"
+    keyB       = "KeyB"
+    keyC       = "KeyC"
+    keyD       = "KeyD"
+    keyE       = "KeyE"
+    keyF       = "KeyF"
+    keyG       = "KeyG"
+    keyH       = "KeyH"
+    keyI       = "KeyI"
+    keyJ       = "KeyJ"
+    keyK       = "KeyK"
+    keyL       = "KeyL"
+    keyM       = "KeyM"
+    keyN       = "KeyN"
+    keyO       = "KeyO"
+    keyP       = "KeyP"
+    keyQ       = "KeyQ"
+    keyR       = "KeyR"
+    keyS       = "KeyS"
+    keyT       = "KeyT"
+    keyU       = "KeyU"
+    keyV       = "KeyV"
+    keyW       = "KeyW"
+    keyX       = "KeyX"
+    keyY       = "KeyY"
+    keyZ       = "KeyZ"
+    digit0     = "Digit0"
+    digit1     = "Digit1"
+    digit2     = "Digit2"
+    digit3     = "Digit3"
+    digit4     = "Digit4"
+    digit5     = "Digit5"
+    digit6     = "Digit6"
+    digit7     = "Digit7"
+    digit8     = "Digit8"
+    digit9     = "Digit9"
+    enter      = "Enter"
+    escape     = "Escape"
+    backspace  = "Backspace"
+    tab        = "Tab"
+    space      = "Space"
+    arrowLeft  = "ArrowLeft"
+    arrowRight = "ArrowRight"
+    arrowUp    = "ArrowUp"
+    arrowDown  = "ArrowDown"
+}
+
 /// Keyboard event. `code` is the W3C UI Events
-/// `KeyboardEvent.code` string (e.g. `"KeyA"`, `"Enter"`,
-/// `"ArrowLeft"`, `"ShiftLeft"`) — platform-independent and
-/// independent of the active layout. The four `*Key` flags
-/// mirror the DOM `KeyboardEvent.ctrlKey` / `shiftKey` / `altKey`
-/// / `metaKey` booleans.
+/// `KeyboardEvent.code` string. Compare against `KeyCode` enum
+/// variants via their string form (`e.code == KeyCode.keyA as
+/// string`) — the discriminant strings are identical to the
+/// values backends emit, so no conversion happens at runtime.
+/// The four `*Key` flags mirror the DOM `KeyboardEvent.ctrlKey`
+/// / `shiftKey` / `altKey` / `metaKey` booleans.
 pub class KeyEvent : Event {
     pub code: string
     pub ctrlKey: bool

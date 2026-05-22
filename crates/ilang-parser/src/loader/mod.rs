@@ -229,6 +229,21 @@ pub fn load_program_with_overlay(
     extra_paths: &[PathBuf],
     overlay: &HashMap<PathBuf, String>,
 ) -> Result<Program, LoadError> {
+    load_program_with_overlay_and_parents(entry, extra_paths, &HashMap::new(), overlay)
+}
+
+/// Full-featured entry: the caller supplies both the flat list of
+/// dep directories and the `child_pkg_dir → parent_pkg_dir` map
+/// (produced by `ilang-cli`'s `project::collect_dep_tree`). The
+/// `parents` map is what backs `use super.X` resolution; without
+/// it, super-prefixed imports fail with "no parent package in
+/// the dep tree".
+pub fn load_program_with_overlay_and_parents(
+    entry: &Path,
+    extra_paths: &[PathBuf],
+    parents: &HashMap<PathBuf, PathBuf>,
+    overlay: &HashMap<PathBuf, String>,
+) -> Result<Program, LoadError> {
     let mut visiting: HashSet<PathBuf> = HashSet::new();
     let mut chain: Vec<Symbol> = Vec::new();
     let mut loaded: HashMap<PathBuf, Program> = HashMap::new();
@@ -245,7 +260,7 @@ pub fn load_program_with_overlay(
     let extra_paths: Vec<PathBuf> = extra_paths.to_vec();
 
     load_recursive(
-        &entry_canon, &entry_dir, &extra_paths,
+        &entry_canon, &entry_dir, &extra_paths, parents,
         &mut visiting, &mut chain, &mut loaded, overlay, &mut objc_registry,
         &mut objc_class_modules, &mut sibling_class_maps,
     )?;
@@ -283,6 +298,7 @@ pub fn load_program_with_overlay(
                 None,
                 &entry_canon,
                 &extra_paths,
+                parents,
                 &mut loaded,
                 &mut merged,
                 &mut whole_imports,
@@ -366,7 +382,39 @@ fn resolve_module(
     module: &str,
     dir: &Path,
     extra_paths: &[PathBuf],
+    super_count: u32,
+    parents: &HashMap<PathBuf, PathBuf>,
 ) -> Result<PathBuf, LoadError> {
+    // `use super.M`: skip the sibling / extra_paths fallback and
+    // anchor the search to the importer's package's parent in the
+    // dep tree (built by `project.rs::collect_dep_tree`). Each
+    // additional `super.` walks one more edge up.
+    if super_count > 0 {
+        let pkg = find_owning_package(dir, extra_paths)
+            .unwrap_or_else(|| dir.to_path_buf());
+        let mut cur = pkg;
+        for _ in 0..super_count {
+            cur = match parents.get(&cur) {
+                Some(p) => p.clone(),
+                None => return Err(LoadError::ReadError {
+                    path: cur,
+                    message: format!(
+                        "`use super.{module}`: no parent package in the dep tree"
+                    ),
+                }),
+            };
+        }
+        let filename = format!("{module}.il");
+        let primary = cur.join(&filename);
+        if primary.exists() {
+            return canonicalize(&primary);
+        }
+        let mod_il = cur.join(module).join("mod.il");
+        if mod_il.exists() {
+            return canonicalize(&mod_il);
+        }
+        return canonicalize(&primary);
+    }
     // Resolution order: sibling file → sibling subfolder → each
     // explicit dep dir → stdlib builtin. Stdlib comes LAST so a
     // sibling file with the same name (e.g. `appkit/events.il`
@@ -409,10 +457,31 @@ fn resolve_module(
     canonicalize(&primary)
 }
 
+/// Find the package directory `dir` (the importer's file's
+/// directory) belongs to: the closest ancestor that appears in
+/// the dep-tree's `extra_paths` list. Returns `None` when the
+/// importer lives outside any registered package — e.g. the
+/// entry file itself, whose package is the entry project's root.
+fn find_owning_package(dir: &Path, extra_paths: &[PathBuf]) -> Option<PathBuf> {
+    let canon = dir.canonicalize().ok()?;
+    let mut best: Option<&Path> = None;
+    for p in extra_paths {
+        if canon.starts_with(p) {
+            // Prefer the deepest ancestor — a package nested
+            // inside another's directory wins.
+            if best.map(|b| p.starts_with(b)).unwrap_or(true) {
+                best = Some(p);
+            }
+        }
+    }
+    best.map(|p| p.to_path_buf())
+}
+
 fn load_recursive(
     file: &Path,
     base_dir: &Path,
     extra_paths: &[PathBuf],
+    parents: &HashMap<PathBuf, PathBuf>,
     visiting: &mut HashSet<PathBuf>,
     chain: &mut Vec<Symbol>,
     loaded: &mut HashMap<PathBuf, Program>,
@@ -437,10 +506,10 @@ fn load_recursive(
     let toks = ilang_lexer::tokenize(&src)
         .map_err(|e| LoadError::LexError(e.to_string()))?;
     let dir = file.parent().unwrap_or(base_dir).to_path_buf();
-    for dep_name in pre_scan_use_modules(&toks) {
-        let canon = resolve_module(&dep_name, &dir, extra_paths)?;
+    for (super_count, dep_name) in pre_scan_use_modules(&toks) {
+        let canon = resolve_module(&dep_name, &dir, extra_paths, super_count, parents)?;
         load_recursive(
-            &canon, &dir, extra_paths, visiting, chain, loaded, overlay, objc_registry,
+            &canon, &dir, extra_paths, parents, visiting, chain, loaded, overlay, objc_registry,
             objc_class_modules, sibling_class_maps,
         )?;
     }
@@ -546,14 +615,31 @@ fn read_source(file: &Path, overlay: &HashMap<PathBuf, String>) -> Result<String
 /// resolved later by `apply_use`. Spurious `use` tokens inside e.g.
 /// match arms or argument lists are not a concern: `use` is a keyword
 /// reserved for the import form.
-fn pre_scan_use_modules(tokens: &[ilang_lexer::Token]) -> Vec<String> {
+fn pre_scan_use_modules(tokens: &[ilang_lexer::Token]) -> Vec<(u32, String)> {
     let mut deps = Vec::new();
     for (i, t) in tokens.iter().enumerate() {
-        if matches!(t.kind, TokenKind::Use) {
-            if let Some(next) = tokens.get(i + 1) {
-                if let TokenKind::Ident(name) = &next.kind {
-                    deps.push(name.clone());
+        if !matches!(t.kind, TokenKind::Use) { continue }
+        // Count leading `super.` prefixes — same shape the parser
+        // walks in `parse_use_decl`.
+        let mut j = i + 1;
+        let mut super_count: u32 = 0;
+        while let Some(tok) = tokens.get(j) {
+            if matches!(tok.kind, TokenKind::Super) {
+                j += 1;
+                if let Some(dot) = tokens.get(j) {
+                    if matches!(dot.kind, TokenKind::Dot) {
+                        j += 1;
+                        super_count += 1;
+                        continue;
+                    }
                 }
+                break;
+            }
+            break;
+        }
+        if let Some(next) = tokens.get(j) {
+            if let TokenKind::Ident(name) = &next.kind {
+                deps.push((super_count, name.clone()));
             }
         }
     }
@@ -738,6 +824,7 @@ fn apply_use(
     prefix_override: Option<&str>,
     importer_canon: &Path,
     extra_paths: &[PathBuf],
+    parents: &HashMap<PathBuf, PathBuf>,
     loaded: &mut HashMap<PathBuf, Program>,
     merged: &mut Program,
     _whole_imports: &mut HashSet<Symbol>,
@@ -762,7 +849,7 @@ fn apply_use(
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
-    let canon = resolve_module(u.module.as_str(), &importer_dir, extra_paths)?;
+    let canon = resolve_module(u.module.as_str(), &importer_dir, extra_paths, u.super_count, parents)?;
     // Clone instead of remove — the same module may legitimately be
     // applied multiple times (e.g. once via pub use to publish under
     // an umbrella prefix, and once directly so a sibling module that
@@ -854,6 +941,7 @@ fn apply_use(
                 nested_override,
                 &canon,
                 extra_paths,
+                parents,
                 loaded,
                 merged,
                 _whole_imports,
@@ -1006,8 +1094,10 @@ fn apply_use(
         let mut names: HashSet<Symbol> = HashSet::new();
         collect_export_names(
             u.module.as_str(),
+            u.super_count,
             &module_dir,
             extra_paths,
+            parents,
             loaded,
             &mut visited,
             &mut names,
@@ -1089,9 +1179,11 @@ fn apply_use(
                     }
                     if find_in_export_chain(
                         nu.module.as_str(),
+                        nu.super_count,
                         name.as_str(),
                         &module_dir,
                         extra_paths,
+                        parents,
                         loaded,
                         &mut visited,
                     )? {
@@ -1389,13 +1481,15 @@ fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<Symbol>
 /// count — module-private names stay invisible.
 fn collect_export_names(
     module: &str,
+    super_count: u32,
     importer_dir: &Path,
     extra_paths: &[PathBuf],
+    parents: &HashMap<PathBuf, PathBuf>,
     loaded: &HashMap<PathBuf, Program>,
     visited: &mut HashSet<PathBuf>,
     out: &mut HashSet<Symbol>,
 ) -> Result<(), LoadError> {
-    let canon = resolve_module(module, importer_dir, extra_paths)?;
+    let canon = resolve_module(module, importer_dir, extra_paths, super_count, parents)?;
     if !visited.insert(canon.clone()) {
         return Ok(());
     }
@@ -1466,8 +1560,10 @@ fn collect_export_names(
             }
             collect_export_names(
                 nu.module.as_str(),
+                nu.super_count,
                 &module_dir,
                 extra_paths,
+                parents,
                 loaded,
                 visited,
                 out,
@@ -1479,13 +1575,15 @@ fn collect_export_names(
 
 fn find_in_export_chain(
     module: &str,
+    super_count: u32,
     name: &str,
     importer_dir: &Path,
     extra_paths: &[PathBuf],
+    parents: &HashMap<PathBuf, PathBuf>,
     loaded: &HashMap<PathBuf, Program>,
     visited: &mut HashSet<PathBuf>,
 ) -> Result<bool, LoadError> {
-    let canon = resolve_module(module, importer_dir, extra_paths)?;
+    let canon = resolve_module(module, importer_dir, extra_paths, super_count, parents)?;
     if !visited.insert(canon.clone()) {
         return Ok(false);
     }
@@ -1538,9 +1636,11 @@ fn find_in_export_chain(
             }
             if find_in_export_chain(
                 nu.module.as_str(),
+                nu.super_count,
                 name,
                 &module_dir,
                 extra_paths,
+                parents,
                 loaded,
                 visited,
             )? {

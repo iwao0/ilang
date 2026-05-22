@@ -108,12 +108,15 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
     let merged = if is_submodule {
         None
     } else {
-        let extra = collect_dep_paths(path).unwrap_or_default();
+        let dep_tree = crate::project::collect_dep_tree(path).unwrap_or_default();
+        let extra = dep_tree.dirs;
         let mut overlay: HashMap<PathBuf, String> = HashMap::new();
         if let Ok(canon) = path.canonicalize() {
             overlay.insert(canon, text.clone());
         }
-        ilang_parser::loader::load_program_with_overlay(path, &extra, &overlay).ok()
+        ilang_parser::loader::load_program_with_overlay_and_parents(
+            path, &extra, &dep_tree.parents, &overlay,
+        ).ok()
     };
     let (mut external_sigs, mut external_rets) = merged
         .as_ref()

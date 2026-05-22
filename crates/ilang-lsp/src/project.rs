@@ -77,12 +77,26 @@ const fn current_os() -> &'static str {
     }
 }
 
+/// Aggregated dep info — mirror of `ilang-cli::project::DepTree`.
+/// `dirs` is the flat search-path list; `parents` maps each
+/// child package's directory to its parent's directory in the
+/// dep DAG and backs `use super.X` resolution.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct DepTree {
+    pub dirs:    Vec<PathBuf>,
+    pub parents: std::collections::HashMap<PathBuf, PathBuf>,
+}
+
 /// Mirror of the CLI's `ilang.toml` discovery. Walks up from the entry
 /// file's directory looking for the closest `ilang.toml`; missing file
 /// is not an error. Follows the manifest's deps transitively so a
 /// consumer that depends on `gui-core` automatically picks up
 /// gui-core's `gui_impl` without re-listing it in its own manifest.
 pub(crate) fn collect_dep_paths(entry: &Path) -> Result<Vec<PathBuf>, String> {
+    Ok(collect_dep_tree(entry)?.dirs)
+}
+
+pub(crate) fn collect_dep_tree(entry: &Path) -> Result<DepTree, String> {
     let entry_dir = entry
         .canonicalize()
         .map_err(|e| format!("cannot resolve entry path: {e}"))?
@@ -90,20 +104,27 @@ pub(crate) fn collect_dep_paths(entry: &Path) -> Result<Vec<PathBuf>, String> {
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
     let Some(project_file) = find_project_file(&entry_dir) else {
-        return Ok(Vec::new());
+        return Ok(DepTree::default());
     };
     let host = current_os();
     let mut visited: HashSet<PathBuf> = HashSet::new();
-    let mut out = Vec::new();
-    walk_project(&project_file, host, &mut visited, &mut out)?;
+    let mut out = DepTree::default();
+    let entry_pkg_dir = project_file
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."))
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from("."));
+    walk_project(&project_file, &entry_pkg_dir, host, &mut visited, &mut out)?;
     Ok(out)
 }
 
 fn walk_project(
     project_file: &Path,
+    parent_pkg_dir: &Path,
     host: &str,
     visited: &mut HashSet<PathBuf>,
-    out: &mut Vec<PathBuf>,
+    out: &mut DepTree,
 ) -> Result<(), String> {
     let canon_pf = project_file
         .canonicalize()
@@ -130,12 +151,15 @@ fn walk_project(
                 path_str
             )
         })?;
-        if !out.iter().any(|q| q == &canon) {
-            out.push(canon.clone());
+        if !out.dirs.iter().any(|q| q == &canon) {
+            out.dirs.push(canon.clone());
         }
+        out.parents
+            .entry(canon.clone())
+            .or_insert_with(|| parent_pkg_dir.to_path_buf());
         let nested = canon.join("ilang.toml");
         if nested.exists() {
-            walk_project(&nested, host, visited, out)?;
+            walk_project(&nested, &canon, host, visited, out)?;
         }
     }
     Ok(())

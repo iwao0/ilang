@@ -504,5 +504,12 @@ pub struct UseDecl {
     /// flattened to `<umbrella>.X`. Inside the entrypoint program this
     /// flag has no effect (no parent prefix to re-export under).
     pub re_export: bool,
+    /// Number of `super.` prefixes on the import path: `0` means
+    /// resolve `module` in the current package, `1` means resolve
+    /// it in the parent package (`use super.event { ... }`), `2`
+    /// in the grandparent (`use super.super.event { ... }`), etc.
+    /// Each step walks one edge up the [deps] tree built from
+    /// the entry's `ilang.toml`.
+    pub super_count: u32,
     pub span: Span,
 }

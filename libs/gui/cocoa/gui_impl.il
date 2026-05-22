@@ -20,15 +20,15 @@
 /// non-`@handle` classes), so an array slot is the simplest
 /// stable per-instance key.
 
-pub use core as _ { * }
-pub use window as _ { * }
-pub use button as _ { * }
-pub use label as _ { * }
-pub use edit as _ { * }
-pub use checkbox as _ { * }
-pub use slider as _ { * }
-pub use progress as _ { * }
-pub use combo as _ { * }
-pub use radio as _ { * }
-pub use list as _ { * }
-pub use groupbox as _ { * }
+pub use core.*
+pub use window.*
+pub use button.*
+pub use label.*
+pub use edit.*
+pub use checkbox.*
+pub use slider.*
+pub use progress.*
+pub use combo.*
+pub use radio.*
+pub use list.*
+pub use groupbox.*

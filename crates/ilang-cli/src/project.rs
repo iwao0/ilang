@@ -88,7 +88,19 @@ const fn current_os() -> &'static str {
     }
 }
 
-pub(crate) fn collect_dep_paths(entry: &PathBuf) -> Result<Vec<PathBuf>, String> {
+/// Aggregated dep info for the loader. `dirs` is the flat list
+/// of every package directory reachable from the entry's
+/// `ilang.toml`; `parents` maps each child package's directory to
+/// the directory of the package that listed it as a dep. The
+/// loader uses `parents` to resolve `use super.M`-style imports
+/// without falling back to filesystem `../` lookups.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct DepTree {
+    pub dirs:    Vec<PathBuf>,
+    pub parents: std::collections::HashMap<PathBuf, PathBuf>,
+}
+
+pub(crate) fn collect_dep_tree(entry: &PathBuf) -> Result<DepTree, String> {
     let entry_dir = entry
         .canonicalize()
         .map_err(|e| format!("cannot resolve entry path: {e}"))?
@@ -99,27 +111,35 @@ pub(crate) fn collect_dep_paths(entry: &PathBuf) -> Result<Vec<PathBuf>, String>
     // closest `ilang.toml`. Stops at the first hit; absent file is
     // not an error (project file is optional).
     let Some(project_file) = find_project_file(&entry_dir) else {
-        return Ok(Vec::new());
+        return Ok(DepTree::default());
     };
     let host = current_os();
     let mut visited: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
-    let mut out = Vec::new();
-    walk_project(&project_file, host, &mut visited, &mut out)?;
+    let mut out = DepTree::default();
+    let entry_pkg_dir = project_file
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .canonicalize()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    walk_project(&project_file, &entry_pkg_dir, host, &mut visited, &mut out)?;
     Ok(out)
 }
 
 /// Read one `ilang.toml`, resolve its `[deps]` entries against
-/// the current host OS, push each dep directory into `out`, and
-/// recurse into the dep's own `ilang.toml` if it has one — so a
-/// consumer that depends on `gui-core` automatically picks up
-/// gui-core's `gui_impl` dep without having to mention the
-/// OS-specific package in its own manifest. `visited` is keyed on
-/// canonical project-file paths to break cycles (`A → B → A`).
+/// the current host OS, push each dep directory into `out.dirs`,
+/// record `child → parent_pkg_dir` in `out.parents`, and recurse
+/// into the dep's own `ilang.toml` if it has one — so a consumer
+/// that depends on `gui-core` automatically picks up gui-core's
+/// `gui_impl` dep without having to mention the OS-specific
+/// package in its own manifest. `visited` is keyed on canonical
+/// project-file paths to break cycles (`A → B → A`).
 fn walk_project(
     project_file: &std::path::Path,
+    parent_pkg_dir: &std::path::Path,
     host: &str,
     visited: &mut std::collections::HashSet<PathBuf>,
-    out: &mut Vec<PathBuf>,
+    out: &mut DepTree,
 ) -> Result<(), String> {
     let canon_pf = project_file
         .canonicalize()
@@ -146,16 +166,18 @@ fn walk_project(
                 path_str
             )
         })?;
-        if !out.iter().any(|q| q == &canon) {
-            out.push(canon.clone());
+        if !out.dirs.iter().any(|q| q == &canon) {
+            out.dirs.push(canon.clone());
         }
+        out.parents
+            .entry(canon.clone())
+            .or_insert_with(|| parent_pkg_dir.to_path_buf());
         // Recurse: if the dep is itself an ilang package (has its
         // own `ilang.toml`), pull its deps into the search path
-        // too. `use gui_impl` inside `libs/gui-core/gui.il` needs
-        // this when the consumer's manifest only mentions `gui`.
+        // too.
         let nested = canon.join("ilang.toml");
         if nested.exists() {
-            walk_project(&nested, host, visited, out)?;
+            walk_project(&nested, &canon, host, visited, out)?;
         }
     }
     Ok(())

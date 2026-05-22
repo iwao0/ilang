@@ -424,6 +424,26 @@ impl<'a> BodyCx<'a> {
                 return Ok((lv, rv, lty));
             }
         }
+        // Enum-vs-string unification: `pub enum E: string { ... }`
+        // paired with a `string` reads the enum's discriminant
+        // string so `e.code == KeyCode.keyA` compares against the
+        // backend-supplied `"KeyA"` directly. Falls through to
+        // the `Str == Str` arm in `bin_result`.
+        let enum_is_str_repr = |t: &MirTy| match t {
+            MirTy::Enum(eid) => matches!(
+                self.enums[eid.0 as usize].repr,
+                MirTy::Str
+            ),
+            _ => false,
+        };
+        if enum_is_str_repr(&lty) && matches!(rty, MirTy::Str) {
+            let lv = self.coerce(lv, &lty, &MirTy::Str, Span::dummy())?;
+            return Ok((lv, rv, MirTy::Str));
+        }
+        if matches!(lty, MirTy::Str) && enum_is_str_repr(&rty) {
+            let rv = self.coerce(rv, &rty, &MirTy::Str, Span::dummy())?;
+            return Ok((lv, rv, MirTy::Str));
+        }
         if lty.is_numeric() && rty.is_numeric() {
             // Promote to float if either side is float.
             if lty.is_float() || rty.is_float() {

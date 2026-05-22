@@ -27,9 +27,13 @@ w.onResize.add(fn(e: gui.SizeEvent) {
 })
 
 w.onKeyDown.add(fn(e: gui.KeyEvent) {
-    console.log("keyDown", e.code,
-                "ctrl=", e.ctrlKey, "shift=", e.shiftKey,
-                "alt=", e.altKey, "meta=", e.metaKey)
+    if e.code == gui.KeyCode.escape {
+        console.log("escape pressed")
+    } else {
+        console.log("keyDown", e.code,
+                    "ctrl=", e.ctrlKey, "shift=", e.shiftKey,
+                    "alt=", e.altKey, "meta=", e.metaKey)
+    }
 })
 w.onKeyUp.add(fn(e: gui.KeyEvent) {
     console.log("keyUp", e.code)

@@ -515,6 +515,15 @@ impl<'a> Parser<'a> {
     fn parse_use_decl(&mut self) -> Result<ilang_ast::UseDecl, ParseError> {
         let span = self.peek().span;
         self.expect(&TokenKind::Use, "'use'")?;
+        // `use super.<...>` — count consecutive `super.` prefixes
+        // so the loader can walk that many edges up the dep tree
+        // when resolving the eventual module name.
+        let mut super_count: u32 = 0;
+        while matches!(self.peek().kind, TokenKind::Super) {
+            self.bump();
+            self.expect(&TokenKind::Dot, "'.' after `super`")?;
+            super_count += 1;
+        }
         let module = self.expect_ident("module name")?;
         // `use M.*` / `use M.Name` — short forms for
         // `use M as _ { * }` / `use M as _ { Name }`. Both produce
@@ -535,6 +544,7 @@ impl<'a> Parser<'a> {
                         selective: None,
                         wildcard: true,
                         re_export: false,
+                        super_count,
                         span,
                     });
                 }
@@ -547,6 +557,7 @@ impl<'a> Parser<'a> {
                         selective: Some(Box::new([sym])),
                         wildcard: false,
                         re_export: false,
+                        super_count,
                         span,
                     });
                 }
@@ -645,6 +656,7 @@ impl<'a> Parser<'a> {
             selective: selective.map(Into::into),
             wildcard,
             re_export: false,
+            super_count,
             span,
         })
     }

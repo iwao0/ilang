@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use ilang_ast::{Item, Program as AstProgram, StmtKind, Symbol};
 use std::collections::HashMap;
 
-use project::collect_dep_paths;
+use project::collect_dep_tree;
 use walk::{collect_fn_free_var_refs, wrap_trailing_print};
 // `ilang-eval` removed in M1 Step 6 part 5 — the interpreter is no
 // longer reachable from the CLI (mir-jit is the sole execution
@@ -123,14 +123,17 @@ fn find_vcpkg_lib_path() -> Option<PathBuf> {
 }
 
 fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
-    let extra_paths = match collect_dep_paths(path) {
-        Ok(p) => p,
+    let dep_tree = match collect_dep_tree(path) {
+        Ok(t) => t,
         Err(e) => {
             eprintln!("{}: {e}", path.display());
             return ExitCode::FAILURE;
         }
     };
-    let prog = match ilang_parser::loader::load_program_with_paths(path, &extra_paths) {
+    let extra_paths = dep_tree.dirs;
+    let prog = match ilang_parser::loader::load_program_with_overlay_and_parents(
+        path, &extra_paths, &dep_tree.parents, &std::collections::HashMap::new(),
+    ) {
         Ok(p) => p,
         Err(e) => {
             let display_path = path.display().to_string();
@@ -732,18 +735,22 @@ fn run_repl() -> ExitCode {
 fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
     let _ = mir_jit;
     // Resolve any `ilang.toml` next to (or above) the entry file
-    // and turn its `[deps]` table into extra `use`-resolution paths.
-    let extra_paths = match collect_dep_paths(path) {
-        Ok(p) => p,
+    // and turn its `[deps]` table into extra `use`-resolution paths
+    // plus the parent-of-each-package map that backs `use super.X`.
+    let dep_tree = match collect_dep_tree(path) {
+        Ok(t) => t,
         Err(e) => {
             eprintln!("{}: {e}", path.display());
             return ExitCode::FAILURE;
         }
     };
+    let extra_paths = dep_tree.dirs;
     // Use the loader so `use module` items get followed and merged
     // into one program before type-checking.
     let _t0 = std::time::Instant::now();
-    let prog = match ilang_parser::loader::load_program_with_paths(path, &extra_paths) {
+    let prog = match ilang_parser::loader::load_program_with_overlay_and_parents(
+        path, &extra_paths, &dep_tree.parents, &std::collections::HashMap::new(),
+    ) {
         Ok(p) => p,
         Err(e) => {
             let display_path = path.display().to_string();

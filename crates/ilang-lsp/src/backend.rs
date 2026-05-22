@@ -69,7 +69,8 @@ pub(crate) async fn refresh_impl(
         path.as_deref()
             .filter(|p| p.exists())
             .and_then(|p| {
-                let extra = collect_dep_paths(p).unwrap_or_default();
+                let dep_tree = crate::project::collect_dep_tree(p).unwrap_or_default();
+                let extra = dep_tree.dirs;
                 // Use the buffer's text for the entry file so
                 // diagnostics reflect unsaved edits immediately.
                 // Also seed the overlay with every other open
@@ -93,7 +94,9 @@ pub(crate) async fn refresh_impl(
                         }
                     }
                 }
-                ilang_parser::loader::load_program_with_overlay(p, &extra, &overlay).ok()
+                ilang_parser::loader::load_program_with_overlay_and_parents(
+                    p, &extra, &dep_tree.parents, &overlay,
+                ).ok()
             })
     };
     let diags = analyse(&text, path.as_deref(), &merged, is_submodule);
