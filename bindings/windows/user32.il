@@ -878,6 +878,47 @@ pub enum SpiAction: u32 {
     setDropShadow       = 0x1025
 }
 
+// ─── GetSysColor / GetSysColorBrush indices (COLOR_*) ─────────────
+// Pass to GetSysColor for the 32-bit RGB value, or to GetSysColorBrush
+// for a shared brush handle. Note: to use as the `hbrBackground` field
+// of WNDCLASSEXA, add 1 first: `(SysColor.window as i64 + 1) as HBRUSH`.
+pub enum SysColor: i32 {
+    scrollBar               = 0
+    background              = 1    // = desktop
+    desktop                 = 1
+    activeCaption           = 2
+    inactiveCaption         = 3
+    menu                    = 4
+    window                  = 5
+    windowFrame             = 6
+    menuText                = 7
+    windowText              = 8
+    captionText             = 9
+    activeBorder            = 10
+    inactiveBorder          = 11
+    appWorkspace            = 12
+    highlight               = 13   // selected item background
+    highlightText           = 14   // selected item text
+    btnFace                 = 15   // = face3d
+    face3d                  = 15
+    btnShadow               = 16   // = shadow3d
+    shadow3d                = 16
+    grayText                = 17
+    btnText                 = 18
+    inactiveCaptionText     = 19
+    btnHighlight            = 20   // = highlight3d / hilight3d
+    highlight3d             = 20
+    darkShadow3d            = 21
+    light3d                 = 22
+    infoText                = 23   // tooltip text
+    infoBk                  = 24   // tooltip background
+    hotlight                = 26   // hyperlink-style hot item
+    gradientActiveCaption   = 27
+    gradientInactiveCaption = 28
+    menuHilight             = 29   // hot menu item background
+    menuBar                 = 30
+}
+
 @extern(C, "user32") {
     // ── Opaque handle types ───────────────────────────────────
 
@@ -1277,13 +1318,12 @@ pub enum SpiAction: u32 {
     /// cast to `HBRUSH`, e.g. `6 as HBRUSH` for COLOR_WINDOW+1.
     @lib pub fn FillRect(hDC: HDC, lprc: *const RECT, hbr: HBRUSH): i32
 
-    /// Returns the shared system-colour brush for `nIndex`
-    /// (COLOR_BTNFACE = 15, COLOR_WINDOW = 5, etc.). Do NOT
-    /// `DeleteObject` the result — the brush is owned by the OS
+    /// Returns the shared system-colour brush for `nIndex` (SysColor.*).
+    /// Do NOT `DeleteObject` the result — the brush is owned by the OS
     /// and lives for the process lifetime.
     @lib pub fn GetSysColorBrush(nIndex: i32): HBRUSH
 
-    /// 32-bit RGB system colour for `nIndex`.
+    /// 32-bit RGB system colour for `nIndex` (SysColor.*).
     @lib pub fn GetSysColor(nIndex: i32): u32
 
     // ── Timer ─────────────────────────────────────────────────
