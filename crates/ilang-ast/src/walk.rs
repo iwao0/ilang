@@ -1,32 +1,34 @@
-//! Shared `ExprKind` traversal helpers for the normalize passes.
+//! Shared `ExprKind` traversal helpers.
 //!
-//! `validate_expr`, `dealias_expr` and `rewrite_expr` each used to
-//! hand-roll their own exhaustive `ExprKind` match. Most arms only
-//! recursed into the variant's `Expr` / `Block` children — pure
-//! mechanical traversal. This module collects that traversal in one
-//! place so each pass only writes the arms where it does something
-//! beyond walking children (type validation, symbol rewrite, scope
-//! tracking, ...).
+//! Every pass that walks the AST tends to write the same exhaustive
+//! `ExprKind` match where most arms only recurse into the variant's
+//! `Expr` / `Block` children — pure mechanical traversal. This
+//! module collects that traversal in one place so each pass only
+//! writes the arms where it does something beyond walking children
+//! (type validation, symbol rewrite, scope tracking, ...).
 //!
 //! Three shapes are needed:
 //!
-//! | helper                       | binding   | shape           | used by         |
-//! |------------------------------|-----------|-----------------|-----------------|
-//! | [`walk_expr_children_ref`]   | `&Expr`   | check, returns Result | validate    |
-//! | [`walk_expr_children_mut`]   | `&mut Expr` | mutate in place      | dealias     |
-//! | [`fold_expr_default`]        | `ExprKind` by move | reconstruct  | rewrite     |
+//! | helper                       | binding   | shape           | typical caller |
+//! |------------------------------|-----------|-----------------|----------------|
+//! | [`walk_expr_children_ref`]   | `&Expr`   | check, returns Result | normalize::validate |
+//! | [`walk_expr_children_mut`]   | `&mut Expr` | mutate in place      | normalize::dealias  |
+//! | [`fold_expr_default`]        | `ExprKind` by move | reconstruct  | normalize::rewrite  |
 //!
 //! All three are exhaustive over `ExprKind` so adding a new variant
 //! produces compile errors in three places. Callers that handle a
 //! variant specially short-circuit before reaching these helpers.
+//!
+//! Living in `ilang-ast` (instead of in any single consumer crate)
+//! lets parser, cli, and lsp share the same skeleton.
 
-use ilang_ast::{Block, CtorArgs, Expr, ExprKind, MatchArm, Param};
+use crate::{Block, CtorArgs, Expr, ExprKind, MatchArm, Param, StmtKind};
 
 /// Recurse into every value-bearing `Expr` / `Block` child of `e`,
 /// passing each to the appropriate callback. Types and bare symbols
 /// are NOT walked — passes that care invoke their own
 /// `check_type` / `dealias_sym` from the matching special arm.
-pub(crate) fn walk_expr_children_ref<E>(
+pub fn walk_expr_children_ref<E>(
     e: &Expr,
     visit_child: &mut impl FnMut(&Expr) -> Result<(), E>,
     visit_block: &mut impl FnMut(&Block) -> Result<(), E>,
@@ -174,9 +176,176 @@ pub(crate) fn walk_expr_children_ref<E>(
     Ok(())
 }
 
+/// Single-callback variant of [`walk_expr_children_ref`] that
+/// treats `Block` boundaries as transparent: each statement's
+/// value expression and the block's tail are passed to
+/// `visit_child` directly. Useful for walks that don't need to
+/// know about block scope (e.g. "find every FnExpr boundary"),
+/// where having to thread a second closure for blocks would
+/// trip the borrow checker when both callbacks need the same
+/// `&mut` state.
+///
+/// Statement `ty` annotations on `Let` are NOT walked — same
+/// rationale as [`walk_expr_children_ref`].
+pub fn walk_expr_descendants_ref<E>(
+    e: &Expr,
+    visit_child: &mut impl FnMut(&Expr) -> Result<(), E>,
+) -> Result<(), E> {
+    match &e.kind {
+        // Single child.
+        ExprKind::Unary { expr, .. }
+        | ExprKind::Some(expr)
+        | ExprKind::Await(expr)
+        | ExprKind::Cast { expr, .. }
+        | ExprKind::TypeTest { expr, .. }
+        | ExprKind::TypeDowncast { expr, .. }
+        | ExprKind::Field { obj: expr, .. }
+        | ExprKind::Assign { value: expr, .. } => visit_child(expr)?,
+        ExprKind::Return(opt) | ExprKind::Break(opt) => {
+            if let Some(x) = opt {
+                visit_child(x)?;
+            }
+        }
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
+            visit_child(lhs)?;
+            visit_child(rhs)?;
+        }
+        ExprKind::Index { obj, index } => {
+            visit_child(obj)?;
+            visit_child(index)?;
+        }
+        ExprKind::AssignField { obj, value, .. } => {
+            visit_child(obj)?;
+            visit_child(value)?;
+        }
+        ExprKind::AssignIndex { obj, index, value } => {
+            visit_child(obj)?;
+            visit_child(index)?;
+            visit_child(value)?;
+        }
+        ExprKind::MethodCall { obj, args, .. } => {
+            visit_child(obj)?;
+            for a in args.iter() {
+                visit_child(a)?;
+            }
+        }
+        ExprKind::Call { args, .. }
+        | ExprKind::SuperCall { args, .. }
+        | ExprKind::New { args, .. } => {
+            for a in args.iter() {
+                visit_child(a)?;
+            }
+        }
+        ExprKind::StructLit { fields, .. } => {
+            for (_, x) in fields.iter() {
+                visit_child(x)?;
+            }
+        }
+        ExprKind::EnumCtor { args, .. } => match args {
+            CtorArgs::Unit => {}
+            CtorArgs::Tuple(es) => {
+                for a in es.iter() {
+                    visit_child(a)?;
+                }
+            }
+            CtorArgs::Struct(fs) => {
+                for (_, a) in fs.iter() {
+                    visit_child(a)?;
+                }
+            }
+        },
+        ExprKind::Array(es) | ExprKind::Tuple(es) => {
+            for x in es.iter() {
+                visit_child(x)?;
+            }
+        }
+        ExprKind::MapLit(entries) => {
+            for (k, v) in entries.iter() {
+                visit_child(k)?;
+                visit_child(v)?;
+            }
+        }
+        ExprKind::If { cond, then_branch, else_branch } => {
+            visit_child(cond)?;
+            descend_block_ref(then_branch, visit_child)?;
+            if let Some(e2) = else_branch {
+                visit_child(e2)?;
+            }
+        }
+        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
+            visit_child(expr)?;
+            descend_block_ref(then_branch, visit_child)?;
+            if let Some(e2) = else_branch {
+                visit_child(e2)?;
+            }
+        }
+        ExprKind::While { cond, body } => {
+            visit_child(cond)?;
+            descend_block_ref(body, visit_child)?;
+        }
+        ExprKind::Loop { body } => descend_block_ref(body, visit_child)?,
+        ExprKind::ForIn { iter, body, .. } => {
+            visit_child(iter)?;
+            descend_block_ref(body, visit_child)?;
+        }
+        ExprKind::Match { scrutinee, arms } => {
+            visit_child(scrutinee)?;
+            for arm in arms.iter() {
+                visit_child(&arm.body)?;
+            }
+        }
+        ExprKind::Range { start, end, .. } => {
+            if let Some(s) = start {
+                visit_child(s)?;
+            }
+            if let Some(e2) = end {
+                visit_child(e2)?;
+            }
+        }
+        ExprKind::Block(b) => descend_block_ref(b, visit_child)?,
+        ExprKind::FnExpr { params, body, .. } => {
+            for p in params.iter() {
+                if let Some(d) = &p.default {
+                    visit_child(d)?;
+                }
+            }
+            descend_block_ref(body, visit_child)?;
+        }
+        ExprKind::Var(_)
+        | ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Str(_)
+        | ExprKind::This
+        | ExprKind::None
+        | ExprKind::Continue
+        | ExprKind::Closure { .. } => {}
+    }
+    Ok(())
+}
+
+fn descend_block_ref<E>(
+    b: &Block,
+    visit_child: &mut impl FnMut(&Expr) -> Result<(), E>,
+) -> Result<(), E> {
+    for s in &b.stmts {
+        let v = match &s.kind {
+            StmtKind::Let { value, .. }
+            | StmtKind::LetTuple { value, .. }
+            | StmtKind::LetStruct { value, .. } => value,
+            StmtKind::Expr(e) => e,
+        };
+        visit_child(v)?;
+    }
+    if let Some(t) = &b.tail {
+        visit_child(t)?;
+    }
+    Ok(())
+}
+
 /// Mutable-reference twin of [`walk_expr_children_ref`]. The
 /// callbacks mutate each child in place; the helper returns `()`.
-pub(crate) fn walk_expr_children_mut(
+pub fn walk_expr_children_mut(
     e: &mut Expr,
     visit_child: &mut impl FnMut(&mut Expr),
     visit_block: &mut impl FnMut(&mut Block),
@@ -322,7 +491,7 @@ pub(crate) fn walk_expr_children_mut(
 /// `fold_child` / `fold_block`. The rewrite caller's own FnExpr
 /// handler bypasses this default because it has scope-tracking
 /// requirements the generic default can't express.
-pub(crate) fn fold_expr_default(
+pub fn fold_expr_default(
     kind: ExprKind,
     fold_child: &mut impl FnMut(Expr) -> Expr,
     fold_block: &mut impl FnMut(Block) -> Block,

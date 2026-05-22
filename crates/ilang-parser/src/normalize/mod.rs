@@ -31,7 +31,7 @@ mod validate;
 
 use dealias::dealias_program;
 use validate::validate_program;
-use crate::walk::fold_expr_default;
+use ilang_ast::walk::fold_expr_default;
 
 /// Built-in enum names that are always available.
 const BUILTIN_ENUMS: &[&str] = &["Result"];

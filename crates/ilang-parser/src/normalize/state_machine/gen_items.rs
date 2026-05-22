@@ -463,7 +463,7 @@ fn rewrite_loop_jumps_expr(
         ExprKind::While { .. } | ExprKind::Loop { .. } | ExprKind::ForIn { .. } => return,
         _ => {}
     }
-    crate::walk::walk_expr_children_mut(
+    ilang_ast::walk::walk_expr_children_mut(
         e,
         &mut |child| {
             rewrite_loop_jumps_expr(

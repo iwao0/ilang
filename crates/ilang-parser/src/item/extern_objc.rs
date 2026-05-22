@@ -1851,7 +1851,7 @@ fn rewrite_super_in_expr(expr: &mut Expr) {
         *expr = new_expr;
         return;
     }
-    crate::walk::walk_expr_children_mut(
+    ilang_ast::walk::walk_expr_children_mut(
         expr,
         &mut rewrite_super_in_expr,
         &mut rewrite_super_in_block,

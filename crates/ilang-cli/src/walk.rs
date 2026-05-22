@@ -102,146 +102,25 @@ pub(crate) fn collect_fn_free_var_refs(
 /// against `top_lets` but NOT counting refs from non-FnExpr
 /// surroundings. Distinct from `walk_expr` (which assumes we're
 /// already inside a fn body, so every Var ref counts).
+///
+/// The non-FnExpr arms only need to descend into children looking
+/// for more FnExpr boundaries — that traversal is shared with the
+/// `walk_expr_descendants_ref` skeleton in `ilang_ast::walk`.
 fn walk_fnexpr_bodies(
     e: &Expr,
     top_lets: &std::collections::HashSet<Symbol>,
     out: &mut std::collections::HashSet<Symbol>,
 ) {
-    use ilang_ast::ExprKind as E;
-    match &e.kind {
-        E::FnExpr { params, body, .. } => {
-            let mut locals: Vec<Symbol> = params.iter().map(|p| p.name).collect();
-            walk_block(body, top_lets, &mut locals, out);
-        }
-        E::Unary { expr, .. }
-        | E::Cast { expr, .. }
-        | E::TypeTest { expr, .. }
-        | E::TypeDowncast { expr, .. }
-        | E::Some(expr)
-        | E::Await(expr)
-        | E::Field { obj: expr, .. } =>walk_fnexpr_bodies(expr, top_lets, out),
-        E::Binary { lhs, rhs, .. } | E::Logical { lhs, rhs, .. } => {
-            walk_fnexpr_bodies(lhs, top_lets, out);
-            walk_fnexpr_bodies(rhs, top_lets, out);
-        }
-        E::Call { args, .. } | E::SuperCall { args, .. } | E::New { args, .. } => {
-            for a in args.iter() { walk_fnexpr_bodies(a, top_lets, out); }
-        }
-        E::MethodCall { obj, args, .. } => {
-            walk_fnexpr_bodies(obj, top_lets, out);
-            for a in args.iter() { walk_fnexpr_bodies(a, top_lets, out); }
-        }
-        E::Block(b) => {
-            for s in &b.stmts {
-                match &s.kind {
-                    StmtKind::Let { value, .. }
-                    | StmtKind::LetTuple { value, .. }
-                    | StmtKind::LetStruct { value, .. } => {
-                        walk_fnexpr_bodies(value, top_lets, out);
-                    }
-                    StmtKind::Expr(e) => walk_fnexpr_bodies(e, top_lets, out),
-                }
-            }
-            if let Some(t) = &b.tail { walk_fnexpr_bodies(t, top_lets, out); }
-        }
-        E::If { cond, then_branch, else_branch } => {
-            walk_fnexpr_bodies(cond, top_lets, out);
-            for s in &then_branch.stmts {
-                match &s.kind {
-                    StmtKind::Let { value, .. }
-                    | StmtKind::LetTuple { value, .. }
-                    | StmtKind::LetStruct { value, .. } => walk_fnexpr_bodies(value, top_lets, out),
-                    StmtKind::Expr(e) => walk_fnexpr_bodies(e, top_lets, out),
-                }
-            }
-            if let Some(t) = &then_branch.tail { walk_fnexpr_bodies(t, top_lets, out); }
-            if let Some(e) = else_branch { walk_fnexpr_bodies(e, top_lets, out); }
-        }
-        E::While { cond, body } => {
-            walk_fnexpr_bodies(cond, top_lets, out);
-            for s in &body.stmts {
-                match &s.kind {
-                    StmtKind::Let { value, .. }
-                    | StmtKind::LetTuple { value, .. }
-                    | StmtKind::LetStruct { value, .. } => walk_fnexpr_bodies(value, top_lets, out),
-                    StmtKind::Expr(e) => walk_fnexpr_bodies(e, top_lets, out),
-                }
-            }
-            if let Some(t) = &body.tail { walk_fnexpr_bodies(t, top_lets, out); }
-        }
-        E::Loop { body } | E::ForIn { body, .. } => {
-            for s in &body.stmts {
-                match &s.kind {
-                    StmtKind::Let { value, .. }
-                    | StmtKind::LetTuple { value, .. }
-                    | StmtKind::LetStruct { value, .. } => walk_fnexpr_bodies(value, top_lets, out),
-                    StmtKind::Expr(e) => walk_fnexpr_bodies(e, top_lets, out),
-                }
-            }
-            if let Some(t) = &body.tail { walk_fnexpr_bodies(t, top_lets, out); }
-        }
-        E::IfLet { expr, then_branch, else_branch, .. } => {
-            walk_fnexpr_bodies(expr, top_lets, out);
-            for s in &then_branch.stmts {
-                match &s.kind {
-                    StmtKind::Let { value, .. }
-                    | StmtKind::LetTuple { value, .. }
-                    | StmtKind::LetStruct { value, .. } => walk_fnexpr_bodies(value, top_lets, out),
-                    StmtKind::Expr(e) => walk_fnexpr_bodies(e, top_lets, out),
-                }
-            }
-            if let Some(t) = &then_branch.tail { walk_fnexpr_bodies(t, top_lets, out); }
-            if let Some(e) = else_branch { walk_fnexpr_bodies(e, top_lets, out); }
-        }
-        E::Match { scrutinee, arms } => {
-            walk_fnexpr_bodies(scrutinee, top_lets, out);
-            for arm in arms.iter() { walk_fnexpr_bodies(&arm.body, top_lets, out); }
-        }
-        E::Range { start, end, .. } => {
-            if let Some(s) = start { walk_fnexpr_bodies(s, top_lets, out); }
-            if let Some(e) = end { walk_fnexpr_bodies(e, top_lets, out); }
-        }
-        E::Break(v) | E::Return(v) => {
-            if let Some(e) = v { walk_fnexpr_bodies(e, top_lets, out); }
-        }
-        E::Array(items) | E::Tuple(items) => {
-            for i in items.iter() { walk_fnexpr_bodies(i, top_lets, out); }
-        }
-        E::Index { obj, index } => {
-            walk_fnexpr_bodies(obj, top_lets, out);
-            walk_fnexpr_bodies(index, top_lets, out);
-        }
-        E::Assign { value, .. } => walk_fnexpr_bodies(value, top_lets, out),
-        E::AssignField { obj, value, .. } => {
-            walk_fnexpr_bodies(obj, top_lets, out);
-            walk_fnexpr_bodies(value, top_lets, out);
-        }
-        E::AssignIndex { obj, index, value } => {
-            walk_fnexpr_bodies(obj, top_lets, out);
-            walk_fnexpr_bodies(index, top_lets, out);
-            walk_fnexpr_bodies(value, top_lets, out);
-        }
-        E::StructLit { fields, .. } => {
-            for (_, v) in fields.iter() { walk_fnexpr_bodies(v, top_lets, out); }
-        }
-        E::MapLit(entries) => {
-            for (k, v) in entries.iter() {
-                walk_fnexpr_bodies(k, top_lets, out);
-                walk_fnexpr_bodies(v, top_lets, out);
-            }
-        }
-        E::EnumCtor { args, .. } => match args {
-            ilang_ast::CtorArgs::Unit => {}
-            ilang_ast::CtorArgs::Tuple(es) => {
-                for e in es.iter() { walk_fnexpr_bodies(e, top_lets, out); }
-            }
-            ilang_ast::CtorArgs::Struct(fs) => {
-                for (_, e) in fs.iter() { walk_fnexpr_bodies(e, top_lets, out); }
-            }
-        },
-        E::Var(_) | E::Closure { .. } | E::This | E::None | E::Continue
-        | E::Int(_) | E::Float(_) | E::Bool(_) | E::Str(_) => {}
+    if let ExprKind::FnExpr { params, body, .. } = &e.kind {
+        let mut locals: Vec<Symbol> = params.iter().map(|p| p.name).collect();
+        walk_block(body, top_lets, &mut locals, out);
+        return;
     }
+    // The callback is infallible; pin `E = ()` and discard the Ok.
+    let _: Result<(), ()> = ilang_ast::walk::walk_expr_descendants_ref(e, &mut |child| {
+        walk_fnexpr_bodies(child, top_lets, out);
+        Ok(())
+    });
 }
 
 fn walk_block(

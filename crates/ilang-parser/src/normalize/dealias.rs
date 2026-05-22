@@ -12,7 +12,7 @@ use ilang_ast::{
     Block, ClassDecl, Expr, ExprKind, Item, Program, Stmt, StmtKind, Symbol, Type,
 };
 
-use crate::walk::walk_expr_children_mut;
+use ilang_ast::walk::walk_expr_children_mut;
 
 pub(super) fn dealias_sym(s: &Symbol, modules: &HashMap<Symbol, Symbol>) -> Symbol {
     let raw = s.as_str();

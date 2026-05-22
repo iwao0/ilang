@@ -10,9 +10,9 @@ use std::collections::HashMap;
 
 use project::collect_dep_tree;
 use walk::{collect_fn_free_var_refs, wrap_trailing_print};
-// `ilang-eval` removed in M1 Step 6 part 5 — the interpreter is no
-// longer reachable from the CLI (mir-jit is the sole execution
-// backend besides the legacy `--jit` codegen).
+// `ilang-eval` removed in M1 Step 6 part 5 — the tree-walking
+// interpreter is no longer reachable from the CLI. `mir-jit` is
+// the sole execution backend; AOT goes through `build`.
 use ilang_lexer::tokenize;
 use ilang_parser::parse;
 use ilang_types::TypeChecker;
@@ -415,8 +415,6 @@ fn link_executable(
     }
     #[cfg(windows)]
     {
-        let _ = mir;
-        let _ = seen_libs;
         link_windows(object_path, output, mir, seen_libs, display_path)
     }
 }
@@ -707,15 +705,6 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     link_executable(&object_path, output, &mir, &seen_libs, &display_path)
 }
 
-// === LEGACY (will be deleted after the helpers above replace it) ===
-fn _legacy_build_file_body_placeholder() {
-    // The original 444-line body has been split into:
-    //   - lower_to_mir       (load + typecheck + monomorphize + lower)
-    //   - run_mir_opt_passes (env-gated opt passes)
-    //   - collect_seen_libs  (AOT linker lib probe)
-    //   - link_executable / link_unix / link_windows
-    // Removing the rest now.
-}
 
 /// Persistent state for the JIT REPL. Each turn appends new
 /// definitions (fn / class / enum) to `accumulated_items`; top-level

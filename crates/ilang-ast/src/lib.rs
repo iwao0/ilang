@@ -5,6 +5,7 @@ pub mod program;
 pub mod span;
 pub mod stmt;
 pub mod types;
+pub mod walk;
 
 pub use expr::{
     BinOp, CtorArgs, Expr, ExprKind, LogicalOp, MatchArm, Pattern, PatternBindings,
