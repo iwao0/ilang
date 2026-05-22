@@ -233,12 +233,127 @@ fn walk_stmt(
             });
         }
         StmtKind::Expr(e) => walk_expr(cx, e, scope, this_class, out),
-        // LetTuple / LetStruct destructuring — punt for v1; the
-        // inferred element types are awkward to render inline.
-        StmtKind::LetTuple { value, .. } | StmtKind::LetStruct { value, .. } => {
+        StmtKind::LetTuple { elems, value } => {
             walk_expr(cx, value, scope, this_class, out);
+            // `let (a, b, ...) = expr` — infer the value's type and
+            // render the tuple shape after the closing `)`. The
+            // pattern's slot count narrows the hint when inference
+            // gives us a shorter / longer tuple.
+            if let Some(ty) = infer(cx, value, scope, this_class) {
+                if let Type::Tuple(elems_ty) = &ty {
+                    if elems_ty.len() == elems.len() {
+                        push_destructure_hint(cx.text, s.span, b')', &ty, out);
+                    }
+                }
+            }
+            for slot in elems.iter() {
+                if let Some(name) = slot {
+                    scope.push(Binding {
+                        name: name.as_str().to_string(),
+                        ty:   None,
+                    });
+                }
+            }
+        }
+        StmtKind::LetStruct { class, value, .. } => {
+            walk_expr(cx, value, scope, this_class, out);
+            // `let ClassName { f1, f2 } = expr` — the type is the
+            // declared class. Show it as `: ClassName` after the
+            // closing `}` so the user can confirm the rhs's static
+            // type matches the destructure shape.
+            let ty = Type::Object(*class);
+            push_destructure_hint(cx.text, s.span, b'}', &ty, out);
         }
     }
+}
+
+/// Push an inlay hint just after the closing delimiter (`)` for
+/// tuple destructures, `}` for struct destructures) on the
+/// stmt's first line. Source scan looks forward from the `let`
+/// keyword for the first matching close at depth 0 of the
+/// destructure pattern.
+fn push_destructure_hint(
+    text: &str,
+    stmt_span: Span,
+    close: u8,
+    ty: &Type,
+    out: &mut Vec<InlayHint>,
+) {
+    let Some(off) = line_col_to_byte(text, stmt_span.line, stmt_span.col) else {
+        return;
+    };
+    let bytes = text.as_bytes();
+    let open = if close == b')' { b'(' } else { b'{' };
+    let mut depth: i32 = 0;
+    let mut found: Option<usize> = None;
+    let mut i = off;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c == b'\n' {
+            // Tuple / struct destructure is conventionally a
+            // single line; bail if we overshoot.
+            break;
+        }
+        if c == open {
+            depth += 1;
+        } else if c == close {
+            depth -= 1;
+            if depth == 0 {
+                found = Some(i + 1);
+                break;
+            }
+        }
+        i += 1;
+    }
+    let Some(byte_pos) = found else { return };
+    let (line, col) = offset_to_line_col(text, byte_pos);
+    out.push(InlayHint {
+        position: Position {
+            line:      line.saturating_sub(1),
+            character: col.saturating_sub(1),
+        },
+        label: InlayHintLabel::String(format!(": {ty}")),
+        kind: Some(InlayHintKind::TYPE),
+        text_edits: None,
+        tooltip: None,
+        padding_left: Some(false),
+        padding_right: Some(false),
+        data: None,
+    });
+}
+
+fn line_col_to_byte(text: &str, line: u32, col: u32) -> Option<usize> {
+    let mut current_line: u32 = 1;
+    let mut current_col: u32 = 1;
+    for (i, c) in text.char_indices() {
+        if current_line == line && current_col == col {
+            return Some(i);
+        }
+        if c == '\n' {
+            current_line += 1;
+            current_col = 1;
+        } else {
+            current_col += 1;
+        }
+    }
+    None
+}
+
+fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
+    let mut line: u32 = 1;
+    let mut col: u32 = 1;
+    for (i, c) in text.char_indices() {
+        if i == offset {
+            return (line, col);
+        }
+        if c == '\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
 }
 
 fn walk_expr(
@@ -273,7 +388,7 @@ fn walk_expr(
                 arity: args.len(),
             };
             if let Some(params) = cx.callees.get(&key) {
-                push_literal_arg_hints(args, params, out);
+                push_literal_arg_hints_with_params(args, params, out);
             }
         }
         ExprKind::If { cond, then_branch, else_branch, .. } => {
@@ -419,30 +534,38 @@ fn push_param_hints_for_call(
     args: &[Expr],
     out: &mut Vec<InlayHint>,
 ) {
-    // Try bare-name fn, then implicit-`this` method when we have a
-    // class context, then `Class.method` static dispatch.
+    // 1. in-file top-level fn.
     if let Some(params) = cx.callees.get(&CalleeKey::Fn(callee.to_string())) {
-        push_literal_arg_hints(args, params, out);
+        push_literal_arg_hints_with_params(args, params, out);
         return;
     }
+    // 2. implicit-`this` method in a class body.
     if let Some(class) = this_class {
         let key = CalleeKey::Method {
             class: class.to_string(),
             name:  callee.to_string(),
         };
         if let Some(params) = cx.callees.get(&key) {
-            push_literal_arg_hints(args, params, out);
+            push_literal_arg_hints_with_params(args, params, out);
             return;
         }
     }
+    // 3. `Class.method` static dispatch through a dotted callee.
     if let Some((cls, m)) = callee.rsplit_once('.') {
         let key = CalleeKey::Method {
             class: cls.to_string(),
             name:  m.to_string(),
         };
         if let Some(params) = cx.callees.get(&key) {
-            push_literal_arg_hints(args, params, out);
+            push_literal_arg_hints_with_params(args, params, out);
+            return;
         }
+    }
+    // 4. Cross-file fallback: look up the callee in the LSP's
+    //    external signatures table. The string carries the param
+    //    list; parse the names out.
+    if let Some(names) = lookup_external_param_names(cx, callee) {
+        push_literal_arg_hints_with_names(args, &names, out);
     }
 }
 
@@ -458,25 +581,118 @@ fn push_param_hints_for_method(
         name:  method.to_string(),
     };
     if let Some(params) = cx.callees.get(&key) {
-        push_literal_arg_hints(args, params, out);
+        push_literal_arg_hints_with_params(args, params, out);
+        return;
+    }
+    // Cross-file: try the class's MemberInfo signature.
+    if let Some(info) = cx.doc.classes.get(&AstSymbol::intern(class)) {
+        if let Some(m) = info.methods.get(&AstSymbol::intern(method)) {
+            if let Some(names) = parse_param_names_from_signature(&m.signature) {
+                push_literal_arg_hints_with_names(args, &names, out);
+            }
+        }
     }
 }
 
-fn push_literal_arg_hints(
+/// Look `callee` up in `Doc.external_signatures` and pull the
+/// param-name list out of the signature string. Used for hints on
+/// calls to fns imported via `use module`.
+fn lookup_external_param_names(cx: &Cx, callee: &str) -> Option<Vec<String>> {
+    let key = AstSymbol::intern(callee);
+    let sig = cx.doc.external_signatures.get(&key)?;
+    parse_param_names_from_signature(sig)
+}
+
+/// Extract param names from a signature string. Handles both
+/// `fn name(p1: T1, p2: T2): R` and `(method) Class.name(p1: T1,
+/// p2: T2): R` shapes. Returns `None` when the string doesn't
+/// look like a callable signature.
+fn parse_param_names_from_signature(sig: &str) -> Option<Vec<String>> {
+    let open = sig.find('(')?;
+    let bytes = sig.as_bytes();
+    let mut depth: i32 = 0;
+    let mut close: Option<usize> = None;
+    for (i, &b) in bytes.iter().enumerate().skip(open) {
+        match b {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let close = close?;
+    let inside = &sig[open + 1..close];
+    if inside.trim().is_empty() {
+        return Some(Vec::new());
+    }
+    // Split on top-level `,` (no nested generics inside a param
+    // type — ilang formats them with `<...>` which doesn't
+    // overlap with our paren counter above, so a plain split
+    // suffices).
+    let mut out = Vec::new();
+    let mut bracket_depth: i32 = 0;
+    let mut start = 0usize;
+    let bytes = inside.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'<' | b'(' | b'[' => bracket_depth += 1,
+            b'>' | b')' | b']' => bracket_depth -= 1,
+            b',' if bracket_depth == 0 => {
+                push_param_name(&inside[start..i], &mut out);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    push_param_name(&inside[start..], &mut out);
+    Some(out)
+}
+
+fn push_param_name(chunk: &str, out: &mut Vec<String>) {
+    let trimmed = chunk.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let name = trimmed.split(':').next().unwrap_or(trimmed).trim();
+    out.push(name.to_string());
+}
+
+fn push_literal_arg_hints_with_params(
     args: &[Expr],
     params: &[Param],
     out: &mut Vec<InlayHint>,
 ) {
+    push_literal_arg_hints(args, params.iter().map(|p| p.name.as_str()), out);
+}
+
+fn push_literal_arg_hints_with_names(
+    args: &[Expr],
+    names: &[String],
+    out: &mut Vec<InlayHint>,
+) {
+    push_literal_arg_hints(args, names.iter().map(|s| s.as_str()), out);
+}
+
+fn push_literal_arg_hints<'a, I>(args: &[Expr], names: I, out: &mut Vec<InlayHint>)
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let names: Vec<&str> = names.into_iter().collect();
     for (i, arg) in args.iter().enumerate() {
         if !is_literal_arg(&arg.kind) {
             continue;
         }
-        let Some(p) = params.get(i) else { continue };
+        let Some(name) = names.get(i) else { continue };
         let line = arg.span.line.saturating_sub(1);
         let character = arg.span.col.saturating_sub(1);
         out.push(InlayHint {
             position: Position { line, character },
-            label: InlayHintLabel::String(format!("{}:", p.name)),
+            label: InlayHintLabel::String(format!("{name}:")),
             kind: Some(InlayHintKind::PARAMETER),
             text_edits: None,
             tooltip: None,
@@ -558,6 +774,13 @@ fn infer(
                 .and_then(|m| m.ret_ty.clone())
         }
         ExprKind::Cast { ty, .. } => Some(ty.clone()),
+        ExprKind::Tuple(elems) => {
+            let mut types = Vec::with_capacity(elems.len());
+            for e in elems.iter() {
+                types.push(infer(cx, e, scope, this_class)?);
+            }
+            Some(Type::Tuple(types.into_boxed_slice()))
+        }
         ExprKind::Array(elems) => {
             let elem = infer(cx, elems.first()?, scope, this_class)?;
             Some(Type::Array {

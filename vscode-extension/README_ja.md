@@ -122,13 +122,17 @@ language server も自動で起動する。
   識別子 → 包含する `(` / `[` / `{` ペア → 上位のペア → ファイル
   全体。ブラケットベース実装なので、parser が一部のノードにしか
   埋めていない `end_line` / `end_col` に依存しない
-- **インレイヒント**: 2種類提供する。型ヒントは型注釈のない
-  `let x = expr` / `for x in iter` の後ろに推論型を `: T` として
-  表示。パラメータ名ヒントは関数呼び出しのリテラル引数 (数値 /
-  文字列 / bool / `none` / 配列リテラル) の前に `name:` を出す。
-  識別子引数はもとから名前を持っているのでヒントを出さない。
-  パラメータ名解決は同一ファイル内の fn / method / `init` 限定で、
-  別ファイルの呼び出しはスキップする
+- **インレイヒント**: 型ヒントとパラメータ名ヒントを提供する。
+  型ヒントは型注釈のない `let x = expr` / `for x in iter` /
+  tuple destructure (`let (a, b) = …` → `: (T1, T2)`) / struct
+  destructure (`let Foo { … } = …` → `: Foo`) の右に推論型を
+  表示する。パラメータ名ヒントは関数呼び出しのリテラル引数
+  (数値 / 文字列 / bool / `none` / 配列リテラル) の前に
+  `name:` を出す。識別子引数はもとから名前を持っているので
+  ヒントを出さない。解決は in-file fn / `this` メソッド /
+  `Class.method` の順で試し、最後に別ファイルの import
+  (`Doc.external_signatures` の signature 文字列から param 名を
+  パース) にフォールバックする
 - **コールヒエラルキー**: fn / method / static method 上で
   `Show Call Hierarchy` を呼ぶと、呼び出し元 (incoming) と
   呼び出し先 (outgoing) のツリーが開く。呼び出し元は
