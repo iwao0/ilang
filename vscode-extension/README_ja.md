@@ -105,6 +105,15 @@ language server も自動で起動する。
   fn / class (フィールド・メソッド・プロパティ・static を
   ぶら下げる) / interface / enum (variant をぶら下げる) /
   const / `@extern(C)` の項目を階層化して返す
+- **折り畳み範囲 (Folding Range)**: トップレベル宣言 (fn / class /
+  interface / enum / struct / union / `@extern(C)` ブロック) と
+  ソース内の複数行 `{ ... }` ブロックを fold 可能にする。複数行
+  にまたがる `use M { … }` は `kind: imports` を付けて返す。
+  AST 走査ではなく `{` / `}` トークンのペアリングで実装
+- **選択範囲 (Selection Range)**: 拡張選択チェーン: カーソル位置の
+  識別子 → 包含する `(` / `[` / `{` ペア → 上位のペア → ファイル
+  全体。ブラケットベース実装なので、parser が一部のノードにしか
+  埋めていない `end_line` / `end_col` に依存しない
 - **インレイヒント**: 2種類提供する。型ヒントは型注釈のない
   `let x = expr` / `for x in iter` の後ろに推論型を `: T` として
   表示。パラメータ名ヒントは関数呼び出しのリテラル引数 (数値 /

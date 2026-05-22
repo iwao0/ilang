@@ -105,6 +105,17 @@ The extension looks for the `ilang-lsp` binary in this order:
   classes (with fields / methods / properties / static members),
   interfaces, enums (with variants), consts, and `@extern(C)`
   items
+- **Folding range** — collapse top-level decls (fn / class /
+  interface / enum / struct / union / `@extern(C)` block) plus
+  any multi-line `{ ... }` block in the source. Multi-line `use
+  M { … }` imports surface with `kind: imports` so editors can
+  fold the import region separately. Pure lex pass over `{` / `}`
+  pairs — no AST traversal
+- **Selection range** — expand-selection chain: identifier at
+  cursor → enclosing `(` / `[` / `{` pair → next outer pair →
+  whole document. Bracket-based so it doesn't depend on the AST's
+  `end_line` / `end_col` data, which the parser only fills in for
+  some node kinds
 - **Inlay hints** — two families: type hints after `let x = expr` /
   `for x in iter` when no explicit annotation is present (renders
   the inferred type as `: T`), and parameter-name hints at literal

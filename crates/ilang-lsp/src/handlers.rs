@@ -150,6 +150,12 @@ impl LanguageServer for Backend {
                     CallHierarchyServerCapability::Simple(true),
                 ),
                 inlay_hint_provider: Some(OneOf::Left(true)),
+                folding_range_provider: Some(FoldingRangeProviderCapability::Simple(
+                    true,
+                )),
+                selection_range_provider: Some(
+                    SelectionRangeProviderCapability::Simple(true),
+                ),
                 completion_provider: Some(CompletionOptions {
                     // `:` triggers type-position completion
                     // (`let x: …`, `fn f(p: …)`, `class C : …`).
@@ -1965,6 +1971,36 @@ impl LanguageServer for Backend {
         };
         let calls = call_hierarchy::outgoing_calls(&item, &doc);
         if calls.is_empty() { Ok(None) } else { Ok(Some(calls)) }
+    }
+
+    async fn folding_range(
+        &self,
+        p: FoldingRangeParams,
+    ) -> LspResult<Option<Vec<FoldingRange>>> {
+        let uri = p.text_document.uri;
+        let docs = self.docs.lock().unwrap();
+        let Some(doc) = docs.get(&uri) else { return Ok(None) };
+        let ranges = folding_range::build(&doc.text);
+        if ranges.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(ranges))
+        }
+    }
+
+    async fn selection_range(
+        &self,
+        p: SelectionRangeParams,
+    ) -> LspResult<Option<Vec<SelectionRange>>> {
+        let uri = p.text_document.uri;
+        let docs = self.docs.lock().unwrap();
+        let Some(doc) = docs.get(&uri) else { return Ok(None) };
+        let ranges = crate::selection_range::build_for(&doc.text, &p.positions);
+        if ranges.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(ranges))
+        }
     }
 
     async fn inlay_hint(
