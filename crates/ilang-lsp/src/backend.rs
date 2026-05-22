@@ -56,17 +56,30 @@ pub(crate) async fn refresh_impl(
     // their bare `sdl.X` references only resolve inside an entry
     // that does `use sdl`. Skip load-based diagnostics in that
     // case; only syntax errors from the buffer survive.
-    let is_submodule = path.as_deref().and_then(find_umbrella).is_some();
+    let umbrella = path.as_deref().and_then(find_umbrella);
+    let is_submodule = umbrella.is_some();
     // Parse the buffer once up front. The loader injects the buffer
     // as an overlay, so a buffer that doesn't parse makes the whole
     // merged-program load fail anyway — skipping it here saves the
     // file IO + tokenize + parse for every imported module on each
     // mid-edit refresh (the common case while typing).
     let parsed_buffer = parse_ok(&text);
-    let merged = if is_submodule || parsed_buffer.is_err() {
+    // For a sub-module, drive the loader from its umbrella so the
+    // merged program includes everything in scope (parent's `use
+    // module` items, sibling sub-modules, etc.). The buffer's own
+    // text is injected as an overlay below, so the merged program
+    // still reflects unsaved edits. Diagnostics stay suppressed (see
+    // `analyse`'s early return on `is_submodule`); the merged
+    // program is only used to populate cross-module hover / F12 /
+    // completion data.
+    let entry_for_merge = umbrella
+        .clone()
+        .or_else(|| path.as_deref().map(|p| p.to_path_buf()));
+    let merged = if parsed_buffer.is_err() {
         None
     } else {
-        path.as_deref()
+        entry_for_merge
+            .as_deref()
             .filter(|p| p.exists())
             .and_then(|p| {
                 let dep_tree = crate::project::collect_dep_tree(p).unwrap_or_default();

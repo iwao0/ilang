@@ -1212,6 +1212,14 @@ impl<'a> Walker<'a> {
                     .get(name)
                     .cloned()
                     .or_else(|| self.external_returns.get(name).cloned())
+                    // Top-level `let X = expr` bindings (Map / array /
+                    // class instance / ...) are recorded in
+                    // `var_types` by the pre-pass in `diag.rs`. Without
+                    // this fallback an inner method body referencing
+                    // `X` couldn't infer its type, so `.get(...)` on a
+                    // module-level `Map` wouldn't hit the builtin
+                    // hover / ref path.
+                    .or_else(|| self.var_types.get(name).cloned())
             }
             ExprKind::Call { callee, .. } => self
                 .fn_returns

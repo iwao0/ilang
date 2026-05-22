@@ -104,18 +104,21 @@ pub(crate) fn lift_local_parse_objc(
 pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
     let text = std::fs::read_to_string(path).ok()?;
     let parsed_buffer = parse_ok(&text).ok()?;
-    let is_submodule = find_umbrella(path).is_some();
-    let merged = if is_submodule {
-        None
-    } else {
-        let dep_tree = crate::project::collect_dep_tree(path).unwrap_or_default();
+    // Sub-modules: load the merged program through the umbrella so
+    // cross-module hover / F12 data is available even when the
+    // sub-module file is opened alone. Mirror the same change in
+    // `backend::refresh_impl`.
+    let umbrella = find_umbrella(path);
+    let entry: &Path = umbrella.as_deref().unwrap_or(path);
+    let merged = {
+        let dep_tree = crate::project::collect_dep_tree(entry).unwrap_or_default();
         let extra = dep_tree.dirs;
         let mut overlay: HashMap<PathBuf, String> = HashMap::new();
         if let Ok(canon) = path.canonicalize() {
             overlay.insert(canon, text.clone());
         }
         ilang_parser::loader::load_program_with_overlay_and_parents(
-            path, &extra, &dep_tree.parents, &overlay,
+            entry, &extra, &dep_tree.parents, &overlay,
         ).ok()
     };
     let (mut external_sigs, mut external_rets) = merged
