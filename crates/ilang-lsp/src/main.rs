@@ -72,7 +72,7 @@ use text::{
     call_context_at, generic_args_context_at, locate_class_base_name, locate_dot_name,
     locate_if_let_some_name, locate_let_name, locate_let_name_with_kw, locate_property_name,
     locate_selective_name, locate_type_after_colon, parameter_offsets, receiver_before_dot,
-    span_full_to_range, span_to_range, word_at,
+    span_full_to_range, word_at,
 };
 
 

@@ -342,26 +342,43 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         if let Some(entry) = lookup_ref(doc, pos) {
-            if let Some(target_uri) = entry.target_uri.clone() {
-                let range = span_to_range(entry.target_span, entry.target_name_len as usize);
-                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                    uri: target_uri,
-                    range,
-                })));
-            }
-            if entry.no_definition {
+            if entry.no_definition && entry.target_uri.is_none() {
                 return Ok(None);
             }
-            let range = span_to_range(entry.target_span, entry.target_name_len as usize);
+            let name = read_word_at(
+                &doc.text,
+                entry.line,
+                entry.start_col,
+                entry.end_col,
+            )
+            .unwrap_or_default();
+            let target_uri = entry.target_uri.clone().unwrap_or_else(|| uri.clone());
+            // `target_span` is the decl keyword's position
+            // (`class` / `fn` / ...). Locate the identifier inside
+            // the decl so F12 lands on `NSObject` instead of the
+            // `class` keyword in `@objc pub class NSObject { … }`.
+            let range = locate_decl_name_range(
+                &target_uri,
+                &uri,
+                &doc.text,
+                entry.target_span,
+                &name,
+                entry.target_name_len as usize,
+            );
             return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                uri,
+                uri: target_uri,
                 range,
             })));
         }
         if let Some((word, _)) = word_at(&doc.text, pos) {
             let key = AstSymbol::intern(&word);
             if let Some(sym) = doc.symbols.get(&key) {
-                let range = span_to_range(sym.span, sym.name.as_str().len());
+                // Same-file decl: snap to the name within the decl
+                // text rather than the keyword span stored on
+                // `Symbol`.
+                let range = locate_decl_name_range(
+                    &uri, &uri, &doc.text, sym.span, &sym.name, sym.name.as_str().len(),
+                );
                 return Ok(Some(GotoDefinitionResponse::Scalar(Location {
                     uri,
                     range,
@@ -372,7 +389,14 @@ impl LanguageServer for Backend {
             // for a cross-file jump.
             if let Some(loc) = doc.external_sources.get(&key) {
                 if let Ok(target_uri) = Url::from_file_path(&loc.path) {
-                    let range = span_to_range(loc.span, loc.name_len as usize);
+                    let range = locate_decl_name_range(
+                        &target_uri,
+                        &uri,
+                        &doc.text,
+                        loc.span,
+                        &word,
+                        loc.name_len as usize,
+                    );
                     return Ok(Some(GotoDefinitionResponse::Scalar(Location {
                         uri: target_uri,
                         range,
@@ -2518,6 +2542,52 @@ fn collect_reference_locations(
     });
     out.dedup_by(|a, b| a.uri == b.uri && a.range == b.range);
     out
+}
+
+/// Locate the identifier inside the decl at `decl_span` so F12 /
+/// implementation / etc. land on the name itself rather than the
+/// `class` / `fn` / `enum` keyword (or the leading `@attr`). When
+/// the target file is open in `current_uri`, reuse `current_text`
+/// to avoid disk IO; otherwise read the target from disk. Falls
+/// back to a span at `decl_span` with `name_len` characters when
+/// the locate misses.
+fn locate_decl_name_range(
+    target_uri: &Url,
+    current_uri: &Url,
+    current_text: &str,
+    decl_span: ilang_ast::Span,
+    name: &str,
+    name_len: usize,
+) -> Range {
+    let owned;
+    let target_text: &str = if target_uri == current_uri {
+        current_text
+    } else {
+        owned = target_uri
+            .to_file_path()
+            .ok()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .unwrap_or_default();
+        &owned
+    };
+    if !name.is_empty() {
+        for kw in [
+            "class",
+            "fn",
+            "enum",
+            "interface",
+            "const",
+            "struct",
+            "union",
+        ] {
+            if let Some(span) =
+                text::locate_let_name_with_kw(target_text, decl_span, kw, name)
+            {
+                return text::span_to_range(span, name.len());
+            }
+        }
+    }
+    text::span_to_range(decl_span, name_len)
 }
 
 /// Read the source word sitting between the 1-based `start_col`
