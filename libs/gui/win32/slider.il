@@ -35,11 +35,11 @@ let SLIDERS = new Map<i64, SliderSlot>()
 
 pub fn trySliderChange(hwnd: i64): bool {
     if let some(slot) = SLIDERS.get(hwnd) {
-        let cb = slot.onChange
-        cb(readSliderValue(hwnd))
-        return true
+        slot.onChange(readSliderValue(hwnd))
+        true
+    } else {
+        false
     }
-    false
 }
 
 fn rangeBits(min: f64, max: f64): i64 {
@@ -110,26 +110,27 @@ pub fn setSliderValue(handle: i64, value: f64) {
 pub fn readSliderValue(handle: i64): f64 {
     if let some(slot) = SLIDERS.get(handle) {
         let r = SendMessageA(slot.hwnd, 0x0400 as u32, 0 as u64, 0 as i64)
-        return r as f64
+        r as f64
+    } else {
+        0.0
     }
-    0.0
 }
 pub fn setSliderFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
     if let some(slot) = SLIDERS.get(handle) {
-        MoveWindow(slot.hwnd,
+        let _ = MoveWindow(slot.hwnd,
                    x as i32, y as i32, width as i32, height as i32, 1)
     }
 }
 pub fn setSliderEnabled(handle: i64, enabled: bool) {
     if let some(slot) = SLIDERS.get(handle) {
         let flag: i32 = if enabled { 1 } else { 0 }
-        EnableWindow(slot.hwnd, flag)
+        let _ = EnableWindow(slot.hwnd, flag)
     }
 }
 pub fn setSliderVisible(handle: i64, visible: bool) {
     if let some(slot) = SLIDERS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-        ShowWindow(slot.hwnd, cmd)
+        let _ = ShowWindow(slot.hwnd, cmd)
     }
 }
 

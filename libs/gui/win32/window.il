@@ -78,7 +78,7 @@ pub fn setWindowTitle(handle: i64, title: string) {
     if let some(slot) = WINDOWS.get(handle) {
         let w = toWideUtf8(title) as *u16
         let _ = SetWindowTextW(slot.hwnd, w)
-        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        let _ = HeapFree(GetProcessHeap(), 0 as u32, w as *void)
     }
 }
 
@@ -95,14 +95,14 @@ pub fn setWindowSize(handle: i64, width: f64, height: f64) {
 
 pub fn showNativeWindow(handle: i64) {
     if let some(slot) = WINDOWS.get(handle) {
-        ShowWindow(slot.hwnd, ShowCmd.show as i32)
-        UpdateWindow(slot.hwnd)
+        let _ = ShowWindow(slot.hwnd, ShowCmd.show as i32)
+        let _ = UpdateWindow(slot.hwnd)
     }
 }
 
 pub fn hideNativeWindow(handle: i64) {
     if let some(slot) = WINDOWS.get(handle) {
-        ShowWindow(slot.hwnd, ShowCmd.hide as i32)
+        let _ = ShowWindow(slot.hwnd, ShowCmd.hide as i32)
     }
 }
 

@@ -34,11 +34,11 @@ let BUTTONS = new Map<i64, ButtonSlot>()
 /// stops walking).
 pub fn tryButtonClick(hwnd: i64): bool {
     if let some(slot) = BUTTONS.get(hwnd) {
-        let cb = slot.onClick
-        cb(0.0, 0.0, 0)
-        return true
+        slot.onClick(0.0, 0.0, 0)
+        true
+    } else {
+        false
     }
-    false
 }
 
 @extern(C) {
@@ -88,25 +88,25 @@ pub fn setButtonText(handle: i64, text: string) {
     if let some(slot) = BUTTONS.get(handle) {
         let w = toWideUtf8(text) as *u16
         let _ = SetWindowTextW(slot.hwnd, w)
-        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        let _ = HeapFree(GetProcessHeap(), 0 as u32, w as *void)
     }
 }
 pub fn setButtonFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
     if let some(slot) = BUTTONS.get(handle) {
-        MoveWindow(slot.hwnd,
+        let _ = MoveWindow(slot.hwnd,
                    x as i32, y as i32, width as i32, height as i32, 1)
     }
 }
 pub fn setButtonEnabled(handle: i64, enabled: bool) {
     if let some(slot) = BUTTONS.get(handle) {
         let flag: i32 = if enabled { 1 } else { 0 }
-        EnableWindow(slot.hwnd, flag)
+        let _ = EnableWindow(slot.hwnd, flag)
     }
 }
 pub fn setButtonVisible(handle: i64, visible: bool) {
     if let some(slot) = BUTTONS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-        ShowWindow(slot.hwnd, cmd)
+        let _ = ShowWindow(slot.hwnd, cmd)
     }
 }
 

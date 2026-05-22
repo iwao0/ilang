@@ -26,11 +26,11 @@ let COMBOS = new Map<i64, ComboSlot>()
 
 pub fn tryComboSelect(hwnd: i64): bool {
     if let some(slot) = COMBOS.get(hwnd) {
-        let cb = slot.onSelect
-        cb(readComboSelectedIndex(hwnd))
-        return true
+        slot.onSelect(readComboSelectedIndex(hwnd))
+        true
+    } else {
+        false
     }
-    false
 }
 
 @extern(C) {
@@ -83,7 +83,7 @@ pub fn addComboItem(handle: i64, item: string) {
         let w = toWideUtf8(item) as *u16
         let _ = SendMessageW(slot.hwnd, 0x0143 as u32,
                              0 as u64, w as i64)
-        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        let _ = HeapFree(GetProcessHeap(), 0 as u32, w as *void)
     }
 }
 /// CB_RESETCONTENT = 0x14B.
@@ -104,27 +104,28 @@ pub fn setComboSelectedIndex(handle: i64, index: i32) {
 pub fn readComboSelectedIndex(handle: i64): i32 {
     if let some(slot) = COMBOS.get(handle) {
         let r = SendMessageA(slot.hwnd, 0x0147 as u32, 0 as u64, 0 as i64)
-        return r as i32
+        r as i32
+    } else {
+        -1 as i32
     }
-    -1 as i32
 }
 pub fn setComboFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
     if let some(slot) = COMBOS.get(handle) {
         let totalH = (height as i32) + 120
-        MoveWindow(slot.hwnd,
+        let _ = MoveWindow(slot.hwnd,
                    x as i32, y as i32, width as i32, totalH, 1)
     }
 }
 pub fn setComboEnabled(handle: i64, enabled: bool) {
     if let some(slot) = COMBOS.get(handle) {
         let flag: i32 = if enabled { 1 } else { 0 }
-        EnableWindow(slot.hwnd, flag)
+        let _ = EnableWindow(slot.hwnd, flag)
     }
 }
 pub fn setComboVisible(handle: i64, visible: bool) {
     if let some(slot) = COMBOS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-        ShowWindow(slot.hwnd, cmd)
+        let _ = ShowWindow(slot.hwnd, cmd)
     }
 }
 

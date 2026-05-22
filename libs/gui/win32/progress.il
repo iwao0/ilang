@@ -79,14 +79,14 @@ pub fn setProgressValue(handle: i64, value: f64) {
 }
 pub fn setProgressFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
     if let some(slot) = PROGRESS.get(handle) {
-        MoveWindow(slot.hwnd,
+        let _ = MoveWindow(slot.hwnd,
                    x as i32, y as i32, width as i32, height as i32, 1)
     }
 }
 pub fn setProgressVisible(handle: i64, visible: bool) {
     if let some(slot) = PROGRESS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-        ShowWindow(slot.hwnd, cmd)
+        let _ = ShowWindow(slot.hwnd, cmd)
     }
 }
 

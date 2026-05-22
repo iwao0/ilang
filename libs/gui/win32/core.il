@@ -65,12 +65,15 @@ fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {
 /// `CreateWindowExW`. Returns `0 as HWND` when `handle` is not a
 /// registered window.
 pub fn windowHwnd(handle: i64): HWND {
-    if let some(slot) = WINDOWS.get(handle) { return slot.hwnd }
-    0 as HWND
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.hwnd
+    } else {
+        0 as HWND
+    }
 }
 
 /// Number of currently-registered top-level windows.
-pub fn windowCount(): i64 { WINDOWS.size }
+pub fn windowCount(): i64 { WINDOWS.size() }
 
 // ─── setters (`gui-core` calls these via gui_impl re-exports) ─
 
@@ -100,30 +103,26 @@ pub fn setOnMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) 
 
 pub fn dispatchClose(handle: i64) {
     if let some(slot) = WINDOWS.get(handle) {
-        let cb = slot.onClose
-        cb()
+        slot.onClose()
     }
 }
 pub fn dispatchSize(handle: i64, w: f64, h: f64) {
     if let some(slot) = WINDOWS.get(handle) {
-        let cb = slot.onResize
-        cb(w, h)
+        slot.onResize(w, h)
     }
 }
 pub fn dispatchKeyDown(
     handle: i64, code: string, ctrl: bool, shift: bool, alt: bool, meta: bool
 ) {
     if let some(slot) = WINDOWS.get(handle) {
-        let cb = slot.onKeyDown
-        cb(code, ctrl, shift, alt, meta)
+        slot.onKeyDown(code, ctrl, shift, alt, meta)
     }
 }
 pub fn dispatchKeyUp(
     handle: i64, code: string, ctrl: bool, shift: bool, alt: bool, meta: bool
 ) {
     if let some(slot) = WINDOWS.get(handle) {
-        let cb = slot.onKeyUp
-        cb(code, ctrl, shift, alt, meta)
+        slot.onKeyUp(code, ctrl, shift, alt, meta)
     }
 }
 pub fn dispatchMouseMove(
@@ -131,8 +130,7 @@ pub fn dispatchMouseMove(
     ctrl: bool, shift: bool, alt: bool, meta: bool
 ) {
     if let some(slot) = WINDOWS.get(handle) {
-        let cb = slot.onMouseMove
-        cb(x, y, b, ctrl, shift, alt, meta)
+        slot.onMouseMove(x, y, b, ctrl, shift, alt, meta)
     }
 }
 pub fn dispatchMouseDown(
@@ -140,8 +138,7 @@ pub fn dispatchMouseDown(
     ctrl: bool, shift: bool, alt: bool, meta: bool
 ) {
     if let some(slot) = WINDOWS.get(handle) {
-        let cb = slot.onMouseDown
-        cb(x, y, b, ctrl, shift, alt, meta)
+        slot.onMouseDown(x, y, b, ctrl, shift, alt, meta)
     }
 }
 pub fn dispatchMouseUp(
@@ -149,7 +146,6 @@ pub fn dispatchMouseUp(
     ctrl: bool, shift: bool, alt: bool, meta: bool
 ) {
     if let some(slot) = WINDOWS.get(handle) {
-        let cb = slot.onMouseUp
-        cb(x, y, b, ctrl, shift, alt, meta)
+        slot.onMouseUp(x, y, b, ctrl, shift, alt, meta)
     }
 }

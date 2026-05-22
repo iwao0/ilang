@@ -28,11 +28,11 @@ let RADIOS = new Map<i64, RadioSlot>()
 
 pub fn tryRadioToggle(hwnd: i64): bool {
     if let some(slot) = RADIOS.get(hwnd) {
-        let cb = slot.onToggle
-        cb(readRadioChecked(hwnd))
-        return true
+        slot.onToggle(readRadioChecked(hwnd))
+        true
+    } else {
+        false
     }
-    false
 }
 
 @extern(C) {
@@ -86,7 +86,7 @@ pub fn setRadioText(handle: i64, text: string) {
     if let some(slot) = RADIOS.get(handle) {
         let w = toWideUtf8(text) as *u16
         let _ = SetWindowTextW(slot.hwnd, w)
-        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        let _ = HeapFree(GetProcessHeap(), 0 as u32, w as *void)
     }
 }
 pub fn setRadioChecked(handle: i64, checked: bool) {
@@ -98,26 +98,27 @@ pub fn setRadioChecked(handle: i64, checked: bool) {
 pub fn readRadioChecked(handle: i64): bool {
     if let some(slot) = RADIOS.get(handle) {
         let r = SendMessageA(slot.hwnd, 0x00F0 as u32, 0 as u64, 0 as i64)
-        return r == 1 as i64
+        r == 1 as i64
+    } else {
+        false
     }
-    false
 }
 pub fn setRadioFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
     if let some(slot) = RADIOS.get(handle) {
-        MoveWindow(slot.hwnd,
+        let _ = MoveWindow(slot.hwnd,
                    x as i32, y as i32, width as i32, height as i32, 1)
     }
 }
 pub fn setRadioEnabled(handle: i64, enabled: bool) {
     if let some(slot) = RADIOS.get(handle) {
         let flag: i32 = if enabled { 1 } else { 0 }
-        EnableWindow(slot.hwnd, flag)
+        let _ = EnableWindow(slot.hwnd, flag)
     }
 }
 pub fn setRadioVisible(handle: i64, visible: bool) {
     if let some(slot) = RADIOS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-        ShowWindow(slot.hwnd, cmd)
+        let _ = ShowWindow(slot.hwnd, cmd)
     }
 }
 
