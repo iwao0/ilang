@@ -191,9 +191,9 @@ pub class GuiDelegate : NSObject {
 // that forwards each event to the per-window callback.
 
 pub class GuiView : NSView {
-    pub override acceptsFirstResponder(): bool { true }
+    pub acceptsFirstResponder(): bool { true }
 
-    pub override keyDown(event: NSEvent) {
+    pub keyDown(event: NSEvent) {
         if let some(slot) = this.windowSlot() {
             let cb = slot.onKeyDown
             let flags = event.modifierFlags as u64
@@ -202,7 +202,7 @@ pub class GuiView : NSView {
         }
     }
 
-    pub override keyUp(event: NSEvent) {
+    pub keyUp(event: NSEvent) {
         if let some(slot) = this.windowSlot() {
             let cb = slot.onKeyUp
             let flags = event.modifierFlags as u64
@@ -211,14 +211,14 @@ pub class GuiView : NSView {
         }
     }
 
-    pub override mouseMoved(event: NSEvent)     { this.dispatchMouse(event, 0, 0) }
-    pub override mouseDragged(event: NSEvent)   { this.dispatchMouse(event, 0, 0) }
-    pub override mouseDown(event: NSEvent)      { this.dispatchMouse(event, 1, 0) }
-    pub override mouseUp(event: NSEvent)        { this.dispatchMouse(event, 2, 0) }
-    pub override rightMouseDown(event: NSEvent) { this.dispatchMouse(event, 1, 2) }
-    pub override rightMouseUp(event: NSEvent)   { this.dispatchMouse(event, 2, 2) }
-    pub override otherMouseDown(event: NSEvent) { this.dispatchMouse(event, 1, 1) }
-    pub override otherMouseUp(event: NSEvent)   { this.dispatchMouse(event, 2, 1) }
+    pub mouseMoved(event: NSEvent)     { this.dispatchMouse(event, 0, 0) }
+    pub mouseDragged(event: NSEvent)   { this.dispatchMouse(event, 0, 0) }
+    pub mouseDown(event: NSEvent)      { this.dispatchMouse(event, 1, 0) }
+    pub mouseUp(event: NSEvent)        { this.dispatchMouse(event, 2, 0) }
+    pub rightMouseDown(event: NSEvent) { this.dispatchMouse(event, 1, 2) }
+    pub rightMouseUp(event: NSEvent)   { this.dispatchMouse(event, 2, 2) }
+    pub otherMouseDown(event: NSEvent) { this.dispatchMouse(event, 1, 1) }
+    pub otherMouseUp(event: NSEvent)   { this.dispatchMouse(event, 2, 1) }
 
     /// Look up the WindowSlot this view belongs to. Two-step:
     /// view.handle → window.handle (VIEW_TO_WINDOW) → WindowSlot
