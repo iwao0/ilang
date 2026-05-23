@@ -147,24 +147,12 @@ pub fn keyCodeToEnum(k: KeyCode): event.KeyCode {
 
 // ─── window delegate (close + resize) ─────────────────────────
 
-/// Window handles whose `windowWillClose:` notification has
-/// already been dispatched. Cocoa fires the notification a second
-/// time during `app.terminate:` (the terminate pass calls `close`
-/// on every still-open window, and our window is mid-close), so
-/// the bare delegate would call `slot.onClose()` twice.
-let CLOSE_FIRED = new Map<i64, bool>()
-
 pub class GuiDelegate : NSObject {
     pub windowWillClose(n: NSNotification) {
-        let h = n.notificationObject.handle
-        if CLOSE_FIRED.has(h) { return }
-        CLOSE_FIRED[h] = true
-        if let some(slot) = WINDOWS.get(h) {
+        if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
             let cb = slot.onClose
             cb()
         }
-        let app = NSApplication.sharedApplication()
-        app.terminate(nil)
     }
 
     pub windowDidResize(n: NSNotification) {
@@ -173,6 +161,20 @@ pub class GuiDelegate : NSObject {
             let cb = slot.onResize
             cb(frame.size.width, frame.size.height)
         }
+    }
+}
+
+/// `applicationShouldTerminateAfterLastWindowClosed:` returns true
+/// so NSApp exits its `run` loop as soon as the last visible window
+/// closes — no manual `terminate:` call needed from inside
+/// `windowWillClose:`. Calling terminate from there used to fire the
+/// close notification a second time (terminate iterates
+/// `[NSApp windows]` and sends `close:` to each; the closing window
+/// is still in that list, so the notification re-fires and
+/// `onClose` ran twice).
+pub class GuiAppDelegate : NSObject {
+    pub applicationShouldTerminateAfterLastWindowClosed(app: NSApplication): bool {
+        true
     }
 }
 

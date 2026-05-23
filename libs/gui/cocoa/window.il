@@ -11,11 +11,22 @@ use cocoa {
     nsstr, makeSize, nil,
     sharedApplication, makeWindow,
 }
-use core { WINDOWS, WindowSlot, GuiDelegate, GuiView, registerView }
+use core { WINDOWS, WindowSlot, GuiDelegate, GuiAppDelegate, GuiView, registerView }
+
+/// `app.setDelegate(...)` only needs to fire once per process. The
+/// 1-element array stands in for an Option holder so the
+/// initialiser stays inside ilang's idiom.
+let APP_DELEGATE_INSTALLED: bool[] = [false]
 
 pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     let app = sharedApplication()
     app.setActivationPolicy(NSApplicationActivationPolicy.regular)
+    if !APP_DELEGATE_INSTALLED[0] {
+        APP_DELEGATE_INSTALLED[0] = true
+        GuiAppDelegate.register()
+        let ad = GuiAppDelegate.alloc().init()
+        app.setDelegate(ad as NSObject)
+    }
 
     let mask = NSWindowStyleMask.titled
         | NSWindowStyleMask.closable
