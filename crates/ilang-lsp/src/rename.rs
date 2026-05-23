@@ -12,6 +12,7 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{Position, TextEdit, Url, WorkspaceEdit};
 
 use crate::analyse::{for_each_closed_workspace_doc, lookup_ref};
+use crate::references::scan_decl_name;
 use crate::rename_conflicts;
 use crate::text::{self, is_keyword, is_valid_identifier, read_word_at, word_at};
 use crate::types::Doc;
@@ -64,10 +65,27 @@ pub(crate) fn handle_rename(
                 entry.end_col,
             )
             .unwrap_or_default();
+            // `target_span` lands on the decl keyword (`class` / `fn`).
+            // Re-scan the decl header so the decl-site edit replaces
+            // the identifier rather than the leading `class ` slice.
+            // Cross-file refs use the target doc's text when the file
+            // is open in the snapshot.
+            let target_text: Option<&str> = if entry.target_uri.is_none() {
+                Some(doc.text.as_str())
+            } else {
+                docs.get(&owner).map(|d| d.text.as_str())
+            };
+            let decl_name_span = match (target_text, old_name.is_empty()) {
+                (Some(t), false) => {
+                    scan_decl_name(t, entry.target_span, &old_name)
+                        .unwrap_or(entry.target_span)
+                }
+                _ => entry.target_span,
+            };
             (
                 owner,
                 (entry.target_span, entry.target_name_len),
-                entry.target_span,
+                decl_name_span,
                 entry.signature.clone(),
                 old_name,
             )

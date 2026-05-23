@@ -14,6 +14,7 @@ use ilang_ast::{ClassDecl, Item, Program, Span};
 use tower_lsp::lsp_types::{Range, SymbolKind};
 
 use crate::text;
+use crate::walker::is_parser_synth_field;
 
 /// One cached `.il` file. `entries` is the flat list of symbols
 /// the workspace-symbol handler emits — filtered against each
@@ -155,6 +156,9 @@ fn collect_class(
     push_top(text, c.span, kw, c.name.as_str(), kind, container, out);
     let class_name = c.name.as_str();
     for f in c.fields.iter() {
+        if is_parser_synth_field(f, c.span) {
+            continue;
+        }
         push_at_span(
             f.span, f.name.as_str(), SymbolKind::FIELD,
             Some(class_name), out,

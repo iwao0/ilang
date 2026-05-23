@@ -133,6 +133,79 @@ pub(crate) fn locate_type_after_colon(
     Some(Span::new(line, col))
 }
 
+/// Locate the start of an fn's return-type token. `name_span` /
+/// `name` identify the fn name; we scan past it for the param list
+/// opener `(`, brace-walk to the matching `)`, then look for `:`
+/// followed by the type's first character. Returns `None` for fns
+/// without a return type, malformed headers, or when the type starts
+/// with a non-identifier character we can't anchor on (e.g.
+/// `*const T`, `T[]`) — in those cases there's nothing for the type
+/// ref to be anchored at, so skipping is correct.
+pub(crate) fn locate_fn_return_type(
+    text: &str,
+    name_span: Span,
+    name: &str,
+) -> Option<Span> {
+    let off = line_col_to_offset(text, name_span.line, name_span.col)?;
+    let bytes = text.as_bytes();
+    let mut i = off + name.len();
+    // Skip whitespace + optional generic argument list `<...>` —
+    // we don't track nested generics for ret-type anchoring, so the
+    // simple `<>` skip is enough for `fn foo<T>(...)`.
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    if i < bytes.len() && bytes[i] == b'<' {
+        let mut depth = 1usize;
+        i += 1;
+        while i < bytes.len() && depth > 0 {
+            match bytes[i] {
+                b'<' => depth += 1,
+                b'>' => depth -= 1,
+                _ => {}
+            }
+            i += 1;
+        }
+    }
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    if i >= bytes.len() || bytes[i] != b'(' {
+        return None;
+    }
+    // Skip the param list with paren-balance, ignoring nested brackets
+    // because parameter default expressions can carry arbitrary tokens.
+    let mut depth = 1usize;
+    i += 1;
+    while i < bytes.len() && depth > 0 {
+        match bytes[i] {
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            _ => {}
+        }
+        i += 1;
+    }
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    if i >= bytes.len() || bytes[i] != b':' {
+        return None;
+    }
+    i += 1;
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    if i >= bytes.len() {
+        return None;
+    }
+    let b = bytes[i];
+    if !b.is_ascii_alphabetic() && b != b'_' {
+        return None;
+    }
+    let (line, col) = offset_to_line_col(text, i)?;
+    Some(Span::new(line, col))
+}
+
 /// Locate the Nth base name in a class declaration's `: Base1, Base2`
 /// list. `class_span` points at the `class` keyword.
 pub(crate) fn locate_class_base_name(

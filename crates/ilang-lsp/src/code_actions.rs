@@ -27,6 +27,7 @@ use super::imports::organize_imports;
 use super::infer_expr_type_with_scope;
 use super::text::{self, line_start_before};
 use super::text_utils::{byte_range_to_lsp_range, byte_to_position};
+use super::walker::is_parser_synth_field;
 
 /// From an iterator of `(item, lo, hi)` byte ranges, return the
 /// innermost one whose `[lo..=hi]` contains `cursor_byte`. "Innermost"
@@ -178,7 +179,11 @@ pub(crate) fn generate_init_at(
     if cls.extern_lib.is_some() || cls.is_repr_c {
         return None;
     }
-    if cls.fields.is_empty() {
+    if cls
+        .fields
+        .iter()
+        .all(|f| is_parser_synth_field(f, cls.span))
+    {
         return None;
     }
     if cls
@@ -197,8 +202,12 @@ pub(crate) fn generate_init_at(
         .collect();
     let body_indent = format!("{base_indent}    ");
     let assign_indent = format!("{body_indent}    ");
-    let params: Vec<String> = cls
+    let user_fields: Vec<_> = cls
         .fields
+        .iter()
+        .filter(|f| !is_parser_synth_field(f, cls.span))
+        .collect();
+    let params: Vec<String> = user_fields
         .iter()
         .map(|f| format!("{}: {}", f.name.as_str(), f.ty))
         .collect();
@@ -207,7 +216,7 @@ pub(crate) fn generate_init_at(
     out.push_str("init(");
     out.push_str(&params.join(", "));
     out.push_str(") {\n");
-    for f in cls.fields.iter() {
+    for f in user_fields.iter() {
         out.push_str(&assign_indent);
         out.push_str("this.");
         out.push_str(f.name.as_str());

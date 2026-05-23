@@ -12,9 +12,9 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use ilang_ast::{
-    Block, ClassDecl, EnumDecl, Expr, ExprKind, FnDecl, GenericTy, InterfaceDecl, Item, Param,
-    Pattern, PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, Symbol as AstSymbol,
-    Type, VariantPayload,
+    Block, ClassDecl, EnumDecl, Expr, ExprKind, FieldDecl, FnDecl, GenericTy, InterfaceDecl, Item,
+    Param, Pattern, PatternBindings, PatternKind, Program, Span, Stmt, StmtKind,
+    Symbol as AstSymbol, Type, VariantPayload,
 };
 use ilang_parser::parse as parse_program;
 use ilang_types::{check, TypeError};
@@ -190,6 +190,29 @@ impl<'a> Walker<'a> {
         });
     }
 
+    /// Walk only the fn header (param types + return type) to push
+    /// type-name refs. Used for getter / setter accessors whose body
+    /// is the @objc desugar's synthetic `__objc_wrapper` — the body
+    /// is skipped to avoid `let __recv` / `let __sel` polluting hover,
+    /// but the header is still user source and its type identifiers
+    /// must show up in documentHighlight / references / rename.
+    pub(crate) fn walk_fn_header_type_refs(&mut self, f: &FnDecl) {
+        for p in &f.params {
+            if let Some(start) =
+                locate_type_after_colon(self.text, p.span, p.name.as_str())
+            {
+                self.walk_type_at(&p.ty, start);
+            }
+        }
+        if let Some(ret) = &f.ret {
+            if let Some(start) =
+                text::locate_fn_return_type(self.text, f.span, f.name.as_str())
+            {
+                self.walk_type_at(ret, start);
+            }
+        }
+    }
+
     pub(crate) fn walk_fn(&mut self, f: &FnDecl, this_class: Option<&str>) {
         let mut scope: Vec<Binding> = Vec::new();
         for p in &f.params {
@@ -211,6 +234,18 @@ impl<'a> Walker<'a> {
                 kind: BindKind::Param,
                 override_signature: None,
             });
+        }
+        // Return type — `walk_fn` previously only walked params and
+        // body, leaving the return-type identifier without a ref
+        // entry. Without one, hover still works via the `word_at`
+        // fallback, but documentHighlight / references skip it
+        // because they only iterate `doc.refs`.
+        if let Some(ret) = &f.ret {
+            if let Some(start) =
+                text::locate_fn_return_type(self.text, f.span, f.name.as_str())
+            {
+                self.walk_type_at(ret, start);
+            }
         }
         // Set `current_this_class` for the duration of the body so
         // `infer_expr` can resolve `Field { obj: This, name }`
@@ -237,6 +272,9 @@ impl<'a> Walker<'a> {
         }
         // Field declaration name: hover shows the field decl line.
         for f in &c.fields {
+            if is_parser_synth_field(f, c.span) {
+                continue;
+            }
             self.push_decl_with_doc(
                 f.name.as_str(),
                 f.span,
@@ -361,12 +399,16 @@ impl<'a> Walker<'a> {
             let is_synth_body =
                 |f: &FnDecl| f.attrs.iter().any(|a| a.name.as_str() == "__objc_wrapper");
             if let Some(g) = &prop.getter {
-                if !is_synth_body(g) {
+                if is_synth_body(g) {
+                    self.walk_fn_header_type_refs(g);
+                } else {
                     self.walk_fn(g, Some(c.name.as_str()));
                 }
             }
             if let Some(s) = &prop.setter {
-                if !is_synth_body(s) {
+                if is_synth_body(s) {
+                    self.walk_fn_header_type_refs(s);
+                } else {
                     self.walk_fn(s, Some(c.name.as_str()));
                 }
             }
@@ -1672,5 +1714,17 @@ fn is_parser_synth_helper(m: &FnDecl, class_span: Span) -> bool {
         return false;
     }
     let n = m.name.as_str();
-    n.starts_with("__") || matches!(n, "alloc" | "init" | "register")
+    n.starts_with("__") || matches!(n, "alloc" | "init" | "register" | "deinit")
+}
+
+/// `true` when `f` is a desugar-inserted field whose span borrows
+/// the surrounding class's `class`-keyword span — the `handle` /
+/// `__owns` pair from `@objc class` and the `current` /
+/// `__async_promise` pair from the async state-machine desugar.
+/// User-written fields point at their own name token, so the span
+/// equality alone is a reliable discriminator. Without this filter
+/// the synth fields hijack hover, document highlight, outline and
+/// workspace symbol search at the `class` keyword.
+pub(crate) fn is_parser_synth_field(f: &FieldDecl, class_span: Span) -> bool {
+    f.span == class_span
 }

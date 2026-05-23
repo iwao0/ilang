@@ -7,6 +7,7 @@ use ilang_ast::{ClassDecl, FnDecl, Item, Span};
 use tower_lsp::lsp_types::{DocumentSymbol, Range, SymbolKind};
 
 use crate::text;
+use crate::walker::is_parser_synth_field;
 
 #[allow(deprecated)]
 pub(crate) fn make_doc_sym(
@@ -274,6 +275,9 @@ pub(crate) fn class_symbol(text: &str, c: &ClassDecl) -> DocumentSymbol {
     let sel = name_range(text, c.span, kw, c.name.as_str());
     let mut children: Vec<DocumentSymbol> = Vec::new();
     for f in c.fields.iter() {
+        if is_parser_synth_field(f, c.span) {
+            continue;
+        }
         let f_sel = text::span_to_range(f.span, f.name.as_str().len());
         children.push(make_doc_sym(
             f.name.as_str().to_string(),

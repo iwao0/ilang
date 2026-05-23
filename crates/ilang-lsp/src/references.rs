@@ -189,7 +189,28 @@ pub(crate) fn handle_references(
             return None;
         }
         let owner = entry.target_uri.clone().unwrap_or_else(|| uri.clone());
-        (owner, (entry.target_span, entry.target_name_len), entry.target_span)
+        // `target_span` lands on the decl keyword (`class` / `fn`).
+        // Re-scan the decl header so the decl-site location points
+        // at the identifier, not the leading `class ` slice. For
+        // cross-file refs we look up the target doc when it's open
+        // in the snapshot; closed files fall through to the keyword
+        // span (we'd need a disk read to do better here).
+        let name = text::read_word_at(
+            &doc.text, entry.line, entry.start_col, entry.end_col,
+        )
+        .unwrap_or_default();
+        let target_text: Option<&str> = if entry.target_uri.is_none() {
+            Some(doc.text.as_str())
+        } else {
+            docs.get(&owner).map(|d| d.text.as_str())
+        };
+        let name_span = match (target_text, name.is_empty()) {
+            (Some(t), false) => {
+                scan_decl_name(t, entry.target_span, &name).unwrap_or(entry.target_span)
+            }
+            _ => entry.target_span,
+        };
+        (owner, (entry.target_span, entry.target_name_len), name_span)
     } else if let Some((word, _)) = word_at(&doc.text, pos) {
         let sym = doc.symbols.get(&AstSymbol::intern(&word))?;
         let name_span = ["fn", "class", "enum", "const"]
@@ -279,15 +300,37 @@ pub(crate) fn handle_document_highlight(
     // rename / references handlers use, then collect every in-file
     // ref pointing at that target. Decl-name span is included so
     // the cursor on the decl itself still highlights its uses below.
-    let (target, decl_name_span, decl_name_len) =
+    // `decl_in_this_file` flags whether the decl actually lives here
+    // — the cross-file case skips the decl hit entirely.
+    let (target, decl_name_span, decl_name_len, decl_in_this_file) =
         if let Some(entry) = lookup_ref(doc, pos) {
             if entry.signature.starts_with("this:") {
                 return None;
             }
+            // `target_span` is the decl keyword (`class` / `fn` / ...).
+            // Re-scan the decl header for the actual name so the
+            // decl-site hit lands on the identifier instead of the
+            // `class ` slice that the keyword span covers.
+            let local = entry.target_uri.is_none();
+            let name_span = if local {
+                let name = text::read_word_at(
+                    &doc.text, entry.line, entry.start_col, entry.end_col,
+                )
+                .unwrap_or_default();
+                if name.is_empty() {
+                    entry.target_span
+                } else {
+                    scan_decl_name(&doc.text, entry.target_span, &name)
+                        .unwrap_or(entry.target_span)
+                }
+            } else {
+                entry.target_span
+            };
             (
                 (entry.target_span, entry.target_name_len),
-                entry.target_span,
+                name_span,
                 entry.target_name_len,
+                local,
             )
         } else if let Some((word, _)) = word_at(&doc.text, pos) {
             let sym = doc.symbols.get(&AstSymbol::intern(&word))?;
@@ -301,6 +344,7 @@ pub(crate) fn handle_document_highlight(
                 (sym.span, sym.name.as_str().len() as u32),
                 name_span,
                 sym.name.as_str().len() as u32,
+                true,
             )
         } else {
             return None;
@@ -324,10 +368,12 @@ pub(crate) fn handle_document_highlight(
         });
     }
     // Include the decl itself when we can locate it in this file.
-    hits.push(DocumentHighlight {
-        range: text::span_to_range(decl_name_span, decl_name_len as usize),
-        kind: Some(DocumentHighlightKind::TEXT),
-    });
+    if decl_in_this_file {
+        hits.push(DocumentHighlight {
+            range: text::span_to_range(decl_name_span, decl_name_len as usize),
+            kind: Some(DocumentHighlightKind::TEXT),
+        });
+    }
     hits.sort_by(|a, b| {
         (a.range.start.line, a.range.start.character)
             .cmp(&(b.range.start.line, b.range.start.character))
