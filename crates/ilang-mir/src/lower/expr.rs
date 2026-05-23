@@ -36,111 +36,7 @@ impl<'a> BodyCx<'a> {
                 });
                 Ok((v, MirTy::Str))
             }
-            ExprKind::Var(name) => {
-                if let Some(found) = self.lookup_var(*name) {
-                    return Ok(found);
-                }
-                // Closure capture takes precedence over a same-named
-                // module slot — a closure that captured `factor`
-                // when it was 10 must keep seeing 10 even if the
-                // outer code reassigned the slot to 999.
-                // Slot reads borrow ownership from the slot itself
-                // (the host store keeps a stable refcount on the
-                // slot's heap value). We deliberately do NOT retain
-                // here — that's the same contract `lookup_var`
-                // honours for Local reads, and it's what avoids the
-                // per-loop-iteration leak in long-running programs
-                // (e.g. `examples/sdl_breakout`'s game loop, where
-                // every frame reads slot-promoted globals dozens of
-                // times). Downstream `let`-binding / fn-arg /
-                // closure-capture sites bump the refcount when they
-                // need persistent ownership.
-                if let Some(caps) = self.captures_in_scope {
-                    if caps.contains_key(name) {
-                        // Fall through to the existing capture
-                        // handler below.
-                    } else if let Some((idx, slot_ty)) = self.repl_slots.get(name).cloned() {
-                        let idx_v = self.const_int(MirTy::I64, idx as i64);
-                        let raw = self.fb.new_value(MirTy::I64);
-                        self.fb.push_inst(Inst::Call {
-                            dst: Some(raw),
-                            callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
-                            args: Box::new([idx_v]),
-                        });
-                        let v = self.i64_to_slot_value(raw, &slot_ty)?;
-                        return Ok((v, slot_ty));
-                    }
-                } else if let Some((idx, slot_ty)) = self.repl_slots.get(name).cloned() {
-                    // Non-closure context (regular fn body or
-                    // `__main` itself): always go through the slot.
-                    let idx_v = self.const_int(MirTy::I64, idx as i64);
-                    let raw = self.fb.new_value(MirTy::I64);
-                    self.fb.push_inst(Inst::Call {
-                        dst: Some(raw),
-                        callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
-                        args: Box::new([idx_v]),
-                    });
-                    let v = self.i64_to_slot_value(raw, &slot_ty)?;
-                    return Ok((v, slot_ty));
-                }
-                // Closure capture (only when lowering a closure body).
-                if let Some(caps) = self.captures_in_scope {
-                    if let Some((idx, cty)) = caps.get(name).cloned() {
-                        let is_cell = self
-                            .cell_captures
-                            .map(|s| s.contains(name))
-                            .unwrap_or(false);
-                        if is_cell {
-                            // Capture slot holds a cell pointer (i64
-                            // 1-elem array). Load the pointer, then
-                            // dereference to get the inner value.
-                            let cell_v = self.fb.new_value(MirTy::I64);
-                            self.fb.push_inst(Inst::LoadCapture { dst: cell_v, idx });
-                            let zero = self.const_int(MirTy::I64, 0);
-                            let v = self.fb.new_value(cty.clone());
-                            self.fb.push_inst(Inst::ArrayLoad {
-                                dst: v,
-                                arr: cell_v,
-                                idx: zero,
-                            });
-                            return Ok((v, cty));
-                        }
-                        let v = self.fb.new_value(cty.clone());
-                        self.fb.push_inst(Inst::LoadCapture { dst: v, idx });
-                        return Ok((v, cty));
-                    }
-                }
-                // Top-level fn used as a value: produce a trampoline
-                // closure with no captures.
-                if let Some(&fid) = self.fn_ids.get(name) {
-                    let sig = self.fn_sigs.get(name).cloned().unwrap();
-                    let fn_ty = MirTy::Fn(Box::new(crate::types::MirFnTy {
-                        params: sig.params.clone().into_boxed_slice(),
-                        ret: sig.ret,
-                    }));
-                    let dst = self.fb.new_value(fn_ty.clone());
-                    self.fb.push_inst(Inst::MakeClosure {
-                        dst,
-                        func: fid,
-                        captures: Box::new([]),
-                    });
-                    return Ok((dst, fn_ty));
-                }
-                // Implicit `this.field` / `this.method()` — only the
-                // field case applies here (method ref without call is
-                // not supported in M1).
-                if let Some(cid) = self.this_class {
-                    let meta = self.class_meta.get(&cid).expect("class meta");
-                    if let Some(&fid) = meta.field_ix.get(name) {
-                        let (this_v, _) = self.lookup_var(Symbol::intern("this")).unwrap();
-                        let fty = meta.field_ty.get(&fid).cloned().unwrap();
-                        let v = self.fb.new_value(fty.clone());
-                        self.fb.push_inst(Inst::LoadField { dst: v, obj: this_v, field: fid });
-                        return Ok((v, fty));
-                    }
-                }
-                Err(LowerError::Other(format!("unbound variable: {name}")))
-            }
+            ExprKind::Var(name) => self.lower_var_expr(*name),
             ExprKind::This => {
                 let this_sym = Symbol::intern("this");
                 if let Some(found) = self.lookup_var(this_sym) {
@@ -969,5 +865,105 @@ impl<'a> BodyCx<'a> {
             // is handled above. Removed the legacy catch-all because
             // the compiler now flags it as `unreachable_pattern`.
         }
+    }
+
+    fn lower_var_expr(&mut self, name: Symbol) -> Result<(ValueId, MirTy), LowerError> {
+        if let Some(found) = self.lookup_var(name) {
+            return Ok(found);
+        }
+        // Closure capture takes precedence over a same-named module
+        // slot — a closure that captured `factor` when it was 10 must
+        // keep seeing 10 even if the outer code reassigned the slot
+        // to 999. Slot reads borrow ownership from the slot itself
+        // (the host store keeps a stable refcount on the slot's heap
+        // value). We deliberately do NOT retain here — that mirrors
+        // `lookup_var`'s contract for Local reads and avoids the
+        // per-loop-iteration leak in long-running programs (e.g.
+        // `examples/sdl_breakout`'s game loop). Downstream
+        // `let`-binding / fn-arg / closure-capture sites bump the
+        // refcount when they need persistent ownership.
+        if let Some(caps) = self.captures_in_scope {
+            if caps.contains_key(&name) {
+                // Fall through to the existing capture handler below.
+            } else if let Some((idx, slot_ty)) = self.repl_slots.get(&name).cloned() {
+                let idx_v = self.const_int(MirTy::I64, idx as i64);
+                let raw = self.fb.new_value(MirTy::I64);
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(raw),
+                    callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                    args: Box::new([idx_v]),
+                });
+                let v = self.i64_to_slot_value(raw, &slot_ty)?;
+                return Ok((v, slot_ty));
+            }
+        } else if let Some((idx, slot_ty)) = self.repl_slots.get(&name).cloned() {
+            // Non-closure context (regular fn body or `__main`
+            // itself): always go through the slot.
+            let idx_v = self.const_int(MirTy::I64, idx as i64);
+            let raw = self.fb.new_value(MirTy::I64);
+            self.fb.push_inst(Inst::Call {
+                dst: Some(raw),
+                callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                args: Box::new([idx_v]),
+            });
+            let v = self.i64_to_slot_value(raw, &slot_ty)?;
+            return Ok((v, slot_ty));
+        }
+        // Closure capture (only when lowering a closure body).
+        if let Some(caps) = self.captures_in_scope {
+            if let Some((idx, cty)) = caps.get(&name).cloned() {
+                let is_cell = self
+                    .cell_captures
+                    .map(|s| s.contains(&name))
+                    .unwrap_or(false);
+                if is_cell {
+                    // Capture slot holds a cell pointer (i64 1-elem
+                    // array). Load the pointer, then dereference to
+                    // get the inner value.
+                    let cell_v = self.fb.new_value(MirTy::I64);
+                    self.fb.push_inst(Inst::LoadCapture { dst: cell_v, idx });
+                    let zero = self.const_int(MirTy::I64, 0);
+                    let v = self.fb.new_value(cty.clone());
+                    self.fb.push_inst(Inst::ArrayLoad {
+                        dst: v,
+                        arr: cell_v,
+                        idx: zero,
+                    });
+                    return Ok((v, cty));
+                }
+                let v = self.fb.new_value(cty.clone());
+                self.fb.push_inst(Inst::LoadCapture { dst: v, idx });
+                return Ok((v, cty));
+            }
+        }
+        // Top-level fn used as a value: produce a trampoline closure
+        // with no captures.
+        if let Some(&fid) = self.fn_ids.get(&name) {
+            let sig = self.fn_sigs.get(&name).cloned().unwrap();
+            let fn_ty = MirTy::Fn(Box::new(crate::types::MirFnTy {
+                params: sig.params.clone().into_boxed_slice(),
+                ret: sig.ret,
+            }));
+            let dst = self.fb.new_value(fn_ty.clone());
+            self.fb.push_inst(Inst::MakeClosure {
+                dst,
+                func: fid,
+                captures: Box::new([]),
+            });
+            return Ok((dst, fn_ty));
+        }
+        // Implicit `this.field` — method-ref-without-call is not
+        // supported in M1.
+        if let Some(cid) = self.this_class {
+            let meta = self.class_meta.get(&cid).expect("class meta");
+            if let Some(&fid) = meta.field_ix.get(&name) {
+                let (this_v, _) = self.lookup_var(Symbol::intern("this")).unwrap();
+                let fty = meta.field_ty.get(&fid).cloned().unwrap();
+                let v = self.fb.new_value(fty.clone());
+                self.fb.push_inst(Inst::LoadField { dst: v, obj: this_v, field: fid });
+                return Ok((v, fty));
+            }
+        }
+        Err(LowerError::Other(format!("unbound variable: {name}")))
     }
 }

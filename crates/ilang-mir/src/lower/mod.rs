@@ -609,6 +609,18 @@ struct ClassMeta {
     static_property_setter: HashMap<Symbol, (FuncId, MirTy)>,
 }
 
+impl ClassMeta {
+    fn add_method(&mut self, name: Symbol, id: FuncId, sig: FnSig) {
+        self.method_ids.insert(name, id);
+        self.method_sigs.insert(name, sig);
+    }
+
+    fn add_static_method(&mut self, name: Symbol, id: FuncId, sig: FnSig) {
+        self.static_method_ids.insert(name, id);
+        self.static_method_sigs.insert(name, sig);
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct FnSig {
     pub(super) params: Vec<MirTy>,

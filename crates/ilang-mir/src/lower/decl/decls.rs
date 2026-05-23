@@ -354,8 +354,7 @@ impl Lower {
                 if let Some(first) = new_sig.params.first_mut() {
                     *first = class_obj_ty.clone();
                 }
-                meta.method_ids.insert(name, fid);
-                meta.method_sigs.insert(name, new_sig);
+                meta.add_method(name, fid, new_sig);
                 method_decls.push(crate::program::MethodDecl {
                     name,
                     is_override: false,
@@ -461,8 +460,7 @@ impl Lower {
             self.funcs[id.0 as usize].name = mangled;
 
             let meta = self.class_meta.get_mut(&class_id).unwrap();
-            meta.method_ids.insert(m.name, id);
-            meta.method_sigs.insert(m.name, FnSig { params, ret });
+            meta.add_method(m.name, id, FnSig { params, ret });
             // Replace any inherited entry of the same name (override).
             method_decls.retain(|d: &crate::program::MethodDecl| d.name != m.name);
             method_decls.push(crate::program::MethodDecl {
@@ -518,8 +516,7 @@ impl Lower {
             self.funcs[id.0 as usize].kind = FunctionKind::Local;
 
             let meta = self.class_meta.get_mut(&class_id).unwrap();
-            meta.static_method_ids.insert(sm.name, id);
-            meta.static_method_sigs.insert(sm.name, FnSig { params, ret });
+            meta.add_static_method(sm.name, id, FnSig { params, ret });
         }
 
         // Properties — synthesise getter/setter as methods. Static
@@ -556,16 +553,14 @@ impl Lower {
                     // `lower_static_method` body-lowerer can find it
                     // by the mangled name we passed for the FnDecl.
                     let body_name = Symbol::intern(&format!("get_static_{}", prop.name));
-                    meta.static_method_ids.insert(body_name, id);
-                    meta.static_method_sigs.insert(body_name, FnSig { params, ret });
+                    meta.add_static_method(body_name, id, FnSig { params, ret });
                 } else {
                     // Synthesise unique keys for property getter/setter so
                     // they don't collide with each other or with regular
                     // methods of the same name.
                     let key = Symbol::intern(&format!("{}::get", prop.name));
                     meta.property_getter.insert(prop.name, (id, prop_ty.clone()));
-                    meta.method_sigs.insert(key, FnSig { params, ret });
-                    meta.method_ids.insert(key, id);
+                    meta.add_method(key, id, FnSig { params, ret });
                 }
             }
             let mangle_setter = if prop.is_static { "set_static" } else { "set" };
@@ -591,13 +586,11 @@ impl Lower {
                 if prop.is_static {
                     meta.static_property_setter.insert(prop.name, (id, prop_ty.clone()));
                     let body_name = Symbol::intern(&format!("set_static_{}", prop.name));
-                    meta.static_method_ids.insert(body_name, id);
-                    meta.static_method_sigs.insert(body_name, FnSig { params, ret });
+                    meta.add_static_method(body_name, id, FnSig { params, ret });
                 } else {
                     let key = Symbol::intern(&format!("{}::set", prop.name));
                     meta.property_setter.insert(prop.name, (id, prop_ty.clone()));
-                    meta.method_sigs.insert(key, FnSig { params, ret });
-                    meta.method_ids.insert(key, id);
+                    meta.add_method(key, id, FnSig { params, ret });
                 }
             }
         }
