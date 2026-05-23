@@ -1773,4 +1773,332 @@ pub enum FontPitchFamily: u32 {
         hdcSrc: HDC, xoriginSrc: i32, yoriginSrc: i32, wSrc: i32, hSrc: i32,
         ftn:    u32    // BLENDFUNCTION packed into u32
     ): i32
+
+    // Pixel-format APIs (ChoosePixelFormat / SetPixelFormat /
+    // GetPixelFormat / DescribePixelFormat / SwapBuffers, plus
+    // PIXELFORMATDESCRIPTOR) are bound in opengl32.il together with
+    // the rest of the OpenGL setup surface.
+
+    // ── ExtTextOut / PolyTextOut ─────────────────────────────────
+
+    /// `options`: ETO_CLIPPED=4, ETO_OPAQUE=2, ETO_NUMERICSLATIN=0x800,
+    /// ETO_GLYPH_INDEX=0x10, ETO_RTLREADING=0x80, ETO_PDY=0x2000.
+    @lib pub fn ExtTextOutA(
+        hdc:     HDC,
+        x:       i32,
+        y:       i32,
+        options: u32,
+        lprect:  *const RECT,
+        lpString: *const char,
+        c:       u32,
+        lpDx:    *const i32
+    ): i32
+    @lib pub fn ExtTextOutW(
+        hdc:     HDC,
+        x:       i32,
+        y:       i32,
+        options: u32,
+        lprect:  *const RECT,
+        lpString: *const u16,
+        c:       u32,
+        lpDx:    *const i32
+    ): i32
+
+    /// `POLYTEXTA` / `POLYTEXTW` — 32 bytes; describes one run for
+    /// PolyTextOut. Layouts match: only the `lpstr` pointer differs.
+    pub struct POLYTEXTW {
+        x:       i32
+        y:       i32
+        n:       u32
+        lpstr:   *const u16
+        uiFlags: u32
+        _pad:    u32
+        rcl:     RECT
+        pdx:     *const i32
+    }
+
+    @lib pub fn PolyTextOutA(hdc: HDC, ppt: *const void, nStrings: i32): i32
+    @lib pub fn PolyTextOutW(hdc: HDC, ppt: *const POLYTEXTW, nStrings: i32): i32
+
+    // ── Charset info ─────────────────────────────────────────────
+
+    /// `CHARSETINFO` — 32 bytes.
+    pub struct CHARSETINFO {
+        ciCharset:     u32
+        ciACP:         u32
+        fsUsbLow:      u32
+        fsUsbHigh1:    u32
+        fsUsbHigh2:    u32
+        fsUsbHigh3:    u32
+        fsCsbDefault:  u32
+        fsCsbSupported: u32
+    }
+
+    /// `dwSrc`: TCI_SRCCHARSET=1, TCI_SRCCODEPAGE=2, TCI_SRCFONTSIG=3,
+    /// TCI_SRCLOCALE=0x1000.
+    @lib pub fn TranslateCharsetInfo(
+        lpSrc:   *u32,
+        lpCs:    *CHARSETINFO,
+        dwFlags: u32
+    ): i32
+
+    @lib pub fn GetTextCharset(hdc: HDC): i32
+    @lib pub fn GetTextCharsetInfo(hdc: HDC, lpSig: *void, dwFlags: u32): i32
+
+    @lib pub fn GetFontLanguageInfo(hdc: HDC): u32
+
+    /// `GLYPHSET` — variable-length, header is 16 bytes.
+    pub struct GLYPHSET_HEADER {
+        cbThis:           u32
+        flAccel:          u32   // 1 = GS_8BIT_INDICES
+        cGlyphsSupported: u32
+        cRanges:          u32
+    }
+
+    @lib pub fn GetFontUnicodeRanges(hdc: HDC, lpgs: *void): u32
+
+    // ── Char widths (extended) ───────────────────────────────────
+
+    /// Legacy 16-bit width function — prefer GetCharWidth32A.
+    @lib pub fn GetCharWidthA(hdc: HDC, iFirst: u32, iLast: u32, lpBuffer: *i32): i32
+    @lib pub fn GetCharWidthW(hdc: HDC, iFirst: u32, iLast: u32, lpBuffer: *i32): i32
+
+    @lib pub fn GetCharWidthFloatA(hdc: HDC, iFirst: u32, iLast: u32, lpBuffer: *f32): i32
+    @lib pub fn GetCharWidthFloatW(hdc: HDC, iFirst: u32, iLast: u32, lpBuffer: *f32): i32
+
+    /// Glyph-index variant. `pgi`: NULL = sequential 0..cgi-1.
+    @lib pub fn GetCharWidthI(
+        hdc:        HDC,
+        giFirst:    u32,
+        cgi:        u32,
+        pgi:        *u16,
+        piWidths:   *i32
+    ): i32
+
+    /// `ABC` — 12 bytes; per-glyph spacing (overhang + advance + underhang).
+    pub struct ABC {
+        abcA: i32
+        abcB: u32
+        abcC: i32
+    }
+    pub struct ABCFLOAT {
+        abcfA: f32
+        abcfB: f32
+        abcfC: f32
+    }
+
+    @lib pub fn GetCharABCWidthsFloatA(
+        hdc:     HDC,
+        iFirst:  u32,
+        iLast:   u32,
+        lpABCF:  *ABCFLOAT
+    ): i32
+    @lib pub fn GetCharABCWidthsFloatW(
+        hdc:     HDC,
+        iFirst:  u32,
+        iLast:   u32,
+        lpABCF:  *ABCFLOAT
+    ): i32
+
+    @lib pub fn GetCharABCWidthsI(
+        hdc:    HDC,
+        giFirst: u32,
+        cgi:    u32,
+        pgi:    *u16,
+        pabc:   *ABC
+    ): i32
+
+    @lib pub fn GetTextExtentPointI(
+        hdc:        HDC,
+        pgiIn:      *u16,
+        cgi:        i32,
+        psize:      *SIZE
+    ): i32
+
+    @lib pub fn GetTextExtentExPointI(
+        hdc:         HDC,
+        lpwszString: *u16,
+        cwchString:  i32,
+        nMaxExtent:  i32,
+        lpnFit:      *i32,
+        lpnDx:       *i32,
+        lpSize:      *SIZE
+    ): i32
+
+    // ── OUTLINETEXTMETRIC ────────────────────────────────────────
+
+    /// `PANOSE` — 10 bytes. Visual classification of a typeface.
+    pub struct PANOSE {
+        bFamilyType:     u8
+        bSerifStyle:     u8
+        bWeight:         u8
+        bProportion:     u8
+        bContrast:       u8
+        bStrokeVariation: u8
+        bArmStyle:       u8
+        bLetterform:     u8
+        bMidline:        u8
+        bXHeight:        u8
+    }
+
+    /// `OUTLINETEXTMETRICW` — 312 bytes on x64. We expose the header
+    /// fields callers actually read; the trailing variable-length face
+    /// name block is reached via pointer arithmetic past this struct.
+    pub struct OUTLINETEXTMETRICW {
+        otmSize:                u32
+        otmTextMetrics:         TEXTMETRICA   // 60 bytes shared by A/W
+        otmFiller:              u8
+        otmPanoseNumber:        PANOSE
+        otmfsSelection:         u16
+        _pad0:                  u16
+        otmfsType:              u32
+        otmsCharSlopeRise:      i32
+        otmsCharSlopeRun:       i32
+        otmItalicAngle:         i32
+        otmEMSquare:            u32
+        otmAscent:              i32
+        otmDescent:             i32
+        otmLineGap:             u32
+        otmsCapEmHeight:        u32
+        otmsXHeight:            u32
+        otmrcFontBox:           RECT
+        otmMacAscent:           i32
+        otmMacDescent:          i32
+        otmMacLineGap:          u32
+        otmusMinimumPPEM:       u32
+        otmptSubscriptSize:     POINT
+        otmptSubscriptOffset:   POINT
+        otmptSuperscriptSize:   POINT
+        otmptSuperscriptOffset: POINT
+        otmsStrikeoutSize:      u32
+        otmsStrikeoutPosition:  i32
+        otmsUnderscoreSize:     i32
+        otmsUnderscorePosition: i32
+        // Variable-length face-name block follows as offsets:
+        otmpFamilyName:         u64
+        otmpFaceName:           u64
+        otmpStyleName:          u64
+        otmpFullName:           u64
+    }
+
+    @lib pub fn GetOutlineTextMetricsA(hdc: HDC, cjCopy: u32, potm: *void): u32
+    @lib pub fn GetOutlineTextMetricsW(hdc: HDC, cjCopy: u32, potm: *OUTLINETEXTMETRICW): u32
+
+    // ── Path queries ─────────────────────────────────────────────
+
+    /// Returns the points + types of the current path, or -1 on
+    /// failure. Pass NULL pointers and `cpt = 0` to query the count.
+    @lib pub fn GetPath(
+        hdc:  HDC,
+        apt:  *POINT,
+        aj:   *u8,
+        cpt:  i32
+    ): i32
+
+    /// Combines the current path with the clipping region. `mode`:
+    /// RGN_AND / RGN_OR / RGN_XOR / RGN_DIFF / RGN_COPY.
+    @lib pub fn SelectClipPath(hdc: HDC, mode: i32): i32
+
+    @lib pub fn PathToRegion2(hdc: HDC): HRGN   // alias for symmetry; same export
+
+    // ── Region create extras ─────────────────────────────────────
+
+    @lib pub fn CreateRectRgnIndirect(lprect: *const RECT): HRGN
+    @lib pub fn CreateEllipticRgnIndirect(lprect: *const RECT): HRGN
+
+    // ── Bitmap dim ───────────────────────────────────────────────
+
+    @lib pub fn SetBitmapDimensionEx(hbm: HBITMAP, w: i32, h: i32, lpsz: *SIZE): i32
+    @lib pub fn GetBitmapDimensionEx(hbm: HBITMAP, lpsz: *SIZE): i32
+
+    @lib pub fn GetStretchBltMode(hdc: HDC): i32
+
+    // ── Line DDA ─────────────────────────────────────────────────
+
+    /// Iterates `lpProc(x, y, lpData)` over every pixel of the line
+    /// from (`xStart`, `yStart`) to (`xEnd`, `yEnd`). Useful for
+    /// custom rasterisation.
+    @lib pub fn LineDDA(
+        xStart:  i32,
+        yStart:  i32,
+        xEnd:    i32,
+        yEnd:    i32,
+        lpProc:  fn(i32, i32, i64),
+        lpData:  i64
+    ): i32
+
+    // ── SetPixelV ────────────────────────────────────────────────
+
+    /// Faster than SetPixel — does not return the previous colour.
+    @lib pub fn SetPixelV(hdc: HDC, x: i32, y: i32, color: u32): i32
+
+    // ── Gamma ramp (display-DC only) ─────────────────────────────
+
+    /// `lpRamp`: pointer to 3 × 256 × WORD (1536 bytes) gamma table.
+    @lib pub fn SetDeviceGammaRamp(hdc: HDC, lpRamp: *const u16): i32
+    @lib pub fn GetDeviceGammaRamp(hdc: HDC, lpRamp: *u16): i32
+
+    // ── Color matching extras ────────────────────────────────────
+
+    @lib pub fn GetICMProfileA(hdc: HDC, pBufSize: *u32, pszFilename: *char): i32
+    @lib pub fn GetICMProfileW(hdc: HDC, pBufSize: *u32, pszFilename: *u16): i32
+    @lib pub fn SetICMProfileA(hdc: HDC, lpFileName: *const char): i32
+    @lib pub fn SetICMProfileW(hdc: HDC, lpFileName: *const u16): i32
+
+    @lib pub fn UpdateICMRegKeyA(reserved: u32, lpszCMID: *const char, lpszFileName: *const char, command: u32): i32
+    @lib pub fn UpdateICMRegKeyW(reserved: u32, lpszCMID: *const u16, lpszFileName: *const u16, command: u32): i32
+
+    // ── ColorMatchToTarget ───────────────────────────────────────
+
+    /// `action`: CS_ENABLE=1, CS_DISABLE=2, CS_DELETE_TRANSFORM=3.
+    @lib pub fn ColorMatchToTarget(hdcSrc: HDC, hdcTgt: HDC, action: u32): i32
+
+    @lib pub fn EnumICMProfilesA(
+        hdc:       HDC,
+        proc:      fn(*const char, i64): i32,
+        param:     i64
+    ): i32
+    @lib pub fn EnumICMProfilesW(
+        hdc:       HDC,
+        proc:      fn(*const u16, i64): i32,
+        param:     i64
+    ): i32
+
+    // ── ExtFloodFill (have) / FloodFill ──────────────────────────
+
+    /// Legacy FloodFill — fills from `(x, y)` with the current brush
+    /// until reaching `crColor`.  Use ExtFloodFill for modern code.
+    @lib pub fn FloodFill(hdc: HDC, x: i32, y: i32, color: u32): i32
+
+    // ── Object cleanup helpers ───────────────────────────────────
+
+    /// Returns the previous "draw" mode for path operations: 1 = ALTERNATE,
+    /// 2 = WINDING.  Available as GetArcDirection (clockwise default).
+    @lib pub fn GetArcDirection(hdc: HDC): i32
+
+    // ── Print job control (gdi32-exported wrappers) ──────────────
+
+    /// Cancels an outstanding draw / page if invoked on the printer DC.
+    /// Most callers use AbortDoc instead.
+    @lib pub fn QueryAbort(hdc: HDC, iParam: i32): i32
+
+    // ── Set selection extras ─────────────────────────────────────
+
+    @lib pub fn IntersectClipRect2(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32): i32
+    @lib pub fn OffsetClipRgn(hdc: HDC, x: i32, y: i32): i32
+
+    @lib pub fn GetTextExtentPointA(
+        hdc:       HDC,
+        lpString:  *const char,
+        c:         i32,
+        lpsz:      *SIZE
+    ): i32
+    @lib pub fn GetTextExtentPointW(
+        hdc:       HDC,
+        lpString:  *const u16,
+        c:         i32,
+        lpsz:      *SIZE
+    ): i32
+
+    // ── Helper: GdiTransparentBlt lives in msimg32, not gdi32 ────
 }
