@@ -10,8 +10,7 @@ use windows { HANDLE }
 use directx12 {
     D3D12GetDebugInterface
 }
-use ole32 { GUID }
-
+use winnt { GUID }
 @extern(C) {
     pub fn run() {
         // IID_ID3D12Debug = {344488b7-6846-474b-b989-f027448245e0}

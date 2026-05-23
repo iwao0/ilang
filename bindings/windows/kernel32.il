@@ -31,25 +31,6 @@ pub enum FileCreation: u32 {
     truncateExisting = 5   // truncate to zero; requires write access
 }
 
-// ─── File attributes (FILE_ATTRIBUTE_*) ──────────────────────
-@flags
-pub enum FileAttribute: u32 {
-    readonly          = 0x00000001
-    hidden            = 0x00000002
-    system            = 0x00000004
-    directory         = 0x00000010
-    archive           = 0x00000020
-    device            = 0x00000040
-    normal            = 0x00000080
-    temporary         = 0x00000100
-    sparseFile        = 0x00000200
-    reparsePoint      = 0x00000400
-    compressed        = 0x00000800
-    offline           = 0x00001000
-    notContentIndexed = 0x00002000
-    encrypted         = 0x00004000
-}
-
 // ─── WaitForSingleObject return values ───────────────────────
 pub enum WaitResult: u32 {
     object0   = 0x00000000   // object became signalled
@@ -73,22 +54,6 @@ pub enum AllocationType: u32 {
     largePages = 0x20000000
 }
 
-// ─── Page-protection flags (PAGE_*) ──────────────────────────
-@flags
-pub enum PageProtection: u32 {
-    noAccess         = 0x001
-    readonly         = 0x002
-    readWrite        = 0x004
-    writeCopy        = 0x008
-    execute          = 0x010
-    executeRead      = 0x020
-    executeReadWrite = 0x040
-    executeWriteCopy = 0x080
-    guard            = 0x100
-    noCache          = 0x200
-    writeCombine     = 0x400
-}
-
 // ─── Standard handle IDs for GetStdHandle (STD_*) ────────────
 pub enum StdHandle: u32 {
     input  = 0xFFFFFFF6   // STD_INPUT_HANDLE
@@ -96,7 +61,7 @@ pub enum StdHandle: u32 {
     error  = 0xFFFFFFF4   // STD_ERROR_HANDLE
 }
 
-use winnt { HANDLE }
+use winnt { HANDLE, GUID, SYSTEMTIME, FILETIME, FileAttribute, PageProtection }
 use windef { HMODULE }
 
 @extern(C, "kernel32") {
@@ -766,26 +731,6 @@ use windef { HMODULE }
     @lib pub fn FindClose(hFindFile: HANDLE): i32
 
     // ── Date / time ───────────────────────────────────────────────
-
-    /// `SYSTEMTIME` — 16 bytes. All fields are u16.
-    pub struct SYSTEMTIME {
-        wYear:         u16
-        wMonth:        u16   // 1–12
-        wDayOfWeek:    u16   // 0=Sunday … 6=Saturday
-        wDay:          u16   // 1–31
-        wHour:         u16   // 0–23
-        wMinute:       u16   // 0–59
-        wSecond:       u16   // 0–59
-        wMilliseconds: u16   // 0–999
-    }
-
-    /// `FILETIME` — 8 bytes. 100-nanosecond intervals since
-    /// 1601-01-01 00:00:00 UTC. Use FileTimeToSystemTime /
-    /// SystemTimeToFileTime for conversion.
-    pub struct FILETIME {
-        dwLowDateTime:  u32
-        dwHighDateTime: u32
-    }
 
     @lib pub fn GetLocalTime(lpSystemTime: *SYSTEMTIME)
     @lib pub fn GetSystemTime(lpSystemTime: *SYSTEMTIME)

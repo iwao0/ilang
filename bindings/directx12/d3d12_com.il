@@ -22,7 +22,8 @@
 /// numbering stays anchored to the C++ COM ABI's positions.
 
 use windows { HANDLE }
-use ole32 { GUID, IUnknown }
+use winnt { GUID }
+use ole32 { IUnknown }
 use d3d12 {
     D3D12_COMMAND_QUEUE_DESC,
     D3D12_DESCRIPTOR_HEAP_DESC,

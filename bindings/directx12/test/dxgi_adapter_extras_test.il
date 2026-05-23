@@ -12,8 +12,8 @@ use test
 use windows {
     HANDLE, NULL,}
 use directx12 { CreateDXGIFactory2, DXGI_QUERY_VIDEO_MEMORY_INFO, DxgiFeature, IDXGIAdapter, IDXGIAdapter3, IDXGIFactory4, IDXGIFactory5 }
-use ole32 { GUID, IUnknown }
-
+use winnt { GUID }
+use ole32 { IUnknown }
 /// IID_IDXGIFactory4 = 1bc6ea02-ef36-464f-bf0c-21ca39e5168a
 pub const IID_IDXGIFactory4: GUID = GUID {
     Data1: 0x1bc6ea02, Data2: 0xef36, Data3: 0x464f,

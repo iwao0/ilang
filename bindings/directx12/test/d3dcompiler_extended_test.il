@@ -16,8 +16,8 @@ use directx12 {
     D3D_SHADER_MACRO, ID3DBlob,
     D3DCompileFlags
 }
-use ole32 { GUID, IUnknown }
-
+use winnt { GUID }
+use ole32 { IUnknown }
 /// IID_ID3D11ShaderReflection = 8d536ca1-0cca-4956-a837-786963755584.
 /// This is what d3dcompiler_47.dll's `D3DReflect` accepts — the
 /// equivalent of `IID_ID3D12ShaderReflection`, just a historical

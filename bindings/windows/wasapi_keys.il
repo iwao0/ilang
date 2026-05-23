@@ -6,7 +6,7 @@
 /// another module's `@extern(C)` block need to live at module top
 /// level with a `use ...` import to bring the type into scope.
 
-use ole32 { GUID }
+use winnt { GUID }
 use wasapi { PROPERTYKEY }
 
 /// `PKEY_Device_FriendlyName = a45c254e-df1c-4efd-8020-67d146a850e0`, pid 14.

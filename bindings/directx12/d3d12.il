@@ -17,8 +17,7 @@
 // and keeping a single canonical type stops the type checker
 // from rejecting cross-binding struct literals.
 use dxgi { DXGI_SAMPLE_DESC }
-use ole32 { GUID }
-
+use winnt { GUID }
 // ─── Feature-level identifiers (D3D_FEATURE_LEVEL_*) ─────────────
 pub enum D3DFeatureLevel: u32 {
     /// 9.1 — Windows Phone fallback only.

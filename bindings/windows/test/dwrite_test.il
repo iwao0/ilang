@@ -1,7 +1,7 @@
 /// dwrite — factory creation smoke test.
 
 use test
-use ole32 { GUID }
+use winnt { GUID }
 use windows { DWriteCreateFactory, DWriteFactoryType }
 
 @extern(C) {

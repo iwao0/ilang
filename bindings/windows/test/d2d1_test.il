@@ -1,7 +1,7 @@
 /// d2d1 — factory creation + matrix helpers smoke test.
 
 use test
-use ole32 { GUID }
+use winnt { GUID }
 use windows {
     D2D1CreateFactory, D2dFactoryType,
     D2D1MakeRotateMatrix, D2D1_MATRIX_3X2_F, D2D1_POINT_2F,

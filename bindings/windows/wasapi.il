@@ -10,8 +10,8 @@
 /// (everything else), but every entry below is reached through
 /// the COM vtables — no flat `@lib pub fn` declarations needed.
 
-use ole32 { GUID, IUnknown }
-use winnt { HANDLE }
+use ole32 { IUnknown }
+use winnt { GUID, HANDLE }
 // ─── EDataFlow / ERole / DeviceState ─────────────────────────────
 
 pub enum EDataFlow: u32 {

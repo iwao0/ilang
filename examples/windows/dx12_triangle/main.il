@@ -73,8 +73,8 @@ use directx12 {
     D3DCompile,
     CreateDXGIFactory2, DXGI_SAMPLE_DESC, DXGI_SWAP_CHAIN_DESC1, DxgiAlphaMode, DxgiFormat, DxgiScaling, DxgiSwapEffect, DxgiUsage, IDXGIFactory4, IDXGISwapChain1,
 }
-use ole32 { GUID, IUnknown }
-
+use winnt { GUID }
+use ole32 { IUnknown }
 @extern(C) {
     // Triangle vertex layout — position (xyz) + color (rgba),
     // 28 bytes total, matches the input-element desc below.

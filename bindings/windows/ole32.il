@@ -104,21 +104,10 @@ pub enum DvAspect: u32 {
     docprint  = 8
 }
 
-@extern(C, "ole32") {
-    // ── GUID — 16 bytes ───────────────────────────────────────────
+use winnt { GUID }
 
-    /// Globally Unique Identifier.  Also used as CLSID and IID.
-    /// Initialise with literal values or parse from a string with
-    /// `CLSIDFromString`.
-    pub struct GUID {
-        Data1: u32
-        Data2: u16
-        Data3: u16
-        // Data4[8] — stored as two u32 words; low byte of Data4[0]
-        // is the first byte when transmitted over the network.
-        Data4lo: u32
-        Data4hi: u32
-    }
+@extern(C, "ole32") {
+    // GUID is now in winnt — see `use winnt { GUID }` above.
 
     // ── IUnknown — every COM interface starts here ────────────────
     //

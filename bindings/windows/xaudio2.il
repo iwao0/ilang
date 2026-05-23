@@ -14,8 +14,8 @@
 /// expose `XAudio2_8.dll`. The `@extern(C, "xaudio2_9", "xaudio2_8")`
 /// fallback below picks whichever loads.
 
+use winnt { GUID }
 use ole32 { IUnknown }
-
 // ─── Flags ────────────────────────────────────────────────────────
 
 @flags
@@ -99,7 +99,6 @@ pub const XAUDIO2_DEFAULT_AUDIO_CATEGORY: u32 = 6   // AudioCategory_GameEffects
 
 // ─── IIDs ─────────────────────────────────────────────────────────
 
-use ole32 { GUID }
 
 /// IID_IXAudio2 = 2B02E3CF-2E0B-4ec3-BE45-1B2A3FE7210D
 pub const IID_IXAudio2: GUID = GUID {

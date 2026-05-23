@@ -10,8 +10,7 @@ use directx12 {
     D3D12CreateDevice,
     D3DFeatureLevel
 }
-use ole32 { GUID }
-
+use winnt { GUID }
 @extern(C) {
     pub fn run() {
         // IID_ID3D12Device = {189819f1-1db6-4b57-be54-1821339b85f7}

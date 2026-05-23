@@ -15,8 +15,8 @@ use windows {
     HANDLE,
     NULL,}
 use directx12 { CreateDXGIFactory2, DXGI_ADAPTER_DESC1, DxgiAdapterFlag, DxgiGpuPreference, IDXGIAdapter1, IDXGIFactory6 }
-use ole32 { GUID, IUnknown }
-
+use winnt { GUID }
+use ole32 { IUnknown }
 // IID_IDXGIFactory6 = c1b6694f-ff09-44a9-b03c-77900a0a1d17
 // IID_IDXGIAdapter1 = 29038f61-3839-4626-91fd-086879011a05
 //
