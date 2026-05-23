@@ -131,8 +131,7 @@ fn walk_module_inner(
             docs.entry(AstSymbol::intern(prefix)).or_insert(d);
         }
     }
-    let Ok(tokens) = tokenize(&module_src) else { return };
-    let Ok(mod_prog) = parse(&tokens) else { return };
+    let Some(mod_prog) = text::try_parse(&module_src) else { return };
     let mod_dir = module_path
         .parent()
         .map(|p| p.to_path_buf())

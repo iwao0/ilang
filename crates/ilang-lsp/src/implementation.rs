@@ -12,8 +12,6 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use ilang_ast::{ClassDecl, FnDecl, InterfaceDecl, Item, Program, Symbol as AstSymbol};
-use ilang_lexer::tokenize;
-use ilang_parser::parse;
 use tower_lsp::lsp_types::*;
 
 use crate::types::Doc;
@@ -119,13 +117,11 @@ pub(crate) fn collect(
                 seen.insert(c);
             }
         }
-        let Ok(tokens) = tokenize(&doc.text) else { continue };
-        let Ok(prog) = parse(&tokens) else { continue };
+        let Some(prog) = text::try_parse(&doc.text) else { continue };
         gather_from_program(uri, &doc.text, &prog, &effective_target, &mut out);
     }
     for_each_closed_workspace_doc(anchor, &seen, |uri, d| {
-        let Ok(tokens) = tokenize(&d.text) else { return };
-        let Ok(prog) = parse(&tokens) else { return };
+        let Some(prog) = text::try_parse(&d.text) else { return };
         gather_from_program(&uri, &d.text, &prog, &effective_target, &mut out);
     });
     out.sort_by(|a, b| {

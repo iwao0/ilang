@@ -3,9 +3,20 @@
 //! source string + a `Span` (1-based line/col) and return either an
 //! offset into the byte slice or another `Span`.
 
-use ilang_ast::Span;
+use ilang_ast::{Program, Span};
 use ilang_lexer::{tokenize, TokenKind};
+use ilang_parser::parse;
 use tower_lsp::lsp_types::{Position, Range};
+
+/// Tokenise + parse `text` into a `Program`. Returns `None` if either
+/// step fails — the lex/parse error itself is discarded since LSP
+/// passes that rely on a fresh parse here just want best-effort.
+/// Callers that need the diagnostic information should call
+/// `tokenize` / `parse` directly.
+pub(crate) fn try_parse(text: &str) -> Option<Program> {
+    let tokens = tokenize(text).ok()?;
+    parse(&tokens).ok()
+}
 
 /// Convert a 1-based (line, col) into a byte offset into `text`.
 ///

@@ -15,8 +15,6 @@
 //! doesn't blow up on each refresh.
 
 use ilang_ast::{ClassDecl, FnDecl, Item};
-use ilang_lexer::tokenize;
-use ilang_parser::parse;
 use serde::{Deserialize, Serialize};
 use tower_lsp::lsp_types::{CodeLens, Command, Position, Range, Url};
 
@@ -52,8 +50,7 @@ pub(crate) enum LensData {
 /// `data` so `codeLens/resolve` can recover the target without
 /// re-parsing the file.
 pub(crate) fn build(uri: &Url, text: &str) -> Vec<CodeLens> {
-    let Ok(tokens) = tokenize(text) else { return Vec::new() };
-    let Ok(prog) = parse(&tokens) else { return Vec::new() };
+    let Some(prog) = crate::text::try_parse(text) else { return Vec::new() };
     let mut out = Vec::new();
     for item in &prog.items {
         push_item_lenses(uri, text, item, &mut out);

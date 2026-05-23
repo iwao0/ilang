@@ -463,10 +463,7 @@ impl LanguageServer for Backend {
         };
         let text = doc.text.clone();
         drop(docs);
-        let Ok(tokens) = tokenize(&text) else {
-            return Ok(None);
-        };
-        let Ok(prog) = parse(&tokens) else {
+        let Some(prog) = text::try_parse(&text) else {
             return Ok(None);
         };
         let mut out: Vec<DocumentSymbol> = Vec::new();

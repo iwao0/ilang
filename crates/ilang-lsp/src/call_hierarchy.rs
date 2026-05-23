@@ -9,8 +9,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use ilang_ast::{ClassDecl, FnDecl, Item, Program, Span, Symbol as AstSymbol};
-use ilang_lexer::tokenize;
-use ilang_parser::parse;
 use serde_json::json;
 use tower_lsp::lsp_types::*;
 
@@ -445,8 +443,7 @@ fn accumulate_incoming(
     if matching.is_empty() {
         return;
     }
-    let Ok(tokens) = tokenize(text) else { return };
-    let Ok(prog) = parse(&tokens) else { return };
+    let Some(prog) = text::try_parse(text) else { return };
     let ranges = collect_fn_ranges(text, &prog);
     for r in matching {
         let Some(enclosing) = enclosing_fn(&ranges, r.line) else {
@@ -478,8 +475,7 @@ fn accumulate_incoming(
 /// Walk the function body for the item's file and harvest every
 /// Call / MethodCall site that resolves to a known callable.
 pub(crate) fn outgoing_calls(item: &ItemRef, doc: &Doc) -> Vec<CallHierarchyOutgoingCall> {
-    let Ok(tokens) = tokenize(&doc.text) else { return Vec::new() };
-    let Ok(prog) = parse(&tokens) else { return Vec::new() };
+    let Some(prog) = text::try_parse(&doc.text) else { return Vec::new() };
     let ranges = collect_fn_ranges(&doc.text, &prog);
     let Some(target) = ranges.iter().find(|r| {
         r.name == item.name
@@ -543,17 +539,15 @@ pub(crate) fn outgoing_calls(item: &ItemRef, doc: &Doc) -> Vec<CallHierarchyOutg
 /// the file to find the function decl's full extent. Falls back to
 /// the selection range when the parse fails.
 pub(crate) fn full_range_for(item: &ItemRef, text: &str) -> Range {
-    if let Ok(tokens) = tokenize(text) {
-        if let Ok(prog) = parse(&tokens) {
-            let ranges = collect_fn_ranges(text, &prog);
-            if let Some(fr) = ranges.iter().find(|r| {
-                r.name == item.name
-                    && r.container.as_deref() == item.container.as_deref()
-                    && r.name_span == item.decl_name_span
-            }) {
-                return fr.full_range;
-            }
+    if let Some(prog) = crate::text::try_parse(text) {
+        let ranges = collect_fn_ranges(text, &prog);
+        if let Some(fr) = ranges.iter().find(|r| {
+            r.name == item.name
+                && r.container.as_deref() == item.container.as_deref()
+                && r.name_span == item.decl_name_span
+        }) {
+            return fr.full_range;
         }
     }
-    text::span_to_range(item.decl_name_span, item.decl_name_len as usize)
+    crate::text::span_to_range(item.decl_name_span, item.decl_name_len as usize)
 }

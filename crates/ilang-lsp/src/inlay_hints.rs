@@ -19,8 +19,6 @@ use ilang_ast::{
     Block, ClassDecl, Expr, ExprKind, FnDecl, Item, Param, Pattern, PatternBindings,
     PatternKind, Program, Span, Stmt, StmtKind, Symbol as AstSymbol, Type,
 };
-use ilang_lexer::tokenize;
-use ilang_parser::parse;
 use std::collections::HashMap;
 use tower_lsp::lsp_types::*;
 
@@ -32,8 +30,7 @@ use crate::types::Doc;
 /// but pre-filtering keeps the response small for big files.
 pub(crate) fn build_hints(doc: &Doc, range: Range) -> Vec<InlayHint> {
     let text = &doc.text;
-    let Ok(tokens) = tokenize(text) else { return Vec::new() };
-    let Ok(prog) = parse(&tokens) else { return Vec::new() };
+    let Some(prog) = text::try_parse(text) else { return Vec::new() };
 
     // Build a per-file callee table for parameter-hint resolution.
     // Cross-file calls fall through (no hint emitted).

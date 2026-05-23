@@ -12,8 +12,6 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use ilang_ast::{Item, Program};
-use ilang_lexer::tokenize;
-use ilang_parser::parse;
 
 #[derive(Debug, serde::Deserialize)]
 struct ProjectFile {
@@ -242,8 +240,7 @@ pub(crate) fn find_umbrella(path: &Path) -> Option<PathBuf> {
         let Ok(src) = std::fs::read_to_string(&p) else {
             continue;
         };
-        let Ok(tokens) = tokenize(&src) else { continue };
-        let Ok(prog) = parse(&tokens) else { continue };
+        let Some(prog) = crate::text::try_parse(&src) else { continue };
         let mut visited: HashSet<PathBuf> = HashSet::new();
         if umbrella_re_exports(&prog, dir, basename, &mut visited) {
             return Some(p);
@@ -284,12 +281,10 @@ fn umbrella_re_exports(
             continue;
         }
         if let Ok(src) = std::fs::read_to_string(&nested) {
-            if let Ok(tokens) = tokenize(&src) {
-                if let Ok(p) = parse(&tokens) {
-                    let nested_dir = nested.parent().unwrap_or(dir);
-                    if umbrella_re_exports(&p, nested_dir, target, visited) {
-                        return true;
-                    }
+            if let Some(p) = crate::text::try_parse(&src) {
+                let nested_dir = nested.parent().unwrap_or(dir);
+                if umbrella_re_exports(&p, nested_dir, target, visited) {
+                    return true;
                 }
             }
         }

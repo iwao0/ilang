@@ -11,8 +11,6 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use ilang_ast::{ClassDecl, Item, Program, Span};
-use ilang_lexer::tokenize;
-use ilang_parser::parse;
 use tower_lsp::lsp_types::{Range, SymbolKind};
 
 use crate::text;
@@ -38,8 +36,7 @@ pub(crate) struct Symbol {
 /// an empty list when the file doesn't tokenize / parse — same
 /// failure mode as the existing inline path.
 pub(crate) fn build(text: &str) -> Vec<Symbol> {
-    let Ok(tokens) = tokenize(text) else { return Vec::new() };
-    let Ok(prog) = parse(&tokens) else { return Vec::new() };
+    let Some(prog) = crate::text::try_parse(text) else { return Vec::new() };
     let mut out = Vec::new();
     collect_program(text, &prog, &mut out);
     out
