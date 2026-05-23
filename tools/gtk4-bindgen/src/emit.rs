@@ -316,14 +316,17 @@ pub fn write_umbrella(
         "/// GTK 4 bindings — umbrella module.\n\
          ///\n\
          /// Re-exports every `gen_<ns>.il` file produced by \
-         `gtk4-bindgen` (lives under `generated/`). Hand-written \
-         bindings at the package root (`core.il`, `input.il`, \
-         `menu.il`, `widgets.il`) are intentionally NOT re-exported \
-         here — they sit on disk as a reference until they're either \
-         ported back into the generator or deleted.\n\n",
+         `gtk4-bindgen` (under `generated/`) plus the sibling \
+         `manual.il` if present (signal-connect callback shapes, \
+         the Keyval keysym table, the GAction interface family, and \
+         anything else GIR can't express).\n\n",
     );
     for stem in stems {
         body.push_str(&format!("pub use generated.{stem}.*\n"));
+    }
+    let umbrella_dir = umbrella_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    if umbrella_dir.join("manual.il").exists() {
+        body.push_str("pub use manual.*\n");
     }
     fs::write(umbrella_path, body)
         .map_err(|e| format!("writing {}: {e}", umbrella_path.display()))

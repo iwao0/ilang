@@ -2,10 +2,11 @@
 
 /// GTK 4 bindings — umbrella module.
 ///
-/// Re-exports every `gen_<ns>.il` file produced by `gtk4-bindgen` (lives under `generated/`). Hand-written bindings at the package root (`core.il`, `input.il`, `menu.il`, `widgets.il`) are intentionally NOT re-exported here — they sit on disk as a reference until they're either ported back into the generator or deleted.
+/// Re-exports every `gen_<ns>.il` file produced by `gtk4-bindgen` (under `generated/`) plus the sibling `manual.il` if present (signal-connect callback shapes, the Keyval keysym table, the GAction interface family, and anything else GIR can't express).
 
 pub use generated.gen_gdk.*
 pub use generated.gen_gio.*
 pub use generated.gen_glib.*
 pub use generated.gen_gobject.*
 pub use generated.gen_gtk.*
+pub use manual.*
