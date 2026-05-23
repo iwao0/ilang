@@ -621,6 +621,20 @@ impl ClassMeta {
     }
 }
 
+/// Resolve a class `Symbol` to its `ClassId` by scanning the
+/// registered class table. Used at lowering sites where an identifier
+/// could refer to a class (e.g. `Class.method(...)` / `new Class { .. }`).
+fn class_id_by_name(
+    classes: &[crate::program::ClassLayout],
+    class_meta: &HashMap<crate::types::ClassId, ClassMeta>,
+    name: Symbol,
+) -> Option<crate::types::ClassId> {
+    class_meta
+        .keys()
+        .find(|cid| classes[cid.0 as usize].name == name)
+        .copied()
+}
+
 #[derive(Clone)]
 pub(super) struct FnSig {
     pub(super) params: Vec<MirTy>,
@@ -1403,12 +1417,8 @@ impl<'a> BodyCx<'a> {
         match t {
             Type::Object(name) => {
                 // Find class first.
-                if let Some((cid, _)) = self
-                    .class_meta
-                    .iter()
-                    .find(|(cid, _)| self.classes[cid.0 as usize].name == *name)
-                {
-                    return Ok(MirTy::Object(*cid));
+                if let Some(cid) = class_id_by_name(&self.classes, &self.class_meta, *name) {
+                    return Ok(MirTy::Object(cid));
                 }
                 if let Some(eid) = self.enum_ids.get(name) {
                     return Ok(MirTy::Enum(*eid));

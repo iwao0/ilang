@@ -112,17 +112,7 @@ impl<'a> BodyCx<'a> {
         args: &[Expr],
         init_method: Option<Symbol>,
     ) -> Result<(ValueId, MirTy), LowerError> {
-        let class_id = *self
-            .class_meta
-            .iter()
-            .find_map(|(cid, _)| {
-                let cl = &self.classes[cid.0 as usize];
-                if cl.name == class {
-                    Some(cid)
-                } else {
-                    None
-                }
-            })
+        let class_id = super::class_id_by_name(self.classes, self.class_meta, class)
             .ok_or_else(|| LowerError::Other(format!("unknown class {class}")))?;
 
         // The mangle pass writes the chosen init's mangled name into
@@ -409,16 +399,7 @@ impl<'a> BodyCx<'a> {
             // `ClassName.staticMethod(args)` when the ident names a
             // class with no local shadow.
             if self.lookup_var(*name).is_none() {
-                let class_id = self
-                    .class_meta
-                    .iter()
-                    .find_map(|(cid, _)| {
-                        if self.classes[cid.0 as usize].name == *name {
-                            Some(*cid)
-                        } else {
-                            None
-                        }
-                    });
+                let class_id = super::class_id_by_name(self.classes, self.class_meta, *name);
                 // Walk the parent chain so an inherited static
                 // (`SKScene.alloc()` where `alloc` lives on
                 // SKNode → NSObject) resolves through the

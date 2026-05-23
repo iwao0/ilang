@@ -170,13 +170,9 @@ impl<'a> BodyCx<'a> {
                 // read-side precedence in `lower_field`.
                 if let ExprKind::Var(maybe_class) = &obj.kind {
                     if self.lookup_var(*maybe_class).is_none() {
-                        if let Some(cid) = self.class_meta.iter().find_map(|(cid, _)| {
-                            if self.classes[cid.0 as usize].name == *maybe_class {
-                                Some(*cid)
-                            } else {
-                                None
-                            }
-                        }) {
+                        if let Some(cid) =
+                            super::class_id_by_name(self.classes, self.class_meta, *maybe_class)
+                        {
                             let meta = self.class_meta.get(&cid).unwrap();
                             if let Some((fid, prop_ty)) =
                                 meta.static_property_setter.get(field).cloned()
@@ -749,16 +745,7 @@ impl<'a> BodyCx<'a> {
                 // type checker has already validated field set and
                 // types; here we just emit the construction +
                 // per-field stores.
-                let class_id = self
-                    .class_meta
-                    .iter()
-                    .find_map(|(cid, _)| {
-                        if self.classes[cid.0 as usize].name == *class {
-                            Some(*cid)
-                        } else {
-                            None
-                        }
-                    })
+                let class_id = super::class_id_by_name(self.classes, self.class_meta, *class)
                     .ok_or_else(|| LowerError::Other(format!("unknown class {class}")))?;
                 let dst = self.fb.new_value(MirTy::Object(class_id));
                 self.fb.push_inst(Inst::NewObject {

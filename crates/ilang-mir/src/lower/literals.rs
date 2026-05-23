@@ -399,12 +399,8 @@ impl<'a> BodyCx<'a> {
         // takes no arguments since there's no `this`.
         if let ExprKind::Var(maybe_class) = &obj.kind {
             if self.lookup_var(*maybe_class).is_none() {
-                if let Some((cid, _)) = self
-                    .class_meta
-                    .iter()
-                    .find(|(cid, _)| self.classes[cid.0 as usize].name == *maybe_class)
-                {
-                    let meta = self.class_meta.get(cid).unwrap();
+                if let Some(cid) = super::class_id_by_name(self.classes, self.class_meta, *maybe_class) {
+                    let meta = self.class_meta.get(&cid).unwrap();
                     if let Some((fid, prop_ty)) = meta.static_property_getter.get(&name).cloned() {
                         let v = self.fb.new_value(prop_ty.clone());
                         self.fb.push_inst(Inst::Call {
