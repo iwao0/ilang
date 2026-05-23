@@ -10,21 +10,27 @@
 /// which window the menubar is attached to. This sidesteps the
 /// `GtkApplication` requirement of `gtk_application_set_menubar`.
 ///
-/// Limitation: keyboard accelerators are accepted on
-/// `addItemWithShortcut` but not yet wired through
-/// `gtk_shortcut_controller`.
+/// Keyboard accelerators are forwarded to a `GtkShortcutController`
+/// attached to each window. The user-facing API accepts a bare
+/// letter like `"N"`; we expand it to `"<Primary>n"` so the same
+/// accelerator means Cmd+N on macOS-hosted GTK and Ctrl+N on Linux.
 
 use gtk {
     GMenu, GMenuModel, GAction, GSimpleAction, GActionMap, GActionGroup,
     GSimpleActionGroup, GVariantType, GObject, GtkWidget, GtkBox,
     GtkPopoverMenuBar, GtkWindow, GtkFixed,
+    GtkShortcutController, GtkShortcut, GtkShortcutTrigger,
+    GtkShortcutAction, GtkEventController,
     g_menu_new, g_menu_append, g_menu_append_submenu, g_menu_append_section,
     g_simple_action_new, g_simple_action_group_new, g_action_map_add_action,
     gtk_popover_menu_bar_new_from_model,
-    gtk_widget_insert_action_group,
+    gtk_widget_insert_action_group, gtk_widget_add_controller,
     gtk_widget_set_vexpand, gtk_widget_set_hexpand,
     gtk_window_set_child,
     gtk_box_new, gtk_box_append,
+    gtk_shortcut_controller_new, gtk_shortcut_controller_set_scope,
+    gtk_shortcut_controller_add_shortcut,
+    gtk_shortcut_new, gtk_shortcut_trigger_parse_string, gtk_named_action_new,
     g_object_ref, g_object_unref,
     g_signal_connect_data2,
 }
@@ -48,6 +54,19 @@ let NEXT_ACTION_ID: i64[] = [1 as i64]
 /// on each window under the `"app"` prefix.
 let ACTION_GROUP: GSimpleActionGroup[] = []
 
+/// Pending `(detailed_action, accelerator)` pairs collected at
+/// addItem time. `setWindowMenuBar` installs them on the window's
+/// GtkShortcutController.
+class PendingShortcut {
+    pub action: string
+    pub accel:  string
+    pub init(action: string, accel: string) {
+        this.action = action
+        this.accel = accel
+    }
+}
+let SHORTCUTS: PendingShortcut[] = []
+
 @extern(C) {
     /// `void on_action(GSimpleAction*, GVariant*, gpointer user_data)`.
     /// `user_data` carries the action id as an integer-shaped
@@ -56,6 +75,16 @@ let ACTION_GROUP: GSimpleActionGroup[] = []
         let id = data as i64
         if let some(cb) = ITEM_ACTIONS.get(id) { cb() }
     }
+}
+
+/// Convert the libs/gui shortcut convention (bare letter like
+/// `"N"`) into a GTK accelerator string. A string that already
+/// includes a `<Modifier>` block is passed through unchanged so
+/// callers can override the default Primary modifier when needed.
+fn formatAccel(s: string): string {
+    if s.length == 0 { "" }
+    elif s.includes("<") { s }
+    else { "<Primary>" + s.toLower() }
 }
 
 @extern(C) {
@@ -104,6 +133,11 @@ pub fn menuAddItemWithShortcut(
         )
         g_action_map_add_action(group as GActionMap, simple as GAction)
 
+        let accel = formatAccel(shortcut)
+        if accel.length > 0 {
+            SHORTCUTS.push(new PendingShortcut(detailed, accel))
+        }
+
         g_menu_append(
             slot.section[0], cstrFromString(text), cstrFromString(detailed)
         )
@@ -148,6 +182,27 @@ pub fn setWindowMenuBar(windowHandle: i64, menuHandles: i64[]) {
             wslot.win as GtkWidget,
             cstrFromString("app"),
             group as GActionGroup
+        )
+
+        // Install pending menu accelerators on a fresh shortcut
+        // controller. Scope = GLOBAL so the shortcut fires
+        // regardless of which widget owns focus.
+        let sc = gtk_shortcut_controller_new()
+        gtk_shortcut_controller_set_scope(sc, 2 as i32)
+        let sn = SHORTCUTS.length
+        let si = 0
+        while si < sn {
+            let p = SHORTCUTS[si]
+            let trigger = gtk_shortcut_trigger_parse_string(
+                cstrFromString(p.accel)
+            )
+            let action = gtk_named_action_new(cstrFromString(p.action))
+            let shortcut = gtk_shortcut_new(trigger, action)
+            gtk_shortcut_controller_add_shortcut(sc, shortcut)
+            si = si + 1
+        }
+        gtk_widget_add_controller(
+            wslot.win as GtkWidget, sc as GtkEventController
         )
 
         let menubar = gtk_popover_menu_bar_new_from_model(bar as GMenuModel)

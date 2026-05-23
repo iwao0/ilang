@@ -5,8 +5,11 @@ use gtk {
     GtkWidget, GtkLabel, GtkListBox, GtkListBoxRow, GtkScrolledWindow,
     GtkFixed, GObject,
     gtk_label_new,
-    gtk_list_box_new, gtk_list_box_append, gtk_list_box_select_row,
-    gtk_list_box_get_selected_row, gtk_list_box_row_get_index,
+    gtk_list_box_new, gtk_list_box_append, gtk_list_box_remove,
+    gtk_list_box_select_row, gtk_list_box_unselect_all,
+    gtk_list_box_get_selected_row, gtk_list_box_get_row_at_index,
+    gtk_list_box_row_get_index,
+    gtk_list_box_row_new, gtk_list_box_row_set_child,
     gtk_scrolled_window_new, gtk_scrolled_window_set_child,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
@@ -86,13 +89,36 @@ pub fn setOnListSelect(handle: i64, cb: fn(i32)) {
 pub fn addListItem(handle: i64, item: string) {
     if let some(slot) = LISTS.get(handle) {
         let label = gtk_label_new(cstrFromString(item))
-        gtk_list_box_append(slot.listBox, label as GtkWidget)
+        let row = gtk_list_box_row_new()
+        gtk_list_box_row_set_child(row, label as GtkWidget)
+        gtk_list_box_append(slot.listBox, row as GtkWidget)
     }
 }
 
-pub fn clearListItems(handle: i64) {}
+pub fn clearListItems(handle: i64) {
+    if let some(slot) = LISTS.get(handle) {
+        // Walk from index 0 — each remove shifts the remaining rows
+        // down, so the next "row at 0" is the next surviving row.
+        let row = gtk_list_box_get_row_at_index(slot.listBox, 0 as i32)
+        while row as i64 != 0 as i64 {
+            gtk_list_box_remove(slot.listBox, row as GtkWidget)
+            row = gtk_list_box_get_row_at_index(slot.listBox, 0 as i32)
+        }
+    }
+}
 
-pub fn setListSelectedIndex(handle: i64, index: i32) {}
+pub fn setListSelectedIndex(handle: i64, index: i32) {
+    if let some(slot) = LISTS.get(handle) {
+        if index < 0 as i32 {
+            gtk_list_box_unselect_all(slot.listBox)
+        } else {
+            let row = gtk_list_box_get_row_at_index(slot.listBox, index)
+            if row as i64 != 0 as i64 {
+                gtk_list_box_select_row(slot.listBox, row)
+            }
+        }
+    }
+}
 
 pub fn readListSelectedIndex(handle: i64): i32 {
     match LISTS.get(handle) {

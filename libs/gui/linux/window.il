@@ -8,15 +8,93 @@
 
 use gtk {
     GtkWidget, GtkWindow, GObject, GtkFixed, GMainLoop,
+    GtkEventController, GtkEventControllerKey, GtkEventControllerMotion,
+    GtkGestureClick, Keyval,
     gtk_init, gtk_window_new,
     gtk_window_set_title, gtk_window_set_default_size,
     gtk_window_present, gtk_window_set_child, gtk_window_destroy,
     gtk_widget_set_visible, gtk_widget_set_size_request,
+    gtk_widget_add_controller,
     gtk_fixed_new,
+    gtk_event_controller_key_new, gtk_event_controller_motion_new,
+    gtk_gesture_click_new, gtk_gesture_single_set_button,
+    gtk_gesture_single_get_current_button,
+    gtk_event_controller_get_current_event_state,
+    gdk_keyval_to_lower,
     g_main_loop_new, g_main_loop_run, g_main_loop_quit,
-    g_signal_connect_data,
+    g_signal_connect_data, g_signal_connect_key,
+    g_signal_connect_motion, g_signal_connect_click,
 }
 use core { WINDOWS, WindowSlot, GTK_INITED, LOOP_HOLDER }
+use super.event
+
+// GdkModifierType bits we need. Pulled out as locals so each
+// dispatch can `& MOD_*` without going through the flags enum.
+const MOD_SHIFT: u32 = 0x00000001 as u32
+const MOD_CTRL:  u32 = 0x00000004 as u32
+const MOD_ALT:   u32 = 0x00000008 as u32
+const MOD_META:  u32 = 0x10000000 as u32
+
+fn hasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
+
+pub fn keyvalToCode(k: u32): string {
+    keyvalToEnum(k as Keyval) as string
+}
+
+/// GDK keyval (`gtk.Keyval`) → the parent package's `event.KeyCode`
+/// (W3C `KeyboardEvent.code`). Unmapped keys fall through to
+/// `event.KeyCode.unknown`; the caller then serialises that into
+/// the discriminant string for the cross-package callback ABI.
+fn keyvalToEnum(k: Keyval): event.KeyCode {
+    match k {
+        Keyval.keyA       { event.KeyCode.keyA }
+        Keyval.keyB       { event.KeyCode.keyB }
+        Keyval.keyC       { event.KeyCode.keyC }
+        Keyval.keyD       { event.KeyCode.keyD }
+        Keyval.keyE       { event.KeyCode.keyE }
+        Keyval.keyF       { event.KeyCode.keyF }
+        Keyval.keyG       { event.KeyCode.keyG }
+        Keyval.keyH       { event.KeyCode.keyH }
+        Keyval.keyI       { event.KeyCode.keyI }
+        Keyval.keyJ       { event.KeyCode.keyJ }
+        Keyval.keyK       { event.KeyCode.keyK }
+        Keyval.keyL       { event.KeyCode.keyL }
+        Keyval.keyM       { event.KeyCode.keyM }
+        Keyval.keyN       { event.KeyCode.keyN }
+        Keyval.keyO       { event.KeyCode.keyO }
+        Keyval.keyP       { event.KeyCode.keyP }
+        Keyval.keyQ       { event.KeyCode.keyQ }
+        Keyval.keyR       { event.KeyCode.keyR }
+        Keyval.keyS       { event.KeyCode.keyS }
+        Keyval.keyT       { event.KeyCode.keyT }
+        Keyval.keyU       { event.KeyCode.keyU }
+        Keyval.keyV       { event.KeyCode.keyV }
+        Keyval.keyW       { event.KeyCode.keyW }
+        Keyval.keyX       { event.KeyCode.keyX }
+        Keyval.keyY       { event.KeyCode.keyY }
+        Keyval.keyZ       { event.KeyCode.keyZ }
+        Keyval.digit0     { event.KeyCode.digit0 }
+        Keyval.digit1     { event.KeyCode.digit1 }
+        Keyval.digit2     { event.KeyCode.digit2 }
+        Keyval.digit3     { event.KeyCode.digit3 }
+        Keyval.digit4     { event.KeyCode.digit4 }
+        Keyval.digit5     { event.KeyCode.digit5 }
+        Keyval.digit6     { event.KeyCode.digit6 }
+        Keyval.digit7     { event.KeyCode.digit7 }
+        Keyval.digit8     { event.KeyCode.digit8 }
+        Keyval.digit9     { event.KeyCode.digit9 }
+        Keyval.enter      { event.KeyCode.enter }
+        Keyval.escape     { event.KeyCode.escape }
+        Keyval.backspace  { event.KeyCode.backspace }
+        Keyval.tab        { event.KeyCode.tab }
+        Keyval.space      { event.KeyCode.space }
+        Keyval.arrowLeft  { event.KeyCode.arrowLeft }
+        Keyval.arrowRight { event.KeyCode.arrowRight }
+        Keyval.arrowDown  { event.KeyCode.arrowDown }
+        Keyval.arrowUp    { event.KeyCode.arrowUp }
+        _                 { event.KeyCode.unknown }
+    }
+}
 
 /// `void on_window_destroy(GtkWindow*, gpointer)` — GTK 4 fires
 /// `destroy` after the user closes the window. Dispatch the
@@ -33,7 +111,88 @@ use core { WINDOWS, WindowSlot, GTK_INITED, LOOP_HOLDER }
             if LOOP_HOLDER.length > 0 { g_main_loop_quit(LOOP_HOLDER[0]) }
         }
     }
+
+    /// `gboolean(GtkEventControllerKey*, guint keyval, guint keycode,
+    /// GdkModifierType state, gpointer)`. Returns 0 so menubars and
+    /// child widgets still get a shot at the keystroke.
+    pub fn linux_key_pressed(
+        ctrl: i64, keyval: u32, keycode: u32, state: u32, data: i64
+    ): i32 {
+        dispatchKey(data, keyval, state, true)
+        0 as i32
+    }
+    pub fn linux_key_released(
+        ctrl: i64, keyval: u32, keycode: u32, state: u32, data: i64
+    ): i32 {
+        dispatchKey(data, keyval, state, false)
+        0 as i32
+    }
+
+    /// `void(GtkEventControllerMotion*, gdouble x, gdouble y, gpointer)`.
+    pub fn linux_motion(ctrl: i64, x: f64, y: f64, data: i64) {
+        if let some(slot) = WINDOWS.get(data) {
+            let st = gtk_event_controller_get_current_event_state(
+                ctrl as GtkEventController
+            )
+            let cb = slot.onMouseMove
+            cb(x, y, 0 as i32,
+               hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
+               hasMod(st, MOD_ALT), hasMod(st, MOD_META))
+        }
+    }
+
+    /// `void(GtkGestureClick*, gint n_press, gdouble x, gdouble y, gpointer)`.
+    pub fn linux_pressed(
+        gesture: i64, n_press: i32, x: f64, y: f64, data: i64
+    ) {
+        dispatchClick(gesture, data, x, y, true)
+    }
+    pub fn linux_released(
+        gesture: i64, n_press: i32, x: f64, y: f64, data: i64
+    ) {
+        dispatchClick(gesture, data, x, y, false)
+    }
 }
+
+/// Map gdk button (1=primary, 2=middle, 3=right) to W3C
+/// `MouseEvent.button` (0/1/2).
+fn buttonToW3C(b: u32): i32 {
+    if      b == 1 as u32 { 0 as i32 }
+    elif    b == 2 as u32 { 1 as i32 }
+    elif    b == 3 as u32 { 2 as i32 }
+    else                  { 0 as i32 }
+}
+
+@extern(C) {
+
+fn dispatchKey(winH: i64, keyval: u32, state: u32, down: bool) {
+    if let some(slot) = WINDOWS.get(winH) {
+        let code = keyvalToCode(gdk_keyval_to_lower(keyval))
+        let ctrl  = hasMod(state, MOD_CTRL)
+        let shift = hasMod(state, MOD_SHIFT)
+        let alt   = hasMod(state, MOD_ALT)
+        let meta  = hasMod(state, MOD_META)
+        let cb = if down { slot.onKeyDown } else { slot.onKeyUp }
+        cb(code, ctrl, shift, alt, meta)
+    }
+}
+
+fn dispatchClick(gesture: i64, winH: i64, x: f64, y: f64, down: bool) {
+    if let some(slot) = WINDOWS.get(winH) {
+        let btn = buttonToW3C(
+            gtk_gesture_single_get_current_button(gesture as GtkGestureClick)
+        )
+        let st = gtk_event_controller_get_current_event_state(
+            gesture as GtkEventController
+        )
+        let cb = if down { slot.onMouseDown } else { slot.onMouseUp }
+        cb(x, y, btn,
+           hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
+           hasMod(st, MOD_ALT), hasMod(st, MOD_META))
+    }
+}
+
+} // @extern(C)
 
 @extern(C) {
 
@@ -61,6 +220,49 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         0 as i64,
         0 as u32
     )
+
+    // Key controller — emits "key-pressed" / "key-released" on
+    // every keystroke while the window has focus.
+    let keyCtrl = gtk_event_controller_key_new()
+    g_signal_connect_key(
+        keyCtrl as GObject, cstrFromString("key-pressed"),
+        linux_key_pressed, handle as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_key(
+        keyCtrl as GObject, cstrFromString("key-released"),
+        linux_key_released, handle as *void, 0 as i64, 0 as u32
+    )
+    gtk_widget_add_controller(
+        win as GtkWidget, keyCtrl as GtkEventController
+    )
+
+    // Pointer motion controller.
+    let motionCtrl = gtk_event_controller_motion_new()
+    g_signal_connect_motion(
+        motionCtrl as GObject, cstrFromString("motion"),
+        linux_motion, handle as *void, 0 as i64, 0 as u32
+    )
+    gtk_widget_add_controller(
+        win as GtkWidget, motionCtrl as GtkEventController
+    )
+
+    // Click gesture — `button=0` matches every button so the
+    // handler can report which one fired via
+    // `gtk_gesture_single_get_current_button`.
+    let click = gtk_gesture_click_new()
+    gtk_gesture_single_set_button(click, 0 as u32)
+    g_signal_connect_click(
+        click as GObject, cstrFromString("pressed"),
+        linux_pressed, handle as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_click(
+        click as GObject, cstrFromString("released"),
+        linux_released, handle as *void, 0 as i64, 0 as u32
+    )
+    gtk_widget_add_controller(
+        win as GtkWidget, click as GtkEventController
+    )
+
     handle
 }
 
