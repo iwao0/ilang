@@ -5,7 +5,7 @@
 //! optional unwrap), overload resolution, and the per-callee
 //! coercion + retain accounting all live here.
 
-use ilang_ast::{Expr, Span, Symbol};
+use ilang_ast::{Expr, ExprKind, Span, Symbol};
 
 use crate::inst::{FuncRef, Inst, ValueId};
 use crate::program::FunctionKind;
@@ -309,6 +309,30 @@ impl<'a> BodyCx<'a> {
             let mut fresh_obj_args: Vec<ValueId> = Vec::new();
             for (i, a) in args.iter().enumerate() {
                 let arg_is_fresh = self.is_fresh_object_expr(a);
+                // Fast path mirroring the @extern(C) struct-field
+                // case (expr.rs StructLit handler): when an extern
+                // fn declares a `fn(...)` parameter and the caller
+                // passes a bare top-level fn name, lower it as a
+                // raw FuncAddr instead of the default MakeClosure.
+                // C callbacks dereference the slot as a function
+                // pointer; a closure header would crash on entry.
+                let want_func_ptr = is_extern
+                    && i < sig.params.len()
+                    && matches!(sig.params[i], MirTy::Fn(_));
+                if want_func_ptr {
+                    if let ExprKind::Var(name) = &a.kind {
+                        if let Some(&fid) = self.fn_ids.get(name) {
+                            let target = sig.params[i].clone();
+                            let dst_v = self.fb.new_value(target.clone());
+                            self.fb.push_inst(Inst::FuncAddr {
+                                dst: dst_v,
+                                func: fid,
+                            });
+                            arg_vals.push(dst_v);
+                            continue;
+                        }
+                    }
+                }
                 let (v, vty) = self.lower_expr(a)?;
                 let coerced = if i < sig.params.len() {
                     match sig.params.get(i) {
