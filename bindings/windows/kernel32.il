@@ -61,8 +61,293 @@ pub enum StdHandle: u32 {
     error  = 0xFFFFFFF4   // STD_ERROR_HANDLE
 }
 
+// ─── Process access rights (PROCESS_*) ───────────────────────
+@flags
+pub enum ProcessAccess: u32 {
+    terminate                = 0x0001
+    createThread             = 0x0002
+    vmOperation              = 0x0008
+    vmRead                   = 0x0010
+    vmWrite                  = 0x0020
+    dupHandle                = 0x0040
+    createProcess            = 0x0080
+    setQuota                 = 0x0100
+    setInformation           = 0x0200
+    queryInformation         = 0x0400
+    suspendResume            = 0x0800
+    queryLimitedInformation  = 0x1000
+    setLimitedInformation    = 0x2000
+    synchronize              = 0x00100000
+    /// PROCESS_ALL_ACCESS on Vista+.
+    allAccess                = 0x001FFFFF
+}
+
+// ─── Thread access rights (THREAD_*) ─────────────────────────
+@flags
+pub enum ThreadAccess: u32 {
+    terminate                = 0x0001
+    suspendResume            = 0x0002
+    getContext               = 0x0008
+    setContext               = 0x0010
+    setInformation           = 0x0020
+    queryInformation         = 0x0040
+    setThreadToken           = 0x0080
+    impersonate              = 0x0100
+    directImpersonation      = 0x0200
+    setLimitedInformation    = 0x0400
+    queryLimitedInformation  = 0x0800
+    synchronize              = 0x00100000
+    allAccess                = 0x001FFFFF
+}
+
+// ─── Process priority class ──────────────────────────────────
+pub enum PriorityClass: u32 {
+    idle         = 0x00000040
+    belowNormal  = 0x00004000
+    normal       = 0x00000020
+    aboveNormal  = 0x00008000
+    high         = 0x00000080
+    realtime     = 0x00000100
+}
+
+// ─── Thread priority (THREAD_PRIORITY_*) ─────────────────────
+pub enum ThreadPriority: i32 {
+    idle          = -15
+    lowest        = -2
+    belowNormal   = -1
+    normal        = 0
+    aboveNormal   = 1
+    highest       = 2
+    timeCritical  = 15
+}
+
+// ─── Console input modes (ENABLE_*) ──────────────────────────
+@flags
+pub enum ConsoleInputMode: u32 {
+    processedInput       = 0x0001
+    lineInput            = 0x0002
+    echoInput            = 0x0004
+    windowInput          = 0x0008
+    mouseInput           = 0x0010
+    insertMode           = 0x0020
+    quickEditMode        = 0x0040
+    extendedFlags        = 0x0080
+    autoPosition         = 0x0100
+    virtualTerminalInput = 0x0200
+}
+
+// ─── Console output modes ────────────────────────────────────
+@flags
+pub enum ConsoleOutputMode: u32 {
+    processedOutput           = 0x0001
+    wrapAtEolOutput           = 0x0002
+    /// Required to interpret ANSI escape sequences (Win10 1607+).
+    virtualTerminalProcessing = 0x0004
+    disableNewlineAutoReturn  = 0x0008
+    lvbGridWorldwide          = 0x0010
+}
+
+// ─── Heap flags (HEAP_*) ─────────────────────────────────────
+@flags
+pub enum HeapFlags: u32 {
+    noSerialize         = 0x00000001
+    growable            = 0x00000002   // HeapCreate only
+    generateExceptions  = 0x00000004
+    zeroMemory          = 0x00000008
+    reallocInPlaceOnly  = 0x00000010
+    tailCheckingEnabled = 0x00000020
+    freeCheckingEnabled = 0x00000040
+    disableCoalesceOnFree = 0x00000080
+    createEnableExecute = 0x00040000
+}
+
+// ─── Code pages (CP_*) ───────────────────────────────────────
+pub enum CodePage: u32 {
+    ansi       = 0       // CP_ACP — system ANSI
+    oem        = 1       // CP_OEMCP
+    macCP      = 2
+    threadAnsi = 3       // CP_THREAD_ACP
+    symbol     = 42
+    utf7       = 65000
+    utf8       = 65001
+}
+
+// ─── GetFileType return values (FILE_TYPE_*) ─────────────────
+pub enum FileType: u32 {
+    unknown = 0x0000
+    disk    = 0x0001
+    char    = 0x0002   // console, LPT, etc.
+    pipe    = 0x0003
+    remote  = 0x8000   // deprecated
+}
+
+// ─── GetDriveType return values (DRIVE_*) ────────────────────
+pub enum DriveType: u32 {
+    unknown   = 0
+    noRootDir = 1
+    removable = 2
+    fixed     = 3
+    remote    = 4
+    cdrom     = 5
+    ramdisk   = 6
+}
+
+// ─── Toolhelp32 snapshot flags (TH32CS_*) ────────────────────
+@flags
+pub enum Toolhelp32Flags: u32 {
+    snapHeapList = 0x00000001
+    snapProcess  = 0x00000002
+    snapThread   = 0x00000004
+    snapModule   = 0x00000008
+    snapModule32 = 0x00000010
+    snapAll      = 0x0000001F
+    inherit      = 0x80000000
+}
+
+// ─── CreateProcess flags (CREATE_*) ──────────────────────────
+@flags
+pub enum CreationFlags: u32 {
+    debugProcess               = 0x00000001
+    debugOnlyThisProcess       = 0x00000002
+    createSuspended            = 0x00000004
+    detachedProcess            = 0x00000008
+    createNewConsole           = 0x00000010
+    createNewProcessGroup      = 0x00000200
+    createUnicodeEnvironment   = 0x00000400
+    createSeparateWowVdm       = 0x00000800
+    createSharedWowVdm         = 0x00001000
+    inheritParentAffinity      = 0x00010000
+    createProtectedProcess     = 0x00040000
+    extendedStartupinfoPresent = 0x00080000
+    createBreakawayFromJob     = 0x01000000
+    createPreserveCodeAuthZLevel = 0x02000000
+    createDefaultErrorMode     = 0x04000000
+    createNoWindow             = 0x08000000
+}
+
+// ─── STARTUPINFO flags (STARTF_*) ────────────────────────────
+@flags
+pub enum StartupInfoFlags: u32 {
+    useShowWindow    = 0x00000001
+    useSize          = 0x00000002
+    usePosition      = 0x00000004
+    useCountChars    = 0x00000008
+    useFillAttribute = 0x00000010
+    runFullscreen    = 0x00000020
+    forceOnFeedback  = 0x00000040
+    forceOffFeedback = 0x00000080
+    useStdHandles    = 0x00000100
+    useHotkey        = 0x00000200
+    titleIsLinkName  = 0x00000800
+    titleIsAppId     = 0x00001000
+    preventPinning   = 0x00002000
+    untrustedSource  = 0x00008000
+}
+
+// ─── FormatMessage flags (FORMAT_MESSAGE_*) ──────────────────
+@flags
+pub enum FormatMessageFlags: u32 {
+    allocateBuffer = 0x00000100
+    ignoreInserts  = 0x00000200
+    fromString     = 0x00000400
+    fromHmodule    = 0x00000800
+    fromSystem     = 0x00001000
+    argumentArray  = 0x00002000
+}
+
+// ─── LoadLibraryEx flags (LOAD_LIBRARY_*) ────────────────────
+@flags
+pub enum LoadLibraryFlags: u32 {
+    asDatafile           = 0x00000002
+    dontResolveDllRefs   = 0x00000008
+    asImageResource      = 0x00000020
+    asDatafileExclusive  = 0x00000040
+    requireSignedTarget  = 0x00000080
+    searchDefaultDirs    = 0x00001000   // SECURE — recommended
+    searchApplicationDir = 0x00000200
+    searchSystem32       = 0x00000800
+    searchUserDirs       = 0x00000400
+    searchDllLoadDir     = 0x00000100
+    safeCurrentDirs      = 0x00002000
+}
+
+// ─── DuplicateHandle options (DUPLICATE_*) ───────────────────
+@flags
+pub enum DuplicateHandleOptions: u32 {
+    closeSource = 0x00000001
+    sameAccess  = 0x00000002
+}
+
+// ─── Handle flags (HANDLE_FLAG_*) ────────────────────────────
+@flags
+pub enum HandleFlags: u32 {
+    inherit          = 0x00000001
+    protectFromClose = 0x00000002
+}
+
+// ─── Memory state / type (VirtualQuery output) ───────────────
+@flags
+pub enum MemoryState: u32 {
+    commit  = 0x00001000
+    reserve = 0x00002000
+    free    = 0x00010000
+}
+
+pub enum MemoryType: u32 {
+    private = 0x00020000
+    mapped  = 0x00040000
+    image   = 0x01000000
+}
+
+// ─── File flag / attribute composites for CreateFile ─────────
+@flags
+pub enum FileFlag: u32 {
+    writeThrough        = 0x80000000
+    overlapped          = 0x40000000
+    noBuffering         = 0x20000000
+    randomAccess        = 0x10000000
+    sequentialScan      = 0x08000000
+    deleteOnClose       = 0x04000000
+    backupSemantics     = 0x02000000   // open directories with CreateFile
+    posixSemantics      = 0x01000000
+    sessionAware        = 0x00800000
+    openReparsePoint    = 0x00200000
+    openNoRecall        = 0x00100000
+    firstPipeInstance   = 0x00080000
+}
+
+// ─── Named-pipe modes ────────────────────────────────────────
+@flags
+pub enum PipeOpenMode: u32 {
+    accessInbound    = 0x00000001
+    accessOutbound   = 0x00000002
+    accessDuplex     = 0x00000003
+    writeThrough     = 0x80000000
+    overlapped       = 0x40000000
+    firstPipeInstance = 0x00080000
+}
+
+@flags
+pub enum PipeMode: u32 {
+    typeByte        = 0x00000000
+    typeMessage     = 0x00000004
+    readModeByte    = 0x00000000
+    readModeMessage = 0x00000002
+    wait            = 0x00000000
+    nowait          = 0x00000001
+    acceptRemoteClients = 0x00000000
+    rejectRemoteClients = 0x00000008
+}
+
+// ─── Threadpool callback priority (Vista+) ───────────────────
+pub enum ThreadpoolCallbackPriority: u32 {
+    high   = 0
+    normal = 1
+    low    = 2
+}
+
 use winnt { HANDLE, GUID, SYSTEMTIME, FILETIME, FileAttribute, PageProtection }
-use windef { HMODULE }
+use windef { HMODULE, HWND }
 
 @extern(C, "kernel32") {
     // ── Module ────────────────────────────────────────────────
@@ -1236,4 +1521,827 @@ use windef { HMODULE }
 
     @lib pub fn GlobalSize(hMem: *void): u64
     @lib pub fn GlobalReAlloc(hMem: *void, dwBytes: u64, uFlags: u32): *void
+
+    // ── Handle duplication / inheritance ─────────────────────────
+
+    /// `DuplicateHandle(srcProc, src, dstProc, &dst, access, inherit, options)`.
+    /// Use `GetCurrentProcess()` for `srcProc`/`dstProc` to clone within
+    /// this process. Set `bInheritHandle = 1` to let children inherit.
+    /// `dwOptions`: `DuplicateHandleOptions.sameAccess` ignores `dwDesiredAccess`.
+    @lib pub fn DuplicateHandle(
+        hSourceProcessHandle:  HANDLE,
+        hSourceHandle:         HANDLE,
+        hTargetProcessHandle:  HANDLE,
+        lpTargetHandle:        *HANDLE,
+        dwDesiredAccess:       u32,
+        bInheritHandle:        i32,
+        dwOptions:             u32
+    ): i32
+
+    /// Sets the HANDLE_FLAG_* bits on `hObject`.
+    @lib pub fn SetHandleInformation(
+        hObject: HANDLE,
+        dwMask:  u32,    // HandleFlags.*
+        dwFlags: u32
+    ): i32
+
+    @lib pub fn GetHandleInformation(hObject: HANDLE, lpdwFlags: *u32): i32
+
+    /// Win10+ : returns non-zero if both handles refer to the same kernel object.
+    @lib pub fn CompareObjectHandles(hFirst: HANDLE, hSecond: HANDLE): i32
+
+    // ── Process / thread (extended) ──────────────────────────────
+
+    /// Opens an existing thread. Same access-rights pattern as OpenProcess.
+    @lib pub fn OpenThread(
+        dwDesiredAccess: u32,
+        bInheritHandle:  i32,
+        dwThreadId:      u32
+    ): HANDLE
+
+    @lib pub fn TerminateThread(hThread: HANDLE, dwExitCode: u32): i32
+    @lib pub fn GetExitCodeThread(hThread: HANDLE, lpExitCode: *u32): i32
+
+    /// Vista+: returns the PID of `hProcess`.
+    @lib pub fn GetProcessId(hProcess: HANDLE): u32
+    @lib pub fn GetThreadId(hThread: HANDLE): u32
+    @lib pub fn GetProcessIdOfThread(hThread: HANDLE): u32
+
+    /// Yields the remainder of the current scheduling quantum.
+    @lib pub fn SwitchToThread(): i32
+
+    /// Queues a user-mode APC for `hThread`. The callback runs only
+    /// when the thread enters an alertable wait (Sleep / WaitFor* / etc.
+    /// with `bAlertable = TRUE`).
+    @lib pub fn QueueUserAPC(
+        pfnAPC:   fn(u64),
+        hThread:  HANDLE,
+        dwData:   u64
+    ): u32
+
+    /// Alertable Sleep. `bAlertable = 1` lets queued APCs run.
+    @lib pub fn SleepEx(dwMilliseconds: u32, bAlertable: i32): u32
+
+    @lib pub fn WaitForSingleObjectEx(
+        hHandle:        HANDLE,
+        dwMilliseconds: u32,
+        bAlertable:     i32
+    ): u32
+
+    @lib pub fn WaitForMultipleObjectsEx(
+        nCount:         u32,
+        lpHandles:      *HANDLE,
+        bWaitAll:       i32,
+        dwMilliseconds: u32,
+        bAlertable:     i32
+    ): u32
+
+    /// Atomically signals `hObjectToSignal` then waits on `hObjectToWaitOn`.
+    @lib pub fn SignalObjectAndWait(
+        hObjectToSignal:  HANDLE,
+        hObjectToWaitOn:  HANDLE,
+        dwMilliseconds:   u32,
+        bAlertable:       i32
+    ): u32
+
+    /// Registers a wait callback in the threadpool. Free with `UnregisterWait` /
+    /// `UnregisterWaitEx`. `dwFlags`: 0 = WT_EXECUTEDEFAULT, 4 = WT_EXECUTEINIOTHREAD,
+    /// 8 = WT_EXECUTEINPERSISTENTTHREAD, 0x40 = WT_EXECUTELONGFUNCTION,
+    /// 0x80 = WT_EXECUTEINUITHREAD, 0x8 = WT_EXECUTEONLYONCE.
+    @lib pub fn RegisterWaitForSingleObject(
+        phNewWaitObject: *HANDLE,
+        hObject:         HANDLE,
+        Callback:        fn(*void, u8),
+        Context:         *void,
+        dwMilliseconds:  u32,
+        dwFlags:         u32
+    ): i32
+
+    @lib pub fn UnregisterWait(WaitHandle: HANDLE): i32
+    @lib pub fn UnregisterWaitEx(WaitHandle: HANDLE, CompletionEvent: HANDLE): i32
+
+    // ── Process tuning / info (extended) ─────────────────────────
+
+    @lib pub fn GetProcessAffinityMask(
+        hProcess:          HANDLE,
+        lpProcessAffinityMask: *u64,
+        lpSystemAffinityMask:  *u64
+    ): i32
+
+    @lib pub fn SetProcessAffinityMask(hProcess: HANDLE, dwProcessAffinityMask: u64): i32
+
+    @lib pub fn GetCurrentProcessorNumber(): u32
+
+    /// Win8+: sets the per-thread description (visible in ETW / debuggers).
+    @lib pub fn SetThreadDescription(hThread: HANDLE, lpThreadDescription: *const u16): i32
+    @lib pub fn GetThreadDescription(hThread: HANDLE, ppszThreadDescription: **u16): i32
+
+    @lib pub fn FlushInstructionCache(
+        hProcess: HANDLE,
+        lpBaseAddress: *const void,
+        dwSize: u64
+    ): i32
+
+    @lib pub fn GetStartupInfoA(lpStartupInfo: *STARTUPINFOA)
+
+    /// Wide twin of GetStartupInfoA — pass a STARTUPINFOA-shaped buffer
+    /// where the string pointers are *u16 instead of *char.
+    @lib pub fn GetStartupInfoW(lpStartupInfo: *STARTUPINFOA)
+
+    // ── Environment block ────────────────────────────────────────
+
+    @lib pub fn GetEnvironmentStrings(): *char
+    @lib pub fn GetEnvironmentStringsW(): *u16
+    @lib pub fn FreeEnvironmentStringsA(penv: *char): i32
+    @lib pub fn FreeEnvironmentStringsW(penv: *u16): i32
+
+    // ── TLS ──────────────────────────────────────────────────────
+
+    /// Allocates a new TLS slot index. Returns 0xFFFFFFFF on failure.
+    @lib pub fn TlsAlloc(): u32
+    @lib pub fn TlsFree(dwTlsIndex: u32): i32
+    @lib pub fn TlsGetValue(dwTlsIndex: u32): *void
+    @lib pub fn TlsSetValue(dwTlsIndex: u32, lpTlsValue: *void): i32
+
+    // ── Fibers (cooperative threading) ───────────────────────────
+
+    /// Converts the calling thread into a fiber. Required before any
+    /// other fiber API on this thread.
+    @lib pub fn ConvertThreadToFiber(lpParameter: *void): *void
+    @lib pub fn ConvertFiberToThread(): i32
+
+    @lib pub fn CreateFiber(
+        dwStackSize:    u64,
+        lpStartAddress: fn(*void),
+        lpParameter:    *void
+    ): *void
+
+    @lib pub fn CreateFiberEx(
+        dwStackCommitSize:  u64,
+        dwStackReserveSize: u64,
+        dwFlags:            u32,
+        lpStartAddress:     fn(*void),
+        lpParameter:        *void
+    ): *void
+
+    @lib pub fn DeleteFiber(lpFiber: *void)
+    @lib pub fn SwitchToFiber(lpFiber: *void)
+    @lib pub fn GetCurrentFiber(): *void
+    @lib pub fn GetFiberData(): *void
+
+    // ── Console (extended) ───────────────────────────────────────
+
+    /// Reads / sets the console mode bits (see ConsoleInputMode /
+    /// ConsoleOutputMode). Setting `virtualTerminalProcessing` on
+    /// the output handle is the standard way to enable ANSI escape
+    /// support on Windows 10 1607+.
+    @lib pub fn GetConsoleMode(hConsoleHandle: HANDLE, lpMode: *u32): i32
+    @lib pub fn SetConsoleMode(hConsoleHandle: HANDLE, dwMode: u32): i32
+
+    /// Returns the HWND of the attached console window, or NULL.
+    @lib pub fn GetConsoleWindow(): HWND
+
+    /// Active code-page accessors.
+    @lib pub fn GetConsoleCP(): u32
+    @lib pub fn GetConsoleOutputCP(): u32
+    @lib pub fn SetConsoleCP(wCodePageID: u32): i32
+    @lib pub fn SetConsoleOutputCP(wCodePageID: u32): i32
+
+    /// `COORD { SHORT x; SHORT y; }` — 4 bytes.
+    pub struct COORD {
+        X: i16
+        Y: i16
+    }
+
+    /// `SMALL_RECT { SHORT Left, Top, Right, Bottom; }` — 8 bytes.
+    pub struct SMALL_RECT {
+        Left:   i16
+        Top:    i16
+        Right:  i16
+        Bottom: i16
+    }
+
+    /// `CONSOLE_SCREEN_BUFFER_INFO` — 22 bytes.
+    pub struct CONSOLE_SCREEN_BUFFER_INFO {
+        dwSize:              COORD
+        dwCursorPosition:    COORD
+        wAttributes:         u16
+        srWindow:            SMALL_RECT
+        dwMaximumWindowSize: COORD
+    }
+
+    @lib pub fn SetConsoleCursorPosition(hConsoleOutput: HANDLE, dwCursorPosition: COORD): i32
+
+    @lib pub fn FillConsoleOutputCharacterA(
+        hConsoleOutput:  HANDLE,
+        cCharacter:      u8,
+        nLength:         u32,
+        dwWriteCoord:    COORD,
+        lpNumberOfCharsWritten: *u32
+    ): i32
+    @lib pub fn FillConsoleOutputCharacterW(
+        hConsoleOutput:  HANDLE,
+        cCharacter:      u16,
+        nLength:         u32,
+        dwWriteCoord:    COORD,
+        lpNumberOfCharsWritten: *u32
+    ): i32
+
+    @lib pub fn FillConsoleOutputAttribute(
+        hConsoleOutput: HANDLE,
+        wAttribute:     u16,
+        nLength:        u32,
+        dwWriteCoord:   COORD,
+        lpNumberOfAttrsWritten: *u32
+    ): i32
+
+    @lib pub fn ScrollConsoleScreenBufferA(
+        hConsoleOutput:  HANDLE,
+        lpScrollRectangle: *const SMALL_RECT,
+        lpClipRectangle: *const SMALL_RECT,
+        dwDestinationOrigin: COORD,
+        lpFill:          *const void   // *CHAR_INFO
+    ): i32
+    @lib pub fn ScrollConsoleScreenBufferW(
+        hConsoleOutput:  HANDLE,
+        lpScrollRectangle: *const SMALL_RECT,
+        lpClipRectangle: *const SMALL_RECT,
+        dwDestinationOrigin: COORD,
+        lpFill:          *const void
+    ): i32
+
+    @lib pub fn FlushConsoleInputBuffer(hConsoleInput: HANDLE): i32
+
+    @lib pub fn GetConsoleTitleA(lpConsoleTitle: *char, nSize: u32): u32
+    @lib pub fn GetConsoleTitleW(lpConsoleTitle: *u16, nSize: u32): u32
+
+    @lib pub fn AttachConsole(dwProcessId: u32): i32
+
+    // ── Heap (extended) ──────────────────────────────────────────
+
+    /// Creates a private heap. `flOptions`: HeapFlags.* (zero is fine).
+    /// `dwInitialSize`/`dwMaximumSize`: 0 = growable.
+    @lib pub fn HeapCreate(
+        flOptions:     u32,
+        dwInitialSize: u64,
+        dwMaximumSize: u64
+    ): HANDLE
+
+    @lib pub fn HeapDestroy(hHeap: HANDLE): i32
+
+    /// Returns the largest committed free block (or 0 on failure).
+    @lib pub fn HeapCompact(hHeap: HANDLE, dwFlags: u32): u64
+
+    /// `0` = inconsistent.
+    @lib pub fn HeapValidate(hHeap: HANDLE, dwFlags: u32, lpMem: *const void): i32
+
+    @lib pub fn HeapLock(hHeap: HANDLE): i32
+    @lib pub fn HeapUnlock(hHeap: HANDLE): i32
+
+    /// Fills `ProcessHeaps` with up to `NumberOfHeaps` HANDLEs and
+    /// returns the actual count (or 0 on failure).
+    @lib pub fn GetProcessHeaps(NumberOfHeaps: u32, ProcessHeaps: *HANDLE): u32
+
+    // ── File / I/O (extended) ────────────────────────────────────
+
+    /// Returns one of FileType.*.
+    @lib pub fn GetFileType(hFile: HANDLE): u32
+
+    /// Truncates or extends the file to the current file pointer.
+    @lib pub fn SetEndOfFile(hFile: HANDLE): i32
+
+    @lib pub fn LockFile(
+        hFile: HANDLE,
+        dwFileOffsetLow:  u32,
+        dwFileOffsetHigh: u32,
+        nNumberOfBytesToLockLow:  u32,
+        nNumberOfBytesToLockHigh: u32
+    ): i32
+
+    @lib pub fn UnlockFile(
+        hFile: HANDLE,
+        dwFileOffsetLow:  u32,
+        dwFileOffsetHigh: u32,
+        nNumberOfBytesToUnlockLow:  u32,
+        nNumberOfBytesToUnlockHigh: u32
+    ): i32
+
+    /// 8-byte OVERLAPPED-style file lock. `dwFlags`:
+    ///   1 = LOCKFILE_EXCLUSIVE_LOCK, 2 = LOCKFILE_FAIL_IMMEDIATELY.
+    @lib pub fn LockFileEx(
+        hFile:           HANDLE,
+        dwFlags:         u32,
+        dwReserved:      u32,
+        nNumberOfBytesToLockLow:  u32,
+        nNumberOfBytesToLockHigh: u32,
+        lpOverlapped:    *OVERLAPPED
+    ): i32
+
+    @lib pub fn UnlockFileEx(
+        hFile:           HANDLE,
+        dwReserved:      u32,
+        nNumberOfBytesToUnlockLow:  u32,
+        nNumberOfBytesToUnlockHigh: u32,
+        lpOverlapped:    *OVERLAPPED
+    ): i32
+
+    /// `BY_HANDLE_FILE_INFORMATION` — 52 bytes (with trailing pad).
+    /// Filled by GetFileInformationByHandle.
+    pub struct BY_HANDLE_FILE_INFORMATION {
+        dwFileAttributes:     u32
+        ftCreationTime:       FILETIME
+        ftLastAccessTime:     FILETIME
+        ftLastWriteTime:      FILETIME
+        dwVolumeSerialNumber: u32
+        nFileSizeHigh:        u32
+        nFileSizeLow:         u32
+        nNumberOfLinks:       u32
+        nFileIndexHigh:       u32
+        nFileIndexLow:        u32
+    }
+
+    @lib pub fn GetFileInformationByHandle(
+        hFile: HANDLE,
+        lpFileInformation: *BY_HANDLE_FILE_INFORMATION
+    ): i32
+
+    /// `dwFlags`: 0 = absolute (default), 1 = VOLUME_NAME_GUID,
+    /// 2 = VOLUME_NAME_NT, 4 = VOLUME_NAME_NONE; OR with 0x8 for
+    /// FILE_NAME_OPENED (the name used when the file was opened).
+    @lib pub fn GetFinalPathNameByHandleA(
+        hFile: HANDLE,
+        lpszFilePath: *char,
+        cchFilePath:  u32,
+        dwFlags:      u32
+    ): u32
+    @lib pub fn GetFinalPathNameByHandleW(
+        hFile: HANDLE,
+        lpszFilePath: *u16,
+        cchFilePath:  u32,
+        dwFlags:      u32
+    ): u32
+
+    // ── Overlapped I/O ───────────────────────────────────────────
+
+    /// `OVERLAPPED` — 32 bytes on x64. Embeds an Offset/InternalHigh
+    /// union exposed here as two u64 fields.
+    pub struct OVERLAPPED {
+        Internal:      u64
+        InternalHigh:  u64
+        Offset:        u32
+        OffsetHigh:    u32
+        hEvent:        HANDLE
+    }
+
+    /// `OVERLAPPED_ENTRY` — 32 bytes. Returned by
+    /// GetQueuedCompletionStatusEx.
+    pub struct OVERLAPPED_ENTRY {
+        lpCompletionKey:            u64
+        lpOverlapped:               *OVERLAPPED
+        Internal:                   u64
+        dwNumberOfBytesTransferred: u32
+        _pad:                       u32
+    }
+
+    @lib pub fn ReadFileEx(
+        hFile:        HANDLE,
+        lpBuffer:     *void,
+        nNumberOfBytesToRead: u32,
+        lpOverlapped: *OVERLAPPED,
+        lpCompletionRoutine: fn(u32, u32, *OVERLAPPED)
+    ): i32
+
+    @lib pub fn WriteFileEx(
+        hFile:        HANDLE,
+        lpBuffer:     *const void,
+        nNumberOfBytesToWrite: u32,
+        lpOverlapped: *OVERLAPPED,
+        lpCompletionRoutine: fn(u32, u32, *OVERLAPPED)
+    ): i32
+
+    @lib pub fn GetOverlappedResult(
+        hFile:        HANDLE,
+        lpOverlapped: *OVERLAPPED,
+        lpNumberOfBytesTransferred: *u32,
+        bWait:        i32
+    ): i32
+
+    @lib pub fn GetOverlappedResultEx(
+        hFile:        HANDLE,
+        lpOverlapped: *OVERLAPPED,
+        lpNumberOfBytesTransferred: *u32,
+        dwMilliseconds: u32,
+        bAlertable:     i32
+    ): i32
+
+    /// Cancels all pending I/O on `hFile` issued by the calling thread.
+    @lib pub fn CancelIo(hFile: HANDLE): i32
+
+    /// Cancels pending I/O across threads; pass NULL OVERLAPPED to
+    /// cancel everything.
+    @lib pub fn CancelIoEx(hFile: HANDLE, lpOverlapped: *OVERLAPPED): i32
+
+    /// Win7+: cancels a synchronous I/O issued by another thread.
+    @lib pub fn CancelSynchronousIo(hThread: HANDLE): i32
+
+    // ── I/O Completion Ports ─────────────────────────────────────
+
+    /// Creates / associates an IOCP. To create a fresh port, pass
+    /// `INVALID_HANDLE_VALUE` for `FileHandle` and NULL for `ExistingCompletionPort`.
+    /// To attach `hFile` to an existing port, pass both.
+    @lib pub fn CreateIoCompletionPort(
+        FileHandle:                HANDLE,
+        ExistingCompletionPort:    HANDLE,
+        CompletionKey:             u64,
+        NumberOfConcurrentThreads: u32
+    ): HANDLE
+
+    @lib pub fn GetQueuedCompletionStatus(
+        CompletionPort:             HANDLE,
+        lpNumberOfBytesTransferred: *u32,
+        lpCompletionKey:            *u64,
+        lpOverlapped:               **OVERLAPPED,
+        dwMilliseconds:             u32
+    ): i32
+
+    @lib pub fn GetQueuedCompletionStatusEx(
+        CompletionPort:        HANDLE,
+        lpCompletionPortEntries: *OVERLAPPED_ENTRY,
+        ulCount:               u32,
+        ulNumEntriesRemoved:   *u32,
+        dwMilliseconds:        u32,
+        fAlertable:            i32
+    ): i32
+
+    @lib pub fn PostQueuedCompletionStatus(
+        CompletionPort:           HANDLE,
+        dwNumberOfBytesTransferred: u32,
+        dwCompletionKey:          u64,
+        lpOverlapped:             *OVERLAPPED
+    ): i32
+
+    // ── DeviceIoControl ──────────────────────────────────────────
+
+    /// Generic ioctl. Build `dwIoControlCode` with the CTL_CODE macro
+    /// (DeviceType<<16 | Access<<14 | Function<<2 | Method).
+    @lib pub fn DeviceIoControl(
+        hDevice:        HANDLE,
+        dwIoControlCode: u32,
+        lpInBuffer:     *void,
+        nInBufferSize:  u32,
+        lpOutBuffer:    *void,
+        nOutBufferSize: u32,
+        lpBytesReturned: *u32,
+        lpOverlapped:   *OVERLAPPED
+    ): i32
+
+    // ── Toolhelp32 snapshots ─────────────────────────────────────
+
+    /// 568-byte process entry returned by `Process32FirstW` /
+    /// `Process32NextW`. Set `dwSize = 568` before the first call.
+    pub struct PROCESSENTRY32W {
+        dwSize:              u32
+        cntUsage:            u32
+        th32ProcessID:       u32
+        th32DefaultHeapID:   u64
+        th32ModuleID:        u32
+        cntThreads:          u32
+        th32ParentProcessID: u32
+        pcPriClassBase:      i32
+        dwFlags:             u32
+        szExeFile:           u16[260]
+    }
+
+    /// 28-byte thread entry. Set `dwSize = 28`.
+    pub struct THREADENTRY32 {
+        dwSize:             u32
+        cntUsage:           u32
+        th32ThreadID:       u32
+        th32OwnerProcessID: u32
+        tpBasePri:          i32
+        tpDeltaPri:         i32
+        dwFlags:            u32
+    }
+
+    /// 1080-byte module entry (Unicode). Set `dwSize = 1080`.
+    pub struct MODULEENTRY32W {
+        dwSize:         u32
+        th32ModuleID:   u32
+        th32ProcessID:  u32
+        GlblcntUsage:   u32
+        ProccntUsage:   u32
+        modBaseAddr:    *u8
+        modBaseSize:    u32
+        hModule:        HMODULE
+        szModule:       u16[256]
+        szExePath:      u16[260]
+    }
+
+    /// Snapshots the requested kernel objects (TH32CS_*).
+    /// `th32ProcessID = 0` for the system-wide process snapshot.
+    @lib pub fn CreateToolhelp32Snapshot(dwFlags: u32, th32ProcessID: u32): HANDLE
+
+    @lib pub fn Process32FirstW(hSnapshot: HANDLE, lppe: *PROCESSENTRY32W): i32
+    @lib pub fn Process32NextW(hSnapshot: HANDLE, lppe: *PROCESSENTRY32W): i32
+
+    @lib pub fn Thread32First(hSnapshot: HANDLE, lpte: *THREADENTRY32): i32
+    @lib pub fn Thread32Next(hSnapshot: HANDLE, lpte: *THREADENTRY32): i32
+
+    @lib pub fn Module32FirstW(hSnapshot: HANDLE, lpme: *MODULEENTRY32W): i32
+    @lib pub fn Module32NextW(hSnapshot: HANDLE, lpme: *MODULEENTRY32W): i32
+
+    // ── Job objects ──────────────────────────────────────────────
+
+    @lib pub fn CreateJobObjectA(lpJobAttributes: *void, lpName: *const char): HANDLE
+    @lib pub fn CreateJobObjectW(lpJobAttributes: *void, lpName: *const u16): HANDLE
+
+    @lib pub fn OpenJobObjectA(dwDesiredAccess: u32, bInheritHandles: i32, lpName: *const char): HANDLE
+    @lib pub fn OpenJobObjectW(dwDesiredAccess: u32, bInheritHandles: i32, lpName: *const u16): HANDLE
+
+    @lib pub fn AssignProcessToJobObject(hJob: HANDLE, hProcess: HANDLE): i32
+    @lib pub fn TerminateJobObject(hJob: HANDLE, uExitCode: u32): i32
+
+    /// `JobObjectInformationClass` codes (selected):
+    ///   2  JobObjectBasicLimitInformation
+    ///   8  JobObjectBasicProcessIdList
+    ///   9  JobObjectExtendedLimitInformation
+    ///  11  JobObjectGroupInformation
+    @lib pub fn QueryInformationJobObject(
+        hJob:           HANDLE,
+        JobObjectInformationClass: i32,
+        lpJobObjectInformation: *void,
+        cbJobObjectInformationLength: u32,
+        lpReturnLength: *u32
+    ): i32
+
+    @lib pub fn SetInformationJobObject(
+        hJob:           HANDLE,
+        JobObjectInformationClass: i32,
+        lpJobObjectInformation: *void,
+        cbJobObjectInformationLength: u32
+    ): i32
+
+    @lib pub fn IsProcessInJob(
+        ProcessHandle: HANDLE,
+        JobHandle:     HANDLE,
+        Result:        *i32
+    ): i32
+
+    // ── Volume info ──────────────────────────────────────────────
+
+    @lib pub fn GetVolumeInformationA(
+        lpRootPathName:           *const char,
+        lpVolumeNameBuffer:       *char,
+        nVolumeNameSize:          u32,
+        lpVolumeSerialNumber:     *u32,
+        lpMaximumComponentLength: *u32,
+        lpFileSystemFlags:        *u32,
+        lpFileSystemNameBuffer:   *char,
+        nFileSystemNameSize:      u32
+    ): i32
+    @lib pub fn GetVolumeInformationW(
+        lpRootPathName:           *const u16,
+        lpVolumeNameBuffer:       *u16,
+        nVolumeNameSize:          u32,
+        lpVolumeSerialNumber:     *u32,
+        lpMaximumComponentLength: *u32,
+        lpFileSystemFlags:        *u32,
+        lpFileSystemNameBuffer:   *u16,
+        nFileSystemNameSize:      u32
+    ): i32
+
+    @lib pub fn GetVolumePathNameA(
+        lpszFileName:       *const char,
+        lpszVolumePathName: *char,
+        cchBufferLength:    u32
+    ): i32
+    @lib pub fn GetVolumePathNameW(
+        lpszFileName:       *const u16,
+        lpszVolumePathName: *u16,
+        cchBufferLength:    u32
+    ): i32
+
+    @lib pub fn FindFirstVolumeA(lpszVolumeName: *char,  cchBufferLength: u32): HANDLE
+    @lib pub fn FindFirstVolumeW(lpszVolumeName: *u16,   cchBufferLength: u32): HANDLE
+    @lib pub fn FindNextVolumeA(hFindVolume: HANDLE, lpszVolumeName: *char, cchBufferLength: u32): i32
+    @lib pub fn FindNextVolumeW(hFindVolume: HANDLE, lpszVolumeName: *u16, cchBufferLength: u32): i32
+    @lib pub fn FindVolumeClose(hFindVolume: HANDLE): i32
+
+    // ── Locale / NLS ─────────────────────────────────────────────
+
+    /// Returns the system default ANSI code page.
+    @lib pub fn GetACP(): u32
+    @lib pub fn GetOEMCP(): u32
+
+    /// `CPINFO` — 12 bytes. MaxCharSize=1 means single-byte.
+    pub struct CPINFO {
+        MaxCharSize:    u32
+        DefaultChar:    u8[2]
+        LeadByte:       u8[12]
+    }
+
+    @lib pub fn GetCPInfo(CodePage: u32, lpCPInfo: *CPINFO): i32
+
+    @lib pub fn IsValidCodePage(CodePage: u32): i32
+
+    /// Compares two strings using the rules of `Locale`. Returns
+    /// CSTR_LESS_THAN (1), CSTR_EQUAL (2), CSTR_GREATER_THAN (3),
+    /// or 0 on failure.
+    @lib pub fn CompareStringA(
+        Locale:     u32,
+        dwCmpFlags: u32,
+        lpString1:  *const char,
+        cchCount1:  i32,
+        lpString2:  *const char,
+        cchCount2:  i32
+    ): i32
+    @lib pub fn CompareStringW(
+        Locale:     u32,
+        dwCmpFlags: u32,
+        lpString1:  *const u16,
+        cchCount1:  i32,
+        lpString2:  *const u16,
+        cchCount2:  i32
+    ): i32
+
+    /// Win7+ locale-name variant.
+    @lib pub fn CompareStringEx(
+        lpLocaleName: *const u16,
+        dwCmpFlags:   u32,
+        lpString1:    *const u16,
+        cchCount1:    i32,
+        lpString2:    *const u16,
+        cchCount2:    i32,
+        lpVersionInformation: *void,
+        lpReserved:   *void,
+        lParam:       i64
+    ): i32
+
+    @lib pub fn LCMapStringA(
+        Locale:      u32,
+        dwMapFlags:  u32,
+        lpSrcStr:    *const char,
+        cchSrc:      i32,
+        lpDestStr:   *char,
+        cchDest:     i32
+    ): i32
+    @lib pub fn LCMapStringW(
+        Locale:      u32,
+        dwMapFlags:  u32,
+        lpSrcStr:    *const u16,
+        cchSrc:      i32,
+        lpDestStr:   *u16,
+        cchDest:     i32
+    ): i32
+
+    @lib pub fn GetUserDefaultLocaleName(lpLocaleName: *u16, cchLocaleName: i32): i32
+    @lib pub fn GetSystemDefaultLocaleName(lpLocaleName: *u16, cchLocaleName: i32): i32
+    @lib pub fn GetUserDefaultLangID(): u16
+    @lib pub fn GetSystemDefaultLangID(): u16
+    @lib pub fn GetThreadUILanguage(): u16
+    @lib pub fn SetThreadUILanguage(LangId: u16): u16
+    @lib pub fn GetUserDefaultUILanguage(): u16
+    @lib pub fn GetSystemDefaultUILanguage(): u16
+
+    // ── Time zone ────────────────────────────────────────────────
+
+    /// `TIME_ZONE_INFORMATION` — 172 bytes.
+    pub struct TIME_ZONE_INFORMATION {
+        Bias:         i32
+        StandardName: u16[32]
+        StandardDate: SYSTEMTIME
+        StandardBias: i32
+        DaylightName: u16[32]
+        DaylightDate: SYSTEMTIME
+        DaylightBias: i32
+    }
+
+    /// Returns TIME_ZONE_ID_UNKNOWN (0), TIME_ZONE_ID_STANDARD (1),
+    /// or TIME_ZONE_ID_DAYLIGHT (2). 0xFFFFFFFF on failure.
+    @lib pub fn GetTimeZoneInformation(lpTimeZoneInformation: *TIME_ZONE_INFORMATION): u32
+
+    @lib pub fn SetTimeZoneInformation(lpTimeZoneInformation: *const TIME_ZONE_INFORMATION): i32
+
+    @lib pub fn SystemTimeToTzSpecificLocalTime(
+        lpTimeZoneInformation: *const TIME_ZONE_INFORMATION,
+        lpUniversalTime:       *const SYSTEMTIME,
+        lpLocalTime:           *SYSTEMTIME
+    ): i32
+
+    @lib pub fn TzSpecificLocalTimeToSystemTime(
+        lpTimeZoneInformation: *const TIME_ZONE_INFORMATION,
+        lpLocalTime:           *const SYSTEMTIME,
+        lpUniversalTime:       *SYSTEMTIME
+    ): i32
+
+    // ── WaitOnAddress / WakeByAddress (Win8+) ────────────────────
+
+    /// Blocks until `*Address` differs from `*CompareAddress`.
+    /// `AddressSize`: 1, 2, 4, or 8.
+    @lib pub fn WaitOnAddress(
+        Address:        *const void,
+        CompareAddress: *const void,
+        AddressSize:    u64,
+        dwMilliseconds: u32
+    ): i32
+
+    @lib pub fn WakeByAddressSingle(Address: *const void)
+    @lib pub fn WakeByAddressAll(Address: *const void)
+
+    // ── Threadpool (Vista+) ──────────────────────────────────────
+
+    /// Submits `Callback(InstanceMaybe, Context, WorkOrNull)` to the
+    /// default threadpool. For more control use CreateThreadpoolWork.
+    @lib pub fn TrySubmitThreadpoolCallback(
+        pfns:     fn(*void, *void),
+        pv:       *void,
+        pcbe:     *void   // *TP_CALLBACK_ENVIRON
+    ): i32
+
+    /// `PTP_POOL` / `PTP_WORK` etc. are opaque handles. We expose
+    /// them as *void to keep this surface compact.
+    @lib pub fn CreateThreadpool(reserved: *void): *void
+    @lib pub fn CloseThreadpool(ptpp: *void)
+    @lib pub fn SetThreadpoolThreadMinimum(ptpp: *void, cthrdMic: u32): i32
+    @lib pub fn SetThreadpoolThreadMaximum(ptpp: *void, cthrdMost: u32)
+
+    @lib pub fn CreateThreadpoolWork(
+        pfnwk: fn(*void, *void, *void),
+        pv:    *void,
+        pcbe:  *void
+    ): *void
+    @lib pub fn SubmitThreadpoolWork(pwk: *void)
+    @lib pub fn WaitForThreadpoolWorkCallbacks(pwk: *void, fCancelPendingCallbacks: i32)
+    @lib pub fn CloseThreadpoolWork(pwk: *void)
+
+    @lib pub fn CreateThreadpoolTimer(
+        pfnti: fn(*void, *void, *void),
+        pv:    *void,
+        pcbe:  *void
+    ): *void
+    @lib pub fn SetThreadpoolTimer(
+        pti:           *void,
+        pftDueTime:    *const FILETIME,   // NULL = cancel
+        msPeriod:      u32,
+        msWindowLength: u32
+    )
+    @lib pub fn WaitForThreadpoolTimerCallbacks(pti: *void, fCancelPendingCallbacks: i32)
+    @lib pub fn CloseThreadpoolTimer(pti: *void)
+
+    // ── Stack walking ────────────────────────────────────────────
+
+    /// Captures up to `FramesToCapture` return addresses into
+    /// `BackTrace`. `BackTraceHash` is optional (NULL = skip).
+    @lib pub fn RtlCaptureStackBackTrace(
+        FramesToSkip:    u32,
+        FramesToCapture: u32,
+        BackTrace:       **void,
+        BackTraceHash:   *u32
+    ): u16
+
+    // ── Misc utilities ───────────────────────────────────────────
+
+    /// Returns the host's logical-processor count (sum across groups).
+    @lib pub fn GetActiveProcessorCount(GroupNumber: u16): u32
+
+    @lib pub fn GetActiveProcessorGroupCount(): u16
+
+    /// `QueryUnbiasedInterruptTime` — Win7+, returns the count of
+    /// 100-ns intervals the system has been awake (excludes sleep).
+    @lib pub fn QueryUnbiasedInterruptTime(UnbiasedTime: *u64): i32
+
+    @lib pub fn QueryInterruptTime(InterruptTime: *u64)
+
+    /// Re-raises the last error as an SEH exception (for top-level
+    /// crash filters that want to attach a debugger).
+    @lib pub fn RaiseFailFastException(
+        pExceptionRecord: *void,
+        pContextRecord:   *void,
+        dwFlags:          u32
+    )
+
+    @lib pub fn Beep(dwFreq: u32, dwDuration: u32): i32
+
+    /// Returns `0` if no error mode is set; otherwise the bitmask.
+    /// `SetErrorMode` returns the previous value.
+    @lib pub fn SetErrorMode(uMode: u32): u32
+    @lib pub fn GetErrorMode(): u32
+
+    /// Sets / queries the thread error mode (Vista+).
+    @lib pub fn SetThreadErrorMode(NewMode: u32, OldMode: *u32): i32
+    @lib pub fn GetThreadErrorMode(): u32
+
+    // ── Atomic / interlocked (linker-exported wrappers) ──────────
+    // Most compilers inline these as intrinsics; the kernel32 wrappers
+    // exist for FFI callers and for parity with the InterlockedXxx
+    // names used in the SDK.
+
+    @lib pub fn InterlockedIncrement(Addend: *i32): i32
+    @lib pub fn InterlockedDecrement(Addend: *i32): i32
+    @lib pub fn InterlockedExchange(Target: *i32, Value: i32): i32
+    @lib pub fn InterlockedExchangeAdd(Addend: *i32, Value: i32): i32
+    @lib pub fn InterlockedCompareExchange(Destination: *i32, Exchange: i32, Comparand: i32): i32
+    @lib pub fn InterlockedCompareExchange64(
+        Destination: *i64, Exchange: i64, Comparand: i64
+    ): i64
 }
