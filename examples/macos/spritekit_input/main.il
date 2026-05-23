@@ -78,7 +78,6 @@ let _v = cocoa.NSMutableArray.array()   // [vx, vy] as NSNumber
         // game-loop logic (input polling, AI, etc.).
         @objc("update:")
         update(currentTime: f64) {
-            let _ = currentTime
         }
     }
 }

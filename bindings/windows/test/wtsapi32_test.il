@@ -12,7 +12,6 @@ use windows {
         // Active console session — always a valid u32 except when no
         // user is logged in (in which case it is 0xFFFFFFFF).
         let sid = WTSGetActiveConsoleSessionId()
-        let _ = sid
 
         // Enumerate sessions on the local server.
         let info: *WTS_SESSION_INFO = 0 as *WTS_SESSION_INFO

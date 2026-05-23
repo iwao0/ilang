@@ -19,7 +19,6 @@ use windows {
         // On systems without DWM it may return DWM_E_COMPOSITIONDISABLED
         // (0x80263001) — accept either S_OK or a negative HRESULT.
         let rc = DwmFlush()
-        let _ = rc
     }
 }
 

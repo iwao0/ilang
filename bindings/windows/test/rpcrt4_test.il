@@ -37,7 +37,6 @@ use windows {
         let h = UuidHash(&u1, &stat)
         test.expect(stat as i64, 0)
         // hash can technically be 0 but should be rare; just touch it.
-        let _ = h
 
         // String round-trip: u1 → string → u2 → must equal u1.
         let asStr: *char = 0 as *char

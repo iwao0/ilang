@@ -52,7 +52,6 @@ toggle.y      = 120.0
 toggle.width  = 140.0
 toggle.height = 32.0
 toggle.onClick.add(fn(e: gui.MouseEvent) {
-    let _ = e
     nameField.isEnabled = !nameField.isEnabled
     toggle.text = if nameField.isEnabled { "Disable field" } else { "Enable field" }
     console.log("toggle, enabled =", nameField.isEnabled)

@@ -11,7 +11,6 @@ use windows { IsNetworkAlive }
         let flags: u32 = 0
         let _ = IsNetworkAlive(&flags)
         // Touch `flags` so the compiler keeps the local.
-        let _ = flags
     }
 }
 

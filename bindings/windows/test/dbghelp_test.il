@@ -22,7 +22,6 @@ use windows {
         // Sanity: prev matches the value we read before re-setting.
         // (Just check the call returns the previously-set value, no
         // strict equality.)
-        let _ = prev
 
         // SymInitialize / SymCleanup — fInvadeProcess=0 to avoid loading
         // every module's symbols (would be slow and may need a network).

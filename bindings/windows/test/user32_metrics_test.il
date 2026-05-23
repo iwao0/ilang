@@ -30,7 +30,6 @@ use windows {
         // sensible call.
         let fg = GetForegroundWindow()
         // Just touch the value; don't assert non-null.
-        let _ = fg
 
         // MapVirtualKeyA: VK_A → scan code; non-zero.
         let scan = MapVirtualKeyA(VirtualKey.a as u32, 0 as u32)

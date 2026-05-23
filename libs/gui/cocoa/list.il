@@ -39,7 +39,6 @@ let DS_TO_LIST = new Map<i64, i64>()
 
 class ListDataSource : NSObject {
     pub numberOfRowsInTableView(t: NSTableView): i64 {
-        let _ = t
         if let some(lh) = DS_TO_LIST.get(this.handle) {
             if let some(slot) = LISTS.get(lh) {
                 return slot.items.length
@@ -57,8 +56,6 @@ class ListDataSource : NSObject {
     pub tableViewObjectValueForTableColumn(
         t: NSTableView, column: NSTableColumn, row: i64
     ): NSObject {
-        let _ = t
-        let _ = column
         if let some(lh) = DS_TO_LIST.get(this.handle) {
             if let some(slot) = LISTS.get(lh) {
                 if row >= 0 && row < slot.items.length {
@@ -142,7 +139,6 @@ pub fn setListSelectedIndex(handle: i64, index: i32) {
             // don't expose a single-row constructor today, so we
             // fall back to selecting nothing and letting the user
             // re-pick.
-            let _ = index
         }
     }
 }
@@ -159,8 +155,6 @@ pub fn setListFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
 }
 pub fn setListEnabled(handle: i64, enabled: bool) {
     // No direct NSTableView enabled toggle; surface as no-op.
-    let _ = handle
-    let _ = enabled
 }
 pub fn setListVisible(handle: i64, visible: bool) {
     if let some(slot) = LISTS.get(handle) { slot.scroll.setHidden(!visible) }

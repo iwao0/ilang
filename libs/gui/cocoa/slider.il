@@ -80,8 +80,6 @@ pub fn setSliderFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
 pub fn setSliderEnabled(handle: i64, enabled: bool) {
     // NSSlider inherits setEnabled from NSControl; the binding
     // doesn't expose it today, so this is a no-op on macOS.
-    let _ = handle
-    let _ = enabled
 }
 pub fn setSliderVisible(handle: i64, visible: bool) {
     if let some(slot) = SLIDERS.get(handle) { slot.slider.setHidden(!visible) }

@@ -18,7 +18,6 @@ w.width  = 480.0
 w.height = 320.0
 
 w.onClose.add(fn(e: gui.CloseEvent) {
-    let _ = e
     console.log("close")
 })
 
