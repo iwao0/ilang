@@ -111,106 +111,7 @@ pub(crate) fn build_doc(
             }
         }
     }
-    // Propagate parent-class members into buffer-local subclasses.
-    // `collect_external_classes` already flattened the externals
-    // (e.g. `cocoa.NSView` carries `NSObject.handle` and every
-    // intermediate's methods), but the local `collect_classes` pass
-    // doesn't walk inheritance. Without this, a buffer-local
-    // `class GuiView : NSView { ... }` reports no `handle` field on
-    // hover / completion of `this.handle`, even though the merged
-    // program has it through inheritance.
-    {
-        let local_parents: HashMap<AstSymbol, AstSymbol> = prog
-            .items
-            .iter()
-            .filter_map(|it| match it {
-                Item::Class(c) => c.parent.as_ref().map(|p| (c.name, p.clone())),
-                Item::ExternC(b) => {
-                    // No flat way to iterate — the ExternC items
-                    // contain Class variants too, surfaced below.
-                    let _ = b;
-                    None
-                }
-                _ => None,
-            })
-            .chain(prog.items.iter().flat_map(|it| {
-                let mut v: Vec<(AstSymbol, AstSymbol)> = Vec::new();
-                if let Item::ExternC(b) = it {
-                    for inner in b.items.iter() {
-                        if let ilang_ast::ExternCItem::Class(c) = inner {
-                            if let Some(p) = &c.parent {
-                                v.push((c.name, p.clone()));
-                            }
-                        }
-                    }
-                }
-                v.into_iter()
-            }))
-            .collect();
-        let resolve_key = |classes: &HashMap<AstSymbol, ClassInfo>, name: &AstSymbol| {
-            if classes.contains_key(name) {
-                return Some(name.clone());
-            }
-            let suffix = format!(".{}", name.as_str());
-            classes
-                .keys()
-                .find(|k| k.as_str().ends_with(&suffix))
-                .cloned()
-        };
-        let child_names: Vec<AstSymbol> = local_parents.keys().cloned().collect();
-        for child in child_names {
-            let mut visited: HashSet<AstSymbol> = HashSet::new();
-            let mut acc_fields: HashMap<AstSymbol, crate::types::MemberInfo> =
-                HashMap::new();
-            let mut acc_methods: HashMap<AstSymbol, crate::types::MemberInfo> =
-                HashMap::new();
-            let mut acc_getters: HashMap<AstSymbol, crate::types::MemberInfo> =
-                HashMap::new();
-            let mut acc_setters: HashMap<AstSymbol, crate::types::MemberInfo> =
-                HashMap::new();
-            let mut cursor = local_parents.get(&child).cloned();
-            while let Some(parent_name) = cursor {
-                if !visited.insert(parent_name.clone()) {
-                    break;
-                }
-                let Some(key) = resolve_key(&classes, &parent_name) else { break };
-                if let Some(info) = classes.get(&key) {
-                    for (k, v) in &info.fields {
-                        acc_fields.entry(k.clone()).or_insert_with(|| v.clone());
-                    }
-                    for (k, v) in &info.methods {
-                        acc_methods.entry(k.clone()).or_insert_with(|| v.clone());
-                    }
-                    for (k, v) in &info.getters {
-                        acc_getters.entry(k.clone()).or_insert_with(|| v.clone());
-                    }
-                    for (k, v) in &info.setters {
-                        acc_setters.entry(k.clone()).or_insert_with(|| v.clone());
-                    }
-                }
-                // External entries are pre-flattened, so one hop into
-                // `cocoa.NSView` already gives us every ancestor's
-                // members. Stop walking to avoid trying to resolve a
-                // bare `NSResponder` parent that only lives on the
-                // external entry.
-                cursor = local_parents.get(&parent_name).cloned();
-            }
-            if let Some(info) = classes.get_mut(&child) {
-                for (k, v) in acc_fields {
-                    info.fields.entry(k).or_insert(v);
-                }
-                for (k, v) in acc_methods {
-                    info.methods.entry(k).or_insert(v);
-                }
-                for (k, v) in acc_getters {
-                    info.getters.entry(k).or_insert(v);
-                }
-                for (k, v) in acc_setters {
-                    info.setters.entry(k).or_insert(v);
-                }
-            }
-        }
-    }
+    flatten_inherited_members(prog, &mut classes);
     // Register `<Enum>.<Variant>` entries for buffer-local enums so
     // `Enum.` completion (the `external_signatures`-prefix path)
     // surfaces variants alongside cross-module enums. Sub-modules
@@ -493,5 +394,97 @@ pub(crate) fn build_doc(
         external_interfaces: external_interfaces.clone(),
         local_interfaces,
         selective_use_names,
+    }
+}
+
+/// Propagate parent-class members into buffer-local subclasses.
+/// `collect_external_classes` already flattens the externals (so e.g.
+/// `cocoa.NSView` carries `NSObject.handle` and every intermediate's
+/// methods), but the local `collect_classes` pass doesn't walk
+/// inheritance. Without this, a buffer-local
+/// `class GuiView : NSView { ... }` reports no `handle` field on
+/// hover / completion of `this.handle` even though the merged program
+/// has it through inheritance.
+///
+/// Local-to-local chains walk hop by hop; the first hop into an
+/// external entry already has every ancestor's members folded in by
+/// `collect_external_classes`, so we stop there to avoid trying to
+/// resolve a bare `NSResponder` parent that only lives on the
+/// external entry.
+fn flatten_inherited_members(prog: &Program, classes: &mut HashMap<AstSymbol, ClassInfo>) {
+    let local_parents: HashMap<AstSymbol, AstSymbol> = prog
+        .items
+        .iter()
+        .filter_map(|it| match it {
+            Item::Class(c) => c.parent.as_ref().map(|p| (c.name, p.clone())),
+            _ => None,
+        })
+        .chain(prog.items.iter().flat_map(|it| {
+            let mut v: Vec<(AstSymbol, AstSymbol)> = Vec::new();
+            if let Item::ExternC(b) = it {
+                for inner in b.items.iter() {
+                    if let ilang_ast::ExternCItem::Class(c) = inner {
+                        if let Some(p) = &c.parent {
+                            v.push((c.name, p.clone()));
+                        }
+                    }
+                }
+            }
+            v.into_iter()
+        }))
+        .collect();
+    let resolve_key = |classes: &HashMap<AstSymbol, ClassInfo>, name: &AstSymbol| {
+        if classes.contains_key(name) {
+            return Some(name.clone());
+        }
+        let suffix = format!(".{}", name.as_str());
+        classes
+            .keys()
+            .find(|k| k.as_str().ends_with(&suffix))
+            .cloned()
+    };
+    let child_names: Vec<AstSymbol> = local_parents.keys().cloned().collect();
+    for child in child_names {
+        let mut visited: HashSet<AstSymbol> = HashSet::new();
+        let mut acc_fields: HashMap<AstSymbol, crate::types::MemberInfo> = HashMap::new();
+        let mut acc_methods: HashMap<AstSymbol, crate::types::MemberInfo> = HashMap::new();
+        let mut acc_getters: HashMap<AstSymbol, crate::types::MemberInfo> = HashMap::new();
+        let mut acc_setters: HashMap<AstSymbol, crate::types::MemberInfo> = HashMap::new();
+        let mut cursor = local_parents.get(&child).cloned();
+        while let Some(parent_name) = cursor {
+            if !visited.insert(parent_name.clone()) {
+                break;
+            }
+            let Some(key) = resolve_key(classes, &parent_name) else { break };
+            if let Some(info) = classes.get(&key) {
+                for (k, v) in &info.fields {
+                    acc_fields.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                for (k, v) in &info.methods {
+                    acc_methods.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                for (k, v) in &info.getters {
+                    acc_getters.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                for (k, v) in &info.setters {
+                    acc_setters.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+            }
+            cursor = local_parents.get(&parent_name).cloned();
+        }
+        if let Some(info) = classes.get_mut(&child) {
+            for (k, v) in acc_fields {
+                info.fields.entry(k).or_insert(v);
+            }
+            for (k, v) in acc_methods {
+                info.methods.entry(k).or_insert(v);
+            }
+            for (k, v) in acc_getters {
+                info.getters.entry(k).or_insert(v);
+            }
+            for (k, v) in acc_setters {
+                info.setters.entry(k).or_insert(v);
+            }
+        }
     }
 }
