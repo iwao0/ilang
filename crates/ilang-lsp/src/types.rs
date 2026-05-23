@@ -90,6 +90,13 @@ pub(crate) struct MemberInfo {
     pub(crate) is_static: bool,
     /// `///`-prefixed doc comment lines above the member.
     pub(crate) doc: Option<String>,
+    /// File path containing this member's declaration. Set on
+    /// `external` classes so F12 routes through the actual declaring
+    /// file — inherited methods land in their parent's file, not in
+    /// the receiver's class file at the wrong line number. `None` for
+    /// buffer-local members (the LSP resolves those against the
+    /// current document's URI).
+    pub(crate) source_path: Option<std::path::PathBuf>,
 }
 
 #[derive(Clone, Debug)]

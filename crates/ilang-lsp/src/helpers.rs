@@ -148,6 +148,18 @@ pub(crate) fn member_target(
     use_col: u32,
 ) -> (Span, bool, Option<Url>) {
     if info.external {
+        // Prefer the member's own recorded source path — for an
+        // inherited method this is the parent class's file, not the
+        // receiver's. Falling back to the receiver-class lookup made
+        // F12 on e.g. `popUp.setFrame(...)` (where `setFrame` is
+        // declared on NSView but called through NSPopUpButton) jump
+        // to NSPopUpButton's file at NSView's line number — almost
+        // always a wrong, unrelated location.
+        if let Some(path) = m.source_path.as_ref() {
+            if let Ok(uri) = Url::from_file_path(path) {
+                return (m.span, false, Some(uri));
+            }
+        }
         if let Some(loc) = sources.get(&AstSymbol::intern(class_name)) {
             if let Ok(uri) = Url::from_file_path(&loc.path) {
                 return (m.span, false, Some(uri));

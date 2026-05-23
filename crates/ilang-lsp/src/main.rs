@@ -748,6 +748,46 @@ class MyApp : MyDel {
     }
 
     #[test]
+    pub(crate) fn inherited_external_method_lookup_keeps_parent_source_path() {
+        // `libs/gui/cocoa/combo.il` calls `slot.combo.setFrame(...)`
+        // where `slot.combo: NSPopUpButton`. `setFrame` is declared
+        // on NSView (its grandparent), not on NSPopUpButton itself,
+        // so the parent-chain flatten in `collect_external_classes`
+        // is what makes the method visible on NSPopUpButton. F12
+        // must route through `MemberInfo.source_path` so the jump
+        // lands in NSView's declaring file (appkit/core.il) at the
+        // recorded line, not in NSPopUpButton's file at the same
+        // line number (which is a completely unrelated identifier).
+        use std::path::PathBuf;
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("libs/gui/cocoa/combo.il");
+        if !path.exists() {
+            return;
+        }
+        let doc = analyse::analyse_path_to_doc(&path)
+            .expect("libs/gui/cocoa/combo.il must load");
+        let popup_info = doc
+            .classes
+            .get(&AstSymbol::intern("NSPopUpButton"))
+            .expect("NSPopUpButton must be visible through `use cocoa`");
+        let set_frame = popup_info
+            .methods
+            .get(&AstSymbol::intern("setFrame"))
+            .expect("NSPopUpButton's flattened methods must include the inherited setFrame");
+        let src_path = set_frame
+            .source_path
+            .as_ref()
+            .expect("inherited methods must carry the parent's source_path");
+        let path_str = src_path.to_string_lossy();
+        assert!(
+            path_str.ends_with("appkit/core.il"),
+            "expected setFrame's recorded path to live in NSView's file (appkit/core.il), got {path_str}"
+        );
+    }
+
+    #[test]
     pub(crate) fn local_class_inheriting_nsobject_has_synth_alloc_init_types() {
         // `examples/macos/cocoa/main.il` declares
         //   class AppDelegate : NSApplicationDelegate { ... }

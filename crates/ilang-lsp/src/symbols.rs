@@ -338,6 +338,7 @@ pub(crate) fn install_builtin_classes(out: &mut HashMap<AstSymbol, ClassInfo>) {
             ret_ty: Some(Type::Unit),
             is_static: false,
                 doc: None,
+            source_path: None,
         },
     );
     out.entry("Console".into()).or_insert(ClassInfo {
@@ -394,6 +395,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                                         ret_ty: Some(f.ty.clone()),
                                         is_static: false,
                                         doc: text::extract_doc_above(src, f.span.line),
+                                        source_path: None,
                                     },
                                 );
                             }
@@ -433,6 +435,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                         ret_ty: Some(f.ty.clone()),
                         is_static: false,
                         doc: text::extract_doc_above(src, f.span.line),
+                        source_path: None,
                     },
                 );
             }
@@ -452,6 +455,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                         ret_ty: Some(f.ty.clone()),
                         is_static: true,
                         doc: text::extract_doc_above(src, f.span.line),
+                        source_path: None,
                     },
                 );
             }
@@ -470,6 +474,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                         ret_ty: Some(prop.ty.clone()),
                         is_static: prop.is_static,
                         doc: text::extract_doc_above(src, prop.span.line),
+                        source_path: None,
                     },
                 );
                 let getter_label = if prop.is_static { "static getter" } else { "getter" };
@@ -486,6 +491,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                             ret_ty: Some(prop.ty.clone()),
                             is_static: prop.is_static,
                             doc: text::extract_doc_above(src, g.span.line),
+                            source_path: None,
                         },
                     );
                 }
@@ -501,6 +507,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                             ret_ty: Some(prop.ty.clone()),
                             is_static: prop.is_static,
                             doc: text::extract_doc_above(src, s.span.line),
+                            source_path: None,
                         },
                     );
                 }
@@ -520,6 +527,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                     ret_ty: m.ret.clone(),
                     is_static: false,
                     doc: text::extract_doc_above(src, m.span.line),
+                    source_path: None,
                 };
                 if m.name == "init" {
                     init_overloads += 1;
@@ -539,6 +547,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                     ret_ty: m.ret.clone(),
                     is_static: true,
                     doc: text::extract_doc_above(src, m.span.line),
+                    source_path: None,
                 });
             }
             out.insert(
@@ -594,6 +603,7 @@ fn register_interface_as_class(
                 ret_ty,
                 is_static: false,
                 doc: text::extract_doc_above(src, m.span.line),
+                source_path: None,
             },
         );
     }

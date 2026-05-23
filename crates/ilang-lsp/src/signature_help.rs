@@ -75,6 +75,7 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                 ret_ty: None,
                 is_static: false,
                 doc: None,
+                source_path: None,
             });
         } else if let Some(sig) = ffi_helper_signature(&call.callee) {
             out.push(MemberInfo {
@@ -83,6 +84,7 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                 ret_ty: None,
                 is_static: false,
                 doc: None,
+                source_path: None,
             });
         } else if let Some(s) = doc.external_signatures.get(&AstSymbol::intern(&call.callee)) {
             out.push(MemberInfo {
@@ -91,6 +93,7 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                 ret_ty: None,
                 is_static: false,
                 doc: None,
+                source_path: None,
             });
         } else if let Some((recv, method)) = call.callee.rsplit_once('.') {
             // Method call: `obj.method(`. Walk the (possibly dotted)
@@ -137,6 +140,7 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                         ret_ty: None,
                         is_static: false,
                         doc: doc_text.map(|s| s.to_string()),
+                        source_path: None,
                     });
                 }
             }

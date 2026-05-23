@@ -87,6 +87,7 @@ pub(crate) fn collect_external_classes(
                             )
                                 .then_some(ClassKind::Struct)
                                 .unwrap_or(ClassKind::Union);
+                            let src_path = sources.get(name).map(|l| l.path.clone());
                             let mut fields = HashMap::new();
                             for f in fs {
                                 fields.insert(
@@ -100,6 +101,7 @@ pub(crate) fn collect_external_classes(
                                         ret_ty: Some(f.ty.clone()),
                                         is_static: false,
                                         doc: field_doc_at(&mut src_cache, sources, name, f.span.line),
+                                        source_path: src_path.clone(),
                                     },
                                 );
                             }
@@ -138,6 +140,10 @@ pub(crate) fn collect_external_classes(
             .rsplit_once('.')
             .map(|(_, t)| t)
             .unwrap_or(c.name.as_str());
+        // Anchor F12 for own-declared members on the class's own
+        // source file. Inherited members will keep their parent's
+        // anchor through the parent-chain flatten below.
+        let src_path = sources.get(&c.name).map(|l| l.path.clone());
         let mut fields = HashMap::new();
         for f in &c.fields {
             fields.insert(
@@ -148,6 +154,7 @@ pub(crate) fn collect_external_classes(
                     ret_ty: Some(f.ty.clone()),
                     is_static: false,
                     doc: field_doc_at(&mut src_cache, sources, &c.name, f.span.line),
+                    source_path: src_path.clone(),
                 },
             );
         }
@@ -167,6 +174,7 @@ pub(crate) fn collect_external_classes(
                     ret_ty: Some(f.ty.clone()),
                     is_static: true,
                     doc: field_doc_at(&mut src_cache, sources, &c.name, f.span.line),
+                    source_path: src_path.clone(),
                 },
             );
         }
@@ -186,6 +194,7 @@ pub(crate) fn collect_external_classes(
                     ret_ty: Some(prop.ty.clone()),
                     is_static: prop.is_static,
                     doc: prop_doc.clone(),
+                    source_path: src_path.clone(),
                 },
             );
             let getter_label = if prop.is_static { "static getter" } else { "getter" };
@@ -202,6 +211,7 @@ pub(crate) fn collect_external_classes(
                         ret_ty: Some(prop.ty.clone()),
                         is_static: prop.is_static,
                         doc: field_doc_at(&mut src_cache, sources, &c.name, g.span.line).or_else(|| prop_doc.clone()),
+                        source_path: src_path.clone(),
                     },
                 );
             }
@@ -217,6 +227,7 @@ pub(crate) fn collect_external_classes(
                         ret_ty: Some(prop.ty.clone()),
                         is_static: prop.is_static,
                         doc: field_doc_at(&mut src_cache, sources, &c.name, s.span.line).or_else(|| prop_doc.clone()),
+                        source_path: src_path.clone(),
                     },
                 );
             }
@@ -236,6 +247,7 @@ pub(crate) fn collect_external_classes(
                 ret_ty: m.ret.clone(),
                 is_static: false,
                 doc: field_doc_at(&mut src_cache, sources, &c.name, m.span.line),
+                source_path: src_path.clone(),
             };
             if m.name == "init" {
                 init_overloads += 1;
@@ -255,6 +267,7 @@ pub(crate) fn collect_external_classes(
                 is_static: true,
                 ret_ty: m.ret.clone(),
                 doc: field_doc_at(&mut src_cache, sources, &c.name, m.span.line),
+                source_path: src_path.clone(),
             });
         }
         out.insert(
@@ -417,6 +430,7 @@ fn register_external_interface(
                 ret_ty,
                 is_static: false,
                 doc,
+                source_path: sources.get(&i.name).map(|l| l.path.clone()),
             },
         );
     }
