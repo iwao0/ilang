@@ -7,9 +7,9 @@
 use test
 use gtk {
     GMenu, GMenuModel, GObject, GVariantType,
-    GSimpleAction, GAction, GSimpleActionGroup, GActionMap,
+    GSimpleAction, GSimpleActionGroup,
     g_menu_new, g_menu_append, g_menu_append_submenu,
-    g_simple_action_new, g_simple_action_group_new, g_action_map_add_action,
+    g_simple_action_new, g_simple_action_group_new,
     g_object_ref, g_object_unref,
 }
 
@@ -30,7 +30,6 @@ use gtk {
             cstrFromString("quit"), 0 as GVariantType
         )
         test.expectTrue(action as i64 != 0)
-        g_action_map_add_action(group as GActionMap, action as GAction)
 
         // Round-trip a refcount bump to verify the binding's
         // return type (GObject) flows back as a usable handle.

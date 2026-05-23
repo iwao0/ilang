@@ -53,11 +53,13 @@ fn collect_test_fixtures() -> Vec<PathBuf> {
     out
 }
 
-/// Parses every `bindings/gtk4/*.il` file (except the umbrella
-/// `gtk.il`) and groups `@lib pub fn` declarations by source file.
+/// Parses every `bindings/gtk4/generated/gen_*.il` file and groups
+/// `@lib pub fn` declarations by source file. The hand-written
+/// bindings at the package root are deliberately ignored — the
+/// umbrella re-exports only the generated set.
 fn parse_binding_fns() -> BTreeMap<String, Vec<String>> {
     let mut by_file: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let Ok(entries) = fs::read_dir(gtk4_dir()) else {
+    let Ok(entries) = fs::read_dir(gtk4_dir().join("generated")) else {
         return by_file;
     };
     for entry in entries.flatten() {
@@ -66,26 +68,26 @@ fn parse_binding_fns() -> BTreeMap<String, Vec<String>> {
             continue;
         }
         let stem = match p.file_stem().and_then(|s| s.to_str()) {
-            Some(s) => s.to_string(),
-            None => continue,
+            Some(s) if s.starts_with("gen_") => s.to_string(),
+            _ => continue,
         };
-        if stem == "gtk" {
-            continue;
-        }
         let Ok(src) = fs::read_to_string(&p) else { continue };
         let mut fns: Vec<String> = Vec::new();
         for line in src.lines() {
+            // Generated declarations look like
+            // `    @symbol("c_name") @lib pub fn c_name(...)` — pick
+            // off the c_name from the @symbol attribute.
             let trimmed = line.trim_start();
-            let rest = match trimmed.strip_prefix("@lib pub fn ") {
-                Some(r) => r,
+            let Some(rest) = trimmed.strip_prefix("@symbol(\"") else {
+                continue;
+            };
+            let end = match rest.find('"') {
+                Some(i) => i,
                 None => continue,
             };
-            let name: String = rest
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_')
-                .collect();
+            let name = &rest[..end];
             if !name.is_empty() {
-                fns.push(name);
+                fns.push(name.to_string());
             }
         }
         if !fns.is_empty() {
