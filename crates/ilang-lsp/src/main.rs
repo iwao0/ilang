@@ -38,16 +38,12 @@ use walker::*;
 
 use code_actions::{
     fill_match_arms_at, generate_init_at, implement_interface_methods_at,
-    interface_method_stub_completions_textual,
 };
 #[cfg(test)]
-use code_actions::interface_method_stub_completions_at;
-use completion::{
-    at_attribute_position, at_type_position, attribute_completions, brace_depth_at, call_snippet,
-    enclosing_class, enclosing_use_module, global_completions, in_extern_c_block,
-    literal_token_at, preceding_kw_introduces_binder, push_extern_c_keywords,
-    push_ffi_helper_completions, trigger_sig_help_command, type_completions,
-};
+use code_actions::{interface_method_stub_completions_at, interface_method_stub_completions_textual};
+use completion::literal_token_at;
+#[cfg(test)]
+use completion::{at_type_position, type_completions};
 use imports::organize_imports;
 use text_utils::{byte_range_to_lsp_range, byte_to_position};
 
@@ -65,16 +61,15 @@ use ilang_ast::{Block, Item, Span, StmtKind, Type};
 use tower_lsp::lsp_types::Position;
 
 use builtins::{
-    array_method_doc, array_method_names, array_method_sig, ffi_helper_signature,
-    map_method_doc, map_method_names, map_method_sig, string_method_doc, string_method_names,
-    string_method_sig,
+    array_method_doc, array_method_sig, ffi_helper_signature, map_method_doc, map_method_sig,
+    string_method_doc, string_method_sig,
 };
 use project::{collect_dep_paths, find_project_file, find_umbrella};
 use text::{
     call_context_at, generic_args_context_at, locate_class_base_name, locate_dot_name,
     locate_if_let_some_name, locate_let_name, locate_let_name_with_kw, locate_property_name,
-    locate_selective_name, locate_type_after_colon, parameter_offsets, receiver_before_dot,
-    span_full_to_range, word_at,
+    locate_selective_name, locate_type_after_colon, parameter_offsets, span_full_to_range,
+    word_at,
 };
 
 

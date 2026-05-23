@@ -497,6 +497,51 @@ pub(crate) fn span_full_to_range(span: Span) -> Range {
     }
 }
 
+/// Walk `text` back from byte offset `off` over alphanumeric +
+/// underscore characters and return the resulting identifier prefix
+/// (empty when `off` is not preceded by an ident char). Used by the
+/// completion handler to know what the user has typed so far so it
+/// can hand VSCode a `filter_text` that's guaranteed to match.
+pub(crate) fn typed_prefix_at(text: &str, off: usize) -> String {
+    let bytes = text.as_bytes();
+    let end = off.min(bytes.len());
+    let mut i = end;
+    while i > 0 {
+        let b = bytes[i - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            i -= 1;
+        } else {
+            break;
+        }
+    }
+    std::str::from_utf8(&bytes[i..end]).unwrap_or("").to_string()
+}
+
+/// `true` when every character of `needle` (already lowercased)
+/// appears in `haystack` in order, case-insensitively. Cheap
+/// subsequence check the LSP uses to decide whether a label is a
+/// plausible match for the typed prefix before handing it to the
+/// client.
+pub(crate) fn subsequence_ci(haystack: &str, needle_lower: &str) -> bool {
+    if needle_lower.is_empty() {
+        return true;
+    }
+    let mut needle = needle_lower.chars();
+    let mut want = match needle.next() {
+        Some(c) => c,
+        None => return true,
+    };
+    for h in haystack.chars().flat_map(|c| c.to_lowercase()) {
+        if h == want {
+            match needle.next() {
+                Some(c) => want = c,
+                None => return true,
+            }
+        }
+    }
+    false
+}
+
 /// Read the source word sitting between the 1-based `start_col`
 /// and `end_col` (exclusive) on `line`. Returns `None` when the
 /// line / columns don't index a real slice (e.g. malformed span).
