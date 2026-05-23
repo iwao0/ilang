@@ -491,321 +491,321 @@ pub enum GdkVulkanError: u32 {
     @handle pub struct GdkToplevelLayout {}
     @handle pub struct GdkToplevelSize {}
 
-    @symbol("gdk_app_launch_context_get_display") @lib pub fn gdk_app_launch_context_get_display(self: GdkAppLaunchContext): GdkDisplay
-    @symbol("gdk_app_launch_context_set_desktop") @lib pub fn gdk_app_launch_context_set_desktop(self: GdkAppLaunchContext, desktop: i32)
-    @symbol("gdk_app_launch_context_set_icon_name") @lib pub fn gdk_app_launch_context_set_icon_name(self: GdkAppLaunchContext, icon_name: *const char)
-    @symbol("gdk_app_launch_context_set_timestamp") @lib pub fn gdk_app_launch_context_set_timestamp(self: GdkAppLaunchContext, timestamp: u32)
-    @symbol("gdk_button_event_get_button") @lib pub fn gdk_button_event_get_button(self: GdkButtonEvent): u32
-    @symbol("gdk_cicp_params_new") @lib pub fn gdk_cicp_params_new(): GdkCicpParams
-    @symbol("gdk_cicp_params_get_color_primaries") @lib pub fn gdk_cicp_params_get_color_primaries(self: GdkCicpParams): u32
-    @symbol("gdk_cicp_params_get_matrix_coefficients") @lib pub fn gdk_cicp_params_get_matrix_coefficients(self: GdkCicpParams): u32
-    @symbol("gdk_cicp_params_get_range") @lib pub fn gdk_cicp_params_get_range(self: GdkCicpParams): GdkCicpRange
-    @symbol("gdk_cicp_params_get_transfer_function") @lib pub fn gdk_cicp_params_get_transfer_function(self: GdkCicpParams): u32
-    @symbol("gdk_cicp_params_set_color_primaries") @lib pub fn gdk_cicp_params_set_color_primaries(self: GdkCicpParams, color_primaries: u32)
-    @symbol("gdk_cicp_params_set_matrix_coefficients") @lib pub fn gdk_cicp_params_set_matrix_coefficients(self: GdkCicpParams, matrix_coefficients: u32)
-    @symbol("gdk_cicp_params_set_range") @lib pub fn gdk_cicp_params_set_range(self: GdkCicpParams, range: GdkCicpRange)
-    @symbol("gdk_cicp_params_set_transfer_function") @lib pub fn gdk_cicp_params_set_transfer_function(self: GdkCicpParams, transfer_function: u32)
-    @symbol("gdk_clipboard_get_content") @lib pub fn gdk_clipboard_get_content(self: GdkClipboard): GdkContentProvider
-    @symbol("gdk_clipboard_get_display") @lib pub fn gdk_clipboard_get_display(self: GdkClipboard): GdkDisplay
-    @symbol("gdk_clipboard_get_formats") @lib pub fn gdk_clipboard_get_formats(self: GdkClipboard): GdkContentFormats
-    @symbol("gdk_clipboard_is_local") @lib pub fn gdk_clipboard_is_local(self: GdkClipboard): i32
-    @symbol("gdk_clipboard_set_content") @lib pub fn gdk_clipboard_set_content(self: GdkClipboard, provider: GdkContentProvider): i32
-    @symbol("gdk_clipboard_set_text") @lib pub fn gdk_clipboard_set_text(self: GdkClipboard, text: *const char)
-    @symbol("gdk_clipboard_set_texture") @lib pub fn gdk_clipboard_set_texture(self: GdkClipboard, texture: GdkTexture)
-    @symbol("gdk_clipboard_set_value") @lib pub fn gdk_clipboard_set_value(self: GdkClipboard, value: GValue)
-    @symbol("gdk_content_deserializer_get_cancellable") @lib pub fn gdk_content_deserializer_get_cancellable(self: GdkContentDeserializer): GCancellable
-    @symbol("gdk_content_deserializer_get_gtype") @lib pub fn gdk_content_deserializer_get_gtype(self: GdkContentDeserializer): u64
-    @symbol("gdk_content_deserializer_get_input_stream") @lib pub fn gdk_content_deserializer_get_input_stream(self: GdkContentDeserializer): GInputStream
-    @symbol("gdk_content_deserializer_get_mime_type") @lib pub fn gdk_content_deserializer_get_mime_type(self: GdkContentDeserializer): *const char
-    @symbol("gdk_content_deserializer_get_priority") @lib pub fn gdk_content_deserializer_get_priority(self: GdkContentDeserializer): i32
-    @symbol("gdk_content_deserializer_get_task_data") @lib pub fn gdk_content_deserializer_get_task_data(self: GdkContentDeserializer): *void
-    @symbol("gdk_content_deserializer_get_user_data") @lib pub fn gdk_content_deserializer_get_user_data(self: GdkContentDeserializer): *void
-    @symbol("gdk_content_deserializer_get_value") @lib pub fn gdk_content_deserializer_get_value(self: GdkContentDeserializer): GValue
-    @symbol("gdk_content_deserializer_return_success") @lib pub fn gdk_content_deserializer_return_success(self: GdkContentDeserializer)
-    @symbol("gdk_content_provider_new_for_bytes") @lib pub fn gdk_content_provider_new_for_bytes(mime_type: *const char, bytes: GBytes): GdkContentProvider
-    @symbol("gdk_content_provider_new_for_value") @lib pub fn gdk_content_provider_new_for_value(value: GValue): GdkContentProvider
-    @symbol("gdk_content_provider_new_union") @lib pub fn gdk_content_provider_new_union(providers: GdkContentProvider, n_providers: u64): GdkContentProvider
-    @symbol("gdk_content_provider_content_changed") @lib pub fn gdk_content_provider_content_changed(self: GdkContentProvider)
-    @symbol("gdk_content_provider_ref_formats") @lib pub fn gdk_content_provider_ref_formats(self: GdkContentProvider): GdkContentFormats
-    @symbol("gdk_content_provider_ref_storable_formats") @lib pub fn gdk_content_provider_ref_storable_formats(self: GdkContentProvider): GdkContentFormats
-    @symbol("gdk_content_serializer_get_cancellable") @lib pub fn gdk_content_serializer_get_cancellable(self: GdkContentSerializer): GCancellable
-    @symbol("gdk_content_serializer_get_gtype") @lib pub fn gdk_content_serializer_get_gtype(self: GdkContentSerializer): u64
-    @symbol("gdk_content_serializer_get_mime_type") @lib pub fn gdk_content_serializer_get_mime_type(self: GdkContentSerializer): *const char
-    @symbol("gdk_content_serializer_get_output_stream") @lib pub fn gdk_content_serializer_get_output_stream(self: GdkContentSerializer): GOutputStream
-    @symbol("gdk_content_serializer_get_priority") @lib pub fn gdk_content_serializer_get_priority(self: GdkContentSerializer): i32
-    @symbol("gdk_content_serializer_get_task_data") @lib pub fn gdk_content_serializer_get_task_data(self: GdkContentSerializer): *void
-    @symbol("gdk_content_serializer_get_user_data") @lib pub fn gdk_content_serializer_get_user_data(self: GdkContentSerializer): *void
-    @symbol("gdk_content_serializer_get_value") @lib pub fn gdk_content_serializer_get_value(self: GdkContentSerializer): GValue
-    @symbol("gdk_content_serializer_return_success") @lib pub fn gdk_content_serializer_return_success(self: GdkContentSerializer)
-    @symbol("gdk_crossing_event_get_detail") @lib pub fn gdk_crossing_event_get_detail(self: GdkCrossingEvent): GdkNotifyType
-    @symbol("gdk_crossing_event_get_focus") @lib pub fn gdk_crossing_event_get_focus(self: GdkCrossingEvent): i32
-    @symbol("gdk_crossing_event_get_mode") @lib pub fn gdk_crossing_event_get_mode(self: GdkCrossingEvent): GdkCrossingMode
-    @symbol("gdk_cursor_new_from_name") @lib pub fn gdk_cursor_new_from_name(name: *const char, fallback: GdkCursor): GdkCursor
-    @symbol("gdk_cursor_new_from_texture") @lib pub fn gdk_cursor_new_from_texture(texture: GdkTexture, hotspot_x: i32, hotspot_y: i32, fallback: GdkCursor): GdkCursor
-    @symbol("gdk_cursor_get_fallback") @lib pub fn gdk_cursor_get_fallback(self: GdkCursor): GdkCursor
-    @symbol("gdk_cursor_get_hotspot_x") @lib pub fn gdk_cursor_get_hotspot_x(self: GdkCursor): i32
-    @symbol("gdk_cursor_get_hotspot_y") @lib pub fn gdk_cursor_get_hotspot_y(self: GdkCursor): i32
-    @symbol("gdk_cursor_get_name") @lib pub fn gdk_cursor_get_name(self: GdkCursor): *const char
-    @symbol("gdk_cursor_get_texture") @lib pub fn gdk_cursor_get_texture(self: GdkCursor): GdkTexture
-    @symbol("gdk_dnd_event_get_drop") @lib pub fn gdk_dnd_event_get_drop(self: GdkDNDEvent): GdkDrop
-    @symbol("gdk_device_get_active_layout_index") @lib pub fn gdk_device_get_active_layout_index(self: GdkDevice): i32
-    @symbol("gdk_device_get_caps_lock_state") @lib pub fn gdk_device_get_caps_lock_state(self: GdkDevice): i32
-    @symbol("gdk_device_get_device_tool") @lib pub fn gdk_device_get_device_tool(self: GdkDevice): GdkDeviceTool
-    @symbol("gdk_device_get_display") @lib pub fn gdk_device_get_display(self: GdkDevice): GdkDisplay
-    @symbol("gdk_device_get_has_cursor") @lib pub fn gdk_device_get_has_cursor(self: GdkDevice): i32
-    @symbol("gdk_device_get_layout_names") @lib pub fn gdk_device_get_layout_names(self: GdkDevice): *const char
-    @symbol("gdk_device_get_modifier_state") @lib pub fn gdk_device_get_modifier_state(self: GdkDevice): GdkModifierType
-    @symbol("gdk_device_get_name") @lib pub fn gdk_device_get_name(self: GdkDevice): *const char
-    @symbol("gdk_device_get_num_lock_state") @lib pub fn gdk_device_get_num_lock_state(self: GdkDevice): i32
-    @symbol("gdk_device_get_num_touches") @lib pub fn gdk_device_get_num_touches(self: GdkDevice): u32
-    @symbol("gdk_device_get_product_id") @lib pub fn gdk_device_get_product_id(self: GdkDevice): *const char
-    @symbol("gdk_device_get_scroll_lock_state") @lib pub fn gdk_device_get_scroll_lock_state(self: GdkDevice): i32
-    @symbol("gdk_device_get_seat") @lib pub fn gdk_device_get_seat(self: GdkDevice): GdkSeat
-    @symbol("gdk_device_get_source") @lib pub fn gdk_device_get_source(self: GdkDevice): GdkInputSource
-    @symbol("gdk_device_get_timestamp") @lib pub fn gdk_device_get_timestamp(self: GdkDevice): u32
-    @symbol("gdk_device_get_vendor_id") @lib pub fn gdk_device_get_vendor_id(self: GdkDevice): *const char
-    @symbol("gdk_device_has_bidi_layouts") @lib pub fn gdk_device_has_bidi_layouts(self: GdkDevice): i32
-    @symbol("gdk_device_tool_get_axes") @lib pub fn gdk_device_tool_get_axes(self: GdkDeviceTool): GdkAxisFlags
-    @symbol("gdk_device_tool_get_hardware_id") @lib pub fn gdk_device_tool_get_hardware_id(self: GdkDeviceTool): u64
-    @symbol("gdk_device_tool_get_serial") @lib pub fn gdk_device_tool_get_serial(self: GdkDeviceTool): u64
-    @symbol("gdk_device_tool_get_tool_type") @lib pub fn gdk_device_tool_get_tool_type(self: GdkDeviceTool): GdkDeviceToolType
-    @symbol("gdk_display_beep") @lib pub fn gdk_display_beep(self: GdkDisplay)
-    @symbol("gdk_display_close") @lib pub fn gdk_display_close(self: GdkDisplay)
-    @symbol("gdk_display_device_is_grabbed") @lib pub fn gdk_display_device_is_grabbed(self: GdkDisplay, device: GdkDevice): i32
-    @symbol("gdk_display_flush") @lib pub fn gdk_display_flush(self: GdkDisplay)
-    @symbol("gdk_display_get_app_launch_context") @lib pub fn gdk_display_get_app_launch_context(self: GdkDisplay): GdkAppLaunchContext
-    @symbol("gdk_display_get_clipboard") @lib pub fn gdk_display_get_clipboard(self: GdkDisplay): GdkClipboard
-    @symbol("gdk_display_get_default_seat") @lib pub fn gdk_display_get_default_seat(self: GdkDisplay): GdkSeat
-    @symbol("gdk_display_get_dmabuf_formats") @lib pub fn gdk_display_get_dmabuf_formats(self: GdkDisplay): GdkDmabufFormats
-    @symbol("gdk_display_get_monitor_at_surface") @lib pub fn gdk_display_get_monitor_at_surface(self: GdkDisplay, surface: GdkSurface): GdkMonitor
-    @symbol("gdk_display_get_name") @lib pub fn gdk_display_get_name(self: GdkDisplay): *const char
-    @symbol("gdk_display_get_primary_clipboard") @lib pub fn gdk_display_get_primary_clipboard(self: GdkDisplay): GdkClipboard
-    @symbol("gdk_display_get_setting") @lib pub fn gdk_display_get_setting(self: GdkDisplay, name: *const char, value: GValue): i32
-    @symbol("gdk_display_is_closed") @lib pub fn gdk_display_is_closed(self: GdkDisplay): i32
-    @symbol("gdk_display_is_composited") @lib pub fn gdk_display_is_composited(self: GdkDisplay): i32
-    @symbol("gdk_display_is_rgba") @lib pub fn gdk_display_is_rgba(self: GdkDisplay): i32
-    @symbol("gdk_display_list_seats") @lib pub fn gdk_display_list_seats(self: GdkDisplay): GdkSeat
-    @symbol("gdk_display_supports_input_shapes") @lib pub fn gdk_display_supports_input_shapes(self: GdkDisplay): i32
-    @symbol("gdk_display_supports_shadow_width") @lib pub fn gdk_display_supports_shadow_width(self: GdkDisplay): i32
-    @symbol("gdk_display_sync") @lib pub fn gdk_display_sync(self: GdkDisplay)
-    @symbol("gdk_display_get_default") @lib pub fn gdk_display_get_default(): GdkDisplay
-    @symbol("gdk_display_open") @lib pub fn gdk_display_open(display_name: *const char): GdkDisplay
-    @symbol("gdk_display_manager_get_default_display") @lib pub fn gdk_display_manager_get_default_display(self: GdkDisplayManager): GdkDisplay
-    @symbol("gdk_display_manager_list_displays") @lib pub fn gdk_display_manager_list_displays(self: GdkDisplayManager): GdkDisplay
-    @symbol("gdk_display_manager_open_display") @lib pub fn gdk_display_manager_open_display(self: GdkDisplayManager, name: *const char): GdkDisplay
-    @symbol("gdk_display_manager_set_default_display") @lib pub fn gdk_display_manager_set_default_display(self: GdkDisplayManager, display: GdkDisplay)
-    @symbol("gdk_display_manager_get") @lib pub fn gdk_display_manager_get(): GdkDisplayManager
-    @symbol("gdk_dmabuf_texture_builder_new") @lib pub fn gdk_dmabuf_texture_builder_new(): GdkDmabufTextureBuilder
-    @symbol("gdk_dmabuf_texture_builder_get_color_state") @lib pub fn gdk_dmabuf_texture_builder_get_color_state(self: GdkDmabufTextureBuilder): GdkColorState
-    @symbol("gdk_dmabuf_texture_builder_get_display") @lib pub fn gdk_dmabuf_texture_builder_get_display(self: GdkDmabufTextureBuilder): GdkDisplay
-    @symbol("gdk_dmabuf_texture_builder_get_fd") @lib pub fn gdk_dmabuf_texture_builder_get_fd(self: GdkDmabufTextureBuilder, plane: u32): i32
-    @symbol("gdk_dmabuf_texture_builder_get_fourcc") @lib pub fn gdk_dmabuf_texture_builder_get_fourcc(self: GdkDmabufTextureBuilder): u32
-    @symbol("gdk_dmabuf_texture_builder_get_height") @lib pub fn gdk_dmabuf_texture_builder_get_height(self: GdkDmabufTextureBuilder): u32
-    @symbol("gdk_dmabuf_texture_builder_get_modifier") @lib pub fn gdk_dmabuf_texture_builder_get_modifier(self: GdkDmabufTextureBuilder): u64
-    @symbol("gdk_dmabuf_texture_builder_get_n_planes") @lib pub fn gdk_dmabuf_texture_builder_get_n_planes(self: GdkDmabufTextureBuilder): u32
-    @symbol("gdk_dmabuf_texture_builder_get_offset") @lib pub fn gdk_dmabuf_texture_builder_get_offset(self: GdkDmabufTextureBuilder, plane: u32): u32
-    @symbol("gdk_dmabuf_texture_builder_get_premultiplied") @lib pub fn gdk_dmabuf_texture_builder_get_premultiplied(self: GdkDmabufTextureBuilder): i32
-    @symbol("gdk_dmabuf_texture_builder_get_stride") @lib pub fn gdk_dmabuf_texture_builder_get_stride(self: GdkDmabufTextureBuilder, plane: u32): u32
-    @symbol("gdk_dmabuf_texture_builder_get_update_texture") @lib pub fn gdk_dmabuf_texture_builder_get_update_texture(self: GdkDmabufTextureBuilder): GdkTexture
-    @symbol("gdk_dmabuf_texture_builder_get_width") @lib pub fn gdk_dmabuf_texture_builder_get_width(self: GdkDmabufTextureBuilder): u32
-    @symbol("gdk_dmabuf_texture_builder_set_color_state") @lib pub fn gdk_dmabuf_texture_builder_set_color_state(self: GdkDmabufTextureBuilder, color_state: GdkColorState)
-    @symbol("gdk_dmabuf_texture_builder_set_display") @lib pub fn gdk_dmabuf_texture_builder_set_display(self: GdkDmabufTextureBuilder, display: GdkDisplay)
-    @symbol("gdk_dmabuf_texture_builder_set_fd") @lib pub fn gdk_dmabuf_texture_builder_set_fd(self: GdkDmabufTextureBuilder, plane: u32, fd: i32)
-    @symbol("gdk_dmabuf_texture_builder_set_fourcc") @lib pub fn gdk_dmabuf_texture_builder_set_fourcc(self: GdkDmabufTextureBuilder, fourcc: u32)
-    @symbol("gdk_dmabuf_texture_builder_set_height") @lib pub fn gdk_dmabuf_texture_builder_set_height(self: GdkDmabufTextureBuilder, height: u32)
-    @symbol("gdk_dmabuf_texture_builder_set_modifier") @lib pub fn gdk_dmabuf_texture_builder_set_modifier(self: GdkDmabufTextureBuilder, modifier: u64)
-    @symbol("gdk_dmabuf_texture_builder_set_n_planes") @lib pub fn gdk_dmabuf_texture_builder_set_n_planes(self: GdkDmabufTextureBuilder, n_planes: u32)
-    @symbol("gdk_dmabuf_texture_builder_set_offset") @lib pub fn gdk_dmabuf_texture_builder_set_offset(self: GdkDmabufTextureBuilder, plane: u32, offset: u32)
-    @symbol("gdk_dmabuf_texture_builder_set_premultiplied") @lib pub fn gdk_dmabuf_texture_builder_set_premultiplied(self: GdkDmabufTextureBuilder, premultiplied: i32)
-    @symbol("gdk_dmabuf_texture_builder_set_stride") @lib pub fn gdk_dmabuf_texture_builder_set_stride(self: GdkDmabufTextureBuilder, plane: u32, stride: u32)
-    @symbol("gdk_dmabuf_texture_builder_set_update_texture") @lib pub fn gdk_dmabuf_texture_builder_set_update_texture(self: GdkDmabufTextureBuilder, texture: GdkTexture)
-    @symbol("gdk_dmabuf_texture_builder_set_width") @lib pub fn gdk_dmabuf_texture_builder_set_width(self: GdkDmabufTextureBuilder, width: u32)
-    @symbol("gdk_drag_drop_done") @lib pub fn gdk_drag_drop_done(self: GdkDrag, success: i32)
-    @symbol("gdk_drag_get_actions") @lib pub fn gdk_drag_get_actions(self: GdkDrag): GdkDragAction
-    @symbol("gdk_drag_get_content") @lib pub fn gdk_drag_get_content(self: GdkDrag): GdkContentProvider
-    @symbol("gdk_drag_get_device") @lib pub fn gdk_drag_get_device(self: GdkDrag): GdkDevice
-    @symbol("gdk_drag_get_display") @lib pub fn gdk_drag_get_display(self: GdkDrag): GdkDisplay
-    @symbol("gdk_drag_get_drag_surface") @lib pub fn gdk_drag_get_drag_surface(self: GdkDrag): GdkSurface
-    @symbol("gdk_drag_get_formats") @lib pub fn gdk_drag_get_formats(self: GdkDrag): GdkContentFormats
-    @symbol("gdk_drag_get_selected_action") @lib pub fn gdk_drag_get_selected_action(self: GdkDrag): GdkDragAction
-    @symbol("gdk_drag_get_surface") @lib pub fn gdk_drag_get_surface(self: GdkDrag): GdkSurface
-    @symbol("gdk_drag_set_hotspot") @lib pub fn gdk_drag_set_hotspot(self: GdkDrag, hot_x: i32, hot_y: i32)
-    @symbol("gdk_drag_begin") @lib pub fn gdk_drag_begin(surface: GdkSurface, device: GdkDevice, content: GdkContentProvider, actions: GdkDragAction, dx: f64, dy: f64): GdkDrag
-    @symbol("gdk_draw_context_get_display") @lib pub fn gdk_draw_context_get_display(self: GdkDrawContext): GdkDisplay
-    @symbol("gdk_draw_context_get_surface") @lib pub fn gdk_draw_context_get_surface(self: GdkDrawContext): GdkSurface
-    @symbol("gdk_drop_finish") @lib pub fn gdk_drop_finish(self: GdkDrop, action: GdkDragAction)
-    @symbol("gdk_drop_get_actions") @lib pub fn gdk_drop_get_actions(self: GdkDrop): GdkDragAction
-    @symbol("gdk_drop_get_device") @lib pub fn gdk_drop_get_device(self: GdkDrop): GdkDevice
-    @symbol("gdk_drop_get_display") @lib pub fn gdk_drop_get_display(self: GdkDrop): GdkDisplay
-    @symbol("gdk_drop_get_drag") @lib pub fn gdk_drop_get_drag(self: GdkDrop): GdkDrag
-    @symbol("gdk_drop_get_formats") @lib pub fn gdk_drop_get_formats(self: GdkDrop): GdkContentFormats
-    @symbol("gdk_drop_get_surface") @lib pub fn gdk_drop_get_surface(self: GdkDrop): GdkSurface
-    @symbol("gdk_drop_status") @lib pub fn gdk_drop_status(self: GdkDrop, actions: GdkDragAction, preferred: GdkDragAction)
-    @symbol("gdk_event_get_device") @lib pub fn gdk_event_get_device(self: GdkEvent): GdkDevice
-    @symbol("gdk_event_get_device_tool") @lib pub fn gdk_event_get_device_tool(self: GdkEvent): GdkDeviceTool
-    @symbol("gdk_event_get_display") @lib pub fn gdk_event_get_display(self: GdkEvent): GdkDisplay
-    @symbol("gdk_event_get_event_sequence") @lib pub fn gdk_event_get_event_sequence(self: GdkEvent): GdkEventSequence
-    @symbol("gdk_event_get_event_type") @lib pub fn gdk_event_get_event_type(self: GdkEvent): GdkEventType
-    @symbol("gdk_event_get_modifier_state") @lib pub fn gdk_event_get_modifier_state(self: GdkEvent): GdkModifierType
-    @symbol("gdk_event_get_pointer_emulated") @lib pub fn gdk_event_get_pointer_emulated(self: GdkEvent): i32
-    @symbol("gdk_event_get_seat") @lib pub fn gdk_event_get_seat(self: GdkEvent): GdkSeat
-    @symbol("gdk_event_get_surface") @lib pub fn gdk_event_get_surface(self: GdkEvent): GdkSurface
-    @symbol("gdk_event_get_time") @lib pub fn gdk_event_get_time(self: GdkEvent): u32
-    @symbol("gdk_event_ref") @lib pub fn gdk_event_ref(self: GdkEvent): GdkEvent
-    @symbol("gdk_event_triggers_context_menu") @lib pub fn gdk_event_triggers_context_menu(self: GdkEvent): i32
-    @symbol("gdk_event_unref") @lib pub fn gdk_event_unref(self: GdkEvent)
-    @symbol("gdk_focus_event_get_in") @lib pub fn gdk_focus_event_get_in(self: GdkFocusEvent): i32
-    @symbol("gdk_frame_clock_begin_updating") @lib pub fn gdk_frame_clock_begin_updating(self: GdkFrameClock)
-    @symbol("gdk_frame_clock_end_updating") @lib pub fn gdk_frame_clock_end_updating(self: GdkFrameClock)
-    @symbol("gdk_frame_clock_get_current_timings") @lib pub fn gdk_frame_clock_get_current_timings(self: GdkFrameClock): GdkFrameTimings
-    @symbol("gdk_frame_clock_get_fps") @lib pub fn gdk_frame_clock_get_fps(self: GdkFrameClock): f64
-    @symbol("gdk_frame_clock_get_frame_counter") @lib pub fn gdk_frame_clock_get_frame_counter(self: GdkFrameClock): i64
-    @symbol("gdk_frame_clock_get_frame_time") @lib pub fn gdk_frame_clock_get_frame_time(self: GdkFrameClock): i64
-    @symbol("gdk_frame_clock_get_history_start") @lib pub fn gdk_frame_clock_get_history_start(self: GdkFrameClock): i64
-    @symbol("gdk_frame_clock_get_timings") @lib pub fn gdk_frame_clock_get_timings(self: GdkFrameClock, frame_counter: i64): GdkFrameTimings
-    @symbol("gdk_frame_clock_request_phase") @lib pub fn gdk_frame_clock_request_phase(self: GdkFrameClock, phase: GdkFrameClockPhase)
-    @symbol("gdk_gl_context_get_allowed_apis") @lib pub fn gdk_gl_context_get_allowed_apis(self: GdkGLContext): GdkGLAPI
-    @symbol("gdk_gl_context_get_api") @lib pub fn gdk_gl_context_get_api(self: GdkGLContext): GdkGLAPI
-    @symbol("gdk_gl_context_get_debug_enabled") @lib pub fn gdk_gl_context_get_debug_enabled(self: GdkGLContext): i32
-    @symbol("gdk_gl_context_get_display") @lib pub fn gdk_gl_context_get_display(self: GdkGLContext): GdkDisplay
-    @symbol("gdk_gl_context_get_forward_compatible") @lib pub fn gdk_gl_context_get_forward_compatible(self: GdkGLContext): i32
-    @symbol("gdk_gl_context_get_surface") @lib pub fn gdk_gl_context_get_surface(self: GdkGLContext): GdkSurface
-    @symbol("gdk_gl_context_get_use_es") @lib pub fn gdk_gl_context_get_use_es(self: GdkGLContext): i32
-    @symbol("gdk_gl_context_is_legacy") @lib pub fn gdk_gl_context_is_legacy(self: GdkGLContext): i32
-    @symbol("gdk_gl_context_is_shared") @lib pub fn gdk_gl_context_is_shared(self: GdkGLContext, other: GdkGLContext): i32
-    @symbol("gdk_gl_context_make_current") @lib pub fn gdk_gl_context_make_current(self: GdkGLContext)
-    @symbol("gdk_gl_context_set_allowed_apis") @lib pub fn gdk_gl_context_set_allowed_apis(self: GdkGLContext, apis: GdkGLAPI)
-    @symbol("gdk_gl_context_set_debug_enabled") @lib pub fn gdk_gl_context_set_debug_enabled(self: GdkGLContext, enabled: i32)
-    @symbol("gdk_gl_context_set_forward_compatible") @lib pub fn gdk_gl_context_set_forward_compatible(self: GdkGLContext, compatible: i32)
-    @symbol("gdk_gl_context_set_required_version") @lib pub fn gdk_gl_context_set_required_version(self: GdkGLContext, major: i32, minor: i32)
-    @symbol("gdk_gl_context_set_use_es") @lib pub fn gdk_gl_context_set_use_es(self: GdkGLContext, use_es: i32)
-    @symbol("gdk_gl_context_clear_current") @lib pub fn gdk_gl_context_clear_current()
-    @symbol("gdk_gl_context_get_current") @lib pub fn gdk_gl_context_get_current(): GdkGLContext
-    @symbol("gdk_gl_texture_release") @lib pub fn gdk_gl_texture_release(self: GdkGLTexture)
-    @symbol("gdk_gl_texture_builder_new") @lib pub fn gdk_gl_texture_builder_new(): GdkGLTextureBuilder
-    @symbol("gdk_gl_texture_builder_get_color_state") @lib pub fn gdk_gl_texture_builder_get_color_state(self: GdkGLTextureBuilder): GdkColorState
-    @symbol("gdk_gl_texture_builder_get_context") @lib pub fn gdk_gl_texture_builder_get_context(self: GdkGLTextureBuilder): GdkGLContext
-    @symbol("gdk_gl_texture_builder_get_format") @lib pub fn gdk_gl_texture_builder_get_format(self: GdkGLTextureBuilder): GdkMemoryFormat
-    @symbol("gdk_gl_texture_builder_get_has_mipmap") @lib pub fn gdk_gl_texture_builder_get_has_mipmap(self: GdkGLTextureBuilder): i32
-    @symbol("gdk_gl_texture_builder_get_height") @lib pub fn gdk_gl_texture_builder_get_height(self: GdkGLTextureBuilder): i32
-    @symbol("gdk_gl_texture_builder_get_id") @lib pub fn gdk_gl_texture_builder_get_id(self: GdkGLTextureBuilder): u32
-    @symbol("gdk_gl_texture_builder_get_sync") @lib pub fn gdk_gl_texture_builder_get_sync(self: GdkGLTextureBuilder): *void
-    @symbol("gdk_gl_texture_builder_get_update_texture") @lib pub fn gdk_gl_texture_builder_get_update_texture(self: GdkGLTextureBuilder): GdkTexture
-    @symbol("gdk_gl_texture_builder_get_width") @lib pub fn gdk_gl_texture_builder_get_width(self: GdkGLTextureBuilder): i32
-    @symbol("gdk_gl_texture_builder_set_color_state") @lib pub fn gdk_gl_texture_builder_set_color_state(self: GdkGLTextureBuilder, color_state: GdkColorState)
-    @symbol("gdk_gl_texture_builder_set_context") @lib pub fn gdk_gl_texture_builder_set_context(self: GdkGLTextureBuilder, context: GdkGLContext)
-    @symbol("gdk_gl_texture_builder_set_format") @lib pub fn gdk_gl_texture_builder_set_format(self: GdkGLTextureBuilder, format: GdkMemoryFormat)
-    @symbol("gdk_gl_texture_builder_set_has_mipmap") @lib pub fn gdk_gl_texture_builder_set_has_mipmap(self: GdkGLTextureBuilder, has_mipmap: i32)
-    @symbol("gdk_gl_texture_builder_set_height") @lib pub fn gdk_gl_texture_builder_set_height(self: GdkGLTextureBuilder, height: i32)
-    @symbol("gdk_gl_texture_builder_set_id") @lib pub fn gdk_gl_texture_builder_set_id(self: GdkGLTextureBuilder, id: u32)
-    @symbol("gdk_gl_texture_builder_set_sync") @lib pub fn gdk_gl_texture_builder_set_sync(self: GdkGLTextureBuilder, sync: *void)
-    @symbol("gdk_gl_texture_builder_set_update_texture") @lib pub fn gdk_gl_texture_builder_set_update_texture(self: GdkGLTextureBuilder, texture: GdkTexture)
-    @symbol("gdk_gl_texture_builder_set_width") @lib pub fn gdk_gl_texture_builder_set_width(self: GdkGLTextureBuilder, width: i32)
-    @symbol("gdk_grab_broken_event_get_grab_surface") @lib pub fn gdk_grab_broken_event_get_grab_surface(self: GdkGrabBrokenEvent): GdkSurface
-    @symbol("gdk_grab_broken_event_get_implicit") @lib pub fn gdk_grab_broken_event_get_implicit(self: GdkGrabBrokenEvent): i32
-    @symbol("gdk_key_event_get_consumed_modifiers") @lib pub fn gdk_key_event_get_consumed_modifiers(self: GdkKeyEvent): GdkModifierType
-    @symbol("gdk_key_event_get_keycode") @lib pub fn gdk_key_event_get_keycode(self: GdkKeyEvent): u32
-    @symbol("gdk_key_event_get_keyval") @lib pub fn gdk_key_event_get_keyval(self: GdkKeyEvent): u32
-    @symbol("gdk_key_event_get_layout") @lib pub fn gdk_key_event_get_layout(self: GdkKeyEvent): u32
-    @symbol("gdk_key_event_get_level") @lib pub fn gdk_key_event_get_level(self: GdkKeyEvent): u32
-    @symbol("gdk_key_event_is_modifier") @lib pub fn gdk_key_event_is_modifier(self: GdkKeyEvent): i32
-    @symbol("gdk_key_event_matches") @lib pub fn gdk_key_event_matches(self: GdkKeyEvent, keyval: u32, modifiers: GdkModifierType): GdkKeyMatch
-    @symbol("gdk_memory_texture_new") @lib pub fn gdk_memory_texture_new(width: i32, height: i32, format: GdkMemoryFormat, bytes: GBytes, stride: u64): GdkMemoryTexture
-    @symbol("gdk_memory_texture_builder_new") @lib pub fn gdk_memory_texture_builder_new(): GdkMemoryTextureBuilder
-    @symbol("gdk_memory_texture_builder_build") @lib pub fn gdk_memory_texture_builder_build(self: GdkMemoryTextureBuilder): GdkTexture
-    @symbol("gdk_memory_texture_builder_get_bytes") @lib pub fn gdk_memory_texture_builder_get_bytes(self: GdkMemoryTextureBuilder): GBytes
-    @symbol("gdk_memory_texture_builder_get_color_state") @lib pub fn gdk_memory_texture_builder_get_color_state(self: GdkMemoryTextureBuilder): GdkColorState
-    @symbol("gdk_memory_texture_builder_get_format") @lib pub fn gdk_memory_texture_builder_get_format(self: GdkMemoryTextureBuilder): GdkMemoryFormat
-    @symbol("gdk_memory_texture_builder_get_height") @lib pub fn gdk_memory_texture_builder_get_height(self: GdkMemoryTextureBuilder): i32
-    @symbol("gdk_memory_texture_builder_get_offset") @lib pub fn gdk_memory_texture_builder_get_offset(self: GdkMemoryTextureBuilder, plane: u32): u64
-    @symbol("gdk_memory_texture_builder_get_stride") @lib pub fn gdk_memory_texture_builder_get_stride(self: GdkMemoryTextureBuilder): u64
-    @symbol("gdk_memory_texture_builder_get_stride_for_plane") @lib pub fn gdk_memory_texture_builder_get_stride_for_plane(self: GdkMemoryTextureBuilder, plane: u32): u64
-    @symbol("gdk_memory_texture_builder_get_update_texture") @lib pub fn gdk_memory_texture_builder_get_update_texture(self: GdkMemoryTextureBuilder): GdkTexture
-    @symbol("gdk_memory_texture_builder_get_width") @lib pub fn gdk_memory_texture_builder_get_width(self: GdkMemoryTextureBuilder): i32
-    @symbol("gdk_memory_texture_builder_set_bytes") @lib pub fn gdk_memory_texture_builder_set_bytes(self: GdkMemoryTextureBuilder, bytes: GBytes)
-    @symbol("gdk_memory_texture_builder_set_color_state") @lib pub fn gdk_memory_texture_builder_set_color_state(self: GdkMemoryTextureBuilder, color_state: GdkColorState)
-    @symbol("gdk_memory_texture_builder_set_format") @lib pub fn gdk_memory_texture_builder_set_format(self: GdkMemoryTextureBuilder, format: GdkMemoryFormat)
-    @symbol("gdk_memory_texture_builder_set_height") @lib pub fn gdk_memory_texture_builder_set_height(self: GdkMemoryTextureBuilder, height: i32)
-    @symbol("gdk_memory_texture_builder_set_offset") @lib pub fn gdk_memory_texture_builder_set_offset(self: GdkMemoryTextureBuilder, plane: u32, offset: u64)
-    @symbol("gdk_memory_texture_builder_set_stride") @lib pub fn gdk_memory_texture_builder_set_stride(self: GdkMemoryTextureBuilder, stride: u64)
-    @symbol("gdk_memory_texture_builder_set_stride_for_plane") @lib pub fn gdk_memory_texture_builder_set_stride_for_plane(self: GdkMemoryTextureBuilder, plane: u32, stride: u64)
-    @symbol("gdk_memory_texture_builder_set_update_texture") @lib pub fn gdk_memory_texture_builder_set_update_texture(self: GdkMemoryTextureBuilder, texture: GdkTexture)
-    @symbol("gdk_memory_texture_builder_set_width") @lib pub fn gdk_memory_texture_builder_set_width(self: GdkMemoryTextureBuilder, width: i32)
-    @symbol("gdk_monitor_get_connector") @lib pub fn gdk_monitor_get_connector(self: GdkMonitor): *const char
-    @symbol("gdk_monitor_get_description") @lib pub fn gdk_monitor_get_description(self: GdkMonitor): *const char
-    @symbol("gdk_monitor_get_display") @lib pub fn gdk_monitor_get_display(self: GdkMonitor): GdkDisplay
-    @symbol("gdk_monitor_get_height_mm") @lib pub fn gdk_monitor_get_height_mm(self: GdkMonitor): i32
-    @symbol("gdk_monitor_get_manufacturer") @lib pub fn gdk_monitor_get_manufacturer(self: GdkMonitor): *const char
-    @symbol("gdk_monitor_get_model") @lib pub fn gdk_monitor_get_model(self: GdkMonitor): *const char
-    @symbol("gdk_monitor_get_refresh_rate") @lib pub fn gdk_monitor_get_refresh_rate(self: GdkMonitor): i32
-    @symbol("gdk_monitor_get_scale") @lib pub fn gdk_monitor_get_scale(self: GdkMonitor): f64
-    @symbol("gdk_monitor_get_scale_factor") @lib pub fn gdk_monitor_get_scale_factor(self: GdkMonitor): i32
-    @symbol("gdk_monitor_get_subpixel_layout") @lib pub fn gdk_monitor_get_subpixel_layout(self: GdkMonitor): GdkSubpixelLayout
-    @symbol("gdk_monitor_get_width_mm") @lib pub fn gdk_monitor_get_width_mm(self: GdkMonitor): i32
-    @symbol("gdk_monitor_is_valid") @lib pub fn gdk_monitor_is_valid(self: GdkMonitor): i32
-    @symbol("gdk_pad_event_get_button") @lib pub fn gdk_pad_event_get_button(self: GdkPadEvent): u32
-    @symbol("gdk_scroll_event_get_direction") @lib pub fn gdk_scroll_event_get_direction(self: GdkScrollEvent): GdkScrollDirection
-    @symbol("gdk_scroll_event_get_relative_direction") @lib pub fn gdk_scroll_event_get_relative_direction(self: GdkScrollEvent): GdkScrollRelativeDirection
-    @symbol("gdk_scroll_event_get_unit") @lib pub fn gdk_scroll_event_get_unit(self: GdkScrollEvent): GdkScrollUnit
-    @symbol("gdk_scroll_event_is_stop") @lib pub fn gdk_scroll_event_is_stop(self: GdkScrollEvent): i32
-    @symbol("gdk_seat_get_capabilities") @lib pub fn gdk_seat_get_capabilities(self: GdkSeat): GdkSeatCapabilities
-    @symbol("gdk_seat_get_devices") @lib pub fn gdk_seat_get_devices(self: GdkSeat, capabilities: GdkSeatCapabilities): GdkDevice
-    @symbol("gdk_seat_get_display") @lib pub fn gdk_seat_get_display(self: GdkSeat): GdkDisplay
-    @symbol("gdk_seat_get_keyboard") @lib pub fn gdk_seat_get_keyboard(self: GdkSeat): GdkDevice
-    @symbol("gdk_seat_get_pointer") @lib pub fn gdk_seat_get_pointer(self: GdkSeat): GdkDevice
-    @symbol("gdk_seat_get_tools") @lib pub fn gdk_seat_get_tools(self: GdkSeat): GdkDeviceTool
-    @symbol("gdk_surface_new_popup") @lib pub fn gdk_surface_new_popup(parent: GdkSurface, autohide: i32): GdkSurface
-    @symbol("gdk_surface_new_toplevel") @lib pub fn gdk_surface_new_toplevel(display: GdkDisplay): GdkSurface
-    @symbol("gdk_surface_beep") @lib pub fn gdk_surface_beep(self: GdkSurface)
-    @symbol("gdk_surface_destroy") @lib pub fn gdk_surface_destroy(self: GdkSurface)
-    @symbol("gdk_surface_get_cursor") @lib pub fn gdk_surface_get_cursor(self: GdkSurface): GdkCursor
-    @symbol("gdk_surface_get_device_cursor") @lib pub fn gdk_surface_get_device_cursor(self: GdkSurface, device: GdkDevice): GdkCursor
-    @symbol("gdk_surface_get_display") @lib pub fn gdk_surface_get_display(self: GdkSurface): GdkDisplay
-    @symbol("gdk_surface_get_frame_clock") @lib pub fn gdk_surface_get_frame_clock(self: GdkSurface): GdkFrameClock
-    @symbol("gdk_surface_get_height") @lib pub fn gdk_surface_get_height(self: GdkSurface): i32
-    @symbol("gdk_surface_get_mapped") @lib pub fn gdk_surface_get_mapped(self: GdkSurface): i32
-    @symbol("gdk_surface_get_scale") @lib pub fn gdk_surface_get_scale(self: GdkSurface): f64
-    @symbol("gdk_surface_get_scale_factor") @lib pub fn gdk_surface_get_scale_factor(self: GdkSurface): i32
-    @symbol("gdk_surface_get_width") @lib pub fn gdk_surface_get_width(self: GdkSurface): i32
-    @symbol("gdk_surface_hide") @lib pub fn gdk_surface_hide(self: GdkSurface)
-    @symbol("gdk_surface_is_destroyed") @lib pub fn gdk_surface_is_destroyed(self: GdkSurface): i32
-    @symbol("gdk_surface_queue_render") @lib pub fn gdk_surface_queue_render(self: GdkSurface)
-    @symbol("gdk_surface_request_layout") @lib pub fn gdk_surface_request_layout(self: GdkSurface)
-    @symbol("gdk_surface_set_cursor") @lib pub fn gdk_surface_set_cursor(self: GdkSurface, cursor: GdkCursor)
-    @symbol("gdk_surface_set_device_cursor") @lib pub fn gdk_surface_set_device_cursor(self: GdkSurface, device: GdkDevice, cursor: GdkCursor)
-    @symbol("gdk_texture_new_from_resource") @lib pub fn gdk_texture_new_from_resource(resource_path: *const char): GdkTexture
-    @symbol("gdk_texture_download") @lib pub fn gdk_texture_download(self: GdkTexture, data: u8, stride: u64)
-    @symbol("gdk_texture_get_color_state") @lib pub fn gdk_texture_get_color_state(self: GdkTexture): GdkColorState
-    @symbol("gdk_texture_get_format") @lib pub fn gdk_texture_get_format(self: GdkTexture): GdkMemoryFormat
-    @symbol("gdk_texture_get_height") @lib pub fn gdk_texture_get_height(self: GdkTexture): i32
-    @symbol("gdk_texture_get_width") @lib pub fn gdk_texture_get_width(self: GdkTexture): i32
-    @symbol("gdk_texture_save_to_png") @lib pub fn gdk_texture_save_to_png(self: GdkTexture, filename: *const char): i32
-    @symbol("gdk_texture_save_to_png_bytes") @lib pub fn gdk_texture_save_to_png_bytes(self: GdkTexture): GBytes
-    @symbol("gdk_texture_save_to_tiff") @lib pub fn gdk_texture_save_to_tiff(self: GdkTexture, filename: *const char): i32
-    @symbol("gdk_texture_save_to_tiff_bytes") @lib pub fn gdk_texture_save_to_tiff_bytes(self: GdkTexture): GBytes
-    @symbol("gdk_touch_event_get_emulating_pointer") @lib pub fn gdk_touch_event_get_emulating_pointer(self: GdkTouchEvent): i32
-    @symbol("gdk_touchpad_event_get_gesture_phase") @lib pub fn gdk_touchpad_event_get_gesture_phase(self: GdkTouchpadEvent): GdkTouchpadGesturePhase
-    @symbol("gdk_touchpad_event_get_n_fingers") @lib pub fn gdk_touchpad_event_get_n_fingers(self: GdkTouchpadEvent): u32
-    @symbol("gdk_touchpad_event_get_pinch_angle_delta") @lib pub fn gdk_touchpad_event_get_pinch_angle_delta(self: GdkTouchpadEvent): f64
-    @symbol("gdk_touchpad_event_get_pinch_scale") @lib pub fn gdk_touchpad_event_get_pinch_scale(self: GdkTouchpadEvent): f64
-    @symbol("gdk_color_state_get_oklab") @lib pub fn gdk_color_state_get_oklab(): GdkColorState
-    @symbol("gdk_color_state_get_oklch") @lib pub fn gdk_color_state_get_oklch(): GdkColorState
-    @symbol("gdk_color_state_get_rec2100_linear") @lib pub fn gdk_color_state_get_rec2100_linear(): GdkColorState
-    @symbol("gdk_color_state_get_rec2100_pq") @lib pub fn gdk_color_state_get_rec2100_pq(): GdkColorState
-    @symbol("gdk_color_state_get_srgb") @lib pub fn gdk_color_state_get_srgb(): GdkColorState
-    @symbol("gdk_color_state_get_srgb_linear") @lib pub fn gdk_color_state_get_srgb_linear(): GdkColorState
-    @symbol("gdk_content_formats_parse") @lib pub fn gdk_content_formats_parse(string: *const char): GdkContentFormats
-    @symbol("gdk_drag_action_is_unique") @lib pub fn gdk_drag_action_is_unique(action: GdkDragAction): i32
-    @symbol("gdk_intern_mime_type") @lib pub fn gdk_intern_mime_type(string: *const char): *const char
-    @symbol("gdk_keyval_from_name") @lib pub fn gdk_keyval_from_name(keyval_name: *const char): u32
-    @symbol("gdk_keyval_is_lower") @lib pub fn gdk_keyval_is_lower(keyval: u32): i32
-    @symbol("gdk_keyval_is_upper") @lib pub fn gdk_keyval_is_upper(keyval: u32): i32
-    @symbol("gdk_keyval_name") @lib pub fn gdk_keyval_name(keyval: u32): *const char
-    @symbol("gdk_keyval_to_lower") @lib pub fn gdk_keyval_to_lower(keyval: u32): u32
-    @symbol("gdk_keyval_to_unicode") @lib pub fn gdk_keyval_to_unicode(keyval: u32): u32
-    @symbol("gdk_keyval_to_upper") @lib pub fn gdk_keyval_to_upper(keyval: u32): u32
-    @symbol("gdk_set_allowed_backends") @lib pub fn gdk_set_allowed_backends(backends: *const char)
-    @symbol("gdk_unicode_to_keyval") @lib pub fn gdk_unicode_to_keyval(wc: u32): u32
+    @lib pub fn gdk_app_launch_context_get_display(self: GdkAppLaunchContext): GdkDisplay
+    @lib pub fn gdk_app_launch_context_set_desktop(self: GdkAppLaunchContext, desktop: i32)
+    @lib pub fn gdk_app_launch_context_set_icon_name(self: GdkAppLaunchContext, icon_name: *const char)
+    @lib pub fn gdk_app_launch_context_set_timestamp(self: GdkAppLaunchContext, timestamp: u32)
+    @lib pub fn gdk_button_event_get_button(self: GdkButtonEvent): u32
+    @lib pub fn gdk_cicp_params_new(): GdkCicpParams
+    @lib pub fn gdk_cicp_params_get_color_primaries(self: GdkCicpParams): u32
+    @lib pub fn gdk_cicp_params_get_matrix_coefficients(self: GdkCicpParams): u32
+    @lib pub fn gdk_cicp_params_get_range(self: GdkCicpParams): GdkCicpRange
+    @lib pub fn gdk_cicp_params_get_transfer_function(self: GdkCicpParams): u32
+    @lib pub fn gdk_cicp_params_set_color_primaries(self: GdkCicpParams, color_primaries: u32)
+    @lib pub fn gdk_cicp_params_set_matrix_coefficients(self: GdkCicpParams, matrix_coefficients: u32)
+    @lib pub fn gdk_cicp_params_set_range(self: GdkCicpParams, range: GdkCicpRange)
+    @lib pub fn gdk_cicp_params_set_transfer_function(self: GdkCicpParams, transfer_function: u32)
+    @lib pub fn gdk_clipboard_get_content(self: GdkClipboard): GdkContentProvider
+    @lib pub fn gdk_clipboard_get_display(self: GdkClipboard): GdkDisplay
+    @lib pub fn gdk_clipboard_get_formats(self: GdkClipboard): GdkContentFormats
+    @lib pub fn gdk_clipboard_is_local(self: GdkClipboard): i32
+    @lib pub fn gdk_clipboard_set_content(self: GdkClipboard, provider: GdkContentProvider): i32
+    @lib pub fn gdk_clipboard_set_text(self: GdkClipboard, text: *const char)
+    @lib pub fn gdk_clipboard_set_texture(self: GdkClipboard, texture: GdkTexture)
+    @lib pub fn gdk_clipboard_set_value(self: GdkClipboard, value: GValue)
+    @lib pub fn gdk_content_deserializer_get_cancellable(self: GdkContentDeserializer): GCancellable
+    @lib pub fn gdk_content_deserializer_get_gtype(self: GdkContentDeserializer): u64
+    @lib pub fn gdk_content_deserializer_get_input_stream(self: GdkContentDeserializer): GInputStream
+    @lib pub fn gdk_content_deserializer_get_mime_type(self: GdkContentDeserializer): *const char
+    @lib pub fn gdk_content_deserializer_get_priority(self: GdkContentDeserializer): i32
+    @lib pub fn gdk_content_deserializer_get_task_data(self: GdkContentDeserializer): *void
+    @lib pub fn gdk_content_deserializer_get_user_data(self: GdkContentDeserializer): *void
+    @lib pub fn gdk_content_deserializer_get_value(self: GdkContentDeserializer): GValue
+    @lib pub fn gdk_content_deserializer_return_success(self: GdkContentDeserializer)
+    @lib pub fn gdk_content_provider_new_for_bytes(mime_type: *const char, bytes: GBytes): GdkContentProvider
+    @lib pub fn gdk_content_provider_new_for_value(value: GValue): GdkContentProvider
+    @lib pub fn gdk_content_provider_new_union(providers: GdkContentProvider, n_providers: u64): GdkContentProvider
+    @lib pub fn gdk_content_provider_content_changed(self: GdkContentProvider)
+    @lib pub fn gdk_content_provider_ref_formats(self: GdkContentProvider): GdkContentFormats
+    @lib pub fn gdk_content_provider_ref_storable_formats(self: GdkContentProvider): GdkContentFormats
+    @lib pub fn gdk_content_serializer_get_cancellable(self: GdkContentSerializer): GCancellable
+    @lib pub fn gdk_content_serializer_get_gtype(self: GdkContentSerializer): u64
+    @lib pub fn gdk_content_serializer_get_mime_type(self: GdkContentSerializer): *const char
+    @lib pub fn gdk_content_serializer_get_output_stream(self: GdkContentSerializer): GOutputStream
+    @lib pub fn gdk_content_serializer_get_priority(self: GdkContentSerializer): i32
+    @lib pub fn gdk_content_serializer_get_task_data(self: GdkContentSerializer): *void
+    @lib pub fn gdk_content_serializer_get_user_data(self: GdkContentSerializer): *void
+    @lib pub fn gdk_content_serializer_get_value(self: GdkContentSerializer): GValue
+    @lib pub fn gdk_content_serializer_return_success(self: GdkContentSerializer)
+    @lib pub fn gdk_crossing_event_get_detail(self: GdkCrossingEvent): GdkNotifyType
+    @lib pub fn gdk_crossing_event_get_focus(self: GdkCrossingEvent): i32
+    @lib pub fn gdk_crossing_event_get_mode(self: GdkCrossingEvent): GdkCrossingMode
+    @lib pub fn gdk_cursor_new_from_name(name: *const char, fallback: GdkCursor): GdkCursor
+    @lib pub fn gdk_cursor_new_from_texture(texture: GdkTexture, hotspot_x: i32, hotspot_y: i32, fallback: GdkCursor): GdkCursor
+    @lib pub fn gdk_cursor_get_fallback(self: GdkCursor): GdkCursor
+    @lib pub fn gdk_cursor_get_hotspot_x(self: GdkCursor): i32
+    @lib pub fn gdk_cursor_get_hotspot_y(self: GdkCursor): i32
+    @lib pub fn gdk_cursor_get_name(self: GdkCursor): *const char
+    @lib pub fn gdk_cursor_get_texture(self: GdkCursor): GdkTexture
+    @lib pub fn gdk_dnd_event_get_drop(self: GdkDNDEvent): GdkDrop
+    @lib pub fn gdk_device_get_active_layout_index(self: GdkDevice): i32
+    @lib pub fn gdk_device_get_caps_lock_state(self: GdkDevice): i32
+    @lib pub fn gdk_device_get_device_tool(self: GdkDevice): GdkDeviceTool
+    @lib pub fn gdk_device_get_display(self: GdkDevice): GdkDisplay
+    @lib pub fn gdk_device_get_has_cursor(self: GdkDevice): i32
+    @lib pub fn gdk_device_get_layout_names(self: GdkDevice): *const char
+    @lib pub fn gdk_device_get_modifier_state(self: GdkDevice): GdkModifierType
+    @lib pub fn gdk_device_get_name(self: GdkDevice): *const char
+    @lib pub fn gdk_device_get_num_lock_state(self: GdkDevice): i32
+    @lib pub fn gdk_device_get_num_touches(self: GdkDevice): u32
+    @lib pub fn gdk_device_get_product_id(self: GdkDevice): *const char
+    @lib pub fn gdk_device_get_scroll_lock_state(self: GdkDevice): i32
+    @lib pub fn gdk_device_get_seat(self: GdkDevice): GdkSeat
+    @lib pub fn gdk_device_get_source(self: GdkDevice): GdkInputSource
+    @lib pub fn gdk_device_get_timestamp(self: GdkDevice): u32
+    @lib pub fn gdk_device_get_vendor_id(self: GdkDevice): *const char
+    @lib pub fn gdk_device_has_bidi_layouts(self: GdkDevice): i32
+    @lib pub fn gdk_device_tool_get_axes(self: GdkDeviceTool): GdkAxisFlags
+    @lib pub fn gdk_device_tool_get_hardware_id(self: GdkDeviceTool): u64
+    @lib pub fn gdk_device_tool_get_serial(self: GdkDeviceTool): u64
+    @lib pub fn gdk_device_tool_get_tool_type(self: GdkDeviceTool): GdkDeviceToolType
+    @lib pub fn gdk_display_beep(self: GdkDisplay)
+    @lib pub fn gdk_display_close(self: GdkDisplay)
+    @lib pub fn gdk_display_device_is_grabbed(self: GdkDisplay, device: GdkDevice): i32
+    @lib pub fn gdk_display_flush(self: GdkDisplay)
+    @lib pub fn gdk_display_get_app_launch_context(self: GdkDisplay): GdkAppLaunchContext
+    @lib pub fn gdk_display_get_clipboard(self: GdkDisplay): GdkClipboard
+    @lib pub fn gdk_display_get_default_seat(self: GdkDisplay): GdkSeat
+    @lib pub fn gdk_display_get_dmabuf_formats(self: GdkDisplay): GdkDmabufFormats
+    @lib pub fn gdk_display_get_monitor_at_surface(self: GdkDisplay, surface: GdkSurface): GdkMonitor
+    @lib pub fn gdk_display_get_name(self: GdkDisplay): *const char
+    @lib pub fn gdk_display_get_primary_clipboard(self: GdkDisplay): GdkClipboard
+    @lib pub fn gdk_display_get_setting(self: GdkDisplay, name: *const char, value: GValue): i32
+    @lib pub fn gdk_display_is_closed(self: GdkDisplay): i32
+    @lib pub fn gdk_display_is_composited(self: GdkDisplay): i32
+    @lib pub fn gdk_display_is_rgba(self: GdkDisplay): i32
+    @lib pub fn gdk_display_list_seats(self: GdkDisplay): GdkSeat
+    @lib pub fn gdk_display_supports_input_shapes(self: GdkDisplay): i32
+    @lib pub fn gdk_display_supports_shadow_width(self: GdkDisplay): i32
+    @lib pub fn gdk_display_sync(self: GdkDisplay)
+    @lib pub fn gdk_display_get_default(): GdkDisplay
+    @lib pub fn gdk_display_open(display_name: *const char): GdkDisplay
+    @lib pub fn gdk_display_manager_get_default_display(self: GdkDisplayManager): GdkDisplay
+    @lib pub fn gdk_display_manager_list_displays(self: GdkDisplayManager): GdkDisplay
+    @lib pub fn gdk_display_manager_open_display(self: GdkDisplayManager, name: *const char): GdkDisplay
+    @lib pub fn gdk_display_manager_set_default_display(self: GdkDisplayManager, display: GdkDisplay)
+    @lib pub fn gdk_display_manager_get(): GdkDisplayManager
+    @lib pub fn gdk_dmabuf_texture_builder_new(): GdkDmabufTextureBuilder
+    @lib pub fn gdk_dmabuf_texture_builder_get_color_state(self: GdkDmabufTextureBuilder): GdkColorState
+    @lib pub fn gdk_dmabuf_texture_builder_get_display(self: GdkDmabufTextureBuilder): GdkDisplay
+    @lib pub fn gdk_dmabuf_texture_builder_get_fd(self: GdkDmabufTextureBuilder, plane: u32): i32
+    @lib pub fn gdk_dmabuf_texture_builder_get_fourcc(self: GdkDmabufTextureBuilder): u32
+    @lib pub fn gdk_dmabuf_texture_builder_get_height(self: GdkDmabufTextureBuilder): u32
+    @lib pub fn gdk_dmabuf_texture_builder_get_modifier(self: GdkDmabufTextureBuilder): u64
+    @lib pub fn gdk_dmabuf_texture_builder_get_n_planes(self: GdkDmabufTextureBuilder): u32
+    @lib pub fn gdk_dmabuf_texture_builder_get_offset(self: GdkDmabufTextureBuilder, plane: u32): u32
+    @lib pub fn gdk_dmabuf_texture_builder_get_premultiplied(self: GdkDmabufTextureBuilder): i32
+    @lib pub fn gdk_dmabuf_texture_builder_get_stride(self: GdkDmabufTextureBuilder, plane: u32): u32
+    @lib pub fn gdk_dmabuf_texture_builder_get_update_texture(self: GdkDmabufTextureBuilder): GdkTexture
+    @lib pub fn gdk_dmabuf_texture_builder_get_width(self: GdkDmabufTextureBuilder): u32
+    @lib pub fn gdk_dmabuf_texture_builder_set_color_state(self: GdkDmabufTextureBuilder, color_state: GdkColorState)
+    @lib pub fn gdk_dmabuf_texture_builder_set_display(self: GdkDmabufTextureBuilder, display: GdkDisplay)
+    @lib pub fn gdk_dmabuf_texture_builder_set_fd(self: GdkDmabufTextureBuilder, plane: u32, fd: i32)
+    @lib pub fn gdk_dmabuf_texture_builder_set_fourcc(self: GdkDmabufTextureBuilder, fourcc: u32)
+    @lib pub fn gdk_dmabuf_texture_builder_set_height(self: GdkDmabufTextureBuilder, height: u32)
+    @lib pub fn gdk_dmabuf_texture_builder_set_modifier(self: GdkDmabufTextureBuilder, modifier: u64)
+    @lib pub fn gdk_dmabuf_texture_builder_set_n_planes(self: GdkDmabufTextureBuilder, n_planes: u32)
+    @lib pub fn gdk_dmabuf_texture_builder_set_offset(self: GdkDmabufTextureBuilder, plane: u32, offset: u32)
+    @lib pub fn gdk_dmabuf_texture_builder_set_premultiplied(self: GdkDmabufTextureBuilder, premultiplied: i32)
+    @lib pub fn gdk_dmabuf_texture_builder_set_stride(self: GdkDmabufTextureBuilder, plane: u32, stride: u32)
+    @lib pub fn gdk_dmabuf_texture_builder_set_update_texture(self: GdkDmabufTextureBuilder, texture: GdkTexture)
+    @lib pub fn gdk_dmabuf_texture_builder_set_width(self: GdkDmabufTextureBuilder, width: u32)
+    @lib pub fn gdk_drag_drop_done(self: GdkDrag, success: i32)
+    @lib pub fn gdk_drag_get_actions(self: GdkDrag): GdkDragAction
+    @lib pub fn gdk_drag_get_content(self: GdkDrag): GdkContentProvider
+    @lib pub fn gdk_drag_get_device(self: GdkDrag): GdkDevice
+    @lib pub fn gdk_drag_get_display(self: GdkDrag): GdkDisplay
+    @lib pub fn gdk_drag_get_drag_surface(self: GdkDrag): GdkSurface
+    @lib pub fn gdk_drag_get_formats(self: GdkDrag): GdkContentFormats
+    @lib pub fn gdk_drag_get_selected_action(self: GdkDrag): GdkDragAction
+    @lib pub fn gdk_drag_get_surface(self: GdkDrag): GdkSurface
+    @lib pub fn gdk_drag_set_hotspot(self: GdkDrag, hot_x: i32, hot_y: i32)
+    @lib pub fn gdk_drag_begin(surface: GdkSurface, device: GdkDevice, content: GdkContentProvider, actions: GdkDragAction, dx: f64, dy: f64): GdkDrag
+    @lib pub fn gdk_draw_context_get_display(self: GdkDrawContext): GdkDisplay
+    @lib pub fn gdk_draw_context_get_surface(self: GdkDrawContext): GdkSurface
+    @lib pub fn gdk_drop_finish(self: GdkDrop, action: GdkDragAction)
+    @lib pub fn gdk_drop_get_actions(self: GdkDrop): GdkDragAction
+    @lib pub fn gdk_drop_get_device(self: GdkDrop): GdkDevice
+    @lib pub fn gdk_drop_get_display(self: GdkDrop): GdkDisplay
+    @lib pub fn gdk_drop_get_drag(self: GdkDrop): GdkDrag
+    @lib pub fn gdk_drop_get_formats(self: GdkDrop): GdkContentFormats
+    @lib pub fn gdk_drop_get_surface(self: GdkDrop): GdkSurface
+    @lib pub fn gdk_drop_status(self: GdkDrop, actions: GdkDragAction, preferred: GdkDragAction)
+    @lib pub fn gdk_event_get_device(self: GdkEvent): GdkDevice
+    @lib pub fn gdk_event_get_device_tool(self: GdkEvent): GdkDeviceTool
+    @lib pub fn gdk_event_get_display(self: GdkEvent): GdkDisplay
+    @lib pub fn gdk_event_get_event_sequence(self: GdkEvent): GdkEventSequence
+    @lib pub fn gdk_event_get_event_type(self: GdkEvent): GdkEventType
+    @lib pub fn gdk_event_get_modifier_state(self: GdkEvent): GdkModifierType
+    @lib pub fn gdk_event_get_pointer_emulated(self: GdkEvent): i32
+    @lib pub fn gdk_event_get_seat(self: GdkEvent): GdkSeat
+    @lib pub fn gdk_event_get_surface(self: GdkEvent): GdkSurface
+    @lib pub fn gdk_event_get_time(self: GdkEvent): u32
+    @lib pub fn gdk_event_ref(self: GdkEvent): GdkEvent
+    @lib pub fn gdk_event_triggers_context_menu(self: GdkEvent): i32
+    @lib pub fn gdk_event_unref(self: GdkEvent)
+    @lib pub fn gdk_focus_event_get_in(self: GdkFocusEvent): i32
+    @lib pub fn gdk_frame_clock_begin_updating(self: GdkFrameClock)
+    @lib pub fn gdk_frame_clock_end_updating(self: GdkFrameClock)
+    @lib pub fn gdk_frame_clock_get_current_timings(self: GdkFrameClock): GdkFrameTimings
+    @lib pub fn gdk_frame_clock_get_fps(self: GdkFrameClock): f64
+    @lib pub fn gdk_frame_clock_get_frame_counter(self: GdkFrameClock): i64
+    @lib pub fn gdk_frame_clock_get_frame_time(self: GdkFrameClock): i64
+    @lib pub fn gdk_frame_clock_get_history_start(self: GdkFrameClock): i64
+    @lib pub fn gdk_frame_clock_get_timings(self: GdkFrameClock, frame_counter: i64): GdkFrameTimings
+    @lib pub fn gdk_frame_clock_request_phase(self: GdkFrameClock, phase: GdkFrameClockPhase)
+    @lib pub fn gdk_gl_context_get_allowed_apis(self: GdkGLContext): GdkGLAPI
+    @lib pub fn gdk_gl_context_get_api(self: GdkGLContext): GdkGLAPI
+    @lib pub fn gdk_gl_context_get_debug_enabled(self: GdkGLContext): i32
+    @lib pub fn gdk_gl_context_get_display(self: GdkGLContext): GdkDisplay
+    @lib pub fn gdk_gl_context_get_forward_compatible(self: GdkGLContext): i32
+    @lib pub fn gdk_gl_context_get_surface(self: GdkGLContext): GdkSurface
+    @lib pub fn gdk_gl_context_get_use_es(self: GdkGLContext): i32
+    @lib pub fn gdk_gl_context_is_legacy(self: GdkGLContext): i32
+    @lib pub fn gdk_gl_context_is_shared(self: GdkGLContext, other: GdkGLContext): i32
+    @lib pub fn gdk_gl_context_make_current(self: GdkGLContext)
+    @lib pub fn gdk_gl_context_set_allowed_apis(self: GdkGLContext, apis: GdkGLAPI)
+    @lib pub fn gdk_gl_context_set_debug_enabled(self: GdkGLContext, enabled: i32)
+    @lib pub fn gdk_gl_context_set_forward_compatible(self: GdkGLContext, compatible: i32)
+    @lib pub fn gdk_gl_context_set_required_version(self: GdkGLContext, major: i32, minor: i32)
+    @lib pub fn gdk_gl_context_set_use_es(self: GdkGLContext, use_es: i32)
+    @lib pub fn gdk_gl_context_clear_current()
+    @lib pub fn gdk_gl_context_get_current(): GdkGLContext
+    @lib pub fn gdk_gl_texture_release(self: GdkGLTexture)
+    @lib pub fn gdk_gl_texture_builder_new(): GdkGLTextureBuilder
+    @lib pub fn gdk_gl_texture_builder_get_color_state(self: GdkGLTextureBuilder): GdkColorState
+    @lib pub fn gdk_gl_texture_builder_get_context(self: GdkGLTextureBuilder): GdkGLContext
+    @lib pub fn gdk_gl_texture_builder_get_format(self: GdkGLTextureBuilder): GdkMemoryFormat
+    @lib pub fn gdk_gl_texture_builder_get_has_mipmap(self: GdkGLTextureBuilder): i32
+    @lib pub fn gdk_gl_texture_builder_get_height(self: GdkGLTextureBuilder): i32
+    @lib pub fn gdk_gl_texture_builder_get_id(self: GdkGLTextureBuilder): u32
+    @lib pub fn gdk_gl_texture_builder_get_sync(self: GdkGLTextureBuilder): *void
+    @lib pub fn gdk_gl_texture_builder_get_update_texture(self: GdkGLTextureBuilder): GdkTexture
+    @lib pub fn gdk_gl_texture_builder_get_width(self: GdkGLTextureBuilder): i32
+    @lib pub fn gdk_gl_texture_builder_set_color_state(self: GdkGLTextureBuilder, color_state: GdkColorState)
+    @lib pub fn gdk_gl_texture_builder_set_context(self: GdkGLTextureBuilder, context: GdkGLContext)
+    @lib pub fn gdk_gl_texture_builder_set_format(self: GdkGLTextureBuilder, format: GdkMemoryFormat)
+    @lib pub fn gdk_gl_texture_builder_set_has_mipmap(self: GdkGLTextureBuilder, has_mipmap: i32)
+    @lib pub fn gdk_gl_texture_builder_set_height(self: GdkGLTextureBuilder, height: i32)
+    @lib pub fn gdk_gl_texture_builder_set_id(self: GdkGLTextureBuilder, id: u32)
+    @lib pub fn gdk_gl_texture_builder_set_sync(self: GdkGLTextureBuilder, sync: *void)
+    @lib pub fn gdk_gl_texture_builder_set_update_texture(self: GdkGLTextureBuilder, texture: GdkTexture)
+    @lib pub fn gdk_gl_texture_builder_set_width(self: GdkGLTextureBuilder, width: i32)
+    @lib pub fn gdk_grab_broken_event_get_grab_surface(self: GdkGrabBrokenEvent): GdkSurface
+    @lib pub fn gdk_grab_broken_event_get_implicit(self: GdkGrabBrokenEvent): i32
+    @lib pub fn gdk_key_event_get_consumed_modifiers(self: GdkKeyEvent): GdkModifierType
+    @lib pub fn gdk_key_event_get_keycode(self: GdkKeyEvent): u32
+    @lib pub fn gdk_key_event_get_keyval(self: GdkKeyEvent): u32
+    @lib pub fn gdk_key_event_get_layout(self: GdkKeyEvent): u32
+    @lib pub fn gdk_key_event_get_level(self: GdkKeyEvent): u32
+    @lib pub fn gdk_key_event_is_modifier(self: GdkKeyEvent): i32
+    @lib pub fn gdk_key_event_matches(self: GdkKeyEvent, keyval: u32, modifiers: GdkModifierType): GdkKeyMatch
+    @lib pub fn gdk_memory_texture_new(width: i32, height: i32, format: GdkMemoryFormat, bytes: GBytes, stride: u64): GdkMemoryTexture
+    @lib pub fn gdk_memory_texture_builder_new(): GdkMemoryTextureBuilder
+    @lib pub fn gdk_memory_texture_builder_build(self: GdkMemoryTextureBuilder): GdkTexture
+    @lib pub fn gdk_memory_texture_builder_get_bytes(self: GdkMemoryTextureBuilder): GBytes
+    @lib pub fn gdk_memory_texture_builder_get_color_state(self: GdkMemoryTextureBuilder): GdkColorState
+    @lib pub fn gdk_memory_texture_builder_get_format(self: GdkMemoryTextureBuilder): GdkMemoryFormat
+    @lib pub fn gdk_memory_texture_builder_get_height(self: GdkMemoryTextureBuilder): i32
+    @lib pub fn gdk_memory_texture_builder_get_offset(self: GdkMemoryTextureBuilder, plane: u32): u64
+    @lib pub fn gdk_memory_texture_builder_get_stride(self: GdkMemoryTextureBuilder): u64
+    @lib pub fn gdk_memory_texture_builder_get_stride_for_plane(self: GdkMemoryTextureBuilder, plane: u32): u64
+    @lib pub fn gdk_memory_texture_builder_get_update_texture(self: GdkMemoryTextureBuilder): GdkTexture
+    @lib pub fn gdk_memory_texture_builder_get_width(self: GdkMemoryTextureBuilder): i32
+    @lib pub fn gdk_memory_texture_builder_set_bytes(self: GdkMemoryTextureBuilder, bytes: GBytes)
+    @lib pub fn gdk_memory_texture_builder_set_color_state(self: GdkMemoryTextureBuilder, color_state: GdkColorState)
+    @lib pub fn gdk_memory_texture_builder_set_format(self: GdkMemoryTextureBuilder, format: GdkMemoryFormat)
+    @lib pub fn gdk_memory_texture_builder_set_height(self: GdkMemoryTextureBuilder, height: i32)
+    @lib pub fn gdk_memory_texture_builder_set_offset(self: GdkMemoryTextureBuilder, plane: u32, offset: u64)
+    @lib pub fn gdk_memory_texture_builder_set_stride(self: GdkMemoryTextureBuilder, stride: u64)
+    @lib pub fn gdk_memory_texture_builder_set_stride_for_plane(self: GdkMemoryTextureBuilder, plane: u32, stride: u64)
+    @lib pub fn gdk_memory_texture_builder_set_update_texture(self: GdkMemoryTextureBuilder, texture: GdkTexture)
+    @lib pub fn gdk_memory_texture_builder_set_width(self: GdkMemoryTextureBuilder, width: i32)
+    @lib pub fn gdk_monitor_get_connector(self: GdkMonitor): *const char
+    @lib pub fn gdk_monitor_get_description(self: GdkMonitor): *const char
+    @lib pub fn gdk_monitor_get_display(self: GdkMonitor): GdkDisplay
+    @lib pub fn gdk_monitor_get_height_mm(self: GdkMonitor): i32
+    @lib pub fn gdk_monitor_get_manufacturer(self: GdkMonitor): *const char
+    @lib pub fn gdk_monitor_get_model(self: GdkMonitor): *const char
+    @lib pub fn gdk_monitor_get_refresh_rate(self: GdkMonitor): i32
+    @lib pub fn gdk_monitor_get_scale(self: GdkMonitor): f64
+    @lib pub fn gdk_monitor_get_scale_factor(self: GdkMonitor): i32
+    @lib pub fn gdk_monitor_get_subpixel_layout(self: GdkMonitor): GdkSubpixelLayout
+    @lib pub fn gdk_monitor_get_width_mm(self: GdkMonitor): i32
+    @lib pub fn gdk_monitor_is_valid(self: GdkMonitor): i32
+    @lib pub fn gdk_pad_event_get_button(self: GdkPadEvent): u32
+    @lib pub fn gdk_scroll_event_get_direction(self: GdkScrollEvent): GdkScrollDirection
+    @lib pub fn gdk_scroll_event_get_relative_direction(self: GdkScrollEvent): GdkScrollRelativeDirection
+    @lib pub fn gdk_scroll_event_get_unit(self: GdkScrollEvent): GdkScrollUnit
+    @lib pub fn gdk_scroll_event_is_stop(self: GdkScrollEvent): i32
+    @lib pub fn gdk_seat_get_capabilities(self: GdkSeat): GdkSeatCapabilities
+    @lib pub fn gdk_seat_get_devices(self: GdkSeat, capabilities: GdkSeatCapabilities): GdkDevice
+    @lib pub fn gdk_seat_get_display(self: GdkSeat): GdkDisplay
+    @lib pub fn gdk_seat_get_keyboard(self: GdkSeat): GdkDevice
+    @lib pub fn gdk_seat_get_pointer(self: GdkSeat): GdkDevice
+    @lib pub fn gdk_seat_get_tools(self: GdkSeat): GdkDeviceTool
+    @lib pub fn gdk_surface_new_popup(parent: GdkSurface, autohide: i32): GdkSurface
+    @lib pub fn gdk_surface_new_toplevel(display: GdkDisplay): GdkSurface
+    @lib pub fn gdk_surface_beep(self: GdkSurface)
+    @lib pub fn gdk_surface_destroy(self: GdkSurface)
+    @lib pub fn gdk_surface_get_cursor(self: GdkSurface): GdkCursor
+    @lib pub fn gdk_surface_get_device_cursor(self: GdkSurface, device: GdkDevice): GdkCursor
+    @lib pub fn gdk_surface_get_display(self: GdkSurface): GdkDisplay
+    @lib pub fn gdk_surface_get_frame_clock(self: GdkSurface): GdkFrameClock
+    @lib pub fn gdk_surface_get_height(self: GdkSurface): i32
+    @lib pub fn gdk_surface_get_mapped(self: GdkSurface): i32
+    @lib pub fn gdk_surface_get_scale(self: GdkSurface): f64
+    @lib pub fn gdk_surface_get_scale_factor(self: GdkSurface): i32
+    @lib pub fn gdk_surface_get_width(self: GdkSurface): i32
+    @lib pub fn gdk_surface_hide(self: GdkSurface)
+    @lib pub fn gdk_surface_is_destroyed(self: GdkSurface): i32
+    @lib pub fn gdk_surface_queue_render(self: GdkSurface)
+    @lib pub fn gdk_surface_request_layout(self: GdkSurface)
+    @lib pub fn gdk_surface_set_cursor(self: GdkSurface, cursor: GdkCursor)
+    @lib pub fn gdk_surface_set_device_cursor(self: GdkSurface, device: GdkDevice, cursor: GdkCursor)
+    @lib pub fn gdk_texture_new_from_resource(resource_path: *const char): GdkTexture
+    @lib pub fn gdk_texture_download(self: GdkTexture, data: u8, stride: u64)
+    @lib pub fn gdk_texture_get_color_state(self: GdkTexture): GdkColorState
+    @lib pub fn gdk_texture_get_format(self: GdkTexture): GdkMemoryFormat
+    @lib pub fn gdk_texture_get_height(self: GdkTexture): i32
+    @lib pub fn gdk_texture_get_width(self: GdkTexture): i32
+    @lib pub fn gdk_texture_save_to_png(self: GdkTexture, filename: *const char): i32
+    @lib pub fn gdk_texture_save_to_png_bytes(self: GdkTexture): GBytes
+    @lib pub fn gdk_texture_save_to_tiff(self: GdkTexture, filename: *const char): i32
+    @lib pub fn gdk_texture_save_to_tiff_bytes(self: GdkTexture): GBytes
+    @lib pub fn gdk_touch_event_get_emulating_pointer(self: GdkTouchEvent): i32
+    @lib pub fn gdk_touchpad_event_get_gesture_phase(self: GdkTouchpadEvent): GdkTouchpadGesturePhase
+    @lib pub fn gdk_touchpad_event_get_n_fingers(self: GdkTouchpadEvent): u32
+    @lib pub fn gdk_touchpad_event_get_pinch_angle_delta(self: GdkTouchpadEvent): f64
+    @lib pub fn gdk_touchpad_event_get_pinch_scale(self: GdkTouchpadEvent): f64
+    @lib pub fn gdk_color_state_get_oklab(): GdkColorState
+    @lib pub fn gdk_color_state_get_oklch(): GdkColorState
+    @lib pub fn gdk_color_state_get_rec2100_linear(): GdkColorState
+    @lib pub fn gdk_color_state_get_rec2100_pq(): GdkColorState
+    @lib pub fn gdk_color_state_get_srgb(): GdkColorState
+    @lib pub fn gdk_color_state_get_srgb_linear(): GdkColorState
+    @lib pub fn gdk_content_formats_parse(string: *const char): GdkContentFormats
+    @lib pub fn gdk_drag_action_is_unique(action: GdkDragAction): i32
+    @lib pub fn gdk_intern_mime_type(string: *const char): *const char
+    @lib pub fn gdk_keyval_from_name(keyval_name: *const char): u32
+    @lib pub fn gdk_keyval_is_lower(keyval: u32): i32
+    @lib pub fn gdk_keyval_is_upper(keyval: u32): i32
+    @lib pub fn gdk_keyval_name(keyval: u32): *const char
+    @lib pub fn gdk_keyval_to_lower(keyval: u32): u32
+    @lib pub fn gdk_keyval_to_unicode(keyval: u32): u32
+    @lib pub fn gdk_keyval_to_upper(keyval: u32): u32
+    @lib pub fn gdk_set_allowed_backends(backends: *const char)
+    @lib pub fn gdk_unicode_to_keyval(wc: u32): u32
 }
 
 // 315 fn(s) emitted, 120 skipped (unsupported params/return or already exported by another namespace)

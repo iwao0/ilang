@@ -132,197 +132,197 @@ pub enum GTypeFundamentalFlags: u32 {
     @handle pub struct GValue {}
     @handle pub struct GWeakRef {}
 
-    @symbol("g_binding_dup_source") @lib pub fn g_binding_dup_source(self: GBinding): GObject
-    @symbol("g_binding_dup_target") @lib pub fn g_binding_dup_target(self: GBinding): GObject
-    @symbol("g_binding_get_flags") @lib pub fn g_binding_get_flags(self: GBinding): GBindingFlags
-    @symbol("g_binding_get_source_property") @lib pub fn g_binding_get_source_property(self: GBinding): *const char
-    @symbol("g_binding_get_target_property") @lib pub fn g_binding_get_target_property(self: GBinding): *const char
-    @symbol("g_binding_unbind") @lib pub fn g_binding_unbind(self: GBinding)
-    @symbol("g_binding_group_new") @lib pub fn g_binding_group_new(): GBindingGroup
-    @symbol("g_binding_group_bind") @lib pub fn g_binding_group_bind(self: GBindingGroup, source_property: *const char, target: GObject, target_property: *const char, flags: GBindingFlags)
-    @symbol("g_binding_group_bind_with_closures") @lib pub fn g_binding_group_bind_with_closures(self: GBindingGroup, source_property: *const char, target: GObject, target_property: *const char, flags: GBindingFlags, transform_to: GClosure, transform_from: GClosure)
-    @symbol("g_binding_group_dup_source") @lib pub fn g_binding_group_dup_source(self: GBindingGroup): GObject
-    @symbol("g_binding_group_set_source") @lib pub fn g_binding_group_set_source(self: GBindingGroup, source: GObject)
-    @symbol("g_object_new_with_properties") @lib pub fn g_object_new_with_properties(object_type: u64, n_properties: u32, names: *const char, values: GValue): GObject
-    @symbol("g_object_bind_property") @lib pub fn g_object_bind_property(self: GObject, source_property: *const char, target: GObject, target_property: *const char, flags: GBindingFlags): GBinding
-    @symbol("g_object_bind_property_with_closures") @lib pub fn g_object_bind_property_with_closures(self: GObject, source_property: *const char, target: GObject, target_property: *const char, flags: GBindingFlags, transform_to: GClosure, transform_from: GClosure): GBinding
-    @symbol("g_object_force_floating") @lib pub fn g_object_force_floating(self: GObject)
-    @symbol("g_object_freeze_notify") @lib pub fn g_object_freeze_notify(self: GObject)
-    @symbol("g_object_get_data") @lib pub fn g_object_get_data(self: GObject, key: *const char): *void
-    @symbol("g_object_get_property") @lib pub fn g_object_get_property(self: GObject, property_name: *const char, value: GValue)
-    @symbol("g_object_getv") @lib pub fn g_object_getv(self: GObject, n_properties: u32, names: *const char, values: GValue)
-    @symbol("g_object_is_floating") @lib pub fn g_object_is_floating(self: GObject): i32
-    @symbol("g_object_notify") @lib pub fn g_object_notify(self: GObject, property_name: *const char)
-    @symbol("g_object_notify_by_pspec") @lib pub fn g_object_notify_by_pspec(self: GObject, pspec: GParamSpec)
-    @symbol("g_object_ref") @lib pub fn g_object_ref(self: GObject): GObject
-    @symbol("g_object_ref_sink") @lib pub fn g_object_ref_sink(self: GObject): GObject
-    @symbol("g_object_run_dispose") @lib pub fn g_object_run_dispose(self: GObject)
-    @symbol("g_object_set_data") @lib pub fn g_object_set_data(self: GObject, key: *const char, data: *void)
-    @symbol("g_object_set_property") @lib pub fn g_object_set_property(self: GObject, property_name: *const char, value: GValue)
-    @symbol("g_object_setv") @lib pub fn g_object_setv(self: GObject, n_properties: u32, names: *const char, values: GValue)
-    @symbol("g_object_steal_data") @lib pub fn g_object_steal_data(self: GObject, key: *const char): *void
-    @symbol("g_object_take_ref") @lib pub fn g_object_take_ref(self: GObject): GObject
-    @symbol("g_object_thaw_notify") @lib pub fn g_object_thaw_notify(self: GObject)
-    @symbol("g_object_unref") @lib pub fn g_object_unref(self: GObject)
-    @symbol("g_object_watch_closure") @lib pub fn g_object_watch_closure(self: GObject, closure: GClosure)
-    @symbol("g_object_compat_control") @lib pub fn g_object_compat_control(what: u64, data: *void): u64
-    @symbol("g_object_interface_find_property") @lib pub fn g_object_interface_find_property(g_iface: GTypeInterface, property_name: *const char): GParamSpec
-    @symbol("g_object_interface_install_property") @lib pub fn g_object_interface_install_property(g_iface: GTypeInterface, pspec: GParamSpec)
-    @symbol("g_param_spec_get_blurb") @lib pub fn g_param_spec_get_blurb(self: GParamSpec): *const char
-    @symbol("g_param_spec_get_default_value") @lib pub fn g_param_spec_get_default_value(self: GParamSpec): GValue
-    @symbol("g_param_spec_get_name") @lib pub fn g_param_spec_get_name(self: GParamSpec): *const char
-    @symbol("g_param_spec_get_nick") @lib pub fn g_param_spec_get_nick(self: GParamSpec): *const char
-    @symbol("g_param_spec_get_redirect_target") @lib pub fn g_param_spec_get_redirect_target(self: GParamSpec): GParamSpec
-    @symbol("g_param_spec_ref") @lib pub fn g_param_spec_ref(self: GParamSpec): GParamSpec
-    @symbol("g_param_spec_ref_sink") @lib pub fn g_param_spec_ref_sink(self: GParamSpec): GParamSpec
-    @symbol("g_param_spec_sink") @lib pub fn g_param_spec_sink(self: GParamSpec)
-    @symbol("g_param_spec_unref") @lib pub fn g_param_spec_unref(self: GParamSpec)
-    @symbol("g_param_spec_internal") @lib pub fn g_param_spec_internal(param_type: u64, name: *const char, nick: *const char, blurb: *const char, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_is_valid_name") @lib pub fn g_param_spec_is_valid_name(name: *const char): i32
-    @symbol("g_signal_group_new") @lib pub fn g_signal_group_new(target_type: u64): GSignalGroup
-    @symbol("g_signal_group_block") @lib pub fn g_signal_group_block(self: GSignalGroup)
-    @symbol("g_signal_group_connect_closure") @lib pub fn g_signal_group_connect_closure(self: GSignalGroup, detailed_signal: *const char, closure: GClosure, after: i32)
-    @symbol("g_signal_group_dup_target") @lib pub fn g_signal_group_dup_target(self: GSignalGroup): GObject
-    @symbol("g_signal_group_set_target") @lib pub fn g_signal_group_set_target(self: GSignalGroup, target: GObject)
-    @symbol("g_signal_group_unblock") @lib pub fn g_signal_group_unblock(self: GSignalGroup)
-    @symbol("g_type_module_add_interface") @lib pub fn g_type_module_add_interface(self: GTypeModule, instance_type: u64, interface_type: u64, interface_info: GInterfaceInfo)
-    @symbol("g_type_module_register_enum") @lib pub fn g_type_module_register_enum(self: GTypeModule, name: *const char, const_static_values: GEnumValue): u64
-    @symbol("g_type_module_register_flags") @lib pub fn g_type_module_register_flags(self: GTypeModule, name: *const char, const_static_values: GFlagsValue): u64
-    @symbol("g_type_module_register_type") @lib pub fn g_type_module_register_type(self: GTypeModule, parent_type: u64, type_name: *const char, type_info: GTypeInfo, flags: GTypeFlags): u64
-    @symbol("g_type_module_set_name") @lib pub fn g_type_module_set_name(self: GTypeModule, name: *const char)
-    @symbol("g_type_module_unuse") @lib pub fn g_type_module_unuse(self: GTypeModule)
-    @symbol("g_type_module_use") @lib pub fn g_type_module_use(self: GTypeModule): i32
-    @symbol("g_cclosure_marshal_BOOLEAN__BOXED_BOXED") @lib pub fn g_cclosure_marshal_BOOLEAN__BOXED_BOXED(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_BOOLEAN__FLAGS") @lib pub fn g_cclosure_marshal_BOOLEAN__FLAGS(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_STRING__OBJECT_POINTER") @lib pub fn g_cclosure_marshal_STRING__OBJECT_POINTER(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__BOOLEAN") @lib pub fn g_cclosure_marshal_VOID__BOOLEAN(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__BOXED") @lib pub fn g_cclosure_marshal_VOID__BOXED(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__CHAR") @lib pub fn g_cclosure_marshal_VOID__CHAR(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__DOUBLE") @lib pub fn g_cclosure_marshal_VOID__DOUBLE(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__ENUM") @lib pub fn g_cclosure_marshal_VOID__ENUM(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__FLAGS") @lib pub fn g_cclosure_marshal_VOID__FLAGS(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__FLOAT") @lib pub fn g_cclosure_marshal_VOID__FLOAT(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__INT") @lib pub fn g_cclosure_marshal_VOID__INT(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__LONG") @lib pub fn g_cclosure_marshal_VOID__LONG(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__OBJECT") @lib pub fn g_cclosure_marshal_VOID__OBJECT(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__PARAM") @lib pub fn g_cclosure_marshal_VOID__PARAM(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__POINTER") @lib pub fn g_cclosure_marshal_VOID__POINTER(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__STRING") @lib pub fn g_cclosure_marshal_VOID__STRING(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__UCHAR") @lib pub fn g_cclosure_marshal_VOID__UCHAR(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__UINT") @lib pub fn g_cclosure_marshal_VOID__UINT(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__UINT_POINTER") @lib pub fn g_cclosure_marshal_VOID__UINT_POINTER(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__ULONG") @lib pub fn g_cclosure_marshal_VOID__ULONG(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__VARIANT") @lib pub fn g_cclosure_marshal_VOID__VARIANT(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_VOID__VOID") @lib pub fn g_cclosure_marshal_VOID__VOID(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_cclosure_marshal_generic") @lib pub fn g_cclosure_marshal_generic(closure: GClosure, return_gvalue: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
-    @symbol("g_param_spec_pool_new") @lib pub fn g_param_spec_pool_new(type_prefixing: i32): GParamSpecPool
-    @symbol("g_source_set_closure") @lib pub fn g_source_set_closure(source: GSource, closure: GClosure)
-    @symbol("g_source_set_dummy_callback") @lib pub fn g_source_set_dummy_callback(source: GSource)
-    @symbol("g_type_class_adjust_private_offset") @lib pub fn g_type_class_adjust_private_offset(g_class: *void, private_size_or_offset: i32)
-    @symbol("g_type_class_get") @lib pub fn g_type_class_get(arg: u64): GTypeClass
-    @symbol("g_type_class_peek") @lib pub fn g_type_class_peek(arg: u64): GTypeClass
-    @symbol("g_type_class_peek_static") @lib pub fn g_type_class_peek_static(arg: u64): GTypeClass
-    @symbol("g_type_interface_add_prerequisite") @lib pub fn g_type_interface_add_prerequisite(interface_type: u64, prerequisite_type: u64)
-    @symbol("g_type_interface_instantiatable_prerequisite") @lib pub fn g_type_interface_instantiatable_prerequisite(interface_type: u64): u64
-    @symbol("g_type_interface_peek") @lib pub fn g_type_interface_peek(instance_class: GTypeClass, iface_type: u64): GTypeInterface
-    @symbol("g_type_value_table_peek") @lib pub fn g_type_value_table_peek(arg: u64): GTypeValueTable
-    @symbol("g_value_type_compatible") @lib pub fn g_value_type_compatible(src_type: u64, dest_type: u64): i32
-    @symbol("g_value_type_transformable") @lib pub fn g_value_type_transformable(src_type: u64, dest_type: u64): i32
-    @symbol("g_boxed_copy") @lib pub fn g_boxed_copy(boxed_type: u64, src_boxed: *void): *void
-    @symbol("g_boxed_free") @lib pub fn g_boxed_free(boxed_type: u64, boxed: *void)
-    @symbol("g_clear_object") @lib pub fn g_clear_object(object_ptr: GObject)
-    @symbol("g_clear_signal_handler") @lib pub fn g_clear_signal_handler(handler_id_ptr: u64, instance: GObject)
-    @symbol("g_enum_get_value") @lib pub fn g_enum_get_value(enum_class: GEnumClass, value: i32): GEnumValue
-    @symbol("g_enum_get_value_by_name") @lib pub fn g_enum_get_value_by_name(enum_class: GEnumClass, name: *const char): GEnumValue
-    @symbol("g_enum_get_value_by_nick") @lib pub fn g_enum_get_value_by_nick(enum_class: GEnumClass, nick: *const char): GEnumValue
-    @symbol("g_enum_register_static") @lib pub fn g_enum_register_static(name: *const char, const_static_values: GEnumValue): u64
-    @symbol("g_enum_to_string") @lib pub fn g_enum_to_string(g_enum_type: u64, value: i32): *const char
-    @symbol("g_flags_get_first_value") @lib pub fn g_flags_get_first_value(flags_class: GFlagsClass, value: u32): GFlagsValue
-    @symbol("g_flags_get_value_by_name") @lib pub fn g_flags_get_value_by_name(flags_class: GFlagsClass, name: *const char): GFlagsValue
-    @symbol("g_flags_get_value_by_nick") @lib pub fn g_flags_get_value_by_nick(flags_class: GFlagsClass, nick: *const char): GFlagsValue
-    @symbol("g_flags_register_static") @lib pub fn g_flags_register_static(name: *const char, const_static_values: GFlagsValue): u64
-    @symbol("g_flags_to_string") @lib pub fn g_flags_to_string(flags_type: u64, value: u32): *const char
-    @symbol("g_gtype_get_type") @lib pub fn g_gtype_get_type(): u64
-    @symbol("g_param_spec_boolean") @lib pub fn g_param_spec_boolean(name: *const char, nick: *const char, blurb: *const char, default_value: i32, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_boxed") @lib pub fn g_param_spec_boxed(name: *const char, nick: *const char, blurb: *const char, boxed_type: u64, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_char") @lib pub fn g_param_spec_char(name: *const char, nick: *const char, blurb: *const char, minimum: i8, maximum: i8, default_value: i8, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_double") @lib pub fn g_param_spec_double(name: *const char, nick: *const char, blurb: *const char, minimum: f64, maximum: f64, default_value: f64, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_enum") @lib pub fn g_param_spec_enum(name: *const char, nick: *const char, blurb: *const char, enum_type: u64, default_value: i32, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_flags") @lib pub fn g_param_spec_flags(name: *const char, nick: *const char, blurb: *const char, flags_type: u64, default_value: u32, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_float") @lib pub fn g_param_spec_float(name: *const char, nick: *const char, blurb: *const char, minimum: f32, maximum: f32, default_value: f32, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_gtype") @lib pub fn g_param_spec_gtype(name: *const char, nick: *const char, blurb: *const char, is_a_type: u64, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_int") @lib pub fn g_param_spec_int(name: *const char, nick: *const char, blurb: *const char, minimum: i32, maximum: i32, default_value: i32, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_int64") @lib pub fn g_param_spec_int64(name: *const char, nick: *const char, blurb: *const char, minimum: i64, maximum: i64, default_value: i64, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_long") @lib pub fn g_param_spec_long(name: *const char, nick: *const char, blurb: *const char, minimum: i64, maximum: i64, default_value: i64, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_object") @lib pub fn g_param_spec_object(name: *const char, nick: *const char, blurb: *const char, object_type: u64, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_override") @lib pub fn g_param_spec_override(name: *const char, overridden: GParamSpec): GParamSpec
-    @symbol("g_param_spec_param") @lib pub fn g_param_spec_param(name: *const char, nick: *const char, blurb: *const char, param_type: u64, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_pointer") @lib pub fn g_param_spec_pointer(name: *const char, nick: *const char, blurb: *const char, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_string") @lib pub fn g_param_spec_string(name: *const char, nick: *const char, blurb: *const char, default_value: *const char, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_uchar") @lib pub fn g_param_spec_uchar(name: *const char, nick: *const char, blurb: *const char, minimum: u8, maximum: u8, default_value: u8, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_uint") @lib pub fn g_param_spec_uint(name: *const char, nick: *const char, blurb: *const char, minimum: u32, maximum: u32, default_value: u32, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_uint64") @lib pub fn g_param_spec_uint64(name: *const char, nick: *const char, blurb: *const char, minimum: u64, maximum: u64, default_value: u64, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_ulong") @lib pub fn g_param_spec_ulong(name: *const char, nick: *const char, blurb: *const char, minimum: u64, maximum: u64, default_value: u64, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_value_array") @lib pub fn g_param_spec_value_array(name: *const char, nick: *const char, blurb: *const char, element_spec: GParamSpec, flags: GParamFlags): GParamSpec
-    @symbol("g_param_spec_variant") @lib pub fn g_param_spec_variant(name: *const char, nick: *const char, blurb: *const char, arg: GVariantType, default_value: GVariant, flags: GParamFlags): GParamSpec
-    @symbol("g_param_type_register_static") @lib pub fn g_param_type_register_static(name: *const char, pspec_info: GParamSpecTypeInfo): u64
-    @symbol("g_param_value_convert") @lib pub fn g_param_value_convert(pspec: GParamSpec, src_value: GValue, dest_value: GValue, strict_validation: i32): i32
-    @symbol("g_param_value_defaults") @lib pub fn g_param_value_defaults(pspec: GParamSpec, value: GValue): i32
-    @symbol("g_param_value_is_valid") @lib pub fn g_param_value_is_valid(pspec: GParamSpec, value: GValue): i32
-    @symbol("g_param_value_set_default") @lib pub fn g_param_value_set_default(pspec: GParamSpec, value: GValue)
-    @symbol("g_param_value_validate") @lib pub fn g_param_value_validate(pspec: GParamSpec, value: GValue): i32
-    @symbol("g_param_values_cmp") @lib pub fn g_param_values_cmp(pspec: GParamSpec, value1: GValue, value2: GValue): i32
-    @symbol("g_pointer_type_register_static") @lib pub fn g_pointer_type_register_static(name: *const char): u64
-    @symbol("g_signal_accumulator_first_wins") @lib pub fn g_signal_accumulator_first_wins(ihint: GSignalInvocationHint, return_accu: GValue, handler_return: GValue, dummy: *void): i32
-    @symbol("g_signal_accumulator_true_handled") @lib pub fn g_signal_accumulator_true_handled(ihint: GSignalInvocationHint, return_accu: GValue, handler_return: GValue, dummy: *void): i32
-    @symbol("g_signal_chain_from_overridden") @lib pub fn g_signal_chain_from_overridden(instance_and_params: GValue, return_value: GValue)
-    @symbol("g_signal_connect_closure") @lib pub fn g_signal_connect_closure(instance: GObject, detailed_signal: *const char, closure: GClosure, after: i32): u64
-    @symbol("g_signal_get_invocation_hint") @lib pub fn g_signal_get_invocation_hint(instance: GObject): GSignalInvocationHint
-    @symbol("g_signal_handler_block") @lib pub fn g_signal_handler_block(instance: GObject, handler_id: u64)
-    @symbol("g_signal_handler_disconnect") @lib pub fn g_signal_handler_disconnect(instance: GObject, handler_id: u64)
-    @symbol("g_signal_handler_is_connected") @lib pub fn g_signal_handler_is_connected(instance: GObject, handler_id: u64): i32
-    @symbol("g_signal_handler_unblock") @lib pub fn g_signal_handler_unblock(instance: GObject, handler_id: u64)
-    @symbol("g_signal_handlers_destroy") @lib pub fn g_signal_handlers_destroy(instance: GObject)
-    @symbol("g_signal_is_valid_name") @lib pub fn g_signal_is_valid_name(name: *const char): i32
-    @symbol("g_signal_lookup") @lib pub fn g_signal_lookup(name: *const char, itype: u64): u32
-    @symbol("g_signal_name") @lib pub fn g_signal_name(signal_id: u32): *const char
-    @symbol("g_signal_override_class_closure") @lib pub fn g_signal_override_class_closure(signal_id: u32, instance_type: u64, class_closure: GClosure)
-    @symbol("g_signal_remove_emission_hook") @lib pub fn g_signal_remove_emission_hook(signal_id: u32, hook_id: u64)
-    @symbol("g_signal_stop_emission_by_name") @lib pub fn g_signal_stop_emission_by_name(instance: GObject, detailed_signal: *const char)
-    @symbol("g_signal_type_cclosure_new") @lib pub fn g_signal_type_cclosure_new(itype: u64, struct_offset: u32): GClosure
-    @symbol("g_strdup_value_contents") @lib pub fn g_strdup_value_contents(value: GValue): *const char
-    @symbol("g_type_add_class_private") @lib pub fn g_type_add_class_private(class_type: u64, private_size: u64)
-    @symbol("g_type_add_instance_private") @lib pub fn g_type_add_instance_private(class_type: u64, private_size: u64): i32
-    @symbol("g_type_add_interface_static") @lib pub fn g_type_add_interface_static(instance_type: u64, interface_type: u64, info: GInterfaceInfo)
-    @symbol("g_type_check_class_cast") @lib pub fn g_type_check_class_cast(g_class: GTypeClass, is_a_type: u64): GTypeClass
-    @symbol("g_type_check_class_is_a") @lib pub fn g_type_check_class_is_a(g_class: GTypeClass, is_a_type: u64): i32
-    @symbol("g_type_check_instance") @lib pub fn g_type_check_instance(instance: GTypeInstance): i32
-    @symbol("g_type_check_instance_cast") @lib pub fn g_type_check_instance_cast(instance: GTypeInstance, iface_type: u64): GTypeInstance
-    @symbol("g_type_check_instance_is_a") @lib pub fn g_type_check_instance_is_a(instance: GTypeInstance, iface_type: u64): i32
-    @symbol("g_type_check_instance_is_fundamentally_a") @lib pub fn g_type_check_instance_is_fundamentally_a(instance: GTypeInstance, fundamental_type: u64): i32
-    @symbol("g_type_check_is_value_type") @lib pub fn g_type_check_is_value_type(arg: u64): i32
-    @symbol("g_type_check_value") @lib pub fn g_type_check_value(value: GValue): i32
-    @symbol("g_type_check_value_holds") @lib pub fn g_type_check_value_holds(value: GValue, arg: u64): i32
-    @symbol("g_type_create_instance") @lib pub fn g_type_create_instance(arg: u64): GTypeInstance
-    @symbol("g_type_default_interface_get") @lib pub fn g_type_default_interface_get(g_type: u64): GTypeInterface
-    @symbol("g_type_default_interface_peek") @lib pub fn g_type_default_interface_peek(g_type: u64): GTypeInterface
-    @symbol("g_type_depth") @lib pub fn g_type_depth(arg: u64): u32
-    @symbol("g_type_ensure") @lib pub fn g_type_ensure(arg: u64)
-    @symbol("g_type_free_instance") @lib pub fn g_type_free_instance(instance: GTypeInstance)
-    @symbol("g_type_from_name") @lib pub fn g_type_from_name(name: *const char): u64
-    @symbol("g_type_fundamental") @lib pub fn g_type_fundamental(type_id: u64): u64
-    @symbol("g_type_fundamental_next") @lib pub fn g_type_fundamental_next(): u64
-    @symbol("g_type_get_instance_count") @lib pub fn g_type_get_instance_count(arg: u64): i32
-    @symbol("g_type_get_type_registration_serial") @lib pub fn g_type_get_type_registration_serial(): u32
-    @symbol("g_type_is_a") @lib pub fn g_type_is_a(arg: u64, is_a_type: u64): i32
-    @symbol("g_type_name") @lib pub fn g_type_name(arg: u64): *const char
-    @symbol("g_type_name_from_class") @lib pub fn g_type_name_from_class(g_class: GTypeClass): *const char
-    @symbol("g_type_name_from_instance") @lib pub fn g_type_name_from_instance(instance: GTypeInstance): *const char
-    @symbol("g_type_next_base") @lib pub fn g_type_next_base(leaf_type: u64, root_type: u64): u64
-    @symbol("g_type_parent") @lib pub fn g_type_parent(arg: u64): u64
-    @symbol("g_type_register_fundamental") @lib pub fn g_type_register_fundamental(type_id: u64, type_name: *const char, info: GTypeInfo, finfo: GTypeFundamentalInfo, flags: GTypeFlags): u64
-    @symbol("g_type_register_static") @lib pub fn g_type_register_static(parent_type: u64, type_name: *const char, info: GTypeInfo, flags: GTypeFlags): u64
-    @symbol("g_type_test_flags") @lib pub fn g_type_test_flags(arg: u64, flags: u32): i32
+    @lib pub fn g_binding_dup_source(self: GBinding): GObject
+    @lib pub fn g_binding_dup_target(self: GBinding): GObject
+    @lib pub fn g_binding_get_flags(self: GBinding): GBindingFlags
+    @lib pub fn g_binding_get_source_property(self: GBinding): *const char
+    @lib pub fn g_binding_get_target_property(self: GBinding): *const char
+    @lib pub fn g_binding_unbind(self: GBinding)
+    @lib pub fn g_binding_group_new(): GBindingGroup
+    @lib pub fn g_binding_group_bind(self: GBindingGroup, source_property: *const char, target: GObject, target_property: *const char, flags: GBindingFlags)
+    @lib pub fn g_binding_group_bind_with_closures(self: GBindingGroup, source_property: *const char, target: GObject, target_property: *const char, flags: GBindingFlags, transform_to: GClosure, transform_from: GClosure)
+    @lib pub fn g_binding_group_dup_source(self: GBindingGroup): GObject
+    @lib pub fn g_binding_group_set_source(self: GBindingGroup, source: GObject)
+    @lib pub fn g_object_new_with_properties(object_type: u64, n_properties: u32, names: *const char, values: GValue): GObject
+    @lib pub fn g_object_bind_property(self: GObject, source_property: *const char, target: GObject, target_property: *const char, flags: GBindingFlags): GBinding
+    @lib pub fn g_object_bind_property_with_closures(self: GObject, source_property: *const char, target: GObject, target_property: *const char, flags: GBindingFlags, transform_to: GClosure, transform_from: GClosure): GBinding
+    @lib pub fn g_object_force_floating(self: GObject)
+    @lib pub fn g_object_freeze_notify(self: GObject)
+    @lib pub fn g_object_get_data(self: GObject, key: *const char): *void
+    @lib pub fn g_object_get_property(self: GObject, property_name: *const char, value: GValue)
+    @lib pub fn g_object_getv(self: GObject, n_properties: u32, names: *const char, values: GValue)
+    @lib pub fn g_object_is_floating(self: GObject): i32
+    @lib pub fn g_object_notify(self: GObject, property_name: *const char)
+    @lib pub fn g_object_notify_by_pspec(self: GObject, pspec: GParamSpec)
+    @lib pub fn g_object_ref(self: GObject): GObject
+    @lib pub fn g_object_ref_sink(self: GObject): GObject
+    @lib pub fn g_object_run_dispose(self: GObject)
+    @lib pub fn g_object_set_data(self: GObject, key: *const char, data: *void)
+    @lib pub fn g_object_set_property(self: GObject, property_name: *const char, value: GValue)
+    @lib pub fn g_object_setv(self: GObject, n_properties: u32, names: *const char, values: GValue)
+    @lib pub fn g_object_steal_data(self: GObject, key: *const char): *void
+    @lib pub fn g_object_take_ref(self: GObject): GObject
+    @lib pub fn g_object_thaw_notify(self: GObject)
+    @lib pub fn g_object_unref(self: GObject)
+    @lib pub fn g_object_watch_closure(self: GObject, closure: GClosure)
+    @lib pub fn g_object_compat_control(what: u64, data: *void): u64
+    @lib pub fn g_object_interface_find_property(g_iface: GTypeInterface, property_name: *const char): GParamSpec
+    @lib pub fn g_object_interface_install_property(g_iface: GTypeInterface, pspec: GParamSpec)
+    @lib pub fn g_param_spec_get_blurb(self: GParamSpec): *const char
+    @lib pub fn g_param_spec_get_default_value(self: GParamSpec): GValue
+    @lib pub fn g_param_spec_get_name(self: GParamSpec): *const char
+    @lib pub fn g_param_spec_get_nick(self: GParamSpec): *const char
+    @lib pub fn g_param_spec_get_redirect_target(self: GParamSpec): GParamSpec
+    @lib pub fn g_param_spec_ref(self: GParamSpec): GParamSpec
+    @lib pub fn g_param_spec_ref_sink(self: GParamSpec): GParamSpec
+    @lib pub fn g_param_spec_sink(self: GParamSpec)
+    @lib pub fn g_param_spec_unref(self: GParamSpec)
+    @lib pub fn g_param_spec_internal(param_type: u64, name: *const char, nick: *const char, blurb: *const char, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_is_valid_name(name: *const char): i32
+    @lib pub fn g_signal_group_new(target_type: u64): GSignalGroup
+    @lib pub fn g_signal_group_block(self: GSignalGroup)
+    @lib pub fn g_signal_group_connect_closure(self: GSignalGroup, detailed_signal: *const char, closure: GClosure, after: i32)
+    @lib pub fn g_signal_group_dup_target(self: GSignalGroup): GObject
+    @lib pub fn g_signal_group_set_target(self: GSignalGroup, target: GObject)
+    @lib pub fn g_signal_group_unblock(self: GSignalGroup)
+    @lib pub fn g_type_module_add_interface(self: GTypeModule, instance_type: u64, interface_type: u64, interface_info: GInterfaceInfo)
+    @lib pub fn g_type_module_register_enum(self: GTypeModule, name: *const char, const_static_values: GEnumValue): u64
+    @lib pub fn g_type_module_register_flags(self: GTypeModule, name: *const char, const_static_values: GFlagsValue): u64
+    @lib pub fn g_type_module_register_type(self: GTypeModule, parent_type: u64, type_name: *const char, type_info: GTypeInfo, flags: GTypeFlags): u64
+    @lib pub fn g_type_module_set_name(self: GTypeModule, name: *const char)
+    @lib pub fn g_type_module_unuse(self: GTypeModule)
+    @lib pub fn g_type_module_use(self: GTypeModule): i32
+    @lib pub fn g_cclosure_marshal_BOOLEAN__BOXED_BOXED(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_BOOLEAN__FLAGS(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_STRING__OBJECT_POINTER(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__BOOLEAN(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__BOXED(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__CHAR(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__DOUBLE(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__ENUM(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__FLAGS(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__FLOAT(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__INT(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__LONG(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__OBJECT(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__PARAM(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__POINTER(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__STRING(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__UCHAR(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__UINT(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__UINT_POINTER(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__ULONG(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__VARIANT(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_VOID__VOID(closure: GClosure, return_value: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_cclosure_marshal_generic(closure: GClosure, return_gvalue: GValue, n_param_values: u32, param_values: GValue, invocation_hint: *void, marshal_data: *void)
+    @lib pub fn g_param_spec_pool_new(type_prefixing: i32): GParamSpecPool
+    @lib pub fn g_source_set_closure(source: GSource, closure: GClosure)
+    @lib pub fn g_source_set_dummy_callback(source: GSource)
+    @lib pub fn g_type_class_adjust_private_offset(g_class: *void, private_size_or_offset: i32)
+    @lib pub fn g_type_class_get(arg: u64): GTypeClass
+    @lib pub fn g_type_class_peek(arg: u64): GTypeClass
+    @lib pub fn g_type_class_peek_static(arg: u64): GTypeClass
+    @lib pub fn g_type_interface_add_prerequisite(interface_type: u64, prerequisite_type: u64)
+    @lib pub fn g_type_interface_instantiatable_prerequisite(interface_type: u64): u64
+    @lib pub fn g_type_interface_peek(instance_class: GTypeClass, iface_type: u64): GTypeInterface
+    @lib pub fn g_type_value_table_peek(arg: u64): GTypeValueTable
+    @lib pub fn g_value_type_compatible(src_type: u64, dest_type: u64): i32
+    @lib pub fn g_value_type_transformable(src_type: u64, dest_type: u64): i32
+    @lib pub fn g_boxed_copy(boxed_type: u64, src_boxed: *void): *void
+    @lib pub fn g_boxed_free(boxed_type: u64, boxed: *void)
+    @lib pub fn g_clear_object(object_ptr: GObject)
+    @lib pub fn g_clear_signal_handler(handler_id_ptr: u64, instance: GObject)
+    @lib pub fn g_enum_get_value(enum_class: GEnumClass, value: i32): GEnumValue
+    @lib pub fn g_enum_get_value_by_name(enum_class: GEnumClass, name: *const char): GEnumValue
+    @lib pub fn g_enum_get_value_by_nick(enum_class: GEnumClass, nick: *const char): GEnumValue
+    @lib pub fn g_enum_register_static(name: *const char, const_static_values: GEnumValue): u64
+    @lib pub fn g_enum_to_string(g_enum_type: u64, value: i32): *const char
+    @lib pub fn g_flags_get_first_value(flags_class: GFlagsClass, value: u32): GFlagsValue
+    @lib pub fn g_flags_get_value_by_name(flags_class: GFlagsClass, name: *const char): GFlagsValue
+    @lib pub fn g_flags_get_value_by_nick(flags_class: GFlagsClass, nick: *const char): GFlagsValue
+    @lib pub fn g_flags_register_static(name: *const char, const_static_values: GFlagsValue): u64
+    @lib pub fn g_flags_to_string(flags_type: u64, value: u32): *const char
+    @lib pub fn g_gtype_get_type(): u64
+    @lib pub fn g_param_spec_boolean(name: *const char, nick: *const char, blurb: *const char, default_value: i32, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_boxed(name: *const char, nick: *const char, blurb: *const char, boxed_type: u64, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_char(name: *const char, nick: *const char, blurb: *const char, minimum: i8, maximum: i8, default_value: i8, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_double(name: *const char, nick: *const char, blurb: *const char, minimum: f64, maximum: f64, default_value: f64, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_enum(name: *const char, nick: *const char, blurb: *const char, enum_type: u64, default_value: i32, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_flags(name: *const char, nick: *const char, blurb: *const char, flags_type: u64, default_value: u32, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_float(name: *const char, nick: *const char, blurb: *const char, minimum: f32, maximum: f32, default_value: f32, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_gtype(name: *const char, nick: *const char, blurb: *const char, is_a_type: u64, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_int(name: *const char, nick: *const char, blurb: *const char, minimum: i32, maximum: i32, default_value: i32, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_int64(name: *const char, nick: *const char, blurb: *const char, minimum: i64, maximum: i64, default_value: i64, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_long(name: *const char, nick: *const char, blurb: *const char, minimum: i64, maximum: i64, default_value: i64, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_object(name: *const char, nick: *const char, blurb: *const char, object_type: u64, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_override(name: *const char, overridden: GParamSpec): GParamSpec
+    @lib pub fn g_param_spec_param(name: *const char, nick: *const char, blurb: *const char, param_type: u64, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_pointer(name: *const char, nick: *const char, blurb: *const char, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_string(name: *const char, nick: *const char, blurb: *const char, default_value: *const char, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_uchar(name: *const char, nick: *const char, blurb: *const char, minimum: u8, maximum: u8, default_value: u8, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_uint(name: *const char, nick: *const char, blurb: *const char, minimum: u32, maximum: u32, default_value: u32, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_uint64(name: *const char, nick: *const char, blurb: *const char, minimum: u64, maximum: u64, default_value: u64, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_ulong(name: *const char, nick: *const char, blurb: *const char, minimum: u64, maximum: u64, default_value: u64, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_value_array(name: *const char, nick: *const char, blurb: *const char, element_spec: GParamSpec, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_spec_variant(name: *const char, nick: *const char, blurb: *const char, arg: GVariantType, default_value: GVariant, flags: GParamFlags): GParamSpec
+    @lib pub fn g_param_type_register_static(name: *const char, pspec_info: GParamSpecTypeInfo): u64
+    @lib pub fn g_param_value_convert(pspec: GParamSpec, src_value: GValue, dest_value: GValue, strict_validation: i32): i32
+    @lib pub fn g_param_value_defaults(pspec: GParamSpec, value: GValue): i32
+    @lib pub fn g_param_value_is_valid(pspec: GParamSpec, value: GValue): i32
+    @lib pub fn g_param_value_set_default(pspec: GParamSpec, value: GValue)
+    @lib pub fn g_param_value_validate(pspec: GParamSpec, value: GValue): i32
+    @lib pub fn g_param_values_cmp(pspec: GParamSpec, value1: GValue, value2: GValue): i32
+    @lib pub fn g_pointer_type_register_static(name: *const char): u64
+    @lib pub fn g_signal_accumulator_first_wins(ihint: GSignalInvocationHint, return_accu: GValue, handler_return: GValue, dummy: *void): i32
+    @lib pub fn g_signal_accumulator_true_handled(ihint: GSignalInvocationHint, return_accu: GValue, handler_return: GValue, dummy: *void): i32
+    @lib pub fn g_signal_chain_from_overridden(instance_and_params: GValue, return_value: GValue)
+    @lib pub fn g_signal_connect_closure(instance: GObject, detailed_signal: *const char, closure: GClosure, after: i32): u64
+    @lib pub fn g_signal_get_invocation_hint(instance: GObject): GSignalInvocationHint
+    @lib pub fn g_signal_handler_block(instance: GObject, handler_id: u64)
+    @lib pub fn g_signal_handler_disconnect(instance: GObject, handler_id: u64)
+    @lib pub fn g_signal_handler_is_connected(instance: GObject, handler_id: u64): i32
+    @lib pub fn g_signal_handler_unblock(instance: GObject, handler_id: u64)
+    @lib pub fn g_signal_handlers_destroy(instance: GObject)
+    @lib pub fn g_signal_is_valid_name(name: *const char): i32
+    @lib pub fn g_signal_lookup(name: *const char, itype: u64): u32
+    @lib pub fn g_signal_name(signal_id: u32): *const char
+    @lib pub fn g_signal_override_class_closure(signal_id: u32, instance_type: u64, class_closure: GClosure)
+    @lib pub fn g_signal_remove_emission_hook(signal_id: u32, hook_id: u64)
+    @lib pub fn g_signal_stop_emission_by_name(instance: GObject, detailed_signal: *const char)
+    @lib pub fn g_signal_type_cclosure_new(itype: u64, struct_offset: u32): GClosure
+    @lib pub fn g_strdup_value_contents(value: GValue): *const char
+    @lib pub fn g_type_add_class_private(class_type: u64, private_size: u64)
+    @lib pub fn g_type_add_instance_private(class_type: u64, private_size: u64): i32
+    @lib pub fn g_type_add_interface_static(instance_type: u64, interface_type: u64, info: GInterfaceInfo)
+    @lib pub fn g_type_check_class_cast(g_class: GTypeClass, is_a_type: u64): GTypeClass
+    @lib pub fn g_type_check_class_is_a(g_class: GTypeClass, is_a_type: u64): i32
+    @lib pub fn g_type_check_instance(instance: GTypeInstance): i32
+    @lib pub fn g_type_check_instance_cast(instance: GTypeInstance, iface_type: u64): GTypeInstance
+    @lib pub fn g_type_check_instance_is_a(instance: GTypeInstance, iface_type: u64): i32
+    @lib pub fn g_type_check_instance_is_fundamentally_a(instance: GTypeInstance, fundamental_type: u64): i32
+    @lib pub fn g_type_check_is_value_type(arg: u64): i32
+    @lib pub fn g_type_check_value(value: GValue): i32
+    @lib pub fn g_type_check_value_holds(value: GValue, arg: u64): i32
+    @lib pub fn g_type_create_instance(arg: u64): GTypeInstance
+    @lib pub fn g_type_default_interface_get(g_type: u64): GTypeInterface
+    @lib pub fn g_type_default_interface_peek(g_type: u64): GTypeInterface
+    @lib pub fn g_type_depth(arg: u64): u32
+    @lib pub fn g_type_ensure(arg: u64)
+    @lib pub fn g_type_free_instance(instance: GTypeInstance)
+    @lib pub fn g_type_from_name(name: *const char): u64
+    @lib pub fn g_type_fundamental(type_id: u64): u64
+    @lib pub fn g_type_fundamental_next(): u64
+    @lib pub fn g_type_get_instance_count(arg: u64): i32
+    @lib pub fn g_type_get_type_registration_serial(): u32
+    @lib pub fn g_type_is_a(arg: u64, is_a_type: u64): i32
+    @lib pub fn g_type_name(arg: u64): *const char
+    @lib pub fn g_type_name_from_class(g_class: GTypeClass): *const char
+    @lib pub fn g_type_name_from_instance(instance: GTypeInstance): *const char
+    @lib pub fn g_type_next_base(leaf_type: u64, root_type: u64): u64
+    @lib pub fn g_type_parent(arg: u64): u64
+    @lib pub fn g_type_register_fundamental(type_id: u64, type_name: *const char, info: GTypeInfo, finfo: GTypeFundamentalInfo, flags: GTypeFlags): u64
+    @lib pub fn g_type_register_static(parent_type: u64, type_name: *const char, info: GTypeInfo, flags: GTypeFlags): u64
+    @lib pub fn g_type_test_flags(arg: u64, flags: u32): i32
 }
 
 // 191 fn(s) emitted, 160 skipped (unsupported params/return or already exported by another namespace)

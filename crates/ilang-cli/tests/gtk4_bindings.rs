@@ -75,19 +75,18 @@ fn parse_binding_fns() -> BTreeMap<String, Vec<String>> {
         let mut fns: Vec<String> = Vec::new();
         for line in src.lines() {
             // Generated declarations look like
-            // `    @symbol("c_name") @lib pub fn c_name(...)` — pick
-            // off the c_name from the @symbol attribute.
+            // `    @lib pub fn c_name(...)` — `@symbol` is omitted
+            // since the ilang name matches the C identifier.
             let trimmed = line.trim_start();
-            let Some(rest) = trimmed.strip_prefix("@symbol(\"") else {
+            let Some(rest) = trimmed.strip_prefix("@lib pub fn ") else {
                 continue;
             };
-            let end = match rest.find('"') {
-                Some(i) => i,
-                None => continue,
-            };
-            let name = &rest[..end];
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
             if !name.is_empty() {
-                fns.push(name.to_string());
+                fns.push(name);
             }
         }
         if !fns.is_empty() {

@@ -1015,531 +1015,531 @@ pub enum GVariantParseError: u32 {
     @handle pub struct GVariantIter {}
     @handle pub struct GVariantType {}
 
-    @symbol("g_array_append_vals") @lib pub fn g_array_append_vals(array: *void, data: *void, len: u32): *void
-    @symbol("g_array_copy") @lib pub fn g_array_copy(array: *void): *void
-    @symbol("g_array_free") @lib pub fn g_array_free(array: *void, free_segment: i32): *const char
-    @symbol("g_array_get_element_size") @lib pub fn g_array_get_element_size(array: *void): u32
-    @symbol("g_array_insert_vals") @lib pub fn g_array_insert_vals(array: *void, index_: u32, data: *void, len: u32): *void
-    @symbol("g_array_new") @lib pub fn g_array_new(zero_terminated: i32, clear_: i32, element_size: u32): *void
-    @symbol("g_array_new_take") @lib pub fn g_array_new_take(data: *void, len: u64, clear: i32, element_size: u64): *void
-    @symbol("g_array_new_take_zero_terminated") @lib pub fn g_array_new_take_zero_terminated(data: *void, clear: i32, element_size: u64): *void
-    @symbol("g_array_prepend_vals") @lib pub fn g_array_prepend_vals(array: *void, data: *void, len: u32): *void
-    @symbol("g_array_ref") @lib pub fn g_array_ref(array: *void): *void
-    @symbol("g_array_remove_index") @lib pub fn g_array_remove_index(array: *void, index_: u32): *void
-    @symbol("g_array_remove_index_fast") @lib pub fn g_array_remove_index_fast(array: *void, index_: u32): *void
-    @symbol("g_array_remove_range") @lib pub fn g_array_remove_range(array: *void, index_: u32, length: u32): *void
-    @symbol("g_array_set_size") @lib pub fn g_array_set_size(array: *void, length: u32): *void
-    @symbol("g_array_sized_new") @lib pub fn g_array_sized_new(zero_terminated: i32, clear_: i32, element_size: u32, reserved_size: u32): *void
-    @symbol("g_array_unref") @lib pub fn g_array_unref(array: *void)
-    @symbol("g_async_queue_new") @lib pub fn g_async_queue_new(): GAsyncQueue
-    @symbol("g_byte_array_append") @lib pub fn g_byte_array_append(array: u8, data: u8, len: u32): u8
-    @symbol("g_byte_array_free") @lib pub fn g_byte_array_free(array: u8, free_segment: i32): u8
-    @symbol("g_byte_array_free_to_bytes") @lib pub fn g_byte_array_free_to_bytes(array: u8): GBytes
-    @symbol("g_byte_array_new") @lib pub fn g_byte_array_new(): u8
-    @symbol("g_byte_array_new_take") @lib pub fn g_byte_array_new_take(data: u8, len: u64): u8
-    @symbol("g_byte_array_prepend") @lib pub fn g_byte_array_prepend(array: u8, data: u8, len: u32): u8
-    @symbol("g_byte_array_ref") @lib pub fn g_byte_array_ref(array: u8): u8
-    @symbol("g_byte_array_remove_index") @lib pub fn g_byte_array_remove_index(array: u8, index_: u32): u8
-    @symbol("g_byte_array_remove_index_fast") @lib pub fn g_byte_array_remove_index_fast(array: u8, index_: u32): u8
-    @symbol("g_byte_array_remove_range") @lib pub fn g_byte_array_remove_range(array: u8, index_: u32, length: u32): u8
-    @symbol("g_byte_array_set_size") @lib pub fn g_byte_array_set_size(array: u8, length: u32): u8
-    @symbol("g_byte_array_sized_new") @lib pub fn g_byte_array_sized_new(reserved_size: u32): u8
-    @symbol("g_byte_array_unref") @lib pub fn g_byte_array_unref(array: u8)
-    @symbol("g_checksum_type_get_length") @lib pub fn g_checksum_type_get_length(checksum_type: GChecksumType): i64
-    @symbol("g_date_strftime") @lib pub fn g_date_strftime(s: *const char, slen: u64, format: *const char, date: GDate): u64
-    @symbol("g_date_valid_julian") @lib pub fn g_date_valid_julian(julian_date: u32): i32
-    @symbol("g_date_valid_month") @lib pub fn g_date_valid_month(month: GDateMonth): i32
-    @symbol("g_date_valid_weekday") @lib pub fn g_date_valid_weekday(weekday: GDateWeekday): i32
-    @symbol("g_hash_table_add") @lib pub fn g_hash_table_add(hash_table: *void, key: *void): i32
-    @symbol("g_hash_table_contains") @lib pub fn g_hash_table_contains(hash_table: *void, key: *void): i32
-    @symbol("g_hash_table_destroy") @lib pub fn g_hash_table_destroy(hash_table: *void)
-    @symbol("g_hash_table_get_keys") @lib pub fn g_hash_table_get_keys(hash_table: *void): *void
-    @symbol("g_hash_table_get_keys_as_ptr_array") @lib pub fn g_hash_table_get_keys_as_ptr_array(hash_table: *void): *void
-    @symbol("g_hash_table_get_values") @lib pub fn g_hash_table_get_values(hash_table: *void): *void
-    @symbol("g_hash_table_get_values_as_ptr_array") @lib pub fn g_hash_table_get_values_as_ptr_array(hash_table: *void): *void
-    @symbol("g_hash_table_insert") @lib pub fn g_hash_table_insert(hash_table: *void, key: *void, value: *void): i32
-    @symbol("g_hash_table_lookup") @lib pub fn g_hash_table_lookup(hash_table: *void, key: *void): *void
-    @symbol("g_hash_table_new_similar") @lib pub fn g_hash_table_new_similar(other_hash_table: *void): *void
-    @symbol("g_hash_table_ref") @lib pub fn g_hash_table_ref(hash_table: *void): *void
-    @symbol("g_hash_table_remove") @lib pub fn g_hash_table_remove(hash_table: *void, key: *void): i32
-    @symbol("g_hash_table_remove_all") @lib pub fn g_hash_table_remove_all(hash_table: *void)
-    @symbol("g_hash_table_replace") @lib pub fn g_hash_table_replace(hash_table: *void, key: *void, value: *void): i32
-    @symbol("g_hash_table_size") @lib pub fn g_hash_table_size(hash_table: *void): u32
-    @symbol("g_hash_table_steal") @lib pub fn g_hash_table_steal(hash_table: *void, key: *void): i32
-    @symbol("g_hash_table_steal_all") @lib pub fn g_hash_table_steal_all(hash_table: *void)
-    @symbol("g_hash_table_steal_all_keys") @lib pub fn g_hash_table_steal_all_keys(hash_table: *void): *void
-    @symbol("g_hash_table_steal_all_values") @lib pub fn g_hash_table_steal_all_values(hash_table: *void): *void
-    @symbol("g_hash_table_unref") @lib pub fn g_hash_table_unref(hash_table: *void)
-    @symbol("g_hook_alloc") @lib pub fn g_hook_alloc(hook_list: GHookList): GHook
-    @symbol("g_hook_destroy") @lib pub fn g_hook_destroy(hook_list: GHookList, hook_id: u64): i32
-    @symbol("g_hook_destroy_link") @lib pub fn g_hook_destroy_link(hook_list: GHookList, hook: GHook)
-    @symbol("g_hook_find_data") @lib pub fn g_hook_find_data(hook_list: GHookList, need_valids: i32, data: *void): GHook
-    @symbol("g_hook_find_func") @lib pub fn g_hook_find_func(hook_list: GHookList, need_valids: i32, func: *void): GHook
-    @symbol("g_hook_find_func_data") @lib pub fn g_hook_find_func_data(hook_list: GHookList, need_valids: i32, func: *void, data: *void): GHook
-    @symbol("g_hook_first_valid") @lib pub fn g_hook_first_valid(hook_list: GHookList, may_be_in_call: i32): GHook
-    @symbol("g_hook_free") @lib pub fn g_hook_free(hook_list: GHookList, hook: GHook)
-    @symbol("g_hook_get") @lib pub fn g_hook_get(hook_list: GHookList, hook_id: u64): GHook
-    @symbol("g_hook_insert_before") @lib pub fn g_hook_insert_before(hook_list: GHookList, sibling: GHook, hook: GHook)
-    @symbol("g_hook_next_valid") @lib pub fn g_hook_next_valid(hook_list: GHookList, hook: GHook, may_be_in_call: i32): GHook
-    @symbol("g_hook_prepend") @lib pub fn g_hook_prepend(hook_list: GHookList, hook: GHook)
-    @symbol("g_hook_ref") @lib pub fn g_hook_ref(hook_list: GHookList, hook: GHook): GHook
-    @symbol("g_hook_unref") @lib pub fn g_hook_unref(hook_list: GHookList, hook: GHook)
-    @symbol("g_iconv_open") @lib pub fn g_iconv_open(to_codeset: *const char, from_codeset: *const char): GIConv
-    @symbol("g_io_channel_error_from_errno") @lib pub fn g_io_channel_error_from_errno(en: i32): GIOChannelError
-    @symbol("g_list_alloc") @lib pub fn g_list_alloc(): *void
-    @symbol("g_list_append") @lib pub fn g_list_append(list: *void, data: *void): *void
-    @symbol("g_list_concat") @lib pub fn g_list_concat(list1: *void, list2: *void): *void
-    @symbol("g_list_copy") @lib pub fn g_list_copy(list: *void): *void
-    @symbol("g_list_delete_link") @lib pub fn g_list_delete_link(list: *void, link_: *void): *void
-    @symbol("g_list_find") @lib pub fn g_list_find(list: *void, data: *void): *void
-    @symbol("g_list_first") @lib pub fn g_list_first(list: *void): *void
-    @symbol("g_list_free") @lib pub fn g_list_free(list: *void)
-    @symbol("g_list_free_1") @lib pub fn g_list_free_1(list: *void)
-    @symbol("g_list_index") @lib pub fn g_list_index(list: *void, data: *void): i32
-    @symbol("g_list_insert") @lib pub fn g_list_insert(list: *void, data: *void, position: i32): *void
-    @symbol("g_list_insert_before") @lib pub fn g_list_insert_before(list: *void, sibling: *void, data: *void): *void
-    @symbol("g_list_insert_before_link") @lib pub fn g_list_insert_before_link(list: *void, sibling: *void, link_: *void): *void
-    @symbol("g_list_last") @lib pub fn g_list_last(list: *void): *void
-    @symbol("g_list_length") @lib pub fn g_list_length(list: *void): u32
-    @symbol("g_list_nth") @lib pub fn g_list_nth(list: *void, n: u32): *void
-    @symbol("g_list_nth_data") @lib pub fn g_list_nth_data(list: *void, n: u32): *void
-    @symbol("g_list_nth_prev") @lib pub fn g_list_nth_prev(list: *void, n: u32): *void
-    @symbol("g_list_position") @lib pub fn g_list_position(list: *void, llink: *void): i32
-    @symbol("g_list_prepend") @lib pub fn g_list_prepend(list: *void, data: *void): *void
-    @symbol("g_list_remove") @lib pub fn g_list_remove(list: *void, data: *void): *void
-    @symbol("g_list_remove_all") @lib pub fn g_list_remove_all(list: *void, data: *void): *void
-    @symbol("g_list_remove_link") @lib pub fn g_list_remove_link(list: *void, llink: *void): *void
-    @symbol("g_list_reverse") @lib pub fn g_list_reverse(list: *void): *void
-    @symbol("g_main_context_default") @lib pub fn g_main_context_default(): GMainContext
-    @symbol("g_main_context_get_thread_default") @lib pub fn g_main_context_get_thread_default(): GMainContext
-    @symbol("g_main_context_ref_thread_default") @lib pub fn g_main_context_ref_thread_default(): GMainContext
-    @symbol("g_node_new") @lib pub fn g_node_new(data: *void): GNode
-    @symbol("g_once_init_enter_impl") @lib pub fn g_once_init_enter_impl(location: u64): i32
-    @symbol("g_once_init_enter_pointer") @lib pub fn g_once_init_enter_pointer(location: *void): i32
-    @symbol("g_once_init_leave_pointer") @lib pub fn g_once_init_leave_pointer(location: *void, result: *void)
-    @symbol("g_option_context_new") @lib pub fn g_option_context_new(parameter_string: *const char): GOptionContext
-    @symbol("g_path_buf_equal") @lib pub fn g_path_buf_equal(v1: *void, v2: *void): i32
-    @symbol("g_path_buf_new") @lib pub fn g_path_buf_new(): GPathBuf
-    @symbol("g_path_buf_new_from_path") @lib pub fn g_path_buf_new_from_path(path: *const char): GPathBuf
-    @symbol("g_ptr_array_add") @lib pub fn g_ptr_array_add(array: *void, data: *void)
-    @symbol("g_ptr_array_extend_and_steal") @lib pub fn g_ptr_array_extend_and_steal(array_to_extend: *void, array: *void)
-    @symbol("g_ptr_array_free") @lib pub fn g_ptr_array_free(array: *void, free_segment: i32): *void
-    @symbol("g_ptr_array_insert") @lib pub fn g_ptr_array_insert(array: *void, index_: i32, data: *void)
-    @symbol("g_ptr_array_is_null_terminated") @lib pub fn g_ptr_array_is_null_terminated(array: *void): i32
-    @symbol("g_ptr_array_new") @lib pub fn g_ptr_array_new(): *void
-    @symbol("g_ptr_array_ref") @lib pub fn g_ptr_array_ref(array: *void): *void
-    @symbol("g_ptr_array_remove") @lib pub fn g_ptr_array_remove(array: *void, data: *void): i32
-    @symbol("g_ptr_array_remove_fast") @lib pub fn g_ptr_array_remove_fast(array: *void, data: *void): i32
-    @symbol("g_ptr_array_remove_index") @lib pub fn g_ptr_array_remove_index(array: *void, index_: u32): *void
-    @symbol("g_ptr_array_remove_index_fast") @lib pub fn g_ptr_array_remove_index_fast(array: *void, index_: u32): *void
-    @symbol("g_ptr_array_remove_range") @lib pub fn g_ptr_array_remove_range(array: *void, index_: u32, length: u32): *void
-    @symbol("g_ptr_array_set_size") @lib pub fn g_ptr_array_set_size(array: *void, length: i32)
-    @symbol("g_ptr_array_sized_new") @lib pub fn g_ptr_array_sized_new(reserved_size: u32): *void
-    @symbol("g_ptr_array_steal_index") @lib pub fn g_ptr_array_steal_index(array: *void, index_: u32): *void
-    @symbol("g_ptr_array_steal_index_fast") @lib pub fn g_ptr_array_steal_index_fast(array: *void, index_: u32): *void
-    @symbol("g_ptr_array_unref") @lib pub fn g_ptr_array_unref(array: *void)
-    @symbol("g_queue_new") @lib pub fn g_queue_new(): GQueue
-    @symbol("g_regex_escape_nul") @lib pub fn g_regex_escape_nul(string: *const char, length: i32): *const char
-    @symbol("g_regex_escape_string") @lib pub fn g_regex_escape_string(string: *const char, length: i32): *const char
-    @symbol("g_regex_match_simple") @lib pub fn g_regex_match_simple(pattern: *const char, string: *const char, compile_options: GRegexCompileFlags, match_options: GRegexMatchFlags): i32
-    @symbol("g_regex_split_simple") @lib pub fn g_regex_split_simple(pattern: *const char, string: *const char, compile_options: GRegexCompileFlags, match_options: GRegexMatchFlags): *const char
-    @symbol("g_slist_alloc") @lib pub fn g_slist_alloc(): *void
-    @symbol("g_slist_append") @lib pub fn g_slist_append(list: *void, data: *void): *void
-    @symbol("g_slist_concat") @lib pub fn g_slist_concat(list1: *void, list2: *void): *void
-    @symbol("g_slist_copy") @lib pub fn g_slist_copy(list: *void): *void
-    @symbol("g_slist_delete_link") @lib pub fn g_slist_delete_link(list: *void, link_: *void): *void
-    @symbol("g_slist_find") @lib pub fn g_slist_find(list: *void, data: *void): *void
-    @symbol("g_slist_free") @lib pub fn g_slist_free(list: *void)
-    @symbol("g_slist_free_1") @lib pub fn g_slist_free_1(list: *void)
-    @symbol("g_slist_index") @lib pub fn g_slist_index(list: *void, data: *void): i32
-    @symbol("g_slist_insert") @lib pub fn g_slist_insert(list: *void, data: *void, position: i32): *void
-    @symbol("g_slist_insert_before") @lib pub fn g_slist_insert_before(slist: *void, sibling: *void, data: *void): *void
-    @symbol("g_slist_last") @lib pub fn g_slist_last(list: *void): *void
-    @symbol("g_slist_length") @lib pub fn g_slist_length(list: *void): u32
-    @symbol("g_slist_nth") @lib pub fn g_slist_nth(list: *void, n: u32): *void
-    @symbol("g_slist_nth_data") @lib pub fn g_slist_nth_data(list: *void, n: u32): *void
-    @symbol("g_slist_position") @lib pub fn g_slist_position(list: *void, llink: *void): i32
-    @symbol("g_slist_prepend") @lib pub fn g_slist_prepend(list: *void, data: *void): *void
-    @symbol("g_slist_remove") @lib pub fn g_slist_remove(list: *void, data: *void): *void
-    @symbol("g_slist_remove_all") @lib pub fn g_slist_remove_all(list: *void, data: *void): *void
-    @symbol("g_slist_remove_link") @lib pub fn g_slist_remove_link(list: *void, link_: *void): *void
-    @symbol("g_slist_reverse") @lib pub fn g_slist_reverse(list: *void): *void
-    @symbol("g_scanner_new") @lib pub fn g_scanner_new(config_templ: GScannerConfig): GScanner
-    @symbol("g_sequence_get") @lib pub fn g_sequence_get(iter: GSequenceIter): *void
-    @symbol("g_sequence_insert_before") @lib pub fn g_sequence_insert_before(iter: GSequenceIter, data: *void): GSequenceIter
-    @symbol("g_sequence_move") @lib pub fn g_sequence_move(src: GSequenceIter, dest: GSequenceIter)
-    @symbol("g_sequence_move_range") @lib pub fn g_sequence_move_range(dest: GSequenceIter, begin: GSequenceIter, end: GSequenceIter)
-    @symbol("g_sequence_range_get_midpoint") @lib pub fn g_sequence_range_get_midpoint(begin: GSequenceIter, end: GSequenceIter): GSequenceIter
-    @symbol("g_sequence_remove") @lib pub fn g_sequence_remove(iter: GSequenceIter)
-    @symbol("g_sequence_remove_range") @lib pub fn g_sequence_remove_range(begin: GSequenceIter, end: GSequenceIter)
-    @symbol("g_sequence_set") @lib pub fn g_sequence_set(iter: GSequenceIter, data: *void)
-    @symbol("g_sequence_swap") @lib pub fn g_sequence_swap(a: GSequenceIter, b: GSequenceIter)
-    @symbol("g_source_remove") @lib pub fn g_source_remove(tag: u32): i32
-    @symbol("g_source_remove_by_funcs_user_data") @lib pub fn g_source_remove_by_funcs_user_data(funcs: GSourceFuncs, user_data: *void): i32
-    @symbol("g_source_remove_by_user_data") @lib pub fn g_source_remove_by_user_data(user_data: *void): i32
-    @symbol("g_source_set_name_by_id") @lib pub fn g_source_set_name_by_id(tag: u32, name: *const char)
-    @symbol("g_string_chunk_new") @lib pub fn g_string_chunk_new(size: u64): GStringChunk
-    @symbol("g_test_log_buffer_new") @lib pub fn g_test_log_buffer_new(): GTestLogBuffer
-    @symbol("g_thread_exit") @lib pub fn g_thread_exit(retval: *void)
-    @symbol("g_thread_get_initialized") @lib pub fn g_thread_get_initialized(): i32
-    @symbol("g_thread_init_with_errorcheck_mutexes") @lib pub fn g_thread_init_with_errorcheck_mutexes(vtable: *void)
-    @symbol("g_thread_self") @lib pub fn g_thread_self(): GThread
-    @symbol("g_thread_yield") @lib pub fn g_thread_yield()
-    @symbol("g_thread_pool_get_max_idle_time") @lib pub fn g_thread_pool_get_max_idle_time(): u32
-    @symbol("g_thread_pool_get_max_unused_threads") @lib pub fn g_thread_pool_get_max_unused_threads(): i32
-    @symbol("g_thread_pool_get_num_unused_threads") @lib pub fn g_thread_pool_get_num_unused_threads(): u32
-    @symbol("g_thread_pool_set_max_idle_time") @lib pub fn g_thread_pool_set_max_idle_time(interval: u32)
-    @symbol("g_thread_pool_set_max_unused_threads") @lib pub fn g_thread_pool_set_max_unused_threads(max_threads: i32)
-    @symbol("g_thread_pool_stop_unused_threads") @lib pub fn g_thread_pool_stop_unused_threads()
-    @symbol("g_timer_new") @lib pub fn g_timer_new(): GTimer
-    @symbol("g_unicode_script_from_iso15924") @lib pub fn g_unicode_script_from_iso15924(iso15924: u32): GUnicodeScript
-    @symbol("g_unicode_script_to_iso15924") @lib pub fn g_unicode_script_to_iso15924(script: GUnicodeScript): u32
-    @symbol("g_uri_build") @lib pub fn g_uri_build(flags: GUriFlags, scheme: *const char, userinfo: *const char, host: *const char, port: i32, path: *const char, query: *const char, fragment: *const char): GUri
-    @symbol("g_uri_build_with_user") @lib pub fn g_uri_build_with_user(flags: GUriFlags, scheme: *const char, user: *const char, password: *const char, auth_params: *const char, host: *const char, port: i32, path: *const char, query: *const char, fragment: *const char): GUri
-    @symbol("g_uri_escape_bytes") @lib pub fn g_uri_escape_bytes(unescaped: u8, length: u64, reserved_chars_allowed: *const char): *const char
-    @symbol("g_uri_escape_string") @lib pub fn g_uri_escape_string(unescaped: *const char, reserved_chars_allowed: *const char, allow_utf8: i32): *const char
-    @symbol("g_uri_join") @lib pub fn g_uri_join(flags: GUriFlags, scheme: *const char, userinfo: *const char, host: *const char, port: i32, path: *const char, query: *const char, fragment: *const char): *const char
-    @symbol("g_uri_join_with_user") @lib pub fn g_uri_join_with_user(flags: GUriFlags, scheme: *const char, user: *const char, password: *const char, auth_params: *const char, host: *const char, port: i32, path: *const char, query: *const char, fragment: *const char): *const char
-    @symbol("g_uri_list_extract_uris") @lib pub fn g_uri_list_extract_uris(uri_list: *const char): *const char
-    @symbol("g_uri_parse_scheme") @lib pub fn g_uri_parse_scheme(uri: *const char): *const char
-    @symbol("g_uri_peek_scheme") @lib pub fn g_uri_peek_scheme(uri: *const char): *const char
-    @symbol("g_uri_unescape_segment") @lib pub fn g_uri_unescape_segment(escaped_string: *const char, escaped_string_end: *const char, illegal_characters: *const char): *const char
-    @symbol("g_uri_unescape_string") @lib pub fn g_uri_unescape_string(escaped_string: *const char, illegal_characters: *const char): *const char
-    @symbol("g_variant_is_object_path") @lib pub fn g_variant_is_object_path(string: *const char): i32
-    @symbol("g_variant_is_signature") @lib pub fn g_variant_is_signature(string: *const char): i32
-    @symbol("g_variant_parse_error_print_context") @lib pub fn g_variant_parse_error_print_context(error: GError, source_str: *const char): *const char
-    @symbol("g_variant_type_checked_") @lib pub fn g_variant_type_checked_(type_string: *const char): GVariantType
-    @symbol("g_variant_type_string_get_depth_") @lib pub fn g_variant_type_string_get_depth_(type_string: *const char): u64
-    @symbol("g_variant_type_string_is_valid") @lib pub fn g_variant_type_string_is_valid(type_string: *const char): i32
-    @symbol("g_access") @lib pub fn g_access(filename: *const char, mode: i32): i32
-    @symbol("g_aligned_alloc") @lib pub fn g_aligned_alloc(n_blocks: u64, n_block_bytes: u64, alignment: u64): *void
-    @symbol("g_aligned_alloc0") @lib pub fn g_aligned_alloc0(n_blocks: u64, n_block_bytes: u64, alignment: u64): *void
-    @symbol("g_aligned_free") @lib pub fn g_aligned_free(mem: *void)
-    @symbol("g_aligned_free_sized") @lib pub fn g_aligned_free_sized(mem: *void, alignment: u64, size: u64)
-    @symbol("g_ascii_digit_value") @lib pub fn g_ascii_digit_value(c: i8): i32
-    @symbol("g_ascii_dtostr") @lib pub fn g_ascii_dtostr(buffer: *const char, buf_len: i32, d: f64): *const char
-    @symbol("g_ascii_formatd") @lib pub fn g_ascii_formatd(buffer: *const char, buf_len: i32, format: *const char, d: f64): *const char
-    @symbol("g_ascii_strcasecmp") @lib pub fn g_ascii_strcasecmp(s1: *const char, s2: *const char): i32
-    @symbol("g_ascii_strdown") @lib pub fn g_ascii_strdown(str: *const char, len: i64): *const char
-    @symbol("g_ascii_strncasecmp") @lib pub fn g_ascii_strncasecmp(s1: *const char, s2: *const char, n: u64): i32
-    @symbol("g_ascii_strup") @lib pub fn g_ascii_strup(str: *const char, len: i64): *const char
-    @symbol("g_ascii_tolower") @lib pub fn g_ascii_tolower(c: i8): i8
-    @symbol("g_ascii_toupper") @lib pub fn g_ascii_toupper(c: i8): i8
-    @symbol("g_ascii_xdigit_value") @lib pub fn g_ascii_xdigit_value(c: i8): i32
-    @symbol("g_assert_warning") @lib pub fn g_assert_warning(log_domain: *const char, file: *const char, line: i32, pretty_function: *const char, expression: *const char)
-    @symbol("g_assertion_message") @lib pub fn g_assertion_message(domain: *const char, file: *const char, line: i32, func: *const char, message: *const char)
-    @symbol("g_assertion_message_cmpint") @lib pub fn g_assertion_message_cmpint(domain: *const char, file: *const char, line: i32, func: *const char, expr: *const char, arg1: u64, cmp: *const char, arg2: u64, numtype: i8)
-    @symbol("g_assertion_message_cmpstr") @lib pub fn g_assertion_message_cmpstr(domain: *const char, file: *const char, line: i32, func: *const char, expr: *const char, arg1: *const char, cmp: *const char, arg2: *const char)
-    @symbol("g_assertion_message_cmpstrv") @lib pub fn g_assertion_message_cmpstrv(domain: *const char, file: *const char, line: i32, func: *const char, expr: *const char, arg1: *const char, arg2: *const char, first_wrong_idx: u64)
-    @symbol("g_assertion_message_expr") @lib pub fn g_assertion_message_expr(domain: *const char, file: *const char, line: i32, func: *const char, expr: *const char)
-    @symbol("g_atomic_int_add") @lib pub fn g_atomic_int_add(atomic: *void, val: i32): i32
-    @symbol("g_atomic_int_and") @lib pub fn g_atomic_int_and(atomic: *void, val: u32): u32
-    @symbol("g_atomic_int_compare_and_exchange") @lib pub fn g_atomic_int_compare_and_exchange(atomic: *void, oldval: i32, newval: i32): i32
-    @symbol("g_atomic_int_dec_and_test") @lib pub fn g_atomic_int_dec_and_test(atomic: *void): i32
-    @symbol("g_atomic_int_exchange") @lib pub fn g_atomic_int_exchange(atomic: *void, newval: i32): i32
-    @symbol("g_atomic_int_get") @lib pub fn g_atomic_int_get(atomic: *void): i32
-    @symbol("g_atomic_int_inc") @lib pub fn g_atomic_int_inc(atomic: *void)
-    @symbol("g_atomic_int_or") @lib pub fn g_atomic_int_or(atomic: *void, val: u32): u32
-    @symbol("g_atomic_int_set") @lib pub fn g_atomic_int_set(atomic: *void, newval: i32)
-    @symbol("g_atomic_int_xor") @lib pub fn g_atomic_int_xor(atomic: *void, val: u32): u32
-    @symbol("g_atomic_pointer_compare_and_exchange") @lib pub fn g_atomic_pointer_compare_and_exchange(atomic: *void, oldval: *void, newval: *void): i32
-    @symbol("g_atomic_pointer_exchange") @lib pub fn g_atomic_pointer_exchange(atomic: *void, newval: *void): *void
-    @symbol("g_atomic_pointer_get") @lib pub fn g_atomic_pointer_get(atomic: *void): *void
-    @symbol("g_atomic_pointer_set") @lib pub fn g_atomic_pointer_set(atomic: *void, newval: *void)
-    @symbol("g_atomic_rc_box_acquire") @lib pub fn g_atomic_rc_box_acquire(mem_block: *void): *void
-    @symbol("g_atomic_rc_box_alloc") @lib pub fn g_atomic_rc_box_alloc(block_size: u64): *void
-    @symbol("g_atomic_rc_box_alloc0") @lib pub fn g_atomic_rc_box_alloc0(block_size: u64): *void
-    @symbol("g_atomic_rc_box_dup") @lib pub fn g_atomic_rc_box_dup(block_size: u64, mem_block: *void): *void
-    @symbol("g_atomic_rc_box_get_size") @lib pub fn g_atomic_rc_box_get_size(mem_block: *void): u64
-    @symbol("g_atomic_rc_box_release") @lib pub fn g_atomic_rc_box_release(mem_block: *void)
-    @symbol("g_atomic_ref_count_compare") @lib pub fn g_atomic_ref_count_compare(arc: i32, val: i32): i32
-    @symbol("g_atomic_ref_count_dec") @lib pub fn g_atomic_ref_count_dec(arc: i32): i32
-    @symbol("g_atomic_ref_count_inc") @lib pub fn g_atomic_ref_count_inc(arc: i32)
-    @symbol("g_base64_encode") @lib pub fn g_base64_encode(data: u8, len: u64): *const char
-    @symbol("g_bit_lock") @lib pub fn g_bit_lock(address: *void, lock_bit: i32)
-    @symbol("g_bit_nth_lsf") @lib pub fn g_bit_nth_lsf(mask: u64, nth_bit: i32): i32
-    @symbol("g_bit_nth_msf") @lib pub fn g_bit_nth_msf(mask: u64, nth_bit: i32): i32
-    @symbol("g_bit_storage") @lib pub fn g_bit_storage(number: u64): u32
-    @symbol("g_bit_trylock") @lib pub fn g_bit_trylock(address: *void, lock_bit: i32): i32
-    @symbol("g_bit_unlock") @lib pub fn g_bit_unlock(address: *void, lock_bit: i32)
-    @symbol("g_bit_unlock_and_set") @lib pub fn g_bit_unlock_and_set(address: *void, lock_bit: u32, new_val: i32, preserve_mask: i32)
-    @symbol("g_build_filenamev") @lib pub fn g_build_filenamev(args: *const char): *const char
-    @symbol("g_build_pathv") @lib pub fn g_build_pathv(separator: *const char, args: *const char): *const char
-    @symbol("g_canonicalize_filename") @lib pub fn g_canonicalize_filename(filename: *const char, relative_to: *const char): *const char
-    @symbol("g_chdir") @lib pub fn g_chdir(path: *const char): i32
-    @symbol("glib_check_version") @lib pub fn glib_check_version(required_major: u32, required_minor: u32, required_micro: u32): *const char
-    @symbol("g_chmod") @lib pub fn g_chmod(filename: *const char, mode: i32): i32
-    @symbol("g_compute_checksum_for_bytes") @lib pub fn g_compute_checksum_for_bytes(checksum_type: GChecksumType, data: GBytes): *const char
-    @symbol("g_compute_checksum_for_data") @lib pub fn g_compute_checksum_for_data(checksum_type: GChecksumType, data: u8, length: u64): *const char
-    @symbol("g_compute_checksum_for_string") @lib pub fn g_compute_checksum_for_string(checksum_type: GChecksumType, str: *const char, length: i64): *const char
-    @symbol("g_compute_hmac_for_bytes") @lib pub fn g_compute_hmac_for_bytes(digest_type: GChecksumType, key: GBytes, data: GBytes): *const char
-    @symbol("g_compute_hmac_for_data") @lib pub fn g_compute_hmac_for_data(digest_type: GChecksumType, key: u8, key_len: u64, data: u8, length: u64): *const char
-    @symbol("g_compute_hmac_for_string") @lib pub fn g_compute_hmac_for_string(digest_type: GChecksumType, key: u8, key_len: u64, str: *const char, length: i64): *const char
-    @symbol("g_creat") @lib pub fn g_creat(filename: *const char, mode: i32): i32
-    @symbol("g_datalist_clear") @lib pub fn g_datalist_clear(datalist: GData)
-    @symbol("g_datalist_get_data") @lib pub fn g_datalist_get_data(datalist: GData, key: *const char): *void
-    @symbol("g_datalist_get_flags") @lib pub fn g_datalist_get_flags(datalist: GData): u32
-    @symbol("g_datalist_init") @lib pub fn g_datalist_init(datalist: GData)
-    @symbol("g_datalist_set_flags") @lib pub fn g_datalist_set_flags(datalist: GData, flags: u32)
-    @symbol("g_datalist_unset_flags") @lib pub fn g_datalist_unset_flags(datalist: GData, flags: u32)
-    @symbol("g_dataset_destroy") @lib pub fn g_dataset_destroy(dataset_location: *void)
-    @symbol("g_dcgettext") @lib pub fn g_dcgettext(domain: *const char, msgid: *const char, category: i32): *const char
-    @symbol("g_dgettext") @lib pub fn g_dgettext(domain: *const char, msgid: *const char): *const char
-    @symbol("g_direct_equal") @lib pub fn g_direct_equal(v1: *void, v2: *void): i32
-    @symbol("g_direct_hash") @lib pub fn g_direct_hash(v: *void): u32
-    @symbol("g_dngettext") @lib pub fn g_dngettext(domain: *const char, msgid: *const char, msgid_plural: *const char, n: u64): *const char
-    @symbol("g_double_equal") @lib pub fn g_double_equal(v1: *void, v2: *void): i32
-    @symbol("g_double_hash") @lib pub fn g_double_hash(v: *void): u32
-    @symbol("g_dpgettext") @lib pub fn g_dpgettext(domain: *const char, msgctxtid: *const char, msgidoffset: u64): *const char
-    @symbol("g_dpgettext2") @lib pub fn g_dpgettext2(domain: *const char, context: *const char, msgid: *const char): *const char
-    @symbol("g_environ_getenv") @lib pub fn g_environ_getenv(envp: *const char, variable: *const char): *const char
-    @symbol("g_environ_setenv") @lib pub fn g_environ_setenv(envp: *const char, variable: *const char, value: *const char, overwrite: i32): *const char
-    @symbol("g_environ_unsetenv") @lib pub fn g_environ_unsetenv(envp: *const char, variable: *const char): *const char
-    @symbol("g_file_error_from_errno") @lib pub fn g_file_error_from_errno(err_no: i32): GFileError
-    @symbol("g_file_test") @lib pub fn g_file_test(filename: *const char, test: GFileTest): i32
-    @symbol("g_filename_display_basename") @lib pub fn g_filename_display_basename(filename: *const char): *const char
-    @symbol("g_filename_display_name") @lib pub fn g_filename_display_name(filename: *const char): *const char
-    @symbol("g_find_program_in_path") @lib pub fn g_find_program_in_path(program: *const char): *const char
-    @symbol("g_fopen") @lib pub fn g_fopen(filename: *const char, mode: *const char): *void
-    @symbol("g_format_size") @lib pub fn g_format_size(size: u64): *const char
-    @symbol("g_format_size_full") @lib pub fn g_format_size_full(size: u64, flags: GFormatSizeFlags): *const char
-    @symbol("g_free") @lib pub fn g_free(mem: *void)
-    @symbol("g_free_sized") @lib pub fn g_free_sized(mem: *void, size: u64)
-    @symbol("g_freopen") @lib pub fn g_freopen(filename: *const char, mode: *const char, stream: *void): *void
-    @symbol("g_fsync") @lib pub fn g_fsync(fd: i32): i32
-    @symbol("g_get_application_name") @lib pub fn g_get_application_name(): *const char
-    @symbol("g_get_codeset") @lib pub fn g_get_codeset(): *const char
-    @symbol("g_get_current_dir") @lib pub fn g_get_current_dir(): *const char
-    @symbol("g_get_environ") @lib pub fn g_get_environ(): *const char
-    @symbol("g_get_home_dir") @lib pub fn g_get_home_dir(): *const char
-    @symbol("g_get_host_name") @lib pub fn g_get_host_name(): *const char
-    @symbol("g_get_language_names") @lib pub fn g_get_language_names(): *const char
-    @symbol("g_get_language_names_with_category") @lib pub fn g_get_language_names_with_category(category_name: *const char): *const char
-    @symbol("g_get_locale_variants") @lib pub fn g_get_locale_variants(locale: *const char): *const char
-    @symbol("g_get_monotonic_time") @lib pub fn g_get_monotonic_time(): i64
-    @symbol("g_get_monotonic_time_ns") @lib pub fn g_get_monotonic_time_ns(): u64
-    @symbol("g_get_num_processors") @lib pub fn g_get_num_processors(): u32
-    @symbol("g_get_os_info") @lib pub fn g_get_os_info(key_name: *const char): *const char
-    @symbol("g_get_prgname") @lib pub fn g_get_prgname(): *const char
-    @symbol("g_get_real_name") @lib pub fn g_get_real_name(): *const char
-    @symbol("g_get_real_time") @lib pub fn g_get_real_time(): i64
-    @symbol("g_get_system_config_dirs") @lib pub fn g_get_system_config_dirs(): *const char
-    @symbol("g_get_system_data_dirs") @lib pub fn g_get_system_data_dirs(): *const char
-    @symbol("g_get_tmp_dir") @lib pub fn g_get_tmp_dir(): *const char
-    @symbol("g_get_user_cache_dir") @lib pub fn g_get_user_cache_dir(): *const char
-    @symbol("g_get_user_config_dir") @lib pub fn g_get_user_config_dir(): *const char
-    @symbol("g_get_user_data_dir") @lib pub fn g_get_user_data_dir(): *const char
-    @symbol("g_get_user_name") @lib pub fn g_get_user_name(): *const char
-    @symbol("g_get_user_runtime_dir") @lib pub fn g_get_user_runtime_dir(): *const char
-    @symbol("g_get_user_special_dir") @lib pub fn g_get_user_special_dir(directory: GUserDirectory): *const char
-    @symbol("g_get_user_state_dir") @lib pub fn g_get_user_state_dir(): *const char
-    @symbol("g_getenv") @lib pub fn g_getenv(variable: *const char): *const char
-    @symbol("g_hostname_is_ascii_encoded") @lib pub fn g_hostname_is_ascii_encoded(hostname: *const char): i32
-    @symbol("g_hostname_is_ip_address") @lib pub fn g_hostname_is_ip_address(hostname: *const char): i32
-    @symbol("g_hostname_is_non_ascii") @lib pub fn g_hostname_is_non_ascii(hostname: *const char): i32
-    @symbol("g_hostname_to_ascii") @lib pub fn g_hostname_to_ascii(hostname: *const char): *const char
-    @symbol("g_hostname_to_unicode") @lib pub fn g_hostname_to_unicode(hostname: *const char): *const char
-    @symbol("g_idle_remove_by_data") @lib pub fn g_idle_remove_by_data(data: *void): i32
-    @symbol("g_idle_source_new") @lib pub fn g_idle_source_new(): GSource
-    @symbol("g_int64_equal") @lib pub fn g_int64_equal(v1: *void, v2: *void): i32
-    @symbol("g_int64_hash") @lib pub fn g_int64_hash(v: *void): u32
-    @symbol("g_int_equal") @lib pub fn g_int_equal(v1: *void, v2: *void): i32
-    @symbol("g_int_hash") @lib pub fn g_int_hash(v: *void): u32
-    @symbol("g_intern_static_string") @lib pub fn g_intern_static_string(string: *const char): *const char
-    @symbol("g_intern_string") @lib pub fn g_intern_string(string: *const char): *const char
-    @symbol("g_io_create_watch") @lib pub fn g_io_create_watch(channel: GIOChannel, condition: GIOCondition): GSource
-    @symbol("g_listenv") @lib pub fn g_listenv(): *const char
-    @symbol("g_log_default_handler") @lib pub fn g_log_default_handler(log_domain: *const char, log_level: GLogLevelFlags, message: *const char, unused_data: *void)
-    @symbol("g_log_get_always_fatal") @lib pub fn g_log_get_always_fatal(): GLogLevelFlags
-    @symbol("g_log_get_debug_enabled") @lib pub fn g_log_get_debug_enabled(): i32
-    @symbol("g_log_remove_handler") @lib pub fn g_log_remove_handler(log_domain: *const char, handler_id: u32)
-    @symbol("g_log_set_always_fatal") @lib pub fn g_log_set_always_fatal(fatal_mask: GLogLevelFlags): GLogLevelFlags
-    @symbol("g_log_set_debug_enabled") @lib pub fn g_log_set_debug_enabled(enabled: i32)
-    @symbol("g_log_set_fatal_mask") @lib pub fn g_log_set_fatal_mask(log_domain: *const char, fatal_mask: GLogLevelFlags): GLogLevelFlags
-    @symbol("g_log_structured_array") @lib pub fn g_log_structured_array(log_level: GLogLevelFlags, fields: GLogField, n_fields: u64)
-    @symbol("g_log_variant") @lib pub fn g_log_variant(log_domain: *const char, log_level: GLogLevelFlags, fields: GVariant)
-    @symbol("g_log_writer_default") @lib pub fn g_log_writer_default(log_level: GLogLevelFlags, fields: GLogField, n_fields: u64, user_data: *void): GLogWriterOutput
-    @symbol("g_log_writer_default_set_debug_domains") @lib pub fn g_log_writer_default_set_debug_domains(domains: *const char)
-    @symbol("g_log_writer_default_set_use_stderr") @lib pub fn g_log_writer_default_set_use_stderr(use_stderr: i32)
-    @symbol("g_log_writer_default_would_drop") @lib pub fn g_log_writer_default_would_drop(log_level: GLogLevelFlags, log_domain: *const char): i32
-    @symbol("g_log_writer_format_fields") @lib pub fn g_log_writer_format_fields(log_level: GLogLevelFlags, fields: GLogField, n_fields: u64, use_color: i32): *const char
-    @symbol("g_log_writer_is_journald") @lib pub fn g_log_writer_is_journald(output_fd: i32): i32
-    @symbol("g_log_writer_journald") @lib pub fn g_log_writer_journald(log_level: GLogLevelFlags, fields: GLogField, n_fields: u64, user_data: *void): GLogWriterOutput
-    @symbol("g_log_writer_standard_streams") @lib pub fn g_log_writer_standard_streams(log_level: GLogLevelFlags, fields: GLogField, n_fields: u64, user_data: *void): GLogWriterOutput
-    @symbol("g_log_writer_supports_color") @lib pub fn g_log_writer_supports_color(output_fd: i32): i32
-    @symbol("g_log_writer_syslog") @lib pub fn g_log_writer_syslog(log_level: GLogLevelFlags, fields: GLogField, n_fields: u64, user_data: *void): GLogWriterOutput
-    @symbol("g_lstat") @lib pub fn g_lstat(filename: *const char, buf: GStatBuf): i32
-    @symbol("g_main_current_source") @lib pub fn g_main_current_source(): GSource
-    @symbol("g_main_depth") @lib pub fn g_main_depth(): i32
-    @symbol("g_malloc") @lib pub fn g_malloc(n_bytes: u64): *void
-    @symbol("g_malloc0") @lib pub fn g_malloc0(n_bytes: u64): *void
-    @symbol("g_malloc0_n") @lib pub fn g_malloc0_n(n_blocks: u64, n_block_bytes: u64): *void
-    @symbol("g_malloc_n") @lib pub fn g_malloc_n(n_blocks: u64, n_block_bytes: u64): *void
-    @symbol("g_markup_escape_text") @lib pub fn g_markup_escape_text(text: *const char, length: i64): *const char
-    @symbol("g_memdup2") @lib pub fn g_memdup2(mem: *void, byte_size: u64): *void
-    @symbol("g_mkdir") @lib pub fn g_mkdir(filename: *const char, mode: i32): i32
-    @symbol("g_mkdir_with_parents") @lib pub fn g_mkdir_with_parents(pathname: *const char, mode: i32): i32
-    @symbol("g_mkdtemp") @lib pub fn g_mkdtemp(tmpl: *const char): *const char
-    @symbol("g_mkdtemp_full") @lib pub fn g_mkdtemp_full(tmpl: *const char, mode: i32): *const char
-    @symbol("g_mkstemp") @lib pub fn g_mkstemp(tmpl: *const char): i32
-    @symbol("g_mkstemp_full") @lib pub fn g_mkstemp_full(tmpl: *const char, flags: i32, mode: i32): i32
-    @symbol("g_nullify_pointer") @lib pub fn g_nullify_pointer(nullify_location: *void)
-    @symbol("g_on_error_query") @lib pub fn g_on_error_query(prg_name: *const char)
-    @symbol("g_on_error_stack_trace") @lib pub fn g_on_error_stack_trace(prg_name: *const char)
-    @symbol("g_open") @lib pub fn g_open(filename: *const char, flags: i32, mode: i32): i32
-    @symbol("g_parse_debug_string") @lib pub fn g_parse_debug_string(string: *const char, keys: GDebugKey, nkeys: u32): u32
-    @symbol("g_path_get_basename") @lib pub fn g_path_get_basename(file_name: *const char): *const char
-    @symbol("g_path_get_dirname") @lib pub fn g_path_get_dirname(file_name: *const char): *const char
-    @symbol("g_path_is_absolute") @lib pub fn g_path_is_absolute(file_name: *const char): i32
-    @symbol("g_path_skip_root") @lib pub fn g_path_skip_root(file_name: *const char): *const char
-    @symbol("g_pattern_match_simple") @lib pub fn g_pattern_match_simple(pattern: *const char, string: *const char): i32
-    @symbol("g_pointer_bit_lock") @lib pub fn g_pointer_bit_lock(address: *void, lock_bit: i32)
-    @symbol("g_pointer_bit_trylock") @lib pub fn g_pointer_bit_trylock(address: *void, lock_bit: i32): i32
-    @symbol("g_pointer_bit_unlock") @lib pub fn g_pointer_bit_unlock(address: *void, lock_bit: i32)
-    @symbol("g_poll") @lib pub fn g_poll(fds: GPollFD, nfds: u32, timeout: i32): i32
-    @symbol("g_random_double") @lib pub fn g_random_double(): f64
-    @symbol("g_random_double_range") @lib pub fn g_random_double_range(begin: f64, end: f64): f64
-    @symbol("g_random_int") @lib pub fn g_random_int(): u32
-    @symbol("g_random_int_range") @lib pub fn g_random_int_range(begin: i32, end: i32): i32
-    @symbol("g_random_set_seed") @lib pub fn g_random_set_seed(seed: u32)
-    @symbol("g_rc_box_acquire") @lib pub fn g_rc_box_acquire(mem_block: *void): *void
-    @symbol("g_rc_box_alloc") @lib pub fn g_rc_box_alloc(block_size: u64): *void
-    @symbol("g_rc_box_alloc0") @lib pub fn g_rc_box_alloc0(block_size: u64): *void
-    @symbol("g_rc_box_dup") @lib pub fn g_rc_box_dup(block_size: u64, mem_block: *void): *void
-    @symbol("g_rc_box_get_size") @lib pub fn g_rc_box_get_size(mem_block: *void): u64
-    @symbol("g_rc_box_release") @lib pub fn g_rc_box_release(mem_block: *void)
-    @symbol("g_realloc") @lib pub fn g_realloc(mem: *void, n_bytes: u64): *void
-    @symbol("g_realloc_n") @lib pub fn g_realloc_n(mem: *void, n_blocks: u64, n_block_bytes: u64): *void
-    @symbol("g_ref_count_compare") @lib pub fn g_ref_count_compare(rc: i32, val: i32): i32
-    @symbol("g_ref_string_acquire") @lib pub fn g_ref_string_acquire(str: *const char): *const char
-    @symbol("g_ref_string_equal") @lib pub fn g_ref_string_equal(str1: *const char, str2: *const char): i32
-    @symbol("g_ref_string_length") @lib pub fn g_ref_string_length(str: *const char): u64
-    @symbol("g_ref_string_new") @lib pub fn g_ref_string_new(str: *const char): *const char
-    @symbol("g_ref_string_new_intern") @lib pub fn g_ref_string_new_intern(str: *const char): *const char
-    @symbol("g_ref_string_new_len") @lib pub fn g_ref_string_new_len(str: *const char, len: i64): *const char
-    @symbol("g_ref_string_release") @lib pub fn g_ref_string_release(str: *const char)
-    @symbol("g_reload_user_special_dirs_cache") @lib pub fn g_reload_user_special_dirs_cache()
-    @symbol("g_remove") @lib pub fn g_remove(filename: *const char): i32
-    @symbol("g_rename") @lib pub fn g_rename(oldfilename: *const char, newfilename: *const char): i32
-    @symbol("g_return_if_fail_warning") @lib pub fn g_return_if_fail_warning(log_domain: *const char, pretty_function: *const char, expression: *const char)
-    @symbol("g_rmdir") @lib pub fn g_rmdir(filename: *const char): i32
-    @symbol("g_set_application_name") @lib pub fn g_set_application_name(application_name: *const char)
-    @symbol("g_set_prgname") @lib pub fn g_set_prgname(prgname: *const char)
-    @symbol("g_setenv") @lib pub fn g_setenv(variable: *const char, value: *const char, overwrite: i32): i32
-    @symbol("g_shell_quote") @lib pub fn g_shell_quote(unquoted_string: *const char): *const char
-    @symbol("g_slice_alloc") @lib pub fn g_slice_alloc(block_size: u64): *void
-    @symbol("g_slice_alloc0") @lib pub fn g_slice_alloc0(block_size: u64): *void
-    @symbol("g_slice_copy") @lib pub fn g_slice_copy(block_size: u64, mem_block: *void): *void
-    @symbol("g_slice_free1") @lib pub fn g_slice_free1(block_size: u64, mem_block: *void)
-    @symbol("g_slice_free_chain_with_offset") @lib pub fn g_slice_free_chain_with_offset(block_size: u64, mem_chain: *void, next_offset: u64)
-    @symbol("g_slice_get_config") @lib pub fn g_slice_get_config(ckey: GSliceConfig): i64
-    @symbol("g_slice_get_config_state") @lib pub fn g_slice_get_config_state(ckey: GSliceConfig, address: i64, n_values: u32): i64
-    @symbol("g_slice_set_config") @lib pub fn g_slice_set_config(ckey: GSliceConfig, value: i64)
-    @symbol("g_spaced_primes_closest") @lib pub fn g_spaced_primes_closest(num: u32): u32
-    @symbol("g_stat") @lib pub fn g_stat(filename: *const char, buf: GStatBuf): i32
-    @symbol("g_stpcpy") @lib pub fn g_stpcpy(dest: *const char, src: *const char): *const char
-    @symbol("g_str_equal") @lib pub fn g_str_equal(v1: *void, v2: *void): i32
-    @symbol("g_str_has_prefix") @lib pub fn g_str_has_prefix(str: *const char, prefix: *const char): i32
-    @symbol("g_str_has_suffix") @lib pub fn g_str_has_suffix(str: *const char, suffix: *const char): i32
-    @symbol("g_str_hash") @lib pub fn g_str_hash(v: *void): u32
-    @symbol("g_str_is_ascii") @lib pub fn g_str_is_ascii(str: *const char): i32
-    @symbol("g_str_match_string") @lib pub fn g_str_match_string(search_term: *const char, potential_hit: *const char, accept_alternates: i32): i32
-    @symbol("g_str_to_ascii") @lib pub fn g_str_to_ascii(str: *const char, from_locale: *const char): *const char
-    @symbol("g_strcanon") @lib pub fn g_strcanon(string: *const char, valid_chars: *const char, substitutor: i8): *const char
-    @symbol("g_strchomp") @lib pub fn g_strchomp(string: *const char): *const char
-    @symbol("g_strchug") @lib pub fn g_strchug(string: *const char): *const char
-    @symbol("g_strcmp0") @lib pub fn g_strcmp0(str1: *const char, str2: *const char): i32
-    @symbol("g_strcompress") @lib pub fn g_strcompress(source: *const char): *const char
-    @symbol("g_strdelimit") @lib pub fn g_strdelimit(string: *const char, delimiters: *const char, new_delimiter: i8): *const char
-    @symbol("g_strdup") @lib pub fn g_strdup(str: *const char): *const char
-    @symbol("g_strdupv") @lib pub fn g_strdupv(str_array: *const char): *const char
-    @symbol("g_strerror") @lib pub fn g_strerror(errnum: i32): *const char
-    @symbol("g_strescape") @lib pub fn g_strescape(source: *const char, exceptions: *const char): *const char
-    @symbol("g_strfreev") @lib pub fn g_strfreev(str_array: *const char)
-    @symbol("g_strip_context") @lib pub fn g_strip_context(msgid: *const char, msgval: *const char): *const char
-    @symbol("g_strjoinv") @lib pub fn g_strjoinv(separator: *const char, str_array: *const char): *const char
-    @symbol("g_strlcat") @lib pub fn g_strlcat(dest: *const char, src: *const char, dest_size: u64): u64
-    @symbol("g_strlcpy") @lib pub fn g_strlcpy(dest: *const char, src: *const char, dest_size: u64): u64
-    @symbol("g_strndup") @lib pub fn g_strndup(str: *const char, n: u64): *const char
-    @symbol("g_strnfill") @lib pub fn g_strnfill(length: u64, fill_char: i8): *const char
-    @symbol("g_strreverse") @lib pub fn g_strreverse(string: *const char): *const char
-    @symbol("g_strrstr") @lib pub fn g_strrstr(haystack: *const char, needle: *const char): *const char
-    @symbol("g_strrstr_len") @lib pub fn g_strrstr_len(haystack: *const char, haystack_len: i64, needle: *const char): *const char
-    @symbol("g_strsignal") @lib pub fn g_strsignal(signum: i32): *const char
-    @symbol("g_strsplit") @lib pub fn g_strsplit(string: *const char, delimiter: *const char, max_tokens: i32): *const char
-    @symbol("g_strsplit_set") @lib pub fn g_strsplit_set(string: *const char, delimiters: u8, max_tokens: i32): *const char
-    @symbol("g_strstr_len") @lib pub fn g_strstr_len(haystack: *const char, haystack_len: i64, needle: *const char): *const char
-    @symbol("g_strv_contains") @lib pub fn g_strv_contains(strv: *const char, str: *const char): i32
-    @symbol("g_strv_equal") @lib pub fn g_strv_equal(strv1: *const char, strv2: *const char): i32
-    @symbol("g_strv_get_type") @lib pub fn g_strv_get_type(): u64
-    @symbol("g_strv_length") @lib pub fn g_strv_length(str_array: *const char): u32
-    @symbol("g_test_assert_expected_messages_internal") @lib pub fn g_test_assert_expected_messages_internal(domain: *const char, file: *const char, line: i32, func: *const char)
-    @symbol("g_test_bug") @lib pub fn g_test_bug(bug_uri_snippet: *const char)
-    @symbol("g_test_bug_base") @lib pub fn g_test_bug_base(uri_pattern: *const char)
-    @symbol("g_test_create_suite") @lib pub fn g_test_create_suite(suite_name: *const char): GTestSuite
-    @symbol("g_test_disable_crash_reporting") @lib pub fn g_test_disable_crash_reporting()
-    @symbol("g_test_expect_message") @lib pub fn g_test_expect_message(log_domain: *const char, log_level: GLogLevelFlags, pattern: *const char)
-    @symbol("g_test_fail") @lib pub fn g_test_fail()
-    @symbol("g_test_failed") @lib pub fn g_test_failed(): i32
-    @symbol("g_test_get_dir") @lib pub fn g_test_get_dir(file_type: GTestFileType): *const char
-    @symbol("g_test_get_path") @lib pub fn g_test_get_path(): *const char
-    @symbol("g_test_get_root") @lib pub fn g_test_get_root(): GTestSuite
-    @symbol("g_test_incomplete") @lib pub fn g_test_incomplete(msg: *const char)
-    @symbol("g_test_log_type_name") @lib pub fn g_test_log_type_name(log_type: GTestLogType): *const char
-    @symbol("g_test_queue_free") @lib pub fn g_test_queue_free(gfree_pointer: *void)
-    @symbol("g_test_rand_double") @lib pub fn g_test_rand_double(): f64
-    @symbol("g_test_rand_double_range") @lib pub fn g_test_rand_double_range(range_start: f64, range_end: f64): f64
-    @symbol("g_test_rand_int") @lib pub fn g_test_rand_int(): i32
-    @symbol("g_test_rand_int_range") @lib pub fn g_test_rand_int_range(begin: i32, end: i32): i32
-    @symbol("g_test_run") @lib pub fn g_test_run(): i32
-    @symbol("g_test_run_suite") @lib pub fn g_test_run_suite(suite: GTestSuite): i32
-    @symbol("g_test_set_nonfatal_assertions") @lib pub fn g_test_set_nonfatal_assertions()
-    @symbol("g_test_skip") @lib pub fn g_test_skip(msg: *const char)
-    @symbol("g_test_subprocess") @lib pub fn g_test_subprocess(): i32
-    @symbol("g_test_summary") @lib pub fn g_test_summary(summary: *const char)
-    @symbol("g_test_timer_elapsed") @lib pub fn g_test_timer_elapsed(): f64
-    @symbol("g_test_timer_last") @lib pub fn g_test_timer_last(): f64
-    @symbol("g_test_timer_start") @lib pub fn g_test_timer_start()
-    @symbol("g_test_trap_assertions") @lib pub fn g_test_trap_assertions(domain: *const char, file: *const char, line: i32, func: *const char, assertion_flags: u64, pattern: *const char)
-    @symbol("g_test_trap_has_passed") @lib pub fn g_test_trap_has_passed(): i32
-    @symbol("g_test_trap_has_skipped") @lib pub fn g_test_trap_has_skipped(): i32
-    @symbol("g_test_trap_reached_timeout") @lib pub fn g_test_trap_reached_timeout(): i32
-    @symbol("g_test_trap_subprocess") @lib pub fn g_test_trap_subprocess(test_path: *const char, usec_timeout: u64, test_flags: GTestSubprocessFlags)
-    @symbol("g_test_trap_subprocess_with_envp") @lib pub fn g_test_trap_subprocess_with_envp(test_path: *const char, envp: *const char, usec_timeout: u64, test_flags: GTestSubprocessFlags)
-    @symbol("g_timeout_source_new") @lib pub fn g_timeout_source_new(interval: u32): GSource
-    @symbol("g_timeout_source_new_seconds") @lib pub fn g_timeout_source_new_seconds(interval: u32): GSource
-    @symbol("g_try_malloc") @lib pub fn g_try_malloc(n_bytes: u64): *void
-    @symbol("g_try_malloc0") @lib pub fn g_try_malloc0(n_bytes: u64): *void
-    @symbol("g_try_malloc0_n") @lib pub fn g_try_malloc0_n(n_blocks: u64, n_block_bytes: u64): *void
-    @symbol("g_try_malloc_n") @lib pub fn g_try_malloc_n(n_blocks: u64, n_block_bytes: u64): *void
-    @symbol("g_try_realloc") @lib pub fn g_try_realloc(mem: *void, n_bytes: u64): *void
-    @symbol("g_try_realloc_n") @lib pub fn g_try_realloc_n(mem: *void, n_blocks: u64, n_block_bytes: u64): *void
-    @symbol("g_unlink") @lib pub fn g_unlink(filename: *const char): i32
-    @symbol("g_unsetenv") @lib pub fn g_unsetenv(variable: *const char)
-    @symbol("g_usleep") @lib pub fn g_usleep(microseconds: u64)
-    @symbol("g_utf8_casefold") @lib pub fn g_utf8_casefold(str: *const char, len: i64): *const char
-    @symbol("g_utf8_collate") @lib pub fn g_utf8_collate(str1: *const char, str2: *const char): i32
-    @symbol("g_utf8_collate_key") @lib pub fn g_utf8_collate_key(str: *const char, len: i64): *const char
-    @symbol("g_utf8_collate_key_for_filename") @lib pub fn g_utf8_collate_key_for_filename(str: *const char, len: i64): *const char
-    @symbol("g_utf8_find_next_char") @lib pub fn g_utf8_find_next_char(p: *const char, end: *const char): *const char
-    @symbol("g_utf8_find_prev_char") @lib pub fn g_utf8_find_prev_char(str: *const char, p: *const char): *const char
-    @symbol("g_utf8_make_valid") @lib pub fn g_utf8_make_valid(str: *const char, len: i64): *const char
-    @symbol("g_utf8_normalize") @lib pub fn g_utf8_normalize(str: *const char, len: i64, mode: GNormalizeMode): *const char
-    @symbol("g_utf8_offset_to_pointer") @lib pub fn g_utf8_offset_to_pointer(str: *const char, offset: i64): *const char
-    @symbol("g_utf8_pointer_to_offset") @lib pub fn g_utf8_pointer_to_offset(str: *const char, pos: *const char): i64
-    @symbol("g_utf8_prev_char") @lib pub fn g_utf8_prev_char(p: *const char): *const char
-    @symbol("g_utf8_strdown") @lib pub fn g_utf8_strdown(str: *const char, len: i64): *const char
-    @symbol("g_utf8_strlen") @lib pub fn g_utf8_strlen(p: *const char, max: i64): i64
-    @symbol("g_utf8_strncpy") @lib pub fn g_utf8_strncpy(dest: *const char, src: *const char, n: u64): *const char
-    @symbol("g_utf8_strreverse") @lib pub fn g_utf8_strreverse(str: *const char, len: i64): *const char
-    @symbol("g_utf8_strup") @lib pub fn g_utf8_strup(str: *const char, len: i64): *const char
-    @symbol("g_utf8_substring") @lib pub fn g_utf8_substring(str: *const char, start_pos: i64, end_pos: i64): *const char
-    @symbol("g_utf8_truncate_middle") @lib pub fn g_utf8_truncate_middle(string: *const char, truncate_length: u64): *const char
-    @symbol("g_utime") @lib pub fn g_utime(filename: *const char, utb: *void): i32
-    @symbol("g_uuid_string_is_valid") @lib pub fn g_uuid_string_is_valid(str: *const char): i32
-    @symbol("g_uuid_string_random") @lib pub fn g_uuid_string_random(): *const char
-    @symbol("g_variant_get_gtype") @lib pub fn g_variant_get_gtype(): u64
-    @symbol("g_warn_message") @lib pub fn g_warn_message(domain: *const char, file: *const char, line: i32, func: *const char, warnexpr: *const char)
+    @lib pub fn g_array_append_vals(array: *void, data: *void, len: u32): *void
+    @lib pub fn g_array_copy(array: *void): *void
+    @lib pub fn g_array_free(array: *void, free_segment: i32): *const char
+    @lib pub fn g_array_get_element_size(array: *void): u32
+    @lib pub fn g_array_insert_vals(array: *void, index_: u32, data: *void, len: u32): *void
+    @lib pub fn g_array_new(zero_terminated: i32, clear_: i32, element_size: u32): *void
+    @lib pub fn g_array_new_take(data: *void, len: u64, clear: i32, element_size: u64): *void
+    @lib pub fn g_array_new_take_zero_terminated(data: *void, clear: i32, element_size: u64): *void
+    @lib pub fn g_array_prepend_vals(array: *void, data: *void, len: u32): *void
+    @lib pub fn g_array_ref(array: *void): *void
+    @lib pub fn g_array_remove_index(array: *void, index_: u32): *void
+    @lib pub fn g_array_remove_index_fast(array: *void, index_: u32): *void
+    @lib pub fn g_array_remove_range(array: *void, index_: u32, length: u32): *void
+    @lib pub fn g_array_set_size(array: *void, length: u32): *void
+    @lib pub fn g_array_sized_new(zero_terminated: i32, clear_: i32, element_size: u32, reserved_size: u32): *void
+    @lib pub fn g_array_unref(array: *void)
+    @lib pub fn g_async_queue_new(): GAsyncQueue
+    @lib pub fn g_byte_array_append(array: u8, data: u8, len: u32): u8
+    @lib pub fn g_byte_array_free(array: u8, free_segment: i32): u8
+    @lib pub fn g_byte_array_free_to_bytes(array: u8): GBytes
+    @lib pub fn g_byte_array_new(): u8
+    @lib pub fn g_byte_array_new_take(data: u8, len: u64): u8
+    @lib pub fn g_byte_array_prepend(array: u8, data: u8, len: u32): u8
+    @lib pub fn g_byte_array_ref(array: u8): u8
+    @lib pub fn g_byte_array_remove_index(array: u8, index_: u32): u8
+    @lib pub fn g_byte_array_remove_index_fast(array: u8, index_: u32): u8
+    @lib pub fn g_byte_array_remove_range(array: u8, index_: u32, length: u32): u8
+    @lib pub fn g_byte_array_set_size(array: u8, length: u32): u8
+    @lib pub fn g_byte_array_sized_new(reserved_size: u32): u8
+    @lib pub fn g_byte_array_unref(array: u8)
+    @lib pub fn g_checksum_type_get_length(checksum_type: GChecksumType): i64
+    @lib pub fn g_date_strftime(s: *const char, slen: u64, format: *const char, date: GDate): u64
+    @lib pub fn g_date_valid_julian(julian_date: u32): i32
+    @lib pub fn g_date_valid_month(month: GDateMonth): i32
+    @lib pub fn g_date_valid_weekday(weekday: GDateWeekday): i32
+    @lib pub fn g_hash_table_add(hash_table: *void, key: *void): i32
+    @lib pub fn g_hash_table_contains(hash_table: *void, key: *void): i32
+    @lib pub fn g_hash_table_destroy(hash_table: *void)
+    @lib pub fn g_hash_table_get_keys(hash_table: *void): *void
+    @lib pub fn g_hash_table_get_keys_as_ptr_array(hash_table: *void): *void
+    @lib pub fn g_hash_table_get_values(hash_table: *void): *void
+    @lib pub fn g_hash_table_get_values_as_ptr_array(hash_table: *void): *void
+    @lib pub fn g_hash_table_insert(hash_table: *void, key: *void, value: *void): i32
+    @lib pub fn g_hash_table_lookup(hash_table: *void, key: *void): *void
+    @lib pub fn g_hash_table_new_similar(other_hash_table: *void): *void
+    @lib pub fn g_hash_table_ref(hash_table: *void): *void
+    @lib pub fn g_hash_table_remove(hash_table: *void, key: *void): i32
+    @lib pub fn g_hash_table_remove_all(hash_table: *void)
+    @lib pub fn g_hash_table_replace(hash_table: *void, key: *void, value: *void): i32
+    @lib pub fn g_hash_table_size(hash_table: *void): u32
+    @lib pub fn g_hash_table_steal(hash_table: *void, key: *void): i32
+    @lib pub fn g_hash_table_steal_all(hash_table: *void)
+    @lib pub fn g_hash_table_steal_all_keys(hash_table: *void): *void
+    @lib pub fn g_hash_table_steal_all_values(hash_table: *void): *void
+    @lib pub fn g_hash_table_unref(hash_table: *void)
+    @lib pub fn g_hook_alloc(hook_list: GHookList): GHook
+    @lib pub fn g_hook_destroy(hook_list: GHookList, hook_id: u64): i32
+    @lib pub fn g_hook_destroy_link(hook_list: GHookList, hook: GHook)
+    @lib pub fn g_hook_find_data(hook_list: GHookList, need_valids: i32, data: *void): GHook
+    @lib pub fn g_hook_find_func(hook_list: GHookList, need_valids: i32, func: *void): GHook
+    @lib pub fn g_hook_find_func_data(hook_list: GHookList, need_valids: i32, func: *void, data: *void): GHook
+    @lib pub fn g_hook_first_valid(hook_list: GHookList, may_be_in_call: i32): GHook
+    @lib pub fn g_hook_free(hook_list: GHookList, hook: GHook)
+    @lib pub fn g_hook_get(hook_list: GHookList, hook_id: u64): GHook
+    @lib pub fn g_hook_insert_before(hook_list: GHookList, sibling: GHook, hook: GHook)
+    @lib pub fn g_hook_next_valid(hook_list: GHookList, hook: GHook, may_be_in_call: i32): GHook
+    @lib pub fn g_hook_prepend(hook_list: GHookList, hook: GHook)
+    @lib pub fn g_hook_ref(hook_list: GHookList, hook: GHook): GHook
+    @lib pub fn g_hook_unref(hook_list: GHookList, hook: GHook)
+    @lib pub fn g_iconv_open(to_codeset: *const char, from_codeset: *const char): GIConv
+    @lib pub fn g_io_channel_error_from_errno(en: i32): GIOChannelError
+    @lib pub fn g_list_alloc(): *void
+    @lib pub fn g_list_append(list: *void, data: *void): *void
+    @lib pub fn g_list_concat(list1: *void, list2: *void): *void
+    @lib pub fn g_list_copy(list: *void): *void
+    @lib pub fn g_list_delete_link(list: *void, link_: *void): *void
+    @lib pub fn g_list_find(list: *void, data: *void): *void
+    @lib pub fn g_list_first(list: *void): *void
+    @lib pub fn g_list_free(list: *void)
+    @lib pub fn g_list_free_1(list: *void)
+    @lib pub fn g_list_index(list: *void, data: *void): i32
+    @lib pub fn g_list_insert(list: *void, data: *void, position: i32): *void
+    @lib pub fn g_list_insert_before(list: *void, sibling: *void, data: *void): *void
+    @lib pub fn g_list_insert_before_link(list: *void, sibling: *void, link_: *void): *void
+    @lib pub fn g_list_last(list: *void): *void
+    @lib pub fn g_list_length(list: *void): u32
+    @lib pub fn g_list_nth(list: *void, n: u32): *void
+    @lib pub fn g_list_nth_data(list: *void, n: u32): *void
+    @lib pub fn g_list_nth_prev(list: *void, n: u32): *void
+    @lib pub fn g_list_position(list: *void, llink: *void): i32
+    @lib pub fn g_list_prepend(list: *void, data: *void): *void
+    @lib pub fn g_list_remove(list: *void, data: *void): *void
+    @lib pub fn g_list_remove_all(list: *void, data: *void): *void
+    @lib pub fn g_list_remove_link(list: *void, llink: *void): *void
+    @lib pub fn g_list_reverse(list: *void): *void
+    @lib pub fn g_main_context_default(): GMainContext
+    @lib pub fn g_main_context_get_thread_default(): GMainContext
+    @lib pub fn g_main_context_ref_thread_default(): GMainContext
+    @lib pub fn g_node_new(data: *void): GNode
+    @lib pub fn g_once_init_enter_impl(location: u64): i32
+    @lib pub fn g_once_init_enter_pointer(location: *void): i32
+    @lib pub fn g_once_init_leave_pointer(location: *void, result: *void)
+    @lib pub fn g_option_context_new(parameter_string: *const char): GOptionContext
+    @lib pub fn g_path_buf_equal(v1: *void, v2: *void): i32
+    @lib pub fn g_path_buf_new(): GPathBuf
+    @lib pub fn g_path_buf_new_from_path(path: *const char): GPathBuf
+    @lib pub fn g_ptr_array_add(array: *void, data: *void)
+    @lib pub fn g_ptr_array_extend_and_steal(array_to_extend: *void, array: *void)
+    @lib pub fn g_ptr_array_free(array: *void, free_segment: i32): *void
+    @lib pub fn g_ptr_array_insert(array: *void, index_: i32, data: *void)
+    @lib pub fn g_ptr_array_is_null_terminated(array: *void): i32
+    @lib pub fn g_ptr_array_new(): *void
+    @lib pub fn g_ptr_array_ref(array: *void): *void
+    @lib pub fn g_ptr_array_remove(array: *void, data: *void): i32
+    @lib pub fn g_ptr_array_remove_fast(array: *void, data: *void): i32
+    @lib pub fn g_ptr_array_remove_index(array: *void, index_: u32): *void
+    @lib pub fn g_ptr_array_remove_index_fast(array: *void, index_: u32): *void
+    @lib pub fn g_ptr_array_remove_range(array: *void, index_: u32, length: u32): *void
+    @lib pub fn g_ptr_array_set_size(array: *void, length: i32)
+    @lib pub fn g_ptr_array_sized_new(reserved_size: u32): *void
+    @lib pub fn g_ptr_array_steal_index(array: *void, index_: u32): *void
+    @lib pub fn g_ptr_array_steal_index_fast(array: *void, index_: u32): *void
+    @lib pub fn g_ptr_array_unref(array: *void)
+    @lib pub fn g_queue_new(): GQueue
+    @lib pub fn g_regex_escape_nul(string: *const char, length: i32): *const char
+    @lib pub fn g_regex_escape_string(string: *const char, length: i32): *const char
+    @lib pub fn g_regex_match_simple(pattern: *const char, string: *const char, compile_options: GRegexCompileFlags, match_options: GRegexMatchFlags): i32
+    @lib pub fn g_regex_split_simple(pattern: *const char, string: *const char, compile_options: GRegexCompileFlags, match_options: GRegexMatchFlags): *const char
+    @lib pub fn g_slist_alloc(): *void
+    @lib pub fn g_slist_append(list: *void, data: *void): *void
+    @lib pub fn g_slist_concat(list1: *void, list2: *void): *void
+    @lib pub fn g_slist_copy(list: *void): *void
+    @lib pub fn g_slist_delete_link(list: *void, link_: *void): *void
+    @lib pub fn g_slist_find(list: *void, data: *void): *void
+    @lib pub fn g_slist_free(list: *void)
+    @lib pub fn g_slist_free_1(list: *void)
+    @lib pub fn g_slist_index(list: *void, data: *void): i32
+    @lib pub fn g_slist_insert(list: *void, data: *void, position: i32): *void
+    @lib pub fn g_slist_insert_before(slist: *void, sibling: *void, data: *void): *void
+    @lib pub fn g_slist_last(list: *void): *void
+    @lib pub fn g_slist_length(list: *void): u32
+    @lib pub fn g_slist_nth(list: *void, n: u32): *void
+    @lib pub fn g_slist_nth_data(list: *void, n: u32): *void
+    @lib pub fn g_slist_position(list: *void, llink: *void): i32
+    @lib pub fn g_slist_prepend(list: *void, data: *void): *void
+    @lib pub fn g_slist_remove(list: *void, data: *void): *void
+    @lib pub fn g_slist_remove_all(list: *void, data: *void): *void
+    @lib pub fn g_slist_remove_link(list: *void, link_: *void): *void
+    @lib pub fn g_slist_reverse(list: *void): *void
+    @lib pub fn g_scanner_new(config_templ: GScannerConfig): GScanner
+    @lib pub fn g_sequence_get(iter: GSequenceIter): *void
+    @lib pub fn g_sequence_insert_before(iter: GSequenceIter, data: *void): GSequenceIter
+    @lib pub fn g_sequence_move(src: GSequenceIter, dest: GSequenceIter)
+    @lib pub fn g_sequence_move_range(dest: GSequenceIter, begin: GSequenceIter, end: GSequenceIter)
+    @lib pub fn g_sequence_range_get_midpoint(begin: GSequenceIter, end: GSequenceIter): GSequenceIter
+    @lib pub fn g_sequence_remove(iter: GSequenceIter)
+    @lib pub fn g_sequence_remove_range(begin: GSequenceIter, end: GSequenceIter)
+    @lib pub fn g_sequence_set(iter: GSequenceIter, data: *void)
+    @lib pub fn g_sequence_swap(a: GSequenceIter, b: GSequenceIter)
+    @lib pub fn g_source_remove(tag: u32): i32
+    @lib pub fn g_source_remove_by_funcs_user_data(funcs: GSourceFuncs, user_data: *void): i32
+    @lib pub fn g_source_remove_by_user_data(user_data: *void): i32
+    @lib pub fn g_source_set_name_by_id(tag: u32, name: *const char)
+    @lib pub fn g_string_chunk_new(size: u64): GStringChunk
+    @lib pub fn g_test_log_buffer_new(): GTestLogBuffer
+    @lib pub fn g_thread_exit(retval: *void)
+    @lib pub fn g_thread_get_initialized(): i32
+    @lib pub fn g_thread_init_with_errorcheck_mutexes(vtable: *void)
+    @lib pub fn g_thread_self(): GThread
+    @lib pub fn g_thread_yield()
+    @lib pub fn g_thread_pool_get_max_idle_time(): u32
+    @lib pub fn g_thread_pool_get_max_unused_threads(): i32
+    @lib pub fn g_thread_pool_get_num_unused_threads(): u32
+    @lib pub fn g_thread_pool_set_max_idle_time(interval: u32)
+    @lib pub fn g_thread_pool_set_max_unused_threads(max_threads: i32)
+    @lib pub fn g_thread_pool_stop_unused_threads()
+    @lib pub fn g_timer_new(): GTimer
+    @lib pub fn g_unicode_script_from_iso15924(iso15924: u32): GUnicodeScript
+    @lib pub fn g_unicode_script_to_iso15924(script: GUnicodeScript): u32
+    @lib pub fn g_uri_build(flags: GUriFlags, scheme: *const char, userinfo: *const char, host: *const char, port: i32, path: *const char, query: *const char, fragment: *const char): GUri
+    @lib pub fn g_uri_build_with_user(flags: GUriFlags, scheme: *const char, user: *const char, password: *const char, auth_params: *const char, host: *const char, port: i32, path: *const char, query: *const char, fragment: *const char): GUri
+    @lib pub fn g_uri_escape_bytes(unescaped: u8, length: u64, reserved_chars_allowed: *const char): *const char
+    @lib pub fn g_uri_escape_string(unescaped: *const char, reserved_chars_allowed: *const char, allow_utf8: i32): *const char
+    @lib pub fn g_uri_join(flags: GUriFlags, scheme: *const char, userinfo: *const char, host: *const char, port: i32, path: *const char, query: *const char, fragment: *const char): *const char
+    @lib pub fn g_uri_join_with_user(flags: GUriFlags, scheme: *const char, user: *const char, password: *const char, auth_params: *const char, host: *const char, port: i32, path: *const char, query: *const char, fragment: *const char): *const char
+    @lib pub fn g_uri_list_extract_uris(uri_list: *const char): *const char
+    @lib pub fn g_uri_parse_scheme(uri: *const char): *const char
+    @lib pub fn g_uri_peek_scheme(uri: *const char): *const char
+    @lib pub fn g_uri_unescape_segment(escaped_string: *const char, escaped_string_end: *const char, illegal_characters: *const char): *const char
+    @lib pub fn g_uri_unescape_string(escaped_string: *const char, illegal_characters: *const char): *const char
+    @lib pub fn g_variant_is_object_path(string: *const char): i32
+    @lib pub fn g_variant_is_signature(string: *const char): i32
+    @lib pub fn g_variant_parse_error_print_context(error: GError, source_str: *const char): *const char
+    @lib pub fn g_variant_type_checked_(type_string: *const char): GVariantType
+    @lib pub fn g_variant_type_string_get_depth_(type_string: *const char): u64
+    @lib pub fn g_variant_type_string_is_valid(type_string: *const char): i32
+    @lib pub fn g_access(filename: *const char, mode: i32): i32
+    @lib pub fn g_aligned_alloc(n_blocks: u64, n_block_bytes: u64, alignment: u64): *void
+    @lib pub fn g_aligned_alloc0(n_blocks: u64, n_block_bytes: u64, alignment: u64): *void
+    @lib pub fn g_aligned_free(mem: *void)
+    @lib pub fn g_aligned_free_sized(mem: *void, alignment: u64, size: u64)
+    @lib pub fn g_ascii_digit_value(c: i8): i32
+    @lib pub fn g_ascii_dtostr(buffer: *const char, buf_len: i32, d: f64): *const char
+    @lib pub fn g_ascii_formatd(buffer: *const char, buf_len: i32, format: *const char, d: f64): *const char
+    @lib pub fn g_ascii_strcasecmp(s1: *const char, s2: *const char): i32
+    @lib pub fn g_ascii_strdown(str: *const char, len: i64): *const char
+    @lib pub fn g_ascii_strncasecmp(s1: *const char, s2: *const char, n: u64): i32
+    @lib pub fn g_ascii_strup(str: *const char, len: i64): *const char
+    @lib pub fn g_ascii_tolower(c: i8): i8
+    @lib pub fn g_ascii_toupper(c: i8): i8
+    @lib pub fn g_ascii_xdigit_value(c: i8): i32
+    @lib pub fn g_assert_warning(log_domain: *const char, file: *const char, line: i32, pretty_function: *const char, expression: *const char)
+    @lib pub fn g_assertion_message(domain: *const char, file: *const char, line: i32, func: *const char, message: *const char)
+    @lib pub fn g_assertion_message_cmpint(domain: *const char, file: *const char, line: i32, func: *const char, expr: *const char, arg1: u64, cmp: *const char, arg2: u64, numtype: i8)
+    @lib pub fn g_assertion_message_cmpstr(domain: *const char, file: *const char, line: i32, func: *const char, expr: *const char, arg1: *const char, cmp: *const char, arg2: *const char)
+    @lib pub fn g_assertion_message_cmpstrv(domain: *const char, file: *const char, line: i32, func: *const char, expr: *const char, arg1: *const char, arg2: *const char, first_wrong_idx: u64)
+    @lib pub fn g_assertion_message_expr(domain: *const char, file: *const char, line: i32, func: *const char, expr: *const char)
+    @lib pub fn g_atomic_int_add(atomic: *void, val: i32): i32
+    @lib pub fn g_atomic_int_and(atomic: *void, val: u32): u32
+    @lib pub fn g_atomic_int_compare_and_exchange(atomic: *void, oldval: i32, newval: i32): i32
+    @lib pub fn g_atomic_int_dec_and_test(atomic: *void): i32
+    @lib pub fn g_atomic_int_exchange(atomic: *void, newval: i32): i32
+    @lib pub fn g_atomic_int_get(atomic: *void): i32
+    @lib pub fn g_atomic_int_inc(atomic: *void)
+    @lib pub fn g_atomic_int_or(atomic: *void, val: u32): u32
+    @lib pub fn g_atomic_int_set(atomic: *void, newval: i32)
+    @lib pub fn g_atomic_int_xor(atomic: *void, val: u32): u32
+    @lib pub fn g_atomic_pointer_compare_and_exchange(atomic: *void, oldval: *void, newval: *void): i32
+    @lib pub fn g_atomic_pointer_exchange(atomic: *void, newval: *void): *void
+    @lib pub fn g_atomic_pointer_get(atomic: *void): *void
+    @lib pub fn g_atomic_pointer_set(atomic: *void, newval: *void)
+    @lib pub fn g_atomic_rc_box_acquire(mem_block: *void): *void
+    @lib pub fn g_atomic_rc_box_alloc(block_size: u64): *void
+    @lib pub fn g_atomic_rc_box_alloc0(block_size: u64): *void
+    @lib pub fn g_atomic_rc_box_dup(block_size: u64, mem_block: *void): *void
+    @lib pub fn g_atomic_rc_box_get_size(mem_block: *void): u64
+    @lib pub fn g_atomic_rc_box_release(mem_block: *void)
+    @lib pub fn g_atomic_ref_count_compare(arc: i32, val: i32): i32
+    @lib pub fn g_atomic_ref_count_dec(arc: i32): i32
+    @lib pub fn g_atomic_ref_count_inc(arc: i32)
+    @lib pub fn g_base64_encode(data: u8, len: u64): *const char
+    @lib pub fn g_bit_lock(address: *void, lock_bit: i32)
+    @lib pub fn g_bit_nth_lsf(mask: u64, nth_bit: i32): i32
+    @lib pub fn g_bit_nth_msf(mask: u64, nth_bit: i32): i32
+    @lib pub fn g_bit_storage(number: u64): u32
+    @lib pub fn g_bit_trylock(address: *void, lock_bit: i32): i32
+    @lib pub fn g_bit_unlock(address: *void, lock_bit: i32)
+    @lib pub fn g_bit_unlock_and_set(address: *void, lock_bit: u32, new_val: i32, preserve_mask: i32)
+    @lib pub fn g_build_filenamev(args: *const char): *const char
+    @lib pub fn g_build_pathv(separator: *const char, args: *const char): *const char
+    @lib pub fn g_canonicalize_filename(filename: *const char, relative_to: *const char): *const char
+    @lib pub fn g_chdir(path: *const char): i32
+    @lib pub fn glib_check_version(required_major: u32, required_minor: u32, required_micro: u32): *const char
+    @lib pub fn g_chmod(filename: *const char, mode: i32): i32
+    @lib pub fn g_compute_checksum_for_bytes(checksum_type: GChecksumType, data: GBytes): *const char
+    @lib pub fn g_compute_checksum_for_data(checksum_type: GChecksumType, data: u8, length: u64): *const char
+    @lib pub fn g_compute_checksum_for_string(checksum_type: GChecksumType, str: *const char, length: i64): *const char
+    @lib pub fn g_compute_hmac_for_bytes(digest_type: GChecksumType, key: GBytes, data: GBytes): *const char
+    @lib pub fn g_compute_hmac_for_data(digest_type: GChecksumType, key: u8, key_len: u64, data: u8, length: u64): *const char
+    @lib pub fn g_compute_hmac_for_string(digest_type: GChecksumType, key: u8, key_len: u64, str: *const char, length: i64): *const char
+    @lib pub fn g_creat(filename: *const char, mode: i32): i32
+    @lib pub fn g_datalist_clear(datalist: GData)
+    @lib pub fn g_datalist_get_data(datalist: GData, key: *const char): *void
+    @lib pub fn g_datalist_get_flags(datalist: GData): u32
+    @lib pub fn g_datalist_init(datalist: GData)
+    @lib pub fn g_datalist_set_flags(datalist: GData, flags: u32)
+    @lib pub fn g_datalist_unset_flags(datalist: GData, flags: u32)
+    @lib pub fn g_dataset_destroy(dataset_location: *void)
+    @lib pub fn g_dcgettext(domain: *const char, msgid: *const char, category: i32): *const char
+    @lib pub fn g_dgettext(domain: *const char, msgid: *const char): *const char
+    @lib pub fn g_direct_equal(v1: *void, v2: *void): i32
+    @lib pub fn g_direct_hash(v: *void): u32
+    @lib pub fn g_dngettext(domain: *const char, msgid: *const char, msgid_plural: *const char, n: u64): *const char
+    @lib pub fn g_double_equal(v1: *void, v2: *void): i32
+    @lib pub fn g_double_hash(v: *void): u32
+    @lib pub fn g_dpgettext(domain: *const char, msgctxtid: *const char, msgidoffset: u64): *const char
+    @lib pub fn g_dpgettext2(domain: *const char, context: *const char, msgid: *const char): *const char
+    @lib pub fn g_environ_getenv(envp: *const char, variable: *const char): *const char
+    @lib pub fn g_environ_setenv(envp: *const char, variable: *const char, value: *const char, overwrite: i32): *const char
+    @lib pub fn g_environ_unsetenv(envp: *const char, variable: *const char): *const char
+    @lib pub fn g_file_error_from_errno(err_no: i32): GFileError
+    @lib pub fn g_file_test(filename: *const char, test: GFileTest): i32
+    @lib pub fn g_filename_display_basename(filename: *const char): *const char
+    @lib pub fn g_filename_display_name(filename: *const char): *const char
+    @lib pub fn g_find_program_in_path(program: *const char): *const char
+    @lib pub fn g_fopen(filename: *const char, mode: *const char): *void
+    @lib pub fn g_format_size(size: u64): *const char
+    @lib pub fn g_format_size_full(size: u64, flags: GFormatSizeFlags): *const char
+    @lib pub fn g_free(mem: *void)
+    @lib pub fn g_free_sized(mem: *void, size: u64)
+    @lib pub fn g_freopen(filename: *const char, mode: *const char, stream: *void): *void
+    @lib pub fn g_fsync(fd: i32): i32
+    @lib pub fn g_get_application_name(): *const char
+    @lib pub fn g_get_codeset(): *const char
+    @lib pub fn g_get_current_dir(): *const char
+    @lib pub fn g_get_environ(): *const char
+    @lib pub fn g_get_home_dir(): *const char
+    @lib pub fn g_get_host_name(): *const char
+    @lib pub fn g_get_language_names(): *const char
+    @lib pub fn g_get_language_names_with_category(category_name: *const char): *const char
+    @lib pub fn g_get_locale_variants(locale: *const char): *const char
+    @lib pub fn g_get_monotonic_time(): i64
+    @lib pub fn g_get_monotonic_time_ns(): u64
+    @lib pub fn g_get_num_processors(): u32
+    @lib pub fn g_get_os_info(key_name: *const char): *const char
+    @lib pub fn g_get_prgname(): *const char
+    @lib pub fn g_get_real_name(): *const char
+    @lib pub fn g_get_real_time(): i64
+    @lib pub fn g_get_system_config_dirs(): *const char
+    @lib pub fn g_get_system_data_dirs(): *const char
+    @lib pub fn g_get_tmp_dir(): *const char
+    @lib pub fn g_get_user_cache_dir(): *const char
+    @lib pub fn g_get_user_config_dir(): *const char
+    @lib pub fn g_get_user_data_dir(): *const char
+    @lib pub fn g_get_user_name(): *const char
+    @lib pub fn g_get_user_runtime_dir(): *const char
+    @lib pub fn g_get_user_special_dir(directory: GUserDirectory): *const char
+    @lib pub fn g_get_user_state_dir(): *const char
+    @lib pub fn g_getenv(variable: *const char): *const char
+    @lib pub fn g_hostname_is_ascii_encoded(hostname: *const char): i32
+    @lib pub fn g_hostname_is_ip_address(hostname: *const char): i32
+    @lib pub fn g_hostname_is_non_ascii(hostname: *const char): i32
+    @lib pub fn g_hostname_to_ascii(hostname: *const char): *const char
+    @lib pub fn g_hostname_to_unicode(hostname: *const char): *const char
+    @lib pub fn g_idle_remove_by_data(data: *void): i32
+    @lib pub fn g_idle_source_new(): GSource
+    @lib pub fn g_int64_equal(v1: *void, v2: *void): i32
+    @lib pub fn g_int64_hash(v: *void): u32
+    @lib pub fn g_int_equal(v1: *void, v2: *void): i32
+    @lib pub fn g_int_hash(v: *void): u32
+    @lib pub fn g_intern_static_string(string: *const char): *const char
+    @lib pub fn g_intern_string(string: *const char): *const char
+    @lib pub fn g_io_create_watch(channel: GIOChannel, condition: GIOCondition): GSource
+    @lib pub fn g_listenv(): *const char
+    @lib pub fn g_log_default_handler(log_domain: *const char, log_level: GLogLevelFlags, message: *const char, unused_data: *void)
+    @lib pub fn g_log_get_always_fatal(): GLogLevelFlags
+    @lib pub fn g_log_get_debug_enabled(): i32
+    @lib pub fn g_log_remove_handler(log_domain: *const char, handler_id: u32)
+    @lib pub fn g_log_set_always_fatal(fatal_mask: GLogLevelFlags): GLogLevelFlags
+    @lib pub fn g_log_set_debug_enabled(enabled: i32)
+    @lib pub fn g_log_set_fatal_mask(log_domain: *const char, fatal_mask: GLogLevelFlags): GLogLevelFlags
+    @lib pub fn g_log_structured_array(log_level: GLogLevelFlags, fields: GLogField, n_fields: u64)
+    @lib pub fn g_log_variant(log_domain: *const char, log_level: GLogLevelFlags, fields: GVariant)
+    @lib pub fn g_log_writer_default(log_level: GLogLevelFlags, fields: GLogField, n_fields: u64, user_data: *void): GLogWriterOutput
+    @lib pub fn g_log_writer_default_set_debug_domains(domains: *const char)
+    @lib pub fn g_log_writer_default_set_use_stderr(use_stderr: i32)
+    @lib pub fn g_log_writer_default_would_drop(log_level: GLogLevelFlags, log_domain: *const char): i32
+    @lib pub fn g_log_writer_format_fields(log_level: GLogLevelFlags, fields: GLogField, n_fields: u64, use_color: i32): *const char
+    @lib pub fn g_log_writer_is_journald(output_fd: i32): i32
+    @lib pub fn g_log_writer_journald(log_level: GLogLevelFlags, fields: GLogField, n_fields: u64, user_data: *void): GLogWriterOutput
+    @lib pub fn g_log_writer_standard_streams(log_level: GLogLevelFlags, fields: GLogField, n_fields: u64, user_data: *void): GLogWriterOutput
+    @lib pub fn g_log_writer_supports_color(output_fd: i32): i32
+    @lib pub fn g_log_writer_syslog(log_level: GLogLevelFlags, fields: GLogField, n_fields: u64, user_data: *void): GLogWriterOutput
+    @lib pub fn g_lstat(filename: *const char, buf: GStatBuf): i32
+    @lib pub fn g_main_current_source(): GSource
+    @lib pub fn g_main_depth(): i32
+    @lib pub fn g_malloc(n_bytes: u64): *void
+    @lib pub fn g_malloc0(n_bytes: u64): *void
+    @lib pub fn g_malloc0_n(n_blocks: u64, n_block_bytes: u64): *void
+    @lib pub fn g_malloc_n(n_blocks: u64, n_block_bytes: u64): *void
+    @lib pub fn g_markup_escape_text(text: *const char, length: i64): *const char
+    @lib pub fn g_memdup2(mem: *void, byte_size: u64): *void
+    @lib pub fn g_mkdir(filename: *const char, mode: i32): i32
+    @lib pub fn g_mkdir_with_parents(pathname: *const char, mode: i32): i32
+    @lib pub fn g_mkdtemp(tmpl: *const char): *const char
+    @lib pub fn g_mkdtemp_full(tmpl: *const char, mode: i32): *const char
+    @lib pub fn g_mkstemp(tmpl: *const char): i32
+    @lib pub fn g_mkstemp_full(tmpl: *const char, flags: i32, mode: i32): i32
+    @lib pub fn g_nullify_pointer(nullify_location: *void)
+    @lib pub fn g_on_error_query(prg_name: *const char)
+    @lib pub fn g_on_error_stack_trace(prg_name: *const char)
+    @lib pub fn g_open(filename: *const char, flags: i32, mode: i32): i32
+    @lib pub fn g_parse_debug_string(string: *const char, keys: GDebugKey, nkeys: u32): u32
+    @lib pub fn g_path_get_basename(file_name: *const char): *const char
+    @lib pub fn g_path_get_dirname(file_name: *const char): *const char
+    @lib pub fn g_path_is_absolute(file_name: *const char): i32
+    @lib pub fn g_path_skip_root(file_name: *const char): *const char
+    @lib pub fn g_pattern_match_simple(pattern: *const char, string: *const char): i32
+    @lib pub fn g_pointer_bit_lock(address: *void, lock_bit: i32)
+    @lib pub fn g_pointer_bit_trylock(address: *void, lock_bit: i32): i32
+    @lib pub fn g_pointer_bit_unlock(address: *void, lock_bit: i32)
+    @lib pub fn g_poll(fds: GPollFD, nfds: u32, timeout: i32): i32
+    @lib pub fn g_random_double(): f64
+    @lib pub fn g_random_double_range(begin: f64, end: f64): f64
+    @lib pub fn g_random_int(): u32
+    @lib pub fn g_random_int_range(begin: i32, end: i32): i32
+    @lib pub fn g_random_set_seed(seed: u32)
+    @lib pub fn g_rc_box_acquire(mem_block: *void): *void
+    @lib pub fn g_rc_box_alloc(block_size: u64): *void
+    @lib pub fn g_rc_box_alloc0(block_size: u64): *void
+    @lib pub fn g_rc_box_dup(block_size: u64, mem_block: *void): *void
+    @lib pub fn g_rc_box_get_size(mem_block: *void): u64
+    @lib pub fn g_rc_box_release(mem_block: *void)
+    @lib pub fn g_realloc(mem: *void, n_bytes: u64): *void
+    @lib pub fn g_realloc_n(mem: *void, n_blocks: u64, n_block_bytes: u64): *void
+    @lib pub fn g_ref_count_compare(rc: i32, val: i32): i32
+    @lib pub fn g_ref_string_acquire(str: *const char): *const char
+    @lib pub fn g_ref_string_equal(str1: *const char, str2: *const char): i32
+    @lib pub fn g_ref_string_length(str: *const char): u64
+    @lib pub fn g_ref_string_new(str: *const char): *const char
+    @lib pub fn g_ref_string_new_intern(str: *const char): *const char
+    @lib pub fn g_ref_string_new_len(str: *const char, len: i64): *const char
+    @lib pub fn g_ref_string_release(str: *const char)
+    @lib pub fn g_reload_user_special_dirs_cache()
+    @lib pub fn g_remove(filename: *const char): i32
+    @lib pub fn g_rename(oldfilename: *const char, newfilename: *const char): i32
+    @lib pub fn g_return_if_fail_warning(log_domain: *const char, pretty_function: *const char, expression: *const char)
+    @lib pub fn g_rmdir(filename: *const char): i32
+    @lib pub fn g_set_application_name(application_name: *const char)
+    @lib pub fn g_set_prgname(prgname: *const char)
+    @lib pub fn g_setenv(variable: *const char, value: *const char, overwrite: i32): i32
+    @lib pub fn g_shell_quote(unquoted_string: *const char): *const char
+    @lib pub fn g_slice_alloc(block_size: u64): *void
+    @lib pub fn g_slice_alloc0(block_size: u64): *void
+    @lib pub fn g_slice_copy(block_size: u64, mem_block: *void): *void
+    @lib pub fn g_slice_free1(block_size: u64, mem_block: *void)
+    @lib pub fn g_slice_free_chain_with_offset(block_size: u64, mem_chain: *void, next_offset: u64)
+    @lib pub fn g_slice_get_config(ckey: GSliceConfig): i64
+    @lib pub fn g_slice_get_config_state(ckey: GSliceConfig, address: i64, n_values: u32): i64
+    @lib pub fn g_slice_set_config(ckey: GSliceConfig, value: i64)
+    @lib pub fn g_spaced_primes_closest(num: u32): u32
+    @lib pub fn g_stat(filename: *const char, buf: GStatBuf): i32
+    @lib pub fn g_stpcpy(dest: *const char, src: *const char): *const char
+    @lib pub fn g_str_equal(v1: *void, v2: *void): i32
+    @lib pub fn g_str_has_prefix(str: *const char, prefix: *const char): i32
+    @lib pub fn g_str_has_suffix(str: *const char, suffix: *const char): i32
+    @lib pub fn g_str_hash(v: *void): u32
+    @lib pub fn g_str_is_ascii(str: *const char): i32
+    @lib pub fn g_str_match_string(search_term: *const char, potential_hit: *const char, accept_alternates: i32): i32
+    @lib pub fn g_str_to_ascii(str: *const char, from_locale: *const char): *const char
+    @lib pub fn g_strcanon(string: *const char, valid_chars: *const char, substitutor: i8): *const char
+    @lib pub fn g_strchomp(string: *const char): *const char
+    @lib pub fn g_strchug(string: *const char): *const char
+    @lib pub fn g_strcmp0(str1: *const char, str2: *const char): i32
+    @lib pub fn g_strcompress(source: *const char): *const char
+    @lib pub fn g_strdelimit(string: *const char, delimiters: *const char, new_delimiter: i8): *const char
+    @lib pub fn g_strdup(str: *const char): *const char
+    @lib pub fn g_strdupv(str_array: *const char): *const char
+    @lib pub fn g_strerror(errnum: i32): *const char
+    @lib pub fn g_strescape(source: *const char, exceptions: *const char): *const char
+    @lib pub fn g_strfreev(str_array: *const char)
+    @lib pub fn g_strip_context(msgid: *const char, msgval: *const char): *const char
+    @lib pub fn g_strjoinv(separator: *const char, str_array: *const char): *const char
+    @lib pub fn g_strlcat(dest: *const char, src: *const char, dest_size: u64): u64
+    @lib pub fn g_strlcpy(dest: *const char, src: *const char, dest_size: u64): u64
+    @lib pub fn g_strndup(str: *const char, n: u64): *const char
+    @lib pub fn g_strnfill(length: u64, fill_char: i8): *const char
+    @lib pub fn g_strreverse(string: *const char): *const char
+    @lib pub fn g_strrstr(haystack: *const char, needle: *const char): *const char
+    @lib pub fn g_strrstr_len(haystack: *const char, haystack_len: i64, needle: *const char): *const char
+    @lib pub fn g_strsignal(signum: i32): *const char
+    @lib pub fn g_strsplit(string: *const char, delimiter: *const char, max_tokens: i32): *const char
+    @lib pub fn g_strsplit_set(string: *const char, delimiters: u8, max_tokens: i32): *const char
+    @lib pub fn g_strstr_len(haystack: *const char, haystack_len: i64, needle: *const char): *const char
+    @lib pub fn g_strv_contains(strv: *const char, str: *const char): i32
+    @lib pub fn g_strv_equal(strv1: *const char, strv2: *const char): i32
+    @lib pub fn g_strv_get_type(): u64
+    @lib pub fn g_strv_length(str_array: *const char): u32
+    @lib pub fn g_test_assert_expected_messages_internal(domain: *const char, file: *const char, line: i32, func: *const char)
+    @lib pub fn g_test_bug(bug_uri_snippet: *const char)
+    @lib pub fn g_test_bug_base(uri_pattern: *const char)
+    @lib pub fn g_test_create_suite(suite_name: *const char): GTestSuite
+    @lib pub fn g_test_disable_crash_reporting()
+    @lib pub fn g_test_expect_message(log_domain: *const char, log_level: GLogLevelFlags, pattern: *const char)
+    @lib pub fn g_test_fail()
+    @lib pub fn g_test_failed(): i32
+    @lib pub fn g_test_get_dir(file_type: GTestFileType): *const char
+    @lib pub fn g_test_get_path(): *const char
+    @lib pub fn g_test_get_root(): GTestSuite
+    @lib pub fn g_test_incomplete(msg: *const char)
+    @lib pub fn g_test_log_type_name(log_type: GTestLogType): *const char
+    @lib pub fn g_test_queue_free(gfree_pointer: *void)
+    @lib pub fn g_test_rand_double(): f64
+    @lib pub fn g_test_rand_double_range(range_start: f64, range_end: f64): f64
+    @lib pub fn g_test_rand_int(): i32
+    @lib pub fn g_test_rand_int_range(begin: i32, end: i32): i32
+    @lib pub fn g_test_run(): i32
+    @lib pub fn g_test_run_suite(suite: GTestSuite): i32
+    @lib pub fn g_test_set_nonfatal_assertions()
+    @lib pub fn g_test_skip(msg: *const char)
+    @lib pub fn g_test_subprocess(): i32
+    @lib pub fn g_test_summary(summary: *const char)
+    @lib pub fn g_test_timer_elapsed(): f64
+    @lib pub fn g_test_timer_last(): f64
+    @lib pub fn g_test_timer_start()
+    @lib pub fn g_test_trap_assertions(domain: *const char, file: *const char, line: i32, func: *const char, assertion_flags: u64, pattern: *const char)
+    @lib pub fn g_test_trap_has_passed(): i32
+    @lib pub fn g_test_trap_has_skipped(): i32
+    @lib pub fn g_test_trap_reached_timeout(): i32
+    @lib pub fn g_test_trap_subprocess(test_path: *const char, usec_timeout: u64, test_flags: GTestSubprocessFlags)
+    @lib pub fn g_test_trap_subprocess_with_envp(test_path: *const char, envp: *const char, usec_timeout: u64, test_flags: GTestSubprocessFlags)
+    @lib pub fn g_timeout_source_new(interval: u32): GSource
+    @lib pub fn g_timeout_source_new_seconds(interval: u32): GSource
+    @lib pub fn g_try_malloc(n_bytes: u64): *void
+    @lib pub fn g_try_malloc0(n_bytes: u64): *void
+    @lib pub fn g_try_malloc0_n(n_blocks: u64, n_block_bytes: u64): *void
+    @lib pub fn g_try_malloc_n(n_blocks: u64, n_block_bytes: u64): *void
+    @lib pub fn g_try_realloc(mem: *void, n_bytes: u64): *void
+    @lib pub fn g_try_realloc_n(mem: *void, n_blocks: u64, n_block_bytes: u64): *void
+    @lib pub fn g_unlink(filename: *const char): i32
+    @lib pub fn g_unsetenv(variable: *const char)
+    @lib pub fn g_usleep(microseconds: u64)
+    @lib pub fn g_utf8_casefold(str: *const char, len: i64): *const char
+    @lib pub fn g_utf8_collate(str1: *const char, str2: *const char): i32
+    @lib pub fn g_utf8_collate_key(str: *const char, len: i64): *const char
+    @lib pub fn g_utf8_collate_key_for_filename(str: *const char, len: i64): *const char
+    @lib pub fn g_utf8_find_next_char(p: *const char, end: *const char): *const char
+    @lib pub fn g_utf8_find_prev_char(str: *const char, p: *const char): *const char
+    @lib pub fn g_utf8_make_valid(str: *const char, len: i64): *const char
+    @lib pub fn g_utf8_normalize(str: *const char, len: i64, mode: GNormalizeMode): *const char
+    @lib pub fn g_utf8_offset_to_pointer(str: *const char, offset: i64): *const char
+    @lib pub fn g_utf8_pointer_to_offset(str: *const char, pos: *const char): i64
+    @lib pub fn g_utf8_prev_char(p: *const char): *const char
+    @lib pub fn g_utf8_strdown(str: *const char, len: i64): *const char
+    @lib pub fn g_utf8_strlen(p: *const char, max: i64): i64
+    @lib pub fn g_utf8_strncpy(dest: *const char, src: *const char, n: u64): *const char
+    @lib pub fn g_utf8_strreverse(str: *const char, len: i64): *const char
+    @lib pub fn g_utf8_strup(str: *const char, len: i64): *const char
+    @lib pub fn g_utf8_substring(str: *const char, start_pos: i64, end_pos: i64): *const char
+    @lib pub fn g_utf8_truncate_middle(string: *const char, truncate_length: u64): *const char
+    @lib pub fn g_utime(filename: *const char, utb: *void): i32
+    @lib pub fn g_uuid_string_is_valid(str: *const char): i32
+    @lib pub fn g_uuid_string_random(): *const char
+    @lib pub fn g_variant_get_gtype(): u64
+    @lib pub fn g_warn_message(domain: *const char, file: *const char, line: i32, func: *const char, warnexpr: *const char)
 }
 
 // 525 fn(s) emitted, 512 skipped (unsupported params/return or already exported by another namespace)

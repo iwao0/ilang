@@ -262,9 +262,13 @@ fn try_emit_fn(
         _ => String::new(),
     };
     let plist = params_render.join(", ");
+    // The loader uses the bare ilang fn name as the dlsym key when
+    // `@symbol` is omitted, so emitting it only matters when the C
+    // name diverges from the ilang name. Since the generator names
+    // every fn after its C identifier, leave `@symbol` off entirely.
     out.push_str(&format!(
-        "    @symbol(\"{}\") @lib pub fn {}({plist}){ret}\n",
-        f.c_identifier, f.c_identifier
+        "    @lib pub fn {}({plist}){ret}\n",
+        f.c_identifier
     ));
     true
 }
