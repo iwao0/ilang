@@ -63,6 +63,23 @@ pub(crate) fn sig_body_skip_attrs(sig: &str) -> &str {
     }
 }
 
+/// Render the `@handle` / `@packed` markers that prefix an
+/// `@extern(C)` struct declaration. Each marker lands on its own
+/// line followed by a newline, so the hover shows
+/// `@handle\nstruct Name` instead of cramming them onto one line.
+/// Returns an empty string when no markers are set — drop-in for
+/// `format!("{attrs}struct {name}")`.
+pub(crate) fn render_struct_attrs(is_packed: bool, is_handle: bool) -> String {
+    let mut out = String::new();
+    if is_packed {
+        out.push_str("@packed\n");
+    }
+    if is_handle {
+        out.push_str("@handle\n");
+    }
+    out
+}
+
 /// Render a class declaration's inheritance list as a hover suffix.
 /// `parent` is the single inherited base class (if any); `interfaces`
 /// is the trailing `: P, I1, I2` slot for the interface list.

@@ -614,11 +614,16 @@ pub(crate) fn walk_module(
                                 format!("fn {prefix}.{}({ps}){r}", f.name),
                             )
                         }
-                        ilang_ast::ExternCItem::Struct { name, span, .. } => (
-                            *name,
-                            *span,
-                            format!("struct {prefix}.{name}"),
-                        ),
+                        ilang_ast::ExternCItem::Struct {
+                            name, span, is_packed, is_handle, ..
+                        } => {
+                            let attrs = render_struct_attrs(*is_packed, *is_handle);
+                            (
+                                *name,
+                                *span,
+                                format!("{attrs}struct {prefix}.{name}"),
+                            )
+                        }
                         ilang_ast::ExternCItem::Union { name, span, .. } => (
                             *name,
                             *span,
@@ -926,11 +931,16 @@ pub(crate) fn walk_module_aliased(
                                 format!("fn {alias_prefix}.{}({ps}){r}", f.name),
                             ))
                         }
-                        ilang_ast::ExternCItem::Struct { name, span, .. } => Some((
-                            (*name).into(),
-                            *span,
-                            format!("struct {alias_prefix}.{name}"),
-                        )),
+                        ilang_ast::ExternCItem::Struct {
+                            name, span, is_packed, is_handle, ..
+                        } => {
+                            let attrs = render_struct_attrs(*is_packed, *is_handle);
+                            Some((
+                                (*name).into(),
+                                *span,
+                                format!("{attrs}struct {alias_prefix}.{name}"),
+                            ))
+                        }
                         ilang_ast::ExternCItem::Union { name, span, .. } => Some((
                             (*name).into(),
                             *span,

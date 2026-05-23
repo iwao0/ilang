@@ -187,16 +187,19 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                             );
                         }
                         ExternCItem::FnDef(f) => put_fn(f, &mut out),
-                        ExternCItem::Struct { name, span, .. } => {
+                        ExternCItem::Struct {
+                            name, span, is_packed, is_handle, ..
+                        } => {
                             if is_synthesized_objc_helper(name.as_str()) {
                                 continue;
                             }
+                            let attrs = crate::helpers::render_struct_attrs(*is_packed, *is_handle);
                             out.insert(
                                 name.clone(),
                                 Symbol {
                                     name: name.as_str().to_string(),
                                     span: *span,
-                                    signature: format!("struct {}", name),
+                                    signature: format!("{attrs}struct {}", name),
                                     doc: text::extract_doc_above(src, span.line),
                                 },
                             );
