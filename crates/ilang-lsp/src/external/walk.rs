@@ -1,9 +1,15 @@
-//! Per-module `walk_module` / `walk_module_aliased` — load a target
-//! `.il` file from disk, parse it, and register every public item it
-//! defines (plus follow `pub use` chains so umbrella modules reach
-//! the file that actually declares each class). Drives both the
-//! plain `use M` import path and the umbrella alias path that
-//! collapses `pub use core.*` rebindings under the importer's name.
+//! Module walker — load a target `.il` file from disk, parse it, and
+//! register every public item it defines into the cross-doc
+//! `external_signatures` / `external_sources` / `external_docs` maps.
+//! Follows `pub use` chains so umbrella modules reach the file that
+//! actually declares each class.
+//!
+//! The single public entry point `walk_module(prefix)` is invoked for
+//! each direct `use M` import. Internally it dispatches through
+//! `walk_module_inner`, which also handles the "alias" recursion
+//! path (`pub use core.*` umbrella collapse, where a re-exported
+//! source is re-walked keyed under the umbrella's own prefix without
+//! re-registering visited / the module name).
 
 #![allow(unused_imports)]
 
@@ -24,6 +30,45 @@ use crate::symbols::{fn_body, render_user_attrs};
 use crate::text;
 use crate::ExternalSources;
 
+/// Per-walk knobs that select between the "primary import" and "alias
+/// re-export" personalities — the only points where the two callers
+/// genuinely diverge.
+#[derive(Clone, Copy)]
+struct WalkOpts {
+    /// Insert the module's path into `visited` and skip when already
+    /// present. Aliasing the same source under multiple prefixes
+    /// requires re-walking, so the alias path leaves this off.
+    track_visited: bool,
+    /// Register the module's own name (`prefix`) in `sources` /
+    /// `out` / `docs` so F12 on `use foundation` lands at the top of
+    /// `foundation.il`. Only the primary path does this — the alias
+    /// path is invoked from a recursive `pub use` step where the
+    /// outer call has already registered the umbrella.
+    register_self: bool,
+    /// Prefer the real on-disk `stdlib/<name>.il` over the synthetic
+    /// `<builtin>/<name>.il` key when both exist. Primary uses this
+    /// so F12 navigates to an actual file; the alias path preserves
+    /// the synthetic key (matches the loader behaviour).
+    prefer_real_builtin_path: bool,
+}
+
+impl WalkOpts {
+    const fn primary() -> Self {
+        Self {
+            track_visited: true,
+            register_self: true,
+            prefer_real_builtin_path: true,
+        }
+    }
+    const fn alias() -> Self {
+        Self {
+            track_visited: false,
+            register_self: false,
+            prefer_real_builtin_path: false,
+        }
+    }
+}
+
 pub(crate) fn walk_module(
     prefix: &str,
     entry_dir: &Path,
@@ -34,55 +79,57 @@ pub(crate) fn walk_module(
     docs: &mut HashMap<AstSymbol, String>,
     const_types: &mut HashMap<AstSymbol, Type>,
 ) {
-    let (module_path, module_src) =
-        if let Some(s) = ilang_parser::loader::builtin_module_source(prefix) {
-            // Prefer the real on-disk `stdlib/<name>.il` so F12 lands
-            // in an actual file. Falls back to the synthetic
-            // `<builtin>/<name>.il` key in release-only installs where
-            // the source tree isn't present (the rest of the LSP — hover,
-            // completion — still works off the embedded source string).
-            let real = ilang_parser::loader::builtin_module_path(prefix)
-                .unwrap_or_else(|| PathBuf::from(format!("<builtin>/{prefix}.il")));
-            (real, s.to_string())
-        } else {
-            // Mirror `loader::resolve_module`: try `<dir>/M.il` first,
-            // then fall back to `<dir>/M/mod.il` (Rust-style subfolder
-            // umbrella). Without the second arm F12 / hover go blank
-            // on every name that lives behind a `pub use mod.*`
-            // umbrella, because the harvest never finds the parsed
-            // declarations.
-            let mut candidates = vec![entry_dir.to_path_buf()];
-            candidates.extend(extra.iter().cloned());
-            let Some((p, s)) = candidates.into_iter().find_map(|d| {
-                let direct = d.join(format!("{prefix}.il"));
-                if let Ok(src) = std::fs::read_to_string(&direct) {
-                    return Some((direct, src));
-                }
-                let nested = d.join(prefix).join("mod.il");
-                std::fs::read_to_string(&nested).ok().map(|src| (nested, src))
-            }) else {
-                return;
-            };
-            (p, s)
-        };
-    if !visited.insert(module_path.clone()) {
+    walk_module_inner(
+        prefix,
+        prefix,
+        entry_dir,
+        extra,
+        visited,
+        out,
+        sources,
+        docs,
+        const_types,
+        WalkOpts::primary(),
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn walk_module_inner(
+    prefix: &str,
+    source_name: &str,
+    entry_dir: &Path,
+    extra: &[PathBuf],
+    visited: &mut HashSet<PathBuf>,
+    out: &mut HashMap<AstSymbol, String>,
+    sources: &mut ExternalSources,
+    docs: &mut HashMap<AstSymbol, String>,
+    const_types: &mut HashMap<AstSymbol, Type>,
+    opts: WalkOpts,
+) {
+    let Some((module_path, module_src)) = resolve_module_source(source_name, entry_dir, extra, opts)
+    else {
+        return;
+    };
+    if opts.track_visited && !visited.insert(module_path.clone()) {
         return;
     }
-    // F12 on the module name itself (e.g. `sdl` in `use sdl` or
-    // `new sdl.Window()`) navigates to the start of the module file.
-    sources.entry(prefix.into()).or_insert(ExternalLoc {
-        path: module_path.clone(),
-        span: Span::new(1, 1),
-        name_len: 0,
-    });
-    // Top-of-file `///` block — the module-level doc. Surfaces on
-    // hover over `use foundation` etc. The signature line is a
-    // simple `(module) {prefix}` placeholder so the hover renders
-    // something even when the file has no top doc.
-    out.entry(AstSymbol::intern(prefix))
-        .or_insert_with(|| format!("(module) {prefix}"));
-    if let Some(d) = text::extract_module_doc(&module_src) {
-        docs.entry(AstSymbol::intern(prefix)).or_insert(d);
+    if opts.register_self {
+        // F12 on the module name itself (e.g. `sdl` in `use sdl` or
+        // `new sdl.Window()`) navigates to the start of the module file.
+        sources.entry(prefix.into()).or_insert(ExternalLoc {
+            path: module_path.clone(),
+            span: Span::new(1, 1),
+            name_len: 0,
+        });
+        // Top-of-file `///` block — the module-level doc. Surfaces
+        // on hover over `use foundation` etc. The signature line is a
+        // simple `(module) {prefix}` placeholder so the hover renders
+        // something even when the file has no top doc.
+        out.entry(AstSymbol::intern(prefix))
+            .or_insert_with(|| format!("(module) {prefix}"));
+        if let Some(d) = text::extract_module_doc(&module_src) {
+            docs.entry(AstSymbol::intern(prefix)).or_insert(d);
+        }
     }
     let Ok(tokens) = tokenize(&module_src) else { return };
     let Ok(mod_prog) = parse(&tokens) else { return };
@@ -90,15 +137,11 @@ pub(crate) fn walk_module(
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
-    let track = |key: &str,
-                 span: Span,
-                 name_len: u32,
-                 sources: &mut ExternalSources,
-                 p: &PathBuf| {
+    let track = |key: &str, span: Span, name_len: u32, sources: &mut ExternalSources| {
         sources.insert(
             key.into(),
             ExternalLoc {
-                path: p.clone(),
+                path: module_path.clone(),
                 span,
                 name_len,
             },
@@ -123,7 +166,7 @@ pub(crate) fn walk_module(
                 if let Some(t) = resolved_ty {
                     const_types.insert(AstSymbol::intern(&key), t);
                 }
-                track(&key, c.span, c.name.as_str().len() as u32, sources, &module_path);
+                track(&key, c.span, c.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
                 }
@@ -131,8 +174,11 @@ pub(crate) fn walk_module(
             Item::Fn(f) => {
                 let key = format!("{prefix}.{}", f.name);
                 let sig = format!("fn {}", fn_body(f));
-                out.insert(AstSymbol::intern(&key), format!("fn {}", sig.trim_start_matches("fn ")));
-                track(&key, f.span, f.name.as_str().len() as u32, sources, &module_path);
+                out.insert(
+                    AstSymbol::intern(&key),
+                    format!("fn {}", sig.trim_start_matches("fn ")),
+                );
+                track(&key, f.span, f.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, f.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
                 }
@@ -142,7 +188,7 @@ pub(crate) fn walk_module(
                 let bases = render_class_bases(c.parent.as_ref(), &c.interfaces);
                 let attrs = render_user_attrs(&c.attrs);
                 out.insert(AstSymbol::intern(&key), format!("{attrs}class {key}{bases}"));
-                track(&key, c.span, c.name.as_str().len() as u32, sources, &module_path);
+                track(&key, c.span, c.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
                 }
@@ -156,7 +202,7 @@ pub(crate) fn walk_module(
                     .unwrap_or_default();
                 let flags_prefix = if e.flags { "@flags\n" } else { "" };
                 out.insert(AstSymbol::intern(&key), format!("{flags_prefix}enum {key}{repr}"));
-                track(&key, e.span, e.name.as_str().len() as u32, sources, &module_path);
+                track(&key, e.span, e.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
                 }
@@ -166,11 +212,10 @@ pub(crate) fn walk_module(
                 for inner in &b.items {
                     // Skip module-private items — only `pub` inner
                     // FnDecls / FnDefs / Structs / Unions / Classes
-                    // should surface in another file's `M.`
-                    // completion. The `_autoreleasepool_pop` /
-                    // `_make_obj_block` family live in foundation's
-                    // ObjC runtime block without `pub` precisely so
-                    // they stay internal.
+                    // should surface in another file's `M.` completion.
+                    // The `_autoreleasepool_pop` / `_make_obj_block`
+                    // family live in foundation's ObjC runtime block
+                    // without `pub` precisely so they stay internal.
                     if !is_extern_c_item_pub(inner) {
                         continue;
                     }
@@ -204,14 +249,10 @@ pub(crate) fn walk_module(
                             )
                         }
                         ilang_ast::ExternCItem::FnDef(f) => {
-                            // Mirror the FnDecl arm above
-                            // (`fn {prefix}.name(params): ret`).
-                            // Previously the format string used
-                            // `fn_body(f)` (which already renders
-                            // `name(params): ret`) *and* prepended
-                            // `{prefix}.{name}` — producing
-                            // `cocoa.sharedApplication sharedApplication(): NSApplication`
-                            // in hover.
+                            // Don't use fn_body(f) here — it already
+                            // renders `name(params): ret` and prepending
+                            // `{prefix}.{name}` would produce
+                            // `cocoa.sharedApplication sharedApplication(): NSApplication`.
                             let ps = f
                                 .params
                                 .iter()
@@ -255,7 +296,7 @@ pub(crate) fn walk_module(
                     };
                     let key = format!("{prefix}.{n}");
                     out.insert(AstSymbol::intern(&key), sig);
-                    track(&key, span, n.as_str().len() as u32, sources, &module_path);
+                    track(&key, span, n.as_str().len() as u32, sources);
                     if let Some(d) = text::extract_doc_above(&module_src, span.line) {
                         docs.insert(AstSymbol::intern(&key), d);
                     }
@@ -302,13 +343,7 @@ pub(crate) fn walk_module(
                     };
                     let key = format!("{prefix}.{}", iface.name);
                     out.insert(AstSymbol::intern(&key), sig);
-                    track(
-                        &key,
-                        iface.span,
-                        iface.name.as_str().len() as u32,
-                        sources,
-                        &module_path,
-                    );
+                    track(&key, iface.span, iface.name.as_str().len() as u32, sources);
                     if let Some(d) = text::extract_doc_above(&module_src, iface.span.line) {
                         docs.insert(AstSymbol::intern(&key), d);
                     }
@@ -317,9 +352,9 @@ pub(crate) fn walk_module(
                 // (e.g. `windows.NULL = 0 as *void` in `winnull.il`).
                 // They aren't part of `b.items` — the AST keeps them
                 // on `b.consts` so the loader can lift them out as
-                // top-level consts with raw-pointer types still
-                // legal. Mirror the same harvest as a top-level
-                // `Item::Const` so hover finds them.
+                // top-level consts with raw-pointer types still legal.
+                // Mirror the same harvest as a top-level `Item::Const`
+                // so hover finds them.
                 for c in b.consts.iter() {
                     if !c.is_pub {
                         continue;
@@ -340,31 +375,41 @@ pub(crate) fn walk_module(
                     if let Some(t) = resolved_ty {
                         const_types.insert(AstSymbol::intern(&key), t);
                     }
-                    track(&key, c.span, c.name.as_str().len() as u32, sources, &module_path);
+                    track(&key, c.span, c.name.as_str().len() as u32, sources);
                     if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
                         docs.insert(AstSymbol::intern(&key), d);
                     }
                 }
             }
-            // Follow `pub use` chains so umbrella modules
-            // (e.g. `sdl.il` re-exporting `sdl_renderer.il`) flow the
-            // prefix through to the file that actually declares the
-            // class.
+            // Follow `pub use` chains so umbrella modules (e.g.
+            // `sdl.il` re-exporting `sdl_renderer.il`) flow the prefix
+            // through to the file that actually declares the class.
+            //
+            // Primary mode walks the re-exported module twice: once
+            // under the nested `{prefix}.{u.module}` (so the chain is
+            // visible by its real name) and once aliased under `prefix`
+            // so the loader's umbrella-prefix collapse is mirrored
+            // (`sdl.X` resolves even when the source lives in
+            // `sdl_renderer.il`).
+            //
+            // Alias mode only recurses through the alias chain — its
+            // outer call already represents the umbrella view.
             Item::Use(u) if u.re_export && u.selective.is_none() => {
-                walk_module(
-                    &format!("{prefix}.{}", u.module),
-                    &mod_dir,
-                    extra,
-                    visited,
-                    out,
-                    sources,
-                    docs,
-                    const_types,
-                );
-                // Loader collapses one-deep umbrella prefixes so the
-                // entry sees `sdl.X` (not `sdl.sdl_renderer.X`). Mirror
-                // that: also record the umbrella's own prefix.
-                walk_module_aliased(
+                if opts.register_self {
+                    walk_module_inner(
+                        &format!("{prefix}.{}", u.module),
+                        u.module.as_str(),
+                        &mod_dir,
+                        extra,
+                        visited,
+                        out,
+                        sources,
+                        docs,
+                        const_types,
+                        WalkOpts::primary(),
+                    );
+                }
+                walk_module_inner(
                     prefix,
                     u.module.as_str(),
                     &mod_dir,
@@ -374,6 +419,7 @@ pub(crate) fn walk_module(
                     sources,
                     docs,
                     const_types,
+                    WalkOpts::alias(),
                 );
             }
             _ => {}
@@ -381,299 +427,45 @@ pub(crate) fn walk_module(
     }
 }
 
-pub(crate) fn walk_module_aliased(
-    alias_prefix: &str,
-    actual: &str,
+/// Locate the on-disk `.il` source for `source_name`. Tries the
+/// `loader`-registered builtin first (with the real-file-preference
+/// knob the alias path doesn't want), then falls back to
+/// `<dir>/M.il` → `<dir>/M/mod.il` across `entry_dir` and `extra`,
+/// mirroring `ilang_parser::loader::resolve_module`.
+fn resolve_module_source(
+    source_name: &str,
     entry_dir: &Path,
     extra: &[PathBuf],
-    visited: &mut HashSet<PathBuf>,
-    out: &mut HashMap<AstSymbol, String>,
-    sources: &mut ExternalSources,
-    docs: &mut HashMap<AstSymbol, String>,
-    const_types: &mut HashMap<AstSymbol, Type>,
-) {
-    let (module_path, module_src) =
-        if let Some(s) = ilang_parser::loader::builtin_module_source(actual) {
-            (
-                PathBuf::from(format!("<builtin>/{actual}.il")),
-                s.to_string(),
-            )
+    opts: WalkOpts,
+) -> Option<(PathBuf, String)> {
+    if let Some(s) = ilang_parser::loader::builtin_module_source(source_name) {
+        let path = if opts.prefer_real_builtin_path {
+            // Prefer the real on-disk `stdlib/<name>.il` so F12 lands
+            // in an actual file. Falls back to the synthetic
+            // `<builtin>/<name>.il` key in release-only installs
+            // where the source tree isn't present (the rest of the
+            // LSP — hover, completion — still works off the embedded
+            // source string).
+            ilang_parser::loader::builtin_module_path(source_name)
+                .unwrap_or_else(|| PathBuf::from(format!("<builtin>/{source_name}.il")))
         } else {
-            // Same `<dir>/M.il` → `<dir>/M/mod.il` fallback as
-            // `walk_module` — alias chasing must follow the loader's
-            // subfolder resolution rule, otherwise F12 on a name
-            // re-exported through `pub use core.*` lands nowhere.
-            let mut candidates = vec![entry_dir.to_path_buf()];
-            candidates.extend(extra.iter().cloned());
-            let Some((p, s)) = candidates.into_iter().find_map(|d| {
-                let direct = d.join(format!("{actual}.il"));
-                if let Ok(src) = std::fs::read_to_string(&direct) {
-                    return Some((direct, src));
-                }
-                let nested = d.join(actual).join("mod.il");
-                std::fs::read_to_string(&nested).ok().map(|src| (nested, src))
-            }) else {
-                return;
-            };
-            (p, s)
+            PathBuf::from(format!("<builtin>/{source_name}.il"))
         };
-    let Ok(tokens) = tokenize(&module_src) else { return };
-    let Ok(mod_prog) = parse(&tokens) else { return };
-    let put = |key: &str, span: Span, name_len: u32, sources: &mut ExternalSources| {
-        sources.insert(
-            key.into(),
-            ExternalLoc {
-                path: module_path.clone(),
-                span,
-                name_len,
-            },
-        );
-    };
-    for it in &mod_prog.items {
-        match it {
-            Item::Const(c) => {
-                let key = format!("{alias_prefix}.{}", c.name);
-                let resolved_ty = c
-                    .ty
-                    .clone()
-                    .or_else(|| infer_expr_type_with_scope(&c.value, &[]));
-                let ty = match &resolved_ty {
-                    Some(t) => format!(": {t}"),
-                    None => String::new(),
-                };
-                let value = render_const_value_with_src(&c.value, Some(&module_src))
-                    .map(|v| format!(" = {v}"))
-                    .unwrap_or_default();
-                out.insert(AstSymbol::intern(&key), format!("const {key}{ty}{value}"));
-                if let Some(t) = resolved_ty {
-                    const_types.insert(AstSymbol::intern(&key), t);
-                }
-                put(&key, c.span, c.name.as_str().len() as u32, sources);
-                if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
-                    docs.insert(AstSymbol::intern(&key), d);
-                }
-            }
-            Item::Fn(f) => {
-                let key = format!("{alias_prefix}.{}", f.name);
-                let sig = format!("fn {}", fn_body(f));
-                out.insert(
-                    AstSymbol::intern(&key),
-                    format!("fn {}", sig.trim_start_matches("fn ")),
-                );
-                put(&key, f.span, f.name.as_str().len() as u32, sources);
-                if let Some(d) = text::extract_doc_above(&module_src, f.span.line) {
-                    docs.insert(AstSymbol::intern(&key), d);
-                }
-            }
-            Item::Class(c) => {
-                let key = format!("{alias_prefix}.{}", c.name);
-                let bases = render_class_bases(c.parent.as_ref(), &c.interfaces);
-                let attrs = render_user_attrs(&c.attrs);
-                out.insert(AstSymbol::intern(&key), format!("{attrs}class {key}{bases}"));
-                put(&key, c.span, c.name.as_str().len() as u32, sources);
-                if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
-                    docs.insert(AstSymbol::intern(&key), d);
-                }
-            }
-            Item::Enum(e) => {
-                let key = format!("{alias_prefix}.{}", e.name);
-                let repr = e
-                    .repr_ty
-                    .as_ref()
-                    .map(|t| format!(": {t}"))
-                    .unwrap_or_default();
-                let flags_prefix = if e.flags { "@flags\n" } else { "" };
-                out.insert(AstSymbol::intern(&key), format!("{flags_prefix}enum {key}{repr}"));
-                put(&key, e.span, e.name.as_str().len() as u32, sources);
-                if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
-                    docs.insert(AstSymbol::intern(&key), d);
-                }
-                register_enum_variants_with_sources(e, &key, out, sources, &module_path, &module_src);
-            }
-            Item::ExternC(b) => {
-                for inner in &b.items {
-                    // See `walk_module`'s ExternC arm — same rule
-                    // applies to umbrella re-exports.
-                    if !is_extern_c_item_pub(inner) {
-                        continue;
-                    }
-                    let entry: Option<(AstSymbol, Span, String)> = match inner {
-                        ilang_ast::ExternCItem::FnDecl {
-                            name, span, params, ret, libs, ..
-                        } => {
-                            let ps = params
-                                .iter()
-                                .map(|p| format!("{}: {}", p.name, p.ty))
-                                .collect::<Vec<_>>()
-                                .join(", ");
-                            let r = match ret {
-                                Some(t) => format!(": {t}"),
-                                None => String::new(),
-                            };
-                            let libs_prefix = if libs.is_empty() {
-                                String::new()
-                            } else {
-                                let names = libs
-                                    .iter()
-                                    .map(|l| format!("\"{l}\""))
-                                    .collect::<Vec<_>>()
-                                    .join(", ");
-                                format!("@lib({names})\n")
-                            };
-                            Some((
-                                (*name).into(),
-                                *span,
-                                format!("{libs_prefix}fn {alias_prefix}.{name}({ps}){r}"),
-                            ))
-                        }
-                        ilang_ast::ExternCItem::FnDef(f) => {
-                            // See `walk_module`'s same arm — the
-                            // double-name bug applies here too.
-                            let ps = f
-                                .params
-                                .iter()
-                                .map(|p| format!("{}: {}", p.name, p.ty))
-                                .collect::<Vec<_>>()
-                                .join(", ");
-                            let r = match &f.ret {
-                                Some(t) => format!(": {t}"),
-                                None => String::new(),
-                            };
-                            Some((
-                                f.name.into(),
-                                f.span,
-                                format!("fn {alias_prefix}.{}({ps}){r}", f.name),
-                            ))
-                        }
-                        ilang_ast::ExternCItem::Struct {
-                            name, span, is_packed, is_handle, ..
-                        } => {
-                            let attrs = render_struct_attrs(*is_packed, *is_handle);
-                            Some((
-                                (*name).into(),
-                                *span,
-                                format!("{attrs}struct {alias_prefix}.{name}"),
-                            ))
-                        }
-                        ilang_ast::ExternCItem::Union { name, span, .. } => Some((
-                            (*name).into(),
-                            *span,
-                            format!("union {alias_prefix}.{name}"),
-                        )),
-                        ilang_ast::ExternCItem::Class(c) => {
-                            let bases = render_class_bases(c.parent.as_ref(), &c.interfaces);
-                            let attrs = render_user_attrs(&c.attrs);
-                            Some((
-                                c.name.into(),
-                                c.span,
-                                format!("{attrs}class {alias_prefix}.{}{bases}", c.name),
-                            ))
-                        }
-                    };
-                    if let Some((n, span, sig)) = entry {
-                        let len = n.as_str().len() as u32;
-                        let key = format!("{alias_prefix}.{n}");
-                        out.insert(AstSymbol::intern(&key), sig);
-                        put(&key, span, len, sources);
-                        if let Some(d) = text::extract_doc_above(&module_src, span.line) {
-                            docs.insert(AstSymbol::intern(&key), d);
-                        }
-                    }
-                }
-                // Aliased re-export side: same enumeration for
-                // @objc interfaces declared in the same block.
-                for iface in b.interfaces.iter() {
-                    if !iface.is_pub {
-                        continue;
-                    }
-                    let methods: Vec<String> = iface
-                        .methods
-                        .iter()
-                        .map(|m| {
-                            let opt = if m.is_optional { "?" } else { "" };
-                            let ps: Vec<String> = m
-                                .params
-                                .iter()
-                                .map(|p| format!("{}: {}", p.name, p.ty))
-                                .collect();
-                            let r = match &m.ret {
-                                Some(t) => format!(": {t}"),
-                                None => String::new(),
-                            };
-                            format!("    {}{}({}){}", m.name, opt, ps.join(", "), r)
-                        })
-                        .collect();
-                    let header = if iface.is_objc { "@objc interface" } else { "interface" };
-                    let parent = iface
-                        .parent
-                        .as_ref()
-                        .map(|p| format!(" : {p}"))
-                        .unwrap_or_default();
-                    let sig = if methods.is_empty() {
-                        format!("{header} {alias_prefix}.{}{parent} {{}}", iface.name)
-                    } else {
-                        format!(
-                            "{header} {alias_prefix}.{}{parent} {{\n{}\n}}",
-                            iface.name,
-                            methods.join("\n")
-                        )
-                    };
-                    let key = format!("{alias_prefix}.{}", iface.name);
-                    let len = iface.name.as_str().len() as u32;
-                    out.insert(AstSymbol::intern(&key), sig);
-                    put(&key, iface.span, len, sources);
-                    if let Some(d) = text::extract_doc_above(&module_src, iface.span.line) {
-                        docs.insert(AstSymbol::intern(&key), d);
-                    }
-                }
-                // `pub const` declarations on `b.consts` (e.g.
-                // `windows.NULL`). See `walk_module`'s matching arm
-                // — keep the alias-prefix in the key so the
-                // umbrella's `windows.NULL` hover still works.
-                for c in b.consts.iter() {
-                    if !c.is_pub {
-                        continue;
-                    }
-                    let resolved_ty = c
-                        .ty
-                        .clone()
-                        .or_else(|| infer_expr_type_with_scope(&c.value, &[]));
-                    let ty = match &resolved_ty {
-                        Some(t) => format!(": {t}"),
-                        None => String::new(),
-                    };
-                    let value = render_const_value_with_src(&c.value, Some(&module_src))
-                        .map(|v| format!(" = {v}"))
-                        .unwrap_or_default();
-                    let key = format!("{alias_prefix}.{}", c.name);
-                    out.insert(AstSymbol::intern(&key), format!("const {key}{ty}{value}"));
-                    if let Some(t) = resolved_ty {
-                        const_types.insert(AstSymbol::intern(&key), t);
-                    }
-                    put(&key, c.span, c.name.as_str().len() as u32, sources);
-                    if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
-                        docs.insert(AstSymbol::intern(&key), d);
-                    }
-                }
-            }
-            Item::Use(u) if u.re_export && u.selective.is_none() => {
-                let mod_dir = module_path
-                    .parent()
-                    .map(|p| p.to_path_buf())
-                    .unwrap_or_else(|| PathBuf::from("."));
-                walk_module_aliased(
-                    alias_prefix,
-                    u.module.as_str(),
-                    &mod_dir,
-                    extra,
-                    visited,
-                    out,
-                    sources,
-                    docs,
-                    const_types,
-                );
-            }
-            _ => {}
-        }
+        return Some((path, s.to_string()));
     }
+    // Mirror `loader::resolve_module`: try `<dir>/M.il` first, then
+    // fall back to `<dir>/M/mod.il` (Rust-style subfolder umbrella).
+    // Without the second arm F12 / hover go blank on every name that
+    // lives behind a `pub use mod.*` umbrella, because the harvest
+    // never finds the parsed declarations.
+    let mut candidates = vec![entry_dir.to_path_buf()];
+    candidates.extend(extra.iter().cloned());
+    candidates.into_iter().find_map(|d| {
+        let direct = d.join(format!("{source_name}.il"));
+        if let Ok(src) = std::fs::read_to_string(&direct) {
+            return Some((direct, src));
+        }
+        let nested = d.join(source_name).join("mod.il");
+        std::fs::read_to_string(&nested).ok().map(|src| (nested, src))
+    })
 }

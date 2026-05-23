@@ -1,7 +1,7 @@
 //! Entry-point harvest passes — given a buffer's source (parsed or
 //! raw token stream), walk every `use M` statement and pull in the
-//! imported modules via `walk_module` / `walk_module_aliased`,
-//! collapsing wildcard / selective imports into bare-keyed entries
+//! imported modules via `walk_module`, collapsing wildcard /
+//! selective imports into bare-keyed entries
 //! so the buffer-side reference walker can resolve `Var("X")` from
 //! `use M { X }` the same way it resolves `Var("M.X")`.
 
@@ -14,7 +14,7 @@ use ilang_ast::{Item, Program, Symbol as AstSymbol, Type};
 use ilang_lexer::tokenize;
 use ilang_parser::parse;
 
-use super::walk::{walk_module, walk_module_aliased};
+use super::walk::walk_module;
 use super::{augment_with_sibling_module_roots, ExternalLoc};
 use crate::project::{collect_dep_paths, collect_dep_tree, DepTree};
 use crate::ExternalSources;
