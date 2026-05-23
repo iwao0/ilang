@@ -84,7 +84,7 @@ fn subsequence_ci(haystack: &str, needle_lower: &str) -> bool {
     false
 }
 
-pub(crate) fn resolve_receiver_class(
+fn resolve_receiver_class(
     doc: &Doc,
     receiver: &str,
     text_offset: usize,
@@ -253,7 +253,7 @@ impl LanguageServer for Backend {
         // stays stale until the spawned refresh fires, which is
         // fine — that's just member listings.
         {
-            let mut docs = self.docs.lock().unwrap();
+            let mut docs = self.docs();
             let entry = docs.entry(uri.clone()).or_default();
             entry.text = change.text.clone();
         }
@@ -293,14 +293,14 @@ impl LanguageServer for Backend {
     }
 
     async fn did_close(&self, p: DidCloseTextDocumentParams) {
-        let mut docs = self.docs.lock().unwrap();
+        let mut docs = self.docs();
         docs.remove(&p.text_document.uri);
     }
 
     async fn hover(&self, p: HoverParams) -> LspResult<Option<Hover>> {
         let uri = p.text_document_position_params.text_document.uri;
         let pos = p.text_document_position_params.position;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
@@ -337,7 +337,7 @@ impl LanguageServer for Backend {
     ) -> LspResult<Option<GotoDefinitionResponse>> {
         let uri = p.text_document_position_params.text_document.uri;
         let pos = p.text_document_position_params.position;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
@@ -410,7 +410,7 @@ impl LanguageServer for Backend {
     async fn completion(&self, p: CompletionParams) -> LspResult<Option<CompletionResponse>> {
         let uri = p.text_document_position.text_document.uri;
         let pos = p.text_document_position.position;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
@@ -813,7 +813,7 @@ impl LanguageServer for Backend {
     ) -> LspResult<Option<SignatureHelp>> {
         let uri = p.text_document_position_params.text_document.uri;
         let pos = p.text_document_position_params.position;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
@@ -991,7 +991,7 @@ impl LanguageServer for Backend {
         p: DocumentFormattingParams,
     ) -> LspResult<Option<Vec<TextEdit>>> {
         let uri = p.text_document.uri;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
@@ -1031,7 +1031,7 @@ impl LanguageServer for Backend {
         let uri = p.text_document_position.text_document.uri;
         let pos = p.text_document_position.position;
         let include_decl = p.context.include_declaration;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
@@ -1176,7 +1176,7 @@ impl LanguageServer for Backend {
     ) -> LspResult<Option<PrepareRenameResponse>> {
         let uri = p.text_document.uri;
         let pos = p.position;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
@@ -1252,7 +1252,7 @@ impl LanguageServer for Backend {
                 "`{new_name}` is a reserved keyword"
             )));
         }
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
@@ -1520,7 +1520,7 @@ impl LanguageServer for Backend {
         if !want_organize && !want_quickfix {
             return Ok(None);
         }
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
@@ -1665,7 +1665,7 @@ impl LanguageServer for Backend {
         p: DocumentSymbolParams,
     ) -> LspResult<Option<DocumentSymbolResponse>> {
         let uri = p.text_document.uri;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
@@ -1699,7 +1699,7 @@ impl LanguageServer for Backend {
         // When no buffer is open, fall back to the current working
         // directory.
         let anchor: Option<PathBuf> = {
-            let docs = self.docs.lock().unwrap();
+            let docs = self.docs();
             docs.keys()
                 .find_map(|u| u.to_file_path().ok())
                 .or_else(|| std::env::current_dir().ok())
@@ -1714,7 +1714,7 @@ impl LanguageServer for Backend {
         // Snapshot open-buffer texts so we don't hold the docs lock
         // across the workspace walk.
         let open_texts: HashMap<PathBuf, String> = {
-            let docs = self.docs.lock().unwrap();
+            let docs = self.docs();
             docs.iter()
                 .filter_map(|(u, d)| {
                     let p = u.to_file_path().ok()?;
@@ -1797,7 +1797,7 @@ impl LanguageServer for Backend {
         let uri = p.text_document_position_params.text_document.uri;
         let pos = p.text_document_position_params.position;
         let (target, iface_class, anchor, snapshot) = {
-            let docs = self.docs.lock().unwrap();
+            let docs = self.docs();
             let Some(doc) = docs.get(&uri) else { return Ok(None) };
             let Some(target) = implementation::resolve(doc, pos) else {
                 return Ok(None);
@@ -1839,7 +1839,7 @@ impl LanguageServer for Backend {
     ) -> LspResult<Option<Vec<DocumentHighlight>>> {
         let uri = p.text_document_position_params.text_document.uri;
         let pos = p.text_document_position_params.position;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else { return Ok(None) };
         // Resolve the cursor to the same (target_span, name_len) the
         // rename / references handlers use, then collect every
@@ -1939,7 +1939,7 @@ impl LanguageServer for Backend {
     ) -> LspResult<Option<Vec<CallHierarchyItem>>> {
         let uri = p.text_document_position_params.text_document.uri;
         let pos = p.text_document_position_params.position;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else { return Ok(None) };
         let text = doc.text.clone();
         let Some(item) = call_hierarchy::prepare(uri, pos, doc, &text) else {
@@ -1974,7 +1974,7 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         let snapshot: HashMap<Url, crate::types::Doc> =
-            self.docs.lock().unwrap().clone();
+            self.docs().clone();
         let calls = call_hierarchy::incoming_calls(&item, &snapshot);
         if calls.is_empty() { Ok(None) } else { Ok(Some(calls)) }
     }
@@ -1989,7 +1989,7 @@ impl LanguageServer for Backend {
         };
         // Outgoing analysis runs against the item's home file. Prefer
         // the live buffer when open, else load from disk.
-        let live = self.docs.lock().unwrap().get(&item.uri).cloned();
+        let live = self.docs().get(&item.uri).cloned();
         let doc = match live {
             Some(d) => d,
             None => {
@@ -2007,7 +2007,7 @@ impl LanguageServer for Backend {
         p: CodeLensParams,
     ) -> LspResult<Option<Vec<CodeLens>>> {
         let uri = p.text_document.uri;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else { return Ok(None) };
         let lenses = code_lens::build(&uri, &doc.text);
         if lenses.is_empty() {
@@ -2030,7 +2030,7 @@ impl LanguageServer for Backend {
                 decl_col,
                 decl_name_len,
             } => {
-                let snapshot = self.docs.lock().unwrap().clone();
+                let snapshot = self.docs().clone();
                 // Collect actual reference locations so the `Peek
                 // References` window opens populated when the user
                 // clicks the lens.
@@ -2059,7 +2059,7 @@ impl LanguageServer for Backend {
                 } else {
                     implementation::Target::Class { name: name.clone() }
                 };
-                let snapshot = self.docs.lock().unwrap().clone();
+                let snapshot = self.docs().clone();
                 let anchor = match uri.to_file_path() {
                     Ok(p) => p,
                     Err(_) => return Ok(lens),
@@ -2085,7 +2085,7 @@ impl LanguageServer for Backend {
         p: FoldingRangeParams,
     ) -> LspResult<Option<Vec<FoldingRange>>> {
         let uri = p.text_document.uri;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else { return Ok(None) };
         let ranges = folding_range::build(&doc.text);
         if ranges.is_empty() {
@@ -2100,7 +2100,7 @@ impl LanguageServer for Backend {
         p: SelectionRangeParams,
     ) -> LspResult<Option<Vec<SelectionRange>>> {
         let uri = p.text_document.uri;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else { return Ok(None) };
         let ranges = crate::selection_range::build_for(&doc.text, &p.positions);
         if ranges.is_empty() {
@@ -2115,7 +2115,7 @@ impl LanguageServer for Backend {
         p: InlayHintParams,
     ) -> LspResult<Option<Vec<InlayHint>>> {
         let uri = p.text_document.uri;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else { return Ok(None) };
         let hints = inlay_hints::build_hints(doc, p.range);
         if hints.is_empty() { Ok(None) } else { Ok(Some(hints)) }
@@ -2126,7 +2126,7 @@ impl LanguageServer for Backend {
         p: SemanticTokensParams,
     ) -> LspResult<Option<SemanticTokensResult>> {
         let uri = p.text_document.uri;
-        let docs = self.docs.lock().unwrap();
+        let docs = self.docs();
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };

@@ -50,6 +50,13 @@ impl Backend {
     pub(crate) async fn refresh(&self, uri: Url, text: String) {
         refresh_impl(&self.client, &self.docs, uri, text).await
     }
+
+    /// Acquire the `docs` map. Wraps the `lock().unwrap()` boilerplate
+    /// — the mutex is only poisoned if a holder panicked, which we
+    /// treat as unrecoverable.
+    pub(crate) fn docs(&self) -> std::sync::MutexGuard<'_, HashMap<Url, Doc>> {
+        self.docs.lock().unwrap()
+    }
 }
 
 pub(crate) async fn refresh_impl(
