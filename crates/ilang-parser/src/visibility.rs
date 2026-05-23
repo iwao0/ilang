@@ -170,7 +170,16 @@ fn expand(
             for item in &prog.items {
                 if let Item::Use(u) = item {
                     if u.re_export {
-                        let nested = u.module.as_str().to_string();
+                        // For `pub use A.b.c.*` the effective nested
+                        // module is the deepest segment (`c`) — that's
+                        // the file the loader actually mapped under
+                        // `<importer>/A/b/c.il`. Single-segment imports
+                        // keep their original `module` as the nested key.
+                        let nested = if let Some(last) = u.subpath.last() {
+                            last.as_str().to_string()
+                        } else {
+                            u.module.as_str().to_string()
+                        };
                         expand(&nested, loaded, paths_per_name, direct, out, visiting);
                         if let Some(set) = out.get(&nested) {
                             for n in set {

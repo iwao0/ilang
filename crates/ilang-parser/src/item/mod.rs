@@ -526,47 +526,57 @@ impl<'a> Parser<'a> {
         }
         let module = self.expect_ident("module name")?;
         // `use M.*` / `use M.Name` — short forms for
-        // `use M as _ { * }` / `use M as _ { Name }`. Both produce
-        // the Discard-alias UseDecl shape the loader already handles
-        // (wildcard branch for `.*`, selective branch for `.Name`),
-        // so callers can stack one-liners — `use cocoa.NSObject` on
-        // one line and `use cocoa.NSString` on another get merged the
-        // same way the long-form selective imports do.
+        // `use M as _ { * }` / `use M as _ { Name }`. The loop
+        // accumulates intermediate `.Ident` segments into `subpath`
+        // so `use M.a.b.*` / `use M.a.b.Name` walk `M`'s `a/b/`
+        // subdirectories before applying the wildcard / selective
+        // terminator. `use M.Name` (single dot) keeps the old
+        // selective shorthand — `subpath` ends up empty.
+        let mut subpath: Vec<ilang_ast::Symbol> = Vec::new();
         if matches!(self.peek().kind, TokenKind::Dot) {
-            self.bump();
-            let next = self.peek().clone();
-            match next.kind {
-                TokenKind::Star => {
-                    self.bump();
-                    return Ok(ilang_ast::UseDecl {
-                        module,
-                        alias: ilang_ast::UseAlias::Discard,
-                        selective: None,
-                        wildcard: true,
-                        re_export: false,
-                        super_count,
-                        span,
-                    });
-                }
-                TokenKind::Ident(name) => {
-                    self.bump();
-                    let sym = ilang_ast::Symbol::intern(&name);
-                    return Ok(ilang_ast::UseDecl {
-                        module,
-                        alias: ilang_ast::UseAlias::Discard,
-                        selective: Some(Box::new([sym])),
-                        wildcard: false,
-                        re_export: false,
-                        super_count,
-                        span,
-                    });
-                }
-                _ => {
-                    return Err(ParseError::Unexpected {
-                        found: next.kind,
-                        expected: "`*` or an identifier after `.` in `use M.<name>`".into(),
-                        span: next.span,
-                    });
+            loop {
+                self.bump(); // consume the Dot
+                let next = self.peek().clone();
+                match next.kind {
+                    TokenKind::Star => {
+                        self.bump();
+                        return Ok(ilang_ast::UseDecl {
+                            module,
+                            alias: ilang_ast::UseAlias::Discard,
+                            selective: None,
+                            wildcard: true,
+                            re_export: false,
+                            super_count,
+                            subpath: subpath.into_boxed_slice(),
+                            span,
+                        });
+                    }
+                    TokenKind::Ident(name) => {
+                        self.bump();
+                        let sym = ilang_ast::Symbol::intern(&name);
+                        if matches!(self.peek().kind, TokenKind::Dot) {
+                            // Intermediate segment — keep walking.
+                            subpath.push(sym);
+                            continue;
+                        }
+                        return Ok(ilang_ast::UseDecl {
+                            module,
+                            alias: ilang_ast::UseAlias::Discard,
+                            selective: Some(Box::new([sym])),
+                            wildcard: false,
+                            re_export: false,
+                            super_count,
+                            subpath: subpath.into_boxed_slice(),
+                            span,
+                        });
+                    }
+                    _ => {
+                        return Err(ParseError::Unexpected {
+                            found: next.kind,
+                            expected: "`*` or an identifier after `.` in `use M.<name>`".into(),
+                            span: next.span,
+                        });
+                    }
                 }
             }
         }
@@ -657,6 +667,7 @@ impl<'a> Parser<'a> {
             wildcard,
             re_export: false,
             super_count,
+            subpath: Box::new([]),
             span,
         })
     }

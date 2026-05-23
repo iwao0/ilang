@@ -511,5 +511,12 @@ pub struct UseDecl {
     /// Each step walks one edge up the [deps] tree built from
     /// the entry's `ilang.toml`.
     pub super_count: u32,
+    /// Additional path segments between `module` and the trailing
+    /// `.*` / `.Name`. Empty for single-segment imports. For
+    /// `use a.b.c.*` we record `module = a`, `subpath = ["b", "c"]`
+    /// — the loader walks each segment as a subdirectory of `a`
+    /// (except the last, which names the actual `.il` file under
+    /// the deepest directory).
+    pub subpath: Box<[Symbol]>,
     pub span: Span,
 }

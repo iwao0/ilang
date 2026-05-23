@@ -380,11 +380,53 @@ fn canonicalize(p: &Path) -> Result<PathBuf, LoadError> {
 /// project's `ilang.toml [deps]` section) is tried in order.
 fn resolve_module(
     module: &str,
+    subpath: &[String],
     dir: &Path,
     extra_paths: &[PathBuf],
     super_count: u32,
     parents: &HashMap<PathBuf, PathBuf>,
 ) -> Result<PathBuf, LoadError> {
+    // Multi-segment imports (`use a.b.c.*` or `use a.b.X`): resolve
+    // `a` to a directory first, walk subpath[..-1] as subdirectories,
+    // and treat subpath[-1] as the file basename under the deepest
+    // subdir. Falls through to single-segment resolution when subpath
+    // is empty.
+    if !subpath.is_empty() {
+        let mut base = resolve_base_directory(
+            module, dir, extra_paths, super_count, parents,
+        )?;
+        // The last subpath entry names the actual `.il` file (or
+        // folder-module umbrella). Everything before it is a chain
+        // of subdirectories.
+        let (last, mids) = subpath.split_last().unwrap();
+        for seg in mids {
+            base = base.join(seg);
+            if !base.exists() {
+                return Err(LoadError::ReadError {
+                    path: base.clone(),
+                    message: format!(
+                        "`use {module}.{}.{last}.*`: subdirectory not found",
+                        mids.join(".")
+                    ),
+                });
+            }
+        }
+        let candidate = base.join(format!("{last}.il"));
+        if candidate.exists() {
+            return canonicalize(&candidate);
+        }
+        let candidate_mod = base.join(last).join("mod.il");
+        if candidate_mod.exists() {
+            return canonicalize(&candidate_mod);
+        }
+        return Err(LoadError::ReadError {
+            path: candidate,
+            message: format!(
+                "`use {module}.{}.{last}`: no matching file or `mod.il`",
+                subpath[..subpath.len() - 1].join(".")
+            ),
+        });
+    }
     // `use super.M`: skip the sibling / extra_paths fallback and
     // anchor the search to the importer's package's parent in the
     // dep tree (built by `project.rs::collect_dep_tree`). Each
@@ -457,6 +499,61 @@ fn resolve_module(
     canonicalize(&primary)
 }
 
+/// Resolve `module` to a directory (not a file) — the starting
+/// point for a multi-segment `use a.b.c` walk. Looks at the same
+/// candidates as `resolve_module` but accepts only the directory
+/// forms (`<dir>/<module>/` or `<extra>/<module>/`).
+fn resolve_base_directory(
+    module: &str,
+    dir: &Path,
+    extra_paths: &[PathBuf],
+    super_count: u32,
+    parents: &HashMap<PathBuf, PathBuf>,
+) -> Result<PathBuf, LoadError> {
+    if super_count > 0 {
+        let pkg = find_owning_package(dir, extra_paths)
+            .unwrap_or_else(|| dir.to_path_buf());
+        let mut cur = pkg;
+        for _ in 0..super_count {
+            cur = match parents.get(&cur) {
+                Some(p) => p.clone(),
+                None => return Err(LoadError::ReadError {
+                    path: cur,
+                    message: format!(
+                        "`use super.{module}.*`: no parent package in the dep tree"
+                    ),
+                }),
+            };
+        }
+        let candidate = cur.join(module);
+        if candidate.is_dir() {
+            return Ok(candidate);
+        }
+        return Err(LoadError::ReadError {
+            path: candidate,
+            message: format!(
+                "`use super.{module}.<...>`: directory not found"
+            ),
+        });
+    }
+    let local = dir.join(module);
+    if local.is_dir() {
+        return Ok(local);
+    }
+    for extra in extra_paths {
+        let candidate = extra.join(module);
+        if candidate.is_dir() {
+            return Ok(candidate);
+        }
+    }
+    Err(LoadError::ReadError {
+        path: dir.join(module),
+        message: format!(
+            "`use {module}.<...>`: no directory named `{module}` next to importer or under any dep path"
+        ),
+    })
+}
+
 /// Find the package directory `dir` (the importer's file's
 /// directory) belongs to: the closest ancestor that appears in
 /// the dep-tree's `extra_paths` list. Returns `None` when the
@@ -506,8 +603,10 @@ fn load_recursive(
     let toks = ilang_lexer::tokenize(&src)
         .map_err(|e| LoadError::LexError(e.to_string()))?;
     let dir = file.parent().unwrap_or(base_dir).to_path_buf();
-    for (super_count, dep_name) in pre_scan_use_modules(&toks) {
-        let canon = resolve_module(&dep_name, &dir, extra_paths, super_count, parents)?;
+    for (super_count, dep_name, subpath) in pre_scan_use_modules(&toks) {
+        let canon = resolve_module(
+            &dep_name, &subpath, &dir, extra_paths, super_count, parents,
+        )?;
         load_recursive(
             &canon, &dir, extra_paths, parents, visiting, chain, loaded, overlay, objc_registry,
             objc_class_modules, sibling_class_maps,
@@ -615,7 +714,9 @@ fn read_source(file: &Path, overlay: &HashMap<PathBuf, String>) -> Result<String
 /// resolved later by `apply_use`. Spurious `use` tokens inside e.g.
 /// match arms or argument lists are not a concern: `use` is a keyword
 /// reserved for the import form.
-fn pre_scan_use_modules(tokens: &[ilang_lexer::Token]) -> Vec<(u32, String)> {
+fn pre_scan_use_modules(
+    tokens: &[ilang_lexer::Token],
+) -> Vec<(u32, String, Vec<String>)> {
     let mut deps = Vec::new();
     for (i, t) in tokens.iter().enumerate() {
         if !matches!(t.kind, TokenKind::Use) { continue }
@@ -637,11 +738,47 @@ fn pre_scan_use_modules(tokens: &[ilang_lexer::Token]) -> Vec<(u32, String)> {
             }
             break;
         }
-        if let Some(next) = tokens.get(j) {
-            if let TokenKind::Ident(name) = &next.kind {
-                deps.push((super_count, name.clone()));
+        let module = match tokens.get(j) {
+            Some(tok) => match &tok.kind {
+                TokenKind::Ident(n) => n.clone(),
+                _ => continue,
+            },
+            None => continue,
+        };
+        j += 1;
+        // Mirror parse_use_decl's dot-shortcut walk: collect
+        // intermediate `.Ident` segments into `subpath`; bail when we
+        // hit `.*` (wildcard terminator) or any non-Ident after a dot.
+        let mut subpath: Vec<String> = Vec::new();
+        while let Some(dot) = tokens.get(j) {
+            if !matches!(dot.kind, TokenKind::Dot) {
+                break;
+            }
+            j += 1;
+            match tokens.get(j) {
+                Some(tok) => match &tok.kind {
+                    TokenKind::Ident(name) => {
+                        j += 1;
+                        // Look ahead — if the next token is another
+                        // `.`, this segment was an intermediate path
+                        // step; otherwise it's the final selective
+                        // import and shouldn't enter `subpath`.
+                        if matches!(
+                            tokens.get(j).map(|t| &t.kind),
+                            Some(TokenKind::Dot)
+                        ) {
+                            subpath.push(name.clone());
+                            continue;
+                        }
+                        break;
+                    }
+                    TokenKind::Star => break,
+                    _ => break,
+                },
+                None => break,
             }
         }
+        deps.push((super_count, module, subpath));
     }
     deps
 }
@@ -877,7 +1014,16 @@ fn apply_use(
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
-    let canon = resolve_module(u.module.as_str(), &importer_dir, extra_paths, u.super_count, parents)?;
+    let subpath_strs: Vec<String> =
+        u.subpath.iter().map(|s| s.as_str().to_string()).collect();
+    let canon = resolve_module(
+        u.module.as_str(),
+        &subpath_strs,
+        &importer_dir,
+        extra_paths,
+        u.super_count,
+        parents,
+    )?;
     // Clone instead of remove — the same module may legitimately be
     // applied multiple times (e.g. once via pub use to publish under
     // an umbrella prefix, and once directly so a sibling module that
@@ -1148,6 +1294,8 @@ fn apply_use(
             .to_path_buf();
         let mut visited: HashSet<PathBuf> = HashSet::new();
         let mut names: HashSet<Symbol> = HashSet::new();
+        let subpath_strs: Vec<String> =
+            u.subpath.iter().map(|s| s.as_str().to_string()).collect();
         collect_export_names(
             u.module.as_str(),
             u.super_count,
@@ -1157,6 +1305,7 @@ fn apply_use(
             loaded,
             &mut visited,
             &mut names,
+            &subpath_strs,
         )?;
         for name in names {
             rename_rules.insert(
@@ -1233,6 +1382,11 @@ fn apply_use(
                     if !nu.re_export {
                         continue;
                     }
+                    let subpath_strs: Vec<String> = nu
+                        .subpath
+                        .iter()
+                        .map(|s| s.as_str().to_string())
+                        .collect();
                     if find_in_export_chain(
                         nu.module.as_str(),
                         nu.super_count,
@@ -1242,6 +1396,7 @@ fn apply_use(
                         parents,
                         loaded,
                         &mut visited,
+                        &subpath_strs,
                     )? {
                         hit = true;
                         break;
@@ -1544,8 +1699,11 @@ fn collect_export_names(
     loaded: &HashMap<PathBuf, Program>,
     visited: &mut HashSet<PathBuf>,
     out: &mut HashSet<Symbol>,
+    subpath: &[String],
 ) -> Result<(), LoadError> {
-    let canon = resolve_module(module, importer_dir, extra_paths, super_count, parents)?;
+    let canon = resolve_module(
+        module, subpath, importer_dir, extra_paths, super_count, parents,
+    )?;
     if !visited.insert(canon.clone()) {
         return Ok(());
     }
@@ -1614,6 +1772,11 @@ fn collect_export_names(
             if !nu.re_export {
                 continue;
             }
+            let subpath_strs: Vec<String> = nu
+                .subpath
+                .iter()
+                .map(|s| s.as_str().to_string())
+                .collect();
             collect_export_names(
                 nu.module.as_str(),
                 nu.super_count,
@@ -1623,6 +1786,7 @@ fn collect_export_names(
                 loaded,
                 visited,
                 out,
+                &subpath_strs,
             )?;
         }
     }
@@ -1638,8 +1802,11 @@ fn find_in_export_chain(
     parents: &HashMap<PathBuf, PathBuf>,
     loaded: &HashMap<PathBuf, Program>,
     visited: &mut HashSet<PathBuf>,
+    subpath: &[String],
 ) -> Result<bool, LoadError> {
-    let canon = resolve_module(module, importer_dir, extra_paths, super_count, parents)?;
+    let canon = resolve_module(
+        module, subpath, importer_dir, extra_paths, super_count, parents,
+    )?;
     if !visited.insert(canon.clone()) {
         return Ok(false);
     }
@@ -1690,6 +1857,11 @@ fn find_in_export_chain(
             if !nu.re_export {
                 continue;
             }
+            let subpath_strs: Vec<String> = nu
+                .subpath
+                .iter()
+                .map(|s| s.as_str().to_string())
+                .collect();
             if find_in_export_chain(
                 nu.module.as_str(),
                 nu.super_count,
@@ -1699,6 +1871,7 @@ fn find_in_export_chain(
                 parents,
                 loaded,
                 visited,
+                &subpath_strs,
             )? {
                 return Ok(true);
             }
