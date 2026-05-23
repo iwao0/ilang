@@ -32,12 +32,15 @@ const PRIMITIVE_TYPES: &[&str] = &[
 
 /// Built-in generic types the type checker pre-registers but no source
 /// file declares. Surfaced as type-position completions so `let a: M`
-/// suggests `Map`.
-const BUILTIN_GENERIC_TYPES: &[(&str, &str, CompletionItemKind)] = &[
-    ("Map", "class Map<K, V>", CompletionItemKind::CLASS),
-    ("Promise", "class Promise<T>", CompletionItemKind::CLASS),
-    ("Result", "enum Result<T, E>", CompletionItemKind::ENUM),
-    ("ObjCBlock", "class ObjCBlock<F>", CompletionItemKind::CLASS),
+/// suggests `Map`. The last field is the generic-argument count —
+/// drives the snippet insertion (`Result<$1, $2>`) so accepting the
+/// completion drops the cursor straight into the first slot and
+/// fires the `<...>` signature-help overlay.
+const BUILTIN_GENERIC_TYPES: &[(&str, &str, CompletionItemKind, usize)] = &[
+    ("Map", "class Map<K, V>", CompletionItemKind::CLASS, 2),
+    ("Promise", "class Promise<T>", CompletionItemKind::CLASS, 1),
+    ("Result", "enum Result<T, E>", CompletionItemKind::ENUM, 2),
+    ("ObjCBlock", "class ObjCBlock<F>", CompletionItemKind::CLASS, 1),
 ];
 
 /// Both default to no-op today, retained as a placeholder for future
@@ -215,11 +218,28 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
             ..CompletionItem::default()
         });
     }
-    for (name, detail, kind) in BUILTIN_GENERIC_TYPES {
+    for (name, detail, kind, generic_count) in BUILTIN_GENERIC_TYPES {
+        // Build `Name<$1, $2, ...>` so accepting the completion
+        // leaves the cursor on the first generic slot and fires the
+        // `<...>` signature-help overlay — without this, the user
+        // gets the bare name with no hint that more typing is
+        // needed.
+        let slots = (1..=*generic_count)
+            .map(|i| format!("${i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let snippet = format!("{name}<{slots}>");
         out.push(CompletionItem {
             label: (*name).to_string(),
             kind: Some(*kind),
             detail: Some((*detail).to_string()),
+            insert_text: Some(snippet),
+            insert_text_format: Some(InsertTextFormat::SNIPPET),
+            command: Some(Command {
+                title: String::new(),
+                command: "editor.action.triggerParameterHints".to_string(),
+                arguments: None,
+            }),
             ..CompletionItem::default()
         });
     }
@@ -345,23 +365,25 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
     let bare_suffix = |s: &str| -> String {
         s.rsplit_once('.').map(|(_, t)| t).unwrap_or(s).to_string()
     };
-    // Sort so that within each (bare suffix, kind) group the entry
-    // with the fewest dots comes first, then dedup_by keeps it.
+    // Sort so that within each bare-suffix group the entry with the
+    // fewest dots comes first, then dedup_by keeps it. Kind is
+    // intentionally NOT part of the key — `Result` from
+    // BUILTIN_GENERIC_TYPES (ENUM) and `Result` from the buffer's
+    // class table (CLASS) point at the same type, and listing both
+    // is just noise.
     out.sort_by(|a, b| {
         (
             bare_suffix(&a.label),
-            a.kind.map(|k| format!("{k:?}")).unwrap_or_default(),
             a.label.matches('.').count(),
             a.label.clone(),
         )
             .cmp(&(
                 bare_suffix(&b.label),
-                b.kind.map(|k| format!("{k:?}")).unwrap_or_default(),
                 b.label.matches('.').count(),
                 b.label.clone(),
             ))
     });
-    out.dedup_by(|a, b| bare_suffix(&a.label) == bare_suffix(&b.label) && a.kind == b.kind);
+    out.dedup_by(|a, b| bare_suffix(&a.label) == bare_suffix(&b.label));
     out.sort_by(|a, b| a.label.cmp(&b.label));
     out
 }
@@ -560,13 +582,21 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         // as dotted keys (variant accesses), so the split above would
         // happily pick `NSWindowStyleMask` as a "module" and produce
         // a phantom MODULE entry next to the real ENUM one. Skip any
-        // prefix that's actually a known type/enum/interface.
+        // prefix that's actually a known type/enum/interface, plus
+        // the type-checker's pre-registered built-in generics
+        // (`Result`, `Map`, ...) which the user can reach as
+        // `Result.ok(...)` even though they don't appear in any of
+        // the per-doc maps.
         let m_key = crate::AstSymbol::intern(&m);
+        let is_builtin_generic = BUILTIN_GENERIC_TYPES
+            .iter()
+            .any(|(n, _, _, _)| *n == m);
         let is_known_type = doc.local_enums.contains_key(&m_key)
             || doc.external_enums.contains_key(&m_key)
             || doc.classes.contains_key(&m_key)
             || doc.local_interfaces.contains_key(&m_key)
-            || doc.external_interfaces.contains_key(&m_key);
+            || doc.external_interfaces.contains_key(&m_key)
+            || is_builtin_generic;
         if is_known_type {
             continue;
         }
