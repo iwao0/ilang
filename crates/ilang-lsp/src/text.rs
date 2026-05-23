@@ -552,9 +552,6 @@ pub(crate) fn subsequence_ci(haystack: &str, needle_lower: &str) -> bool {
     false
 }
 
-/// Read the source word sitting between the 1-based `start_col`
-/// and `end_col` (exclusive) on `line`. Returns `None` when the
-/// line / columns don't index a real slice (e.g. malformed span).
 /// Walk back from `offset` to the byte position of the start of its
 /// containing line — either the byte just after the previous `\n`, or
 /// `0` if `offset` lies on the first line. Used by code-action
@@ -569,6 +566,9 @@ pub(crate) fn line_start_before(text: &str, offset: usize) -> usize {
     i
 }
 
+/// Read the source word sitting between the 1-based `start_col`
+/// and `end_col` (exclusive) on `line`. Returns `None` when the
+/// line / columns don't index a real slice (e.g. malformed span).
 pub(crate) fn read_word_at(text: &str, line: u32, start_col: u32, end_col: u32) -> Option<String> {
     let line_str = text.lines().nth(line.checked_sub(1)? as usize)?;
     let s = start_col.checked_sub(1)? as usize;
