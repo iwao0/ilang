@@ -209,3 +209,27 @@ pub(crate) struct Doc {
     pub(crate) selective_use_names: HashSet<AstSymbol>,
 }
 
+impl Doc {
+    /// Recover the signature of a selectively-imported external name
+    /// (`use cocoa { makeWindow }` → bare key `makeWindow`). The
+    /// harvest stores the signature under the dotted module path
+    /// (`cocoa.makeWindow`) and only flags the bare name in
+    /// `selective_use_names`, so a plain `external_signatures.get(bare)`
+    /// always misses. Returns `None` when the name isn't selectively
+    /// imported or no matching dotted key exists.
+    pub(crate) fn lookup_selective_bare(&self, bare: &str) -> Option<String> {
+        let key = AstSymbol::intern(bare);
+        if !self.selective_use_names.contains(&key) {
+            return None;
+        }
+        for (k, sig) in self.external_signatures.iter() {
+            if let Some((_, suffix)) = k.as_str().rsplit_once('.') {
+                if suffix == bare {
+                    return Some(sig.clone());
+                }
+            }
+        }
+        None
+    }
+}
+

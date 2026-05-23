@@ -570,7 +570,7 @@ fn expected_param_type(doc: &Doc, call: &text::CallContext) -> Option<String> {
         sym.signature.clone()
     } else if let Some(s) = doc.external_signatures.get(&key) {
         s.clone()
-    } else if let Some(s) = lookup_selective_bare(doc, &call.callee) {
+    } else if let Some(s) = doc.lookup_selective_bare(&call.callee) {
         // `use cocoa { makeWindow }` registers `makeWindow` only in
         // `selective_use_names` — the signature lives under the
         // dotted key (`cocoa.makeWindow`). Walk the external map to
@@ -627,24 +627,3 @@ fn boost_arg_matches(items: &mut Vec<CompletionItem>, expected: &str, doc: &Doc)
     }
 }
 
-/// Recover the signature of a selectively-imported external name
-/// (`use cocoa { makeWindow }` → bare key `makeWindow`). The harvest
-/// stores the signature under the dotted module path
-/// (`cocoa.makeWindow`) and only flags the bare name in
-/// `selective_use_names`, so a plain `get(bare)` always misses.
-/// Returns `None` when the name isn't selectively imported or no
-/// matching dotted key exists.
-fn lookup_selective_bare(doc: &Doc, bare: &str) -> Option<String> {
-    let key = AstSymbol::intern(bare);
-    if !doc.selective_use_names.contains(&key) {
-        return None;
-    }
-    for (k, sig) in doc.external_signatures.iter() {
-        if let Some((_, suffix)) = k.as_str().rsplit_once('.') {
-            if suffix == bare {
-                return Some(sig.clone());
-            }
-        }
-    }
-    None
-}

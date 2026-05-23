@@ -95,7 +95,7 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                 doc: None,
                 source_path: None,
             });
-        } else if let Some(s) = lookup_selective_bare(doc, &call.callee) {
+        } else if let Some(s) = doc.lookup_selective_bare(&call.callee) {
             // `use cocoa { makeWindow }` registers `makeWindow` only
             // in `selective_use_names`; the signature lives under
             // the dotted key (`cocoa.makeWindow`). Without this
@@ -202,24 +202,3 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
     })
 }
 
-/// Recover the signature of a selectively-imported external callable
-/// (`use cocoa { makeWindow }`). The harvest stores its signature
-/// under the dotted module path (`cocoa.makeWindow`) and only flags
-/// the bare name in `selective_use_names`, so a plain `get(bare)`
-/// always misses. Mirror of `completion::handler::lookup_selective_bare`
-/// — kept duplicated to avoid widening that module's pub surface
-/// just for one consumer.
-fn lookup_selective_bare(doc: &Doc, bare: &str) -> Option<String> {
-    let key = AstSymbol::intern(bare);
-    if !doc.selective_use_names.contains(&key) {
-        return None;
-    }
-    for (k, sig) in doc.external_signatures.iter() {
-        if let Some((_, suffix)) = k.as_str().rsplit_once('.') {
-            if suffix == bare {
-                return Some(sig.clone());
-            }
-        }
-    }
-    None
-}
