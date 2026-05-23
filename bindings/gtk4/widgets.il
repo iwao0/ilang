@@ -105,6 +105,20 @@ use core { GtkWidget }
     @lib pub fn gtk_drop_down_set_selected(d: GtkDropDown, index: u32)
     @lib pub fn gtk_drop_down_get_selected(d: GtkDropDown): u32
 
+    /// `GtkComboBoxText` — deprecated in GTK 4.10 but the only
+    /// drop-down that supports dynamic `append` / `remove_all`
+    /// without writing a GtkStringList model. libs/gui uses it
+    /// for now; swap to GtkDropDown + GtkStringList when the
+    /// binding grows out.
+    @handle pub struct GtkComboBoxText {}
+    @lib pub fn gtk_combo_box_text_new(): GtkComboBoxText
+    @lib pub fn gtk_combo_box_text_append_text(
+        c: GtkComboBoxText, text: *const char
+    )
+    @lib pub fn gtk_combo_box_text_remove_all(c: GtkComboBoxText)
+    @lib pub fn gtk_combo_box_set_active(c: GtkComboBoxText, index: i32)
+    @lib pub fn gtk_combo_box_get_active(c: GtkComboBoxText): i32
+
     // ─── ListBox (selectable list) ───────────────────────────
 
     @handle pub struct GtkListBox {}

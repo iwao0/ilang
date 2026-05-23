@@ -1,0 +1,5 @@
+[package]
+name = "gui-linux"
+
+[deps]
+gtk = "../../../bindings/gtk4"

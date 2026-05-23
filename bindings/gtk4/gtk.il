@@ -18,4 +18,4 @@
 pub use core.*
 pub use widgets.*
 pub use menu.*
-pub use events.*
+pub use input.*

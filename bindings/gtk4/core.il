@@ -108,16 +108,32 @@
     /// `gtk_window_destroy`.
     @lib pub fn g_object_unref(obj: GObject)
 
-    /// Connect a callback to a signal. `c_handler` is the raw
-    /// `void(*)(...)` pointer (use ilang's `fnAddr(...)`),
-    /// `data` is forwarded to the callback verbatim as the
-    /// trailing `gpointer user_data` argument, `destroy_data`
-    /// can be `0` (no per-handler cleanup), `flags` is normally
-    /// `0`. Returns the handler id (`gulong`).
+    /// Connect a callback to a signal. `data` is forwarded as the
+    /// trailing `gpointer user_data`, `destroy_data` can be `0`,
+    /// `flags` is normally `0`. Returns the handler id.
+    ///
+    /// Two overloads cover the callback shapes libs/gui uses:
+    /// `void(*)(instance, user_data)` for one-arg signals like
+    /// `clicked` / `toggled` / `changed` / `value-changed` /
+    /// `destroy`, and `void(*)(instance, arg, user_data)` for
+    /// two-arg ones like `row-selected` and `activate`.
     @lib pub fn g_signal_connect_data(
         instance: GObject,
         signal_name: *const char,
-        c_handler: i64,
+        c_handler: fn(i64, i64),
+        data: *void,
+        destroy_data: i64,
+        flags: u32
+    ): u64
+    /// Same C symbol, two-arg-payload variant. ilang's overload
+    /// resolver doesn't pick the right `fn(...)` shape on its own,
+    /// so this binding is a distinct ilang name that still routes
+    /// to `g_signal_connect_data` at the C level via `@symbol`.
+    @symbol("g_signal_connect_data")
+    @lib pub fn g_signal_connect_data2(
+        instance: GObject,
+        signal_name: *const char,
+        c_handler: fn(i64, i64, i64),
         data: *void,
         destroy_data: i64,
         flags: u32

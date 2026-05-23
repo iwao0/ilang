@@ -8,3 +8,7 @@ target = "macos"
 [[deps.gui_impl]]
 path = "win32"
 target = "windows"
+
+[[deps.gui_impl]]
+path = "linux"
+target = "linux"
