@@ -126,9 +126,18 @@ use core { GtkWidget }
     @lib pub fn gtk_list_box_new(): GtkListBox
     @lib pub fn gtk_list_box_append(lb: GtkListBox, child: GtkWidget)
     @lib pub fn gtk_list_box_remove(lb: GtkListBox, child: GtkWidget)
+    @lib pub fn gtk_list_box_row_new(): GtkListBoxRow
+    @lib pub fn gtk_list_box_row_set_child(
+        row: GtkListBoxRow, child: GtkWidget
+    )
     @lib pub fn gtk_list_box_get_selected_row(lb: GtkListBox): GtkListBoxRow
     @lib pub fn gtk_list_box_row_get_index(row: GtkListBoxRow): i32
     @lib pub fn gtk_list_box_select_row(lb: GtkListBox, row: GtkListBoxRow)
+    /// Returns the row at `index`, or NULL if out of range.
+    @lib pub fn gtk_list_box_get_row_at_index(
+        lb: GtkListBox, index: i32
+    ): GtkListBoxRow
+    @lib pub fn gtk_list_box_unselect_all(lb: GtkListBox)
 
     /// `GtkScrolledWindow` wraps a child so it scrolls when the
     /// content overflows. libs/gui's ListBox typically wraps the

@@ -8,28 +8,7 @@
 /// `pressed` / `released` / `motion` on `GtkGestureClick` /
 /// `GtkEventControllerMotion`).
 
-use core { GtkWidget }
-
-@extern(C, "gtk-4") {
-    @handle pub struct GtkEventController {}
-    @handle pub struct GtkEventControllerKey {}
-    @handle pub struct GtkEventControllerMotion {}
-    @handle pub struct GtkGestureClick {}
-
-    @lib pub fn gtk_event_controller_key_new(): GtkEventControllerKey
-    @lib pub fn gtk_event_controller_motion_new(): GtkEventControllerMotion
-    @lib pub fn gtk_gesture_click_new(): GtkGestureClick
-    /// `button`: 0 = any button, 1 = primary, 2 = middle, 3 = right.
-    @lib pub fn gtk_gesture_single_set_button(
-        g: GtkGestureClick, button: u32
-    )
-
-    /// Attach the controller to a widget so its signals start
-    /// firing.
-    @lib pub fn gtk_widget_add_controller(
-        w: GtkWidget, controller: GtkEventController
-    )
-}
+use core { GtkWidget, GObject }
 
 // ─── Gdk modifier mask bits ──────────────────────────────────
 // Mirrors GDK 4's `GdkModifierType` — the `state` argument the
@@ -52,50 +31,161 @@ pub enum GdkModifierType: u32 {
 }
 
 // ─── Gdk keyvals ─────────────────────────────────────────────
-// Only the subset libs/gui maps to W3C `KeyboardEvent.code`. Add
-// more here as needed. Values from `<gdk/gdkkeysyms.h>`.
-pub const GDK_KEY_a: u32         = 0x061 as u32
-pub const GDK_KEY_b: u32         = 0x062 as u32
-pub const GDK_KEY_c: u32         = 0x063 as u32
-pub const GDK_KEY_d: u32         = 0x064 as u32
-pub const GDK_KEY_e: u32         = 0x065 as u32
-pub const GDK_KEY_f: u32         = 0x066 as u32
-pub const GDK_KEY_g: u32         = 0x067 as u32
-pub const GDK_KEY_h: u32         = 0x068 as u32
-pub const GDK_KEY_i: u32         = 0x069 as u32
-pub const GDK_KEY_j: u32         = 0x06a as u32
-pub const GDK_KEY_k: u32         = 0x06b as u32
-pub const GDK_KEY_l: u32         = 0x06c as u32
-pub const GDK_KEY_m: u32         = 0x06d as u32
-pub const GDK_KEY_n: u32         = 0x06e as u32
-pub const GDK_KEY_o: u32         = 0x06f as u32
-pub const GDK_KEY_p: u32         = 0x070 as u32
-pub const GDK_KEY_q: u32         = 0x071 as u32
-pub const GDK_KEY_r: u32         = 0x072 as u32
-pub const GDK_KEY_s: u32         = 0x073 as u32
-pub const GDK_KEY_t: u32         = 0x074 as u32
-pub const GDK_KEY_u: u32         = 0x075 as u32
-pub const GDK_KEY_v: u32         = 0x076 as u32
-pub const GDK_KEY_w: u32         = 0x077 as u32
-pub const GDK_KEY_x: u32         = 0x078 as u32
-pub const GDK_KEY_y: u32         = 0x079 as u32
-pub const GDK_KEY_z: u32         = 0x07a as u32
-pub const GDK_KEY_0: u32         = 0x030 as u32
-pub const GDK_KEY_1: u32         = 0x031 as u32
-pub const GDK_KEY_2: u32         = 0x032 as u32
-pub const GDK_KEY_3: u32         = 0x033 as u32
-pub const GDK_KEY_4: u32         = 0x034 as u32
-pub const GDK_KEY_5: u32         = 0x035 as u32
-pub const GDK_KEY_6: u32         = 0x036 as u32
-pub const GDK_KEY_7: u32         = 0x037 as u32
-pub const GDK_KEY_8: u32         = 0x038 as u32
-pub const GDK_KEY_9: u32         = 0x039 as u32
-pub const GDK_KEY_Return: u32    = 0xff0d as u32
-pub const GDK_KEY_Escape: u32    = 0xff1b as u32
-pub const GDK_KEY_BackSpace: u32 = 0xff08 as u32
-pub const GDK_KEY_Tab: u32       = 0xff09 as u32
-pub const GDK_KEY_space: u32     = 0x020 as u32
-pub const GDK_KEY_Left: u32      = 0xff51 as u32
-pub const GDK_KEY_Up: u32        = 0xff52 as u32
-pub const GDK_KEY_Right: u32     = 0xff53 as u32
-pub const GDK_KEY_Down: u32      = 0xff54 as u32
+// The subset libs/gui maps to W3C `KeyboardEvent.code`. Add more
+// variants here as new key events surface. Values from
+// `<gdk/gdkkeysyms.h>`; letters are the lowercase form because
+// callers always normalise via `gdk_keyval_to_lower` first.
+pub enum Keyval: u32 {
+    unknown    = 0x0000
+    keyA       = 0x0061
+    keyB       = 0x0062
+    keyC       = 0x0063
+    keyD       = 0x0064
+    keyE       = 0x0065
+    keyF       = 0x0066
+    keyG       = 0x0067
+    keyH       = 0x0068
+    keyI       = 0x0069
+    keyJ       = 0x006a
+    keyK       = 0x006b
+    keyL       = 0x006c
+    keyM       = 0x006d
+    keyN       = 0x006e
+    keyO       = 0x006f
+    keyP       = 0x0070
+    keyQ       = 0x0071
+    keyR       = 0x0072
+    keyS       = 0x0073
+    keyT       = 0x0074
+    keyU       = 0x0075
+    keyV       = 0x0076
+    keyW       = 0x0077
+    keyX       = 0x0078
+    keyY       = 0x0079
+    keyZ       = 0x007a
+    digit0     = 0x0030
+    digit1     = 0x0031
+    digit2     = 0x0032
+    digit3     = 0x0033
+    digit4     = 0x0034
+    digit5     = 0x0035
+    digit6     = 0x0036
+    digit7     = 0x0037
+    digit8     = 0x0038
+    digit9     = 0x0039
+    space      = 0x0020
+    enter      = 0xff0d
+    escape     = 0xff1b
+    backspace  = 0xff08
+    tab        = 0xff09
+    arrowLeft  = 0xff51
+    arrowUp    = 0xff52
+    arrowRight = 0xff53
+    arrowDown  = 0xff54
+}
+
+@extern(C, "gtk-4") {
+    @handle pub struct GtkEventController {}
+    @handle pub struct GtkEventControllerKey {}
+    @handle pub struct GtkEventControllerMotion {}
+    @handle pub struct GtkGestureClick {}
+
+    @lib pub fn gtk_event_controller_key_new(): GtkEventControllerKey
+    @lib pub fn gtk_event_controller_motion_new(): GtkEventControllerMotion
+    @lib pub fn gtk_gesture_click_new(): GtkGestureClick
+    /// `button`: 0 = any button, 1 = primary, 2 = middle, 3 = right.
+    @lib pub fn gtk_gesture_single_set_button(
+        g: GtkGestureClick, button: u32
+    )
+
+    /// Attach the controller to a widget so its signals start
+    /// firing.
+    @lib pub fn gtk_widget_add_controller(
+        w: GtkWidget, controller: GtkEventController
+    )
+
+    // ─── Shortcut controller (menu accelerators) ─────────────
+
+    /// `GtkShortcutController` dispatches keyboard shortcuts to
+    /// `GtkShortcut` actions. Attach to a window via
+    /// `gtk_widget_add_controller` and add shortcuts via
+    /// `gtk_shortcut_controller_add_shortcut`.
+    @handle pub struct GtkShortcutController {}
+    @handle pub struct GtkShortcut {}
+    @handle pub struct GtkShortcutTrigger {}
+    @handle pub struct GtkShortcutAction {}
+
+    @lib pub fn gtk_shortcut_controller_new(): GtkShortcutController
+    /// Scope: 0 = LOCAL (only when a child has focus), 1 = MANAGED,
+    /// 2 = GLOBAL. libs/gui uses GLOBAL so menu accelerators fire
+    /// regardless of which widget owns focus.
+    @lib pub fn gtk_shortcut_controller_set_scope(
+        c: GtkShortcutController, scope: i32
+    )
+    @lib pub fn gtk_shortcut_controller_add_shortcut(
+        c: GtkShortcutController, shortcut: GtkShortcut
+    )
+    /// `gtk_shortcut_new` takes ownership of both arguments.
+    @lib pub fn gtk_shortcut_new(
+        trigger: GtkShortcutTrigger, action: GtkShortcutAction
+    ): GtkShortcut
+    /// Parse a string like `"<Primary>n"` (Primary = Cmd on macOS,
+    /// Ctrl elsewhere). Returns NULL on parse failure.
+    @lib pub fn gtk_shortcut_trigger_parse_string(
+        s: *const char
+    ): GtkShortcutTrigger
+    /// `gtk_named_action_new("app.menu_3")` builds a
+    /// `GtkShortcutAction` that activates the named action when the
+    /// trigger fires.
+    @lib pub fn gtk_named_action_new(name: *const char): GtkShortcutAction
+
+    // ─── Signal connect variants for event controllers ───────
+    // Same C symbol as `g_signal_connect_data`; distinct ilang names
+    // pin the callback signature for each signal shape.
+
+    /// `void(GtkEventControllerMotion*, gdouble x, gdouble y, gpointer)`.
+    @symbol("g_signal_connect_data")
+    @lib pub fn g_signal_connect_motion(
+        instance: GObject, signal_name: *const char,
+        c_handler: fn(i64, f64, f64, i64),
+        data: *void, destroy_data: i64, flags: u32
+    ): u64
+
+    /// `void(GtkGestureClick*, gint n_press, gdouble x, gdouble y, gpointer)`.
+    @symbol("g_signal_connect_data")
+    @lib pub fn g_signal_connect_click(
+        instance: GObject, signal_name: *const char,
+        c_handler: fn(i64, i32, f64, f64, i64),
+        data: *void, destroy_data: i64, flags: u32
+    ): u64
+
+    /// `gboolean(GtkEventControllerKey*, guint keyval, guint keycode,
+    /// GdkModifierType state, gpointer)`. Returning nonzero consumes
+    /// the event; libs/gui returns zero so menubars and entries still
+    /// see their accelerators.
+    @symbol("g_signal_connect_data")
+    @lib pub fn g_signal_connect_key(
+        instance: GObject, signal_name: *const char,
+        c_handler: fn(i64, u32, u32, u32, i64): i32,
+        data: *void, destroy_data: i64, flags: u32
+    ): u64
+
+    // ─── Gesture / event-controller state queries ────────────
+
+    /// Returns the button that triggered the current sequence
+    /// (1 = primary, 2 = middle, 3 = right). Useful inside a
+    /// `GtkGestureClick` `pressed` / `released` handler.
+    @lib pub fn gtk_gesture_single_get_current_button(
+        g: GtkGestureClick
+    ): u32
+
+    /// Modifier mask for the in-progress event. `GdkModifierType` —
+    /// bit-test against `GdkModifierType.shift` / `.control` / etc.
+    @lib pub fn gtk_event_controller_get_current_event_state(
+        c: GtkEventController
+    ): u32
+
+    /// Normalise to lowercase so shift state doesn't change the
+    /// reported key code (Shift+a still yields keyval `a`).
+    @lib pub fn gdk_keyval_to_lower(keyval: u32): u32
+}
