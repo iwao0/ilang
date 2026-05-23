@@ -458,6 +458,16 @@ fn name_span(line: u32, col: u32, name: &str) -> Span {
     Span::range(line, col, line, end_col.max(col))
 }
 
+/// Convert a 1-based `(line, col)` pair (the lexer's coord system)
+/// to a 0-based LSP `Position`. Used at the many sites that thread
+/// loose line / col integers through without a full `Span` in hand.
+pub(crate) fn lsp_position(line: u32, col: u32) -> Position {
+    Position {
+        line: line.saturating_sub(1),
+        character: col.saturating_sub(1),
+    }
+}
+
 /// Convert a 1-based ilang `Span` to a 0-based LSP `Range`. `len` is the
 /// number of characters to highlight starting at `span.col` — used when
 /// the caller has the identifier length but `span.end_col` points

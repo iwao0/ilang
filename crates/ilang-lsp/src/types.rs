@@ -112,6 +112,23 @@ pub(crate) struct RefEntry {
     pub(crate) doc: Option<String>,
 }
 
+impl RefEntry {
+    /// Convert the entry's 1-based `(line, start_col, end_col)` triple
+    /// to the 0-based `Range` LSP expects.
+    pub(crate) fn lsp_range(&self) -> Range {
+        Range {
+            start: Position {
+                line: self.line.saturating_sub(1),
+                character: self.start_col.saturating_sub(1),
+            },
+            end: Position {
+                line: self.line.saturating_sub(1),
+                character: self.end_col.saturating_sub(1),
+            },
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct Doc {
     pub(crate) text: String,

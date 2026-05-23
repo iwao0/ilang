@@ -310,10 +310,7 @@ fn push_destructure_hint(
         return;
     };
     out.push(InlayHint {
-        position: Position {
-            line:      line.saturating_sub(1),
-            character: col.saturating_sub(1),
-        },
+        position: text::lsp_position(line, col),
         label: InlayHintLabel::String(format!(": {ty}")),
         kind: Some(InlayHintKind::TYPE),
         text_edits: None,
@@ -481,10 +478,8 @@ fn push_type_hint(
     else {
         return;
     };
-    let line = name_span.line.saturating_sub(1);
-    let character = name_span.col.saturating_sub(1).saturating_add(name.len() as u32);
     out.push(InlayHint {
-        position: Position { line, character },
+        position: text::lsp_position(name_span.line, name_span.col + name.len() as u32),
         label: InlayHintLabel::String(format!(": {ty}")),
         kind: Some(InlayHintKind::TYPE),
         text_edits: None,
@@ -656,10 +651,8 @@ where
             continue;
         }
         let Some(name) = names.get(i) else { continue };
-        let line = arg.span.line.saturating_sub(1);
-        let character = arg.span.col.saturating_sub(1);
         out.push(InlayHint {
-            position: Position { line, character },
+            position: text::lsp_position(arg.span.line, arg.span.col),
             label: InlayHintLabel::String(format!("{name}:")),
             kind: Some(InlayHintKind::PARAMETER),
             text_edits: None,

@@ -458,16 +458,7 @@ fn accumulate_incoming(
         let Some(enclosing) = enclosing_fn(&ranges, r.line) else {
             continue;
         };
-        let call_range = Range {
-            start: Position {
-                line: r.line.saturating_sub(1),
-                character: r.start_col.saturating_sub(1),
-            },
-            end: Position {
-                line: r.line.saturating_sub(1),
-                character: r.end_col.saturating_sub(1),
-            },
-        };
+        let call_range = r.lsp_range();
         let key = (doc_uri.clone(), enclosing.name_span);
         let entry = by_caller.entry(key).or_insert_with(|| {
             (
@@ -530,16 +521,7 @@ pub(crate) fn outgoing_calls(item: &ItemRef, doc: &Doc) -> Vec<CallHierarchyOutg
             kind,
             is_static,
         };
-        let call_range = Range {
-            start: Position {
-                line: r.line.saturating_sub(1),
-                character: r.start_col.saturating_sub(1),
-            },
-            end: Position {
-                line: r.line.saturating_sub(1),
-                character: r.end_col.saturating_sub(1),
-            },
-        };
+        let call_range = r.lsp_range();
         let key = (callee_uri, r.target_span);
         let entry = by_callee.entry(key).or_insert_with(|| (callee, Vec::new()));
         entry.1.push(call_range);

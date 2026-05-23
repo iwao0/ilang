@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use ilang_ast::Symbol as AstSymbol;
 use tower_lsp::jsonrpc::Result as LspResult;
-use tower_lsp::lsp_types::{Position, Range, TextEdit, Url, WorkspaceEdit};
+use tower_lsp::lsp_types::{Position, TextEdit, Url, WorkspaceEdit};
 
 use crate::analyse::{analyse_path_to_doc, collect_workspace_il_files, lookup_ref};
 use crate::rename_conflicts;
@@ -197,16 +197,7 @@ fn collect_doc_edits(
             }
         })
         .map(|r| TextEdit {
-            range: Range {
-                start: Position {
-                    line: r.line.saturating_sub(1),
-                    character: r.start_col.saturating_sub(1),
-                },
-                end: Position {
-                    line: r.line.saturating_sub(1),
-                    character: r.end_col.saturating_sub(1),
-                },
-            },
+            range: r.lsp_range(),
             new_text: new_name.to_string(),
         })
         .collect();
@@ -215,19 +206,7 @@ fn collect_doc_edits(
         // unused decl would yield zero edits in its own file and
         // VSCode would refuse the rename.
         edits.push(TextEdit {
-            range: Range {
-                start: Position {
-                    line: decl_name_span.line.saturating_sub(1),
-                    character: decl_name_span.col.saturating_sub(1),
-                },
-                end: Position {
-                    line: decl_name_span.line.saturating_sub(1),
-                    character: decl_name_span
-                        .col
-                        .saturating_sub(1)
-                        .saturating_add(target.1),
-                },
-            },
+            range: text::span_to_range(decl_name_span, target.1 as usize),
             new_text: new_name.to_string(),
         });
     }

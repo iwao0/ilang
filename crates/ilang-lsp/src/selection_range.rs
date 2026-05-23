@@ -15,6 +15,8 @@
 use ilang_lexer::{tokenize, Token, TokenKind};
 use tower_lsp::lsp_types::{Position, Range, SelectionRange};
 
+use crate::text;
+
 pub(crate) fn build_for(text: &str, positions: &[Position]) -> Vec<SelectionRange> {
     let Ok(tokens) = tokenize(text) else {
         return positions.iter().map(|p| singleton(*p)).collect();
@@ -97,14 +99,8 @@ fn chain_for(
     containing.sort_by_key(|p| pair_area(p));
     for p in containing {
         ranges.push(Range {
-            start: Position {
-                line:      p.open_line.saturating_sub(1),
-                character: p.open_col.saturating_sub(1),
-            },
-            end: Position {
-                line:      p.close_line.saturating_sub(1),
-                character: p.close_col.saturating_sub(1),
-            },
+            start: text::lsp_position(p.open_line, p.open_col),
+            end: text::lsp_position(p.close_line, p.close_col),
         });
     }
 
@@ -161,14 +157,8 @@ fn token_at(tokens: &[Token], line: u32, col: u32) -> Option<Range> {
         let end = start + name.len() as u32;
         if col >= start && col <= end {
             return Some(Range {
-                start: Position {
-                    line:      tok.span.line.saturating_sub(1),
-                    character: start.saturating_sub(1),
-                },
-                end: Position {
-                    line:      tok.span.line.saturating_sub(1),
-                    character: end.saturating_sub(1),
-                },
+                start: text::lsp_position(tok.span.line, start),
+                end: text::lsp_position(tok.span.line, end),
             });
         }
     }

@@ -397,17 +397,7 @@ impl LanguageServer for Backend {
             if entry.signature.starts_with("this:") || entry.no_definition {
                 return Ok(None);
             }
-            let range = Range {
-                start: Position {
-                    line: entry.line.saturating_sub(1),
-                    character: entry.start_col.saturating_sub(1),
-                },
-                end: Position {
-                    line: entry.line.saturating_sub(1),
-                    character: entry.end_col.saturating_sub(1),
-                },
-            };
-            Ok(Some(PrepareRenameResponse::Range(range)))
+            Ok(Some(PrepareRenameResponse::Range(entry.lsp_range())))
         } else if let Some((word, start_col)) = word_at(&doc.text, pos) {
             // Plain top-level decl whose use site we don't have a
             // `RefEntry` for (e.g. cursor parked on the decl line
@@ -680,10 +670,7 @@ impl LanguageServer for Backend {
                     decl_name_len,
                     &snapshot,
                 );
-                let pos = Position {
-                    line:      decl_line.saturating_sub(1),
-                    character: decl_col.saturating_sub(1),
-                };
+                let pos = text::lsp_position(decl_line, decl_col);
                 lens.command = Some(code_lens::references_command(&uri, pos, locations));
             }
             code_lens::LensData::Implementations {
@@ -706,10 +693,7 @@ impl LanguageServer for Backend {
                 };
                 let iface_class = if is_interface { Some(name.as_str()) } else { None };
                 let locs = implementation::collect(&target, &anchor, &snapshot, iface_class);
-                let pos = Position {
-                    line:      decl_line.saturating_sub(1),
-                    character: decl_col.saturating_sub(1),
-                };
+                let pos = text::lsp_position(decl_line, decl_col);
                 lens.command = Some(code_lens::implementations_command(
                     &uri,
                     pos,

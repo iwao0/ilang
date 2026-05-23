@@ -42,16 +42,7 @@ pub(crate) fn collect_reference_locations(
             if !matches { continue; }
             out.push(Location {
                 uri: doc_uri.clone(),
-                range: Range {
-                    start: Position {
-                        line: r.line.saturating_sub(1),
-                        character: r.start_col.saturating_sub(1),
-                    },
-                    end: Position {
-                        line: r.line.saturating_sub(1),
-                        character: r.end_col.saturating_sub(1),
-                    },
-                },
+                range: r.lsp_range(),
             });
         }
     };
@@ -279,16 +270,7 @@ fn push_ref_locations(
         if !matches { continue; }
         out.push(Location {
             uri: doc_uri.clone(),
-            range: Range {
-                start: Position {
-                    line: r.line.saturating_sub(1),
-                    character: r.start_col.saturating_sub(1),
-                },
-                end: Position {
-                    line: r.line.saturating_sub(1),
-                    character: r.end_col.saturating_sub(1),
-                },
-            },
+            range: r.lsp_range(),
         });
     }
 }
@@ -296,16 +278,7 @@ fn push_ref_locations(
 fn decl_location(uri: &Url, decl_name_span: ilang_ast::Span, name_len: u32) -> Location {
     Location {
         uri: uri.clone(),
-        range: Range {
-            start: Position {
-                line: decl_name_span.line.saturating_sub(1),
-                character: decl_name_span.col.saturating_sub(1),
-            },
-            end: Position {
-                line: decl_name_span.line.saturating_sub(1),
-                character: decl_name_span.col.saturating_sub(1).saturating_add(name_len),
-            },
-        },
+        range: text::span_to_range(decl_name_span, name_len as usize),
     }
 }
 
@@ -359,34 +332,13 @@ pub(crate) fn handle_document_highlight(
             continue;
         }
         hits.push(DocumentHighlight {
-            range: Range {
-                start: Position {
-                    line: r.line.saturating_sub(1),
-                    character: r.start_col.saturating_sub(1),
-                },
-                end: Position {
-                    line: r.line.saturating_sub(1),
-                    character: r.end_col.saturating_sub(1),
-                },
-            },
+            range: r.lsp_range(),
             kind: Some(DocumentHighlightKind::TEXT),
         });
     }
     // Include the decl itself when we can locate it in this file.
     hits.push(DocumentHighlight {
-        range: Range {
-            start: Position {
-                line: decl_name_span.line.saturating_sub(1),
-                character: decl_name_span.col.saturating_sub(1),
-            },
-            end: Position {
-                line: decl_name_span.line.saturating_sub(1),
-                character: decl_name_span
-                    .col
-                    .saturating_sub(1)
-                    .saturating_add(decl_name_len),
-            },
-        },
+        range: text::span_to_range(decl_name_span, decl_name_len as usize),
         kind: Some(DocumentHighlightKind::TEXT),
     });
     hits.sort_by(|a, b| {
