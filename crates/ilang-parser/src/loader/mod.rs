@@ -746,9 +746,15 @@ fn pre_scan_use_modules(
             None => continue,
         };
         j += 1;
-        // Mirror parse_use_decl's dot-shortcut walk: collect
-        // intermediate `.Ident` segments into `subpath`; bail when we
-        // hit `.*` (wildcard terminator) or any non-Ident after a dot.
+        // Mirror parse_use_decl's dot walk:
+        // - `.Ident` followed by `.` is an intermediate path step.
+        // - `.Ident` followed by `{` is the deepest file in a
+        //   long-form selective (`use a.b { X }`) — push to
+        //   subpath because the file is `b`, not `a`.
+        // - `.Ident` followed by anything else is the selective
+        //   shorthand (`use a.X` → take `X` from `a`); leave
+        //   subpath as-accumulated.
+        // - `.*` is wildcard; subpath already holds the path.
         let mut subpath: Vec<String> = Vec::new();
         while let Some(dot) = tokens.get(j) {
             if !matches!(dot.kind, TokenKind::Dot) {
@@ -759,18 +765,17 @@ fn pre_scan_use_modules(
                 Some(tok) => match &tok.kind {
                     TokenKind::Ident(name) => {
                         j += 1;
-                        // Look ahead — if the next token is another
-                        // `.`, this segment was an intermediate path
-                        // step; otherwise it's the final selective
-                        // import and shouldn't enter `subpath`.
-                        if matches!(
-                            tokens.get(j).map(|t| &t.kind),
-                            Some(TokenKind::Dot)
-                        ) {
-                            subpath.push(name.clone());
-                            continue;
+                        match tokens.get(j).map(|t| &t.kind) {
+                            Some(TokenKind::Dot) => {
+                                subpath.push(name.clone());
+                                continue;
+                            }
+                            Some(TokenKind::LBrace) => {
+                                subpath.push(name.clone());
+                                break;
+                            }
+                            _ => break,
                         }
-                        break;
                     }
                     TokenKind::Star => break,
                     _ => break,

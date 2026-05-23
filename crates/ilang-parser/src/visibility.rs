@@ -237,12 +237,20 @@ fn validate_program(
         match item {
             Item::Use(u) => {
                 if let Some(names) = &u.selective {
-                    let target = u.module.as_str();
+                    // For `use a.b.c { X }` the catalog key is `c`
+                    // — that's the deepest module file the loader
+                    // mapped under `a/b/c.il`. Single-segment imports
+                    // keep using `u.module`.
+                    let target = if let Some(last) = u.subpath.last() {
+                        last.as_str()
+                    } else {
+                        u.module.as_str()
+                    };
                     let pubs = catalog.get(target);
                     for n in names.iter() {
                         if !pubs.map(|p| p.contains(n)).unwrap_or(false) {
                             return Err(LoadError::PrivateItemRef {
-                                module: u.module.clone(),
+                                module: Symbol::intern(target),
                                 name: n.clone(),
                                 span: u.span,
                             });

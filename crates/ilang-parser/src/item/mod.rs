@@ -554,21 +554,37 @@ impl<'a> Parser<'a> {
                     TokenKind::Ident(name) => {
                         self.bump();
                         let sym = ilang_ast::Symbol::intern(&name);
-                        if matches!(self.peek().kind, TokenKind::Dot) {
-                            // Intermediate segment — keep walking.
-                            subpath.push(sym);
-                            continue;
+                        match self.peek().kind {
+                            TokenKind::Dot => {
+                                // Intermediate segment — keep walking.
+                                subpath.push(sym);
+                                continue;
+                            }
+                            TokenKind::LBrace => {
+                                // `use a.b.c { X, Y }` — `c.il` is
+                                // the deepest file; the braces are
+                                // the selective list. Push `c` to
+                                // subpath and fall through to the
+                                // long-form `{...}` parser below.
+                                subpath.push(sym);
+                                break;
+                            }
+                            _ => {
+                                // Selective shorthand `use a.X` —
+                                // the trailing Ident is the imported
+                                // name from the deepest file.
+                                return Ok(ilang_ast::UseDecl {
+                                    module,
+                                    alias: ilang_ast::UseAlias::Discard,
+                                    selective: Some(Box::new([sym])),
+                                    wildcard: false,
+                                    re_export: false,
+                                    super_count,
+                                    subpath: subpath.into_boxed_slice(),
+                                    span,
+                                });
+                            }
                         }
-                        return Ok(ilang_ast::UseDecl {
-                            module,
-                            alias: ilang_ast::UseAlias::Discard,
-                            selective: Some(Box::new([sym])),
-                            wildcard: false,
-                            re_export: false,
-                            super_count,
-                            subpath: subpath.into_boxed_slice(),
-                            span,
-                        });
                     }
                     _ => {
                         return Err(ParseError::Unexpected {
@@ -667,7 +683,7 @@ impl<'a> Parser<'a> {
             wildcard,
             re_export: false,
             super_count,
-            subpath: Box::new([]),
+            subpath: subpath.into_boxed_slice(),
             span,
         })
     }
