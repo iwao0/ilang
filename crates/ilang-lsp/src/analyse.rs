@@ -166,11 +166,6 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
     Some(doc)
 }
 
-/// Walk a workspace looking for every `.il` file. The starting
-/// point is the directory containing the renamed file's `ilang.toml`
-/// (or the file's own directory if there's no project file). Used
-/// by workspace-wide rename to pick up references in files that
-/// aren't currently open.
 /// Walk every `.il` file under the project rooted at `anchor`,
 /// invoke `visit` with each closed file's `(Url, Doc)`. Files whose
 /// canonical path appears in `seen` are skipped — pass open
@@ -196,6 +191,11 @@ pub(crate) fn for_each_closed_workspace_doc(
     }
 }
 
+/// Walk a workspace looking for every `.il` file. The starting
+/// point is the directory containing the renamed file's `ilang.toml`
+/// (or the file's own directory if there's no project file). Used
+/// by workspace-wide rename to pick up references in files that
+/// aren't currently open.
 pub(crate) fn collect_workspace_il_files(anchor: &Path) -> Vec<PathBuf> {
     let entry_dir = anchor
         .canonicalize()
