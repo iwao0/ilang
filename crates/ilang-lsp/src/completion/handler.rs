@@ -294,7 +294,14 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                 boost_arg_matches(&mut items, &expected, doc);
             }
         }
-        return Some(CompletionResponse::Array(items));
+        // `is_incomplete: true` keeps VSCode re-asking on every
+        // keystroke instead of closing the popup when the user
+        // types a non-word character (most notably the space after
+        // `,` inside a function call).
+        return Some(CompletionResponse::List(CompletionList {
+            is_incomplete: true,
+            items,
+        }));
     };
     // Receiver can be:
     // - a class name (`Counter.`)        -> static members

@@ -65,12 +65,17 @@ impl LanguageServer for Backend {
                     // such as `class C : A, …` (additional
                     // interfaces) and `Map<K, …>` generic args.
                     // `<` opens a generic-argument slot (`Map<…`).
+                    // ` ` keeps the popup alive after `, ` inside
+                    // a function call's argument list — without
+                    // it VSCode closes on the first space and the
+                    // user has to ⌃Space to reopen.
                     trigger_characters: Some(vec![
                         ".".to_string(),
                         "@".to_string(),
                         ":".to_string(),
                         ",".to_string(),
                         "<".to_string(),
+                        " ".to_string(),
                     ]),
                     ..CompletionOptions::default()
                 }),
@@ -80,7 +85,11 @@ impl LanguageServer for Backend {
                         ",".to_string(),
                         "<".to_string(),
                     ]),
-                    retrigger_characters: None,
+                    // Re-fire signature help on whitespace inside
+                    // an argument list so `, ` doesn't drop the
+                    // parameter overlay along with the completion
+                    // popup.
+                    retrigger_characters: Some(vec![" ".to_string()]),
                     work_done_progress_options: WorkDoneProgressOptions::default(),
                 }),
                 document_formatting_provider: Some(OneOf::Left(true)),
