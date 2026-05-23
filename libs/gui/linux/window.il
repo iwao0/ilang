@@ -13,9 +13,27 @@ use gtk {
     gtk_window_present, gtk_window_set_child, gtk_window_destroy,
     gtk_widget_set_visible, gtk_widget_set_size_request,
     gtk_fixed_new,
-    g_main_loop_new, g_main_loop_run,
+    g_main_loop_new, g_main_loop_run, g_main_loop_quit,
+    g_signal_connect_data,
 }
 use core { WINDOWS, WindowSlot, GTK_INITED, LOOP_HOLDER }
+
+/// `void on_window_destroy(GtkWindow*, gpointer)` — GTK 4 fires
+/// `destroy` after the user closes the window. Dispatch the
+/// per-window onClose, drop the slot, and quit the main loop when
+/// nothing is left.
+@extern(C) {
+    pub fn linux_window_destroy(win: i64, data: i64) {
+        if let some(slot) = WINDOWS.get(win) {
+            let cb = slot.onClose
+            cb()
+            WINDOWS.delete(win)
+        }
+        if WINDOWS.size() == 0 as i64 {
+            if LOOP_HOLDER.length > 0 { g_main_loop_quit(LOOP_HOLDER[0]) }
+        }
+    }
+}
 
 @extern(C) {
 
@@ -35,10 +53,14 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
 
     let handle = win as i64
     WINDOWS[handle] = new WindowSlot(win, fixed)
-    // TODO: wire `destroy` so onClose dispatches. Blocked on ilang
-    //       passing `fn` values as raw C function pointers (the
-    //       fn-typed-arg path crashed when GTK invoked the
-    //       handler; fnAddr is also unimplemented in MIR).
+    g_signal_connect_data(
+        win as GObject,
+        cstrFromString("destroy"),
+        linux_window_destroy,
+        0 as *void,
+        0 as i64,
+        0 as u32
+    )
     handle
 }
 

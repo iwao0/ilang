@@ -77,7 +77,7 @@ pub fn createNativeButton(
     )
     gtk_fixed_put(winSlot.fixed, btn as GtkWidget, x, y)
 
-    let _ = g_signal_connect_data(
+    g_signal_connect_data(
         btn as GObject,
         cstrFromString("clicked"),
         linux_button_clicked,

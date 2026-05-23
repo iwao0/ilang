@@ -70,7 +70,7 @@ pub fn createNativeRadio(
     gtk_widget_set_visible(r as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
     gtk_fixed_put(winSlot.fixed, r as GtkWidget, x, y)
 
-    let _ = g_signal_connect_data(
+    g_signal_connect_data(
         r as GObject,
         cstrFromString("toggled"),
         linux_radio_toggled,

@@ -92,6 +92,16 @@ use core { GApplication, GObject }
         app: *void, model: GMenuModel
     )
 
+    /// `GtkPopoverMenuBar` renders a `GMenuModel` as a top-level
+    /// menubar widget that can be packed into any container — the
+    /// plain-GtkWindow path uses this instead of
+    /// `gtk_application_set_menubar`, which only works for
+    /// GtkApplicationWindow.
+    @handle pub struct GtkPopoverMenuBar {}
+    @lib pub fn gtk_popover_menu_bar_new_from_model(
+        model: GMenuModel
+    ): GtkPopoverMenuBar
+
     /// Bind a keyboard accelerator to a detailed action. `accels`
     /// is a NULL-terminated `*const *const char` of strings like
     /// `"<Primary>S"` (Primary = Cmd on macOS, Ctrl elsewhere).

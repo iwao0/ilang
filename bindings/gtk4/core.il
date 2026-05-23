@@ -22,6 +22,17 @@
     /// `g_signal_connect_data` calls.
     @handle pub struct GObject {}
 
+    /// `GActionGroup` — interface for a named collection of actions.
+    /// `GtkApplication`, `GtkApplicationWindow`, and
+    /// `GSimpleActionGroup` all implement it.
+    @handle pub struct GActionGroup {}
+    /// Concrete in-process implementation of `GActionGroup` /
+    /// `GActionMap`. libs/gui keeps one of these globally and
+    /// inserts it under the `"app"` prefix on each window so the
+    /// menu's `"app.menu_<n>"` references resolve.
+    @handle pub struct GSimpleActionGroup {}
+    @lib pub fn g_simple_action_group_new(): GSimpleActionGroup
+
     // ─── GApplication / GtkApplication ────────────────────────
 
     /// Application flags. `0` = the default (no special handling).
@@ -115,6 +126,19 @@
     /// and pass the container here.
     @lib pub fn gtk_window_set_child(w: GtkWindow, child: GtkWidget)
 
+    // ─── GtkBox (single-axis container) ──────────────────────
+
+    /// `GtkBox` lays children out in a single axis. libs/gui wraps
+    /// the menubar + content `GtkFixed` in a vertical box when a
+    /// menubar is attached to a window, since `gtk_window_set_child`
+    /// only takes one widget.
+    @handle pub struct GtkBox {}
+    /// `orientation`: 0 = horizontal, 1 = vertical (GtkOrientation).
+    @lib pub fn gtk_box_new(orientation: i32, spacing: i32): GtkBox
+    @lib pub fn gtk_box_append(box: GtkBox, child: GtkWidget)
+    @lib pub fn gtk_box_prepend(box: GtkBox, child: GtkWidget)
+    @lib pub fn gtk_box_remove(box: GtkBox, child: GtkWidget)
+
     // ─── GtkWidget basics ────────────────────────────────────
 
     /// Force a non-default size on `w`. libs/gui hands each widget
@@ -137,6 +161,21 @@
     @lib pub fn gtk_widget_get_width(w: GtkWidget): i32
     @lib pub fn gtk_widget_get_height(w: GtkWidget): i32
 
+    /// Make the widget claim leftover space in its parent box on the
+    /// given axis. libs/gui sets vexpand+hexpand on the content
+    /// `GtkFixed` so the menubar gets its natural height and the
+    /// fixed fills the rest of the window.
+    @lib pub fn gtk_widget_set_vexpand(w: GtkWidget, expand: i32)
+    @lib pub fn gtk_widget_set_hexpand(w: GtkWidget, expand: i32)
+
+    /// Install an action group under `name` (the prefix used in
+    /// menu item action strings — e.g. `"app"` matches
+    /// `"app.menu_3"`). Passing `0 as GActionGroup` removes a
+    /// previously installed group.
+    @lib pub fn gtk_widget_insert_action_group(
+        w: GtkWidget, name: *const char, group: GActionGroup
+    )
+
     // ─── GObject / signals ───────────────────────────────────
 
     /// Decrement `obj`'s refcount; deallocates when it hits zero.
@@ -144,6 +183,11 @@
     /// their parent container and freed transitively on
     /// `gtk_window_destroy`.
     @lib pub fn g_object_unref(obj: GObject)
+    /// Bump `obj`'s refcount; pair with a matching `g_object_unref`.
+    /// libs/gui uses this to keep a child widget alive across a
+    /// reparent (e.g. swapping the window's child from
+    /// `GtkFixed` to `GtkBox(menubar, fixed)`).
+    @lib pub fn g_object_ref(obj: GObject): GObject
 
     /// Connect a callback to a signal. `data` is forwarded as the
     /// trailing `gpointer user_data`, `destroy_data` can be `0`,

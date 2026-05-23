@@ -59,7 +59,7 @@ pub fn createNativeEdit(
     )
     gtk_fixed_put(winSlot.fixed, entry as GtkWidget, x, y)
 
-    let _ = g_signal_connect_data(
+    g_signal_connect_data(
         entry as GObject,
         cstrFromString("changed"),
         linux_entry_changed,

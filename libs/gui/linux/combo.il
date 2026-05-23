@@ -55,7 +55,7 @@ pub fn createNativeCombo(
     gtk_widget_set_visible(c as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
     gtk_fixed_put(winSlot.fixed, c as GtkWidget, x, y)
 
-    let _ = g_signal_connect_data(
+    g_signal_connect_data(
         c as GObject,
         cstrFromString("changed"),
         linux_combo_changed,

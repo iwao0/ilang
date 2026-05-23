@@ -1,30 +1,42 @@
-/// GMenu + GAction wrapper. Each ilang Menu is a GMenu; each
-/// addItem registers a fresh GSimpleAction on the singleton
-/// GtkApplication so the menu's `app.menu_<n>` reference can
-/// dispatch back to the user's `fn()`.
+/// GMenu + GAction wrapper. Each ilang Menu is a GMenu whose
+/// items live in a "current section" sub-GMenu; addSeparator
+/// finalises that section and starts a new one so GTK renders a
+/// divider between groups (GTK 4 has no `g_menu_append_separator`
+/// — section boundaries are the separator).
 ///
-/// Limitations of this first pass:
-/// - Separator items are accepted but render as empty space rather
-///   than a divider line (`g_menu_append_section` semantics in GTK 4
-///   require grouping consecutive items into one section).
-/// - Keyboard accelerators are accepted on `addItemWithShortcut`
-///   but not yet wired through `gtk_application_set_accels_for_action`.
+/// Actions go on a process-wide `GSimpleActionGroup` (`ACTION_GROUP`)
+/// that `setWindowMenuBar` inserts on each window under the `"app"`
+/// prefix, so menu entries can name `"app.menu_<n>"` regardless of
+/// which window the menubar is attached to. This sidesteps the
+/// `GtkApplication` requirement of `gtk_application_set_menubar`.
+///
+/// Limitation: keyboard accelerators are accepted on
+/// `addItemWithShortcut` but not yet wired through
+/// `gtk_shortcut_controller`.
 
 use gtk {
-    GMenu, GMenuModel, GAction, GSimpleAction, GActionMap,
-    GtkApplication, GVariantType, GObject,
-    g_menu_new, g_menu_append, g_menu_append_submenu,
-    g_simple_action_new, g_action_map_add_action,
-    gtk_application_set_menubar,
+    GMenu, GMenuModel, GAction, GSimpleAction, GActionMap, GActionGroup,
+    GSimpleActionGroup, GVariantType, GObject, GtkWidget, GtkBox,
+    GtkPopoverMenuBar, GtkWindow, GtkFixed,
+    g_menu_new, g_menu_append, g_menu_append_submenu, g_menu_append_section,
+    g_simple_action_new, g_simple_action_group_new, g_action_map_add_action,
+    gtk_popover_menu_bar_new_from_model,
+    gtk_widget_insert_action_group,
+    gtk_widget_set_vexpand, gtk_widget_set_hexpand,
+    gtk_window_set_child,
+    gtk_box_new, gtk_box_append,
+    g_object_ref, g_object_unref,
     g_signal_connect_data2,
 }
-use core { APP_HOLDER }
+use core { WINDOWS }
 
 class MenuSlot {
-    pub menu:  GMenu
-    pub title: string
-    pub init(menu: GMenu, title: string) {
+    pub menu:    GMenu     // top-level GMenu shown in the menubar
+    pub section: GMenu[]   // single-element mutable slot for the current section
+    pub title:   string
+    pub init(menu: GMenu, section: GMenu, title: string) {
         this.menu = menu
+        this.section = [section]
         this.title = title
     }
 }
@@ -32,6 +44,9 @@ class MenuSlot {
 let MENUS = new Map<i64, MenuSlot>()
 let ITEM_ACTIONS = new Map<i64, fn()>()
 let NEXT_ACTION_ID: i64[] = [1 as i64]
+/// Single GSimpleActionGroup shared by every menubar — installed
+/// on each window under the `"app"` prefix.
+let ACTION_GROUP: GSimpleActionGroup[] = []
 
 @extern(C) {
     /// `void on_action(GSimpleAction*, GVariant*, gpointer user_data)`.
@@ -45,10 +60,19 @@ let NEXT_ACTION_ID: i64[] = [1 as i64]
 
 @extern(C) {
 
+fn ensureActionGroup(): GSimpleActionGroup {
+    if ACTION_GROUP.length == 0 {
+        ACTION_GROUP.push(g_simple_action_group_new())
+    }
+    ACTION_GROUP[0]
+}
+
 pub fn createNativeMenu(title: string): i64 {
     let m = g_menu_new()
+    let s = g_menu_new()
+    g_menu_append_section(m, 0 as *const char, s as GMenuModel)
     let handle = m as i64
-    MENUS[handle] = new MenuSlot(m, title)
+    MENUS[handle] = new MenuSlot(m, s, title)
     handle
 }
 
@@ -59,7 +83,6 @@ pub fn menuAddItem(menuHandle: i64, text: string, onClick: fn()) {
 pub fn menuAddItemWithShortcut(
     menuHandle: i64, text: string, shortcut: string, onClick: fn()
 ) {
-    let _ = shortcut    // wiring through set_accels_for_action is a follow-up
     if let some(slot) = MENUS.get(menuHandle) {
         let id = NEXT_ACTION_ID[0]
         NEXT_ACTION_ID[0] = id + 1 as i64
@@ -68,34 +91,38 @@ pub fn menuAddItemWithShortcut(
         let actionName = "menu_" + id.toString()
         let detailed   = "app." + actionName
 
-        if APP_HOLDER.length > 0 {
-            let app = APP_HOLDER[0]
-            let simple = g_simple_action_new(
-                cstrFromString(actionName), 0 as GVariantType
-            )
-            let _ = g_signal_connect_data2(
-                simple as GObject,
-                cstrFromString("activate"),
-                linux_action_activated,
-                id as *void,
-                0 as i64, 0 as u32
-            )
-            g_action_map_add_action(app as GActionMap, simple as GAction)
-        }
+        let group = ensureActionGroup()
+        let simple = g_simple_action_new(
+            cstrFromString(actionName), 0 as GVariantType
+        )
+        g_signal_connect_data2(
+            simple as GObject,
+            cstrFromString("activate"),
+            linux_action_activated,
+            id as *void,
+            0 as i64, 0 as u32
+        )
+        g_action_map_add_action(group as GActionMap, simple as GAction)
 
-        g_menu_append(slot.menu, cstrFromString(text), cstrFromString(detailed))
+        g_menu_append(
+            slot.section[0], cstrFromString(text), cstrFromString(detailed)
+        )
     }
 }
 
 pub fn menuAddSeparator(menuHandle: i64) {
-    let _ = menuHandle
+    if let some(slot) = MENUS.get(menuHandle) {
+        let s = g_menu_new()
+        g_menu_append_section(slot.menu, 0 as *const char, s as GMenuModel)
+        slot.section[0] = s
+    }
 }
 
 pub fn menuAddSubmenu(parentHandle: i64, childHandle: i64) {
     if let some(parent) = MENUS.get(parentHandle) {
         if let some(child) = MENUS.get(childHandle) {
             g_menu_append_submenu(
-                parent.menu, cstrFromString(child.title),
+                parent.section[0], cstrFromString(child.title),
                 child.menu as GMenuModel
             )
         }
@@ -103,21 +130,40 @@ pub fn menuAddSubmenu(parentHandle: i64, childHandle: i64) {
 }
 
 pub fn setWindowMenuBar(windowHandle: i64, menuHandles: i64[]) {
-    let _ = windowHandle
-    if APP_HOLDER.length == 0 { return }
-    let bar = g_menu_new()
-    let n = menuHandles.length
-    let i = 0
-    while i < n {
-        if let some(slot) = MENUS.get(menuHandles[i]) {
-            g_menu_append_submenu(
-                bar, cstrFromString(slot.title), slot.menu as GMenuModel
-            )
+    if let some(wslot) = WINDOWS.get(windowHandle) {
+        let bar = g_menu_new()
+        let n = menuHandles.length
+        let i = 0
+        while i < n {
+            if let some(slot) = MENUS.get(menuHandles[i]) {
+                g_menu_append_submenu(
+                    bar, cstrFromString(slot.title), slot.menu as GMenuModel
+                )
+            }
+            i = i + 1
         }
-        i = i + 1
+
+        let group = ensureActionGroup()
+        gtk_widget_insert_action_group(
+            wslot.win as GtkWidget,
+            cstrFromString("app"),
+            group as GActionGroup
+        )
+
+        let menubar = gtk_popover_menu_bar_new_from_model(bar as GMenuModel)
+        let vbox = gtk_box_new(1 as i32, 0 as i32)
+
+        // Reparent fixed: keep an extra ref across detach so
+        // gtk_window_set_child(NULL) doesn't destroy it.
+        g_object_ref(wslot.fixed as GObject)
+        gtk_window_set_child(wslot.win, 0 as GtkWidget)
+        gtk_box_append(vbox, menubar as GtkWidget)
+        gtk_box_append(vbox, wslot.fixed as GtkWidget)
+        gtk_widget_set_vexpand(wslot.fixed as GtkWidget, 1 as i32)
+        gtk_widget_set_hexpand(wslot.fixed as GtkWidget, 1 as i32)
+        g_object_unref(wslot.fixed as GObject)
+        gtk_window_set_child(wslot.win, vbox as GtkWidget)
     }
-    let app = APP_HOLDER[0]
-    gtk_application_set_menubar(app as *void, bar as GMenuModel)
 }
 
 } // @extern(C)

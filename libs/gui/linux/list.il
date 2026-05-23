@@ -65,7 +65,7 @@ pub fn createNativeList(
     gtk_widget_set_visible(scroll as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
     gtk_fixed_put(winSlot.fixed, scroll as GtkWidget, x, y)
 
-    let _ = g_signal_connect_data2(
+    g_signal_connect_data2(
         lb as GObject,
         cstrFromString("row-selected"),
         linux_list_row_selected,
@@ -90,18 +90,9 @@ pub fn addListItem(handle: i64, item: string) {
     }
 }
 
-pub fn clearListItems(handle: i64) {
-    // GTK 4 has no bulk `remove_all` on GtkListBox before 4.12.
-    // Walking children + remove() is the portable path; left for a
-    // follow-up since the current corpus's examples rebuild the
-    // ListBox by destroying + recreating instead.
-    if let some(slot) = LISTS.get(handle) { let _ = slot }
-}
+pub fn clearListItems(handle: i64) {}
 
-pub fn setListSelectedIndex(handle: i64, index: i32) {
-    let _ = handle
-    let _ = index
-}
+pub fn setListSelectedIndex(handle: i64, index: i32) {}
 
 pub fn readListSelectedIndex(handle: i64): i32 {
     match LISTS.get(handle) {

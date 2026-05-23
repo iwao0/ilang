@@ -55,7 +55,7 @@ pub fn createNativeSlider(
     gtk_widget_set_visible(s as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
     gtk_fixed_put(winSlot.fixed, s as GtkWidget, x, y)
 
-    let _ = g_signal_connect_data(
+    g_signal_connect_data(
         s as GObject,
         cstrFromString("value-changed"),
         linux_slider_value_changed,
