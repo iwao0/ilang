@@ -12,9 +12,9 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use ilang_ast::{
-    Block, ClassDecl, EnumDecl, Expr, ExprKind, FnDecl, InterfaceDecl, Item, Param, Pattern,
-    PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, Symbol as AstSymbol, Type,
-    VariantPayload,
+    Block, ClassDecl, EnumDecl, Expr, ExprKind, FnDecl, GenericTy, InterfaceDecl, Item, Param,
+    Pattern, PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, Symbol as AstSymbol,
+    Type, VariantPayload,
 };
 use ilang_parser::parse as parse_program;
 use ilang_types::{check, TypeError};
@@ -1232,6 +1232,16 @@ impl<'a> Walker<'a> {
     /// Walker-aware variant of `infer_expr_type_with_scope` that can
     /// also resolve `Call(callee)` to the callee's declared return
     /// type and `MethodCall` to the resolved method's return type.
+    /// `ClassName.staticMethod()` — parsed as a single dotted callee
+    /// rather than `Class.method` MethodCall. Resolve through the
+    /// class's `methods` table so chained calls like
+    /// `Foo.alloc().init()` can infer past the first hop.
+    fn infer_dotted_static_call(&self, callee: &str) -> Option<Type> {
+        let (cls, m) = callee.rsplit_once('.')?;
+        let info = self.classes.get(&AstSymbol::intern(cls))?;
+        info.methods.get(&AstSymbol::intern(m))?.ret_ty.clone()
+    }
+
     pub(crate) fn infer_expr(&self, e: &Expr, scope: &[Binding]) -> Option<Type> {
         match &e.kind {
             ExprKind::Var(name) => {
@@ -1272,45 +1282,11 @@ impl<'a> Walker<'a> {
                     // hovers with its pointer type.
                     crate::builtins::ffi_helper_return_type(callee.as_str())
                 })
-                .or_else(|| {
-                    // `ClassName.staticMethod()` — parsed as a single
-                    // dotted callee, not as MethodCall. Resolve through
-                    // the class's `methods` table so chained calls
-                    // like `Foo.alloc().init()` can infer past the
-                    // first hop.
-                    let (cls, m) = callee.as_str().rsplit_once('.')?;
-                    let info = self.classes.get(&AstSymbol::intern(cls))?;
-                    info.methods.get(&AstSymbol::intern(m))?.ret_ty.clone()
-                }),
+                .or_else(|| self.infer_dotted_static_call(callee.as_str())),
             ExprKind::MethodCall { obj, method, .. } => {
-                // Built-in `Map<K, V>` methods. The LSP doesn't carry a
-                // ClassInfo for `Map` (it's only registered in the type
-                // checker), so resolve them off the receiver's generic
-                // args directly. Without this, `m.get(k)` falls off the
-                // lookup and downstream bindings (e.g. `if let
-                // some(arr) = m.get(k)`) hover with no type.
                 if let Some(Type::Generic(g)) = self.infer_expr(obj, scope) {
-                    if g.base.as_str() == "Map" && g.args.len() == 2 {
-                        let k = g.args[0].clone();
-                        let v = g.args[1].clone();
-                        match method.as_str() {
-                            "get" => return Some(Type::Optional(Box::new(v))),
-                            "has" | "delete" => return Some(Type::Bool),
-                            "size" => return Some(Type::I64),
-                            "keys" => {
-                                return Some(Type::Array {
-                                    elem: Box::new(k),
-                                    fixed: None,
-                                });
-                            }
-                            "values" => {
-                                return Some(Type::Array {
-                                    elem: Box::new(v),
-                                    fixed: None,
-                                });
-                            }
-                            _ => {}
-                        }
+                    if let Some(t) = infer_map_method_type(&g, method.as_str()) {
+                        return Some(t);
                     }
                 }
                 let this_class = self.current_this_class.as_deref();
@@ -1669,6 +1645,28 @@ impl<'a> Walker<'a> {
 /// `(static method) InputScene.register()` instead of the class
 /// itself. User-written `alloc` / `init` / `register` keep their
 /// real source spans, so they sail through unchanged.
+/// Return-type for the built-in `Map<K, V>` methods (`get`, `has`,
+/// `delete`, `size`, `keys`, `values`). The LSP doesn't carry a
+/// `ClassInfo` for `Map` (it's only registered in the type checker),
+/// so the type-inference path resolves them off the receiver's
+/// generic args directly. Returns `None` for `(base, args)` pairs
+/// that aren't `Map<K, V>` or for unknown method names.
+fn infer_map_method_type(g: &GenericTy, method: &str) -> Option<Type> {
+    if g.base.as_str() != "Map" || g.args.len() != 2 {
+        return None;
+    }
+    let k = g.args[0].clone();
+    let v = g.args[1].clone();
+    match method {
+        "get" => Some(Type::Optional(Box::new(v))),
+        "has" | "delete" => Some(Type::Bool),
+        "size" => Some(Type::I64),
+        "keys" => Some(Type::Array { elem: Box::new(k), fixed: None }),
+        "values" => Some(Type::Array { elem: Box::new(v), fixed: None }),
+        _ => None,
+    }
+}
+
 fn is_parser_synth_helper(m: &FnDecl, class_span: Span) -> bool {
     if m.span != class_span {
         return false;
