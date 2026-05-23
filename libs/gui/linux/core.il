@@ -8,7 +8,7 @@
 /// tables key off this i64 so signal handlers can resolve back to
 /// the user's callback in O(1).
 
-use gtk { GtkWidget, GtkWindow, GtkApplication, GtkFixed }
+use gtk { GtkWidget, GtkWindow, GtkApplication, GtkFixed, GMainLoop }
 use super.event
 
 // ─── per-window state ─────────────────────────────────────────
@@ -43,9 +43,18 @@ pub class WindowSlot {
 pub let WINDOWS = new Map<i64, WindowSlot>()
 
 /// Singleton GtkApplication. Created on first `createNativeWindow`,
-/// owned by the process. `g_application_run` enters its main loop
-/// from `runEventLoop`.
+/// owned by the process. (Currently unused — see window.il for the
+/// manual gtk_init + GMainLoop path.)
 pub let APP_HOLDER: GtkApplication[] = []
+
+/// `[true]` once `gtk_init()` has been called. Window creation
+/// runs `gtk_init` lazily on the first invocation.
+pub let GTK_INITED: bool[] = [false]
+
+/// Singleton GMainLoop. `runEventLoop` builds one on demand and
+/// blocks inside `g_main_loop_run` until the window count drops
+/// to zero.
+pub let LOOP_HOLDER: GMainLoop[] = []
 
 pub fn noOpClose() {}
 pub fn noOpResize(w: f64, h: f64) {}

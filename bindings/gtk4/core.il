@@ -48,11 +48,48 @@
     /// iteration.
     @lib pub fn g_application_quit(app: GApplication)
 
+    /// Register `app` with the session bus and run the initial
+    /// startup sequence. `gtk_application_window_new` and friends
+    /// require the application to be registered before being
+    /// invoked, so libs/gui calls this immediately after
+    /// `gtk_application_new` (before building any windows). Pass
+    /// `0` for `cancellable` and `error`. Returns nonzero on
+    /// success.
+    @lib pub fn g_application_register(
+        app: GApplication, cancellable: i64, error: i64
+    ): i32
+
+    /// `g_application_activate` triggers the `activate` signal —
+    /// after registration this is what flips GtkApplication into
+    /// the "running" state so windows participate in the main
+    /// loop's window-tracking.
+    @lib pub fn g_application_activate(app: GApplication)
+
     // ─── GtkWindow / GtkApplicationWindow ─────────────────────
+
+    /// Initialise the GTK runtime. Required once before any other
+    /// widget/window call when not using GtkApplication's
+    /// activate-driven lifecycle. In GTK 4 this also handles
+    /// display connection.
+    @lib pub fn gtk_init()
+
+    /// Construct a plain top-level GtkWindow (no GtkApplication
+    /// association). Use this when running with a manual GMainLoop
+    /// instead of g_application_run.
+    @lib pub fn gtk_window_new(): GtkWindow
 
     /// Allocate a top-level window owned by `app`. The window
     /// stays hidden until `gtk_window_present` is called.
     @lib pub fn gtk_application_window_new(app: GtkApplication): GtkWindow
+
+    @handle pub struct GMainLoop {}
+    /// Build a fresh GMainLoop. `context` = `0 as *void` uses the
+    /// default; `is_running` should be `0` (FALSE).
+    @lib pub fn g_main_loop_new(context: *void, is_running: i32): GMainLoop
+    /// Block until `g_main_loop_quit(ml)` (or the last window
+    /// closes, with the right wiring).
+    @lib pub fn g_main_loop_run(ml: GMainLoop)
+    @lib pub fn g_main_loop_quit(ml: GMainLoop)
 
     @lib pub fn gtk_window_set_title(w: GtkWindow, title: *const char)
     @lib pub fn gtk_window_set_default_size(

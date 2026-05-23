@@ -1,51 +1,30 @@
-/// Window lifecycle backed by GtkApplicationWindow.
+/// Window lifecycle backed by a plain GtkWindow + GMainLoop.
 ///
-/// The single process-wide GtkApplication is created lazily on the
-/// first `createNativeWindow` call and stored in `APP_HOLDER`.
-/// `runEventLoop` enters the application's main loop via
-/// `g_application_run` and returns when the last window closes.
+/// We deliberately avoid GtkApplication's activate-driven flow:
+/// gui-core's user code creates windows eagerly (before
+/// runEventLoop), which conflicts with GtkApplication's contract
+/// that windows be built inside an `activate` signal handler. The
+/// manual path lets the same eager creation pattern work.
 
 use gtk {
-    GtkWidget, GtkWindow, GtkApplication, GtkApplicationWindow,
-    GApplication, GObject, GtkFixed,
-    G_APPLICATION_DEFAULT_FLAGS,
-    gtk_application_new, gtk_application_window_new,
+    GtkWidget, GtkWindow, GObject, GtkFixed, GMainLoop,
+    gtk_init, gtk_window_new,
     gtk_window_set_title, gtk_window_set_default_size,
     gtk_window_present, gtk_window_set_child, gtk_window_destroy,
     gtk_widget_set_visible, gtk_widget_set_size_request,
     gtk_fixed_new,
-    g_application_run, g_signal_connect_data,
+    g_main_loop_new, g_main_loop_run,
 }
-use core { WINDOWS, WindowSlot, APP_HOLDER }
-
-/// `void on_window_destroy(GtkWindow*, gpointer)` — GTK's
-/// `destroy` signal fires after the user closes the window.
-/// We look the slot up by the GtkWindow pointer (cast to i64),
-/// dispatch the user's onClose, and drop the slot.
-@extern(C) {
-    pub fn linux_window_destroy(win: i64, data: i64) {
-        let h = win as i64
-        if let some(slot) = WINDOWS.get(h) {
-            let cb = slot.onClose
-            cb()
-            let _ = WINDOWS.delete(h)
-        }
-    }
-}
+use core { WINDOWS, WindowSlot, GTK_INITED, LOOP_HOLDER }
 
 @extern(C) {
 
 pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
-    // Lazily create the singleton GtkApplication.
-    if APP_HOLDER.length == 0 {
-        let app = gtk_application_new(
-            cstrFromString("org.ilang.gui"),
-            G_APPLICATION_DEFAULT_FLAGS
-        )
-        APP_HOLDER.push(app)
+    if !GTK_INITED[0] {
+        gtk_init()
+        GTK_INITED[0] = true
     }
-    let app = APP_HOLDER[0]
-    let win = gtk_application_window_new(app)
+    let win = gtk_window_new()
     gtk_window_set_title(win, cstrFromString(title))
     gtk_window_set_default_size(win, width as i32, height as i32)
 
@@ -56,16 +35,10 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
 
     let handle = win as i64
     WINDOWS[handle] = new WindowSlot(win, fixed)
-
-    // Wire `destroy` so close drives our onClose channel.
-    let _ = g_signal_connect_data(
-        win as GObject,
-        cstrFromString("destroy"),
-        linux_window_destroy,
-        0 as *void,
-        0 as i64,
-        0 as u32
-    )
+    // TODO: wire `destroy` so onClose dispatches. Blocked on ilang
+    //       passing `fn` values as raw C function pointers (the
+    //       fn-typed-arg path crashed when GTK invoked the
+    //       handler; fnAddr is also unimplemented in MIR).
     handle
 }
 
@@ -94,9 +67,11 @@ pub fn hideNativeWindow(handle: i64) {
 }
 
 pub fn runEventLoop() {
-    if APP_HOLDER.length == 0 { return }
-    let app = APP_HOLDER[0]
-    let _ = g_application_run(app as GApplication, 0 as i32, 0 as *const *const char)
+    if !GTK_INITED[0] { return }
+    if LOOP_HOLDER.length == 0 {
+        LOOP_HOLDER.push(g_main_loop_new(0 as *void, 0 as i32))
+    }
+    g_main_loop_run(LOOP_HOLDER[0])
 }
 
 } // @extern(C)
