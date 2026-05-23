@@ -5,6 +5,154 @@
 /// when using stock-object IDs.  The Win64 ABI treats `*T` and `i64`
 /// identically in registers, so unsafe casts are safe at the boundary.
 
+// ─── Graphics mode (SetGraphicsMode) ─────────────────────────────
+pub enum GraphicsMode: i32 {
+    compatible = 1
+    advanced   = 2
+}
+
+// ─── World-transform modify mode (MWT_*) ─────────────────────────
+pub enum WorldTransformMode: u32 {
+    identity     = 1
+    leftMultiply = 2
+    rightMultiply = 3
+}
+
+// ─── Polygon fill mode (SetPolyFillMode) ─────────────────────────
+pub enum PolyFillMode: i32 {
+    alternate = 1
+    winding   = 2
+}
+
+// ─── Binary raster ops (SetROP2) ─────────────────────────────────
+pub enum ROP2: i32 {
+    black        = 1
+    notMergePen  = 2
+    maskNotPen   = 3
+    notCopyPen   = 4
+    maskPenNot   = 5
+    not          = 6
+    xorPen       = 7
+    notMaskPen   = 8
+    maskPen      = 9
+    notXorPen    = 10
+    nop          = 11
+    mergeNotPen  = 12
+    copyPen      = 13
+    mergePenNot  = 14
+    mergePen     = 15
+    white        = 16
+}
+
+// ─── PolyDraw point types (PT_*) ─────────────────────────────────
+@flags
+pub enum PolyDrawType: u8 {
+    moveTo     = 0x06
+    lineTo     = 0x02
+    bezierTo   = 0x04
+    closeFigure = 0x01
+}
+
+// ─── DIB compression (BI_*) ──────────────────────────────────────
+pub enum BitmapCompression: u32 {
+    rgb       = 0
+    rle8      = 1
+    rle4      = 2
+    bitfields = 3
+    jpeg      = 4
+    png       = 5
+}
+
+// ─── ICM mode (SetICMMode) ───────────────────────────────────────
+pub enum IcmMode: i32 {
+    off            = 1
+    on             = 2
+    query          = 3
+    doneOutsidedc  = 4
+}
+
+// ─── GDI device cap indices (GetDeviceCaps) ──────────────────────
+pub enum DeviceCap: i32 {
+    driverVersion     = 0
+    technology        = 2
+    horzSize          = 4    // mm
+    vertSize          = 6
+    horzRes           = 8    // pixels
+    vertRes           = 10
+    bitsPixel         = 12
+    planes            = 14
+    numBrushes        = 16
+    numPens           = 18
+    numMarkers        = 20
+    numFonts          = 22
+    numColors         = 24
+    pdeviceSize       = 26
+    curveCaps         = 28
+    lineCaps          = 30
+    polygonalCaps     = 32
+    textCaps          = 34
+    clipCaps          = 36
+    rasterCaps        = 38
+    aspectX           = 40
+    aspectY           = 42
+    aspectXY          = 44
+    logPixelsX        = 88
+    logPixelsY        = 90
+    sizePalette       = 104
+    numReserved       = 106
+    colorRes          = 108
+    physicalWidth     = 110
+    physicalHeight    = 111
+    physicalOffsetX   = 112
+    physicalOffsetY   = 113
+    scalingFactorX    = 114
+    scalingFactorY    = 115
+    vRefresh          = 116
+    desktopVertRes    = 117
+    desktopHorzRes    = 118
+    bltAlignment      = 119
+    shadeBlendCaps    = 120
+    colorMgmtCaps     = 121
+}
+
+// ─── Object types returned by GetObjectType ──────────────────────
+pub enum GdiObjectType: u32 {
+    pen           = 1
+    brush         = 2
+    dc            = 3
+    metadc        = 4
+    pal           = 5
+    font          = 6
+    bitmap        = 7
+    region        = 8
+    metafile      = 9
+    memdc         = 10
+    extpen        = 11
+    enhmetadc     = 12
+    enhmetafile   = 13
+    colorspace    = 14
+}
+
+// ─── Region fill mode (PaintRgn etc.) is implicit; no enum ───────
+
+// ─── ExtCreatePen styles (PS_* extended) ─────────────────────────
+@flags
+pub enum PenStyleEx: u32 {
+    geometric   = 0x00010000
+    cosmetic    = 0x00000000
+    endcapRound = 0x00000000
+    endcapSquare = 0x00000100
+    endcapFlat  = 0x00000200
+    joinRound   = 0x00000000
+    joinBevel   = 0x00001000
+    joinMiter   = 0x00002000
+    typeMask    = 0x000F0000
+    styleMask   = 0x0000000F
+    endcapMask  = 0x00000F00
+    joinMask    = 0x0000F000
+}
+
+use winnt { HANDLE }
 use windef { HDC, HWND, HBRUSH, HBITMAP, HFONT, HPEN, HRGN, HPALETTE, HGDIOBJ, RECT, POINT, SIZE }
 
 // ─── Raster-operation codes (SRCCOPY etc.) ───────────────────────
@@ -959,4 +1107,670 @@ pub enum FontPitchFamily: u32 {
     @lib pub fn SetDCBrushColor(hdc: HDC, crColor: u32): u32
     @lib pub fn GetDCPenColor(hdc: HDC): u32
     @lib pub fn SetDCPenColor(hdc: HDC, crColor: u32): u32
+
+    // ── Additional handle types (metafile / colour space) ────────
+
+    @handle pub struct HMETAFILE {}
+    @handle pub struct HENHMETAFILE {}
+    @handle pub struct HCOLORSPACE {}
+
+    // ── Bitmap structures (BITMAP / RGBQUAD / BITMAPINFOHEADER above) ─
+
+    /// `BITMAPINFO` — 44 bytes (header + first color). For larger
+    /// palettes, allocate `sizeof(BITMAPINFOHEADER) + n*sizeof(RGBQUAD)`
+    /// and cast the pointer.
+    pub struct BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER
+        bmiColors: RGBQUAD
+    }
+
+    /// `BITMAPFILEHEADER` — 14 bytes (packed on Windows). The actual
+    /// SDK declaration is `#pragma pack(2)`. Most users only need the
+    /// fields by name, not the literal layout, so we expose unpacked.
+    pub struct BITMAPFILEHEADER {
+        bfType:      u16   // 'BM' = 0x4D42
+        _pad:        u16
+        bfSize:      u32
+        bfReserved1: u16
+        bfReserved2: u16
+        bfOffBits:   u32
+    }
+
+    @lib pub fn LoadBitmapA(hInstance: i64, lpBitmapName: *const char): HBITMAP
+    @lib pub fn LoadBitmapW(hInstance: i64, lpBitmapName: *const u16): HBITMAP
+
+    @lib pub fn CreateBitmapIndirect(pbm: *const BITMAP): HBITMAP
+
+    /// Creates a DIB-based HBITMAP from `lpbInit` (optional initial
+    /// pixels) and the BITMAPINFO header. `iUsage`: DIB_RGB_COLORS=0
+    /// or DIB_PAL_COLORS=1.
+    @lib pub fn CreateDIBitmap(
+        hdc:    HDC,
+        pbmih:  *const BITMAPINFOHEADER,
+        flInit: u32,                       // CBM_INIT = 4 to copy pixels
+        pjBits: *const void,
+        pbmi:   *const BITMAPINFO,
+        iUsage: u32
+    ): HBITMAP
+
+    /// Copy bitmap bits into `lpvBits`. `cb`: byte size of buffer.
+    /// Returns the number of bytes copied, or 0 on failure.
+    @lib pub fn GetBitmapBits(hbit: HBITMAP, cb: i32, lpvBits: *void): i32
+
+    @lib pub fn SetBitmapBits(hbm: HBITMAP, cb: u32, pvBits: *const void): i32
+
+    /// Reads `cLines` rows starting at `uStartScan` from `hbmp` into
+    /// `lpvBits`. `lpbi` describes the desired output format.
+    @lib pub fn GetDIBits(
+        hdc:        HDC,
+        hbm:        HBITMAP,
+        uStartScan: u32,
+        cLines:     u32,
+        lpvBits:    *void,
+        lpbmi:      *BITMAPINFO,
+        uUsage:     u32
+    ): i32
+
+    @lib pub fn SetDIBits(
+        hdc:    HDC,
+        hbm:    HBITMAP,
+        start:  u32,
+        cLines: u32,
+        lpBits: *const void,
+        lpbmi:  *const BITMAPINFO,
+        ColorUse: u32
+    ): i32
+
+    /// Bit-block transfer with built-in DIB conversion.
+    @lib pub fn StretchDIBits(
+        hdc:           HDC,
+        xDest:         i32,
+        yDest:         i32,
+        DestWidth:     i32,
+        DestHeight:    i32,
+        xSrc:          i32,
+        ySrc:          i32,
+        SrcWidth:      i32,
+        SrcHeight:     i32,
+        lpBits:        *const void,
+        lpbmi:         *const BITMAPINFO,
+        iUsage:        u32,
+        rop:           u32
+    ): i32
+
+    // ── Pen / brush extras ───────────────────────────────────────
+
+    /// `LOGPEN` — 16 bytes.
+    pub struct LOGPEN {
+        lopnStyle: u32
+        lopnWidth: POINT
+        lopnColor: u32
+    }
+
+    /// `LOGBRUSH` — 16 bytes. `lbStyle` is BS_SOLID=0, BS_NULL=1,
+    /// BS_HATCHED=2, BS_PATTERN=3, BS_DIBPATTERN=5, BS_DIBPATTERNPT=6.
+    pub struct LOGBRUSH {
+        lbStyle: u32
+        lbColor: u32
+        lbHatch: u64
+    }
+
+    @lib pub fn CreateBrushIndirect(plbrush: *const LOGBRUSH): HBRUSH
+    @lib pub fn CreatePenIndirect(plpen: *const LOGPEN): HPEN
+
+    /// Geometric or cosmetic pen. `iPenStyle`: PenStyleEx.* OR'd
+    /// with one of PenStyle.* in the low nibble.
+    @lib pub fn ExtCreatePen(
+        iPenStyle: u32,
+        cWidth:    u32,
+        plbrush:   *const LOGBRUSH,
+        cStyle:    u32,
+        pstyle:    *const u32
+    ): HPEN
+
+    @lib pub fn SetBrushOrgEx(hdc: HDC, x: i32, y: i32, lppt: *POINT): i32
+    @lib pub fn GetBrushOrgEx(hdc: HDC, lppt: *POINT): i32
+
+    /// Unrealizes the brush so its next selection re-aligns to the
+    /// new brush origin.
+    @lib pub fn UnrealizeObject(h: HGDIOBJ): i32
+
+    // ── Region (extended) ────────────────────────────────────────
+
+    @lib pub fn SetRectRgn(hrgn: HRGN, left: i32, top: i32, right: i32, bottom: i32): i32
+
+    @lib pub fn EqualRgn(hrgn1: HRGN, hrgn2: HRGN): i32
+
+    @lib pub fn PtInRegion(hrgn: HRGN, x: i32, y: i32): i32
+    @lib pub fn RectInRegion(hrgn: HRGN, lprect: *const RECT): i32
+
+    @lib pub fn GetRgnBox(hrgn: HRGN, lprc: *RECT): i32
+
+    @lib pub fn PaintRgn(hdc: HDC, hrgn: HRGN): i32
+    @lib pub fn FillRgn(hdc: HDC, hrgn: HRGN, hbr: HBRUSH): i32
+    @lib pub fn FrameRgn(hdc: HDC, hrgn: HRGN, hbr: HBRUSH, w: i32, h: i32): i32
+    @lib pub fn InvertRgn(hdc: HDC, hrgn: HRGN): i32
+
+    /// Header preceding the variable-length RECT array in an
+    /// `RGNDATA` blob (passed to ExtCreateRegion).
+    pub struct RGNDATAHEADER {
+        dwSize:  u32
+        iType:   u32   // RDH_RECTANGLES = 1
+        nCount:  u32
+        nRgnSize: u32
+        rcBound: RECT
+    }
+
+    @lib pub fn ExtCreateRegion(
+        lpx:       *const void,   // *XFORM (NULL = identity)
+        nCount:    u32,
+        lpData:    *const void    // RGNDATAHEADER + RECT[nCount]
+    ): HRGN
+
+    // ── Clipping (extended) ──────────────────────────────────────
+
+    /// `mode`: RGN_AND=1, RGN_OR=2, RGN_XOR=3, RGN_DIFF=4, RGN_COPY=5.
+    @lib pub fn ExtSelectClipRgn(hdc: HDC, hrgn: HRGN, mode: i32): i32
+
+    /// Fills `hrgn` with the DC's clip region, or returns 0 if there
+    /// is none.  Returns -1 on error.
+    @lib pub fn GetClipRgn(hdc: HDC, hrgn: HRGN): i32
+
+    @lib pub fn PtVisible(hdc: HDC, x: i32, y: i32): i32
+    @lib pub fn RectVisible(hdc: HDC, lprect: *const RECT): i32
+
+    // ── World / mapping transform ────────────────────────────────
+
+    /// `XFORM` — 24 bytes. 2x3 affine matrix used by Set/GetWorldTransform.
+    pub struct XFORM {
+        eM11: f32
+        eM12: f32
+        eM21: f32
+        eM22: f32
+        eDx:  f32
+        eDy:  f32
+    }
+
+    @lib pub fn GetWorldTransform(hdc: HDC, lpxf: *XFORM): i32
+    @lib pub fn SetWorldTransform(hdc: HDC, lpxf: *const XFORM): i32
+
+    /// `iMode`: WorldTransformMode.*.
+    @lib pub fn ModifyWorldTransform(hdc: HDC, lpxf: *const XFORM, iMode: u32): i32
+
+    @lib pub fn CombineTransform(
+        lpxfOut: *XFORM,
+        lpxf1:   *const XFORM,
+        lpxf2:   *const XFORM
+    ): i32
+
+    @lib pub fn GetGraphicsMode(hdc: HDC): i32
+    @lib pub fn SetGraphicsMode(hdc: HDC, iMode: i32): i32
+
+    @lib pub fn DPtoLP(hdc: HDC, lppt: *POINT, c: i32): i32
+    @lib pub fn LPtoDP(hdc: HDC, lppt: *POINT, c: i32): i32
+
+    // ── Coordinates (extended) ───────────────────────────────────
+
+    @lib pub fn GetViewportExtEx(hdc: HDC, lpsize: *SIZE): i32
+    @lib pub fn GetWindowExtEx(hdc: HDC, lpsize: *SIZE): i32
+
+    @lib pub fn ScaleViewportExtEx(
+        hdc: HDC, xn: i32, dx: i32, yn: i32, dy: i32, lpsz: *SIZE
+    ): i32
+    @lib pub fn ScaleWindowExtEx(
+        hdc: HDC, xn: i32, dx: i32, yn: i32, dy: i32, lpsz: *SIZE
+    ): i32
+
+    @lib pub fn OffsetViewportOrgEx(hdc: HDC, x: i32, y: i32, lppt: *POINT): i32
+    @lib pub fn OffsetWindowOrgEx(hdc: HDC, x: i32, y: i32, lppt: *POINT): i32
+
+    // ── Drawing extras ───────────────────────────────────────────
+
+    @lib pub fn PolyDraw(
+        hdc:     HDC,
+        apt:     *const POINT,
+        aj:      *const u8,    // PolyDrawType.*
+        cpt:     i32
+    ): i32
+
+    @lib pub fn PolyPolygon(
+        hdc:    HDC,
+        apt:    *const POINT,
+        asz:    *const i32,
+        csz:    i32
+    ): i32
+
+    @lib pub fn PolyPolyline(
+        hdc:        HDC,
+        apt:        *const POINT,
+        asz:        *const u32,
+        csz:        u32
+    ): i32
+
+    @lib pub fn ArcTo(
+        hdc:  HDC,
+        left: i32, top: i32, right: i32, bottom: i32,
+        xr1:  i32, yr1: i32, xr2: i32, yr2: i32
+    ): i32
+
+    @lib pub fn AngleArc(
+        hdc:        HDC,
+        x:          i32,
+        y:          i32,
+        r:          u32,
+        StartAngle: f32,
+        SweepAngle: f32
+    ): i32
+
+    @lib pub fn SetPolyFillMode(hdc: HDC, iPolyFillMode: i32): i32
+    @lib pub fn GetPolyFillMode(hdc: HDC): i32
+
+    @lib pub fn SetROP2(hdc: HDC, rop2: i32): i32
+    @lib pub fn GetROP2(hdc: HDC): i32
+
+    @lib pub fn GetCurrentObject(hdc: HDC, type_: u32): HGDIOBJ
+
+    @lib pub fn GetMiterLimit(hdc: HDC, plimit: *f32): i32
+    @lib pub fn SetMiterLimit(hdc: HDC, limit: f32, plimit: *f32): i32
+
+    /// Forces all batched GDI commands to flush to the screen / DC.
+    @lib pub fn GdiFlush(): i32
+    @lib pub fn GdiSetBatchLimit(dw: u32): u32
+    @lib pub fn GdiGetBatchLimit(): u32
+
+    /// MaskBlt — three-source blit with a mask bitmap (msimg32 too).
+    @lib pub fn MaskBlt(
+        hdcDest: HDC,
+        xDest:   i32, yDest: i32, width: i32, height: i32,
+        hdcSrc:  HDC,
+        xSrc:    i32, ySrc: i32,
+        hbmMask: HBITMAP,
+        xMask:   i32, yMask: i32,
+        rop:     u32
+    ): i32
+
+    @lib pub fn PlgBlt(
+        hdcDest: HDC,
+        lpPoint: *const POINT,
+        hdcSrc:  HDC,
+        xSrc:    i32, ySrc: i32, width: i32, height: i32,
+        hbmMask: HBITMAP,
+        xMask:   i32, yMask: i32
+    ): i32
+
+    // ── Text / font (extended) ───────────────────────────────────
+
+    @lib pub fn GetTextFaceA(hdc: HDC, c: i32, lpName: *char): i32
+    @lib pub fn GetTextFaceW(hdc: HDC, c: i32, lpName: *u16): i32
+
+    @lib pub fn SetTextJustification(hdc: HDC, extra: i32, count: i32): i32
+    @lib pub fn SetTextCharacterExtra(hdc: HDC, extra: i32): i32
+    @lib pub fn GetTextCharacterExtra(hdc: HDC): i32
+
+    /// Filled by GetTextExtentExPoint — character widths up to the
+    /// returned `*lpnFit`.
+    @lib pub fn GetTextExtentExPointA(
+        hdc:     HDC,
+        lpszString: *const char,
+        cchString: i32,
+        nMaxExtent: i32,
+        lpnFit:   *i32,
+        lpnDx:    *i32,
+        lpSize:   *SIZE
+    ): i32
+    @lib pub fn GetTextExtentExPointW(
+        hdc:     HDC,
+        lpszString: *const u16,
+        cchString: i32,
+        nMaxExtent: i32,
+        lpnFit:   *i32,
+        lpnDx:    *i32,
+        lpSize:   *SIZE
+    ): i32
+
+    @lib pub fn GetFontData(
+        hdc:        HDC,
+        dwTable:    u32,    // 4-byte OpenType tag, e.g. 'name'
+        dwOffset:   u32,
+        pvBuffer:   *void,
+        cjBuffer:   u32
+    ): u32
+
+    /// `GLYPHMETRICS` — 24 bytes.
+    pub struct GLYPHMETRICS {
+        gmBlackBoxX:        u32
+        gmBlackBoxY:        u32
+        gmptGlyphOrigin:    POINT
+        gmCellIncX:         i16
+        gmCellIncY:         i16
+        _pad:               u32
+    }
+
+    /// `MAT2` — 16 bytes. Two-by-two 16.16 fixed-point matrix.
+    pub struct MAT2 {
+        eM11_value: i32
+        eM12_value: i32
+        eM21_value: i32
+        eM22_value: i32
+    }
+
+    @lib pub fn GetGlyphOutlineA(
+        hdc:           HDC,
+        uChar:         u32,
+        fuFormat:      u32,
+        lpgm:          *GLYPHMETRICS,
+        cjBuffer:      u32,
+        pvBuffer:      *void,
+        lpmat2:        *const MAT2
+    ): u32
+    @lib pub fn GetGlyphOutlineW(
+        hdc:           HDC,
+        uChar:         u32,
+        fuFormat:      u32,
+        lpgm:          *GLYPHMETRICS,
+        cjBuffer:      u32,
+        pvBuffer:      *void,
+        lpmat2:        *const MAT2
+    ): u32
+
+    /// `KERNINGPAIR` — 6 bytes packed; padded to 8 here.
+    pub struct KERNINGPAIR {
+        wFirst:    u16
+        wSecond:   u16
+        iKernAmount: i32
+    }
+
+    @lib pub fn GetKerningPairsA(hdc: HDC, nPairs: u32, lpKernPair: *KERNINGPAIR): u32
+    @lib pub fn GetKerningPairsW(hdc: HDC, nPairs: u32, lpKernPair: *KERNINGPAIR): u32
+
+    /// `GCP_RESULTSW` — 56 bytes. Fields point at caller-allocated arrays.
+    pub struct GCP_RESULTSW {
+        lStructSize: u32
+        _pad:        u32
+        lpOutString: *u16
+        lpOrder:     *u32
+        lpDx:        *i32
+        lpCaretPos:  *i32
+        lpClass:     *u8
+        lpGlyphs:    *u16
+        nGlyphs:     u32
+        nMaxFit:     i32
+    }
+
+    @lib pub fn GetCharacterPlacementA(
+        hdc:        HDC,
+        lpString:   *const char,
+        nCount:     i32,
+        nMexExtent: i32,
+        lpResults:  *GCP_RESULTSW,   // ANSI variant takes GCP_RESULTSA in C; layout matches
+        dwFlags:    u32
+    ): u32
+    @lib pub fn GetCharacterPlacementW(
+        hdc:        HDC,
+        lpString:   *const u16,
+        nCount:     i32,
+        nMexExtent: i32,
+        lpResults:  *GCP_RESULTSW,
+        dwFlags:    u32
+    ): u32
+
+    // ── Font resource management ─────────────────────────────────
+
+    @lib pub fn AddFontResourceA(lpFileName: *const char): i32
+    @lib pub fn AddFontResourceW(lpFileName: *const u16): i32
+
+    @lib pub fn RemoveFontResourceA(lpFileName: *const char): i32
+    @lib pub fn RemoveFontResourceW(lpFileName: *const u16): i32
+
+    /// `fl`: FR_PRIVATE = 0x10, FR_NOT_ENUM = 0x20.
+    @lib pub fn AddFontResourceExA(name: *const char, fl: u32, res: *void): i32
+    @lib pub fn AddFontResourceExW(name: *const u16, fl: u32, res: *void): i32
+
+    @lib pub fn RemoveFontResourceExA(name: *const char, fl: u32, pdv: *void): i32
+    @lib pub fn RemoveFontResourceExW(name: *const u16, fl: u32, pdv: *void): i32
+
+    /// Loads a font from memory into the process-private list.
+    @lib pub fn AddFontMemResourceEx(
+        pFileView:   *void,
+        cjSize:      u32,
+        pvResrved:   *void,
+        pNumFonts:   *u32
+    ): HANDLE
+
+    @lib pub fn RemoveFontMemResourceEx(h: HANDLE): i32
+
+    @lib pub fn CreateScalableFontResourceA(
+        fdwHidden:  u32,
+        lpszFont:   *const char,
+        lpszFile:   *const char,
+        lpszPath:   *const char
+    ): i32
+    @lib pub fn CreateScalableFontResourceW(
+        fdwHidden:  u32,
+        lpszFont:   *const u16,
+        lpszFile:   *const u16,
+        lpszPath:   *const u16
+    ): i32
+
+    @lib pub fn SetMapperFlags(hdc: HDC, flags: u32): u32
+
+    // ── Palette ──────────────────────────────────────────────────
+
+    /// `PALETTEENTRY` — 4 bytes.
+    pub struct PALETTEENTRY {
+        peRed:   u8
+        peGreen: u8
+        peBlue:  u8
+        peFlags: u8
+    }
+
+    /// `LOGPALETTE` — 8 bytes + n*PALETTEENTRY. Allocate
+    /// `sizeof(LOGPALETTE) + (n-1)*sizeof(PALETTEENTRY)` for n entries.
+    pub struct LOGPALETTE {
+        palVersion:    u16   // typically 0x300
+        palNumEntries: u16
+        palPalEntry:   PALETTEENTRY
+    }
+
+    @lib pub fn CreatePalette(plpal: *const LOGPALETTE): HPALETTE
+
+    @lib pub fn SelectPalette(hdc: HDC, hPal: HPALETTE, bForceBkgd: i32): HPALETTE
+
+    @lib pub fn RealizePalette(hdc: HDC): u32
+
+    @lib pub fn GetPaletteEntries(
+        hpal:       HPALETTE,
+        iStart:     u32,
+        cEntries:   u32,
+        pPalEntries: *PALETTEENTRY
+    ): u32
+
+    @lib pub fn SetPaletteEntries(
+        hpal:       HPALETTE,
+        iStart:     u32,
+        cEntries:   u32,
+        pPalEntries: *const PALETTEENTRY
+    ): u32
+
+    @lib pub fn AnimatePalette(
+        hPal:       HPALETTE,
+        iStartIndex: u32,
+        cEntries:   u32,
+        ppe:        *const PALETTEENTRY
+    ): i32
+
+    @lib pub fn ResizePalette(hpal: HPALETTE, n: u32): i32
+
+    @lib pub fn GetSystemPaletteEntries(
+        hdc:       HDC,
+        iStart:    u32,
+        cEntries:  u32,
+        pPalEntries: *PALETTEENTRY
+    ): u32
+
+    @lib pub fn GetSystemPaletteUse(hdc: HDC): u32
+    @lib pub fn SetSystemPaletteUse(hdc: HDC, use_: u32): u32
+
+    @lib pub fn UpdateColors(hdc: HDC): i32
+
+    // ── Print / spooler hooks ────────────────────────────────────
+
+    /// `DOCINFOA` / `DOCINFOW` — 40 bytes (struct size only counts
+    /// the first 5 fields on Win9x; on NT+ the full layout below).
+    pub struct DOCINFOA {
+        cbSize:       i32
+        _pad:         u32
+        lpszDocName:  *const char
+        lpszOutput:   *const char
+        lpszDatatype: *const char
+        fwType:       u32
+    }
+    pub struct DOCINFOW {
+        cbSize:       i32
+        _pad:         u32
+        lpszDocName:  *const u16
+        lpszOutput:   *const u16
+        lpszDatatype: *const u16
+        fwType:       u32
+    }
+
+    @lib pub fn StartDocA(hdc: HDC, lpdi: *const DOCINFOA): i32
+    @lib pub fn StartDocW(hdc: HDC, lpdi: *const DOCINFOW): i32
+    @lib pub fn EndDoc(hdc: HDC): i32
+    @lib pub fn StartPage(hdc: HDC): i32
+    @lib pub fn EndPage(hdc: HDC): i32
+    @lib pub fn AbortDoc(hdc: HDC): i32
+    @lib pub fn SetAbortProc(hdc: HDC, lpAbortProc: fn(HDC, i32): i32): i32
+
+    /// Sends a low-level command directly to a device driver.
+    @lib pub fn Escape(
+        hdc:        HDC,
+        iEscape:    i32,
+        cjIn:       i32,
+        pvIn:       *const void,
+        pvOut:      *void
+    ): i32
+
+    @lib pub fn ExtEscape(
+        hdc:        HDC,
+        iEscape:    i32,
+        cjInput:    i32,
+        lpInData:   *const u8,
+        cjOutput:   i32,
+        lpOutData:  *u8
+    ): i32
+
+    // ── DC creation extras / reset ──────────────────────────────
+
+    /// Information context — like CreateDC but only for queries
+    /// (no drawing).  Cheaper to create than a DC.
+    @lib pub fn CreateICA(
+        pszDriver: *const char,
+        pszDevice: *const char,
+        pszPort:   *const char,
+        pdm:       *const void   // *DEVMODEA
+    ): HDC
+    @lib pub fn CreateICW(
+        pszDriver: *const u16,
+        pszDevice: *const u16,
+        pszPort:   *const u16,
+        pdm:       *const void
+    ): HDC
+
+    @lib pub fn ResetDCA(hdc: HDC, lpInitData: *const void): HDC
+    @lib pub fn ResetDCW(hdc: HDC, lpInitData: *const void): HDC
+
+    // ── Metafiles (legacy WMF) ──────────────────────────────────
+
+    @lib pub fn CreateMetaFileA(lpszFile: *const char): HDC
+    @lib pub fn CreateMetaFileW(lpszFile: *const u16): HDC
+    @lib pub fn CloseMetaFile(hdc: HDC): HMETAFILE
+    @lib pub fn DeleteMetaFile(hmf: HMETAFILE): i32
+    @lib pub fn PlayMetaFile(hdc: HDC, hmf: HMETAFILE): i32
+    @lib pub fn GetMetaFileA(lpName: *const char): HMETAFILE
+    @lib pub fn GetMetaFileW(lpName: *const u16): HMETAFILE
+    @lib pub fn GetMetaFileBitsEx(hmf: HMETAFILE, cbBuffer: u32, lpData: *void): u32
+    @lib pub fn SetMetaFileBitsEx(cbBuffer: u32, lpData: *const u8): HMETAFILE
+    @lib pub fn CopyMetaFileA(hmf: HMETAFILE, file: *const char): HMETAFILE
+    @lib pub fn CopyMetaFileW(hmf: HMETAFILE, file: *const u16): HMETAFILE
+
+    // ── Enhanced metafiles ──────────────────────────────────────
+
+    @lib pub fn CreateEnhMetaFileA(
+        hdcRef:     HDC,
+        lpFilename: *const char,
+        lprc:       *const RECT,
+        lpDesc:     *const char
+    ): HDC
+    @lib pub fn CreateEnhMetaFileW(
+        hdcRef:     HDC,
+        lpFilename: *const u16,
+        lprc:       *const RECT,
+        lpDesc:     *const u16
+    ): HDC
+
+    @lib pub fn CloseEnhMetaFile(hdc: HDC): HENHMETAFILE
+    @lib pub fn DeleteEnhMetaFile(hmf: HENHMETAFILE): i32
+    @lib pub fn PlayEnhMetaFile(hdc: HDC, hmf: HENHMETAFILE, lprect: *const RECT): i32
+    @lib pub fn GetEnhMetaFileA(lpName: *const char): HENHMETAFILE
+    @lib pub fn GetEnhMetaFileW(lpName: *const u16): HENHMETAFILE
+    @lib pub fn GetEnhMetaFileBits(hemf: HENHMETAFILE, nSize: u32, lpData: *u8): u32
+    @lib pub fn SetEnhMetaFileBits(nSize: u32, pb: *const u8): HENHMETAFILE
+    @lib pub fn CopyEnhMetaFileA(hemfSrc: HENHMETAFILE, lpszFile: *const char): HENHMETAFILE
+    @lib pub fn CopyEnhMetaFileW(hemfSrc: HENHMETAFILE, lpszFile: *const u16): HENHMETAFILE
+
+    /// Convert a WMF blob to a portable WMF with placeable header
+    /// for embedding in clipboard / OLE.
+    @lib pub fn GetWinMetaFileBits(
+        hemf:    HENHMETAFILE,
+        cbData16: u32,
+        pData16: *u8,
+        iMapMode: i32,
+        hdcRef:  HDC
+    ): u32
+
+    @lib pub fn SetWinMetaFileBits(
+        nSize:   u32,
+        lpMeta16Data: *const u8,
+        hdcRef:  HDC,
+        lpMFP:   *const void    // *METAFILEPICT (24 bytes)
+    ): HENHMETAFILE
+
+    // ── Color spaces ─────────────────────────────────────────────
+
+    @lib pub fn CreateColorSpaceA(lpcs: *const void): HCOLORSPACE
+    @lib pub fn CreateColorSpaceW(lpcs: *const void): HCOLORSPACE
+    @lib pub fn DeleteColorSpace(hcs: HCOLORSPACE): i32
+    @lib pub fn GetColorSpace(hdc: HDC): HCOLORSPACE
+    @lib pub fn SetColorSpace(hdc: HDC, hcs: HCOLORSPACE): HCOLORSPACE
+
+    /// ICC mode for the DC — IcmMode.*.
+    @lib pub fn SetICMMode(hdc: HDC, mode: i32): i32
+
+    /// Returns the BOUNDS rect accumulated since the last call.
+    /// `dwFlags`: 0 = leave bounds, 4 = DCB_RESET, 8 = DCB_ENABLE, 1 = DCB_DISABLE.
+    @lib pub fn GetBoundsRect(hdc: HDC, lprcBounds: *RECT, flags: u32): u32
+    @lib pub fn SetBoundsRect(hdc: HDC, lprc: *const RECT, flags: u32): u32
+
+    // ── Misc ────────────────────────────────────────────────────
+
+    /// Returns the version of the GDI on the calling process.
+    @lib pub fn GdiGetSpoolMessage(
+        pData:    *void,
+        cbSize:   u32,
+        cbReceived: *u32,
+        unused1:  u32
+    ): i32
+
+    /// Returns a system-default device context for `iDeviceType` (1=display
+    /// adapter, 2=printer).
+    @lib pub fn EngLockDirectDrawSurface(): *void
+
+    /// Tells GDI that subsequent drawing should be ROP'd against the
+    /// "alternate" plane.  Most callers won't need this.
+    @lib pub fn GdiAlphaBlend(
+        hdcDst: HDC, xoriginDst: i32, yoriginDst: i32, wDst: i32, hDst: i32,
+        hdcSrc: HDC, xoriginSrc: i32, yoriginSrc: i32, wSrc: i32, hSrc: i32,
+        ftn:    u32    // BLENDFUNCTION packed into u32
+    ): i32
 }
