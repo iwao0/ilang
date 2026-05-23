@@ -38,16 +38,16 @@ use symbols::*;
 use types::*;
 use walker::*;
 
+#[cfg(test)]
 use code_actions::{
     fill_match_arms_at, generate_init_at, implement_interface_methods_at,
+    interface_method_stub_completions_at, interface_method_stub_completions_textual,
 };
 #[cfg(test)]
-use code_actions::{interface_method_stub_completions_at, interface_method_stub_completions_textual};
+use imports::organize_imports;
 use completion::literal_token_at;
 #[cfg(test)]
 use completion::{at_type_position, type_completions};
-use imports::organize_imports;
-use text_utils::{byte_range_to_lsp_range, byte_to_position};
 
 use std::collections::HashMap;
 use std::time::Duration;

@@ -16,10 +16,17 @@ use ilang_ast::{
     Block, ClassDecl, Expr, ExprKind, ExternCItem, InterfaceDecl, InterfaceMethod, Item,
     PatternKind, Program, Span, StmtKind, Symbol as AstSymbol, Type, VariantPayload,
 };
-use tower_lsp::lsp_types::Position;
+use ilang_lexer::tokenize;
+use ilang_parser::parse;
+use tower_lsp::lsp_types::{
+    CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams, CodeActionResponse,
+    Position, Range, TextEdit, Url, WorkspaceEdit,
+};
 
+use super::imports::organize_imports;
 use super::infer_expr_type_with_scope;
 use super::text;
+use super::text_utils::{byte_range_to_lsp_range, byte_to_position};
 
 /// Find an enclosing `match` expression at `cursor` and, when its
 /// scrutinee resolves to an enum declared in `prog`, return the byte
@@ -1056,4 +1063,132 @@ fn scan_class_method_names(body: &str) -> HashSet<String> {
         }
     }
     out
+}
+
+/// Orchestrate `textDocument/codeAction`. Tokenises + parses the
+/// buffer once, then runs every quick-fix probe whose kind the
+/// editor asked for. Caller is expected to have cloned the doc's
+/// `text` / `var_types` / `external_interfaces` and dropped the
+/// docs lock before calling — keeps parsing off the lock-held
+/// critical path.
+pub(crate) fn handle_code_action(
+    p: &CodeActionParams,
+    text: &str,
+    var_types: &HashMap<AstSymbol, Type>,
+    external_interfaces: &HashMap<AstSymbol, InterfaceDecl>,
+) -> Option<CodeActionResponse> {
+    let uri = &p.text_document.uri;
+    let only = p.context.only.as_ref();
+    let want_kind = |k: &CodeActionKind| match only {
+        None => true,
+        Some(kinds) => kinds.iter().any(|requested| {
+            // Match on prefix — e.g. requesting "refactor" should
+            // include "refactor.rewrite" too.
+            let r = requested.as_str();
+            let target = k.as_str();
+            target == r || target.starts_with(&format!("{r}."))
+        }),
+    };
+    let want_organize = want_kind(&CodeActionKind::SOURCE_ORGANIZE_IMPORTS)
+        || want_kind(&CodeActionKind::SOURCE);
+    let want_quickfix = want_kind(&CodeActionKind::QUICKFIX);
+    if !want_organize && !want_quickfix {
+        return None;
+    }
+    let tokens = tokenize(text).ok()?;
+    let prog = parse(&tokens).ok()?;
+    let mut actions: Vec<CodeActionOrCommand> = Vec::new();
+    if want_organize {
+        if let Some((start_byte, end_byte, new_text)) = organize_imports(text, &prog) {
+            let range = byte_range_to_lsp_range(text, start_byte, end_byte);
+            actions.push(quickfix_action(
+                "Organize imports".into(),
+                CodeActionKind::SOURCE_ORGANIZE_IMPORTS,
+                uri,
+                range,
+                new_text,
+                None,
+            ));
+        }
+    }
+    if want_quickfix {
+        if let Some((insert_byte, new_text)) = generate_init_at(text, &prog, p.range.start) {
+            let pos = byte_to_position(text, insert_byte);
+            actions.push(quickfix_action(
+                "Generate init from fields".into(),
+                CodeActionKind::QUICKFIX,
+                uri,
+                Range { start: pos, end: pos },
+                new_text,
+                None,
+            ));
+        }
+        if let Some((insert_byte, new_text, missing_count)) =
+            fill_match_arms_at(text, &prog, var_types, p.range.start)
+        {
+            let pos = byte_to_position(text, insert_byte);
+            let title = if missing_count == 1 {
+                "Fill missing match arm".to_string()
+            } else {
+                format!("Fill {missing_count} missing match arms")
+            };
+            actions.push(quickfix_action(
+                title,
+                CodeActionKind::QUICKFIX,
+                uri,
+                Range { start: pos, end: pos },
+                new_text,
+                Some(true),
+            ));
+        }
+        if let Some((insert_byte, new_text, missing_count)) =
+            implement_interface_methods_at(text, &prog, external_interfaces, p.range.start)
+        {
+            let pos = byte_to_position(text, insert_byte);
+            let title = if missing_count == 1 {
+                "Implement missing interface method".to_string()
+            } else {
+                format!("Implement {missing_count} missing interface methods")
+            };
+            actions.push(quickfix_action(
+                title,
+                CodeActionKind::QUICKFIX,
+                uri,
+                Range { start: pos, end: pos },
+                new_text,
+                Some(true),
+            ));
+        }
+    }
+    if actions.is_empty() {
+        None
+    } else {
+        Some(actions)
+    }
+}
+
+fn quickfix_action(
+    title: String,
+    kind: CodeActionKind,
+    uri: &Url,
+    range: Range,
+    new_text: String,
+    is_preferred: Option<bool>,
+) -> CodeActionOrCommand {
+    let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+    changes.insert(uri.clone(), vec![TextEdit { range, new_text }]);
+    CodeActionOrCommand::CodeAction(CodeAction {
+        title,
+        kind: Some(kind),
+        edit: Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        }),
+        diagnostics: None,
+        is_preferred,
+        disabled: None,
+        data: None,
+        command: None,
+    })
 }
