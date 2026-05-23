@@ -157,6 +157,21 @@ pub(crate) fn harvest_from_program(
         } else {
             entry_dir.clone()
         };
+        // Multi-segment paths (`use a.b.c.*` / `use a.b.c { X }`):
+        // collapse the subpath chain into an effective (module, dir)
+        // pair so the existing single-segment helpers below stay
+        // intact. The deepest segment becomes the effective module
+        // name; earlier segments map into nested subdirectories.
+        let (effective_module, effective_dir): (String, PathBuf) = if u.subpath.is_empty() {
+            (u.module.as_str().to_string(), base_dir.clone())
+        } else {
+            let mut d = base_dir.join(u.module.as_str());
+            let len = u.subpath.len();
+            for seg in &u.subpath[..len - 1] {
+                d = d.join(seg.as_str());
+            }
+            (u.subpath[len - 1].as_str().to_string(), d)
+        };
         if u.wildcard && u.selective.is_none() {
             // `use M { * }` — walk M, then re-key every `M.<X>`
             // entry as bare `<X>` so completion / hover / F12
@@ -165,8 +180,8 @@ pub(crate) fn harvest_from_program(
             // rename-rule expansion that turns the bare reference
             // into `M.<X>` at call time.
             harvest_wildcard_names(
-                u.module.as_str(),
-                &base_dir,
+                &effective_module,
+                &effective_dir,
                 &extra,
                 &mut visited,
                 out,
@@ -182,9 +197,9 @@ pub(crate) fn harvest_from_program(
             // bare name so the buffer-side walker can resolve a
             // bare `Var("X1")` reference.
             harvest_selective_names(
-                u.module.as_str(),
+                &effective_module,
                 names,
-                &base_dir,
+                &effective_dir,
                 &extra,
                 out,
                 sources,
@@ -193,7 +208,16 @@ pub(crate) fn harvest_from_program(
             );
             continue;
         }
-        walk_module(u.module.as_str(), &base_dir, &extra, &mut visited, out, sources, docs, const_types);
+        walk_module(
+            &effective_module,
+            &effective_dir,
+            &extra,
+            &mut visited,
+            out,
+            sources,
+            docs,
+            const_types,
+        );
     }
 }
 

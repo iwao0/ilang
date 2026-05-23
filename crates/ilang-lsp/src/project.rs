@@ -263,17 +263,31 @@ fn umbrella_re_exports(
         if !u.re_export || u.selective.is_some() {
             continue;
         }
-        if u.module == target {
+        // For multi-segment `pub use a.b.c.*` the deepest segment
+        // names the file we're re-exporting; the segments before it
+        // are subdirectories.
+        let (effective_target, nested) = if u.subpath.is_empty() {
+            (u.module.as_str().to_string(), dir.join(format!("{}.il", u.module)))
+        } else {
+            let mut d = dir.join(u.module.as_str());
+            let len = u.subpath.len();
+            for seg in &u.subpath[..len - 1] {
+                d = d.join(seg.as_str());
+            }
+            let last = u.subpath[len - 1].as_str();
+            (last.to_string(), d.join(format!("{last}.il")))
+        };
+        if effective_target == target {
             return true;
         }
-        let nested = dir.join(format!("{}.il", u.module));
         if !visited.insert(nested.clone()) {
             continue;
         }
         if let Ok(src) = std::fs::read_to_string(&nested) {
             if let Ok(tokens) = tokenize(&src) {
                 if let Ok(p) = parse(&tokens) {
-                    if umbrella_re_exports(&p, dir, target, visited) {
+                    let nested_dir = nested.parent().unwrap_or(dir);
+                    if umbrella_re_exports(&p, nested_dir, target, visited) {
                         return true;
                     }
                 }

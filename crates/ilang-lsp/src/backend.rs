@@ -137,13 +137,21 @@ pub(crate) async fn refresh_impl(
     if let Ok(buffer_prog) = &parsed_buffer {
         for item in &buffer_prog.items {
             let Item::Use(u) = item else { continue };
+            // For `use a.b.c.*` / `use a.b.c { X }` the effective
+            // module name is the deepest subpath segment — the file
+            // the loader actually picked up.
+            let effective_module = if let Some(last) = u.subpath.last() {
+                last.as_str().to_string()
+            } else {
+                u.module.as_str().to_string()
+            };
             if u.wildcard && u.selective.is_none() {
                 // `use M { * }` — mirror every `M.<X>` ret type
                 // under its bare name. Matches the selective-import
                 // path below; same rationale (the buffer references
                 // `<X>(...)` bare, but `collect_external_signatures`
                 // only emitted the `M.<X>` key).
-                let module_dot = format!("{}.", u.module);
+                let module_dot = format!("{effective_module}.");
                 let bare: Vec<(AstSymbol, _)> = external_rets
                     .iter()
                     .filter_map(|(k, v)| {
@@ -159,7 +167,7 @@ pub(crate) async fn refresh_impl(
             }
             let Some(names) = &u.selective else { continue };
             for name in names.iter() {
-                let prefixed = AstSymbol::intern(&format!("{}.{}", u.module, name));
+                let prefixed = AstSymbol::intern(&format!("{effective_module}.{name}"));
                 if let Some(t) = external_rets.get(&prefixed).cloned() {
                     external_rets.insert(name.clone(), t);
                 }
