@@ -492,17 +492,27 @@ pub enum GdkVulkanError: u32 {
     @handle pub struct GdkToplevelSize {}
 
     @symbol("gdk_app_launch_context_get_display") @lib pub fn gdk_app_launch_context_get_display(self: GdkAppLaunchContext): GdkDisplay
+    @symbol("gdk_app_launch_context_set_desktop") @lib pub fn gdk_app_launch_context_set_desktop(self: GdkAppLaunchContext, desktop: i32)
+    @symbol("gdk_app_launch_context_set_icon_name") @lib pub fn gdk_app_launch_context_set_icon_name(self: GdkAppLaunchContext, icon_name: *const char)
+    @symbol("gdk_app_launch_context_set_timestamp") @lib pub fn gdk_app_launch_context_set_timestamp(self: GdkAppLaunchContext, timestamp: u32)
     @symbol("gdk_button_event_get_button") @lib pub fn gdk_button_event_get_button(self: GdkButtonEvent): u32
     @symbol("gdk_cicp_params_new") @lib pub fn gdk_cicp_params_new(): GdkCicpParams
     @symbol("gdk_cicp_params_get_color_primaries") @lib pub fn gdk_cicp_params_get_color_primaries(self: GdkCicpParams): u32
     @symbol("gdk_cicp_params_get_matrix_coefficients") @lib pub fn gdk_cicp_params_get_matrix_coefficients(self: GdkCicpParams): u32
     @symbol("gdk_cicp_params_get_range") @lib pub fn gdk_cicp_params_get_range(self: GdkCicpParams): GdkCicpRange
     @symbol("gdk_cicp_params_get_transfer_function") @lib pub fn gdk_cicp_params_get_transfer_function(self: GdkCicpParams): u32
+    @symbol("gdk_cicp_params_set_color_primaries") @lib pub fn gdk_cicp_params_set_color_primaries(self: GdkCicpParams, color_primaries: u32)
+    @symbol("gdk_cicp_params_set_matrix_coefficients") @lib pub fn gdk_cicp_params_set_matrix_coefficients(self: GdkCicpParams, matrix_coefficients: u32)
+    @symbol("gdk_cicp_params_set_range") @lib pub fn gdk_cicp_params_set_range(self: GdkCicpParams, range: GdkCicpRange)
+    @symbol("gdk_cicp_params_set_transfer_function") @lib pub fn gdk_cicp_params_set_transfer_function(self: GdkCicpParams, transfer_function: u32)
     @symbol("gdk_clipboard_get_content") @lib pub fn gdk_clipboard_get_content(self: GdkClipboard): GdkContentProvider
     @symbol("gdk_clipboard_get_display") @lib pub fn gdk_clipboard_get_display(self: GdkClipboard): GdkDisplay
     @symbol("gdk_clipboard_get_formats") @lib pub fn gdk_clipboard_get_formats(self: GdkClipboard): GdkContentFormats
     @symbol("gdk_clipboard_is_local") @lib pub fn gdk_clipboard_is_local(self: GdkClipboard): i32
     @symbol("gdk_clipboard_set_content") @lib pub fn gdk_clipboard_set_content(self: GdkClipboard, provider: GdkContentProvider): i32
+    @symbol("gdk_clipboard_set_text") @lib pub fn gdk_clipboard_set_text(self: GdkClipboard, text: *const char)
+    @symbol("gdk_clipboard_set_texture") @lib pub fn gdk_clipboard_set_texture(self: GdkClipboard, texture: GdkTexture)
+    @symbol("gdk_clipboard_set_value") @lib pub fn gdk_clipboard_set_value(self: GdkClipboard, value: GValue)
     @symbol("gdk_content_deserializer_get_cancellable") @lib pub fn gdk_content_deserializer_get_cancellable(self: GdkContentDeserializer): GCancellable
     @symbol("gdk_content_deserializer_get_gtype") @lib pub fn gdk_content_deserializer_get_gtype(self: GdkContentDeserializer): u64
     @symbol("gdk_content_deserializer_get_input_stream") @lib pub fn gdk_content_deserializer_get_input_stream(self: GdkContentDeserializer): GInputStream
@@ -511,9 +521,11 @@ pub enum GdkVulkanError: u32 {
     @symbol("gdk_content_deserializer_get_task_data") @lib pub fn gdk_content_deserializer_get_task_data(self: GdkContentDeserializer): *void
     @symbol("gdk_content_deserializer_get_user_data") @lib pub fn gdk_content_deserializer_get_user_data(self: GdkContentDeserializer): *void
     @symbol("gdk_content_deserializer_get_value") @lib pub fn gdk_content_deserializer_get_value(self: GdkContentDeserializer): GValue
+    @symbol("gdk_content_deserializer_return_success") @lib pub fn gdk_content_deserializer_return_success(self: GdkContentDeserializer)
     @symbol("gdk_content_provider_new_for_bytes") @lib pub fn gdk_content_provider_new_for_bytes(mime_type: *const char, bytes: GBytes): GdkContentProvider
     @symbol("gdk_content_provider_new_for_value") @lib pub fn gdk_content_provider_new_for_value(value: GValue): GdkContentProvider
     @symbol("gdk_content_provider_new_union") @lib pub fn gdk_content_provider_new_union(providers: GdkContentProvider, n_providers: u64): GdkContentProvider
+    @symbol("gdk_content_provider_content_changed") @lib pub fn gdk_content_provider_content_changed(self: GdkContentProvider)
     @symbol("gdk_content_provider_ref_formats") @lib pub fn gdk_content_provider_ref_formats(self: GdkContentProvider): GdkContentFormats
     @symbol("gdk_content_provider_ref_storable_formats") @lib pub fn gdk_content_provider_ref_storable_formats(self: GdkContentProvider): GdkContentFormats
     @symbol("gdk_content_serializer_get_cancellable") @lib pub fn gdk_content_serializer_get_cancellable(self: GdkContentSerializer): GCancellable
@@ -524,6 +536,7 @@ pub enum GdkVulkanError: u32 {
     @symbol("gdk_content_serializer_get_task_data") @lib pub fn gdk_content_serializer_get_task_data(self: GdkContentSerializer): *void
     @symbol("gdk_content_serializer_get_user_data") @lib pub fn gdk_content_serializer_get_user_data(self: GdkContentSerializer): *void
     @symbol("gdk_content_serializer_get_value") @lib pub fn gdk_content_serializer_get_value(self: GdkContentSerializer): GValue
+    @symbol("gdk_content_serializer_return_success") @lib pub fn gdk_content_serializer_return_success(self: GdkContentSerializer)
     @symbol("gdk_crossing_event_get_detail") @lib pub fn gdk_crossing_event_get_detail(self: GdkCrossingEvent): GdkNotifyType
     @symbol("gdk_crossing_event_get_focus") @lib pub fn gdk_crossing_event_get_focus(self: GdkCrossingEvent): i32
     @symbol("gdk_crossing_event_get_mode") @lib pub fn gdk_crossing_event_get_mode(self: GdkCrossingEvent): GdkCrossingMode
@@ -556,7 +569,10 @@ pub enum GdkVulkanError: u32 {
     @symbol("gdk_device_tool_get_hardware_id") @lib pub fn gdk_device_tool_get_hardware_id(self: GdkDeviceTool): u64
     @symbol("gdk_device_tool_get_serial") @lib pub fn gdk_device_tool_get_serial(self: GdkDeviceTool): u64
     @symbol("gdk_device_tool_get_tool_type") @lib pub fn gdk_device_tool_get_tool_type(self: GdkDeviceTool): GdkDeviceToolType
+    @symbol("gdk_display_beep") @lib pub fn gdk_display_beep(self: GdkDisplay)
+    @symbol("gdk_display_close") @lib pub fn gdk_display_close(self: GdkDisplay)
     @symbol("gdk_display_device_is_grabbed") @lib pub fn gdk_display_device_is_grabbed(self: GdkDisplay, device: GdkDevice): i32
+    @symbol("gdk_display_flush") @lib pub fn gdk_display_flush(self: GdkDisplay)
     @symbol("gdk_display_get_app_launch_context") @lib pub fn gdk_display_get_app_launch_context(self: GdkDisplay): GdkAppLaunchContext
     @symbol("gdk_display_get_clipboard") @lib pub fn gdk_display_get_clipboard(self: GdkDisplay): GdkClipboard
     @symbol("gdk_display_get_default_seat") @lib pub fn gdk_display_get_default_seat(self: GdkDisplay): GdkSeat
@@ -571,11 +587,13 @@ pub enum GdkVulkanError: u32 {
     @symbol("gdk_display_list_seats") @lib pub fn gdk_display_list_seats(self: GdkDisplay): GdkSeat
     @symbol("gdk_display_supports_input_shapes") @lib pub fn gdk_display_supports_input_shapes(self: GdkDisplay): i32
     @symbol("gdk_display_supports_shadow_width") @lib pub fn gdk_display_supports_shadow_width(self: GdkDisplay): i32
+    @symbol("gdk_display_sync") @lib pub fn gdk_display_sync(self: GdkDisplay)
     @symbol("gdk_display_get_default") @lib pub fn gdk_display_get_default(): GdkDisplay
     @symbol("gdk_display_open") @lib pub fn gdk_display_open(display_name: *const char): GdkDisplay
     @symbol("gdk_display_manager_get_default_display") @lib pub fn gdk_display_manager_get_default_display(self: GdkDisplayManager): GdkDisplay
     @symbol("gdk_display_manager_list_displays") @lib pub fn gdk_display_manager_list_displays(self: GdkDisplayManager): GdkDisplay
     @symbol("gdk_display_manager_open_display") @lib pub fn gdk_display_manager_open_display(self: GdkDisplayManager, name: *const char): GdkDisplay
+    @symbol("gdk_display_manager_set_default_display") @lib pub fn gdk_display_manager_set_default_display(self: GdkDisplayManager, display: GdkDisplay)
     @symbol("gdk_display_manager_get") @lib pub fn gdk_display_manager_get(): GdkDisplayManager
     @symbol("gdk_dmabuf_texture_builder_new") @lib pub fn gdk_dmabuf_texture_builder_new(): GdkDmabufTextureBuilder
     @symbol("gdk_dmabuf_texture_builder_get_color_state") @lib pub fn gdk_dmabuf_texture_builder_get_color_state(self: GdkDmabufTextureBuilder): GdkColorState
@@ -590,6 +608,19 @@ pub enum GdkVulkanError: u32 {
     @symbol("gdk_dmabuf_texture_builder_get_stride") @lib pub fn gdk_dmabuf_texture_builder_get_stride(self: GdkDmabufTextureBuilder, plane: u32): u32
     @symbol("gdk_dmabuf_texture_builder_get_update_texture") @lib pub fn gdk_dmabuf_texture_builder_get_update_texture(self: GdkDmabufTextureBuilder): GdkTexture
     @symbol("gdk_dmabuf_texture_builder_get_width") @lib pub fn gdk_dmabuf_texture_builder_get_width(self: GdkDmabufTextureBuilder): u32
+    @symbol("gdk_dmabuf_texture_builder_set_color_state") @lib pub fn gdk_dmabuf_texture_builder_set_color_state(self: GdkDmabufTextureBuilder, color_state: GdkColorState)
+    @symbol("gdk_dmabuf_texture_builder_set_display") @lib pub fn gdk_dmabuf_texture_builder_set_display(self: GdkDmabufTextureBuilder, display: GdkDisplay)
+    @symbol("gdk_dmabuf_texture_builder_set_fd") @lib pub fn gdk_dmabuf_texture_builder_set_fd(self: GdkDmabufTextureBuilder, plane: u32, fd: i32)
+    @symbol("gdk_dmabuf_texture_builder_set_fourcc") @lib pub fn gdk_dmabuf_texture_builder_set_fourcc(self: GdkDmabufTextureBuilder, fourcc: u32)
+    @symbol("gdk_dmabuf_texture_builder_set_height") @lib pub fn gdk_dmabuf_texture_builder_set_height(self: GdkDmabufTextureBuilder, height: u32)
+    @symbol("gdk_dmabuf_texture_builder_set_modifier") @lib pub fn gdk_dmabuf_texture_builder_set_modifier(self: GdkDmabufTextureBuilder, modifier: u64)
+    @symbol("gdk_dmabuf_texture_builder_set_n_planes") @lib pub fn gdk_dmabuf_texture_builder_set_n_planes(self: GdkDmabufTextureBuilder, n_planes: u32)
+    @symbol("gdk_dmabuf_texture_builder_set_offset") @lib pub fn gdk_dmabuf_texture_builder_set_offset(self: GdkDmabufTextureBuilder, plane: u32, offset: u32)
+    @symbol("gdk_dmabuf_texture_builder_set_premultiplied") @lib pub fn gdk_dmabuf_texture_builder_set_premultiplied(self: GdkDmabufTextureBuilder, premultiplied: i32)
+    @symbol("gdk_dmabuf_texture_builder_set_stride") @lib pub fn gdk_dmabuf_texture_builder_set_stride(self: GdkDmabufTextureBuilder, plane: u32, stride: u32)
+    @symbol("gdk_dmabuf_texture_builder_set_update_texture") @lib pub fn gdk_dmabuf_texture_builder_set_update_texture(self: GdkDmabufTextureBuilder, texture: GdkTexture)
+    @symbol("gdk_dmabuf_texture_builder_set_width") @lib pub fn gdk_dmabuf_texture_builder_set_width(self: GdkDmabufTextureBuilder, width: u32)
+    @symbol("gdk_drag_drop_done") @lib pub fn gdk_drag_drop_done(self: GdkDrag, success: i32)
     @symbol("gdk_drag_get_actions") @lib pub fn gdk_drag_get_actions(self: GdkDrag): GdkDragAction
     @symbol("gdk_drag_get_content") @lib pub fn gdk_drag_get_content(self: GdkDrag): GdkContentProvider
     @symbol("gdk_drag_get_device") @lib pub fn gdk_drag_get_device(self: GdkDrag): GdkDevice
@@ -598,15 +629,18 @@ pub enum GdkVulkanError: u32 {
     @symbol("gdk_drag_get_formats") @lib pub fn gdk_drag_get_formats(self: GdkDrag): GdkContentFormats
     @symbol("gdk_drag_get_selected_action") @lib pub fn gdk_drag_get_selected_action(self: GdkDrag): GdkDragAction
     @symbol("gdk_drag_get_surface") @lib pub fn gdk_drag_get_surface(self: GdkDrag): GdkSurface
+    @symbol("gdk_drag_set_hotspot") @lib pub fn gdk_drag_set_hotspot(self: GdkDrag, hot_x: i32, hot_y: i32)
     @symbol("gdk_drag_begin") @lib pub fn gdk_drag_begin(surface: GdkSurface, device: GdkDevice, content: GdkContentProvider, actions: GdkDragAction, dx: f64, dy: f64): GdkDrag
     @symbol("gdk_draw_context_get_display") @lib pub fn gdk_draw_context_get_display(self: GdkDrawContext): GdkDisplay
     @symbol("gdk_draw_context_get_surface") @lib pub fn gdk_draw_context_get_surface(self: GdkDrawContext): GdkSurface
+    @symbol("gdk_drop_finish") @lib pub fn gdk_drop_finish(self: GdkDrop, action: GdkDragAction)
     @symbol("gdk_drop_get_actions") @lib pub fn gdk_drop_get_actions(self: GdkDrop): GdkDragAction
     @symbol("gdk_drop_get_device") @lib pub fn gdk_drop_get_device(self: GdkDrop): GdkDevice
     @symbol("gdk_drop_get_display") @lib pub fn gdk_drop_get_display(self: GdkDrop): GdkDisplay
     @symbol("gdk_drop_get_drag") @lib pub fn gdk_drop_get_drag(self: GdkDrop): GdkDrag
     @symbol("gdk_drop_get_formats") @lib pub fn gdk_drop_get_formats(self: GdkDrop): GdkContentFormats
     @symbol("gdk_drop_get_surface") @lib pub fn gdk_drop_get_surface(self: GdkDrop): GdkSurface
+    @symbol("gdk_drop_status") @lib pub fn gdk_drop_status(self: GdkDrop, actions: GdkDragAction, preferred: GdkDragAction)
     @symbol("gdk_event_get_device") @lib pub fn gdk_event_get_device(self: GdkEvent): GdkDevice
     @symbol("gdk_event_get_device_tool") @lib pub fn gdk_event_get_device_tool(self: GdkEvent): GdkDeviceTool
     @symbol("gdk_event_get_display") @lib pub fn gdk_event_get_display(self: GdkEvent): GdkDisplay
@@ -619,13 +653,17 @@ pub enum GdkVulkanError: u32 {
     @symbol("gdk_event_get_time") @lib pub fn gdk_event_get_time(self: GdkEvent): u32
     @symbol("gdk_event_ref") @lib pub fn gdk_event_ref(self: GdkEvent): GdkEvent
     @symbol("gdk_event_triggers_context_menu") @lib pub fn gdk_event_triggers_context_menu(self: GdkEvent): i32
+    @symbol("gdk_event_unref") @lib pub fn gdk_event_unref(self: GdkEvent)
     @symbol("gdk_focus_event_get_in") @lib pub fn gdk_focus_event_get_in(self: GdkFocusEvent): i32
+    @symbol("gdk_frame_clock_begin_updating") @lib pub fn gdk_frame_clock_begin_updating(self: GdkFrameClock)
+    @symbol("gdk_frame_clock_end_updating") @lib pub fn gdk_frame_clock_end_updating(self: GdkFrameClock)
     @symbol("gdk_frame_clock_get_current_timings") @lib pub fn gdk_frame_clock_get_current_timings(self: GdkFrameClock): GdkFrameTimings
     @symbol("gdk_frame_clock_get_fps") @lib pub fn gdk_frame_clock_get_fps(self: GdkFrameClock): f64
     @symbol("gdk_frame_clock_get_frame_counter") @lib pub fn gdk_frame_clock_get_frame_counter(self: GdkFrameClock): i64
     @symbol("gdk_frame_clock_get_frame_time") @lib pub fn gdk_frame_clock_get_frame_time(self: GdkFrameClock): i64
     @symbol("gdk_frame_clock_get_history_start") @lib pub fn gdk_frame_clock_get_history_start(self: GdkFrameClock): i64
     @symbol("gdk_frame_clock_get_timings") @lib pub fn gdk_frame_clock_get_timings(self: GdkFrameClock, frame_counter: i64): GdkFrameTimings
+    @symbol("gdk_frame_clock_request_phase") @lib pub fn gdk_frame_clock_request_phase(self: GdkFrameClock, phase: GdkFrameClockPhase)
     @symbol("gdk_gl_context_get_allowed_apis") @lib pub fn gdk_gl_context_get_allowed_apis(self: GdkGLContext): GdkGLAPI
     @symbol("gdk_gl_context_get_api") @lib pub fn gdk_gl_context_get_api(self: GdkGLContext): GdkGLAPI
     @symbol("gdk_gl_context_get_debug_enabled") @lib pub fn gdk_gl_context_get_debug_enabled(self: GdkGLContext): i32
@@ -635,7 +673,15 @@ pub enum GdkVulkanError: u32 {
     @symbol("gdk_gl_context_get_use_es") @lib pub fn gdk_gl_context_get_use_es(self: GdkGLContext): i32
     @symbol("gdk_gl_context_is_legacy") @lib pub fn gdk_gl_context_is_legacy(self: GdkGLContext): i32
     @symbol("gdk_gl_context_is_shared") @lib pub fn gdk_gl_context_is_shared(self: GdkGLContext, other: GdkGLContext): i32
+    @symbol("gdk_gl_context_make_current") @lib pub fn gdk_gl_context_make_current(self: GdkGLContext)
+    @symbol("gdk_gl_context_set_allowed_apis") @lib pub fn gdk_gl_context_set_allowed_apis(self: GdkGLContext, apis: GdkGLAPI)
+    @symbol("gdk_gl_context_set_debug_enabled") @lib pub fn gdk_gl_context_set_debug_enabled(self: GdkGLContext, enabled: i32)
+    @symbol("gdk_gl_context_set_forward_compatible") @lib pub fn gdk_gl_context_set_forward_compatible(self: GdkGLContext, compatible: i32)
+    @symbol("gdk_gl_context_set_required_version") @lib pub fn gdk_gl_context_set_required_version(self: GdkGLContext, major: i32, minor: i32)
+    @symbol("gdk_gl_context_set_use_es") @lib pub fn gdk_gl_context_set_use_es(self: GdkGLContext, use_es: i32)
+    @symbol("gdk_gl_context_clear_current") @lib pub fn gdk_gl_context_clear_current()
     @symbol("gdk_gl_context_get_current") @lib pub fn gdk_gl_context_get_current(): GdkGLContext
+    @symbol("gdk_gl_texture_release") @lib pub fn gdk_gl_texture_release(self: GdkGLTexture)
     @symbol("gdk_gl_texture_builder_new") @lib pub fn gdk_gl_texture_builder_new(): GdkGLTextureBuilder
     @symbol("gdk_gl_texture_builder_get_color_state") @lib pub fn gdk_gl_texture_builder_get_color_state(self: GdkGLTextureBuilder): GdkColorState
     @symbol("gdk_gl_texture_builder_get_context") @lib pub fn gdk_gl_texture_builder_get_context(self: GdkGLTextureBuilder): GdkGLContext
@@ -646,6 +692,15 @@ pub enum GdkVulkanError: u32 {
     @symbol("gdk_gl_texture_builder_get_sync") @lib pub fn gdk_gl_texture_builder_get_sync(self: GdkGLTextureBuilder): *void
     @symbol("gdk_gl_texture_builder_get_update_texture") @lib pub fn gdk_gl_texture_builder_get_update_texture(self: GdkGLTextureBuilder): GdkTexture
     @symbol("gdk_gl_texture_builder_get_width") @lib pub fn gdk_gl_texture_builder_get_width(self: GdkGLTextureBuilder): i32
+    @symbol("gdk_gl_texture_builder_set_color_state") @lib pub fn gdk_gl_texture_builder_set_color_state(self: GdkGLTextureBuilder, color_state: GdkColorState)
+    @symbol("gdk_gl_texture_builder_set_context") @lib pub fn gdk_gl_texture_builder_set_context(self: GdkGLTextureBuilder, context: GdkGLContext)
+    @symbol("gdk_gl_texture_builder_set_format") @lib pub fn gdk_gl_texture_builder_set_format(self: GdkGLTextureBuilder, format: GdkMemoryFormat)
+    @symbol("gdk_gl_texture_builder_set_has_mipmap") @lib pub fn gdk_gl_texture_builder_set_has_mipmap(self: GdkGLTextureBuilder, has_mipmap: i32)
+    @symbol("gdk_gl_texture_builder_set_height") @lib pub fn gdk_gl_texture_builder_set_height(self: GdkGLTextureBuilder, height: i32)
+    @symbol("gdk_gl_texture_builder_set_id") @lib pub fn gdk_gl_texture_builder_set_id(self: GdkGLTextureBuilder, id: u32)
+    @symbol("gdk_gl_texture_builder_set_sync") @lib pub fn gdk_gl_texture_builder_set_sync(self: GdkGLTextureBuilder, sync: *void)
+    @symbol("gdk_gl_texture_builder_set_update_texture") @lib pub fn gdk_gl_texture_builder_set_update_texture(self: GdkGLTextureBuilder, texture: GdkTexture)
+    @symbol("gdk_gl_texture_builder_set_width") @lib pub fn gdk_gl_texture_builder_set_width(self: GdkGLTextureBuilder, width: i32)
     @symbol("gdk_grab_broken_event_get_grab_surface") @lib pub fn gdk_grab_broken_event_get_grab_surface(self: GdkGrabBrokenEvent): GdkSurface
     @symbol("gdk_grab_broken_event_get_implicit") @lib pub fn gdk_grab_broken_event_get_implicit(self: GdkGrabBrokenEvent): i32
     @symbol("gdk_key_event_get_consumed_modifiers") @lib pub fn gdk_key_event_get_consumed_modifiers(self: GdkKeyEvent): GdkModifierType
@@ -667,6 +722,15 @@ pub enum GdkVulkanError: u32 {
     @symbol("gdk_memory_texture_builder_get_stride_for_plane") @lib pub fn gdk_memory_texture_builder_get_stride_for_plane(self: GdkMemoryTextureBuilder, plane: u32): u64
     @symbol("gdk_memory_texture_builder_get_update_texture") @lib pub fn gdk_memory_texture_builder_get_update_texture(self: GdkMemoryTextureBuilder): GdkTexture
     @symbol("gdk_memory_texture_builder_get_width") @lib pub fn gdk_memory_texture_builder_get_width(self: GdkMemoryTextureBuilder): i32
+    @symbol("gdk_memory_texture_builder_set_bytes") @lib pub fn gdk_memory_texture_builder_set_bytes(self: GdkMemoryTextureBuilder, bytes: GBytes)
+    @symbol("gdk_memory_texture_builder_set_color_state") @lib pub fn gdk_memory_texture_builder_set_color_state(self: GdkMemoryTextureBuilder, color_state: GdkColorState)
+    @symbol("gdk_memory_texture_builder_set_format") @lib pub fn gdk_memory_texture_builder_set_format(self: GdkMemoryTextureBuilder, format: GdkMemoryFormat)
+    @symbol("gdk_memory_texture_builder_set_height") @lib pub fn gdk_memory_texture_builder_set_height(self: GdkMemoryTextureBuilder, height: i32)
+    @symbol("gdk_memory_texture_builder_set_offset") @lib pub fn gdk_memory_texture_builder_set_offset(self: GdkMemoryTextureBuilder, plane: u32, offset: u64)
+    @symbol("gdk_memory_texture_builder_set_stride") @lib pub fn gdk_memory_texture_builder_set_stride(self: GdkMemoryTextureBuilder, stride: u64)
+    @symbol("gdk_memory_texture_builder_set_stride_for_plane") @lib pub fn gdk_memory_texture_builder_set_stride_for_plane(self: GdkMemoryTextureBuilder, plane: u32, stride: u64)
+    @symbol("gdk_memory_texture_builder_set_update_texture") @lib pub fn gdk_memory_texture_builder_set_update_texture(self: GdkMemoryTextureBuilder, texture: GdkTexture)
+    @symbol("gdk_memory_texture_builder_set_width") @lib pub fn gdk_memory_texture_builder_set_width(self: GdkMemoryTextureBuilder, width: i32)
     @symbol("gdk_monitor_get_connector") @lib pub fn gdk_monitor_get_connector(self: GdkMonitor): *const char
     @symbol("gdk_monitor_get_description") @lib pub fn gdk_monitor_get_description(self: GdkMonitor): *const char
     @symbol("gdk_monitor_get_display") @lib pub fn gdk_monitor_get_display(self: GdkMonitor): GdkDisplay
@@ -692,6 +756,8 @@ pub enum GdkVulkanError: u32 {
     @symbol("gdk_seat_get_tools") @lib pub fn gdk_seat_get_tools(self: GdkSeat): GdkDeviceTool
     @symbol("gdk_surface_new_popup") @lib pub fn gdk_surface_new_popup(parent: GdkSurface, autohide: i32): GdkSurface
     @symbol("gdk_surface_new_toplevel") @lib pub fn gdk_surface_new_toplevel(display: GdkDisplay): GdkSurface
+    @symbol("gdk_surface_beep") @lib pub fn gdk_surface_beep(self: GdkSurface)
+    @symbol("gdk_surface_destroy") @lib pub fn gdk_surface_destroy(self: GdkSurface)
     @symbol("gdk_surface_get_cursor") @lib pub fn gdk_surface_get_cursor(self: GdkSurface): GdkCursor
     @symbol("gdk_surface_get_device_cursor") @lib pub fn gdk_surface_get_device_cursor(self: GdkSurface, device: GdkDevice): GdkCursor
     @symbol("gdk_surface_get_display") @lib pub fn gdk_surface_get_display(self: GdkSurface): GdkDisplay
@@ -701,8 +767,14 @@ pub enum GdkVulkanError: u32 {
     @symbol("gdk_surface_get_scale") @lib pub fn gdk_surface_get_scale(self: GdkSurface): f64
     @symbol("gdk_surface_get_scale_factor") @lib pub fn gdk_surface_get_scale_factor(self: GdkSurface): i32
     @symbol("gdk_surface_get_width") @lib pub fn gdk_surface_get_width(self: GdkSurface): i32
+    @symbol("gdk_surface_hide") @lib pub fn gdk_surface_hide(self: GdkSurface)
     @symbol("gdk_surface_is_destroyed") @lib pub fn gdk_surface_is_destroyed(self: GdkSurface): i32
+    @symbol("gdk_surface_queue_render") @lib pub fn gdk_surface_queue_render(self: GdkSurface)
+    @symbol("gdk_surface_request_layout") @lib pub fn gdk_surface_request_layout(self: GdkSurface)
+    @symbol("gdk_surface_set_cursor") @lib pub fn gdk_surface_set_cursor(self: GdkSurface, cursor: GdkCursor)
+    @symbol("gdk_surface_set_device_cursor") @lib pub fn gdk_surface_set_device_cursor(self: GdkSurface, device: GdkDevice, cursor: GdkCursor)
     @symbol("gdk_texture_new_from_resource") @lib pub fn gdk_texture_new_from_resource(resource_path: *const char): GdkTexture
+    @symbol("gdk_texture_download") @lib pub fn gdk_texture_download(self: GdkTexture, data: u8, stride: u64)
     @symbol("gdk_texture_get_color_state") @lib pub fn gdk_texture_get_color_state(self: GdkTexture): GdkColorState
     @symbol("gdk_texture_get_format") @lib pub fn gdk_texture_get_format(self: GdkTexture): GdkMemoryFormat
     @symbol("gdk_texture_get_height") @lib pub fn gdk_texture_get_height(self: GdkTexture): i32
@@ -732,7 +804,8 @@ pub enum GdkVulkanError: u32 {
     @symbol("gdk_keyval_to_lower") @lib pub fn gdk_keyval_to_lower(keyval: u32): u32
     @symbol("gdk_keyval_to_unicode") @lib pub fn gdk_keyval_to_unicode(keyval: u32): u32
     @symbol("gdk_keyval_to_upper") @lib pub fn gdk_keyval_to_upper(keyval: u32): u32
+    @symbol("gdk_set_allowed_backends") @lib pub fn gdk_set_allowed_backends(backends: *const char)
     @symbol("gdk_unicode_to_keyval") @lib pub fn gdk_unicode_to_keyval(wc: u32): u32
 }
 
-// 242 fn(s) emitted, 193 skipped (unsupported params/return or already exported by another namespace)
+// 315 fn(s) emitted, 120 skipped (unsupported params/return or already exported by another namespace)

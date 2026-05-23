@@ -1051,7 +1051,15 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_app_info_monitor_get") @lib pub fn g_app_info_monitor_get(): GAppInfoMonitor
     @symbol("g_app_launch_context_new") @lib pub fn g_app_launch_context_new(): GAppLaunchContext
     @symbol("g_app_launch_context_get_environment") @lib pub fn g_app_launch_context_get_environment(self: GAppLaunchContext): *const char
+    @symbol("g_app_launch_context_launch_failed") @lib pub fn g_app_launch_context_launch_failed(self: GAppLaunchContext, startup_notify_id: *const char)
+    @symbol("g_app_launch_context_setenv") @lib pub fn g_app_launch_context_setenv(self: GAppLaunchContext, variable: *const char, value: *const char)
+    @symbol("g_app_launch_context_unsetenv") @lib pub fn g_app_launch_context_unsetenv(self: GAppLaunchContext, variable: *const char)
     @symbol("g_application_new") @lib pub fn g_application_new(application_id: *const char, flags: GApplicationFlags): GApplication
+    @symbol("g_application_activate") @lib pub fn g_application_activate(self: GApplication)
+    @symbol("g_application_add_main_option") @lib pub fn g_application_add_main_option(self: GApplication, long_name: *const char, short_name: i8, flags: GOptionFlags, arg: GOptionArg, description: *const char, arg_description: *const char)
+    @symbol("g_application_add_main_option_entries") @lib pub fn g_application_add_main_option_entries(self: GApplication, entries: GOptionEntry)
+    @symbol("g_application_add_option_group") @lib pub fn g_application_add_option_group(self: GApplication, group: GOptionGroup)
+    @symbol("g_application_bind_busy_property") @lib pub fn g_application_bind_busy_property(self: GApplication, object: GObject, property: *const char)
     @symbol("g_application_get_application_id") @lib pub fn g_application_get_application_id(self: GApplication): *const char
     @symbol("g_application_get_dbus_connection") @lib pub fn g_application_get_dbus_connection(self: GApplication): GDBusConnection
     @symbol("g_application_get_dbus_object_path") @lib pub fn g_application_get_dbus_object_path(self: GApplication): *const char
@@ -1062,9 +1070,27 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_application_get_is_remote") @lib pub fn g_application_get_is_remote(self: GApplication): i32
     @symbol("g_application_get_resource_base_path") @lib pub fn g_application_get_resource_base_path(self: GApplication): *const char
     @symbol("g_application_get_version") @lib pub fn g_application_get_version(self: GApplication): *const char
+    @symbol("g_application_hold") @lib pub fn g_application_hold(self: GApplication)
+    @symbol("g_application_mark_busy") @lib pub fn g_application_mark_busy(self: GApplication)
+    @symbol("g_application_quit") @lib pub fn g_application_quit(self: GApplication)
+    @symbol("g_application_release") @lib pub fn g_application_release(self: GApplication)
     @symbol("g_application_run") @lib pub fn g_application_run(self: GApplication, argc: i32, argv: *const char): i32
+    @symbol("g_application_send_notification") @lib pub fn g_application_send_notification(self: GApplication, id: *const char, notification: GNotification)
+    @symbol("g_application_set_application_id") @lib pub fn g_application_set_application_id(self: GApplication, application_id: *const char)
+    @symbol("g_application_set_default") @lib pub fn g_application_set_default(self: GApplication)
+    @symbol("g_application_set_flags") @lib pub fn g_application_set_flags(self: GApplication, flags: GApplicationFlags)
+    @symbol("g_application_set_inactivity_timeout") @lib pub fn g_application_set_inactivity_timeout(self: GApplication, inactivity_timeout: u32)
+    @symbol("g_application_set_option_context_description") @lib pub fn g_application_set_option_context_description(self: GApplication, description: *const char)
+    @symbol("g_application_set_option_context_parameter_string") @lib pub fn g_application_set_option_context_parameter_string(self: GApplication, parameter_string: *const char)
+    @symbol("g_application_set_option_context_summary") @lib pub fn g_application_set_option_context_summary(self: GApplication, summary: *const char)
+    @symbol("g_application_set_resource_base_path") @lib pub fn g_application_set_resource_base_path(self: GApplication, resource_path: *const char)
+    @symbol("g_application_set_version") @lib pub fn g_application_set_version(self: GApplication, version: *const char)
+    @symbol("g_application_unbind_busy_property") @lib pub fn g_application_unbind_busy_property(self: GApplication, object: GObject, property: *const char)
+    @symbol("g_application_unmark_busy") @lib pub fn g_application_unmark_busy(self: GApplication)
+    @symbol("g_application_withdraw_notification") @lib pub fn g_application_withdraw_notification(self: GApplication, id: *const char)
     @symbol("g_application_get_default") @lib pub fn g_application_get_default(): GApplication
     @symbol("g_application_id_is_valid") @lib pub fn g_application_id_is_valid(application_id: *const char): i32
+    @symbol("g_application_command_line_done") @lib pub fn g_application_command_line_done(self: GApplicationCommandLine)
     @symbol("g_application_command_line_get_cwd") @lib pub fn g_application_command_line_get_cwd(self: GApplicationCommandLine): *const char
     @symbol("g_application_command_line_get_environ") @lib pub fn g_application_command_line_get_environ(self: GApplicationCommandLine): *const char
     @symbol("g_application_command_line_get_exit_status") @lib pub fn g_application_command_line_get_exit_status(self: GApplicationCommandLine): i32
@@ -1073,27 +1099,41 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_application_command_line_get_platform_data") @lib pub fn g_application_command_line_get_platform_data(self: GApplicationCommandLine): GVariant
     @symbol("g_application_command_line_get_stdin") @lib pub fn g_application_command_line_get_stdin(self: GApplicationCommandLine): GInputStream
     @symbol("g_application_command_line_getenv") @lib pub fn g_application_command_line_getenv(self: GApplicationCommandLine, name: *const char): *const char
+    @symbol("g_application_command_line_print_literal") @lib pub fn g_application_command_line_print_literal(self: GApplicationCommandLine, message: *const char)
+    @symbol("g_application_command_line_printerr_literal") @lib pub fn g_application_command_line_printerr_literal(self: GApplicationCommandLine, message: *const char)
+    @symbol("g_application_command_line_set_exit_status") @lib pub fn g_application_command_line_set_exit_status(self: GApplicationCommandLine, exit_status: i32)
     @symbol("g_buffered_input_stream_new") @lib pub fn g_buffered_input_stream_new(base_stream: GInputStream): GInputStream
     @symbol("g_buffered_input_stream_new_sized") @lib pub fn g_buffered_input_stream_new_sized(base_stream: GInputStream, size: u64): GInputStream
     @symbol("g_buffered_input_stream_get_available") @lib pub fn g_buffered_input_stream_get_available(self: GBufferedInputStream): u64
     @symbol("g_buffered_input_stream_get_buffer_size") @lib pub fn g_buffered_input_stream_get_buffer_size(self: GBufferedInputStream): u64
     @symbol("g_buffered_input_stream_peek") @lib pub fn g_buffered_input_stream_peek(self: GBufferedInputStream, buffer: u8, offset: u64, count: u64): u64
+    @symbol("g_buffered_input_stream_set_buffer_size") @lib pub fn g_buffered_input_stream_set_buffer_size(self: GBufferedInputStream, size: u64)
     @symbol("g_buffered_output_stream_new") @lib pub fn g_buffered_output_stream_new(base_stream: GOutputStream): GOutputStream
     @symbol("g_buffered_output_stream_new_sized") @lib pub fn g_buffered_output_stream_new_sized(base_stream: GOutputStream, size: u64): GOutputStream
     @symbol("g_buffered_output_stream_get_auto_grow") @lib pub fn g_buffered_output_stream_get_auto_grow(self: GBufferedOutputStream): i32
     @symbol("g_buffered_output_stream_get_buffer_size") @lib pub fn g_buffered_output_stream_get_buffer_size(self: GBufferedOutputStream): u64
+    @symbol("g_buffered_output_stream_set_auto_grow") @lib pub fn g_buffered_output_stream_set_auto_grow(self: GBufferedOutputStream, auto_grow: i32)
+    @symbol("g_buffered_output_stream_set_buffer_size") @lib pub fn g_buffered_output_stream_set_buffer_size(self: GBufferedOutputStream, size: u64)
     @symbol("g_bytes_icon_new") @lib pub fn g_bytes_icon_new(bytes: GBytes): GBytesIcon
     @symbol("g_bytes_icon_get_bytes") @lib pub fn g_bytes_icon_get_bytes(self: GBytesIcon): GBytes
     @symbol("g_cancellable_new") @lib pub fn g_cancellable_new(): GCancellable
+    @symbol("g_cancellable_cancel") @lib pub fn g_cancellable_cancel(self: GCancellable)
+    @symbol("g_cancellable_disconnect") @lib pub fn g_cancellable_disconnect(self: GCancellable, handler_id: u64)
     @symbol("g_cancellable_get_fd") @lib pub fn g_cancellable_get_fd(self: GCancellable): i32
     @symbol("g_cancellable_is_cancelled") @lib pub fn g_cancellable_is_cancelled(self: GCancellable): i32
     @symbol("g_cancellable_make_pollfd") @lib pub fn g_cancellable_make_pollfd(self: GCancellable, pollfd: GPollFD): i32
+    @symbol("g_cancellable_pop_current") @lib pub fn g_cancellable_pop_current(self: GCancellable)
+    @symbol("g_cancellable_push_current") @lib pub fn g_cancellable_push_current(self: GCancellable)
+    @symbol("g_cancellable_release_fd") @lib pub fn g_cancellable_release_fd(self: GCancellable)
+    @symbol("g_cancellable_reset") @lib pub fn g_cancellable_reset(self: GCancellable)
     @symbol("g_cancellable_source_new") @lib pub fn g_cancellable_source_new(self: GCancellable): GSource
     @symbol("g_cancellable_get_current") @lib pub fn g_cancellable_get_current(): GCancellable
     @symbol("g_charset_converter_get_num_fallbacks") @lib pub fn g_charset_converter_get_num_fallbacks(self: GCharsetConverter): u32
     @symbol("g_charset_converter_get_use_fallback") @lib pub fn g_charset_converter_get_use_fallback(self: GCharsetConverter): i32
+    @symbol("g_charset_converter_set_use_fallback") @lib pub fn g_charset_converter_set_use_fallback(self: GCharsetConverter, use_fallback: i32)
     @symbol("g_credentials_new") @lib pub fn g_credentials_new(): GCredentials
     @symbol("g_credentials_get_native") @lib pub fn g_credentials_get_native(self: GCredentials, native_type: GCredentialsType): *void
+    @symbol("g_credentials_set_native") @lib pub fn g_credentials_set_native(self: GCredentials, native_type: GCredentialsType, native: *void)
     @symbol("g_credentials_to_string") @lib pub fn g_credentials_to_string(self: GCredentials): *const char
     @symbol("g_dbus_action_group_get") @lib pub fn g_dbus_action_group_get(connection: GDBusConnection, bus_name: *const char, object_path: *const char): GDBusActionGroup
     @symbol("g_dbus_auth_observer_new") @lib pub fn g_dbus_auth_observer_new(): GDBusAuthObserver
@@ -1108,8 +1148,15 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_dbus_connection_get_stream") @lib pub fn g_dbus_connection_get_stream(self: GDBusConnection): GIOStream
     @symbol("g_dbus_connection_get_unique_name") @lib pub fn g_dbus_connection_get_unique_name(self: GDBusConnection): *const char
     @symbol("g_dbus_connection_is_closed") @lib pub fn g_dbus_connection_is_closed(self: GDBusConnection): i32
+    @symbol("g_dbus_connection_remove_filter") @lib pub fn g_dbus_connection_remove_filter(self: GDBusConnection, filter_id: u32)
+    @symbol("g_dbus_connection_set_exit_on_close") @lib pub fn g_dbus_connection_set_exit_on_close(self: GDBusConnection, exit_on_close: i32)
+    @symbol("g_dbus_connection_signal_unsubscribe") @lib pub fn g_dbus_connection_signal_unsubscribe(self: GDBusConnection, subscription_id: u32)
+    @symbol("g_dbus_connection_start_message_processing") @lib pub fn g_dbus_connection_start_message_processing(self: GDBusConnection)
+    @symbol("g_dbus_connection_unexport_action_group") @lib pub fn g_dbus_connection_unexport_action_group(self: GDBusConnection, export_id: u32)
+    @symbol("g_dbus_connection_unexport_menu_model") @lib pub fn g_dbus_connection_unexport_menu_model(self: GDBusConnection, export_id: u32)
     @symbol("g_dbus_connection_unregister_object") @lib pub fn g_dbus_connection_unregister_object(self: GDBusConnection, registration_id: u32): i32
     @symbol("g_dbus_connection_unregister_subtree") @lib pub fn g_dbus_connection_unregister_subtree(self: GDBusConnection, registration_id: u32): i32
+    @symbol("g_dbus_interface_skeleton_flush") @lib pub fn g_dbus_interface_skeleton_flush(self: GDBusInterfaceSkeleton)
     @symbol("g_dbus_interface_skeleton_get_connection") @lib pub fn g_dbus_interface_skeleton_get_connection(self: GDBusInterfaceSkeleton): GDBusConnection
     @symbol("g_dbus_interface_skeleton_get_connections") @lib pub fn g_dbus_interface_skeleton_get_connections(self: GDBusInterfaceSkeleton): GDBusConnection
     @symbol("g_dbus_interface_skeleton_get_flags") @lib pub fn g_dbus_interface_skeleton_get_flags(self: GDBusInterfaceSkeleton): GDBusInterfaceSkeletonFlags
@@ -1118,6 +1165,9 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_dbus_interface_skeleton_get_properties") @lib pub fn g_dbus_interface_skeleton_get_properties(self: GDBusInterfaceSkeleton): GVariant
     @symbol("g_dbus_interface_skeleton_get_vtable") @lib pub fn g_dbus_interface_skeleton_get_vtable(self: GDBusInterfaceSkeleton): GDBusInterfaceVTable
     @symbol("g_dbus_interface_skeleton_has_connection") @lib pub fn g_dbus_interface_skeleton_has_connection(self: GDBusInterfaceSkeleton, connection: GDBusConnection): i32
+    @symbol("g_dbus_interface_skeleton_set_flags") @lib pub fn g_dbus_interface_skeleton_set_flags(self: GDBusInterfaceSkeleton, flags: GDBusInterfaceSkeletonFlags)
+    @symbol("g_dbus_interface_skeleton_unexport") @lib pub fn g_dbus_interface_skeleton_unexport(self: GDBusInterfaceSkeleton)
+    @symbol("g_dbus_interface_skeleton_unexport_from_connection") @lib pub fn g_dbus_interface_skeleton_unexport_from_connection(self: GDBusInterfaceSkeleton, connection: GDBusConnection)
     @symbol("g_dbus_menu_model_get") @lib pub fn g_dbus_menu_model_get(connection: GDBusConnection, bus_name: *const char, object_path: *const char): GDBusMenuModel
     @symbol("g_dbus_message_new") @lib pub fn g_dbus_message_new(): GDBusMessage
     @symbol("g_dbus_message_new_method_call") @lib pub fn g_dbus_message_new_method_call(name: *const char, path: *const char, interface_: *const char, method: *const char): GDBusMessage
@@ -1142,9 +1192,26 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_dbus_message_get_serial") @lib pub fn g_dbus_message_get_serial(self: GDBusMessage): u32
     @symbol("g_dbus_message_get_signature") @lib pub fn g_dbus_message_get_signature(self: GDBusMessage): *const char
     @symbol("g_dbus_message_get_unix_fd_list") @lib pub fn g_dbus_message_get_unix_fd_list(self: GDBusMessage): GUnixFDList
+    @symbol("g_dbus_message_lock") @lib pub fn g_dbus_message_lock(self: GDBusMessage)
     @symbol("g_dbus_message_new_method_error_literal") @lib pub fn g_dbus_message_new_method_error_literal(self: GDBusMessage, error_name: *const char, error_message: *const char): GDBusMessage
     @symbol("g_dbus_message_new_method_reply") @lib pub fn g_dbus_message_new_method_reply(self: GDBusMessage): GDBusMessage
     @symbol("g_dbus_message_print") @lib pub fn g_dbus_message_print(self: GDBusMessage, indent: u32): *const char
+    @symbol("g_dbus_message_set_body") @lib pub fn g_dbus_message_set_body(self: GDBusMessage, body: GVariant)
+    @symbol("g_dbus_message_set_byte_order") @lib pub fn g_dbus_message_set_byte_order(self: GDBusMessage, byte_order: GDBusMessageByteOrder)
+    @symbol("g_dbus_message_set_destination") @lib pub fn g_dbus_message_set_destination(self: GDBusMessage, value: *const char)
+    @symbol("g_dbus_message_set_error_name") @lib pub fn g_dbus_message_set_error_name(self: GDBusMessage, value: *const char)
+    @symbol("g_dbus_message_set_flags") @lib pub fn g_dbus_message_set_flags(self: GDBusMessage, flags: GDBusMessageFlags)
+    @symbol("g_dbus_message_set_header") @lib pub fn g_dbus_message_set_header(self: GDBusMessage, header_field: GDBusMessageHeaderField, value: GVariant)
+    @symbol("g_dbus_message_set_interface") @lib pub fn g_dbus_message_set_interface(self: GDBusMessage, value: *const char)
+    @symbol("g_dbus_message_set_member") @lib pub fn g_dbus_message_set_member(self: GDBusMessage, value: *const char)
+    @symbol("g_dbus_message_set_message_type") @lib pub fn g_dbus_message_set_message_type(self: GDBusMessage, arg: GDBusMessageType)
+    @symbol("g_dbus_message_set_num_unix_fds") @lib pub fn g_dbus_message_set_num_unix_fds(self: GDBusMessage, value: u32)
+    @symbol("g_dbus_message_set_path") @lib pub fn g_dbus_message_set_path(self: GDBusMessage, value: *const char)
+    @symbol("g_dbus_message_set_reply_serial") @lib pub fn g_dbus_message_set_reply_serial(self: GDBusMessage, value: u32)
+    @symbol("g_dbus_message_set_sender") @lib pub fn g_dbus_message_set_sender(self: GDBusMessage, value: *const char)
+    @symbol("g_dbus_message_set_serial") @lib pub fn g_dbus_message_set_serial(self: GDBusMessage, serial: u32)
+    @symbol("g_dbus_message_set_signature") @lib pub fn g_dbus_message_set_signature(self: GDBusMessage, value: *const char)
+    @symbol("g_dbus_message_set_unix_fd_list") @lib pub fn g_dbus_message_set_unix_fd_list(self: GDBusMessage, fd_list: GUnixFDList)
     @symbol("g_dbus_method_invocation_get_connection") @lib pub fn g_dbus_method_invocation_get_connection(self: GDBusMethodInvocation): GDBusConnection
     @symbol("g_dbus_method_invocation_get_interface_name") @lib pub fn g_dbus_method_invocation_get_interface_name(self: GDBusMethodInvocation): *const char
     @symbol("g_dbus_method_invocation_get_message") @lib pub fn g_dbus_method_invocation_get_message(self: GDBusMethodInvocation): GDBusMessage
@@ -1155,17 +1222,28 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_dbus_method_invocation_get_property_info") @lib pub fn g_dbus_method_invocation_get_property_info(self: GDBusMethodInvocation): GDBusPropertyInfo
     @symbol("g_dbus_method_invocation_get_sender") @lib pub fn g_dbus_method_invocation_get_sender(self: GDBusMethodInvocation): *const char
     @symbol("g_dbus_method_invocation_get_user_data") @lib pub fn g_dbus_method_invocation_get_user_data(self: GDBusMethodInvocation): *void
+    @symbol("g_dbus_method_invocation_return_dbus_error") @lib pub fn g_dbus_method_invocation_return_dbus_error(self: GDBusMethodInvocation, error_name: *const char, error_message: *const char)
+    @symbol("g_dbus_method_invocation_return_value") @lib pub fn g_dbus_method_invocation_return_value(self: GDBusMethodInvocation, parameters: GVariant)
+    @symbol("g_dbus_method_invocation_return_value_with_unix_fd_list") @lib pub fn g_dbus_method_invocation_return_value_with_unix_fd_list(self: GDBusMethodInvocation, parameters: GVariant, fd_list: GUnixFDList)
     @symbol("g_dbus_object_manager_client_get_connection") @lib pub fn g_dbus_object_manager_client_get_connection(self: GDBusObjectManagerClient): GDBusConnection
     @symbol("g_dbus_object_manager_client_get_flags") @lib pub fn g_dbus_object_manager_client_get_flags(self: GDBusObjectManagerClient): GDBusObjectManagerClientFlags
     @symbol("g_dbus_object_manager_client_get_name") @lib pub fn g_dbus_object_manager_client_get_name(self: GDBusObjectManagerClient): *const char
     @symbol("g_dbus_object_manager_client_get_name_owner") @lib pub fn g_dbus_object_manager_client_get_name_owner(self: GDBusObjectManagerClient): *const char
     @symbol("g_dbus_object_manager_server_new") @lib pub fn g_dbus_object_manager_server_new(object_path: *const char): GDBusObjectManagerServer
+    @symbol("g_dbus_object_manager_server_export") @lib pub fn g_dbus_object_manager_server_export(self: GDBusObjectManagerServer, object: GDBusObjectSkeleton)
+    @symbol("g_dbus_object_manager_server_export_uniquely") @lib pub fn g_dbus_object_manager_server_export_uniquely(self: GDBusObjectManagerServer, object: GDBusObjectSkeleton)
     @symbol("g_dbus_object_manager_server_get_connection") @lib pub fn g_dbus_object_manager_server_get_connection(self: GDBusObjectManagerServer): GDBusConnection
     @symbol("g_dbus_object_manager_server_is_exported") @lib pub fn g_dbus_object_manager_server_is_exported(self: GDBusObjectManagerServer, object: GDBusObjectSkeleton): i32
+    @symbol("g_dbus_object_manager_server_set_connection") @lib pub fn g_dbus_object_manager_server_set_connection(self: GDBusObjectManagerServer, connection: GDBusConnection)
     @symbol("g_dbus_object_manager_server_unexport") @lib pub fn g_dbus_object_manager_server_unexport(self: GDBusObjectManagerServer, object_path: *const char): i32
     @symbol("g_dbus_object_proxy_new") @lib pub fn g_dbus_object_proxy_new(connection: GDBusConnection, object_path: *const char): GDBusObjectProxy
     @symbol("g_dbus_object_proxy_get_connection") @lib pub fn g_dbus_object_proxy_get_connection(self: GDBusObjectProxy): GDBusConnection
     @symbol("g_dbus_object_skeleton_new") @lib pub fn g_dbus_object_skeleton_new(object_path: *const char): GDBusObjectSkeleton
+    @symbol("g_dbus_object_skeleton_add_interface") @lib pub fn g_dbus_object_skeleton_add_interface(self: GDBusObjectSkeleton, interface_: GDBusInterfaceSkeleton)
+    @symbol("g_dbus_object_skeleton_flush") @lib pub fn g_dbus_object_skeleton_flush(self: GDBusObjectSkeleton)
+    @symbol("g_dbus_object_skeleton_remove_interface") @lib pub fn g_dbus_object_skeleton_remove_interface(self: GDBusObjectSkeleton, interface_: GDBusInterfaceSkeleton)
+    @symbol("g_dbus_object_skeleton_remove_interface_by_name") @lib pub fn g_dbus_object_skeleton_remove_interface_by_name(self: GDBusObjectSkeleton, interface_name: *const char)
+    @symbol("g_dbus_object_skeleton_set_object_path") @lib pub fn g_dbus_object_skeleton_set_object_path(self: GDBusObjectSkeleton, object_path: *const char)
     @symbol("g_dbus_proxy_get_cached_property") @lib pub fn g_dbus_proxy_get_cached_property(self: GDBusProxy, property_name: *const char): GVariant
     @symbol("g_dbus_proxy_get_cached_property_names") @lib pub fn g_dbus_proxy_get_cached_property_names(self: GDBusProxy): *const char
     @symbol("g_dbus_proxy_get_connection") @lib pub fn g_dbus_proxy_get_connection(self: GDBusProxy): GDBusConnection
@@ -1176,21 +1254,35 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_dbus_proxy_get_name") @lib pub fn g_dbus_proxy_get_name(self: GDBusProxy): *const char
     @symbol("g_dbus_proxy_get_name_owner") @lib pub fn g_dbus_proxy_get_name_owner(self: GDBusProxy): *const char
     @symbol("g_dbus_proxy_get_object_path") @lib pub fn g_dbus_proxy_get_object_path(self: GDBusProxy): *const char
+    @symbol("g_dbus_proxy_set_cached_property") @lib pub fn g_dbus_proxy_set_cached_property(self: GDBusProxy, property_name: *const char, value: GVariant)
+    @symbol("g_dbus_proxy_set_default_timeout") @lib pub fn g_dbus_proxy_set_default_timeout(self: GDBusProxy, timeout_msec: i32)
+    @symbol("g_dbus_proxy_set_interface_info") @lib pub fn g_dbus_proxy_set_interface_info(self: GDBusProxy, info: GDBusInterfaceInfo)
     @symbol("g_dbus_server_get_client_address") @lib pub fn g_dbus_server_get_client_address(self: GDBusServer): *const char
     @symbol("g_dbus_server_get_flags") @lib pub fn g_dbus_server_get_flags(self: GDBusServer): GDBusServerFlags
     @symbol("g_dbus_server_get_guid") @lib pub fn g_dbus_server_get_guid(self: GDBusServer): *const char
     @symbol("g_dbus_server_is_active") @lib pub fn g_dbus_server_is_active(self: GDBusServer): i32
+    @symbol("g_dbus_server_start") @lib pub fn g_dbus_server_start(self: GDBusServer)
+    @symbol("g_dbus_server_stop") @lib pub fn g_dbus_server_stop(self: GDBusServer)
     @symbol("g_data_input_stream_new") @lib pub fn g_data_input_stream_new(base_stream: GInputStream): GDataInputStream
     @symbol("g_data_input_stream_get_byte_order") @lib pub fn g_data_input_stream_get_byte_order(self: GDataInputStream): GDataStreamByteOrder
     @symbol("g_data_input_stream_get_newline_type") @lib pub fn g_data_input_stream_get_newline_type(self: GDataInputStream): GDataStreamNewlineType
+    @symbol("g_data_input_stream_set_byte_order") @lib pub fn g_data_input_stream_set_byte_order(self: GDataInputStream, order: GDataStreamByteOrder)
+    @symbol("g_data_input_stream_set_newline_type") @lib pub fn g_data_input_stream_set_newline_type(self: GDataInputStream, arg: GDataStreamNewlineType)
     @symbol("g_data_output_stream_new") @lib pub fn g_data_output_stream_new(base_stream: GOutputStream): GDataOutputStream
     @symbol("g_data_output_stream_get_byte_order") @lib pub fn g_data_output_stream_get_byte_order(self: GDataOutputStream): GDataStreamByteOrder
+    @symbol("g_data_output_stream_set_byte_order") @lib pub fn g_data_output_stream_set_byte_order(self: GDataOutputStream, order: GDataStreamByteOrder)
+    @symbol("g_debug_controller_dbus_stop") @lib pub fn g_debug_controller_dbus_stop(self: GDebugControllerDBus)
     @symbol("g_emblem_get_origin") @lib pub fn g_emblem_get_origin(self: GEmblem): GEmblemOrigin
+    @symbol("g_emblemed_icon_add_emblem") @lib pub fn g_emblemed_icon_add_emblem(self: GEmblemedIcon, emblem: GEmblem)
+    @symbol("g_emblemed_icon_clear_emblems") @lib pub fn g_emblemed_icon_clear_emblems(self: GEmblemedIcon)
     @symbol("g_emblemed_icon_get_emblems") @lib pub fn g_emblemed_icon_get_emblems(self: GEmblemedIcon): GEmblem
     @symbol("g_file_enumerator_has_pending") @lib pub fn g_file_enumerator_has_pending(self: GFileEnumerator): i32
     @symbol("g_file_enumerator_is_closed") @lib pub fn g_file_enumerator_is_closed(self: GFileEnumerator): i32
+    @symbol("g_file_enumerator_set_pending") @lib pub fn g_file_enumerator_set_pending(self: GFileEnumerator, pending: i32)
     @symbol("g_file_io_stream_get_etag") @lib pub fn g_file_io_stream_get_etag(self: GFileIOStream): *const char
     @symbol("g_file_info_new") @lib pub fn g_file_info_new(): GFileInfo
+    @symbol("g_file_info_clear_status") @lib pub fn g_file_info_clear_status(self: GFileInfo)
+    @symbol("g_file_info_copy_into") @lib pub fn g_file_info_copy_into(self: GFileInfo, dest_info: GFileInfo)
     @symbol("g_file_info_dup") @lib pub fn g_file_info_dup(self: GFileInfo): GFileInfo
     @symbol("g_file_info_get_access_date_time") @lib pub fn g_file_info_get_access_date_time(self: GFileInfo): GDateTime
     @symbol("g_file_info_get_attribute_as_string") @lib pub fn g_file_info_get_attribute_as_string(self: GFileInfo, attribute: *const char): *const char
@@ -1224,19 +1316,53 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_file_info_has_attribute") @lib pub fn g_file_info_has_attribute(self: GFileInfo, attribute: *const char): i32
     @symbol("g_file_info_has_namespace") @lib pub fn g_file_info_has_namespace(self: GFileInfo, name_space: *const char): i32
     @symbol("g_file_info_list_attributes") @lib pub fn g_file_info_list_attributes(self: GFileInfo, name_space: *const char): *const char
+    @symbol("g_file_info_remove_attribute") @lib pub fn g_file_info_remove_attribute(self: GFileInfo, attribute: *const char)
+    @symbol("g_file_info_set_access_date_time") @lib pub fn g_file_info_set_access_date_time(self: GFileInfo, atime: GDateTime)
+    @symbol("g_file_info_set_attribute") @lib pub fn g_file_info_set_attribute(self: GFileInfo, attribute: *const char, arg: GFileAttributeType, value_p: *void)
+    @symbol("g_file_info_set_attribute_boolean") @lib pub fn g_file_info_set_attribute_boolean(self: GFileInfo, attribute: *const char, attr_value: i32)
+    @symbol("g_file_info_set_attribute_byte_string") @lib pub fn g_file_info_set_attribute_byte_string(self: GFileInfo, attribute: *const char, attr_value: *const char)
+    @symbol("g_file_info_set_attribute_file_path") @lib pub fn g_file_info_set_attribute_file_path(self: GFileInfo, attribute: *const char, attr_value: *const char)
+    @symbol("g_file_info_set_attribute_int32") @lib pub fn g_file_info_set_attribute_int32(self: GFileInfo, attribute: *const char, attr_value: i32)
+    @symbol("g_file_info_set_attribute_int64") @lib pub fn g_file_info_set_attribute_int64(self: GFileInfo, attribute: *const char, attr_value: i64)
+    @symbol("g_file_info_set_attribute_mask") @lib pub fn g_file_info_set_attribute_mask(self: GFileInfo, mask: GFileAttributeMatcher)
+    @symbol("g_file_info_set_attribute_object") @lib pub fn g_file_info_set_attribute_object(self: GFileInfo, attribute: *const char, attr_value: GObject)
     @symbol("g_file_info_set_attribute_status") @lib pub fn g_file_info_set_attribute_status(self: GFileInfo, attribute: *const char, status: GFileAttributeStatus): i32
+    @symbol("g_file_info_set_attribute_string") @lib pub fn g_file_info_set_attribute_string(self: GFileInfo, attribute: *const char, attr_value: *const char)
+    @symbol("g_file_info_set_attribute_stringv") @lib pub fn g_file_info_set_attribute_stringv(self: GFileInfo, attribute: *const char, attr_value: *const char)
+    @symbol("g_file_info_set_attribute_uint32") @lib pub fn g_file_info_set_attribute_uint32(self: GFileInfo, attribute: *const char, attr_value: u32)
+    @symbol("g_file_info_set_attribute_uint64") @lib pub fn g_file_info_set_attribute_uint64(self: GFileInfo, attribute: *const char, attr_value: u64)
+    @symbol("g_file_info_set_content_type") @lib pub fn g_file_info_set_content_type(self: GFileInfo, content_type: *const char)
+    @symbol("g_file_info_set_creation_date_time") @lib pub fn g_file_info_set_creation_date_time(self: GFileInfo, creation_time: GDateTime)
+    @symbol("g_file_info_set_display_name") @lib pub fn g_file_info_set_display_name(self: GFileInfo, display_name: *const char)
+    @symbol("g_file_info_set_edit_name") @lib pub fn g_file_info_set_edit_name(self: GFileInfo, edit_name: *const char)
+    @symbol("g_file_info_set_file_type") @lib pub fn g_file_info_set_file_type(self: GFileInfo, arg: GFileType)
+    @symbol("g_file_info_set_is_hidden") @lib pub fn g_file_info_set_is_hidden(self: GFileInfo, is_hidden: i32)
+    @symbol("g_file_info_set_is_symlink") @lib pub fn g_file_info_set_is_symlink(self: GFileInfo, is_symlink: i32)
+    @symbol("g_file_info_set_modification_date_time") @lib pub fn g_file_info_set_modification_date_time(self: GFileInfo, mtime: GDateTime)
+    @symbol("g_file_info_set_name") @lib pub fn g_file_info_set_name(self: GFileInfo, name: *const char)
+    @symbol("g_file_info_set_size") @lib pub fn g_file_info_set_size(self: GFileInfo, size: i64)
+    @symbol("g_file_info_set_sort_order") @lib pub fn g_file_info_set_sort_order(self: GFileInfo, sort_order: i32)
+    @symbol("g_file_info_set_symlink_target") @lib pub fn g_file_info_set_symlink_target(self: GFileInfo, symlink_target: *const char)
+    @symbol("g_file_info_unset_attribute_mask") @lib pub fn g_file_info_unset_attribute_mask(self: GFileInfo)
     @symbol("g_file_monitor_cancel") @lib pub fn g_file_monitor_cancel(self: GFileMonitor): i32
     @symbol("g_file_monitor_is_cancelled") @lib pub fn g_file_monitor_is_cancelled(self: GFileMonitor): i32
+    @symbol("g_file_monitor_set_rate_limit") @lib pub fn g_file_monitor_set_rate_limit(self: GFileMonitor, limit_msecs: i32)
     @symbol("g_file_output_stream_get_etag") @lib pub fn g_file_output_stream_get_etag(self: GFileOutputStream): *const char
     @symbol("g_filename_completer_new") @lib pub fn g_filename_completer_new(): GFilenameCompleter
     @symbol("g_filename_completer_get_completion_suffix") @lib pub fn g_filename_completer_get_completion_suffix(self: GFilenameCompleter, initial_text: *const char): *const char
     @symbol("g_filename_completer_get_completions") @lib pub fn g_filename_completer_get_completions(self: GFilenameCompleter, initial_text: *const char): *const char
+    @symbol("g_filename_completer_set_dirs_only") @lib pub fn g_filename_completer_set_dirs_only(self: GFilenameCompleter, dirs_only: i32)
     @symbol("g_filter_input_stream_get_base_stream") @lib pub fn g_filter_input_stream_get_base_stream(self: GFilterInputStream): GInputStream
     @symbol("g_filter_input_stream_get_close_base_stream") @lib pub fn g_filter_input_stream_get_close_base_stream(self: GFilterInputStream): i32
+    @symbol("g_filter_input_stream_set_close_base_stream") @lib pub fn g_filter_input_stream_set_close_base_stream(self: GFilterInputStream, close_base: i32)
     @symbol("g_filter_output_stream_get_base_stream") @lib pub fn g_filter_output_stream_get_base_stream(self: GFilterOutputStream): GOutputStream
     @symbol("g_filter_output_stream_get_close_base_stream") @lib pub fn g_filter_output_stream_get_close_base_stream(self: GFilterOutputStream): i32
+    @symbol("g_filter_output_stream_set_close_base_stream") @lib pub fn g_filter_output_stream_set_close_base_stream(self: GFilterOutputStream, close_base: i32)
     @symbol("g_io_module_new") @lib pub fn g_io_module_new(filename: *const char): GIOModule
+    @symbol("g_io_module_load") @lib pub fn g_io_module_load(self: GIOModule)
+    @symbol("g_io_module_unload") @lib pub fn g_io_module_unload(self: GIOModule)
     @symbol("g_io_module_query") @lib pub fn g_io_module_query(): *const char
+    @symbol("g_io_stream_clear_pending") @lib pub fn g_io_stream_clear_pending(self: GIOStream)
     @symbol("g_io_stream_get_input_stream") @lib pub fn g_io_stream_get_input_stream(self: GIOStream): GInputStream
     @symbol("g_io_stream_get_output_stream") @lib pub fn g_io_stream_get_output_stream(self: GIOStream): GOutputStream
     @symbol("g_io_stream_has_pending") @lib pub fn g_io_stream_has_pending(self: GIOStream): i32
@@ -1281,11 +1407,18 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_inet_socket_address_get_flowinfo") @lib pub fn g_inet_socket_address_get_flowinfo(self: GInetSocketAddress): u32
     @symbol("g_inet_socket_address_get_port") @lib pub fn g_inet_socket_address_get_port(self: GInetSocketAddress): u16
     @symbol("g_inet_socket_address_get_scope_id") @lib pub fn g_inet_socket_address_get_scope_id(self: GInetSocketAddress): u32
+    @symbol("g_input_stream_clear_pending") @lib pub fn g_input_stream_clear_pending(self: GInputStream)
     @symbol("g_input_stream_has_pending") @lib pub fn g_input_stream_has_pending(self: GInputStream): i32
     @symbol("g_input_stream_is_closed") @lib pub fn g_input_stream_is_closed(self: GInputStream): i32
     @symbol("g_list_store_new") @lib pub fn g_list_store_new(item_type: u64): GListStore
+    @symbol("g_list_store_append") @lib pub fn g_list_store_append(self: GListStore, item: GObject)
+    @symbol("g_list_store_insert") @lib pub fn g_list_store_insert(self: GListStore, position: u32, item: GObject)
+    @symbol("g_list_store_remove") @lib pub fn g_list_store_remove(self: GListStore, position: u32)
+    @symbol("g_list_store_remove_all") @lib pub fn g_list_store_remove_all(self: GListStore)
+    @symbol("g_list_store_splice") @lib pub fn g_list_store_splice(self: GListStore, position: u32, n_removals: u32, additions: GObject, n_additions: u32)
     @symbol("g_memory_input_stream_new") @lib pub fn g_memory_input_stream_new(): GInputStream
     @symbol("g_memory_input_stream_new_from_bytes") @lib pub fn g_memory_input_stream_new_from_bytes(bytes: GBytes): GInputStream
+    @symbol("g_memory_input_stream_add_bytes") @lib pub fn g_memory_input_stream_add_bytes(self: GMemoryInputStream, bytes: GBytes)
     @symbol("g_memory_output_stream_new_resizable") @lib pub fn g_memory_output_stream_new_resizable(): GOutputStream
     @symbol("g_memory_output_stream_get_data") @lib pub fn g_memory_output_stream_get_data(self: GMemoryOutputStream): *void
     @symbol("g_memory_output_stream_get_data_size") @lib pub fn g_memory_output_stream_get_data_size(self: GMemoryOutputStream): u64
@@ -1293,6 +1426,21 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_memory_output_stream_steal_as_bytes") @lib pub fn g_memory_output_stream_steal_as_bytes(self: GMemoryOutputStream): GBytes
     @symbol("g_memory_output_stream_steal_data") @lib pub fn g_memory_output_stream_steal_data(self: GMemoryOutputStream): *void
     @symbol("g_menu_new") @lib pub fn g_menu_new(): GMenu
+    @symbol("g_menu_append") @lib pub fn g_menu_append(self: GMenu, label: *const char, detailed_action: *const char)
+    @symbol("g_menu_append_item") @lib pub fn g_menu_append_item(self: GMenu, item: GMenuItem)
+    @symbol("g_menu_append_section") @lib pub fn g_menu_append_section(self: GMenu, label: *const char, section: GMenuModel)
+    @symbol("g_menu_append_submenu") @lib pub fn g_menu_append_submenu(self: GMenu, label: *const char, submenu: GMenuModel)
+    @symbol("g_menu_freeze") @lib pub fn g_menu_freeze(self: GMenu)
+    @symbol("g_menu_insert") @lib pub fn g_menu_insert(self: GMenu, position: i32, label: *const char, detailed_action: *const char)
+    @symbol("g_menu_insert_item") @lib pub fn g_menu_insert_item(self: GMenu, position: i32, item: GMenuItem)
+    @symbol("g_menu_insert_section") @lib pub fn g_menu_insert_section(self: GMenu, position: i32, label: *const char, section: GMenuModel)
+    @symbol("g_menu_insert_submenu") @lib pub fn g_menu_insert_submenu(self: GMenu, position: i32, label: *const char, submenu: GMenuModel)
+    @symbol("g_menu_prepend") @lib pub fn g_menu_prepend(self: GMenu, label: *const char, detailed_action: *const char)
+    @symbol("g_menu_prepend_item") @lib pub fn g_menu_prepend_item(self: GMenu, item: GMenuItem)
+    @symbol("g_menu_prepend_section") @lib pub fn g_menu_prepend_section(self: GMenu, label: *const char, section: GMenuModel)
+    @symbol("g_menu_prepend_submenu") @lib pub fn g_menu_prepend_submenu(self: GMenu, label: *const char, submenu: GMenuModel)
+    @symbol("g_menu_remove") @lib pub fn g_menu_remove(self: GMenu, position: i32)
+    @symbol("g_menu_remove_all") @lib pub fn g_menu_remove_all(self: GMenu)
     @symbol("g_menu_attribute_iter_get_name") @lib pub fn g_menu_attribute_iter_get_name(self: GMenuAttributeIter): *const char
     @symbol("g_menu_attribute_iter_get_value") @lib pub fn g_menu_attribute_iter_get_value(self: GMenuAttributeIter): GVariant
     @symbol("g_menu_attribute_iter_next") @lib pub fn g_menu_attribute_iter_next(self: GMenuAttributeIter): i32
@@ -1302,6 +1450,13 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_menu_item_new_submenu") @lib pub fn g_menu_item_new_submenu(label: *const char, submenu: GMenuModel): GMenuItem
     @symbol("g_menu_item_get_attribute_value") @lib pub fn g_menu_item_get_attribute_value(self: GMenuItem, attribute: *const char, expected_type: GVariantType): GVariant
     @symbol("g_menu_item_get_link") @lib pub fn g_menu_item_get_link(self: GMenuItem, link: *const char): GMenuModel
+    @symbol("g_menu_item_set_action_and_target_value") @lib pub fn g_menu_item_set_action_and_target_value(self: GMenuItem, action: *const char, target_value: GVariant)
+    @symbol("g_menu_item_set_attribute_value") @lib pub fn g_menu_item_set_attribute_value(self: GMenuItem, attribute: *const char, value: GVariant)
+    @symbol("g_menu_item_set_detailed_action") @lib pub fn g_menu_item_set_detailed_action(self: GMenuItem, detailed_action: *const char)
+    @symbol("g_menu_item_set_label") @lib pub fn g_menu_item_set_label(self: GMenuItem, label: *const char)
+    @symbol("g_menu_item_set_link") @lib pub fn g_menu_item_set_link(self: GMenuItem, link: *const char, model: GMenuModel)
+    @symbol("g_menu_item_set_section") @lib pub fn g_menu_item_set_section(self: GMenuItem, section: GMenuModel)
+    @symbol("g_menu_item_set_submenu") @lib pub fn g_menu_item_set_submenu(self: GMenuItem, submenu: GMenuModel)
     @symbol("g_menu_link_iter_get_name") @lib pub fn g_menu_link_iter_get_name(self: GMenuLinkIter): *const char
     @symbol("g_menu_link_iter_get_value") @lib pub fn g_menu_link_iter_get_value(self: GMenuLinkIter): GMenuModel
     @symbol("g_menu_link_iter_next") @lib pub fn g_menu_link_iter_next(self: GMenuLinkIter): i32
@@ -1309,6 +1464,7 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_menu_model_get_item_link") @lib pub fn g_menu_model_get_item_link(self: GMenuModel, item_index: i32, link: *const char): GMenuModel
     @symbol("g_menu_model_get_n_items") @lib pub fn g_menu_model_get_n_items(self: GMenuModel): i32
     @symbol("g_menu_model_is_mutable") @lib pub fn g_menu_model_is_mutable(self: GMenuModel): i32
+    @symbol("g_menu_model_items_changed") @lib pub fn g_menu_model_items_changed(self: GMenuModel, position: i32, removed: i32, added: i32)
     @symbol("g_menu_model_iterate_item_attributes") @lib pub fn g_menu_model_iterate_item_attributes(self: GMenuModel, item_index: i32): GMenuAttributeIter
     @symbol("g_menu_model_iterate_item_links") @lib pub fn g_menu_model_iterate_item_links(self: GMenuModel, item_index: i32): GMenuLinkIter
     @symbol("g_mount_operation_new") @lib pub fn g_mount_operation_new(): GMountOperation
@@ -1321,6 +1477,16 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_mount_operation_get_password_save") @lib pub fn g_mount_operation_get_password_save(self: GMountOperation): GPasswordSave
     @symbol("g_mount_operation_get_pim") @lib pub fn g_mount_operation_get_pim(self: GMountOperation): u32
     @symbol("g_mount_operation_get_username") @lib pub fn g_mount_operation_get_username(self: GMountOperation): *const char
+    @symbol("g_mount_operation_reply") @lib pub fn g_mount_operation_reply(self: GMountOperation, result: GMountOperationResult)
+    @symbol("g_mount_operation_set_anonymous") @lib pub fn g_mount_operation_set_anonymous(self: GMountOperation, anonymous: i32)
+    @symbol("g_mount_operation_set_choice") @lib pub fn g_mount_operation_set_choice(self: GMountOperation, choice: i32)
+    @symbol("g_mount_operation_set_domain") @lib pub fn g_mount_operation_set_domain(self: GMountOperation, domain: *const char)
+    @symbol("g_mount_operation_set_is_tcrypt_hidden_volume") @lib pub fn g_mount_operation_set_is_tcrypt_hidden_volume(self: GMountOperation, hidden_volume: i32)
+    @symbol("g_mount_operation_set_is_tcrypt_system_volume") @lib pub fn g_mount_operation_set_is_tcrypt_system_volume(self: GMountOperation, system_volume: i32)
+    @symbol("g_mount_operation_set_password") @lib pub fn g_mount_operation_set_password(self: GMountOperation, password: *const char)
+    @symbol("g_mount_operation_set_password_save") @lib pub fn g_mount_operation_set_password_save(self: GMountOperation, save: GPasswordSave)
+    @symbol("g_mount_operation_set_pim") @lib pub fn g_mount_operation_set_pim(self: GMountOperation, pim: u32)
+    @symbol("g_mount_operation_set_username") @lib pub fn g_mount_operation_set_username(self: GMountOperation, username: *const char)
     @symbol("g_native_socket_address_new") @lib pub fn g_native_socket_address_new(native: *void, len: u64): GSocketAddress
     @symbol("g_network_address_new") @lib pub fn g_network_address_new(hostname: *const char, port: u16): GNetworkAddress
     @symbol("g_network_address_new_loopback") @lib pub fn g_network_address_new_loopback(port: u16): GNetworkAddress
@@ -1332,15 +1498,26 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_network_service_get_protocol") @lib pub fn g_network_service_get_protocol(self: GNetworkService): *const char
     @symbol("g_network_service_get_scheme") @lib pub fn g_network_service_get_scheme(self: GNetworkService): *const char
     @symbol("g_network_service_get_service") @lib pub fn g_network_service_get_service(self: GNetworkService): *const char
+    @symbol("g_network_service_set_scheme") @lib pub fn g_network_service_set_scheme(self: GNetworkService, scheme: *const char)
     @symbol("g_notification_new") @lib pub fn g_notification_new(title: *const char): GNotification
+    @symbol("g_notification_add_button") @lib pub fn g_notification_add_button(self: GNotification, label: *const char, detailed_action: *const char)
+    @symbol("g_notification_add_button_with_target_value") @lib pub fn g_notification_add_button_with_target_value(self: GNotification, label: *const char, action: *const char, target: GVariant)
+    @symbol("g_notification_set_body") @lib pub fn g_notification_set_body(self: GNotification, body: *const char)
+    @symbol("g_notification_set_category") @lib pub fn g_notification_set_category(self: GNotification, category: *const char)
+    @symbol("g_notification_set_default_action") @lib pub fn g_notification_set_default_action(self: GNotification, detailed_action: *const char)
+    @symbol("g_notification_set_default_action_and_target_value") @lib pub fn g_notification_set_default_action_and_target_value(self: GNotification, action: *const char, target: GVariant)
+    @symbol("g_notification_set_priority") @lib pub fn g_notification_set_priority(self: GNotification, priority: GNotificationPriority)
+    @symbol("g_notification_set_title") @lib pub fn g_notification_set_title(self: GNotification, title: *const char)
     @symbol("g_osx_app_info_get_filename") @lib pub fn g_osx_app_info_get_filename(self: GOsxAppInfo): *const char
     @symbol("g_osx_app_info_get_all_for_scheme") @lib pub fn g_osx_app_info_get_all_for_scheme(scheme: *const char): *void
+    @symbol("g_output_stream_clear_pending") @lib pub fn g_output_stream_clear_pending(self: GOutputStream)
     @symbol("g_output_stream_has_pending") @lib pub fn g_output_stream_has_pending(self: GOutputStream): i32
     @symbol("g_output_stream_is_closed") @lib pub fn g_output_stream_is_closed(self: GOutputStream): i32
     @symbol("g_output_stream_is_closing") @lib pub fn g_output_stream_is_closing(self: GOutputStream): i32
     @symbol("g_permission_get_allowed") @lib pub fn g_permission_get_allowed(self: GPermission): i32
     @symbol("g_permission_get_can_acquire") @lib pub fn g_permission_get_can_acquire(self: GPermission): i32
     @symbol("g_permission_get_can_release") @lib pub fn g_permission_get_can_release(self: GPermission): i32
+    @symbol("g_permission_impl_update") @lib pub fn g_permission_impl_update(self: GPermission, allowed: i32, can_acquire: i32, can_release: i32)
     @symbol("g_property_action_new") @lib pub fn g_property_action_new(name: *const char, object: GObject, property_name: *const char): GPropertyAction
     @symbol("g_proxy_address_new") @lib pub fn g_proxy_address_new(inetaddr: GInetAddress, port: u16, protocol: *const char, dest_hostname: *const char, dest_port: u16, username: *const char, password: *const char): GSocketAddress
     @symbol("g_proxy_address_get_destination_hostname") @lib pub fn g_proxy_address_get_destination_hostname(self: GProxyAddress): *const char
@@ -1351,12 +1528,21 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_proxy_address_get_uri") @lib pub fn g_proxy_address_get_uri(self: GProxyAddress): *const char
     @symbol("g_proxy_address_get_username") @lib pub fn g_proxy_address_get_username(self: GProxyAddress): *const char
     @symbol("g_resolver_get_timeout") @lib pub fn g_resolver_get_timeout(self: GResolver): u32
+    @symbol("g_resolver_set_default") @lib pub fn g_resolver_set_default(self: GResolver)
+    @symbol("g_resolver_set_timeout") @lib pub fn g_resolver_set_timeout(self: GResolver, timeout_ms: u32)
+    @symbol("g_resolver_free_addresses") @lib pub fn g_resolver_free_addresses(addresses: *void)
+    @symbol("g_resolver_free_targets") @lib pub fn g_resolver_free_targets(targets: *void)
     @symbol("g_resolver_get_default") @lib pub fn g_resolver_get_default(): GResolver
     @symbol("g_settings_new") @lib pub fn g_settings_new(schema_id: *const char): GSettings
     @symbol("g_settings_new_full") @lib pub fn g_settings_new_full(schema: GSettingsSchema, backend: GSettingsBackend, path: *const char): GSettings
     @symbol("g_settings_new_with_backend") @lib pub fn g_settings_new_with_backend(schema_id: *const char, backend: GSettingsBackend): GSettings
     @symbol("g_settings_new_with_backend_and_path") @lib pub fn g_settings_new_with_backend_and_path(schema_id: *const char, backend: GSettingsBackend, path: *const char): GSettings
     @symbol("g_settings_new_with_path") @lib pub fn g_settings_new_with_path(schema_id: *const char, path: *const char): GSettings
+    @symbol("g_settings_apply") @lib pub fn g_settings_apply(self: GSettings)
+    @symbol("g_settings_bind") @lib pub fn g_settings_bind(self: GSettings, key: *const char, object: GObject, property: *const char, flags: GSettingsBindFlags)
+    @symbol("g_settings_bind_with_mapping_closures") @lib pub fn g_settings_bind_with_mapping_closures(self: GSettings, key: *const char, object: GObject, property: *const char, flags: GSettingsBindFlags, get_mapping: GClosure, set_mapping: GClosure)
+    @symbol("g_settings_bind_writable") @lib pub fn g_settings_bind_writable(self: GSettings, key: *const char, object: GObject, property: *const char, inverted: i32)
+    @symbol("g_settings_delay") @lib pub fn g_settings_delay(self: GSettings)
     @symbol("g_settings_get_boolean") @lib pub fn g_settings_get_boolean(self: GSettings, key: *const char): i32
     @symbol("g_settings_get_child") @lib pub fn g_settings_get_child(self: GSettings, name: *const char): GSettings
     @symbol("g_settings_get_default_value") @lib pub fn g_settings_get_default_value(self: GSettings, key: *const char): GVariant
@@ -1374,6 +1560,8 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_settings_get_value") @lib pub fn g_settings_get_value(self: GSettings, key: *const char): GVariant
     @symbol("g_settings_is_writable") @lib pub fn g_settings_is_writable(self: GSettings, name: *const char): i32
     @symbol("g_settings_list_children") @lib pub fn g_settings_list_children(self: GSettings): *const char
+    @symbol("g_settings_reset") @lib pub fn g_settings_reset(self: GSettings, key: *const char)
+    @symbol("g_settings_revert") @lib pub fn g_settings_revert(self: GSettings)
     @symbol("g_settings_set_boolean") @lib pub fn g_settings_set_boolean(self: GSettings, key: *const char, value: i32): i32
     @symbol("g_settings_set_double") @lib pub fn g_settings_set_double(self: GSettings, key: *const char, value: f64): i32
     @symbol("g_settings_set_enum") @lib pub fn g_settings_set_enum(self: GSettings, key: *const char, value: i32): i32
@@ -1385,12 +1573,26 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_settings_set_uint") @lib pub fn g_settings_set_uint(self: GSettings, key: *const char, value: u32): i32
     @symbol("g_settings_set_uint64") @lib pub fn g_settings_set_uint64(self: GSettings, key: *const char, value: u64): i32
     @symbol("g_settings_set_value") @lib pub fn g_settings_set_value(self: GSettings, key: *const char, value: GVariant): i32
+    @symbol("g_settings_sync") @lib pub fn g_settings_sync()
+    @symbol("g_settings_unbind") @lib pub fn g_settings_unbind(object: GObject, property: *const char)
+    @symbol("g_settings_backend_changed") @lib pub fn g_settings_backend_changed(self: GSettingsBackend, key: *const char, origin_tag: *void)
+    @symbol("g_settings_backend_changed_tree") @lib pub fn g_settings_backend_changed_tree(self: GSettingsBackend, tree: GTree, origin_tag: *void)
+    @symbol("g_settings_backend_keys_changed") @lib pub fn g_settings_backend_keys_changed(self: GSettingsBackend, path: *const char, items: *const char, origin_tag: *void)
+    @symbol("g_settings_backend_path_changed") @lib pub fn g_settings_backend_path_changed(self: GSettingsBackend, path: *const char, origin_tag: *void)
+    @symbol("g_settings_backend_path_writable_changed") @lib pub fn g_settings_backend_path_writable_changed(self: GSettingsBackend, path: *const char)
+    @symbol("g_settings_backend_writable_changed") @lib pub fn g_settings_backend_writable_changed(self: GSettingsBackend, key: *const char)
     @symbol("g_settings_backend_get_default") @lib pub fn g_settings_backend_get_default(): GSettingsBackend
     @symbol("g_simple_action_new") @lib pub fn g_simple_action_new(name: *const char, parameter_type: GVariantType): GSimpleAction
     @symbol("g_simple_action_new_stateful") @lib pub fn g_simple_action_new_stateful(name: *const char, parameter_type: GVariantType, state: GVariant): GSimpleAction
+    @symbol("g_simple_action_set_enabled") @lib pub fn g_simple_action_set_enabled(self: GSimpleAction, enabled: i32)
+    @symbol("g_simple_action_set_state") @lib pub fn g_simple_action_set_state(self: GSimpleAction, value: GVariant)
+    @symbol("g_simple_action_set_state_hint") @lib pub fn g_simple_action_set_state_hint(self: GSimpleAction, state_hint: GVariant)
     @symbol("g_simple_action_group_new") @lib pub fn g_simple_action_group_new(): GSimpleActionGroup
     @symbol("g_simple_io_stream_new") @lib pub fn g_simple_io_stream_new(input_stream: GInputStream, output_stream: GOutputStream): GIOStream
     @symbol("g_simple_permission_new") @lib pub fn g_simple_permission_new(allowed: i32): GPermission
+    @symbol("g_simple_proxy_resolver_set_default_proxy") @lib pub fn g_simple_proxy_resolver_set_default_proxy(self: GSimpleProxyResolver, default_proxy: *const char)
+    @symbol("g_simple_proxy_resolver_set_ignore_hosts") @lib pub fn g_simple_proxy_resolver_set_ignore_hosts(self: GSimpleProxyResolver, ignore_hosts: *const char)
+    @symbol("g_simple_proxy_resolver_set_uri_proxy") @lib pub fn g_simple_proxy_resolver_set_uri_proxy(self: GSimpleProxyResolver, uri_scheme: *const char, proxy: *const char)
     @symbol("g_socket_condition_check") @lib pub fn g_socket_condition_check(self: GSocket, condition: GIOCondition): GIOCondition
     @symbol("g_socket_connection_factory_create_connection") @lib pub fn g_socket_connection_factory_create_connection(self: GSocket): GSocketConnection
     @symbol("g_socket_create_source") @lib pub fn g_socket_create_source(self: GSocket, condition: GIOCondition, cancellable: GCancellable): GSource
@@ -1409,11 +1611,20 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_socket_get_ttl") @lib pub fn g_socket_get_ttl(self: GSocket): u32
     @symbol("g_socket_is_closed") @lib pub fn g_socket_is_closed(self: GSocket): i32
     @symbol("g_socket_is_connected") @lib pub fn g_socket_is_connected(self: GSocket): i32
+    @symbol("g_socket_set_blocking") @lib pub fn g_socket_set_blocking(self: GSocket, blocking: i32)
+    @symbol("g_socket_set_broadcast") @lib pub fn g_socket_set_broadcast(self: GSocket, broadcast: i32)
+    @symbol("g_socket_set_keepalive") @lib pub fn g_socket_set_keepalive(self: GSocket, keepalive: i32)
+    @symbol("g_socket_set_listen_backlog") @lib pub fn g_socket_set_listen_backlog(self: GSocket, backlog: i32)
+    @symbol("g_socket_set_multicast_loopback") @lib pub fn g_socket_set_multicast_loopback(self: GSocket, loopback: i32)
+    @symbol("g_socket_set_multicast_ttl") @lib pub fn g_socket_set_multicast_ttl(self: GSocket, ttl: u32)
+    @symbol("g_socket_set_timeout") @lib pub fn g_socket_set_timeout(self: GSocket, timeout: u32)
+    @symbol("g_socket_set_ttl") @lib pub fn g_socket_set_ttl(self: GSocket, ttl: u32)
     @symbol("g_socket_speaks_ipv4") @lib pub fn g_socket_speaks_ipv4(self: GSocket): i32
     @symbol("g_socket_address_new_from_native") @lib pub fn g_socket_address_new_from_native(native: *void, len: u64): GSocketAddress
     @symbol("g_socket_address_get_family") @lib pub fn g_socket_address_get_family(self: GSocketAddress): GSocketFamily
     @symbol("g_socket_address_get_native_size") @lib pub fn g_socket_address_get_native_size(self: GSocketAddress): i64
     @symbol("g_socket_client_new") @lib pub fn g_socket_client_new(): GSocketClient
+    @symbol("g_socket_client_add_application_proxy") @lib pub fn g_socket_client_add_application_proxy(self: GSocketClient, protocol: *const char)
     @symbol("g_socket_client_get_enable_proxy") @lib pub fn g_socket_client_get_enable_proxy(self: GSocketClient): i32
     @symbol("g_socket_client_get_family") @lib pub fn g_socket_client_get_family(self: GSocketClient): GSocketFamily
     @symbol("g_socket_client_get_local_address") @lib pub fn g_socket_client_get_local_address(self: GSocketClient): GSocketAddress
@@ -1421,16 +1632,30 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_socket_client_get_socket_type") @lib pub fn g_socket_client_get_socket_type(self: GSocketClient): GSocketType
     @symbol("g_socket_client_get_timeout") @lib pub fn g_socket_client_get_timeout(self: GSocketClient): u32
     @symbol("g_socket_client_get_tls") @lib pub fn g_socket_client_get_tls(self: GSocketClient): i32
+    @symbol("g_socket_client_set_enable_proxy") @lib pub fn g_socket_client_set_enable_proxy(self: GSocketClient, enable: i32)
+    @symbol("g_socket_client_set_family") @lib pub fn g_socket_client_set_family(self: GSocketClient, family: GSocketFamily)
+    @symbol("g_socket_client_set_local_address") @lib pub fn g_socket_client_set_local_address(self: GSocketClient, address: GSocketAddress)
+    @symbol("g_socket_client_set_protocol") @lib pub fn g_socket_client_set_protocol(self: GSocketClient, protocol: GSocketProtocol)
+    @symbol("g_socket_client_set_socket_type") @lib pub fn g_socket_client_set_socket_type(self: GSocketClient, arg: GSocketType)
+    @symbol("g_socket_client_set_timeout") @lib pub fn g_socket_client_set_timeout(self: GSocketClient, timeout: u32)
+    @symbol("g_socket_client_set_tls") @lib pub fn g_socket_client_set_tls(self: GSocketClient, tls: i32)
     @symbol("g_socket_connection_get_socket") @lib pub fn g_socket_connection_get_socket(self: GSocketConnection): GSocket
     @symbol("g_socket_connection_is_connected") @lib pub fn g_socket_connection_is_connected(self: GSocketConnection): i32
     @symbol("g_socket_connection_factory_lookup_type") @lib pub fn g_socket_connection_factory_lookup_type(family: GSocketFamily, arg: GSocketType, protocol_id: i32): u64
+    @symbol("g_socket_connection_factory_register_type") @lib pub fn g_socket_connection_factory_register_type(g_type: u64, family: GSocketFamily, arg: GSocketType, protocol: i32)
     @symbol("g_socket_control_message_get_level") @lib pub fn g_socket_control_message_get_level(self: GSocketControlMessage): i32
     @symbol("g_socket_control_message_get_msg_type") @lib pub fn g_socket_control_message_get_msg_type(self: GSocketControlMessage): i32
     @symbol("g_socket_control_message_get_size") @lib pub fn g_socket_control_message_get_size(self: GSocketControlMessage): u64
+    @symbol("g_socket_control_message_serialize") @lib pub fn g_socket_control_message_serialize(self: GSocketControlMessage, data: *void)
     @symbol("g_socket_control_message_deserialize") @lib pub fn g_socket_control_message_deserialize(level: i32, arg: i32, size: u64, data: u8): GSocketControlMessage
     @symbol("g_socket_listener_new") @lib pub fn g_socket_listener_new(): GSocketListener
+    @symbol("g_socket_listener_close") @lib pub fn g_socket_listener_close(self: GSocketListener)
+    @symbol("g_socket_listener_set_backlog") @lib pub fn g_socket_listener_set_backlog(self: GSocketListener, listen_backlog: i32)
     @symbol("g_socket_service_new") @lib pub fn g_socket_service_new(): GSocketService
     @symbol("g_socket_service_is_active") @lib pub fn g_socket_service_is_active(self: GSocketService): i32
+    @symbol("g_socket_service_start") @lib pub fn g_socket_service_start(self: GSocketService)
+    @symbol("g_socket_service_stop") @lib pub fn g_socket_service_stop(self: GSocketService)
+    @symbol("g_subprocess_force_exit") @lib pub fn g_subprocess_force_exit(self: GSubprocess)
     @symbol("g_subprocess_get_exit_status") @lib pub fn g_subprocess_get_exit_status(self: GSubprocess): i32
     @symbol("g_subprocess_get_identifier") @lib pub fn g_subprocess_get_identifier(self: GSubprocess): *const char
     @symbol("g_subprocess_get_if_exited") @lib pub fn g_subprocess_get_if_exited(self: GSubprocess): i32
@@ -1441,8 +1666,22 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_subprocess_get_stdout_pipe") @lib pub fn g_subprocess_get_stdout_pipe(self: GSubprocess): GInputStream
     @symbol("g_subprocess_get_successful") @lib pub fn g_subprocess_get_successful(self: GSubprocess): i32
     @symbol("g_subprocess_get_term_sig") @lib pub fn g_subprocess_get_term_sig(self: GSubprocess): i32
+    @symbol("g_subprocess_send_signal") @lib pub fn g_subprocess_send_signal(self: GSubprocess, signal_num: i32)
     @symbol("g_subprocess_launcher_new") @lib pub fn g_subprocess_launcher_new(flags: GSubprocessFlags): GSubprocessLauncher
+    @symbol("g_subprocess_launcher_close") @lib pub fn g_subprocess_launcher_close(self: GSubprocessLauncher)
     @symbol("g_subprocess_launcher_getenv") @lib pub fn g_subprocess_launcher_getenv(self: GSubprocessLauncher, variable: *const char): *const char
+    @symbol("g_subprocess_launcher_set_cwd") @lib pub fn g_subprocess_launcher_set_cwd(self: GSubprocessLauncher, cwd: *const char)
+    @symbol("g_subprocess_launcher_set_environ") @lib pub fn g_subprocess_launcher_set_environ(self: GSubprocessLauncher, env: *const char)
+    @symbol("g_subprocess_launcher_set_flags") @lib pub fn g_subprocess_launcher_set_flags(self: GSubprocessLauncher, flags: GSubprocessFlags)
+    @symbol("g_subprocess_launcher_set_stderr_file_path") @lib pub fn g_subprocess_launcher_set_stderr_file_path(self: GSubprocessLauncher, path: *const char)
+    @symbol("g_subprocess_launcher_set_stdin_file_path") @lib pub fn g_subprocess_launcher_set_stdin_file_path(self: GSubprocessLauncher, path: *const char)
+    @symbol("g_subprocess_launcher_set_stdout_file_path") @lib pub fn g_subprocess_launcher_set_stdout_file_path(self: GSubprocessLauncher, path: *const char)
+    @symbol("g_subprocess_launcher_setenv") @lib pub fn g_subprocess_launcher_setenv(self: GSubprocessLauncher, variable: *const char, value: *const char, overwrite: i32)
+    @symbol("g_subprocess_launcher_take_fd") @lib pub fn g_subprocess_launcher_take_fd(self: GSubprocessLauncher, source_fd: i32, target_fd: i32)
+    @symbol("g_subprocess_launcher_take_stderr_fd") @lib pub fn g_subprocess_launcher_take_stderr_fd(self: GSubprocessLauncher, fd: i32)
+    @symbol("g_subprocess_launcher_take_stdin_fd") @lib pub fn g_subprocess_launcher_take_stdin_fd(self: GSubprocessLauncher, fd: i32)
+    @symbol("g_subprocess_launcher_take_stdout_fd") @lib pub fn g_subprocess_launcher_take_stdout_fd(self: GSubprocessLauncher, fd: i32)
+    @symbol("g_subprocess_launcher_unsetenv") @lib pub fn g_subprocess_launcher_unsetenv(self: GSubprocessLauncher, variable: *const char)
     @symbol("g_task_get_cancellable") @lib pub fn g_task_get_cancellable(self: GTask): GCancellable
     @symbol("g_task_get_check_cancellable") @lib pub fn g_task_get_check_cancellable(self: GTask): i32
     @symbol("g_task_get_completed") @lib pub fn g_task_get_completed(self: GTask): i32
@@ -1454,18 +1693,34 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_task_get_source_tag") @lib pub fn g_task_get_source_tag(self: GTask): *void
     @symbol("g_task_get_task_data") @lib pub fn g_task_get_task_data(self: GTask): *void
     @symbol("g_task_had_error") @lib pub fn g_task_had_error(self: GTask): i32
+    @symbol("g_task_return_boolean") @lib pub fn g_task_return_boolean(self: GTask, result: i32)
     @symbol("g_task_return_error_if_cancelled") @lib pub fn g_task_return_error_if_cancelled(self: GTask): i32
+    @symbol("g_task_return_int") @lib pub fn g_task_return_int(self: GTask, result: i64)
+    @symbol("g_task_return_value") @lib pub fn g_task_return_value(self: GTask, result: GValue)
+    @symbol("g_task_set_check_cancellable") @lib pub fn g_task_set_check_cancellable(self: GTask, check_cancellable: i32)
+    @symbol("g_task_set_name") @lib pub fn g_task_set_name(self: GTask, name: *const char)
+    @symbol("g_task_set_priority") @lib pub fn g_task_set_priority(self: GTask, priority: i32)
     @symbol("g_task_set_return_on_cancel") @lib pub fn g_task_set_return_on_cancel(self: GTask, return_on_cancel: i32): i32
+    @symbol("g_task_set_source_tag") @lib pub fn g_task_set_source_tag(self: GTask, source_tag: *void)
+    @symbol("g_task_set_static_name") @lib pub fn g_task_set_static_name(self: GTask, name: *const char)
     @symbol("g_tcp_connection_get_graceful_disconnect") @lib pub fn g_tcp_connection_get_graceful_disconnect(self: GTcpConnection): i32
+    @symbol("g_tcp_connection_set_graceful_disconnect") @lib pub fn g_tcp_connection_set_graceful_disconnect(self: GTcpConnection, graceful_disconnect: i32)
     @symbol("g_tcp_wrapper_connection_new") @lib pub fn g_tcp_wrapper_connection_new(base_io_stream: GIOStream, socket: GSocket): GSocketConnection
     @symbol("g_tcp_wrapper_connection_get_base_io_stream") @lib pub fn g_tcp_wrapper_connection_get_base_io_stream(self: GTcpWrapperConnection): GIOStream
     @symbol("g_test_dbus_new") @lib pub fn g_test_dbus_new(flags: GTestDBusFlags): GTestDBus
+    @symbol("g_test_dbus_add_service_dir") @lib pub fn g_test_dbus_add_service_dir(self: GTestDBus, path: *const char)
+    @symbol("g_test_dbus_down") @lib pub fn g_test_dbus_down(self: GTestDBus)
     @symbol("g_test_dbus_get_bus_address") @lib pub fn g_test_dbus_get_bus_address(self: GTestDBus): *const char
     @symbol("g_test_dbus_get_flags") @lib pub fn g_test_dbus_get_flags(self: GTestDBus): GTestDBusFlags
+    @symbol("g_test_dbus_stop") @lib pub fn g_test_dbus_stop(self: GTestDBus)
+    @symbol("g_test_dbus_up") @lib pub fn g_test_dbus_up(self: GTestDBus)
+    @symbol("g_test_dbus_unset") @lib pub fn g_test_dbus_unset()
     @symbol("g_themed_icon_new") @lib pub fn g_themed_icon_new(iconname: *const char): GThemedIcon
     @symbol("g_themed_icon_new_from_names") @lib pub fn g_themed_icon_new_from_names(iconnames: *const char, len: i32): GThemedIcon
     @symbol("g_themed_icon_new_with_default_fallbacks") @lib pub fn g_themed_icon_new_with_default_fallbacks(iconname: *const char): GThemedIcon
+    @symbol("g_themed_icon_append_name") @lib pub fn g_themed_icon_append_name(self: GThemedIcon, iconname: *const char)
     @symbol("g_themed_icon_get_names") @lib pub fn g_themed_icon_get_names(self: GThemedIcon): *const char
+    @symbol("g_themed_icon_prepend_name") @lib pub fn g_themed_icon_prepend_name(self: GThemedIcon, iconname: *const char)
     @symbol("g_threaded_socket_service_new") @lib pub fn g_threaded_socket_service_new(max_threads: i32): GSocketService
     @symbol("g_tls_certificate_get_dns_names") @lib pub fn g_tls_certificate_get_dns_names(self: GTlsCertificate): GBytes
     @symbol("g_tls_certificate_get_ip_addresses") @lib pub fn g_tls_certificate_get_ip_addresses(self: GTlsCertificate): GInetAddress
@@ -1485,11 +1740,20 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_tls_connection_get_peer_certificate_errors") @lib pub fn g_tls_connection_get_peer_certificate_errors(self: GTlsConnection): GTlsCertificateFlags
     @symbol("g_tls_connection_get_protocol_version") @lib pub fn g_tls_connection_get_protocol_version(self: GTlsConnection): GTlsProtocolVersion
     @symbol("g_tls_connection_get_require_close_notify") @lib pub fn g_tls_connection_get_require_close_notify(self: GTlsConnection): i32
+    @symbol("g_tls_connection_set_advertised_protocols") @lib pub fn g_tls_connection_set_advertised_protocols(self: GTlsConnection, protocols: *const char)
+    @symbol("g_tls_connection_set_certificate") @lib pub fn g_tls_connection_set_certificate(self: GTlsConnection, certificate: GTlsCertificate)
+    @symbol("g_tls_connection_set_database") @lib pub fn g_tls_connection_set_database(self: GTlsConnection, database: GTlsDatabase)
+    @symbol("g_tls_connection_set_interaction") @lib pub fn g_tls_connection_set_interaction(self: GTlsConnection, interaction: GTlsInteraction)
+    @symbol("g_tls_connection_set_require_close_notify") @lib pub fn g_tls_connection_set_require_close_notify(self: GTlsConnection, require_close_notify: i32)
     @symbol("g_tls_database_create_certificate_handle") @lib pub fn g_tls_database_create_certificate_handle(self: GTlsDatabase, certificate: GTlsCertificate): *const char
     @symbol("g_tls_password_new") @lib pub fn g_tls_password_new(flags: GTlsPasswordFlags, description: *const char): GTlsPassword
     @symbol("g_tls_password_get_description") @lib pub fn g_tls_password_get_description(self: GTlsPassword): *const char
     @symbol("g_tls_password_get_flags") @lib pub fn g_tls_password_get_flags(self: GTlsPassword): GTlsPasswordFlags
     @symbol("g_tls_password_get_warning") @lib pub fn g_tls_password_get_warning(self: GTlsPassword): *const char
+    @symbol("g_tls_password_set_description") @lib pub fn g_tls_password_set_description(self: GTlsPassword, description: *const char)
+    @symbol("g_tls_password_set_flags") @lib pub fn g_tls_password_set_flags(self: GTlsPassword, flags: GTlsPasswordFlags)
+    @symbol("g_tls_password_set_value") @lib pub fn g_tls_password_set_value(self: GTlsPassword, value: u8, length: i64)
+    @symbol("g_tls_password_set_warning") @lib pub fn g_tls_password_set_warning(self: GTlsPassword, warning: *const char)
     @symbol("g_unix_credentials_message_new") @lib pub fn g_unix_credentials_message_new(): GSocketControlMessage
     @symbol("g_unix_credentials_message_new_with_credentials") @lib pub fn g_unix_credentials_message_new_with_credentials(credentials: GCredentials): GSocketControlMessage
     @symbol("g_unix_credentials_message_get_credentials") @lib pub fn g_unix_credentials_message_get_credentials(self: GUnixCredentialsMessage): GCredentials
@@ -1512,10 +1776,13 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_zlib_compressor_new") @lib pub fn g_zlib_compressor_new(format: GZlibCompressorFormat, level: i32): GZlibCompressor
     @symbol("g_zlib_compressor_get_file_info") @lib pub fn g_zlib_compressor_get_file_info(self: GZlibCompressor): GFileInfo
     @symbol("g_zlib_compressor_get_os") @lib pub fn g_zlib_compressor_get_os(self: GZlibCompressor): i32
+    @symbol("g_zlib_compressor_set_file_info") @lib pub fn g_zlib_compressor_set_file_info(self: GZlibCompressor, file_info: GFileInfo)
+    @symbol("g_zlib_compressor_set_os") @lib pub fn g_zlib_compressor_set_os(self: GZlibCompressor, os: i32)
     @symbol("g_zlib_decompressor_new") @lib pub fn g_zlib_decompressor_new(format: GZlibCompressorFormat): GZlibDecompressor
     @symbol("g_zlib_decompressor_get_file_info") @lib pub fn g_zlib_decompressor_get_file_info(self: GZlibDecompressor): GFileInfo
     @symbol("g_action_name_is_valid") @lib pub fn g_action_name_is_valid(action_name: *const char): i32
     @symbol("g_action_print_detailed_name") @lib pub fn g_action_print_detailed_name(action_name: *const char, target_value: GVariant): *const char
+    @symbol("g_app_info_reset_type_associations") @lib pub fn g_app_info_reset_type_associations(content_type: *const char)
     @symbol("g_dbus_annotation_info_lookup") @lib pub fn g_dbus_annotation_info_lookup(annotations: GDBusAnnotationInfo, name: *const char): *const char
     @symbol("g_io_extension_point_implement") @lib pub fn g_io_extension_point_implement(extension_point_name: *const char, arg: u64, extension_name: *const char, priority: i32): GIOExtension
     @symbol("g_io_extension_point_lookup") @lib pub fn g_io_extension_point_lookup(name: *const char): GIOExtensionPoint
@@ -1525,6 +1792,8 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_srv_target_list_sort") @lib pub fn g_srv_target_list_sort(targets: *void): *void
     @symbol("g_bus_own_name_on_connection_with_closures") @lib pub fn g_bus_own_name_on_connection_with_closures(connection: GDBusConnection, name: *const char, flags: GBusNameOwnerFlags, name_acquired_closure: GClosure, name_lost_closure: GClosure): u32
     @symbol("g_bus_own_name_with_closures") @lib pub fn g_bus_own_name_with_closures(bus_type: GBusType, name: *const char, flags: GBusNameOwnerFlags, bus_acquired_closure: GClosure, name_acquired_closure: GClosure, name_lost_closure: GClosure): u32
+    @symbol("g_bus_unown_name") @lib pub fn g_bus_unown_name(owner_id: u32)
+    @symbol("g_bus_unwatch_name") @lib pub fn g_bus_unwatch_name(watcher_id: u32)
     @symbol("g_bus_watch_name_on_connection_with_closures") @lib pub fn g_bus_watch_name_on_connection_with_closures(connection: GDBusConnection, name: *const char, flags: GBusNameWatcherFlags, name_appeared_closure: GClosure, name_vanished_closure: GClosure): u32
     @symbol("g_bus_watch_name_with_closures") @lib pub fn g_bus_watch_name_with_closures(bus_type: GBusType, name: *const char, flags: GBusNameWatcherFlags, name_appeared_closure: GClosure, name_vanished_closure: GClosure): u32
     @symbol("g_content_type_can_be_executable") @lib pub fn g_content_type_can_be_executable(arg: *const char): i32
@@ -1537,6 +1806,7 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_content_type_is_a") @lib pub fn g_content_type_is_a(arg: *const char, supertype: *const char): i32
     @symbol("g_content_type_is_mime_type") @lib pub fn g_content_type_is_mime_type(arg: *const char, mime_type: *const char): i32
     @symbol("g_content_type_is_unknown") @lib pub fn g_content_type_is_unknown(arg: *const char): i32
+    @symbol("g_content_type_set_mime_dirs") @lib pub fn g_content_type_set_mime_dirs(dirs: *const char)
     @symbol("g_content_types_get_registered") @lib pub fn g_content_types_get_registered(): *const char
     @symbol("g_dbus_address_escape_value") @lib pub fn g_dbus_address_escape_value(string: *const char): *const char
     @symbol("g_dbus_escape_object_path") @lib pub fn g_dbus_escape_object_path(s: *const char): *const char
@@ -1555,12 +1825,17 @@ pub enum GZlibCompressorFormat: u32 {
     @symbol("g_io_error_from_file_error") @lib pub fn g_io_error_from_file_error(file_error: GFileError): GIOErrorEnum
     @symbol("g_io_modules_load_all_in_directory") @lib pub fn g_io_modules_load_all_in_directory(dirname: *const char): GIOModule
     @symbol("g_io_modules_load_all_in_directory_with_scope") @lib pub fn g_io_modules_load_all_in_directory_with_scope(dirname: *const char, scope: GIOModuleScope): GIOModule
+    @symbol("g_io_modules_scan_all_in_directory") @lib pub fn g_io_modules_scan_all_in_directory(dirname: *const char)
+    @symbol("g_io_modules_scan_all_in_directory_with_scope") @lib pub fn g_io_modules_scan_all_in_directory_with_scope(dirname: *const char, scope: GIOModuleScope)
     @symbol("g_keyfile_settings_backend_new") @lib pub fn g_keyfile_settings_backend_new(filename: *const char, root_path: *const char, root_group: *const char): GSettingsBackend
     @symbol("g_memory_settings_backend_new") @lib pub fn g_memory_settings_backend_new(): GSettingsBackend
+    @symbol("g_networking_init") @lib pub fn g_networking_init()
     @symbol("g_null_settings_backend_new") @lib pub fn g_null_settings_backend_new(): GSettingsBackend
     @symbol("g_pollable_source_new") @lib pub fn g_pollable_source_new(pollable_stream: GObject): GSource
     @symbol("g_pollable_source_new_full") @lib pub fn g_pollable_source_new_full(pollable_stream: GObject, child_source: GSource, cancellable: GCancellable): GSource
     @symbol("g_resources_has_children") @lib pub fn g_resources_has_children(path: *const char): i32
+    @symbol("g_resources_register") @lib pub fn g_resources_register(resource: GResource)
+    @symbol("g_resources_unregister") @lib pub fn g_resources_unregister(resource: GResource)
 }
 
-// 513 fn(s) emitted, 874 skipped (unsupported params/return or already exported by another namespace)
+// 788 fn(s) emitted, 599 skipped (unsupported params/return or already exported by another namespace)

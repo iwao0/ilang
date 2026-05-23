@@ -1589,6 +1589,7 @@ pub enum GtkWrapMode: u32 {
 
     @symbol("gtk_at_context_get_accessible_role") @lib pub fn gtk_at_context_get_accessible_role(self: GtkATContext): GtkAccessibleRole
     @symbol("gtk_about_dialog_new") @lib pub fn gtk_about_dialog_new(): GtkWidget
+    @symbol("gtk_about_dialog_add_credit_section") @lib pub fn gtk_about_dialog_add_credit_section(self: GtkAboutDialog, section_name: *const char, people: *const char)
     @symbol("gtk_about_dialog_get_artists") @lib pub fn gtk_about_dialog_get_artists(self: GtkAboutDialog): *const char
     @symbol("gtk_about_dialog_get_authors") @lib pub fn gtk_about_dialog_get_authors(self: GtkAboutDialog): *const char
     @symbol("gtk_about_dialog_get_comments") @lib pub fn gtk_about_dialog_get_comments(self: GtkAboutDialog): *const char
@@ -1604,11 +1605,34 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_about_dialog_get_website") @lib pub fn gtk_about_dialog_get_website(self: GtkAboutDialog): *const char
     @symbol("gtk_about_dialog_get_website_label") @lib pub fn gtk_about_dialog_get_website_label(self: GtkAboutDialog): *const char
     @symbol("gtk_about_dialog_get_wrap_license") @lib pub fn gtk_about_dialog_get_wrap_license(self: GtkAboutDialog): i32
+    @symbol("gtk_about_dialog_set_artists") @lib pub fn gtk_about_dialog_set_artists(self: GtkAboutDialog, artists: *const char)
+    @symbol("gtk_about_dialog_set_authors") @lib pub fn gtk_about_dialog_set_authors(self: GtkAboutDialog, authors: *const char)
+    @symbol("gtk_about_dialog_set_comments") @lib pub fn gtk_about_dialog_set_comments(self: GtkAboutDialog, comments: *const char)
+    @symbol("gtk_about_dialog_set_copyright") @lib pub fn gtk_about_dialog_set_copyright(self: GtkAboutDialog, copyright: *const char)
+    @symbol("gtk_about_dialog_set_documenters") @lib pub fn gtk_about_dialog_set_documenters(self: GtkAboutDialog, documenters: *const char)
+    @symbol("gtk_about_dialog_set_license") @lib pub fn gtk_about_dialog_set_license(self: GtkAboutDialog, license: *const char)
+    @symbol("gtk_about_dialog_set_license_type") @lib pub fn gtk_about_dialog_set_license_type(self: GtkAboutDialog, license_type: GtkLicense)
+    @symbol("gtk_about_dialog_set_logo_icon_name") @lib pub fn gtk_about_dialog_set_logo_icon_name(self: GtkAboutDialog, icon_name: *const char)
+    @symbol("gtk_about_dialog_set_program_name") @lib pub fn gtk_about_dialog_set_program_name(self: GtkAboutDialog, name: *const char)
+    @symbol("gtk_about_dialog_set_system_information") @lib pub fn gtk_about_dialog_set_system_information(self: GtkAboutDialog, system_information: *const char)
+    @symbol("gtk_about_dialog_set_translator_credits") @lib pub fn gtk_about_dialog_set_translator_credits(self: GtkAboutDialog, translator_credits: *const char)
+    @symbol("gtk_about_dialog_set_version") @lib pub fn gtk_about_dialog_set_version(self: GtkAboutDialog, version: *const char)
+    @symbol("gtk_about_dialog_set_website") @lib pub fn gtk_about_dialog_set_website(self: GtkAboutDialog, website: *const char)
+    @symbol("gtk_about_dialog_set_website_label") @lib pub fn gtk_about_dialog_set_website_label(self: GtkAboutDialog, website_label: *const char)
+    @symbol("gtk_about_dialog_set_wrap_license") @lib pub fn gtk_about_dialog_set_wrap_license(self: GtkAboutDialog, wrap_license: i32)
+    @symbol("gtk_accessible_hyperlink_set_platform_state") @lib pub fn gtk_accessible_hyperlink_set_platform_state(self: GtkAccessibleHyperlink, state: GtkAccessiblePlatformState, enabled: i32)
     @symbol("gtk_action_bar_new") @lib pub fn gtk_action_bar_new(): GtkWidget
     @symbol("gtk_action_bar_get_center_widget") @lib pub fn gtk_action_bar_get_center_widget(self: GtkActionBar): GtkWidget
     @symbol("gtk_action_bar_get_revealed") @lib pub fn gtk_action_bar_get_revealed(self: GtkActionBar): i32
+    @symbol("gtk_action_bar_pack_end") @lib pub fn gtk_action_bar_pack_end(self: GtkActionBar, child: GtkWidget)
+    @symbol("gtk_action_bar_pack_start") @lib pub fn gtk_action_bar_pack_start(self: GtkActionBar, child: GtkWidget)
+    @symbol("gtk_action_bar_remove") @lib pub fn gtk_action_bar_remove(self: GtkActionBar, child: GtkWidget)
+    @symbol("gtk_action_bar_set_center_widget") @lib pub fn gtk_action_bar_set_center_widget(self: GtkActionBar, center_widget: GtkWidget)
+    @symbol("gtk_action_bar_set_revealed") @lib pub fn gtk_action_bar_set_revealed(self: GtkActionBar, revealed: i32)
     @symbol("gtk_activate_action_get") @lib pub fn gtk_activate_action_get(): GtkActivateAction
     @symbol("gtk_adjustment_new") @lib pub fn gtk_adjustment_new(value: f64, lower: f64, upper: f64, step_increment: f64, page_increment: f64, page_size: f64): GtkAdjustment
+    @symbol("gtk_adjustment_clamp_page") @lib pub fn gtk_adjustment_clamp_page(self: GtkAdjustment, lower: f64, upper: f64)
+    @symbol("gtk_adjustment_configure") @lib pub fn gtk_adjustment_configure(self: GtkAdjustment, value: f64, lower: f64, upper: f64, step_increment: f64, page_increment: f64, page_size: f64)
     @symbol("gtk_adjustment_get_lower") @lib pub fn gtk_adjustment_get_lower(self: GtkAdjustment): f64
     @symbol("gtk_adjustment_get_minimum_increment") @lib pub fn gtk_adjustment_get_minimum_increment(self: GtkAdjustment): f64
     @symbol("gtk_adjustment_get_page_increment") @lib pub fn gtk_adjustment_get_page_increment(self: GtkAdjustment): f64
@@ -1616,17 +1640,31 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_adjustment_get_step_increment") @lib pub fn gtk_adjustment_get_step_increment(self: GtkAdjustment): f64
     @symbol("gtk_adjustment_get_upper") @lib pub fn gtk_adjustment_get_upper(self: GtkAdjustment): f64
     @symbol("gtk_adjustment_get_value") @lib pub fn gtk_adjustment_get_value(self: GtkAdjustment): f64
+    @symbol("gtk_adjustment_set_lower") @lib pub fn gtk_adjustment_set_lower(self: GtkAdjustment, lower: f64)
+    @symbol("gtk_adjustment_set_page_increment") @lib pub fn gtk_adjustment_set_page_increment(self: GtkAdjustment, page_increment: f64)
+    @symbol("gtk_adjustment_set_page_size") @lib pub fn gtk_adjustment_set_page_size(self: GtkAdjustment, page_size: f64)
+    @symbol("gtk_adjustment_set_step_increment") @lib pub fn gtk_adjustment_set_step_increment(self: GtkAdjustment, step_increment: f64)
+    @symbol("gtk_adjustment_set_upper") @lib pub fn gtk_adjustment_set_upper(self: GtkAdjustment, upper: f64)
+    @symbol("gtk_adjustment_set_value") @lib pub fn gtk_adjustment_set_value(self: GtkAdjustment, value: f64)
     @symbol("gtk_alert_dialog_get_buttons") @lib pub fn gtk_alert_dialog_get_buttons(self: GtkAlertDialog): *const char
     @symbol("gtk_alert_dialog_get_cancel_button") @lib pub fn gtk_alert_dialog_get_cancel_button(self: GtkAlertDialog): i32
     @symbol("gtk_alert_dialog_get_default_button") @lib pub fn gtk_alert_dialog_get_default_button(self: GtkAlertDialog): i32
     @symbol("gtk_alert_dialog_get_detail") @lib pub fn gtk_alert_dialog_get_detail(self: GtkAlertDialog): *const char
     @symbol("gtk_alert_dialog_get_message") @lib pub fn gtk_alert_dialog_get_message(self: GtkAlertDialog): *const char
     @symbol("gtk_alert_dialog_get_modal") @lib pub fn gtk_alert_dialog_get_modal(self: GtkAlertDialog): i32
+    @symbol("gtk_alert_dialog_set_buttons") @lib pub fn gtk_alert_dialog_set_buttons(self: GtkAlertDialog, labels: *const char)
+    @symbol("gtk_alert_dialog_set_cancel_button") @lib pub fn gtk_alert_dialog_set_cancel_button(self: GtkAlertDialog, button: i32)
+    @symbol("gtk_alert_dialog_set_default_button") @lib pub fn gtk_alert_dialog_set_default_button(self: GtkAlertDialog, button: i32)
+    @symbol("gtk_alert_dialog_set_detail") @lib pub fn gtk_alert_dialog_set_detail(self: GtkAlertDialog, detail: *const char)
+    @symbol("gtk_alert_dialog_set_message") @lib pub fn gtk_alert_dialog_set_message(self: GtkAlertDialog, message: *const char)
+    @symbol("gtk_alert_dialog_set_modal") @lib pub fn gtk_alert_dialog_set_modal(self: GtkAlertDialog, modal: i32)
+    @symbol("gtk_alert_dialog_show") @lib pub fn gtk_alert_dialog_show(self: GtkAlertDialog, parent: GtkWindow)
     @symbol("gtk_alternative_trigger_new") @lib pub fn gtk_alternative_trigger_new(first: GtkShortcutTrigger, second: GtkShortcutTrigger): GtkShortcutTrigger
     @symbol("gtk_alternative_trigger_get_first") @lib pub fn gtk_alternative_trigger_get_first(self: GtkAlternativeTrigger): GtkShortcutTrigger
     @symbol("gtk_alternative_trigger_get_second") @lib pub fn gtk_alternative_trigger_get_second(self: GtkAlternativeTrigger): GtkShortcutTrigger
     @symbol("gtk_any_filter_new") @lib pub fn gtk_any_filter_new(): GtkAnyFilter
     @symbol("gtk_application_new") @lib pub fn gtk_application_new(application_id: *const char, flags: GApplicationFlags): GtkApplication
+    @symbol("gtk_application_add_window") @lib pub fn gtk_application_add_window(self: GtkApplication, window: GtkWindow)
     @symbol("gtk_application_get_accels_for_action") @lib pub fn gtk_application_get_accels_for_action(self: GtkApplication, detailed_action_name: *const char): *const char
     @symbol("gtk_application_get_actions_for_accel") @lib pub fn gtk_application_get_actions_for_accel(self: GtkApplication, accel: *const char): *const char
     @symbol("gtk_application_get_active_window") @lib pub fn gtk_application_get_active_window(self: GtkApplication): GtkWindow
@@ -1636,43 +1674,73 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_application_get_windows") @lib pub fn gtk_application_get_windows(self: GtkApplication): GtkWindow
     @symbol("gtk_application_inhibit") @lib pub fn gtk_application_inhibit(self: GtkApplication, window: GtkWindow, flags: GtkApplicationInhibitFlags, reason: *const char): u32
     @symbol("gtk_application_list_action_descriptions") @lib pub fn gtk_application_list_action_descriptions(self: GtkApplication): *const char
+    @symbol("gtk_application_remove_window") @lib pub fn gtk_application_remove_window(self: GtkApplication, window: GtkWindow)
+    @symbol("gtk_application_set_accels_for_action") @lib pub fn gtk_application_set_accels_for_action(self: GtkApplication, detailed_action_name: *const char, accels: *const char)
+    @symbol("gtk_application_set_menubar") @lib pub fn gtk_application_set_menubar(self: GtkApplication, menubar: GMenuModel)
+    @symbol("gtk_application_uninhibit") @lib pub fn gtk_application_uninhibit(self: GtkApplication, cookie: u32)
     @symbol("gtk_application_window_new") @lib pub fn gtk_application_window_new(application: GtkApplication): GtkWidget
     @symbol("gtk_application_window_get_id") @lib pub fn gtk_application_window_get_id(self: GtkApplicationWindow): u32
     @symbol("gtk_application_window_get_show_menubar") @lib pub fn gtk_application_window_get_show_menubar(self: GtkApplicationWindow): i32
+    @symbol("gtk_application_window_set_show_menubar") @lib pub fn gtk_application_window_set_show_menubar(self: GtkApplicationWindow, show_menubar: i32)
     @symbol("gtk_aspect_frame_new") @lib pub fn gtk_aspect_frame_new(xalign: f32, yalign: f32, ratio: f32, obey_child: i32): GtkWidget
     @symbol("gtk_aspect_frame_get_child") @lib pub fn gtk_aspect_frame_get_child(self: GtkAspectFrame): GtkWidget
     @symbol("gtk_aspect_frame_get_obey_child") @lib pub fn gtk_aspect_frame_get_obey_child(self: GtkAspectFrame): i32
     @symbol("gtk_aspect_frame_get_ratio") @lib pub fn gtk_aspect_frame_get_ratio(self: GtkAspectFrame): f32
     @symbol("gtk_aspect_frame_get_xalign") @lib pub fn gtk_aspect_frame_get_xalign(self: GtkAspectFrame): f32
     @symbol("gtk_aspect_frame_get_yalign") @lib pub fn gtk_aspect_frame_get_yalign(self: GtkAspectFrame): f32
+    @symbol("gtk_aspect_frame_set_child") @lib pub fn gtk_aspect_frame_set_child(self: GtkAspectFrame, child: GtkWidget)
+    @symbol("gtk_aspect_frame_set_obey_child") @lib pub fn gtk_aspect_frame_set_obey_child(self: GtkAspectFrame, obey_child: i32)
+    @symbol("gtk_aspect_frame_set_ratio") @lib pub fn gtk_aspect_frame_set_ratio(self: GtkAspectFrame, ratio: f32)
+    @symbol("gtk_aspect_frame_set_xalign") @lib pub fn gtk_aspect_frame_set_xalign(self: GtkAspectFrame, xalign: f32)
+    @symbol("gtk_aspect_frame_set_yalign") @lib pub fn gtk_aspect_frame_set_yalign(self: GtkAspectFrame, yalign: f32)
     @symbol("gtk_bin_layout_new") @lib pub fn gtk_bin_layout_new(): GtkLayoutManager
     @symbol("gtk_bookmark_list_new") @lib pub fn gtk_bookmark_list_new(filename: *const char, attributes: *const char): GtkBookmarkList
     @symbol("gtk_bookmark_list_get_attributes") @lib pub fn gtk_bookmark_list_get_attributes(self: GtkBookmarkList): *const char
     @symbol("gtk_bookmark_list_get_filename") @lib pub fn gtk_bookmark_list_get_filename(self: GtkBookmarkList): *const char
     @symbol("gtk_bookmark_list_get_io_priority") @lib pub fn gtk_bookmark_list_get_io_priority(self: GtkBookmarkList): i32
     @symbol("gtk_bookmark_list_is_loading") @lib pub fn gtk_bookmark_list_is_loading(self: GtkBookmarkList): i32
+    @symbol("gtk_bookmark_list_set_attributes") @lib pub fn gtk_bookmark_list_set_attributes(self: GtkBookmarkList, attributes: *const char)
+    @symbol("gtk_bookmark_list_set_io_priority") @lib pub fn gtk_bookmark_list_set_io_priority(self: GtkBookmarkList, io_priority: i32)
     @symbol("gtk_bool_filter_new") @lib pub fn gtk_bool_filter_new(expression: GtkExpression): GtkBoolFilter
     @symbol("gtk_bool_filter_get_expression") @lib pub fn gtk_bool_filter_get_expression(self: GtkBoolFilter): GtkExpression
     @symbol("gtk_bool_filter_get_invert") @lib pub fn gtk_bool_filter_get_invert(self: GtkBoolFilter): i32
+    @symbol("gtk_bool_filter_set_expression") @lib pub fn gtk_bool_filter_set_expression(self: GtkBoolFilter, expression: GtkExpression)
+    @symbol("gtk_bool_filter_set_invert") @lib pub fn gtk_bool_filter_set_invert(self: GtkBoolFilter, invert: i32)
     @symbol("gtk_box_new") @lib pub fn gtk_box_new(orientation: GtkOrientation, spacing: i32): GtkWidget
+    @symbol("gtk_box_append") @lib pub fn gtk_box_append(self: GtkBox, child: GtkWidget)
     @symbol("gtk_box_get_baseline_child") @lib pub fn gtk_box_get_baseline_child(self: GtkBox): i32
     @symbol("gtk_box_get_baseline_position") @lib pub fn gtk_box_get_baseline_position(self: GtkBox): GtkBaselinePosition
     @symbol("gtk_box_get_homogeneous") @lib pub fn gtk_box_get_homogeneous(self: GtkBox): i32
     @symbol("gtk_box_get_spacing") @lib pub fn gtk_box_get_spacing(self: GtkBox): i32
+    @symbol("gtk_box_insert_child_after") @lib pub fn gtk_box_insert_child_after(self: GtkBox, child: GtkWidget, sibling: GtkWidget)
+    @symbol("gtk_box_prepend") @lib pub fn gtk_box_prepend(self: GtkBox, child: GtkWidget)
+    @symbol("gtk_box_remove") @lib pub fn gtk_box_remove(self: GtkBox, child: GtkWidget)
+    @symbol("gtk_box_reorder_child_after") @lib pub fn gtk_box_reorder_child_after(self: GtkBox, child: GtkWidget, sibling: GtkWidget)
+    @symbol("gtk_box_set_baseline_child") @lib pub fn gtk_box_set_baseline_child(self: GtkBox, child: i32)
+    @symbol("gtk_box_set_baseline_position") @lib pub fn gtk_box_set_baseline_position(self: GtkBox, position: GtkBaselinePosition)
+    @symbol("gtk_box_set_homogeneous") @lib pub fn gtk_box_set_homogeneous(self: GtkBox, homogeneous: i32)
+    @symbol("gtk_box_set_spacing") @lib pub fn gtk_box_set_spacing(self: GtkBox, spacing: i32)
     @symbol("gtk_box_layout_new") @lib pub fn gtk_box_layout_new(orientation: GtkOrientation): GtkLayoutManager
     @symbol("gtk_box_layout_get_baseline_child") @lib pub fn gtk_box_layout_get_baseline_child(self: GtkBoxLayout): i32
     @symbol("gtk_box_layout_get_baseline_position") @lib pub fn gtk_box_layout_get_baseline_position(self: GtkBoxLayout): GtkBaselinePosition
     @symbol("gtk_box_layout_get_homogeneous") @lib pub fn gtk_box_layout_get_homogeneous(self: GtkBoxLayout): i32
     @symbol("gtk_box_layout_get_spacing") @lib pub fn gtk_box_layout_get_spacing(self: GtkBoxLayout): u32
+    @symbol("gtk_box_layout_set_baseline_child") @lib pub fn gtk_box_layout_set_baseline_child(self: GtkBoxLayout, child: i32)
+    @symbol("gtk_box_layout_set_baseline_position") @lib pub fn gtk_box_layout_set_baseline_position(self: GtkBoxLayout, position: GtkBaselinePosition)
+    @symbol("gtk_box_layout_set_homogeneous") @lib pub fn gtk_box_layout_set_homogeneous(self: GtkBoxLayout, homogeneous: i32)
+    @symbol("gtk_box_layout_set_spacing") @lib pub fn gtk_box_layout_set_spacing(self: GtkBoxLayout, spacing: u32)
     @symbol("gtk_builder_new") @lib pub fn gtk_builder_new(): GtkBuilder
     @symbol("gtk_builder_new_from_file") @lib pub fn gtk_builder_new_from_file(filename: *const char): GtkBuilder
     @symbol("gtk_builder_new_from_resource") @lib pub fn gtk_builder_new_from_resource(resource_path: *const char): GtkBuilder
     @symbol("gtk_builder_new_from_string") @lib pub fn gtk_builder_new_from_string(string: *const char, length: i64): GtkBuilder
+    @symbol("gtk_builder_expose_object") @lib pub fn gtk_builder_expose_object(self: GtkBuilder, name: *const char, object: GObject)
     @symbol("gtk_builder_get_current_object") @lib pub fn gtk_builder_get_current_object(self: GtkBuilder): GObject
     @symbol("gtk_builder_get_object") @lib pub fn gtk_builder_get_object(self: GtkBuilder, name: *const char): GObject
     @symbol("gtk_builder_get_objects") @lib pub fn gtk_builder_get_objects(self: GtkBuilder): GObject
     @symbol("gtk_builder_get_translation_domain") @lib pub fn gtk_builder_get_translation_domain(self: GtkBuilder): *const char
     @symbol("gtk_builder_get_type_from_name") @lib pub fn gtk_builder_get_type_from_name(self: GtkBuilder, type_name: *const char): u64
+    @symbol("gtk_builder_set_current_object") @lib pub fn gtk_builder_set_current_object(self: GtkBuilder, current_object: GObject)
+    @symbol("gtk_builder_set_translation_domain") @lib pub fn gtk_builder_set_translation_domain(self: GtkBuilder, domain: *const char)
     @symbol("gtk_builder_cscope_new") @lib pub fn gtk_builder_cscope_new(): GtkBuilderCScope
     @symbol("gtk_builder_list_item_factory_get_bytes") @lib pub fn gtk_builder_list_item_factory_get_bytes(self: GtkBuilderListItemFactory): GBytes
     @symbol("gtk_builder_list_item_factory_get_resource") @lib pub fn gtk_builder_list_item_factory_get_resource(self: GtkBuilderListItemFactory): *const char
@@ -1686,7 +1754,14 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_button_get_icon_name") @lib pub fn gtk_button_get_icon_name(self: GtkButton): *const char
     @symbol("gtk_button_get_label") @lib pub fn gtk_button_get_label(self: GtkButton): *const char
     @symbol("gtk_button_get_use_underline") @lib pub fn gtk_button_get_use_underline(self: GtkButton): i32
+    @symbol("gtk_button_set_can_shrink") @lib pub fn gtk_button_set_can_shrink(self: GtkButton, can_shrink: i32)
+    @symbol("gtk_button_set_child") @lib pub fn gtk_button_set_child(self: GtkButton, child: GtkWidget)
+    @symbol("gtk_button_set_has_frame") @lib pub fn gtk_button_set_has_frame(self: GtkButton, has_frame: i32)
+    @symbol("gtk_button_set_icon_name") @lib pub fn gtk_button_set_icon_name(self: GtkButton, icon_name: *const char)
+    @symbol("gtk_button_set_label") @lib pub fn gtk_button_set_label(self: GtkButton, label: *const char)
+    @symbol("gtk_button_set_use_underline") @lib pub fn gtk_button_set_use_underline(self: GtkButton, use_underline: i32)
     @symbol("gtk_calendar_new") @lib pub fn gtk_calendar_new(): GtkWidget
+    @symbol("gtk_calendar_clear_marks") @lib pub fn gtk_calendar_clear_marks(self: GtkCalendar)
     @symbol("gtk_calendar_get_date") @lib pub fn gtk_calendar_get_date(self: GtkCalendar): GDateTime
     @symbol("gtk_calendar_get_day") @lib pub fn gtk_calendar_get_day(self: GtkCalendar): i32
     @symbol("gtk_calendar_get_day_is_marked") @lib pub fn gtk_calendar_get_day_is_marked(self: GtkCalendar, day: u32): i32
@@ -1695,12 +1770,26 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_calendar_get_show_heading") @lib pub fn gtk_calendar_get_show_heading(self: GtkCalendar): i32
     @symbol("gtk_calendar_get_show_week_numbers") @lib pub fn gtk_calendar_get_show_week_numbers(self: GtkCalendar): i32
     @symbol("gtk_calendar_get_year") @lib pub fn gtk_calendar_get_year(self: GtkCalendar): i32
+    @symbol("gtk_calendar_mark_day") @lib pub fn gtk_calendar_mark_day(self: GtkCalendar, day: u32)
+    @symbol("gtk_calendar_set_date") @lib pub fn gtk_calendar_set_date(self: GtkCalendar, date: GDateTime)
+    @symbol("gtk_calendar_set_day") @lib pub fn gtk_calendar_set_day(self: GtkCalendar, day: i32)
+    @symbol("gtk_calendar_set_month") @lib pub fn gtk_calendar_set_month(self: GtkCalendar, month: i32)
+    @symbol("gtk_calendar_set_show_day_names") @lib pub fn gtk_calendar_set_show_day_names(self: GtkCalendar, value: i32)
+    @symbol("gtk_calendar_set_show_heading") @lib pub fn gtk_calendar_set_show_heading(self: GtkCalendar, value: i32)
+    @symbol("gtk_calendar_set_show_week_numbers") @lib pub fn gtk_calendar_set_show_week_numbers(self: GtkCalendar, value: i32)
+    @symbol("gtk_calendar_set_year") @lib pub fn gtk_calendar_set_year(self: GtkCalendar, year: i32)
+    @symbol("gtk_calendar_unmark_day") @lib pub fn gtk_calendar_unmark_day(self: GtkCalendar, day: u32)
     @symbol("gtk_center_box_new") @lib pub fn gtk_center_box_new(): GtkWidget
     @symbol("gtk_center_box_get_baseline_position") @lib pub fn gtk_center_box_get_baseline_position(self: GtkCenterBox): GtkBaselinePosition
     @symbol("gtk_center_box_get_center_widget") @lib pub fn gtk_center_box_get_center_widget(self: GtkCenterBox): GtkWidget
     @symbol("gtk_center_box_get_end_widget") @lib pub fn gtk_center_box_get_end_widget(self: GtkCenterBox): GtkWidget
     @symbol("gtk_center_box_get_shrink_center_last") @lib pub fn gtk_center_box_get_shrink_center_last(self: GtkCenterBox): i32
     @symbol("gtk_center_box_get_start_widget") @lib pub fn gtk_center_box_get_start_widget(self: GtkCenterBox): GtkWidget
+    @symbol("gtk_center_box_set_baseline_position") @lib pub fn gtk_center_box_set_baseline_position(self: GtkCenterBox, position: GtkBaselinePosition)
+    @symbol("gtk_center_box_set_center_widget") @lib pub fn gtk_center_box_set_center_widget(self: GtkCenterBox, child: GtkWidget)
+    @symbol("gtk_center_box_set_end_widget") @lib pub fn gtk_center_box_set_end_widget(self: GtkCenterBox, child: GtkWidget)
+    @symbol("gtk_center_box_set_shrink_center_last") @lib pub fn gtk_center_box_set_shrink_center_last(self: GtkCenterBox, shrink_center_last: i32)
+    @symbol("gtk_center_box_set_start_widget") @lib pub fn gtk_center_box_set_start_widget(self: GtkCenterBox, child: GtkWidget)
     @symbol("gtk_center_layout_new") @lib pub fn gtk_center_layout_new(): GtkLayoutManager
     @symbol("gtk_center_layout_get_baseline_position") @lib pub fn gtk_center_layout_get_baseline_position(self: GtkCenterLayout): GtkBaselinePosition
     @symbol("gtk_center_layout_get_center_widget") @lib pub fn gtk_center_layout_get_center_widget(self: GtkCenterLayout): GtkWidget
@@ -1708,6 +1797,12 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_center_layout_get_orientation") @lib pub fn gtk_center_layout_get_orientation(self: GtkCenterLayout): GtkOrientation
     @symbol("gtk_center_layout_get_shrink_center_last") @lib pub fn gtk_center_layout_get_shrink_center_last(self: GtkCenterLayout): i32
     @symbol("gtk_center_layout_get_start_widget") @lib pub fn gtk_center_layout_get_start_widget(self: GtkCenterLayout): GtkWidget
+    @symbol("gtk_center_layout_set_baseline_position") @lib pub fn gtk_center_layout_set_baseline_position(self: GtkCenterLayout, baseline_position: GtkBaselinePosition)
+    @symbol("gtk_center_layout_set_center_widget") @lib pub fn gtk_center_layout_set_center_widget(self: GtkCenterLayout, widget: GtkWidget)
+    @symbol("gtk_center_layout_set_end_widget") @lib pub fn gtk_center_layout_set_end_widget(self: GtkCenterLayout, widget: GtkWidget)
+    @symbol("gtk_center_layout_set_orientation") @lib pub fn gtk_center_layout_set_orientation(self: GtkCenterLayout, orientation: GtkOrientation)
+    @symbol("gtk_center_layout_set_shrink_center_last") @lib pub fn gtk_center_layout_set_shrink_center_last(self: GtkCenterLayout, shrink_center_last: i32)
+    @symbol("gtk_center_layout_set_start_widget") @lib pub fn gtk_center_layout_set_start_widget(self: GtkCenterLayout, widget: GtkWidget)
     @symbol("gtk_check_button_new") @lib pub fn gtk_check_button_new(): GtkWidget
     @symbol("gtk_check_button_new_with_label") @lib pub fn gtk_check_button_new_with_label(label: *const char): GtkWidget
     @symbol("gtk_check_button_new_with_mnemonic") @lib pub fn gtk_check_button_new_with_mnemonic(label: *const char): GtkWidget
@@ -1716,14 +1811,26 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_check_button_get_inconsistent") @lib pub fn gtk_check_button_get_inconsistent(self: GtkCheckButton): i32
     @symbol("gtk_check_button_get_label") @lib pub fn gtk_check_button_get_label(self: GtkCheckButton): *const char
     @symbol("gtk_check_button_get_use_underline") @lib pub fn gtk_check_button_get_use_underline(self: GtkCheckButton): i32
+    @symbol("gtk_check_button_set_active") @lib pub fn gtk_check_button_set_active(self: GtkCheckButton, setting: i32)
+    @symbol("gtk_check_button_set_child") @lib pub fn gtk_check_button_set_child(self: GtkCheckButton, child: GtkWidget)
+    @symbol("gtk_check_button_set_group") @lib pub fn gtk_check_button_set_group(self: GtkCheckButton, group: GtkCheckButton)
+    @symbol("gtk_check_button_set_inconsistent") @lib pub fn gtk_check_button_set_inconsistent(self: GtkCheckButton, inconsistent: i32)
+    @symbol("gtk_check_button_set_label") @lib pub fn gtk_check_button_set_label(self: GtkCheckButton, label: *const char)
+    @symbol("gtk_check_button_set_use_underline") @lib pub fn gtk_check_button_set_use_underline(self: GtkCheckButton, setting: i32)
     @symbol("gtk_closure_expression_new") @lib pub fn gtk_closure_expression_new(value_type: u64, closure: GClosure, n_params: u32, params: GtkExpression): GtkClosureExpression
     @symbol("gtk_color_dialog_new") @lib pub fn gtk_color_dialog_new(): GtkColorDialog
     @symbol("gtk_color_dialog_get_modal") @lib pub fn gtk_color_dialog_get_modal(self: GtkColorDialog): i32
     @symbol("gtk_color_dialog_get_title") @lib pub fn gtk_color_dialog_get_title(self: GtkColorDialog): *const char
     @symbol("gtk_color_dialog_get_with_alpha") @lib pub fn gtk_color_dialog_get_with_alpha(self: GtkColorDialog): i32
+    @symbol("gtk_color_dialog_set_modal") @lib pub fn gtk_color_dialog_set_modal(self: GtkColorDialog, modal: i32)
+    @symbol("gtk_color_dialog_set_title") @lib pub fn gtk_color_dialog_set_title(self: GtkColorDialog, title: *const char)
+    @symbol("gtk_color_dialog_set_with_alpha") @lib pub fn gtk_color_dialog_set_with_alpha(self: GtkColorDialog, with_alpha: i32)
     @symbol("gtk_color_dialog_button_new") @lib pub fn gtk_color_dialog_button_new(dialog: GtkColorDialog): GtkWidget
     @symbol("gtk_color_dialog_button_get_dialog") @lib pub fn gtk_color_dialog_button_get_dialog(self: GtkColorDialogButton): GtkColorDialog
     @symbol("gtk_color_dialog_button_get_rgba") @lib pub fn gtk_color_dialog_button_get_rgba(self: GtkColorDialogButton): GdkRGBA
+    @symbol("gtk_color_dialog_button_set_dialog") @lib pub fn gtk_color_dialog_button_set_dialog(self: GtkColorDialogButton, dialog: GtkColorDialog)
+    @symbol("gtk_color_dialog_button_set_rgba") @lib pub fn gtk_color_dialog_button_set_rgba(self: GtkColorDialogButton, color: GdkRGBA)
+    @symbol("gtk_column_view_append_column") @lib pub fn gtk_column_view_append_column(self: GtkColumnView, column: GtkColumnViewColumn)
     @symbol("gtk_column_view_get_enable_rubberband") @lib pub fn gtk_column_view_get_enable_rubberband(self: GtkColumnView): i32
     @symbol("gtk_column_view_get_header_factory") @lib pub fn gtk_column_view_get_header_factory(self: GtkColumnView): GtkListItemFactory
     @symbol("gtk_column_view_get_reorderable") @lib pub fn gtk_column_view_get_reorderable(self: GtkColumnView): i32
@@ -1733,11 +1840,25 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_column_view_get_single_click_activate") @lib pub fn gtk_column_view_get_single_click_activate(self: GtkColumnView): i32
     @symbol("gtk_column_view_get_sorter") @lib pub fn gtk_column_view_get_sorter(self: GtkColumnView): GtkSorter
     @symbol("gtk_column_view_get_tab_behavior") @lib pub fn gtk_column_view_get_tab_behavior(self: GtkColumnView): GtkListTabBehavior
+    @symbol("gtk_column_view_insert_column") @lib pub fn gtk_column_view_insert_column(self: GtkColumnView, position: u32, column: GtkColumnViewColumn)
+    @symbol("gtk_column_view_remove_column") @lib pub fn gtk_column_view_remove_column(self: GtkColumnView, column: GtkColumnViewColumn)
+    @symbol("gtk_column_view_scroll_to") @lib pub fn gtk_column_view_scroll_to(self: GtkColumnView, pos: u32, column: GtkColumnViewColumn, flags: GtkListScrollFlags, scroll: GtkScrollInfo)
+    @symbol("gtk_column_view_set_enable_rubberband") @lib pub fn gtk_column_view_set_enable_rubberband(self: GtkColumnView, enable_rubberband: i32)
+    @symbol("gtk_column_view_set_header_factory") @lib pub fn gtk_column_view_set_header_factory(self: GtkColumnView, factory: GtkListItemFactory)
+    @symbol("gtk_column_view_set_reorderable") @lib pub fn gtk_column_view_set_reorderable(self: GtkColumnView, reorderable: i32)
+    @symbol("gtk_column_view_set_row_factory") @lib pub fn gtk_column_view_set_row_factory(self: GtkColumnView, factory: GtkListItemFactory)
+    @symbol("gtk_column_view_set_show_column_separators") @lib pub fn gtk_column_view_set_show_column_separators(self: GtkColumnView, show_column_separators: i32)
+    @symbol("gtk_column_view_set_show_row_separators") @lib pub fn gtk_column_view_set_show_row_separators(self: GtkColumnView, show_row_separators: i32)
+    @symbol("gtk_column_view_set_single_click_activate") @lib pub fn gtk_column_view_set_single_click_activate(self: GtkColumnView, single_click_activate: i32)
+    @symbol("gtk_column_view_set_tab_behavior") @lib pub fn gtk_column_view_set_tab_behavior(self: GtkColumnView, tab_behavior: GtkListTabBehavior)
+    @symbol("gtk_column_view_sort_by_column") @lib pub fn gtk_column_view_sort_by_column(self: GtkColumnView, column: GtkColumnViewColumn, direction: GtkSortType)
     @symbol("gtk_column_view_cell_get_child") @lib pub fn gtk_column_view_cell_get_child(self: GtkColumnViewCell): GtkWidget
     @symbol("gtk_column_view_cell_get_focusable") @lib pub fn gtk_column_view_cell_get_focusable(self: GtkColumnViewCell): i32
     @symbol("gtk_column_view_cell_get_item") @lib pub fn gtk_column_view_cell_get_item(self: GtkColumnViewCell): GObject
     @symbol("gtk_column_view_cell_get_position") @lib pub fn gtk_column_view_cell_get_position(self: GtkColumnViewCell): u32
     @symbol("gtk_column_view_cell_get_selected") @lib pub fn gtk_column_view_cell_get_selected(self: GtkColumnViewCell): i32
+    @symbol("gtk_column_view_cell_set_child") @lib pub fn gtk_column_view_cell_set_child(self: GtkColumnViewCell, child: GtkWidget)
+    @symbol("gtk_column_view_cell_set_focusable") @lib pub fn gtk_column_view_cell_set_focusable(self: GtkColumnViewCell, focusable: i32)
     @symbol("gtk_column_view_column_new") @lib pub fn gtk_column_view_column_new(title: *const char, factory: GtkListItemFactory): GtkColumnViewColumn
     @symbol("gtk_column_view_column_get_column_view") @lib pub fn gtk_column_view_column_get_column_view(self: GtkColumnViewColumn): GtkColumnView
     @symbol("gtk_column_view_column_get_expand") @lib pub fn gtk_column_view_column_get_expand(self: GtkColumnViewColumn): i32
@@ -1749,6 +1870,15 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_column_view_column_get_sorter") @lib pub fn gtk_column_view_column_get_sorter(self: GtkColumnViewColumn): GtkSorter
     @symbol("gtk_column_view_column_get_title") @lib pub fn gtk_column_view_column_get_title(self: GtkColumnViewColumn): *const char
     @symbol("gtk_column_view_column_get_visible") @lib pub fn gtk_column_view_column_get_visible(self: GtkColumnViewColumn): i32
+    @symbol("gtk_column_view_column_set_expand") @lib pub fn gtk_column_view_column_set_expand(self: GtkColumnViewColumn, expand: i32)
+    @symbol("gtk_column_view_column_set_factory") @lib pub fn gtk_column_view_column_set_factory(self: GtkColumnViewColumn, factory: GtkListItemFactory)
+    @symbol("gtk_column_view_column_set_fixed_width") @lib pub fn gtk_column_view_column_set_fixed_width(self: GtkColumnViewColumn, fixed_width: i32)
+    @symbol("gtk_column_view_column_set_header_menu") @lib pub fn gtk_column_view_column_set_header_menu(self: GtkColumnViewColumn, menu: GMenuModel)
+    @symbol("gtk_column_view_column_set_id") @lib pub fn gtk_column_view_column_set_id(self: GtkColumnViewColumn, id: *const char)
+    @symbol("gtk_column_view_column_set_resizable") @lib pub fn gtk_column_view_column_set_resizable(self: GtkColumnViewColumn, resizable: i32)
+    @symbol("gtk_column_view_column_set_sorter") @lib pub fn gtk_column_view_column_set_sorter(self: GtkColumnViewColumn, sorter: GtkSorter)
+    @symbol("gtk_column_view_column_set_title") @lib pub fn gtk_column_view_column_set_title(self: GtkColumnViewColumn, title: *const char)
+    @symbol("gtk_column_view_column_set_visible") @lib pub fn gtk_column_view_column_set_visible(self: GtkColumnViewColumn, visible: i32)
     @symbol("gtk_column_view_row_get_accessible_description") @lib pub fn gtk_column_view_row_get_accessible_description(self: GtkColumnViewRow): *const char
     @symbol("gtk_column_view_row_get_accessible_label") @lib pub fn gtk_column_view_row_get_accessible_label(self: GtkColumnViewRow): *const char
     @symbol("gtk_column_view_row_get_activatable") @lib pub fn gtk_column_view_row_get_activatable(self: GtkColumnViewRow): i32
@@ -1757,6 +1887,11 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_column_view_row_get_position") @lib pub fn gtk_column_view_row_get_position(self: GtkColumnViewRow): u32
     @symbol("gtk_column_view_row_get_selectable") @lib pub fn gtk_column_view_row_get_selectable(self: GtkColumnViewRow): i32
     @symbol("gtk_column_view_row_get_selected") @lib pub fn gtk_column_view_row_get_selected(self: GtkColumnViewRow): i32
+    @symbol("gtk_column_view_row_set_accessible_description") @lib pub fn gtk_column_view_row_set_accessible_description(self: GtkColumnViewRow, description: *const char)
+    @symbol("gtk_column_view_row_set_accessible_label") @lib pub fn gtk_column_view_row_set_accessible_label(self: GtkColumnViewRow, label: *const char)
+    @symbol("gtk_column_view_row_set_activatable") @lib pub fn gtk_column_view_row_set_activatable(self: GtkColumnViewRow, activatable: i32)
+    @symbol("gtk_column_view_row_set_focusable") @lib pub fn gtk_column_view_row_set_focusable(self: GtkColumnViewRow, focusable: i32)
+    @symbol("gtk_column_view_row_set_selectable") @lib pub fn gtk_column_view_row_set_selectable(self: GtkColumnViewRow, selectable: i32)
     @symbol("gtk_column_view_sorter_get_n_sort_columns") @lib pub fn gtk_column_view_sorter_get_n_sort_columns(self: GtkColumnViewSorter): u32
     @symbol("gtk_column_view_sorter_get_primary_sort_column") @lib pub fn gtk_column_view_sorter_get_primary_sort_column(self: GtkColumnViewSorter): GtkColumnViewColumn
     @symbol("gtk_column_view_sorter_get_primary_sort_order") @lib pub fn gtk_column_view_sorter_get_primary_sort_order(self: GtkColumnViewSorter): GtkSortType
@@ -1774,23 +1909,46 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_constraint_guide_new") @lib pub fn gtk_constraint_guide_new(): GtkConstraintGuide
     @symbol("gtk_constraint_guide_get_name") @lib pub fn gtk_constraint_guide_get_name(self: GtkConstraintGuide): *const char
     @symbol("gtk_constraint_guide_get_strength") @lib pub fn gtk_constraint_guide_get_strength(self: GtkConstraintGuide): GtkConstraintStrength
+    @symbol("gtk_constraint_guide_set_max_size") @lib pub fn gtk_constraint_guide_set_max_size(self: GtkConstraintGuide, width: i32, height: i32)
+    @symbol("gtk_constraint_guide_set_min_size") @lib pub fn gtk_constraint_guide_set_min_size(self: GtkConstraintGuide, width: i32, height: i32)
+    @symbol("gtk_constraint_guide_set_name") @lib pub fn gtk_constraint_guide_set_name(self: GtkConstraintGuide, name: *const char)
+    @symbol("gtk_constraint_guide_set_nat_size") @lib pub fn gtk_constraint_guide_set_nat_size(self: GtkConstraintGuide, width: i32, height: i32)
+    @symbol("gtk_constraint_guide_set_strength") @lib pub fn gtk_constraint_guide_set_strength(self: GtkConstraintGuide, strength: GtkConstraintStrength)
     @symbol("gtk_constraint_layout_new") @lib pub fn gtk_constraint_layout_new(): GtkLayoutManager
+    @symbol("gtk_constraint_layout_add_constraint") @lib pub fn gtk_constraint_layout_add_constraint(self: GtkConstraintLayout, constraint: GtkConstraint)
+    @symbol("gtk_constraint_layout_add_guide") @lib pub fn gtk_constraint_layout_add_guide(self: GtkConstraintLayout, guide: GtkConstraintGuide)
+    @symbol("gtk_constraint_layout_remove_all_constraints") @lib pub fn gtk_constraint_layout_remove_all_constraints(self: GtkConstraintLayout)
+    @symbol("gtk_constraint_layout_remove_constraint") @lib pub fn gtk_constraint_layout_remove_constraint(self: GtkConstraintLayout, constraint: GtkConstraint)
+    @symbol("gtk_constraint_layout_remove_guide") @lib pub fn gtk_constraint_layout_remove_guide(self: GtkConstraintLayout, guide: GtkConstraintGuide)
     @symbol("gtk_css_provider_new") @lib pub fn gtk_css_provider_new(): GtkCssProvider
+    @symbol("gtk_css_provider_load_from_bytes") @lib pub fn gtk_css_provider_load_from_bytes(self: GtkCssProvider, data: GBytes)
+    @symbol("gtk_css_provider_load_from_path") @lib pub fn gtk_css_provider_load_from_path(self: GtkCssProvider, path: *const char)
+    @symbol("gtk_css_provider_load_from_resource") @lib pub fn gtk_css_provider_load_from_resource(self: GtkCssProvider, resource_path: *const char)
+    @symbol("gtk_css_provider_load_from_string") @lib pub fn gtk_css_provider_load_from_string(self: GtkCssProvider, string: *const char)
     @symbol("gtk_css_provider_to_string") @lib pub fn gtk_css_provider_to_string(self: GtkCssProvider): *const char
     @symbol("gtk_directory_list_get_attributes") @lib pub fn gtk_directory_list_get_attributes(self: GtkDirectoryList): *const char
     @symbol("gtk_directory_list_get_io_priority") @lib pub fn gtk_directory_list_get_io_priority(self: GtkDirectoryList): i32
     @symbol("gtk_directory_list_get_monitored") @lib pub fn gtk_directory_list_get_monitored(self: GtkDirectoryList): i32
     @symbol("gtk_directory_list_is_loading") @lib pub fn gtk_directory_list_is_loading(self: GtkDirectoryList): i32
+    @symbol("gtk_directory_list_set_attributes") @lib pub fn gtk_directory_list_set_attributes(self: GtkDirectoryList, attributes: *const char)
+    @symbol("gtk_directory_list_set_io_priority") @lib pub fn gtk_directory_list_set_io_priority(self: GtkDirectoryList, io_priority: i32)
+    @symbol("gtk_directory_list_set_monitored") @lib pub fn gtk_directory_list_set_monitored(self: GtkDirectoryList, monitored: i32)
     @symbol("gtk_drag_icon_get_for_drag") @lib pub fn gtk_drag_icon_get_for_drag(drag: GdkDrag): GtkWidget
     @symbol("gtk_drag_icon_get_child") @lib pub fn gtk_drag_icon_get_child(self: GtkDragIcon): GtkWidget
+    @symbol("gtk_drag_icon_set_child") @lib pub fn gtk_drag_icon_set_child(self: GtkDragIcon, child: GtkWidget)
     @symbol("gtk_drag_icon_create_widget_for_value") @lib pub fn gtk_drag_icon_create_widget_for_value(value: GValue): GtkWidget
     @symbol("gtk_drag_source_new") @lib pub fn gtk_drag_source_new(): GtkDragSource
+    @symbol("gtk_drag_source_drag_cancel") @lib pub fn gtk_drag_source_drag_cancel(self: GtkDragSource)
     @symbol("gtk_drag_source_get_actions") @lib pub fn gtk_drag_source_get_actions(self: GtkDragSource): GdkDragAction
     @symbol("gtk_drag_source_get_content") @lib pub fn gtk_drag_source_get_content(self: GtkDragSource): GdkContentProvider
     @symbol("gtk_drag_source_get_drag") @lib pub fn gtk_drag_source_get_drag(self: GtkDragSource): GdkDrag
+    @symbol("gtk_drag_source_set_actions") @lib pub fn gtk_drag_source_set_actions(self: GtkDragSource, actions: GdkDragAction)
+    @symbol("gtk_drag_source_set_content") @lib pub fn gtk_drag_source_set_content(self: GtkDragSource, content: GdkContentProvider)
     @symbol("gtk_drawing_area_new") @lib pub fn gtk_drawing_area_new(): GtkWidget
     @symbol("gtk_drawing_area_get_content_height") @lib pub fn gtk_drawing_area_get_content_height(self: GtkDrawingArea): i32
     @symbol("gtk_drawing_area_get_content_width") @lib pub fn gtk_drawing_area_get_content_width(self: GtkDrawingArea): i32
+    @symbol("gtk_drawing_area_set_content_height") @lib pub fn gtk_drawing_area_set_content_height(self: GtkDrawingArea, height: i32)
+    @symbol("gtk_drawing_area_set_content_width") @lib pub fn gtk_drawing_area_set_content_width(self: GtkDrawingArea, width: i32)
     @symbol("gtk_drop_controller_motion_new") @lib pub fn gtk_drop_controller_motion_new(): GtkEventController
     @symbol("gtk_drop_controller_motion_contains_pointer") @lib pub fn gtk_drop_controller_motion_contains_pointer(self: GtkDropControllerMotion): i32
     @symbol("gtk_drop_controller_motion_get_drop") @lib pub fn gtk_drop_controller_motion_get_drop(self: GtkDropControllerMotion): GdkDrop
@@ -1805,17 +1963,34 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_drop_down_get_selected") @lib pub fn gtk_drop_down_get_selected(self: GtkDropDown): u32
     @symbol("gtk_drop_down_get_selected_item") @lib pub fn gtk_drop_down_get_selected_item(self: GtkDropDown): GObject
     @symbol("gtk_drop_down_get_show_arrow") @lib pub fn gtk_drop_down_get_show_arrow(self: GtkDropDown): i32
+    @symbol("gtk_drop_down_set_enable_search") @lib pub fn gtk_drop_down_set_enable_search(self: GtkDropDown, enable_search: i32)
+    @symbol("gtk_drop_down_set_expression") @lib pub fn gtk_drop_down_set_expression(self: GtkDropDown, expression: GtkExpression)
+    @symbol("gtk_drop_down_set_factory") @lib pub fn gtk_drop_down_set_factory(self: GtkDropDown, factory: GtkListItemFactory)
+    @symbol("gtk_drop_down_set_header_factory") @lib pub fn gtk_drop_down_set_header_factory(self: GtkDropDown, factory: GtkListItemFactory)
+    @symbol("gtk_drop_down_set_list_factory") @lib pub fn gtk_drop_down_set_list_factory(self: GtkDropDown, factory: GtkListItemFactory)
+    @symbol("gtk_drop_down_set_search_match_mode") @lib pub fn gtk_drop_down_set_search_match_mode(self: GtkDropDown, search_match_mode: GtkStringFilterMatchMode)
+    @symbol("gtk_drop_down_set_selected") @lib pub fn gtk_drop_down_set_selected(self: GtkDropDown, position: u32)
+    @symbol("gtk_drop_down_set_show_arrow") @lib pub fn gtk_drop_down_set_show_arrow(self: GtkDropDown, show_arrow: i32)
     @symbol("gtk_drop_target_new") @lib pub fn gtk_drop_target_new(arg: u64, actions: GdkDragAction): GtkDropTarget
     @symbol("gtk_drop_target_get_actions") @lib pub fn gtk_drop_target_get_actions(self: GtkDropTarget): GdkDragAction
     @symbol("gtk_drop_target_get_current_drop") @lib pub fn gtk_drop_target_get_current_drop(self: GtkDropTarget): GdkDrop
     @symbol("gtk_drop_target_get_formats") @lib pub fn gtk_drop_target_get_formats(self: GtkDropTarget): GdkContentFormats
     @symbol("gtk_drop_target_get_preload") @lib pub fn gtk_drop_target_get_preload(self: GtkDropTarget): i32
     @symbol("gtk_drop_target_get_value") @lib pub fn gtk_drop_target_get_value(self: GtkDropTarget): GValue
+    @symbol("gtk_drop_target_reject") @lib pub fn gtk_drop_target_reject(self: GtkDropTarget)
+    @symbol("gtk_drop_target_set_actions") @lib pub fn gtk_drop_target_set_actions(self: GtkDropTarget, actions: GdkDragAction)
+    @symbol("gtk_drop_target_set_gtypes") @lib pub fn gtk_drop_target_set_gtypes(self: GtkDropTarget, types: u64, n_types: u64)
+    @symbol("gtk_drop_target_set_preload") @lib pub fn gtk_drop_target_set_preload(self: GtkDropTarget, preload: i32)
     @symbol("gtk_drop_target_async_new") @lib pub fn gtk_drop_target_async_new(formats: GdkContentFormats, actions: GdkDragAction): GtkDropTargetAsync
     @symbol("gtk_drop_target_async_get_actions") @lib pub fn gtk_drop_target_async_get_actions(self: GtkDropTargetAsync): GdkDragAction
     @symbol("gtk_drop_target_async_get_formats") @lib pub fn gtk_drop_target_async_get_formats(self: GtkDropTargetAsync): GdkContentFormats
+    @symbol("gtk_drop_target_async_reject_drop") @lib pub fn gtk_drop_target_async_reject_drop(self: GtkDropTargetAsync, drop: GdkDrop)
+    @symbol("gtk_drop_target_async_set_actions") @lib pub fn gtk_drop_target_async_set_actions(self: GtkDropTargetAsync, actions: GdkDragAction)
+    @symbol("gtk_drop_target_async_set_formats") @lib pub fn gtk_drop_target_async_set_formats(self: GtkDropTargetAsync, formats: GdkContentFormats)
     @symbol("gtk_editable_label_new") @lib pub fn gtk_editable_label_new(str: *const char): GtkWidget
     @symbol("gtk_editable_label_get_editing") @lib pub fn gtk_editable_label_get_editing(self: GtkEditableLabel): i32
+    @symbol("gtk_editable_label_start_editing") @lib pub fn gtk_editable_label_start_editing(self: GtkEditableLabel)
+    @symbol("gtk_editable_label_stop_editing") @lib pub fn gtk_editable_label_stop_editing(self: GtkEditableLabel, commit: i32)
     @symbol("gtk_emoji_chooser_new") @lib pub fn gtk_emoji_chooser_new(): GtkWidget
     @symbol("gtk_entry_new") @lib pub fn gtk_entry_new(): GtkWidget
     @symbol("gtk_entry_new_with_buffer") @lib pub fn gtk_entry_new_with_buffer(buffer: GtkEntryBuffer): GtkWidget
@@ -1843,13 +2018,40 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_entry_get_text_length") @lib pub fn gtk_entry_get_text_length(self: GtkEntry): u16
     @symbol("gtk_entry_get_visibility") @lib pub fn gtk_entry_get_visibility(self: GtkEntry): i32
     @symbol("gtk_entry_grab_focus_without_selecting") @lib pub fn gtk_entry_grab_focus_without_selecting(self: GtkEntry): i32
+    @symbol("gtk_entry_progress_pulse") @lib pub fn gtk_entry_progress_pulse(self: GtkEntry)
+    @symbol("gtk_entry_reset_im_context") @lib pub fn gtk_entry_reset_im_context(self: GtkEntry)
+    @symbol("gtk_entry_set_activates_default") @lib pub fn gtk_entry_set_activates_default(self: GtkEntry, setting: i32)
+    @symbol("gtk_entry_set_alignment") @lib pub fn gtk_entry_set_alignment(self: GtkEntry, xalign: f32)
+    @symbol("gtk_entry_set_buffer") @lib pub fn gtk_entry_set_buffer(self: GtkEntry, buffer: GtkEntryBuffer)
+    @symbol("gtk_entry_set_extra_menu") @lib pub fn gtk_entry_set_extra_menu(self: GtkEntry, model: GMenuModel)
+    @symbol("gtk_entry_set_has_frame") @lib pub fn gtk_entry_set_has_frame(self: GtkEntry, setting: i32)
+    @symbol("gtk_entry_set_icon_activatable") @lib pub fn gtk_entry_set_icon_activatable(self: GtkEntry, icon_pos: GtkEntryIconPosition, activatable: i32)
+    @symbol("gtk_entry_set_icon_drag_source") @lib pub fn gtk_entry_set_icon_drag_source(self: GtkEntry, icon_pos: GtkEntryIconPosition, provider: GdkContentProvider, actions: GdkDragAction)
+    @symbol("gtk_entry_set_icon_from_icon_name") @lib pub fn gtk_entry_set_icon_from_icon_name(self: GtkEntry, icon_pos: GtkEntryIconPosition, icon_name: *const char)
+    @symbol("gtk_entry_set_icon_sensitive") @lib pub fn gtk_entry_set_icon_sensitive(self: GtkEntry, icon_pos: GtkEntryIconPosition, sensitive: i32)
+    @symbol("gtk_entry_set_icon_tooltip_markup") @lib pub fn gtk_entry_set_icon_tooltip_markup(self: GtkEntry, icon_pos: GtkEntryIconPosition, tooltip: *const char)
+    @symbol("gtk_entry_set_icon_tooltip_text") @lib pub fn gtk_entry_set_icon_tooltip_text(self: GtkEntry, icon_pos: GtkEntryIconPosition, tooltip: *const char)
+    @symbol("gtk_entry_set_input_hints") @lib pub fn gtk_entry_set_input_hints(self: GtkEntry, hints: GtkInputHints)
+    @symbol("gtk_entry_set_input_purpose") @lib pub fn gtk_entry_set_input_purpose(self: GtkEntry, purpose: GtkInputPurpose)
+    @symbol("gtk_entry_set_max_length") @lib pub fn gtk_entry_set_max_length(self: GtkEntry, max: i32)
+    @symbol("gtk_entry_set_menu_entry_icon_text") @lib pub fn gtk_entry_set_menu_entry_icon_text(self: GtkEntry, icon_pos: GtkEntryIconPosition, text: *const char)
+    @symbol("gtk_entry_set_overwrite_mode") @lib pub fn gtk_entry_set_overwrite_mode(self: GtkEntry, overwrite: i32)
+    @symbol("gtk_entry_set_placeholder_text") @lib pub fn gtk_entry_set_placeholder_text(self: GtkEntry, text: *const char)
+    @symbol("gtk_entry_set_progress_fraction") @lib pub fn gtk_entry_set_progress_fraction(self: GtkEntry, fraction: f64)
+    @symbol("gtk_entry_set_progress_pulse_step") @lib pub fn gtk_entry_set_progress_pulse_step(self: GtkEntry, fraction: f64)
+    @symbol("gtk_entry_set_visibility") @lib pub fn gtk_entry_set_visibility(self: GtkEntry, visible: i32)
+    @symbol("gtk_entry_unset_invisible_char") @lib pub fn gtk_entry_unset_invisible_char(self: GtkEntry)
     @symbol("gtk_entry_buffer_new") @lib pub fn gtk_entry_buffer_new(initial_chars: *const char, n_initial_chars: i32): GtkEntryBuffer
     @symbol("gtk_entry_buffer_delete_text") @lib pub fn gtk_entry_buffer_delete_text(self: GtkEntryBuffer, position: u32, n_chars: i32): u32
+    @symbol("gtk_entry_buffer_emit_deleted_text") @lib pub fn gtk_entry_buffer_emit_deleted_text(self: GtkEntryBuffer, position: u32, n_chars: u32)
+    @symbol("gtk_entry_buffer_emit_inserted_text") @lib pub fn gtk_entry_buffer_emit_inserted_text(self: GtkEntryBuffer, position: u32, chars: *const char, n_chars: u32)
     @symbol("gtk_entry_buffer_get_bytes") @lib pub fn gtk_entry_buffer_get_bytes(self: GtkEntryBuffer): u64
     @symbol("gtk_entry_buffer_get_length") @lib pub fn gtk_entry_buffer_get_length(self: GtkEntryBuffer): u32
     @symbol("gtk_entry_buffer_get_max_length") @lib pub fn gtk_entry_buffer_get_max_length(self: GtkEntryBuffer): i32
     @symbol("gtk_entry_buffer_get_text") @lib pub fn gtk_entry_buffer_get_text(self: GtkEntryBuffer): *const char
     @symbol("gtk_entry_buffer_insert_text") @lib pub fn gtk_entry_buffer_insert_text(self: GtkEntryBuffer, position: u32, chars: *const char, n_chars: i32): u32
+    @symbol("gtk_entry_buffer_set_max_length") @lib pub fn gtk_entry_buffer_set_max_length(self: GtkEntryBuffer, max_length: i32)
+    @symbol("gtk_entry_buffer_set_text") @lib pub fn gtk_entry_buffer_set_text(self: GtkEntryBuffer, chars: *const char, n_chars: i32)
     @symbol("gtk_event_controller_get_current_event") @lib pub fn gtk_event_controller_get_current_event(self: GtkEventController): GdkEvent
     @symbol("gtk_event_controller_get_current_event_device") @lib pub fn gtk_event_controller_get_current_event_device(self: GtkEventController): GdkDevice
     @symbol("gtk_event_controller_get_current_event_state") @lib pub fn gtk_event_controller_get_current_event_state(self: GtkEventController): GdkModifierType
@@ -1858,6 +2060,11 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_event_controller_get_propagation_limit") @lib pub fn gtk_event_controller_get_propagation_limit(self: GtkEventController): GtkPropagationLimit
     @symbol("gtk_event_controller_get_propagation_phase") @lib pub fn gtk_event_controller_get_propagation_phase(self: GtkEventController): GtkPropagationPhase
     @symbol("gtk_event_controller_get_widget") @lib pub fn gtk_event_controller_get_widget(self: GtkEventController): GtkWidget
+    @symbol("gtk_event_controller_reset") @lib pub fn gtk_event_controller_reset(self: GtkEventController)
+    @symbol("gtk_event_controller_set_name") @lib pub fn gtk_event_controller_set_name(self: GtkEventController, name: *const char)
+    @symbol("gtk_event_controller_set_propagation_limit") @lib pub fn gtk_event_controller_set_propagation_limit(self: GtkEventController, limit: GtkPropagationLimit)
+    @symbol("gtk_event_controller_set_propagation_phase") @lib pub fn gtk_event_controller_set_propagation_phase(self: GtkEventController, phase: GtkPropagationPhase)
+    @symbol("gtk_event_controller_set_static_name") @lib pub fn gtk_event_controller_set_static_name(self: GtkEventController, name: *const char)
     @symbol("gtk_event_controller_focus_new") @lib pub fn gtk_event_controller_focus_new(): GtkEventController
     @symbol("gtk_event_controller_focus_contains_focus") @lib pub fn gtk_event_controller_focus_contains_focus(self: GtkEventControllerFocus): i32
     @symbol("gtk_event_controller_focus_is_focus") @lib pub fn gtk_event_controller_focus_is_focus(self: GtkEventControllerFocus): i32
@@ -1865,6 +2072,7 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_event_controller_key_forward") @lib pub fn gtk_event_controller_key_forward(self: GtkEventControllerKey, widget: GtkWidget): i32
     @symbol("gtk_event_controller_key_get_group") @lib pub fn gtk_event_controller_key_get_group(self: GtkEventControllerKey): u32
     @symbol("gtk_event_controller_key_get_im_context") @lib pub fn gtk_event_controller_key_get_im_context(self: GtkEventControllerKey): GtkIMContext
+    @symbol("gtk_event_controller_key_set_im_context") @lib pub fn gtk_event_controller_key_set_im_context(self: GtkEventControllerKey, im_context: GtkIMContext)
     @symbol("gtk_event_controller_legacy_new") @lib pub fn gtk_event_controller_legacy_new(): GtkEventController
     @symbol("gtk_event_controller_motion_new") @lib pub fn gtk_event_controller_motion_new(): GtkEventController
     @symbol("gtk_event_controller_motion_contains_pointer") @lib pub fn gtk_event_controller_motion_contains_pointer(self: GtkEventControllerMotion): i32
@@ -1872,6 +2080,7 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_event_controller_scroll_new") @lib pub fn gtk_event_controller_scroll_new(flags: GtkEventControllerScrollFlags): GtkEventController
     @symbol("gtk_event_controller_scroll_get_flags") @lib pub fn gtk_event_controller_scroll_get_flags(self: GtkEventControllerScroll): GtkEventControllerScrollFlags
     @symbol("gtk_event_controller_scroll_get_unit") @lib pub fn gtk_event_controller_scroll_get_unit(self: GtkEventControllerScroll): GdkScrollUnit
+    @symbol("gtk_event_controller_scroll_set_flags") @lib pub fn gtk_event_controller_scroll_set_flags(self: GtkEventControllerScroll, flags: GtkEventControllerScrollFlags)
     @symbol("gtk_every_filter_new") @lib pub fn gtk_every_filter_new(): GtkEveryFilter
     @symbol("gtk_expander_new") @lib pub fn gtk_expander_new(label: *const char): GtkWidget
     @symbol("gtk_expander_new_with_mnemonic") @lib pub fn gtk_expander_new_with_mnemonic(label: *const char): GtkWidget
@@ -1882,33 +2091,61 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_expander_get_resize_toplevel") @lib pub fn gtk_expander_get_resize_toplevel(self: GtkExpander): i32
     @symbol("gtk_expander_get_use_markup") @lib pub fn gtk_expander_get_use_markup(self: GtkExpander): i32
     @symbol("gtk_expander_get_use_underline") @lib pub fn gtk_expander_get_use_underline(self: GtkExpander): i32
+    @symbol("gtk_expander_set_child") @lib pub fn gtk_expander_set_child(self: GtkExpander, child: GtkWidget)
+    @symbol("gtk_expander_set_expanded") @lib pub fn gtk_expander_set_expanded(self: GtkExpander, expanded: i32)
+    @symbol("gtk_expander_set_label") @lib pub fn gtk_expander_set_label(self: GtkExpander, label: *const char)
+    @symbol("gtk_expander_set_label_widget") @lib pub fn gtk_expander_set_label_widget(self: GtkExpander, label_widget: GtkWidget)
+    @symbol("gtk_expander_set_resize_toplevel") @lib pub fn gtk_expander_set_resize_toplevel(self: GtkExpander, resize_toplevel: i32)
+    @symbol("gtk_expander_set_use_markup") @lib pub fn gtk_expander_set_use_markup(self: GtkExpander, use_markup: i32)
+    @symbol("gtk_expander_set_use_underline") @lib pub fn gtk_expander_set_use_underline(self: GtkExpander, use_underline: i32)
     @symbol("gtk_expression_bind") @lib pub fn gtk_expression_bind(self: GtkExpression, target: GObject, property: *const char, this_: GObject): GtkExpressionWatch
     @symbol("gtk_expression_evaluate") @lib pub fn gtk_expression_evaluate(self: GtkExpression, this_: GObject, value: GValue): i32
     @symbol("gtk_expression_get_value_type") @lib pub fn gtk_expression_get_value_type(self: GtkExpression): u64
     @symbol("gtk_expression_is_static") @lib pub fn gtk_expression_is_static(self: GtkExpression): i32
     @symbol("gtk_expression_ref") @lib pub fn gtk_expression_ref(self: GtkExpression): GtkExpression
+    @symbol("gtk_expression_unref") @lib pub fn gtk_expression_unref(self: GtkExpression)
     @symbol("gtk_file_dialog_new") @lib pub fn gtk_file_dialog_new(): GtkFileDialog
     @symbol("gtk_file_dialog_get_accept_label") @lib pub fn gtk_file_dialog_get_accept_label(self: GtkFileDialog): *const char
     @symbol("gtk_file_dialog_get_default_filter") @lib pub fn gtk_file_dialog_get_default_filter(self: GtkFileDialog): GtkFileFilter
     @symbol("gtk_file_dialog_get_initial_name") @lib pub fn gtk_file_dialog_get_initial_name(self: GtkFileDialog): *const char
     @symbol("gtk_file_dialog_get_modal") @lib pub fn gtk_file_dialog_get_modal(self: GtkFileDialog): i32
     @symbol("gtk_file_dialog_get_title") @lib pub fn gtk_file_dialog_get_title(self: GtkFileDialog): *const char
+    @symbol("gtk_file_dialog_set_accept_label") @lib pub fn gtk_file_dialog_set_accept_label(self: GtkFileDialog, accept_label: *const char)
+    @symbol("gtk_file_dialog_set_default_filter") @lib pub fn gtk_file_dialog_set_default_filter(self: GtkFileDialog, filter: GtkFileFilter)
+    @symbol("gtk_file_dialog_set_initial_name") @lib pub fn gtk_file_dialog_set_initial_name(self: GtkFileDialog, name: *const char)
+    @symbol("gtk_file_dialog_set_modal") @lib pub fn gtk_file_dialog_set_modal(self: GtkFileDialog, modal: i32)
+    @symbol("gtk_file_dialog_set_title") @lib pub fn gtk_file_dialog_set_title(self: GtkFileDialog, title: *const char)
     @symbol("gtk_file_filter_new") @lib pub fn gtk_file_filter_new(): GtkFileFilter
     @symbol("gtk_file_filter_new_from_gvariant") @lib pub fn gtk_file_filter_new_from_gvariant(variant: GVariant): GtkFileFilter
+    @symbol("gtk_file_filter_add_mime_type") @lib pub fn gtk_file_filter_add_mime_type(self: GtkFileFilter, mime_type: *const char)
+    @symbol("gtk_file_filter_add_mime_types") @lib pub fn gtk_file_filter_add_mime_types(self: GtkFileFilter, mime_types: *const char)
+    @symbol("gtk_file_filter_add_pattern") @lib pub fn gtk_file_filter_add_pattern(self: GtkFileFilter, pattern: *const char)
+    @symbol("gtk_file_filter_add_suffix") @lib pub fn gtk_file_filter_add_suffix(self: GtkFileFilter, suffix: *const char)
     @symbol("gtk_file_filter_get_attributes") @lib pub fn gtk_file_filter_get_attributes(self: GtkFileFilter): *const char
     @symbol("gtk_file_filter_get_name") @lib pub fn gtk_file_filter_get_name(self: GtkFileFilter): *const char
+    @symbol("gtk_file_filter_set_name") @lib pub fn gtk_file_filter_set_name(self: GtkFileFilter, name: *const char)
     @symbol("gtk_file_filter_to_gvariant") @lib pub fn gtk_file_filter_to_gvariant(self: GtkFileFilter): GVariant
     @symbol("gtk_file_launcher_get_always_ask") @lib pub fn gtk_file_launcher_get_always_ask(self: GtkFileLauncher): i32
     @symbol("gtk_file_launcher_get_writable") @lib pub fn gtk_file_launcher_get_writable(self: GtkFileLauncher): i32
+    @symbol("gtk_file_launcher_set_always_ask") @lib pub fn gtk_file_launcher_set_always_ask(self: GtkFileLauncher, always_ask: i32)
+    @symbol("gtk_file_launcher_set_writable") @lib pub fn gtk_file_launcher_set_writable(self: GtkFileLauncher, writable: i32)
+    @symbol("gtk_filter_changed") @lib pub fn gtk_filter_changed(self: GtkFilter, change: GtkFilterChange)
     @symbol("gtk_filter_get_strictness") @lib pub fn gtk_filter_get_strictness(self: GtkFilter): GtkFilterMatch
     @symbol("gtk_filter_match") @lib pub fn gtk_filter_match(self: GtkFilter, item: GObject): i32
     @symbol("gtk_filter_list_model_get_filter") @lib pub fn gtk_filter_list_model_get_filter(self: GtkFilterListModel): GtkFilter
     @symbol("gtk_filter_list_model_get_incremental") @lib pub fn gtk_filter_list_model_get_incremental(self: GtkFilterListModel): i32
     @symbol("gtk_filter_list_model_get_pending") @lib pub fn gtk_filter_list_model_get_pending(self: GtkFilterListModel): u32
     @symbol("gtk_filter_list_model_get_watch_items") @lib pub fn gtk_filter_list_model_get_watch_items(self: GtkFilterListModel): i32
+    @symbol("gtk_filter_list_model_set_filter") @lib pub fn gtk_filter_list_model_set_filter(self: GtkFilterListModel, filter: GtkFilter)
+    @symbol("gtk_filter_list_model_set_incremental") @lib pub fn gtk_filter_list_model_set_incremental(self: GtkFilterListModel, incremental: i32)
+    @symbol("gtk_filter_list_model_set_watch_items") @lib pub fn gtk_filter_list_model_set_watch_items(self: GtkFilterListModel, watch_items: i32)
     @symbol("gtk_fixed_new") @lib pub fn gtk_fixed_new(): GtkWidget
+    @symbol("gtk_fixed_move") @lib pub fn gtk_fixed_move(self: GtkFixed, widget: GtkWidget, x: f64, y: f64)
+    @symbol("gtk_fixed_put") @lib pub fn gtk_fixed_put(self: GtkFixed, widget: GtkWidget, x: f64, y: f64)
+    @symbol("gtk_fixed_remove") @lib pub fn gtk_fixed_remove(self: GtkFixed, widget: GtkWidget)
     @symbol("gtk_fixed_layout_new") @lib pub fn gtk_fixed_layout_new(): GtkLayoutManager
     @symbol("gtk_flow_box_new") @lib pub fn gtk_flow_box_new(): GtkWidget
+    @symbol("gtk_flow_box_append") @lib pub fn gtk_flow_box_append(self: GtkFlowBox, child: GtkWidget)
     @symbol("gtk_flow_box_get_activate_on_single_click") @lib pub fn gtk_flow_box_get_activate_on_single_click(self: GtkFlowBox): i32
     @symbol("gtk_flow_box_get_child_at_index") @lib pub fn gtk_flow_box_get_child_at_index(self: GtkFlowBox, idx: i32): GtkFlowBoxChild
     @symbol("gtk_flow_box_get_child_at_pos") @lib pub fn gtk_flow_box_get_child_at_pos(self: GtkFlowBox, x: i32, y: i32): GtkFlowBoxChild
@@ -1919,49 +2156,94 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_flow_box_get_row_spacing") @lib pub fn gtk_flow_box_get_row_spacing(self: GtkFlowBox): u32
     @symbol("gtk_flow_box_get_selected_children") @lib pub fn gtk_flow_box_get_selected_children(self: GtkFlowBox): GtkFlowBoxChild
     @symbol("gtk_flow_box_get_selection_mode") @lib pub fn gtk_flow_box_get_selection_mode(self: GtkFlowBox): GtkSelectionMode
+    @symbol("gtk_flow_box_insert") @lib pub fn gtk_flow_box_insert(self: GtkFlowBox, widget: GtkWidget, position: i32)
+    @symbol("gtk_flow_box_invalidate_filter") @lib pub fn gtk_flow_box_invalidate_filter(self: GtkFlowBox)
+    @symbol("gtk_flow_box_invalidate_sort") @lib pub fn gtk_flow_box_invalidate_sort(self: GtkFlowBox)
+    @symbol("gtk_flow_box_prepend") @lib pub fn gtk_flow_box_prepend(self: GtkFlowBox, child: GtkWidget)
+    @symbol("gtk_flow_box_remove") @lib pub fn gtk_flow_box_remove(self: GtkFlowBox, widget: GtkWidget)
+    @symbol("gtk_flow_box_remove_all") @lib pub fn gtk_flow_box_remove_all(self: GtkFlowBox)
+    @symbol("gtk_flow_box_select_all") @lib pub fn gtk_flow_box_select_all(self: GtkFlowBox)
+    @symbol("gtk_flow_box_select_child") @lib pub fn gtk_flow_box_select_child(self: GtkFlowBox, child: GtkFlowBoxChild)
+    @symbol("gtk_flow_box_set_activate_on_single_click") @lib pub fn gtk_flow_box_set_activate_on_single_click(self: GtkFlowBox, single: i32)
+    @symbol("gtk_flow_box_set_column_spacing") @lib pub fn gtk_flow_box_set_column_spacing(self: GtkFlowBox, spacing: u32)
+    @symbol("gtk_flow_box_set_hadjustment") @lib pub fn gtk_flow_box_set_hadjustment(self: GtkFlowBox, adjustment: GtkAdjustment)
+    @symbol("gtk_flow_box_set_homogeneous") @lib pub fn gtk_flow_box_set_homogeneous(self: GtkFlowBox, homogeneous: i32)
+    @symbol("gtk_flow_box_set_max_children_per_line") @lib pub fn gtk_flow_box_set_max_children_per_line(self: GtkFlowBox, n_children: u32)
+    @symbol("gtk_flow_box_set_min_children_per_line") @lib pub fn gtk_flow_box_set_min_children_per_line(self: GtkFlowBox, n_children: u32)
+    @symbol("gtk_flow_box_set_row_spacing") @lib pub fn gtk_flow_box_set_row_spacing(self: GtkFlowBox, spacing: u32)
+    @symbol("gtk_flow_box_set_selection_mode") @lib pub fn gtk_flow_box_set_selection_mode(self: GtkFlowBox, mode: GtkSelectionMode)
+    @symbol("gtk_flow_box_set_vadjustment") @lib pub fn gtk_flow_box_set_vadjustment(self: GtkFlowBox, adjustment: GtkAdjustment)
+    @symbol("gtk_flow_box_unselect_all") @lib pub fn gtk_flow_box_unselect_all(self: GtkFlowBox)
+    @symbol("gtk_flow_box_unselect_child") @lib pub fn gtk_flow_box_unselect_child(self: GtkFlowBox, child: GtkFlowBoxChild)
     @symbol("gtk_flow_box_child_new") @lib pub fn gtk_flow_box_child_new(): GtkWidget
+    @symbol("gtk_flow_box_child_changed") @lib pub fn gtk_flow_box_child_changed(self: GtkFlowBoxChild)
     @symbol("gtk_flow_box_child_get_child") @lib pub fn gtk_flow_box_child_get_child(self: GtkFlowBoxChild): GtkWidget
     @symbol("gtk_flow_box_child_get_index") @lib pub fn gtk_flow_box_child_get_index(self: GtkFlowBoxChild): i32
     @symbol("gtk_flow_box_child_is_selected") @lib pub fn gtk_flow_box_child_is_selected(self: GtkFlowBoxChild): i32
+    @symbol("gtk_flow_box_child_set_child") @lib pub fn gtk_flow_box_child_set_child(self: GtkFlowBoxChild, child: GtkWidget)
     @symbol("gtk_font_dialog_new") @lib pub fn gtk_font_dialog_new(): GtkFontDialog
     @symbol("gtk_font_dialog_get_filter") @lib pub fn gtk_font_dialog_get_filter(self: GtkFontDialog): GtkFilter
     @symbol("gtk_font_dialog_get_modal") @lib pub fn gtk_font_dialog_get_modal(self: GtkFontDialog): i32
     @symbol("gtk_font_dialog_get_title") @lib pub fn gtk_font_dialog_get_title(self: GtkFontDialog): *const char
+    @symbol("gtk_font_dialog_set_filter") @lib pub fn gtk_font_dialog_set_filter(self: GtkFontDialog, filter: GtkFilter)
+    @symbol("gtk_font_dialog_set_modal") @lib pub fn gtk_font_dialog_set_modal(self: GtkFontDialog, modal: i32)
+    @symbol("gtk_font_dialog_set_title") @lib pub fn gtk_font_dialog_set_title(self: GtkFontDialog, title: *const char)
     @symbol("gtk_font_dialog_button_new") @lib pub fn gtk_font_dialog_button_new(dialog: GtkFontDialog): GtkWidget
     @symbol("gtk_font_dialog_button_get_dialog") @lib pub fn gtk_font_dialog_button_get_dialog(self: GtkFontDialogButton): GtkFontDialog
     @symbol("gtk_font_dialog_button_get_font_features") @lib pub fn gtk_font_dialog_button_get_font_features(self: GtkFontDialogButton): *const char
     @symbol("gtk_font_dialog_button_get_level") @lib pub fn gtk_font_dialog_button_get_level(self: GtkFontDialogButton): GtkFontLevel
     @symbol("gtk_font_dialog_button_get_use_font") @lib pub fn gtk_font_dialog_button_get_use_font(self: GtkFontDialogButton): i32
     @symbol("gtk_font_dialog_button_get_use_size") @lib pub fn gtk_font_dialog_button_get_use_size(self: GtkFontDialogButton): i32
+    @symbol("gtk_font_dialog_button_set_dialog") @lib pub fn gtk_font_dialog_button_set_dialog(self: GtkFontDialogButton, dialog: GtkFontDialog)
+    @symbol("gtk_font_dialog_button_set_font_features") @lib pub fn gtk_font_dialog_button_set_font_features(self: GtkFontDialogButton, font_features: *const char)
+    @symbol("gtk_font_dialog_button_set_level") @lib pub fn gtk_font_dialog_button_set_level(self: GtkFontDialogButton, level: GtkFontLevel)
+    @symbol("gtk_font_dialog_button_set_use_font") @lib pub fn gtk_font_dialog_button_set_use_font(self: GtkFontDialogButton, use_font: i32)
+    @symbol("gtk_font_dialog_button_set_use_size") @lib pub fn gtk_font_dialog_button_set_use_size(self: GtkFontDialogButton, use_size: i32)
     @symbol("gtk_frame_new") @lib pub fn gtk_frame_new(label: *const char): GtkWidget
     @symbol("gtk_frame_get_child") @lib pub fn gtk_frame_get_child(self: GtkFrame): GtkWidget
     @symbol("gtk_frame_get_label") @lib pub fn gtk_frame_get_label(self: GtkFrame): *const char
     @symbol("gtk_frame_get_label_align") @lib pub fn gtk_frame_get_label_align(self: GtkFrame): f32
     @symbol("gtk_frame_get_label_widget") @lib pub fn gtk_frame_get_label_widget(self: GtkFrame): GtkWidget
+    @symbol("gtk_frame_set_child") @lib pub fn gtk_frame_set_child(self: GtkFrame, child: GtkWidget)
+    @symbol("gtk_frame_set_label") @lib pub fn gtk_frame_set_label(self: GtkFrame, label: *const char)
+    @symbol("gtk_frame_set_label_align") @lib pub fn gtk_frame_set_label_align(self: GtkFrame, xalign: f32)
+    @symbol("gtk_frame_set_label_widget") @lib pub fn gtk_frame_set_label_widget(self: GtkFrame, label_widget: GtkWidget)
     @symbol("gtk_gl_area_new") @lib pub fn gtk_gl_area_new(): GtkWidget
+    @symbol("gtk_gl_area_attach_buffers") @lib pub fn gtk_gl_area_attach_buffers(self: GtkGLArea)
     @symbol("gtk_gl_area_get_allowed_apis") @lib pub fn gtk_gl_area_get_allowed_apis(self: GtkGLArea): GdkGLAPI
     @symbol("gtk_gl_area_get_api") @lib pub fn gtk_gl_area_get_api(self: GtkGLArea): GdkGLAPI
     @symbol("gtk_gl_area_get_auto_render") @lib pub fn gtk_gl_area_get_auto_render(self: GtkGLArea): i32
     @symbol("gtk_gl_area_get_context") @lib pub fn gtk_gl_area_get_context(self: GtkGLArea): GdkGLContext
     @symbol("gtk_gl_area_get_has_depth_buffer") @lib pub fn gtk_gl_area_get_has_depth_buffer(self: GtkGLArea): i32
     @symbol("gtk_gl_area_get_has_stencil_buffer") @lib pub fn gtk_gl_area_get_has_stencil_buffer(self: GtkGLArea): i32
+    @symbol("gtk_gl_area_make_current") @lib pub fn gtk_gl_area_make_current(self: GtkGLArea)
+    @symbol("gtk_gl_area_queue_render") @lib pub fn gtk_gl_area_queue_render(self: GtkGLArea)
+    @symbol("gtk_gl_area_set_allowed_apis") @lib pub fn gtk_gl_area_set_allowed_apis(self: GtkGLArea, apis: GdkGLAPI)
+    @symbol("gtk_gl_area_set_auto_render") @lib pub fn gtk_gl_area_set_auto_render(self: GtkGLArea, auto_render: i32)
+    @symbol("gtk_gl_area_set_has_depth_buffer") @lib pub fn gtk_gl_area_set_has_depth_buffer(self: GtkGLArea, has_depth_buffer: i32)
+    @symbol("gtk_gl_area_set_has_stencil_buffer") @lib pub fn gtk_gl_area_set_has_stencil_buffer(self: GtkGLArea, has_stencil_buffer: i32)
+    @symbol("gtk_gl_area_set_required_version") @lib pub fn gtk_gl_area_set_required_version(self: GtkGLArea, major: i32, minor: i32)
     @symbol("gtk_gesture_get_device") @lib pub fn gtk_gesture_get_device(self: GtkGesture): GdkDevice
     @symbol("gtk_gesture_get_group") @lib pub fn gtk_gesture_get_group(self: GtkGesture): GtkGesture
     @symbol("gtk_gesture_get_last_event") @lib pub fn gtk_gesture_get_last_event(self: GtkGesture, sequence: GdkEventSequence): GdkEvent
     @symbol("gtk_gesture_get_last_updated_sequence") @lib pub fn gtk_gesture_get_last_updated_sequence(self: GtkGesture): GdkEventSequence
     @symbol("gtk_gesture_get_sequence_state") @lib pub fn gtk_gesture_get_sequence_state(self: GtkGesture, sequence: GdkEventSequence): GtkEventSequenceState
     @symbol("gtk_gesture_get_sequences") @lib pub fn gtk_gesture_get_sequences(self: GtkGesture): GdkEventSequence
+    @symbol("gtk_gesture_group") @lib pub fn gtk_gesture_group(self: GtkGesture, gesture: GtkGesture)
     @symbol("gtk_gesture_handles_sequence") @lib pub fn gtk_gesture_handles_sequence(self: GtkGesture, sequence: GdkEventSequence): i32
     @symbol("gtk_gesture_is_active") @lib pub fn gtk_gesture_is_active(self: GtkGesture): i32
     @symbol("gtk_gesture_is_grouped_with") @lib pub fn gtk_gesture_is_grouped_with(self: GtkGesture, other: GtkGesture): i32
     @symbol("gtk_gesture_is_recognized") @lib pub fn gtk_gesture_is_recognized(self: GtkGesture): i32
     @symbol("gtk_gesture_set_state") @lib pub fn gtk_gesture_set_state(self: GtkGesture, state: GtkEventSequenceState): i32
+    @symbol("gtk_gesture_ungroup") @lib pub fn gtk_gesture_ungroup(self: GtkGesture)
     @symbol("gtk_gesture_click_new") @lib pub fn gtk_gesture_click_new(): GtkGesture
     @symbol("gtk_gesture_drag_new") @lib pub fn gtk_gesture_drag_new(): GtkGesture
     @symbol("gtk_gesture_long_press_new") @lib pub fn gtk_gesture_long_press_new(): GtkGesture
     @symbol("gtk_gesture_long_press_get_delay_factor") @lib pub fn gtk_gesture_long_press_get_delay_factor(self: GtkGestureLongPress): f64
+    @symbol("gtk_gesture_long_press_set_delay_factor") @lib pub fn gtk_gesture_long_press_set_delay_factor(self: GtkGestureLongPress, delay_factor: f64)
     @symbol("gtk_gesture_pan_new") @lib pub fn gtk_gesture_pan_new(orientation: GtkOrientation): GtkGesture
     @symbol("gtk_gesture_pan_get_orientation") @lib pub fn gtk_gesture_pan_get_orientation(self: GtkGesturePan): GtkOrientation
+    @symbol("gtk_gesture_pan_set_orientation") @lib pub fn gtk_gesture_pan_set_orientation(self: GtkGesturePan, orientation: GtkOrientation)
     @symbol("gtk_gesture_rotate_new") @lib pub fn gtk_gesture_rotate_new(): GtkGesture
     @symbol("gtk_gesture_rotate_get_angle_delta") @lib pub fn gtk_gesture_rotate_get_angle_delta(self: GtkGestureRotate): f64
     @symbol("gtk_gesture_single_get_button") @lib pub fn gtk_gesture_single_get_button(self: GtkGestureSingle): u32
@@ -1969,9 +2251,13 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_gesture_single_get_current_sequence") @lib pub fn gtk_gesture_single_get_current_sequence(self: GtkGestureSingle): GdkEventSequence
     @symbol("gtk_gesture_single_get_exclusive") @lib pub fn gtk_gesture_single_get_exclusive(self: GtkGestureSingle): i32
     @symbol("gtk_gesture_single_get_touch_only") @lib pub fn gtk_gesture_single_get_touch_only(self: GtkGestureSingle): i32
+    @symbol("gtk_gesture_single_set_button") @lib pub fn gtk_gesture_single_set_button(self: GtkGestureSingle, button: u32)
+    @symbol("gtk_gesture_single_set_exclusive") @lib pub fn gtk_gesture_single_set_exclusive(self: GtkGestureSingle, exclusive: i32)
+    @symbol("gtk_gesture_single_set_touch_only") @lib pub fn gtk_gesture_single_set_touch_only(self: GtkGestureSingle, touch_only: i32)
     @symbol("gtk_gesture_stylus_new") @lib pub fn gtk_gesture_stylus_new(): GtkGesture
     @symbol("gtk_gesture_stylus_get_device_tool") @lib pub fn gtk_gesture_stylus_get_device_tool(self: GtkGestureStylus): GdkDeviceTool
     @symbol("gtk_gesture_stylus_get_stylus_only") @lib pub fn gtk_gesture_stylus_get_stylus_only(self: GtkGestureStylus): i32
+    @symbol("gtk_gesture_stylus_set_stylus_only") @lib pub fn gtk_gesture_stylus_set_stylus_only(self: GtkGestureStylus, stylus_only: i32)
     @symbol("gtk_gesture_swipe_new") @lib pub fn gtk_gesture_swipe_new(): GtkGesture
     @symbol("gtk_gesture_zoom_new") @lib pub fn gtk_gesture_zoom_new(): GtkGesture
     @symbol("gtk_gesture_zoom_get_scale_delta") @lib pub fn gtk_gesture_zoom_get_scale_delta(self: GtkGestureZoom): f64
@@ -1979,7 +2265,12 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_graphics_offload_get_black_background") @lib pub fn gtk_graphics_offload_get_black_background(self: GtkGraphicsOffload): i32
     @symbol("gtk_graphics_offload_get_child") @lib pub fn gtk_graphics_offload_get_child(self: GtkGraphicsOffload): GtkWidget
     @symbol("gtk_graphics_offload_get_enabled") @lib pub fn gtk_graphics_offload_get_enabled(self: GtkGraphicsOffload): GtkGraphicsOffloadEnabled
+    @symbol("gtk_graphics_offload_set_black_background") @lib pub fn gtk_graphics_offload_set_black_background(self: GtkGraphicsOffload, value: i32)
+    @symbol("gtk_graphics_offload_set_child") @lib pub fn gtk_graphics_offload_set_child(self: GtkGraphicsOffload, child: GtkWidget)
+    @symbol("gtk_graphics_offload_set_enabled") @lib pub fn gtk_graphics_offload_set_enabled(self: GtkGraphicsOffload, enabled: GtkGraphicsOffloadEnabled)
     @symbol("gtk_grid_new") @lib pub fn gtk_grid_new(): GtkWidget
+    @symbol("gtk_grid_attach") @lib pub fn gtk_grid_attach(self: GtkGrid, child: GtkWidget, column: i32, row: i32, width: i32, height: i32)
+    @symbol("gtk_grid_attach_next_to") @lib pub fn gtk_grid_attach_next_to(self: GtkGrid, child: GtkWidget, sibling: GtkWidget, side: GtkPositionType, width: i32, height: i32)
     @symbol("gtk_grid_get_baseline_row") @lib pub fn gtk_grid_get_baseline_row(self: GtkGrid): i32
     @symbol("gtk_grid_get_child_at") @lib pub fn gtk_grid_get_child_at(self: GtkGrid, column: i32, row: i32): GtkWidget
     @symbol("gtk_grid_get_column_homogeneous") @lib pub fn gtk_grid_get_column_homogeneous(self: GtkGrid): i32
@@ -1987,6 +2278,18 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_grid_get_row_baseline_position") @lib pub fn gtk_grid_get_row_baseline_position(self: GtkGrid, row: i32): GtkBaselinePosition
     @symbol("gtk_grid_get_row_homogeneous") @lib pub fn gtk_grid_get_row_homogeneous(self: GtkGrid): i32
     @symbol("gtk_grid_get_row_spacing") @lib pub fn gtk_grid_get_row_spacing(self: GtkGrid): u32
+    @symbol("gtk_grid_insert_column") @lib pub fn gtk_grid_insert_column(self: GtkGrid, position: i32)
+    @symbol("gtk_grid_insert_next_to") @lib pub fn gtk_grid_insert_next_to(self: GtkGrid, sibling: GtkWidget, side: GtkPositionType)
+    @symbol("gtk_grid_insert_row") @lib pub fn gtk_grid_insert_row(self: GtkGrid, position: i32)
+    @symbol("gtk_grid_remove") @lib pub fn gtk_grid_remove(self: GtkGrid, child: GtkWidget)
+    @symbol("gtk_grid_remove_column") @lib pub fn gtk_grid_remove_column(self: GtkGrid, position: i32)
+    @symbol("gtk_grid_remove_row") @lib pub fn gtk_grid_remove_row(self: GtkGrid, position: i32)
+    @symbol("gtk_grid_set_baseline_row") @lib pub fn gtk_grid_set_baseline_row(self: GtkGrid, row: i32)
+    @symbol("gtk_grid_set_column_homogeneous") @lib pub fn gtk_grid_set_column_homogeneous(self: GtkGrid, homogeneous: i32)
+    @symbol("gtk_grid_set_column_spacing") @lib pub fn gtk_grid_set_column_spacing(self: GtkGrid, spacing: u32)
+    @symbol("gtk_grid_set_row_baseline_position") @lib pub fn gtk_grid_set_row_baseline_position(self: GtkGrid, row: i32, pos: GtkBaselinePosition)
+    @symbol("gtk_grid_set_row_homogeneous") @lib pub fn gtk_grid_set_row_homogeneous(self: GtkGrid, homogeneous: i32)
+    @symbol("gtk_grid_set_row_spacing") @lib pub fn gtk_grid_set_row_spacing(self: GtkGrid, spacing: u32)
     @symbol("gtk_grid_layout_new") @lib pub fn gtk_grid_layout_new(): GtkLayoutManager
     @symbol("gtk_grid_layout_get_baseline_row") @lib pub fn gtk_grid_layout_get_baseline_row(self: GtkGridLayout): i32
     @symbol("gtk_grid_layout_get_column_homogeneous") @lib pub fn gtk_grid_layout_get_column_homogeneous(self: GtkGridLayout): i32
@@ -1994,29 +2297,64 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_grid_layout_get_row_baseline_position") @lib pub fn gtk_grid_layout_get_row_baseline_position(self: GtkGridLayout, row: i32): GtkBaselinePosition
     @symbol("gtk_grid_layout_get_row_homogeneous") @lib pub fn gtk_grid_layout_get_row_homogeneous(self: GtkGridLayout): i32
     @symbol("gtk_grid_layout_get_row_spacing") @lib pub fn gtk_grid_layout_get_row_spacing(self: GtkGridLayout): u32
+    @symbol("gtk_grid_layout_set_baseline_row") @lib pub fn gtk_grid_layout_set_baseline_row(self: GtkGridLayout, row: i32)
+    @symbol("gtk_grid_layout_set_column_homogeneous") @lib pub fn gtk_grid_layout_set_column_homogeneous(self: GtkGridLayout, homogeneous: i32)
+    @symbol("gtk_grid_layout_set_column_spacing") @lib pub fn gtk_grid_layout_set_column_spacing(self: GtkGridLayout, spacing: u32)
+    @symbol("gtk_grid_layout_set_row_baseline_position") @lib pub fn gtk_grid_layout_set_row_baseline_position(self: GtkGridLayout, row: i32, pos: GtkBaselinePosition)
+    @symbol("gtk_grid_layout_set_row_homogeneous") @lib pub fn gtk_grid_layout_set_row_homogeneous(self: GtkGridLayout, homogeneous: i32)
+    @symbol("gtk_grid_layout_set_row_spacing") @lib pub fn gtk_grid_layout_set_row_spacing(self: GtkGridLayout, spacing: u32)
     @symbol("gtk_grid_layout_child_get_column") @lib pub fn gtk_grid_layout_child_get_column(self: GtkGridLayoutChild): i32
     @symbol("gtk_grid_layout_child_get_column_span") @lib pub fn gtk_grid_layout_child_get_column_span(self: GtkGridLayoutChild): i32
     @symbol("gtk_grid_layout_child_get_row") @lib pub fn gtk_grid_layout_child_get_row(self: GtkGridLayoutChild): i32
     @symbol("gtk_grid_layout_child_get_row_span") @lib pub fn gtk_grid_layout_child_get_row_span(self: GtkGridLayoutChild): i32
+    @symbol("gtk_grid_layout_child_set_column") @lib pub fn gtk_grid_layout_child_set_column(self: GtkGridLayoutChild, column: i32)
+    @symbol("gtk_grid_layout_child_set_column_span") @lib pub fn gtk_grid_layout_child_set_column_span(self: GtkGridLayoutChild, span: i32)
+    @symbol("gtk_grid_layout_child_set_row") @lib pub fn gtk_grid_layout_child_set_row(self: GtkGridLayoutChild, row: i32)
+    @symbol("gtk_grid_layout_child_set_row_span") @lib pub fn gtk_grid_layout_child_set_row_span(self: GtkGridLayoutChild, span: i32)
     @symbol("gtk_grid_view_get_enable_rubberband") @lib pub fn gtk_grid_view_get_enable_rubberband(self: GtkGridView): i32
     @symbol("gtk_grid_view_get_factory") @lib pub fn gtk_grid_view_get_factory(self: GtkGridView): GtkListItemFactory
     @symbol("gtk_grid_view_get_max_columns") @lib pub fn gtk_grid_view_get_max_columns(self: GtkGridView): u32
     @symbol("gtk_grid_view_get_min_columns") @lib pub fn gtk_grid_view_get_min_columns(self: GtkGridView): u32
     @symbol("gtk_grid_view_get_single_click_activate") @lib pub fn gtk_grid_view_get_single_click_activate(self: GtkGridView): i32
     @symbol("gtk_grid_view_get_tab_behavior") @lib pub fn gtk_grid_view_get_tab_behavior(self: GtkGridView): GtkListTabBehavior
+    @symbol("gtk_grid_view_scroll_to") @lib pub fn gtk_grid_view_scroll_to(self: GtkGridView, pos: u32, flags: GtkListScrollFlags, scroll: GtkScrollInfo)
+    @symbol("gtk_grid_view_set_enable_rubberband") @lib pub fn gtk_grid_view_set_enable_rubberband(self: GtkGridView, enable_rubberband: i32)
+    @symbol("gtk_grid_view_set_factory") @lib pub fn gtk_grid_view_set_factory(self: GtkGridView, factory: GtkListItemFactory)
+    @symbol("gtk_grid_view_set_max_columns") @lib pub fn gtk_grid_view_set_max_columns(self: GtkGridView, max_columns: u32)
+    @symbol("gtk_grid_view_set_min_columns") @lib pub fn gtk_grid_view_set_min_columns(self: GtkGridView, min_columns: u32)
+    @symbol("gtk_grid_view_set_single_click_activate") @lib pub fn gtk_grid_view_set_single_click_activate(self: GtkGridView, single_click_activate: i32)
+    @symbol("gtk_grid_view_set_tab_behavior") @lib pub fn gtk_grid_view_set_tab_behavior(self: GtkGridView, tab_behavior: GtkListTabBehavior)
     @symbol("gtk_header_bar_new") @lib pub fn gtk_header_bar_new(): GtkWidget
     @symbol("gtk_header_bar_get_decoration_layout") @lib pub fn gtk_header_bar_get_decoration_layout(self: GtkHeaderBar): *const char
     @symbol("gtk_header_bar_get_show_title_buttons") @lib pub fn gtk_header_bar_get_show_title_buttons(self: GtkHeaderBar): i32
     @symbol("gtk_header_bar_get_title_widget") @lib pub fn gtk_header_bar_get_title_widget(self: GtkHeaderBar): GtkWidget
     @symbol("gtk_header_bar_get_use_native_controls") @lib pub fn gtk_header_bar_get_use_native_controls(self: GtkHeaderBar): i32
+    @symbol("gtk_header_bar_pack_end") @lib pub fn gtk_header_bar_pack_end(self: GtkHeaderBar, child: GtkWidget)
+    @symbol("gtk_header_bar_pack_start") @lib pub fn gtk_header_bar_pack_start(self: GtkHeaderBar, child: GtkWidget)
+    @symbol("gtk_header_bar_remove") @lib pub fn gtk_header_bar_remove(self: GtkHeaderBar, child: GtkWidget)
+    @symbol("gtk_header_bar_set_decoration_layout") @lib pub fn gtk_header_bar_set_decoration_layout(self: GtkHeaderBar, layout: *const char)
+    @symbol("gtk_header_bar_set_show_title_buttons") @lib pub fn gtk_header_bar_set_show_title_buttons(self: GtkHeaderBar, setting: i32)
+    @symbol("gtk_header_bar_set_title_widget") @lib pub fn gtk_header_bar_set_title_widget(self: GtkHeaderBar, title_widget: GtkWidget)
+    @symbol("gtk_header_bar_set_use_native_controls") @lib pub fn gtk_header_bar_set_use_native_controls(self: GtkHeaderBar, setting: i32)
     @symbol("gtk_im_context_activate_osk") @lib pub fn gtk_im_context_activate_osk(self: GtkIMContext, event: GdkEvent): i32
     @symbol("gtk_im_context_delete_surrounding") @lib pub fn gtk_im_context_delete_surrounding(self: GtkIMContext, offset: i32, n_chars: i32): i32
     @symbol("gtk_im_context_filter_key") @lib pub fn gtk_im_context_filter_key(self: GtkIMContext, press: i32, surface: GdkSurface, device: GdkDevice, time: u32, keycode: u32, state: GdkModifierType, group: i32): i32
     @symbol("gtk_im_context_filter_keypress") @lib pub fn gtk_im_context_filter_keypress(self: GtkIMContext, event: GdkEvent): i32
+    @symbol("gtk_im_context_focus_in") @lib pub fn gtk_im_context_focus_in(self: GtkIMContext)
+    @symbol("gtk_im_context_focus_out") @lib pub fn gtk_im_context_focus_out(self: GtkIMContext)
+    @symbol("gtk_im_context_reset") @lib pub fn gtk_im_context_reset(self: GtkIMContext)
+    @symbol("gtk_im_context_set_client_widget") @lib pub fn gtk_im_context_set_client_widget(self: GtkIMContext, widget: GtkWidget)
+    @symbol("gtk_im_context_set_cursor_location") @lib pub fn gtk_im_context_set_cursor_location(self: GtkIMContext, area: GdkRectangle)
+    @symbol("gtk_im_context_set_surrounding_with_selection") @lib pub fn gtk_im_context_set_surrounding_with_selection(self: GtkIMContext, text: *const char, len: i32, cursor_index: i32, anchor_index: i32)
+    @symbol("gtk_im_context_set_use_preedit") @lib pub fn gtk_im_context_set_use_preedit(self: GtkIMContext, use_preedit: i32)
     @symbol("gtk_im_context_simple_new") @lib pub fn gtk_im_context_simple_new(): GtkIMContext
+    @symbol("gtk_im_context_simple_add_compose_file") @lib pub fn gtk_im_context_simple_add_compose_file(self: GtkIMContextSimple, compose_file: *const char)
     @symbol("gtk_im_multicontext_new") @lib pub fn gtk_im_multicontext_new(): GtkIMContext
     @symbol("gtk_im_multicontext_get_context_id") @lib pub fn gtk_im_multicontext_get_context_id(self: GtkIMMulticontext): *const char
+    @symbol("gtk_im_multicontext_set_context_id") @lib pub fn gtk_im_multicontext_set_context_id(self: GtkIMMulticontext, context_id: *const char)
     @symbol("gtk_icon_theme_new") @lib pub fn gtk_icon_theme_new(): GtkIconTheme
+    @symbol("gtk_icon_theme_add_resource_path") @lib pub fn gtk_icon_theme_add_resource_path(self: GtkIconTheme, path: *const char)
+    @symbol("gtk_icon_theme_add_search_path") @lib pub fn gtk_icon_theme_add_search_path(self: GtkIconTheme, path: *const char)
     @symbol("gtk_icon_theme_get_display") @lib pub fn gtk_icon_theme_get_display(self: GtkIconTheme): GdkDisplay
     @symbol("gtk_icon_theme_get_icon_names") @lib pub fn gtk_icon_theme_get_icon_names(self: GtkIconTheme): *const char
     @symbol("gtk_icon_theme_get_icon_sizes") @lib pub fn gtk_icon_theme_get_icon_sizes(self: GtkIconTheme, icon_name: *const char): i32
@@ -2025,15 +2363,24 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_icon_theme_get_theme_name") @lib pub fn gtk_icon_theme_get_theme_name(self: GtkIconTheme): *const char
     @symbol("gtk_icon_theme_has_icon") @lib pub fn gtk_icon_theme_has_icon(self: GtkIconTheme, icon_name: *const char): i32
     @symbol("gtk_icon_theme_lookup_icon") @lib pub fn gtk_icon_theme_lookup_icon(self: GtkIconTheme, icon_name: *const char, fallbacks: *const char, size: i32, scale: i32, direction: GtkTextDirection, flags: GtkIconLookupFlags): GtkIconPaintable
+    @symbol("gtk_icon_theme_set_resource_path") @lib pub fn gtk_icon_theme_set_resource_path(self: GtkIconTheme, path: *const char)
+    @symbol("gtk_icon_theme_set_search_path") @lib pub fn gtk_icon_theme_set_search_path(self: GtkIconTheme, path: *const char)
+    @symbol("gtk_icon_theme_set_theme_name") @lib pub fn gtk_icon_theme_set_theme_name(self: GtkIconTheme, theme_name: *const char)
     @symbol("gtk_icon_theme_get_for_display") @lib pub fn gtk_icon_theme_get_for_display(display: GdkDisplay): GtkIconTheme
     @symbol("gtk_image_new") @lib pub fn gtk_image_new(): GtkWidget
     @symbol("gtk_image_new_from_file") @lib pub fn gtk_image_new_from_file(filename: *const char): GtkWidget
     @symbol("gtk_image_new_from_icon_name") @lib pub fn gtk_image_new_from_icon_name(icon_name: *const char): GtkWidget
     @symbol("gtk_image_new_from_resource") @lib pub fn gtk_image_new_from_resource(resource_path: *const char): GtkWidget
+    @symbol("gtk_image_clear") @lib pub fn gtk_image_clear(self: GtkImage)
     @symbol("gtk_image_get_icon_name") @lib pub fn gtk_image_get_icon_name(self: GtkImage): *const char
     @symbol("gtk_image_get_icon_size") @lib pub fn gtk_image_get_icon_size(self: GtkImage): GtkIconSize
     @symbol("gtk_image_get_pixel_size") @lib pub fn gtk_image_get_pixel_size(self: GtkImage): i32
     @symbol("gtk_image_get_storage_type") @lib pub fn gtk_image_get_storage_type(self: GtkImage): GtkImageType
+    @symbol("gtk_image_set_from_file") @lib pub fn gtk_image_set_from_file(self: GtkImage, filename: *const char)
+    @symbol("gtk_image_set_from_icon_name") @lib pub fn gtk_image_set_from_icon_name(self: GtkImage, icon_name: *const char)
+    @symbol("gtk_image_set_from_resource") @lib pub fn gtk_image_set_from_resource(self: GtkImage, resource_path: *const char)
+    @symbol("gtk_image_set_icon_size") @lib pub fn gtk_image_set_icon_size(self: GtkImage, icon_size: GtkIconSize)
+    @symbol("gtk_image_set_pixel_size") @lib pub fn gtk_image_set_pixel_size(self: GtkImage, pixel_size: i32)
     @symbol("gtk_inscription_new") @lib pub fn gtk_inscription_new(text: *const char): GtkWidget
     @symbol("gtk_inscription_get_min_chars") @lib pub fn gtk_inscription_get_min_chars(self: GtkInscription): u32
     @symbol("gtk_inscription_get_min_lines") @lib pub fn gtk_inscription_get_min_lines(self: GtkInscription): u32
@@ -2043,6 +2390,15 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_inscription_get_text_overflow") @lib pub fn gtk_inscription_get_text_overflow(self: GtkInscription): GtkInscriptionOverflow
     @symbol("gtk_inscription_get_xalign") @lib pub fn gtk_inscription_get_xalign(self: GtkInscription): f32
     @symbol("gtk_inscription_get_yalign") @lib pub fn gtk_inscription_get_yalign(self: GtkInscription): f32
+    @symbol("gtk_inscription_set_markup") @lib pub fn gtk_inscription_set_markup(self: GtkInscription, markup: *const char)
+    @symbol("gtk_inscription_set_min_chars") @lib pub fn gtk_inscription_set_min_chars(self: GtkInscription, min_chars: u32)
+    @symbol("gtk_inscription_set_min_lines") @lib pub fn gtk_inscription_set_min_lines(self: GtkInscription, min_lines: u32)
+    @symbol("gtk_inscription_set_nat_chars") @lib pub fn gtk_inscription_set_nat_chars(self: GtkInscription, nat_chars: u32)
+    @symbol("gtk_inscription_set_nat_lines") @lib pub fn gtk_inscription_set_nat_lines(self: GtkInscription, nat_lines: u32)
+    @symbol("gtk_inscription_set_text") @lib pub fn gtk_inscription_set_text(self: GtkInscription, text: *const char)
+    @symbol("gtk_inscription_set_text_overflow") @lib pub fn gtk_inscription_set_text_overflow(self: GtkInscription, overflow: GtkInscriptionOverflow)
+    @symbol("gtk_inscription_set_xalign") @lib pub fn gtk_inscription_set_xalign(self: GtkInscription, xalign: f32)
+    @symbol("gtk_inscription_set_yalign") @lib pub fn gtk_inscription_set_yalign(self: GtkInscription, yalign: f32)
     @symbol("gtk_keyval_trigger_new") @lib pub fn gtk_keyval_trigger_new(keyval: u32, modifiers: GdkModifierType): GtkShortcutTrigger
     @symbol("gtk_keyval_trigger_get_keyval") @lib pub fn gtk_keyval_trigger_get_keyval(self: GtkKeyvalTrigger): u32
     @symbol("gtk_keyval_trigger_get_modifiers") @lib pub fn gtk_keyval_trigger_get_modifiers(self: GtkKeyvalTrigger): GdkModifierType
@@ -2066,23 +2422,57 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_label_get_wrap") @lib pub fn gtk_label_get_wrap(self: GtkLabel): i32
     @symbol("gtk_label_get_xalign") @lib pub fn gtk_label_get_xalign(self: GtkLabel): f32
     @symbol("gtk_label_get_yalign") @lib pub fn gtk_label_get_yalign(self: GtkLabel): f32
+    @symbol("gtk_label_select_region") @lib pub fn gtk_label_select_region(self: GtkLabel, start_offset: i32, end_offset: i32)
+    @symbol("gtk_label_set_extra_menu") @lib pub fn gtk_label_set_extra_menu(self: GtkLabel, model: GMenuModel)
+    @symbol("gtk_label_set_justify") @lib pub fn gtk_label_set_justify(self: GtkLabel, jtype: GtkJustification)
+    @symbol("gtk_label_set_label") @lib pub fn gtk_label_set_label(self: GtkLabel, str: *const char)
+    @symbol("gtk_label_set_lines") @lib pub fn gtk_label_set_lines(self: GtkLabel, lines: i32)
+    @symbol("gtk_label_set_markup") @lib pub fn gtk_label_set_markup(self: GtkLabel, str: *const char)
+    @symbol("gtk_label_set_markup_with_mnemonic") @lib pub fn gtk_label_set_markup_with_mnemonic(self: GtkLabel, str: *const char)
+    @symbol("gtk_label_set_max_width_chars") @lib pub fn gtk_label_set_max_width_chars(self: GtkLabel, n_chars: i32)
+    @symbol("gtk_label_set_mnemonic_widget") @lib pub fn gtk_label_set_mnemonic_widget(self: GtkLabel, widget: GtkWidget)
+    @symbol("gtk_label_set_natural_wrap_mode") @lib pub fn gtk_label_set_natural_wrap_mode(self: GtkLabel, wrap_mode: GtkNaturalWrapMode)
+    @symbol("gtk_label_set_selectable") @lib pub fn gtk_label_set_selectable(self: GtkLabel, setting: i32)
+    @symbol("gtk_label_set_single_line_mode") @lib pub fn gtk_label_set_single_line_mode(self: GtkLabel, single_line_mode: i32)
+    @symbol("gtk_label_set_text") @lib pub fn gtk_label_set_text(self: GtkLabel, str: *const char)
+    @symbol("gtk_label_set_text_with_mnemonic") @lib pub fn gtk_label_set_text_with_mnemonic(self: GtkLabel, str: *const char)
+    @symbol("gtk_label_set_use_markup") @lib pub fn gtk_label_set_use_markup(self: GtkLabel, setting: i32)
+    @symbol("gtk_label_set_use_underline") @lib pub fn gtk_label_set_use_underline(self: GtkLabel, setting: i32)
+    @symbol("gtk_label_set_width_chars") @lib pub fn gtk_label_set_width_chars(self: GtkLabel, n_chars: i32)
+    @symbol("gtk_label_set_wrap") @lib pub fn gtk_label_set_wrap(self: GtkLabel, wrap: i32)
+    @symbol("gtk_label_set_xalign") @lib pub fn gtk_label_set_xalign(self: GtkLabel, xalign: f32)
+    @symbol("gtk_label_set_yalign") @lib pub fn gtk_label_set_yalign(self: GtkLabel, yalign: f32)
     @symbol("gtk_layout_child_get_child_widget") @lib pub fn gtk_layout_child_get_child_widget(self: GtkLayoutChild): GtkWidget
     @symbol("gtk_layout_child_get_layout_manager") @lib pub fn gtk_layout_child_get_layout_manager(self: GtkLayoutChild): GtkLayoutManager
+    @symbol("gtk_layout_manager_allocate") @lib pub fn gtk_layout_manager_allocate(self: GtkLayoutManager, widget: GtkWidget, width: i32, height: i32, baseline: i32)
     @symbol("gtk_layout_manager_get_layout_child") @lib pub fn gtk_layout_manager_get_layout_child(self: GtkLayoutManager, child: GtkWidget): GtkLayoutChild
     @symbol("gtk_layout_manager_get_request_mode") @lib pub fn gtk_layout_manager_get_request_mode(self: GtkLayoutManager): GtkSizeRequestMode
     @symbol("gtk_layout_manager_get_widget") @lib pub fn gtk_layout_manager_get_widget(self: GtkLayoutManager): GtkWidget
+    @symbol("gtk_layout_manager_layout_changed") @lib pub fn gtk_layout_manager_layout_changed(self: GtkLayoutManager)
     @symbol("gtk_level_bar_new") @lib pub fn gtk_level_bar_new(): GtkWidget
     @symbol("gtk_level_bar_new_for_interval") @lib pub fn gtk_level_bar_new_for_interval(min_value: f64, max_value: f64): GtkWidget
+    @symbol("gtk_level_bar_add_offset_value") @lib pub fn gtk_level_bar_add_offset_value(self: GtkLevelBar, name: *const char, value: f64)
     @symbol("gtk_level_bar_get_inverted") @lib pub fn gtk_level_bar_get_inverted(self: GtkLevelBar): i32
     @symbol("gtk_level_bar_get_max_value") @lib pub fn gtk_level_bar_get_max_value(self: GtkLevelBar): f64
     @symbol("gtk_level_bar_get_min_value") @lib pub fn gtk_level_bar_get_min_value(self: GtkLevelBar): f64
     @symbol("gtk_level_bar_get_mode") @lib pub fn gtk_level_bar_get_mode(self: GtkLevelBar): GtkLevelBarMode
     @symbol("gtk_level_bar_get_value") @lib pub fn gtk_level_bar_get_value(self: GtkLevelBar): f64
+    @symbol("gtk_level_bar_remove_offset_value") @lib pub fn gtk_level_bar_remove_offset_value(self: GtkLevelBar, name: *const char)
+    @symbol("gtk_level_bar_set_inverted") @lib pub fn gtk_level_bar_set_inverted(self: GtkLevelBar, inverted: i32)
+    @symbol("gtk_level_bar_set_max_value") @lib pub fn gtk_level_bar_set_max_value(self: GtkLevelBar, value: f64)
+    @symbol("gtk_level_bar_set_min_value") @lib pub fn gtk_level_bar_set_min_value(self: GtkLevelBar, value: f64)
+    @symbol("gtk_level_bar_set_mode") @lib pub fn gtk_level_bar_set_mode(self: GtkLevelBar, mode: GtkLevelBarMode)
+    @symbol("gtk_level_bar_set_value") @lib pub fn gtk_level_bar_set_value(self: GtkLevelBar, value: f64)
     @symbol("gtk_link_button_new") @lib pub fn gtk_link_button_new(uri: *const char): GtkWidget
     @symbol("gtk_link_button_new_with_label") @lib pub fn gtk_link_button_new_with_label(uri: *const char, label: *const char): GtkWidget
     @symbol("gtk_link_button_get_uri") @lib pub fn gtk_link_button_get_uri(self: GtkLinkButton): *const char
     @symbol("gtk_link_button_get_visited") @lib pub fn gtk_link_button_get_visited(self: GtkLinkButton): i32
+    @symbol("gtk_link_button_set_uri") @lib pub fn gtk_link_button_set_uri(self: GtkLinkButton, uri: *const char)
+    @symbol("gtk_link_button_set_visited") @lib pub fn gtk_link_button_set_visited(self: GtkLinkButton, visited: i32)
     @symbol("gtk_list_box_new") @lib pub fn gtk_list_box_new(): GtkWidget
+    @symbol("gtk_list_box_append") @lib pub fn gtk_list_box_append(self: GtkListBox, child: GtkWidget)
+    @symbol("gtk_list_box_drag_highlight_row") @lib pub fn gtk_list_box_drag_highlight_row(self: GtkListBox, row: GtkListBoxRow)
+    @symbol("gtk_list_box_drag_unhighlight_row") @lib pub fn gtk_list_box_drag_unhighlight_row(self: GtkListBox)
     @symbol("gtk_list_box_get_activate_on_single_click") @lib pub fn gtk_list_box_get_activate_on_single_click(self: GtkListBox): i32
     @symbol("gtk_list_box_get_adjustment") @lib pub fn gtk_list_box_get_adjustment(self: GtkListBox): GtkAdjustment
     @symbol("gtk_list_box_get_row_at_index") @lib pub fn gtk_list_box_get_row_at_index(self: GtkListBox, index_: i32): GtkListBoxRow
@@ -2092,18 +2482,41 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_list_box_get_selection_mode") @lib pub fn gtk_list_box_get_selection_mode(self: GtkListBox): GtkSelectionMode
     @symbol("gtk_list_box_get_show_separators") @lib pub fn gtk_list_box_get_show_separators(self: GtkListBox): i32
     @symbol("gtk_list_box_get_tab_behavior") @lib pub fn gtk_list_box_get_tab_behavior(self: GtkListBox): GtkListTabBehavior
+    @symbol("gtk_list_box_insert") @lib pub fn gtk_list_box_insert(self: GtkListBox, child: GtkWidget, position: i32)
+    @symbol("gtk_list_box_invalidate_filter") @lib pub fn gtk_list_box_invalidate_filter(self: GtkListBox)
+    @symbol("gtk_list_box_invalidate_headers") @lib pub fn gtk_list_box_invalidate_headers(self: GtkListBox)
+    @symbol("gtk_list_box_invalidate_sort") @lib pub fn gtk_list_box_invalidate_sort(self: GtkListBox)
+    @symbol("gtk_list_box_prepend") @lib pub fn gtk_list_box_prepend(self: GtkListBox, child: GtkWidget)
+    @symbol("gtk_list_box_remove") @lib pub fn gtk_list_box_remove(self: GtkListBox, child: GtkWidget)
+    @symbol("gtk_list_box_remove_all") @lib pub fn gtk_list_box_remove_all(self: GtkListBox)
+    @symbol("gtk_list_box_select_all") @lib pub fn gtk_list_box_select_all(self: GtkListBox)
+    @symbol("gtk_list_box_select_row") @lib pub fn gtk_list_box_select_row(self: GtkListBox, row: GtkListBoxRow)
+    @symbol("gtk_list_box_set_activate_on_single_click") @lib pub fn gtk_list_box_set_activate_on_single_click(self: GtkListBox, single: i32)
+    @symbol("gtk_list_box_set_adjustment") @lib pub fn gtk_list_box_set_adjustment(self: GtkListBox, adjustment: GtkAdjustment)
+    @symbol("gtk_list_box_set_placeholder") @lib pub fn gtk_list_box_set_placeholder(self: GtkListBox, placeholder: GtkWidget)
+    @symbol("gtk_list_box_set_selection_mode") @lib pub fn gtk_list_box_set_selection_mode(self: GtkListBox, mode: GtkSelectionMode)
+    @symbol("gtk_list_box_set_show_separators") @lib pub fn gtk_list_box_set_show_separators(self: GtkListBox, show_separators: i32)
+    @symbol("gtk_list_box_set_tab_behavior") @lib pub fn gtk_list_box_set_tab_behavior(self: GtkListBox, behavior: GtkListTabBehavior)
+    @symbol("gtk_list_box_unselect_all") @lib pub fn gtk_list_box_unselect_all(self: GtkListBox)
+    @symbol("gtk_list_box_unselect_row") @lib pub fn gtk_list_box_unselect_row(self: GtkListBox, row: GtkListBoxRow)
     @symbol("gtk_list_box_row_new") @lib pub fn gtk_list_box_row_new(): GtkWidget
+    @symbol("gtk_list_box_row_changed") @lib pub fn gtk_list_box_row_changed(self: GtkListBoxRow)
     @symbol("gtk_list_box_row_get_activatable") @lib pub fn gtk_list_box_row_get_activatable(self: GtkListBoxRow): i32
     @symbol("gtk_list_box_row_get_child") @lib pub fn gtk_list_box_row_get_child(self: GtkListBoxRow): GtkWidget
     @symbol("gtk_list_box_row_get_header") @lib pub fn gtk_list_box_row_get_header(self: GtkListBoxRow): GtkWidget
     @symbol("gtk_list_box_row_get_index") @lib pub fn gtk_list_box_row_get_index(self: GtkListBoxRow): i32
     @symbol("gtk_list_box_row_get_selectable") @lib pub fn gtk_list_box_row_get_selectable(self: GtkListBoxRow): i32
     @symbol("gtk_list_box_row_is_selected") @lib pub fn gtk_list_box_row_is_selected(self: GtkListBoxRow): i32
+    @symbol("gtk_list_box_row_set_activatable") @lib pub fn gtk_list_box_row_set_activatable(self: GtkListBoxRow, activatable: i32)
+    @symbol("gtk_list_box_row_set_child") @lib pub fn gtk_list_box_row_set_child(self: GtkListBoxRow, child: GtkWidget)
+    @symbol("gtk_list_box_row_set_header") @lib pub fn gtk_list_box_row_set_header(self: GtkListBoxRow, header: GtkWidget)
+    @symbol("gtk_list_box_row_set_selectable") @lib pub fn gtk_list_box_row_set_selectable(self: GtkListBoxRow, selectable: i32)
     @symbol("gtk_list_header_get_child") @lib pub fn gtk_list_header_get_child(self: GtkListHeader): GtkWidget
     @symbol("gtk_list_header_get_end") @lib pub fn gtk_list_header_get_end(self: GtkListHeader): u32
     @symbol("gtk_list_header_get_item") @lib pub fn gtk_list_header_get_item(self: GtkListHeader): GObject
     @symbol("gtk_list_header_get_n_items") @lib pub fn gtk_list_header_get_n_items(self: GtkListHeader): u32
     @symbol("gtk_list_header_get_start") @lib pub fn gtk_list_header_get_start(self: GtkListHeader): u32
+    @symbol("gtk_list_header_set_child") @lib pub fn gtk_list_header_set_child(self: GtkListHeader, child: GtkWidget)
     @symbol("gtk_list_item_get_accessible_description") @lib pub fn gtk_list_item_get_accessible_description(self: GtkListItem): *const char
     @symbol("gtk_list_item_get_accessible_label") @lib pub fn gtk_list_item_get_accessible_label(self: GtkListItem): *const char
     @symbol("gtk_list_item_get_activatable") @lib pub fn gtk_list_item_get_activatable(self: GtkListItem): i32
@@ -2113,20 +2526,38 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_list_item_get_position") @lib pub fn gtk_list_item_get_position(self: GtkListItem): u32
     @symbol("gtk_list_item_get_selectable") @lib pub fn gtk_list_item_get_selectable(self: GtkListItem): i32
     @symbol("gtk_list_item_get_selected") @lib pub fn gtk_list_item_get_selected(self: GtkListItem): i32
+    @symbol("gtk_list_item_set_accessible_description") @lib pub fn gtk_list_item_set_accessible_description(self: GtkListItem, description: *const char)
+    @symbol("gtk_list_item_set_accessible_label") @lib pub fn gtk_list_item_set_accessible_label(self: GtkListItem, label: *const char)
+    @symbol("gtk_list_item_set_activatable") @lib pub fn gtk_list_item_set_activatable(self: GtkListItem, activatable: i32)
+    @symbol("gtk_list_item_set_child") @lib pub fn gtk_list_item_set_child(self: GtkListItem, child: GtkWidget)
+    @symbol("gtk_list_item_set_focusable") @lib pub fn gtk_list_item_set_focusable(self: GtkListItem, focusable: i32)
+    @symbol("gtk_list_item_set_selectable") @lib pub fn gtk_list_item_set_selectable(self: GtkListItem, selectable: i32)
     @symbol("gtk_list_view_get_enable_rubberband") @lib pub fn gtk_list_view_get_enable_rubberband(self: GtkListView): i32
     @symbol("gtk_list_view_get_factory") @lib pub fn gtk_list_view_get_factory(self: GtkListView): GtkListItemFactory
     @symbol("gtk_list_view_get_header_factory") @lib pub fn gtk_list_view_get_header_factory(self: GtkListView): GtkListItemFactory
     @symbol("gtk_list_view_get_show_separators") @lib pub fn gtk_list_view_get_show_separators(self: GtkListView): i32
     @symbol("gtk_list_view_get_single_click_activate") @lib pub fn gtk_list_view_get_single_click_activate(self: GtkListView): i32
     @symbol("gtk_list_view_get_tab_behavior") @lib pub fn gtk_list_view_get_tab_behavior(self: GtkListView): GtkListTabBehavior
+    @symbol("gtk_list_view_scroll_to") @lib pub fn gtk_list_view_scroll_to(self: GtkListView, pos: u32, flags: GtkListScrollFlags, scroll: GtkScrollInfo)
+    @symbol("gtk_list_view_set_enable_rubberband") @lib pub fn gtk_list_view_set_enable_rubberband(self: GtkListView, enable_rubberband: i32)
+    @symbol("gtk_list_view_set_factory") @lib pub fn gtk_list_view_set_factory(self: GtkListView, factory: GtkListItemFactory)
+    @symbol("gtk_list_view_set_header_factory") @lib pub fn gtk_list_view_set_header_factory(self: GtkListView, factory: GtkListItemFactory)
+    @symbol("gtk_list_view_set_show_separators") @lib pub fn gtk_list_view_set_show_separators(self: GtkListView, show_separators: i32)
+    @symbol("gtk_list_view_set_single_click_activate") @lib pub fn gtk_list_view_set_single_click_activate(self: GtkListView, single_click_activate: i32)
+    @symbol("gtk_list_view_set_tab_behavior") @lib pub fn gtk_list_view_set_tab_behavior(self: GtkListView, tab_behavior: GtkListTabBehavior)
     @symbol("gtk_map_list_model_has_map") @lib pub fn gtk_map_list_model_has_map(self: GtkMapListModel): i32
     @symbol("gtk_media_controls_new") @lib pub fn gtk_media_controls_new(stream: GtkMediaStream): GtkWidget
     @symbol("gtk_media_controls_get_media_stream") @lib pub fn gtk_media_controls_get_media_stream(self: GtkMediaControls): GtkMediaStream
+    @symbol("gtk_media_controls_set_media_stream") @lib pub fn gtk_media_controls_set_media_stream(self: GtkMediaControls, stream: GtkMediaStream)
     @symbol("gtk_media_file_new") @lib pub fn gtk_media_file_new(): GtkMediaFile
     @symbol("gtk_media_file_new_for_filename") @lib pub fn gtk_media_file_new_for_filename(filename: *const char): GtkMediaFile
     @symbol("gtk_media_file_new_for_input_stream") @lib pub fn gtk_media_file_new_for_input_stream(stream: GInputStream): GtkMediaFile
     @symbol("gtk_media_file_new_for_resource") @lib pub fn gtk_media_file_new_for_resource(resource_path: *const char): GtkMediaFile
+    @symbol("gtk_media_file_clear") @lib pub fn gtk_media_file_clear(self: GtkMediaFile)
     @symbol("gtk_media_file_get_input_stream") @lib pub fn gtk_media_file_get_input_stream(self: GtkMediaFile): GInputStream
+    @symbol("gtk_media_file_set_filename") @lib pub fn gtk_media_file_set_filename(self: GtkMediaFile, filename: *const char)
+    @symbol("gtk_media_file_set_input_stream") @lib pub fn gtk_media_file_set_input_stream(self: GtkMediaFile, stream: GInputStream)
+    @symbol("gtk_media_file_set_resource") @lib pub fn gtk_media_file_set_resource(self: GtkMediaFile, resource_path: *const char)
     @symbol("gtk_media_stream_get_duration") @lib pub fn gtk_media_stream_get_duration(self: GtkMediaStream): i64
     @symbol("gtk_media_stream_get_ended") @lib pub fn gtk_media_stream_get_ended(self: GtkMediaStream): i32
     @symbol("gtk_media_stream_get_loop") @lib pub fn gtk_media_stream_get_loop(self: GtkMediaStream): i32
@@ -2139,6 +2570,21 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_media_stream_is_prepared") @lib pub fn gtk_media_stream_is_prepared(self: GtkMediaStream): i32
     @symbol("gtk_media_stream_is_seekable") @lib pub fn gtk_media_stream_is_seekable(self: GtkMediaStream): i32
     @symbol("gtk_media_stream_is_seeking") @lib pub fn gtk_media_stream_is_seeking(self: GtkMediaStream): i32
+    @symbol("gtk_media_stream_pause") @lib pub fn gtk_media_stream_pause(self: GtkMediaStream)
+    @symbol("gtk_media_stream_play") @lib pub fn gtk_media_stream_play(self: GtkMediaStream)
+    @symbol("gtk_media_stream_realize") @lib pub fn gtk_media_stream_realize(self: GtkMediaStream, surface: GdkSurface)
+    @symbol("gtk_media_stream_seek") @lib pub fn gtk_media_stream_seek(self: GtkMediaStream, timestamp: i64)
+    @symbol("gtk_media_stream_seek_failed") @lib pub fn gtk_media_stream_seek_failed(self: GtkMediaStream)
+    @symbol("gtk_media_stream_seek_success") @lib pub fn gtk_media_stream_seek_success(self: GtkMediaStream)
+    @symbol("gtk_media_stream_set_loop") @lib pub fn gtk_media_stream_set_loop(self: GtkMediaStream, arg: i32)
+    @symbol("gtk_media_stream_set_muted") @lib pub fn gtk_media_stream_set_muted(self: GtkMediaStream, muted: i32)
+    @symbol("gtk_media_stream_set_playing") @lib pub fn gtk_media_stream_set_playing(self: GtkMediaStream, playing: i32)
+    @symbol("gtk_media_stream_set_volume") @lib pub fn gtk_media_stream_set_volume(self: GtkMediaStream, volume: f64)
+    @symbol("gtk_media_stream_stream_ended") @lib pub fn gtk_media_stream_stream_ended(self: GtkMediaStream)
+    @symbol("gtk_media_stream_stream_prepared") @lib pub fn gtk_media_stream_stream_prepared(self: GtkMediaStream, has_audio: i32, has_video: i32, seekable: i32, duration: i64)
+    @symbol("gtk_media_stream_stream_unprepared") @lib pub fn gtk_media_stream_stream_unprepared(self: GtkMediaStream)
+    @symbol("gtk_media_stream_unrealize") @lib pub fn gtk_media_stream_unrealize(self: GtkMediaStream, surface: GdkSurface)
+    @symbol("gtk_media_stream_update") @lib pub fn gtk_media_stream_update(self: GtkMediaStream, timestamp: i64)
     @symbol("gtk_menu_button_new") @lib pub fn gtk_menu_button_new(): GtkWidget
     @symbol("gtk_menu_button_get_active") @lib pub fn gtk_menu_button_get_active(self: GtkMenuButton): i32
     @symbol("gtk_menu_button_get_always_show_arrow") @lib pub fn gtk_menu_button_get_always_show_arrow(self: GtkMenuButton): i32
@@ -2152,6 +2598,20 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_menu_button_get_popover") @lib pub fn gtk_menu_button_get_popover(self: GtkMenuButton): GtkPopover
     @symbol("gtk_menu_button_get_primary") @lib pub fn gtk_menu_button_get_primary(self: GtkMenuButton): i32
     @symbol("gtk_menu_button_get_use_underline") @lib pub fn gtk_menu_button_get_use_underline(self: GtkMenuButton): i32
+    @symbol("gtk_menu_button_popdown") @lib pub fn gtk_menu_button_popdown(self: GtkMenuButton)
+    @symbol("gtk_menu_button_popup") @lib pub fn gtk_menu_button_popup(self: GtkMenuButton)
+    @symbol("gtk_menu_button_set_active") @lib pub fn gtk_menu_button_set_active(self: GtkMenuButton, active: i32)
+    @symbol("gtk_menu_button_set_always_show_arrow") @lib pub fn gtk_menu_button_set_always_show_arrow(self: GtkMenuButton, always_show_arrow: i32)
+    @symbol("gtk_menu_button_set_can_shrink") @lib pub fn gtk_menu_button_set_can_shrink(self: GtkMenuButton, can_shrink: i32)
+    @symbol("gtk_menu_button_set_child") @lib pub fn gtk_menu_button_set_child(self: GtkMenuButton, child: GtkWidget)
+    @symbol("gtk_menu_button_set_direction") @lib pub fn gtk_menu_button_set_direction(self: GtkMenuButton, direction: GtkArrowType)
+    @symbol("gtk_menu_button_set_has_frame") @lib pub fn gtk_menu_button_set_has_frame(self: GtkMenuButton, has_frame: i32)
+    @symbol("gtk_menu_button_set_icon_name") @lib pub fn gtk_menu_button_set_icon_name(self: GtkMenuButton, icon_name: *const char)
+    @symbol("gtk_menu_button_set_label") @lib pub fn gtk_menu_button_set_label(self: GtkMenuButton, label: *const char)
+    @symbol("gtk_menu_button_set_menu_model") @lib pub fn gtk_menu_button_set_menu_model(self: GtkMenuButton, menu_model: GMenuModel)
+    @symbol("gtk_menu_button_set_popover") @lib pub fn gtk_menu_button_set_popover(self: GtkMenuButton, popover: GtkPopover)
+    @symbol("gtk_menu_button_set_primary") @lib pub fn gtk_menu_button_set_primary(self: GtkMenuButton, primary: i32)
+    @symbol("gtk_menu_button_set_use_underline") @lib pub fn gtk_menu_button_set_use_underline(self: GtkMenuButton, use_underline: i32)
     @symbol("gtk_mnemonic_action_get") @lib pub fn gtk_mnemonic_action_get(): GtkMnemonicAction
     @symbol("gtk_mnemonic_trigger_new") @lib pub fn gtk_mnemonic_trigger_new(keyval: u32): GtkMnemonicTrigger
     @symbol("gtk_mnemonic_trigger_get_keyval") @lib pub fn gtk_mnemonic_trigger_get_keyval(self: GtkMnemonicTrigger): u32
@@ -2159,17 +2619,30 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_mount_operation_get_display") @lib pub fn gtk_mount_operation_get_display(self: GtkMountOperation): GdkDisplay
     @symbol("gtk_mount_operation_get_parent") @lib pub fn gtk_mount_operation_get_parent(self: GtkMountOperation): GtkWindow
     @symbol("gtk_mount_operation_is_showing") @lib pub fn gtk_mount_operation_is_showing(self: GtkMountOperation): i32
+    @symbol("gtk_mount_operation_set_display") @lib pub fn gtk_mount_operation_set_display(self: GtkMountOperation, display: GdkDisplay)
+    @symbol("gtk_mount_operation_set_parent") @lib pub fn gtk_mount_operation_set_parent(self: GtkMountOperation, parent: GtkWindow)
+    @symbol("gtk_multi_filter_append") @lib pub fn gtk_multi_filter_append(self: GtkMultiFilter, filter: GtkFilter)
+    @symbol("gtk_multi_filter_remove") @lib pub fn gtk_multi_filter_remove(self: GtkMultiFilter, position: u32)
     @symbol("gtk_multi_sorter_new") @lib pub fn gtk_multi_sorter_new(): GtkMultiSorter
+    @symbol("gtk_multi_sorter_append") @lib pub fn gtk_multi_sorter_append(self: GtkMultiSorter, sorter: GtkSorter)
+    @symbol("gtk_multi_sorter_remove") @lib pub fn gtk_multi_sorter_remove(self: GtkMultiSorter, position: u32)
     @symbol("gtk_named_action_new") @lib pub fn gtk_named_action_new(name: *const char): GtkNamedAction
     @symbol("gtk_named_action_get_action_name") @lib pub fn gtk_named_action_get_action_name(self: GtkNamedAction): *const char
+    @symbol("gtk_native_dialog_destroy") @lib pub fn gtk_native_dialog_destroy(self: GtkNativeDialog)
     @symbol("gtk_native_dialog_get_modal") @lib pub fn gtk_native_dialog_get_modal(self: GtkNativeDialog): i32
     @symbol("gtk_native_dialog_get_title") @lib pub fn gtk_native_dialog_get_title(self: GtkNativeDialog): *const char
     @symbol("gtk_native_dialog_get_transient_for") @lib pub fn gtk_native_dialog_get_transient_for(self: GtkNativeDialog): GtkWindow
     @symbol("gtk_native_dialog_get_visible") @lib pub fn gtk_native_dialog_get_visible(self: GtkNativeDialog): i32
+    @symbol("gtk_native_dialog_hide") @lib pub fn gtk_native_dialog_hide(self: GtkNativeDialog)
+    @symbol("gtk_native_dialog_set_modal") @lib pub fn gtk_native_dialog_set_modal(self: GtkNativeDialog, modal: i32)
+    @symbol("gtk_native_dialog_set_title") @lib pub fn gtk_native_dialog_set_title(self: GtkNativeDialog, title: *const char)
+    @symbol("gtk_native_dialog_set_transient_for") @lib pub fn gtk_native_dialog_set_transient_for(self: GtkNativeDialog, parent: GtkWindow)
+    @symbol("gtk_native_dialog_show") @lib pub fn gtk_native_dialog_show(self: GtkNativeDialog)
     @symbol("gtk_never_trigger_get") @lib pub fn gtk_never_trigger_get(): GtkNeverTrigger
     @symbol("gtk_notebook_new") @lib pub fn gtk_notebook_new(): GtkWidget
     @symbol("gtk_notebook_append_page") @lib pub fn gtk_notebook_append_page(self: GtkNotebook, child: GtkWidget, tab_label: GtkWidget): i32
     @symbol("gtk_notebook_append_page_menu") @lib pub fn gtk_notebook_append_page_menu(self: GtkNotebook, child: GtkWidget, tab_label: GtkWidget, menu_label: GtkWidget): i32
+    @symbol("gtk_notebook_detach_tab") @lib pub fn gtk_notebook_detach_tab(self: GtkNotebook, child: GtkWidget)
     @symbol("gtk_notebook_get_action_widget") @lib pub fn gtk_notebook_get_action_widget(self: GtkNotebook, pack_type: GtkPackType): GtkWidget
     @symbol("gtk_notebook_get_current_page") @lib pub fn gtk_notebook_get_current_page(self: GtkNotebook): i32
     @symbol("gtk_notebook_get_group_name") @lib pub fn gtk_notebook_get_group_name(self: GtkNotebook): *const char
@@ -2188,23 +2661,53 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_notebook_get_tab_reorderable") @lib pub fn gtk_notebook_get_tab_reorderable(self: GtkNotebook, child: GtkWidget): i32
     @symbol("gtk_notebook_insert_page") @lib pub fn gtk_notebook_insert_page(self: GtkNotebook, child: GtkWidget, tab_label: GtkWidget, position: i32): i32
     @symbol("gtk_notebook_insert_page_menu") @lib pub fn gtk_notebook_insert_page_menu(self: GtkNotebook, child: GtkWidget, tab_label: GtkWidget, menu_label: GtkWidget, position: i32): i32
+    @symbol("gtk_notebook_next_page") @lib pub fn gtk_notebook_next_page(self: GtkNotebook)
     @symbol("gtk_notebook_page_num") @lib pub fn gtk_notebook_page_num(self: GtkNotebook, child: GtkWidget): i32
+    @symbol("gtk_notebook_popup_disable") @lib pub fn gtk_notebook_popup_disable(self: GtkNotebook)
+    @symbol("gtk_notebook_popup_enable") @lib pub fn gtk_notebook_popup_enable(self: GtkNotebook)
     @symbol("gtk_notebook_prepend_page") @lib pub fn gtk_notebook_prepend_page(self: GtkNotebook, child: GtkWidget, tab_label: GtkWidget): i32
     @symbol("gtk_notebook_prepend_page_menu") @lib pub fn gtk_notebook_prepend_page_menu(self: GtkNotebook, child: GtkWidget, tab_label: GtkWidget, menu_label: GtkWidget): i32
+    @symbol("gtk_notebook_prev_page") @lib pub fn gtk_notebook_prev_page(self: GtkNotebook)
+    @symbol("gtk_notebook_remove_page") @lib pub fn gtk_notebook_remove_page(self: GtkNotebook, page_num: i32)
+    @symbol("gtk_notebook_reorder_child") @lib pub fn gtk_notebook_reorder_child(self: GtkNotebook, child: GtkWidget, position: i32)
+    @symbol("gtk_notebook_set_action_widget") @lib pub fn gtk_notebook_set_action_widget(self: GtkNotebook, widget: GtkWidget, pack_type: GtkPackType)
+    @symbol("gtk_notebook_set_current_page") @lib pub fn gtk_notebook_set_current_page(self: GtkNotebook, page_num: i32)
+    @symbol("gtk_notebook_set_group_name") @lib pub fn gtk_notebook_set_group_name(self: GtkNotebook, group_name: *const char)
+    @symbol("gtk_notebook_set_menu_label") @lib pub fn gtk_notebook_set_menu_label(self: GtkNotebook, child: GtkWidget, menu_label: GtkWidget)
+    @symbol("gtk_notebook_set_menu_label_text") @lib pub fn gtk_notebook_set_menu_label_text(self: GtkNotebook, child: GtkWidget, menu_text: *const char)
+    @symbol("gtk_notebook_set_scrollable") @lib pub fn gtk_notebook_set_scrollable(self: GtkNotebook, scrollable: i32)
+    @symbol("gtk_notebook_set_show_border") @lib pub fn gtk_notebook_set_show_border(self: GtkNotebook, show_border: i32)
+    @symbol("gtk_notebook_set_show_tabs") @lib pub fn gtk_notebook_set_show_tabs(self: GtkNotebook, show_tabs: i32)
+    @symbol("gtk_notebook_set_tab_detachable") @lib pub fn gtk_notebook_set_tab_detachable(self: GtkNotebook, child: GtkWidget, detachable: i32)
+    @symbol("gtk_notebook_set_tab_label") @lib pub fn gtk_notebook_set_tab_label(self: GtkNotebook, child: GtkWidget, tab_label: GtkWidget)
+    @symbol("gtk_notebook_set_tab_label_text") @lib pub fn gtk_notebook_set_tab_label_text(self: GtkNotebook, child: GtkWidget, tab_text: *const char)
+    @symbol("gtk_notebook_set_tab_pos") @lib pub fn gtk_notebook_set_tab_pos(self: GtkNotebook, pos: GtkPositionType)
+    @symbol("gtk_notebook_set_tab_reorderable") @lib pub fn gtk_notebook_set_tab_reorderable(self: GtkNotebook, child: GtkWidget, reorderable: i32)
     @symbol("gtk_notebook_page_get_child") @lib pub fn gtk_notebook_page_get_child(self: GtkNotebookPage): GtkWidget
     @symbol("gtk_nothing_action_get") @lib pub fn gtk_nothing_action_get(): GtkNothingAction
     @symbol("gtk_numeric_sorter_new") @lib pub fn gtk_numeric_sorter_new(expression: GtkExpression): GtkNumericSorter
     @symbol("gtk_numeric_sorter_get_expression") @lib pub fn gtk_numeric_sorter_get_expression(self: GtkNumericSorter): GtkExpression
     @symbol("gtk_numeric_sorter_get_sort_order") @lib pub fn gtk_numeric_sorter_get_sort_order(self: GtkNumericSorter): GtkSortType
+    @symbol("gtk_numeric_sorter_set_expression") @lib pub fn gtk_numeric_sorter_set_expression(self: GtkNumericSorter, expression: GtkExpression)
+    @symbol("gtk_numeric_sorter_set_sort_order") @lib pub fn gtk_numeric_sorter_set_sort_order(self: GtkNumericSorter, sort_order: GtkSortType)
     @symbol("gtk_object_expression_new") @lib pub fn gtk_object_expression_new(object: GObject): GtkObjectExpression
     @symbol("gtk_object_expression_get_object") @lib pub fn gtk_object_expression_get_object(self: GtkObjectExpression): GObject
     @symbol("gtk_overlay_new") @lib pub fn gtk_overlay_new(): GtkWidget
+    @symbol("gtk_overlay_add_overlay") @lib pub fn gtk_overlay_add_overlay(self: GtkOverlay, widget: GtkWidget)
     @symbol("gtk_overlay_get_child") @lib pub fn gtk_overlay_get_child(self: GtkOverlay): GtkWidget
     @symbol("gtk_overlay_get_clip_overlay") @lib pub fn gtk_overlay_get_clip_overlay(self: GtkOverlay, widget: GtkWidget): i32
     @symbol("gtk_overlay_get_measure_overlay") @lib pub fn gtk_overlay_get_measure_overlay(self: GtkOverlay, widget: GtkWidget): i32
+    @symbol("gtk_overlay_remove_overlay") @lib pub fn gtk_overlay_remove_overlay(self: GtkOverlay, widget: GtkWidget)
+    @symbol("gtk_overlay_set_child") @lib pub fn gtk_overlay_set_child(self: GtkOverlay, child: GtkWidget)
+    @symbol("gtk_overlay_set_clip_overlay") @lib pub fn gtk_overlay_set_clip_overlay(self: GtkOverlay, widget: GtkWidget, clip_overlay: i32)
+    @symbol("gtk_overlay_set_measure_overlay") @lib pub fn gtk_overlay_set_measure_overlay(self: GtkOverlay, widget: GtkWidget, measure: i32)
     @symbol("gtk_overlay_layout_new") @lib pub fn gtk_overlay_layout_new(): GtkLayoutManager
     @symbol("gtk_overlay_layout_child_get_clip_overlay") @lib pub fn gtk_overlay_layout_child_get_clip_overlay(self: GtkOverlayLayoutChild): i32
     @symbol("gtk_overlay_layout_child_get_measure") @lib pub fn gtk_overlay_layout_child_get_measure(self: GtkOverlayLayoutChild): i32
+    @symbol("gtk_overlay_layout_child_set_clip_overlay") @lib pub fn gtk_overlay_layout_child_set_clip_overlay(self: GtkOverlayLayoutChild, clip_overlay: i32)
+    @symbol("gtk_overlay_layout_child_set_measure") @lib pub fn gtk_overlay_layout_child_set_measure(self: GtkOverlayLayoutChild, measure: i32)
+    @symbol("gtk_pad_controller_set_action") @lib pub fn gtk_pad_controller_set_action(self: GtkPadController, arg: GtkPadActionType, index: i32, mode: i32, label: *const char, action_name: *const char)
+    @symbol("gtk_pad_controller_set_action_entries") @lib pub fn gtk_pad_controller_set_action_entries(self: GtkPadController, entries: GtkPadActionEntry, n_entries: i32)
     @symbol("gtk_page_setup_new") @lib pub fn gtk_page_setup_new(): GtkPageSetup
     @symbol("gtk_page_setup_new_from_gvariant") @lib pub fn gtk_page_setup_new_from_gvariant(variant: GVariant): GtkPageSetup
     @symbol("gtk_page_setup_copy") @lib pub fn gtk_page_setup_copy(self: GtkPageSetup): GtkPageSetup
@@ -2218,10 +2721,20 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_page_setup_get_paper_width") @lib pub fn gtk_page_setup_get_paper_width(self: GtkPageSetup, unit: GtkUnit): f64
     @symbol("gtk_page_setup_get_right_margin") @lib pub fn gtk_page_setup_get_right_margin(self: GtkPageSetup, unit: GtkUnit): f64
     @symbol("gtk_page_setup_get_top_margin") @lib pub fn gtk_page_setup_get_top_margin(self: GtkPageSetup, unit: GtkUnit): f64
+    @symbol("gtk_page_setup_set_bottom_margin") @lib pub fn gtk_page_setup_set_bottom_margin(self: GtkPageSetup, margin: f64, unit: GtkUnit)
+    @symbol("gtk_page_setup_set_left_margin") @lib pub fn gtk_page_setup_set_left_margin(self: GtkPageSetup, margin: f64, unit: GtkUnit)
+    @symbol("gtk_page_setup_set_orientation") @lib pub fn gtk_page_setup_set_orientation(self: GtkPageSetup, orientation: GtkPageOrientation)
+    @symbol("gtk_page_setup_set_paper_size") @lib pub fn gtk_page_setup_set_paper_size(self: GtkPageSetup, size: GtkPaperSize)
+    @symbol("gtk_page_setup_set_paper_size_and_default_margins") @lib pub fn gtk_page_setup_set_paper_size_and_default_margins(self: GtkPageSetup, size: GtkPaperSize)
+    @symbol("gtk_page_setup_set_right_margin") @lib pub fn gtk_page_setup_set_right_margin(self: GtkPageSetup, margin: f64, unit: GtkUnit)
+    @symbol("gtk_page_setup_set_top_margin") @lib pub fn gtk_page_setup_set_top_margin(self: GtkPageSetup, margin: f64, unit: GtkUnit)
     @symbol("gtk_page_setup_to_gvariant") @lib pub fn gtk_page_setup_to_gvariant(self: GtkPageSetup): GVariant
+    @symbol("gtk_page_setup_to_key_file") @lib pub fn gtk_page_setup_to_key_file(self: GtkPageSetup, key_file: GKeyFile, group_name: *const char)
     @symbol("gtk_page_setup_unix_dialog_new") @lib pub fn gtk_page_setup_unix_dialog_new(title: *const char, parent: GtkWindow): GtkWidget
     @symbol("gtk_page_setup_unix_dialog_get_page_setup") @lib pub fn gtk_page_setup_unix_dialog_get_page_setup(self: GtkPageSetupUnixDialog): GtkPageSetup
     @symbol("gtk_page_setup_unix_dialog_get_print_settings") @lib pub fn gtk_page_setup_unix_dialog_get_print_settings(self: GtkPageSetupUnixDialog): GtkPrintSettings
+    @symbol("gtk_page_setup_unix_dialog_set_page_setup") @lib pub fn gtk_page_setup_unix_dialog_set_page_setup(self: GtkPageSetupUnixDialog, page_setup: GtkPageSetup)
+    @symbol("gtk_page_setup_unix_dialog_set_print_settings") @lib pub fn gtk_page_setup_unix_dialog_set_print_settings(self: GtkPageSetupUnixDialog, print_settings: GtkPrintSettings)
     @symbol("gtk_paned_new") @lib pub fn gtk_paned_new(orientation: GtkOrientation): GtkWidget
     @symbol("gtk_paned_get_end_child") @lib pub fn gtk_paned_get_end_child(self: GtkPaned): GtkWidget
     @symbol("gtk_paned_get_position") @lib pub fn gtk_paned_get_position(self: GtkPaned): i32
@@ -2231,9 +2744,19 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_paned_get_shrink_start_child") @lib pub fn gtk_paned_get_shrink_start_child(self: GtkPaned): i32
     @symbol("gtk_paned_get_start_child") @lib pub fn gtk_paned_get_start_child(self: GtkPaned): GtkWidget
     @symbol("gtk_paned_get_wide_handle") @lib pub fn gtk_paned_get_wide_handle(self: GtkPaned): i32
+    @symbol("gtk_paned_set_end_child") @lib pub fn gtk_paned_set_end_child(self: GtkPaned, child: GtkWidget)
+    @symbol("gtk_paned_set_position") @lib pub fn gtk_paned_set_position(self: GtkPaned, position: i32)
+    @symbol("gtk_paned_set_resize_end_child") @lib pub fn gtk_paned_set_resize_end_child(self: GtkPaned, resize: i32)
+    @symbol("gtk_paned_set_resize_start_child") @lib pub fn gtk_paned_set_resize_start_child(self: GtkPaned, resize: i32)
+    @symbol("gtk_paned_set_shrink_end_child") @lib pub fn gtk_paned_set_shrink_end_child(self: GtkPaned, resize: i32)
+    @symbol("gtk_paned_set_shrink_start_child") @lib pub fn gtk_paned_set_shrink_start_child(self: GtkPaned, resize: i32)
+    @symbol("gtk_paned_set_start_child") @lib pub fn gtk_paned_set_start_child(self: GtkPaned, child: GtkWidget)
+    @symbol("gtk_paned_set_wide_handle") @lib pub fn gtk_paned_set_wide_handle(self: GtkPaned, wide: i32)
     @symbol("gtk_password_entry_new") @lib pub fn gtk_password_entry_new(): GtkWidget
     @symbol("gtk_password_entry_get_extra_menu") @lib pub fn gtk_password_entry_get_extra_menu(self: GtkPasswordEntry): GMenuModel
     @symbol("gtk_password_entry_get_show_peek_icon") @lib pub fn gtk_password_entry_get_show_peek_icon(self: GtkPasswordEntry): i32
+    @symbol("gtk_password_entry_set_extra_menu") @lib pub fn gtk_password_entry_set_extra_menu(self: GtkPasswordEntry, model: GMenuModel)
+    @symbol("gtk_password_entry_set_show_peek_icon") @lib pub fn gtk_password_entry_set_show_peek_icon(self: GtkPasswordEntry, show_peek_icon: i32)
     @symbol("gtk_password_entry_buffer_new") @lib pub fn gtk_password_entry_buffer_new(): GtkEntryBuffer
     @symbol("gtk_picture_new") @lib pub fn gtk_picture_new(): GtkWidget
     @symbol("gtk_picture_new_for_filename") @lib pub fn gtk_picture_new_for_filename(filename: *const char): GtkWidget
@@ -2242,6 +2765,12 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_picture_get_can_shrink") @lib pub fn gtk_picture_get_can_shrink(self: GtkPicture): i32
     @symbol("gtk_picture_get_content_fit") @lib pub fn gtk_picture_get_content_fit(self: GtkPicture): GtkContentFit
     @symbol("gtk_picture_get_isolate_contents") @lib pub fn gtk_picture_get_isolate_contents(self: GtkPicture): i32
+    @symbol("gtk_picture_set_alternative_text") @lib pub fn gtk_picture_set_alternative_text(self: GtkPicture, alternative_text: *const char)
+    @symbol("gtk_picture_set_can_shrink") @lib pub fn gtk_picture_set_can_shrink(self: GtkPicture, can_shrink: i32)
+    @symbol("gtk_picture_set_content_fit") @lib pub fn gtk_picture_set_content_fit(self: GtkPicture, content_fit: GtkContentFit)
+    @symbol("gtk_picture_set_filename") @lib pub fn gtk_picture_set_filename(self: GtkPicture, filename: *const char)
+    @symbol("gtk_picture_set_isolate_contents") @lib pub fn gtk_picture_set_isolate_contents(self: GtkPicture, isolate_contents: i32)
+    @symbol("gtk_picture_set_resource") @lib pub fn gtk_picture_set_resource(self: GtkPicture, resource_path: *const char)
     @symbol("gtk_popover_new") @lib pub fn gtk_popover_new(): GtkWidget
     @symbol("gtk_popover_get_autohide") @lib pub fn gtk_popover_get_autohide(self: GtkPopover): i32
     @symbol("gtk_popover_get_cascade_popdown") @lib pub fn gtk_popover_get_cascade_popdown(self: GtkPopover): i32
@@ -2249,21 +2778,42 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_popover_get_has_arrow") @lib pub fn gtk_popover_get_has_arrow(self: GtkPopover): i32
     @symbol("gtk_popover_get_mnemonics_visible") @lib pub fn gtk_popover_get_mnemonics_visible(self: GtkPopover): i32
     @symbol("gtk_popover_get_position") @lib pub fn gtk_popover_get_position(self: GtkPopover): GtkPositionType
+    @symbol("gtk_popover_popdown") @lib pub fn gtk_popover_popdown(self: GtkPopover)
+    @symbol("gtk_popover_popup") @lib pub fn gtk_popover_popup(self: GtkPopover)
+    @symbol("gtk_popover_present") @lib pub fn gtk_popover_present(self: GtkPopover)
+    @symbol("gtk_popover_set_autohide") @lib pub fn gtk_popover_set_autohide(self: GtkPopover, autohide: i32)
+    @symbol("gtk_popover_set_cascade_popdown") @lib pub fn gtk_popover_set_cascade_popdown(self: GtkPopover, cascade_popdown: i32)
+    @symbol("gtk_popover_set_child") @lib pub fn gtk_popover_set_child(self: GtkPopover, child: GtkWidget)
+    @symbol("gtk_popover_set_default_widget") @lib pub fn gtk_popover_set_default_widget(self: GtkPopover, widget: GtkWidget)
+    @symbol("gtk_popover_set_has_arrow") @lib pub fn gtk_popover_set_has_arrow(self: GtkPopover, has_arrow: i32)
+    @symbol("gtk_popover_set_mnemonics_visible") @lib pub fn gtk_popover_set_mnemonics_visible(self: GtkPopover, mnemonics_visible: i32)
+    @symbol("gtk_popover_set_offset") @lib pub fn gtk_popover_set_offset(self: GtkPopover, x_offset: i32, y_offset: i32)
+    @symbol("gtk_popover_set_pointing_to") @lib pub fn gtk_popover_set_pointing_to(self: GtkPopover, rect: GdkRectangle)
+    @symbol("gtk_popover_set_position") @lib pub fn gtk_popover_set_position(self: GtkPopover, position: GtkPositionType)
     @symbol("gtk_popover_bin_new") @lib pub fn gtk_popover_bin_new(): GtkWidget
     @symbol("gtk_popover_bin_get_child") @lib pub fn gtk_popover_bin_get_child(self: GtkPopoverBin): GtkWidget
     @symbol("gtk_popover_bin_get_handle_input") @lib pub fn gtk_popover_bin_get_handle_input(self: GtkPopoverBin): i32
     @symbol("gtk_popover_bin_get_menu_model") @lib pub fn gtk_popover_bin_get_menu_model(self: GtkPopoverBin): GMenuModel
     @symbol("gtk_popover_bin_get_popover") @lib pub fn gtk_popover_bin_get_popover(self: GtkPopoverBin): GtkPopover
+    @symbol("gtk_popover_bin_popdown") @lib pub fn gtk_popover_bin_popdown(self: GtkPopoverBin)
+    @symbol("gtk_popover_bin_popup") @lib pub fn gtk_popover_bin_popup(self: GtkPopoverBin)
+    @symbol("gtk_popover_bin_set_child") @lib pub fn gtk_popover_bin_set_child(self: GtkPopoverBin, child: GtkWidget)
+    @symbol("gtk_popover_bin_set_handle_input") @lib pub fn gtk_popover_bin_set_handle_input(self: GtkPopoverBin, handle_input: i32)
+    @symbol("gtk_popover_bin_set_menu_model") @lib pub fn gtk_popover_bin_set_menu_model(self: GtkPopoverBin, model: GMenuModel)
+    @symbol("gtk_popover_bin_set_popover") @lib pub fn gtk_popover_bin_set_popover(self: GtkPopoverBin, popover: GtkPopover)
     @symbol("gtk_popover_menu_new_from_model") @lib pub fn gtk_popover_menu_new_from_model(model: GMenuModel): GtkWidget
     @symbol("gtk_popover_menu_new_from_model_full") @lib pub fn gtk_popover_menu_new_from_model_full(model: GMenuModel, flags: GtkPopoverMenuFlags): GtkWidget
     @symbol("gtk_popover_menu_add_child") @lib pub fn gtk_popover_menu_add_child(self: GtkPopoverMenu, child: GtkWidget, id: *const char): i32
     @symbol("gtk_popover_menu_get_flags") @lib pub fn gtk_popover_menu_get_flags(self: GtkPopoverMenu): GtkPopoverMenuFlags
     @symbol("gtk_popover_menu_get_menu_model") @lib pub fn gtk_popover_menu_get_menu_model(self: GtkPopoverMenu): GMenuModel
     @symbol("gtk_popover_menu_remove_child") @lib pub fn gtk_popover_menu_remove_child(self: GtkPopoverMenu, child: GtkWidget): i32
+    @symbol("gtk_popover_menu_set_flags") @lib pub fn gtk_popover_menu_set_flags(self: GtkPopoverMenu, flags: GtkPopoverMenuFlags)
+    @symbol("gtk_popover_menu_set_menu_model") @lib pub fn gtk_popover_menu_set_menu_model(self: GtkPopoverMenu, model: GMenuModel)
     @symbol("gtk_popover_menu_bar_new_from_model") @lib pub fn gtk_popover_menu_bar_new_from_model(model: GMenuModel): GtkWidget
     @symbol("gtk_popover_menu_bar_add_child") @lib pub fn gtk_popover_menu_bar_add_child(self: GtkPopoverMenuBar, child: GtkWidget, id: *const char): i32
     @symbol("gtk_popover_menu_bar_get_menu_model") @lib pub fn gtk_popover_menu_bar_get_menu_model(self: GtkPopoverMenuBar): GMenuModel
     @symbol("gtk_popover_menu_bar_remove_child") @lib pub fn gtk_popover_menu_bar_remove_child(self: GtkPopoverMenuBar, child: GtkWidget): i32
+    @symbol("gtk_popover_menu_bar_set_menu_model") @lib pub fn gtk_popover_menu_bar_set_menu_model(self: GtkPopoverMenuBar, model: GMenuModel)
     @symbol("gtk_print_context_get_dpi_x") @lib pub fn gtk_print_context_get_dpi_x(self: GtkPrintContext): f64
     @symbol("gtk_print_context_get_dpi_y") @lib pub fn gtk_print_context_get_dpi_y(self: GtkPrintContext): f64
     @symbol("gtk_print_context_get_height") @lib pub fn gtk_print_context_get_height(self: GtkPrintContext): f64
@@ -2275,6 +2825,11 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_print_dialog_get_page_setup") @lib pub fn gtk_print_dialog_get_page_setup(self: GtkPrintDialog): GtkPageSetup
     @symbol("gtk_print_dialog_get_print_settings") @lib pub fn gtk_print_dialog_get_print_settings(self: GtkPrintDialog): GtkPrintSettings
     @symbol("gtk_print_dialog_get_title") @lib pub fn gtk_print_dialog_get_title(self: GtkPrintDialog): *const char
+    @symbol("gtk_print_dialog_set_accept_label") @lib pub fn gtk_print_dialog_set_accept_label(self: GtkPrintDialog, accept_label: *const char)
+    @symbol("gtk_print_dialog_set_modal") @lib pub fn gtk_print_dialog_set_modal(self: GtkPrintDialog, modal: i32)
+    @symbol("gtk_print_dialog_set_page_setup") @lib pub fn gtk_print_dialog_set_page_setup(self: GtkPrintDialog, page_setup: GtkPageSetup)
+    @symbol("gtk_print_dialog_set_print_settings") @lib pub fn gtk_print_dialog_set_print_settings(self: GtkPrintDialog, print_settings: GtkPrintSettings)
+    @symbol("gtk_print_dialog_set_title") @lib pub fn gtk_print_dialog_set_title(self: GtkPrintDialog, title: *const char)
     @symbol("gtk_print_job_new") @lib pub fn gtk_print_job_new(title: *const char, printer: GtkPrinter, settings: GtkPrintSettings, page_setup: GtkPageSetup): GtkPrintJob
     @symbol("gtk_print_job_get_collate") @lib pub fn gtk_print_job_get_collate(self: GtkPrintJob): i32
     @symbol("gtk_print_job_get_n_up") @lib pub fn gtk_print_job_get_n_up(self: GtkPrintJob): u32
@@ -2290,7 +2845,20 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_print_job_get_status") @lib pub fn gtk_print_job_get_status(self: GtkPrintJob): GtkPrintStatus
     @symbol("gtk_print_job_get_title") @lib pub fn gtk_print_job_get_title(self: GtkPrintJob): *const char
     @symbol("gtk_print_job_get_track_print_status") @lib pub fn gtk_print_job_get_track_print_status(self: GtkPrintJob): i32
+    @symbol("gtk_print_job_set_collate") @lib pub fn gtk_print_job_set_collate(self: GtkPrintJob, collate: i32)
+    @symbol("gtk_print_job_set_n_up") @lib pub fn gtk_print_job_set_n_up(self: GtkPrintJob, n_up: u32)
+    @symbol("gtk_print_job_set_n_up_layout") @lib pub fn gtk_print_job_set_n_up_layout(self: GtkPrintJob, layout: GtkNumberUpLayout)
+    @symbol("gtk_print_job_set_num_copies") @lib pub fn gtk_print_job_set_num_copies(self: GtkPrintJob, num_copies: i32)
+    @symbol("gtk_print_job_set_page_ranges") @lib pub fn gtk_print_job_set_page_ranges(self: GtkPrintJob, ranges: GtkPageRange, n_ranges: i32)
+    @symbol("gtk_print_job_set_page_set") @lib pub fn gtk_print_job_set_page_set(self: GtkPrintJob, page_set: GtkPageSet)
+    @symbol("gtk_print_job_set_pages") @lib pub fn gtk_print_job_set_pages(self: GtkPrintJob, pages: GtkPrintPages)
+    @symbol("gtk_print_job_set_reverse") @lib pub fn gtk_print_job_set_reverse(self: GtkPrintJob, reverse: i32)
+    @symbol("gtk_print_job_set_rotate") @lib pub fn gtk_print_job_set_rotate(self: GtkPrintJob, rotate: i32)
+    @symbol("gtk_print_job_set_scale") @lib pub fn gtk_print_job_set_scale(self: GtkPrintJob, scale: f64)
+    @symbol("gtk_print_job_set_track_print_status") @lib pub fn gtk_print_job_set_track_print_status(self: GtkPrintJob, track_status: i32)
     @symbol("gtk_print_operation_new") @lib pub fn gtk_print_operation_new(): GtkPrintOperation
+    @symbol("gtk_print_operation_cancel") @lib pub fn gtk_print_operation_cancel(self: GtkPrintOperation)
+    @symbol("gtk_print_operation_draw_page_finish") @lib pub fn gtk_print_operation_draw_page_finish(self: GtkPrintOperation)
     @symbol("gtk_print_operation_get_default_page_setup") @lib pub fn gtk_print_operation_get_default_page_setup(self: GtkPrintOperation): GtkPageSetup
     @symbol("gtk_print_operation_get_embed_page_setup") @lib pub fn gtk_print_operation_get_embed_page_setup(self: GtkPrintOperation): i32
     @symbol("gtk_print_operation_get_has_selection") @lib pub fn gtk_print_operation_get_has_selection(self: GtkPrintOperation): i32
@@ -2300,6 +2868,22 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_print_operation_get_status_string") @lib pub fn gtk_print_operation_get_status_string(self: GtkPrintOperation): *const char
     @symbol("gtk_print_operation_get_support_selection") @lib pub fn gtk_print_operation_get_support_selection(self: GtkPrintOperation): i32
     @symbol("gtk_print_operation_is_finished") @lib pub fn gtk_print_operation_is_finished(self: GtkPrintOperation): i32
+    @symbol("gtk_print_operation_set_allow_async") @lib pub fn gtk_print_operation_set_allow_async(self: GtkPrintOperation, allow_async: i32)
+    @symbol("gtk_print_operation_set_current_page") @lib pub fn gtk_print_operation_set_current_page(self: GtkPrintOperation, current_page: i32)
+    @symbol("gtk_print_operation_set_custom_tab_label") @lib pub fn gtk_print_operation_set_custom_tab_label(self: GtkPrintOperation, label: *const char)
+    @symbol("gtk_print_operation_set_default_page_setup") @lib pub fn gtk_print_operation_set_default_page_setup(self: GtkPrintOperation, default_page_setup: GtkPageSetup)
+    @symbol("gtk_print_operation_set_defer_drawing") @lib pub fn gtk_print_operation_set_defer_drawing(self: GtkPrintOperation)
+    @symbol("gtk_print_operation_set_embed_page_setup") @lib pub fn gtk_print_operation_set_embed_page_setup(self: GtkPrintOperation, embed: i32)
+    @symbol("gtk_print_operation_set_export_filename") @lib pub fn gtk_print_operation_set_export_filename(self: GtkPrintOperation, filename: *const char)
+    @symbol("gtk_print_operation_set_has_selection") @lib pub fn gtk_print_operation_set_has_selection(self: GtkPrintOperation, has_selection: i32)
+    @symbol("gtk_print_operation_set_job_name") @lib pub fn gtk_print_operation_set_job_name(self: GtkPrintOperation, job_name: *const char)
+    @symbol("gtk_print_operation_set_n_pages") @lib pub fn gtk_print_operation_set_n_pages(self: GtkPrintOperation, n_pages: i32)
+    @symbol("gtk_print_operation_set_print_settings") @lib pub fn gtk_print_operation_set_print_settings(self: GtkPrintOperation, print_settings: GtkPrintSettings)
+    @symbol("gtk_print_operation_set_show_progress") @lib pub fn gtk_print_operation_set_show_progress(self: GtkPrintOperation, show_progress: i32)
+    @symbol("gtk_print_operation_set_support_selection") @lib pub fn gtk_print_operation_set_support_selection(self: GtkPrintOperation, support_selection: i32)
+    @symbol("gtk_print_operation_set_track_print_status") @lib pub fn gtk_print_operation_set_track_print_status(self: GtkPrintOperation, track_status: i32)
+    @symbol("gtk_print_operation_set_unit") @lib pub fn gtk_print_operation_set_unit(self: GtkPrintOperation, unit: GtkUnit)
+    @symbol("gtk_print_operation_set_use_full_page") @lib pub fn gtk_print_operation_set_use_full_page(self: GtkPrintOperation, full_page: i32)
     @symbol("gtk_print_settings_new") @lib pub fn gtk_print_settings_new(): GtkPrintSettings
     @symbol("gtk_print_settings_new_from_gvariant") @lib pub fn gtk_print_settings_new_from_gvariant(variant: GVariant): GtkPrintSettings
     @symbol("gtk_print_settings_copy") @lib pub fn gtk_print_settings_copy(self: GtkPrintSettings): GtkPrintSettings
@@ -2336,8 +2920,41 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_print_settings_get_scale") @lib pub fn gtk_print_settings_get_scale(self: GtkPrintSettings): f64
     @symbol("gtk_print_settings_get_use_color") @lib pub fn gtk_print_settings_get_use_color(self: GtkPrintSettings): i32
     @symbol("gtk_print_settings_has_key") @lib pub fn gtk_print_settings_has_key(self: GtkPrintSettings, key: *const char): i32
+    @symbol("gtk_print_settings_set") @lib pub fn gtk_print_settings_set(self: GtkPrintSettings, key: *const char, value: *const char)
+    @symbol("gtk_print_settings_set_bool") @lib pub fn gtk_print_settings_set_bool(self: GtkPrintSettings, key: *const char, value: i32)
+    @symbol("gtk_print_settings_set_collate") @lib pub fn gtk_print_settings_set_collate(self: GtkPrintSettings, collate: i32)
+    @symbol("gtk_print_settings_set_default_source") @lib pub fn gtk_print_settings_set_default_source(self: GtkPrintSettings, default_source: *const char)
+    @symbol("gtk_print_settings_set_dither") @lib pub fn gtk_print_settings_set_dither(self: GtkPrintSettings, dither: *const char)
+    @symbol("gtk_print_settings_set_double") @lib pub fn gtk_print_settings_set_double(self: GtkPrintSettings, key: *const char, value: f64)
+    @symbol("gtk_print_settings_set_duplex") @lib pub fn gtk_print_settings_set_duplex(self: GtkPrintSettings, duplex: GtkPrintDuplex)
+    @symbol("gtk_print_settings_set_finishings") @lib pub fn gtk_print_settings_set_finishings(self: GtkPrintSettings, finishings: *const char)
+    @symbol("gtk_print_settings_set_int") @lib pub fn gtk_print_settings_set_int(self: GtkPrintSettings, key: *const char, value: i32)
+    @symbol("gtk_print_settings_set_length") @lib pub fn gtk_print_settings_set_length(self: GtkPrintSettings, key: *const char, value: f64, unit: GtkUnit)
+    @symbol("gtk_print_settings_set_media_type") @lib pub fn gtk_print_settings_set_media_type(self: GtkPrintSettings, media_type: *const char)
+    @symbol("gtk_print_settings_set_n_copies") @lib pub fn gtk_print_settings_set_n_copies(self: GtkPrintSettings, num_copies: i32)
+    @symbol("gtk_print_settings_set_number_up") @lib pub fn gtk_print_settings_set_number_up(self: GtkPrintSettings, number_up: i32)
+    @symbol("gtk_print_settings_set_number_up_layout") @lib pub fn gtk_print_settings_set_number_up_layout(self: GtkPrintSettings, number_up_layout: GtkNumberUpLayout)
+    @symbol("gtk_print_settings_set_orientation") @lib pub fn gtk_print_settings_set_orientation(self: GtkPrintSettings, orientation: GtkPageOrientation)
+    @symbol("gtk_print_settings_set_output_bin") @lib pub fn gtk_print_settings_set_output_bin(self: GtkPrintSettings, output_bin: *const char)
+    @symbol("gtk_print_settings_set_page_ranges") @lib pub fn gtk_print_settings_set_page_ranges(self: GtkPrintSettings, page_ranges: GtkPageRange, num_ranges: i32)
+    @symbol("gtk_print_settings_set_page_set") @lib pub fn gtk_print_settings_set_page_set(self: GtkPrintSettings, page_set: GtkPageSet)
+    @symbol("gtk_print_settings_set_paper_height") @lib pub fn gtk_print_settings_set_paper_height(self: GtkPrintSettings, height: f64, unit: GtkUnit)
+    @symbol("gtk_print_settings_set_paper_size") @lib pub fn gtk_print_settings_set_paper_size(self: GtkPrintSettings, paper_size: GtkPaperSize)
+    @symbol("gtk_print_settings_set_paper_width") @lib pub fn gtk_print_settings_set_paper_width(self: GtkPrintSettings, width: f64, unit: GtkUnit)
+    @symbol("gtk_print_settings_set_print_pages") @lib pub fn gtk_print_settings_set_print_pages(self: GtkPrintSettings, pages: GtkPrintPages)
+    @symbol("gtk_print_settings_set_printer") @lib pub fn gtk_print_settings_set_printer(self: GtkPrintSettings, printer: *const char)
+    @symbol("gtk_print_settings_set_printer_lpi") @lib pub fn gtk_print_settings_set_printer_lpi(self: GtkPrintSettings, lpi: f64)
+    @symbol("gtk_print_settings_set_quality") @lib pub fn gtk_print_settings_set_quality(self: GtkPrintSettings, quality: GtkPrintQuality)
+    @symbol("gtk_print_settings_set_resolution") @lib pub fn gtk_print_settings_set_resolution(self: GtkPrintSettings, resolution: i32)
+    @symbol("gtk_print_settings_set_resolution_xy") @lib pub fn gtk_print_settings_set_resolution_xy(self: GtkPrintSettings, resolution_x: i32, resolution_y: i32)
+    @symbol("gtk_print_settings_set_reverse") @lib pub fn gtk_print_settings_set_reverse(self: GtkPrintSettings, reverse: i32)
+    @symbol("gtk_print_settings_set_scale") @lib pub fn gtk_print_settings_set_scale(self: GtkPrintSettings, scale: f64)
+    @symbol("gtk_print_settings_set_use_color") @lib pub fn gtk_print_settings_set_use_color(self: GtkPrintSettings, use_color: i32)
     @symbol("gtk_print_settings_to_gvariant") @lib pub fn gtk_print_settings_to_gvariant(self: GtkPrintSettings): GVariant
+    @symbol("gtk_print_settings_to_key_file") @lib pub fn gtk_print_settings_to_key_file(self: GtkPrintSettings, key_file: GKeyFile, group_name: *const char)
+    @symbol("gtk_print_settings_unset") @lib pub fn gtk_print_settings_unset(self: GtkPrintSettings, key: *const char)
     @symbol("gtk_print_unix_dialog_new") @lib pub fn gtk_print_unix_dialog_new(title: *const char, parent: GtkWindow): GtkWidget
+    @symbol("gtk_print_unix_dialog_add_custom_tab") @lib pub fn gtk_print_unix_dialog_add_custom_tab(self: GtkPrintUnixDialog, child: GtkWidget, tab_label: GtkWidget)
     @symbol("gtk_print_unix_dialog_get_current_page") @lib pub fn gtk_print_unix_dialog_get_current_page(self: GtkPrintUnixDialog): i32
     @symbol("gtk_print_unix_dialog_get_embed_page_setup") @lib pub fn gtk_print_unix_dialog_get_embed_page_setup(self: GtkPrintUnixDialog): i32
     @symbol("gtk_print_unix_dialog_get_has_selection") @lib pub fn gtk_print_unix_dialog_get_has_selection(self: GtkPrintUnixDialog): i32
@@ -2347,6 +2964,13 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_print_unix_dialog_get_selected_printer") @lib pub fn gtk_print_unix_dialog_get_selected_printer(self: GtkPrintUnixDialog): GtkPrinter
     @symbol("gtk_print_unix_dialog_get_settings") @lib pub fn gtk_print_unix_dialog_get_settings(self: GtkPrintUnixDialog): GtkPrintSettings
     @symbol("gtk_print_unix_dialog_get_support_selection") @lib pub fn gtk_print_unix_dialog_get_support_selection(self: GtkPrintUnixDialog): i32
+    @symbol("gtk_print_unix_dialog_set_current_page") @lib pub fn gtk_print_unix_dialog_set_current_page(self: GtkPrintUnixDialog, current_page: i32)
+    @symbol("gtk_print_unix_dialog_set_embed_page_setup") @lib pub fn gtk_print_unix_dialog_set_embed_page_setup(self: GtkPrintUnixDialog, embed: i32)
+    @symbol("gtk_print_unix_dialog_set_has_selection") @lib pub fn gtk_print_unix_dialog_set_has_selection(self: GtkPrintUnixDialog, has_selection: i32)
+    @symbol("gtk_print_unix_dialog_set_manual_capabilities") @lib pub fn gtk_print_unix_dialog_set_manual_capabilities(self: GtkPrintUnixDialog, capabilities: GtkPrintCapabilities)
+    @symbol("gtk_print_unix_dialog_set_page_setup") @lib pub fn gtk_print_unix_dialog_set_page_setup(self: GtkPrintUnixDialog, page_setup: GtkPageSetup)
+    @symbol("gtk_print_unix_dialog_set_settings") @lib pub fn gtk_print_unix_dialog_set_settings(self: GtkPrintUnixDialog, settings: GtkPrintSettings)
+    @symbol("gtk_print_unix_dialog_set_support_selection") @lib pub fn gtk_print_unix_dialog_set_support_selection(self: GtkPrintUnixDialog, support_selection: i32)
     @symbol("gtk_printer_new") @lib pub fn gtk_printer_new(name: *const char, backend: GtkPrintBackend, virtual_: i32): GtkPrinter
     @symbol("gtk_printer_accepts_pdf") @lib pub fn gtk_printer_accepts_pdf(self: GtkPrinter): i32
     @symbol("gtk_printer_accepts_ps") @lib pub fn gtk_printer_accepts_ps(self: GtkPrinter): i32
@@ -2367,12 +2991,19 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_printer_is_paused") @lib pub fn gtk_printer_is_paused(self: GtkPrinter): i32
     @symbol("gtk_printer_is_virtual") @lib pub fn gtk_printer_is_virtual(self: GtkPrinter): i32
     @symbol("gtk_printer_list_papers") @lib pub fn gtk_printer_list_papers(self: GtkPrinter): GtkPageSetup
+    @symbol("gtk_printer_request_details") @lib pub fn gtk_printer_request_details(self: GtkPrinter)
     @symbol("gtk_progress_bar_new") @lib pub fn gtk_progress_bar_new(): GtkWidget
     @symbol("gtk_progress_bar_get_fraction") @lib pub fn gtk_progress_bar_get_fraction(self: GtkProgressBar): f64
     @symbol("gtk_progress_bar_get_inverted") @lib pub fn gtk_progress_bar_get_inverted(self: GtkProgressBar): i32
     @symbol("gtk_progress_bar_get_pulse_step") @lib pub fn gtk_progress_bar_get_pulse_step(self: GtkProgressBar): f64
     @symbol("gtk_progress_bar_get_show_text") @lib pub fn gtk_progress_bar_get_show_text(self: GtkProgressBar): i32
     @symbol("gtk_progress_bar_get_text") @lib pub fn gtk_progress_bar_get_text(self: GtkProgressBar): *const char
+    @symbol("gtk_progress_bar_pulse") @lib pub fn gtk_progress_bar_pulse(self: GtkProgressBar)
+    @symbol("gtk_progress_bar_set_fraction") @lib pub fn gtk_progress_bar_set_fraction(self: GtkProgressBar, fraction: f64)
+    @symbol("gtk_progress_bar_set_inverted") @lib pub fn gtk_progress_bar_set_inverted(self: GtkProgressBar, inverted: i32)
+    @symbol("gtk_progress_bar_set_pulse_step") @lib pub fn gtk_progress_bar_set_pulse_step(self: GtkProgressBar, fraction: f64)
+    @symbol("gtk_progress_bar_set_show_text") @lib pub fn gtk_progress_bar_set_show_text(self: GtkProgressBar, show_text: i32)
+    @symbol("gtk_progress_bar_set_text") @lib pub fn gtk_progress_bar_set_text(self: GtkProgressBar, text: *const char)
     @symbol("gtk_property_expression_new") @lib pub fn gtk_property_expression_new(this_type: u64, expression: GtkExpression, property_name: *const char): GtkPropertyExpression
     @symbol("gtk_property_expression_new_for_pspec") @lib pub fn gtk_property_expression_new_for_pspec(expression: GtkExpression, pspec: GParamSpec): GtkPropertyExpression
     @symbol("gtk_property_expression_get_expression") @lib pub fn gtk_property_expression_get_expression(self: GtkPropertyExpression): GtkExpression
@@ -2386,6 +3017,17 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_range_get_show_fill_level") @lib pub fn gtk_range_get_show_fill_level(self: GtkRange): i32
     @symbol("gtk_range_get_slider_size_fixed") @lib pub fn gtk_range_get_slider_size_fixed(self: GtkRange): i32
     @symbol("gtk_range_get_value") @lib pub fn gtk_range_get_value(self: GtkRange): f64
+    @symbol("gtk_range_set_adjustment") @lib pub fn gtk_range_set_adjustment(self: GtkRange, adjustment: GtkAdjustment)
+    @symbol("gtk_range_set_fill_level") @lib pub fn gtk_range_set_fill_level(self: GtkRange, fill_level: f64)
+    @symbol("gtk_range_set_flippable") @lib pub fn gtk_range_set_flippable(self: GtkRange, flippable: i32)
+    @symbol("gtk_range_set_increments") @lib pub fn gtk_range_set_increments(self: GtkRange, step: f64, page: f64)
+    @symbol("gtk_range_set_inverted") @lib pub fn gtk_range_set_inverted(self: GtkRange, setting: i32)
+    @symbol("gtk_range_set_range") @lib pub fn gtk_range_set_range(self: GtkRange, min: f64, max: f64)
+    @symbol("gtk_range_set_restrict_to_fill_level") @lib pub fn gtk_range_set_restrict_to_fill_level(self: GtkRange, restrict_to_fill_level: i32)
+    @symbol("gtk_range_set_round_digits") @lib pub fn gtk_range_set_round_digits(self: GtkRange, round_digits: i32)
+    @symbol("gtk_range_set_show_fill_level") @lib pub fn gtk_range_set_show_fill_level(self: GtkRange, show_fill_level: i32)
+    @symbol("gtk_range_set_slider_size_fixed") @lib pub fn gtk_range_set_slider_size_fixed(self: GtkRange, size_fixed: i32)
+    @symbol("gtk_range_set_value") @lib pub fn gtk_range_set_value(self: GtkRange, value: f64)
     @symbol("gtk_recent_manager_new") @lib pub fn gtk_recent_manager_new(): GtkRecentManager
     @symbol("gtk_recent_manager_add_full") @lib pub fn gtk_recent_manager_add_full(self: GtkRecentManager, uri: *const char, recent_data: GtkRecentData): i32
     @symbol("gtk_recent_manager_add_item") @lib pub fn gtk_recent_manager_add_item(self: GtkRecentManager, uri: *const char): i32
@@ -2398,12 +3040,22 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_revealer_get_reveal_child") @lib pub fn gtk_revealer_get_reveal_child(self: GtkRevealer): i32
     @symbol("gtk_revealer_get_transition_duration") @lib pub fn gtk_revealer_get_transition_duration(self: GtkRevealer): u32
     @symbol("gtk_revealer_get_transition_type") @lib pub fn gtk_revealer_get_transition_type(self: GtkRevealer): GtkRevealerTransitionType
+    @symbol("gtk_revealer_set_child") @lib pub fn gtk_revealer_set_child(self: GtkRevealer, child: GtkWidget)
+    @symbol("gtk_revealer_set_reveal_child") @lib pub fn gtk_revealer_set_reveal_child(self: GtkRevealer, reveal_child: i32)
+    @symbol("gtk_revealer_set_transition_duration") @lib pub fn gtk_revealer_set_transition_duration(self: GtkRevealer, duration: u32)
+    @symbol("gtk_revealer_set_transition_type") @lib pub fn gtk_revealer_set_transition_type(self: GtkRevealer, transition: GtkRevealerTransitionType)
     @symbol("gtk_scale_new") @lib pub fn gtk_scale_new(orientation: GtkOrientation, adjustment: GtkAdjustment): GtkWidget
     @symbol("gtk_scale_new_with_range") @lib pub fn gtk_scale_new_with_range(orientation: GtkOrientation, min: f64, max: f64, step: f64): GtkWidget
+    @symbol("gtk_scale_add_mark") @lib pub fn gtk_scale_add_mark(self: GtkScale, value: f64, position: GtkPositionType, markup: *const char)
+    @symbol("gtk_scale_clear_marks") @lib pub fn gtk_scale_clear_marks(self: GtkScale)
     @symbol("gtk_scale_get_digits") @lib pub fn gtk_scale_get_digits(self: GtkScale): i32
     @symbol("gtk_scale_get_draw_value") @lib pub fn gtk_scale_get_draw_value(self: GtkScale): i32
     @symbol("gtk_scale_get_has_origin") @lib pub fn gtk_scale_get_has_origin(self: GtkScale): i32
     @symbol("gtk_scale_get_value_pos") @lib pub fn gtk_scale_get_value_pos(self: GtkScale): GtkPositionType
+    @symbol("gtk_scale_set_digits") @lib pub fn gtk_scale_set_digits(self: GtkScale, digits: i32)
+    @symbol("gtk_scale_set_draw_value") @lib pub fn gtk_scale_set_draw_value(self: GtkScale, draw_value: i32)
+    @symbol("gtk_scale_set_has_origin") @lib pub fn gtk_scale_set_has_origin(self: GtkScale, has_origin: i32)
+    @symbol("gtk_scale_set_value_pos") @lib pub fn gtk_scale_set_value_pos(self: GtkScale, pos: GtkPositionType)
     @symbol("gtk_scale_button_new") @lib pub fn gtk_scale_button_new(min: f64, max: f64, step: f64, icons: *const char): GtkWidget
     @symbol("gtk_scale_button_get_active") @lib pub fn gtk_scale_button_get_active(self: GtkScaleButton): i32
     @symbol("gtk_scale_button_get_adjustment") @lib pub fn gtk_scale_button_get_adjustment(self: GtkScaleButton): GtkAdjustment
@@ -2412,8 +3064,13 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_scale_button_get_plus_button") @lib pub fn gtk_scale_button_get_plus_button(self: GtkScaleButton): GtkButton
     @symbol("gtk_scale_button_get_popup") @lib pub fn gtk_scale_button_get_popup(self: GtkScaleButton): GtkWidget
     @symbol("gtk_scale_button_get_value") @lib pub fn gtk_scale_button_get_value(self: GtkScaleButton): f64
+    @symbol("gtk_scale_button_set_adjustment") @lib pub fn gtk_scale_button_set_adjustment(self: GtkScaleButton, adjustment: GtkAdjustment)
+    @symbol("gtk_scale_button_set_has_frame") @lib pub fn gtk_scale_button_set_has_frame(self: GtkScaleButton, has_frame: i32)
+    @symbol("gtk_scale_button_set_icons") @lib pub fn gtk_scale_button_set_icons(self: GtkScaleButton, icons: *const char)
+    @symbol("gtk_scale_button_set_value") @lib pub fn gtk_scale_button_set_value(self: GtkScaleButton, value: f64)
     @symbol("gtk_scrollbar_new") @lib pub fn gtk_scrollbar_new(orientation: GtkOrientation, adjustment: GtkAdjustment): GtkWidget
     @symbol("gtk_scrollbar_get_adjustment") @lib pub fn gtk_scrollbar_get_adjustment(self: GtkScrollbar): GtkAdjustment
+    @symbol("gtk_scrollbar_set_adjustment") @lib pub fn gtk_scrollbar_set_adjustment(self: GtkScrollbar, adjustment: GtkAdjustment)
     @symbol("gtk_scrolled_window_new") @lib pub fn gtk_scrolled_window_new(): GtkWidget
     @symbol("gtk_scrolled_window_get_child") @lib pub fn gtk_scrolled_window_get_child(self: GtkScrolledWindow): GtkWidget
     @symbol("gtk_scrolled_window_get_hadjustment") @lib pub fn gtk_scrolled_window_get_hadjustment(self: GtkScrolledWindow): GtkAdjustment
@@ -2430,34 +3087,68 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_scrolled_window_get_propagate_natural_width") @lib pub fn gtk_scrolled_window_get_propagate_natural_width(self: GtkScrolledWindow): i32
     @symbol("gtk_scrolled_window_get_vadjustment") @lib pub fn gtk_scrolled_window_get_vadjustment(self: GtkScrolledWindow): GtkAdjustment
     @symbol("gtk_scrolled_window_get_vscrollbar") @lib pub fn gtk_scrolled_window_get_vscrollbar(self: GtkScrolledWindow): GtkWidget
+    @symbol("gtk_scrolled_window_set_child") @lib pub fn gtk_scrolled_window_set_child(self: GtkScrolledWindow, child: GtkWidget)
+    @symbol("gtk_scrolled_window_set_hadjustment") @lib pub fn gtk_scrolled_window_set_hadjustment(self: GtkScrolledWindow, hadjustment: GtkAdjustment)
+    @symbol("gtk_scrolled_window_set_has_frame") @lib pub fn gtk_scrolled_window_set_has_frame(self: GtkScrolledWindow, has_frame: i32)
+    @symbol("gtk_scrolled_window_set_kinetic_scrolling") @lib pub fn gtk_scrolled_window_set_kinetic_scrolling(self: GtkScrolledWindow, kinetic_scrolling: i32)
+    @symbol("gtk_scrolled_window_set_max_content_height") @lib pub fn gtk_scrolled_window_set_max_content_height(self: GtkScrolledWindow, height: i32)
+    @symbol("gtk_scrolled_window_set_max_content_width") @lib pub fn gtk_scrolled_window_set_max_content_width(self: GtkScrolledWindow, width: i32)
+    @symbol("gtk_scrolled_window_set_min_content_height") @lib pub fn gtk_scrolled_window_set_min_content_height(self: GtkScrolledWindow, height: i32)
+    @symbol("gtk_scrolled_window_set_min_content_width") @lib pub fn gtk_scrolled_window_set_min_content_width(self: GtkScrolledWindow, width: i32)
+    @symbol("gtk_scrolled_window_set_overlay_scrolling") @lib pub fn gtk_scrolled_window_set_overlay_scrolling(self: GtkScrolledWindow, overlay_scrolling: i32)
+    @symbol("gtk_scrolled_window_set_placement") @lib pub fn gtk_scrolled_window_set_placement(self: GtkScrolledWindow, window_placement: GtkCornerType)
+    @symbol("gtk_scrolled_window_set_policy") @lib pub fn gtk_scrolled_window_set_policy(self: GtkScrolledWindow, hscrollbar_policy: GtkPolicyType, vscrollbar_policy: GtkPolicyType)
+    @symbol("gtk_scrolled_window_set_propagate_natural_height") @lib pub fn gtk_scrolled_window_set_propagate_natural_height(self: GtkScrolledWindow, propagate: i32)
+    @symbol("gtk_scrolled_window_set_propagate_natural_width") @lib pub fn gtk_scrolled_window_set_propagate_natural_width(self: GtkScrolledWindow, propagate: i32)
+    @symbol("gtk_scrolled_window_set_vadjustment") @lib pub fn gtk_scrolled_window_set_vadjustment(self: GtkScrolledWindow, vadjustment: GtkAdjustment)
+    @symbol("gtk_scrolled_window_unset_placement") @lib pub fn gtk_scrolled_window_unset_placement(self: GtkScrolledWindow)
     @symbol("gtk_search_bar_new") @lib pub fn gtk_search_bar_new(): GtkWidget
     @symbol("gtk_search_bar_get_child") @lib pub fn gtk_search_bar_get_child(self: GtkSearchBar): GtkWidget
     @symbol("gtk_search_bar_get_key_capture_widget") @lib pub fn gtk_search_bar_get_key_capture_widget(self: GtkSearchBar): GtkWidget
     @symbol("gtk_search_bar_get_search_mode") @lib pub fn gtk_search_bar_get_search_mode(self: GtkSearchBar): i32
     @symbol("gtk_search_bar_get_show_close_button") @lib pub fn gtk_search_bar_get_show_close_button(self: GtkSearchBar): i32
+    @symbol("gtk_search_bar_set_child") @lib pub fn gtk_search_bar_set_child(self: GtkSearchBar, child: GtkWidget)
+    @symbol("gtk_search_bar_set_key_capture_widget") @lib pub fn gtk_search_bar_set_key_capture_widget(self: GtkSearchBar, widget: GtkWidget)
+    @symbol("gtk_search_bar_set_search_mode") @lib pub fn gtk_search_bar_set_search_mode(self: GtkSearchBar, search_mode: i32)
+    @symbol("gtk_search_bar_set_show_close_button") @lib pub fn gtk_search_bar_set_show_close_button(self: GtkSearchBar, visible: i32)
     @symbol("gtk_search_entry_new") @lib pub fn gtk_search_entry_new(): GtkWidget
     @symbol("gtk_search_entry_get_input_hints") @lib pub fn gtk_search_entry_get_input_hints(self: GtkSearchEntry): GtkInputHints
     @symbol("gtk_search_entry_get_input_purpose") @lib pub fn gtk_search_entry_get_input_purpose(self: GtkSearchEntry): GtkInputPurpose
     @symbol("gtk_search_entry_get_key_capture_widget") @lib pub fn gtk_search_entry_get_key_capture_widget(self: GtkSearchEntry): GtkWidget
     @symbol("gtk_search_entry_get_placeholder_text") @lib pub fn gtk_search_entry_get_placeholder_text(self: GtkSearchEntry): *const char
     @symbol("gtk_search_entry_get_search_delay") @lib pub fn gtk_search_entry_get_search_delay(self: GtkSearchEntry): u32
+    @symbol("gtk_search_entry_set_input_hints") @lib pub fn gtk_search_entry_set_input_hints(self: GtkSearchEntry, hints: GtkInputHints)
+    @symbol("gtk_search_entry_set_input_purpose") @lib pub fn gtk_search_entry_set_input_purpose(self: GtkSearchEntry, purpose: GtkInputPurpose)
+    @symbol("gtk_search_entry_set_key_capture_widget") @lib pub fn gtk_search_entry_set_key_capture_widget(self: GtkSearchEntry, widget: GtkWidget)
+    @symbol("gtk_search_entry_set_placeholder_text") @lib pub fn gtk_search_entry_set_placeholder_text(self: GtkSearchEntry, text: *const char)
+    @symbol("gtk_search_entry_set_search_delay") @lib pub fn gtk_search_entry_set_search_delay(self: GtkSearchEntry, delay: u32)
     @symbol("gtk_separator_new") @lib pub fn gtk_separator_new(orientation: GtkOrientation): GtkWidget
+    @symbol("gtk_settings_reset_property") @lib pub fn gtk_settings_reset_property(self: GtkSettings, name: *const char)
     @symbol("gtk_settings_get_default") @lib pub fn gtk_settings_get_default(): GtkSettings
     @symbol("gtk_settings_get_for_display") @lib pub fn gtk_settings_get_for_display(display: GdkDisplay): GtkSettings
     @symbol("gtk_shortcut_new") @lib pub fn gtk_shortcut_new(trigger: GtkShortcutTrigger, action: GtkShortcutAction): GtkShortcut
     @symbol("gtk_shortcut_get_action") @lib pub fn gtk_shortcut_get_action(self: GtkShortcut): GtkShortcutAction
     @symbol("gtk_shortcut_get_arguments") @lib pub fn gtk_shortcut_get_arguments(self: GtkShortcut): GVariant
     @symbol("gtk_shortcut_get_trigger") @lib pub fn gtk_shortcut_get_trigger(self: GtkShortcut): GtkShortcutTrigger
+    @symbol("gtk_shortcut_set_action") @lib pub fn gtk_shortcut_set_action(self: GtkShortcut, action: GtkShortcutAction)
+    @symbol("gtk_shortcut_set_arguments") @lib pub fn gtk_shortcut_set_arguments(self: GtkShortcut, args: GVariant)
+    @symbol("gtk_shortcut_set_trigger") @lib pub fn gtk_shortcut_set_trigger(self: GtkShortcut, trigger: GtkShortcutTrigger)
     @symbol("gtk_shortcut_action_parse_string") @lib pub fn gtk_shortcut_action_parse_string(string: *const char): GtkShortcutAction
     @symbol("gtk_shortcut_action_activate") @lib pub fn gtk_shortcut_action_activate(self: GtkShortcutAction, flags: GtkShortcutActionFlags, widget: GtkWidget, args: GVariant): i32
+    @symbol("gtk_shortcut_action_print") @lib pub fn gtk_shortcut_action_print(self: GtkShortcutAction, string: GString)
     @symbol("gtk_shortcut_action_to_string") @lib pub fn gtk_shortcut_action_to_string(self: GtkShortcutAction): *const char
     @symbol("gtk_shortcut_controller_new") @lib pub fn gtk_shortcut_controller_new(): GtkEventController
+    @symbol("gtk_shortcut_controller_add_shortcut") @lib pub fn gtk_shortcut_controller_add_shortcut(self: GtkShortcutController, shortcut: GtkShortcut)
     @symbol("gtk_shortcut_controller_get_mnemonics_modifiers") @lib pub fn gtk_shortcut_controller_get_mnemonics_modifiers(self: GtkShortcutController): GdkModifierType
     @symbol("gtk_shortcut_controller_get_scope") @lib pub fn gtk_shortcut_controller_get_scope(self: GtkShortcutController): GtkShortcutScope
+    @symbol("gtk_shortcut_controller_remove_shortcut") @lib pub fn gtk_shortcut_controller_remove_shortcut(self: GtkShortcutController, shortcut: GtkShortcut)
+    @symbol("gtk_shortcut_controller_set_mnemonics_modifiers") @lib pub fn gtk_shortcut_controller_set_mnemonics_modifiers(self: GtkShortcutController, modifiers: GdkModifierType)
+    @symbol("gtk_shortcut_controller_set_scope") @lib pub fn gtk_shortcut_controller_set_scope(self: GtkShortcutController, scope: GtkShortcutScope)
     @symbol("gtk_shortcut_trigger_parse_string") @lib pub fn gtk_shortcut_trigger_parse_string(string: *const char): GtkShortcutTrigger
     @symbol("gtk_shortcut_trigger_compare") @lib pub fn gtk_shortcut_trigger_compare(self: GtkShortcutTrigger, trigger2: GtkShortcutTrigger): i32
     @symbol("gtk_shortcut_trigger_equal") @lib pub fn gtk_shortcut_trigger_equal(self: GtkShortcutTrigger, trigger2: GtkShortcutTrigger): i32
     @symbol("gtk_shortcut_trigger_hash") @lib pub fn gtk_shortcut_trigger_hash(self: GtkShortcutTrigger): u32
+    @symbol("gtk_shortcut_trigger_print") @lib pub fn gtk_shortcut_trigger_print(self: GtkShortcutTrigger, string: GString)
     @symbol("gtk_shortcut_trigger_print_label") @lib pub fn gtk_shortcut_trigger_print_label(self: GtkShortcutTrigger, display: GdkDisplay, string: GString): i32
     @symbol("gtk_shortcut_trigger_to_label") @lib pub fn gtk_shortcut_trigger_to_label(self: GtkShortcutTrigger, display: GdkDisplay): *const char
     @symbol("gtk_shortcut_trigger_to_string") @lib pub fn gtk_shortcut_trigger_to_string(self: GtkShortcutTrigger): *const char
@@ -2469,20 +3160,44 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_single_selection_get_can_unselect") @lib pub fn gtk_single_selection_get_can_unselect(self: GtkSingleSelection): i32
     @symbol("gtk_single_selection_get_selected") @lib pub fn gtk_single_selection_get_selected(self: GtkSingleSelection): u32
     @symbol("gtk_single_selection_get_selected_item") @lib pub fn gtk_single_selection_get_selected_item(self: GtkSingleSelection): GObject
+    @symbol("gtk_single_selection_set_autoselect") @lib pub fn gtk_single_selection_set_autoselect(self: GtkSingleSelection, autoselect: i32)
+    @symbol("gtk_single_selection_set_can_unselect") @lib pub fn gtk_single_selection_set_can_unselect(self: GtkSingleSelection, can_unselect: i32)
+    @symbol("gtk_single_selection_set_selected") @lib pub fn gtk_single_selection_set_selected(self: GtkSingleSelection, position: u32)
     @symbol("gtk_size_group_new") @lib pub fn gtk_size_group_new(mode: GtkSizeGroupMode): GtkSizeGroup
+    @symbol("gtk_size_group_add_widget") @lib pub fn gtk_size_group_add_widget(self: GtkSizeGroup, widget: GtkWidget)
     @symbol("gtk_size_group_get_mode") @lib pub fn gtk_size_group_get_mode(self: GtkSizeGroup): GtkSizeGroupMode
     @symbol("gtk_size_group_get_widgets") @lib pub fn gtk_size_group_get_widgets(self: GtkSizeGroup): GtkWidget
+    @symbol("gtk_size_group_remove_widget") @lib pub fn gtk_size_group_remove_widget(self: GtkSizeGroup, widget: GtkWidget)
+    @symbol("gtk_size_group_set_mode") @lib pub fn gtk_size_group_set_mode(self: GtkSizeGroup, mode: GtkSizeGroupMode)
     @symbol("gtk_slice_list_model_get_offset") @lib pub fn gtk_slice_list_model_get_offset(self: GtkSliceListModel): u32
     @symbol("gtk_slice_list_model_get_size") @lib pub fn gtk_slice_list_model_get_size(self: GtkSliceListModel): u32
+    @symbol("gtk_slice_list_model_set_offset") @lib pub fn gtk_slice_list_model_set_offset(self: GtkSliceListModel, offset: u32)
+    @symbol("gtk_slice_list_model_set_size") @lib pub fn gtk_slice_list_model_set_size(self: GtkSliceListModel, size: u32)
     @symbol("gtk_snapshot_new") @lib pub fn gtk_snapshot_new(): GtkSnapshot
+    @symbol("gtk_snapshot_perspective") @lib pub fn gtk_snapshot_perspective(self: GtkSnapshot, depth: f32)
+    @symbol("gtk_snapshot_pop") @lib pub fn gtk_snapshot_pop(self: GtkSnapshot)
+    @symbol("gtk_snapshot_push_blur") @lib pub fn gtk_snapshot_push_blur(self: GtkSnapshot, radius: f64)
+    @symbol("gtk_snapshot_push_copy") @lib pub fn gtk_snapshot_push_copy(self: GtkSnapshot)
+    @symbol("gtk_snapshot_push_cross_fade") @lib pub fn gtk_snapshot_push_cross_fade(self: GtkSnapshot, progress: f64)
+    @symbol("gtk_snapshot_push_opacity") @lib pub fn gtk_snapshot_push_opacity(self: GtkSnapshot, opacity: f64)
+    @symbol("gtk_snapshot_restore") @lib pub fn gtk_snapshot_restore(self: GtkSnapshot)
+    @symbol("gtk_snapshot_rotate") @lib pub fn gtk_snapshot_rotate(self: GtkSnapshot, angle: f32)
+    @symbol("gtk_snapshot_save") @lib pub fn gtk_snapshot_save(self: GtkSnapshot)
+    @symbol("gtk_snapshot_scale") @lib pub fn gtk_snapshot_scale(self: GtkSnapshot, factor_x: f32, factor_y: f32)
+    @symbol("gtk_snapshot_scale_3d") @lib pub fn gtk_snapshot_scale_3d(self: GtkSnapshot, factor_x: f32, factor_y: f32, factor_z: f32)
     @symbol("gtk_sort_list_model_get_incremental") @lib pub fn gtk_sort_list_model_get_incremental(self: GtkSortListModel): i32
     @symbol("gtk_sort_list_model_get_pending") @lib pub fn gtk_sort_list_model_get_pending(self: GtkSortListModel): u32
     @symbol("gtk_sort_list_model_get_section_sorter") @lib pub fn gtk_sort_list_model_get_section_sorter(self: GtkSortListModel): GtkSorter
     @symbol("gtk_sort_list_model_get_sorter") @lib pub fn gtk_sort_list_model_get_sorter(self: GtkSortListModel): GtkSorter
+    @symbol("gtk_sort_list_model_set_incremental") @lib pub fn gtk_sort_list_model_set_incremental(self: GtkSortListModel, incremental: i32)
+    @symbol("gtk_sort_list_model_set_section_sorter") @lib pub fn gtk_sort_list_model_set_section_sorter(self: GtkSortListModel, sorter: GtkSorter)
+    @symbol("gtk_sort_list_model_set_sorter") @lib pub fn gtk_sort_list_model_set_sorter(self: GtkSortListModel, sorter: GtkSorter)
+    @symbol("gtk_sorter_changed") @lib pub fn gtk_sorter_changed(self: GtkSorter, change: GtkSorterChange)
     @symbol("gtk_sorter_compare") @lib pub fn gtk_sorter_compare(self: GtkSorter, item1: GObject, item2: GObject): GtkOrdering
     @symbol("gtk_sorter_get_order") @lib pub fn gtk_sorter_get_order(self: GtkSorter): GtkSorterOrder
     @symbol("gtk_spin_button_new") @lib pub fn gtk_spin_button_new(adjustment: GtkAdjustment, climb_rate: f64, digits: u32): GtkWidget
     @symbol("gtk_spin_button_new_with_range") @lib pub fn gtk_spin_button_new_with_range(min: f64, max: f64, step: f64): GtkWidget
+    @symbol("gtk_spin_button_configure") @lib pub fn gtk_spin_button_configure(self: GtkSpinButton, adjustment: GtkAdjustment, climb_rate: f64, digits: u32)
     @symbol("gtk_spin_button_get_activates_default") @lib pub fn gtk_spin_button_get_activates_default(self: GtkSpinButton): i32
     @symbol("gtk_spin_button_get_adjustment") @lib pub fn gtk_spin_button_get_adjustment(self: GtkSpinButton): GtkAdjustment
     @symbol("gtk_spin_button_get_climb_rate") @lib pub fn gtk_spin_button_get_climb_rate(self: GtkSpinButton): f64
@@ -2493,8 +3208,24 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_spin_button_get_value") @lib pub fn gtk_spin_button_get_value(self: GtkSpinButton): f64
     @symbol("gtk_spin_button_get_value_as_int") @lib pub fn gtk_spin_button_get_value_as_int(self: GtkSpinButton): i32
     @symbol("gtk_spin_button_get_wrap") @lib pub fn gtk_spin_button_get_wrap(self: GtkSpinButton): i32
+    @symbol("gtk_spin_button_set_activates_default") @lib pub fn gtk_spin_button_set_activates_default(self: GtkSpinButton, activates_default: i32)
+    @symbol("gtk_spin_button_set_adjustment") @lib pub fn gtk_spin_button_set_adjustment(self: GtkSpinButton, adjustment: GtkAdjustment)
+    @symbol("gtk_spin_button_set_climb_rate") @lib pub fn gtk_spin_button_set_climb_rate(self: GtkSpinButton, climb_rate: f64)
+    @symbol("gtk_spin_button_set_digits") @lib pub fn gtk_spin_button_set_digits(self: GtkSpinButton, digits: u32)
+    @symbol("gtk_spin_button_set_increments") @lib pub fn gtk_spin_button_set_increments(self: GtkSpinButton, step: f64, page: f64)
+    @symbol("gtk_spin_button_set_numeric") @lib pub fn gtk_spin_button_set_numeric(self: GtkSpinButton, numeric: i32)
+    @symbol("gtk_spin_button_set_range") @lib pub fn gtk_spin_button_set_range(self: GtkSpinButton, min: f64, max: f64)
+    @symbol("gtk_spin_button_set_snap_to_ticks") @lib pub fn gtk_spin_button_set_snap_to_ticks(self: GtkSpinButton, snap_to_ticks: i32)
+    @symbol("gtk_spin_button_set_update_policy") @lib pub fn gtk_spin_button_set_update_policy(self: GtkSpinButton, policy: GtkSpinButtonUpdatePolicy)
+    @symbol("gtk_spin_button_set_value") @lib pub fn gtk_spin_button_set_value(self: GtkSpinButton, value: f64)
+    @symbol("gtk_spin_button_set_wrap") @lib pub fn gtk_spin_button_set_wrap(self: GtkSpinButton, wrap: i32)
+    @symbol("gtk_spin_button_spin") @lib pub fn gtk_spin_button_spin(self: GtkSpinButton, direction: GtkSpinType, increment: f64)
+    @symbol("gtk_spin_button_update") @lib pub fn gtk_spin_button_update(self: GtkSpinButton)
     @symbol("gtk_spinner_new") @lib pub fn gtk_spinner_new(): GtkWidget
     @symbol("gtk_spinner_get_spinning") @lib pub fn gtk_spinner_get_spinning(self: GtkSpinner): i32
+    @symbol("gtk_spinner_set_spinning") @lib pub fn gtk_spinner_set_spinning(self: GtkSpinner, spinning: i32)
+    @symbol("gtk_spinner_start") @lib pub fn gtk_spinner_start(self: GtkSpinner)
+    @symbol("gtk_spinner_stop") @lib pub fn gtk_spinner_stop(self: GtkSpinner)
     @symbol("gtk_stack_new") @lib pub fn gtk_stack_new(): GtkWidget
     @symbol("gtk_stack_add_child") @lib pub fn gtk_stack_add_child(self: GtkStack, child: GtkWidget): GtkStackPage
     @symbol("gtk_stack_add_named") @lib pub fn gtk_stack_add_named(self: GtkStack, child: GtkWidget, name: *const char): GtkStackPage
@@ -2509,6 +3240,15 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_stack_get_vhomogeneous") @lib pub fn gtk_stack_get_vhomogeneous(self: GtkStack): i32
     @symbol("gtk_stack_get_visible_child") @lib pub fn gtk_stack_get_visible_child(self: GtkStack): GtkWidget
     @symbol("gtk_stack_get_visible_child_name") @lib pub fn gtk_stack_get_visible_child_name(self: GtkStack): *const char
+    @symbol("gtk_stack_remove") @lib pub fn gtk_stack_remove(self: GtkStack, child: GtkWidget)
+    @symbol("gtk_stack_set_hhomogeneous") @lib pub fn gtk_stack_set_hhomogeneous(self: GtkStack, hhomogeneous: i32)
+    @symbol("gtk_stack_set_interpolate_size") @lib pub fn gtk_stack_set_interpolate_size(self: GtkStack, interpolate_size: i32)
+    @symbol("gtk_stack_set_transition_duration") @lib pub fn gtk_stack_set_transition_duration(self: GtkStack, duration: u32)
+    @symbol("gtk_stack_set_transition_type") @lib pub fn gtk_stack_set_transition_type(self: GtkStack, transition: GtkStackTransitionType)
+    @symbol("gtk_stack_set_vhomogeneous") @lib pub fn gtk_stack_set_vhomogeneous(self: GtkStack, vhomogeneous: i32)
+    @symbol("gtk_stack_set_visible_child") @lib pub fn gtk_stack_set_visible_child(self: GtkStack, child: GtkWidget)
+    @symbol("gtk_stack_set_visible_child_full") @lib pub fn gtk_stack_set_visible_child_full(self: GtkStack, name: *const char, transition: GtkStackTransitionType)
+    @symbol("gtk_stack_set_visible_child_name") @lib pub fn gtk_stack_set_visible_child_name(self: GtkStack, name: *const char)
     @symbol("gtk_stack_page_get_child") @lib pub fn gtk_stack_page_get_child(self: GtkStackPage): GtkWidget
     @symbol("gtk_stack_page_get_icon_name") @lib pub fn gtk_stack_page_get_icon_name(self: GtkStackPage): *const char
     @symbol("gtk_stack_page_get_name") @lib pub fn gtk_stack_page_get_name(self: GtkStackPage): *const char
@@ -2516,34 +3256,63 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_stack_page_get_title") @lib pub fn gtk_stack_page_get_title(self: GtkStackPage): *const char
     @symbol("gtk_stack_page_get_use_underline") @lib pub fn gtk_stack_page_get_use_underline(self: GtkStackPage): i32
     @symbol("gtk_stack_page_get_visible") @lib pub fn gtk_stack_page_get_visible(self: GtkStackPage): i32
+    @symbol("gtk_stack_page_set_icon_name") @lib pub fn gtk_stack_page_set_icon_name(self: GtkStackPage, setting: *const char)
+    @symbol("gtk_stack_page_set_name") @lib pub fn gtk_stack_page_set_name(self: GtkStackPage, setting: *const char)
+    @symbol("gtk_stack_page_set_needs_attention") @lib pub fn gtk_stack_page_set_needs_attention(self: GtkStackPage, setting: i32)
+    @symbol("gtk_stack_page_set_title") @lib pub fn gtk_stack_page_set_title(self: GtkStackPage, setting: *const char)
+    @symbol("gtk_stack_page_set_use_underline") @lib pub fn gtk_stack_page_set_use_underline(self: GtkStackPage, setting: i32)
+    @symbol("gtk_stack_page_set_visible") @lib pub fn gtk_stack_page_set_visible(self: GtkStackPage, visible: i32)
     @symbol("gtk_stack_sidebar_new") @lib pub fn gtk_stack_sidebar_new(): GtkWidget
     @symbol("gtk_stack_sidebar_get_stack") @lib pub fn gtk_stack_sidebar_get_stack(self: GtkStackSidebar): GtkStack
+    @symbol("gtk_stack_sidebar_set_stack") @lib pub fn gtk_stack_sidebar_set_stack(self: GtkStackSidebar, stack: GtkStack)
     @symbol("gtk_stack_switcher_new") @lib pub fn gtk_stack_switcher_new(): GtkWidget
     @symbol("gtk_stack_switcher_get_stack") @lib pub fn gtk_stack_switcher_get_stack(self: GtkStackSwitcher): GtkStack
+    @symbol("gtk_stack_switcher_set_stack") @lib pub fn gtk_stack_switcher_set_stack(self: GtkStackSwitcher, stack: GtkStack)
     @symbol("gtk_string_filter_new") @lib pub fn gtk_string_filter_new(expression: GtkExpression): GtkStringFilter
     @symbol("gtk_string_filter_get_expression") @lib pub fn gtk_string_filter_get_expression(self: GtkStringFilter): GtkExpression
     @symbol("gtk_string_filter_get_ignore_case") @lib pub fn gtk_string_filter_get_ignore_case(self: GtkStringFilter): i32
     @symbol("gtk_string_filter_get_match_mode") @lib pub fn gtk_string_filter_get_match_mode(self: GtkStringFilter): GtkStringFilterMatchMode
     @symbol("gtk_string_filter_get_search") @lib pub fn gtk_string_filter_get_search(self: GtkStringFilter): *const char
+    @symbol("gtk_string_filter_set_expression") @lib pub fn gtk_string_filter_set_expression(self: GtkStringFilter, expression: GtkExpression)
+    @symbol("gtk_string_filter_set_ignore_case") @lib pub fn gtk_string_filter_set_ignore_case(self: GtkStringFilter, ignore_case: i32)
+    @symbol("gtk_string_filter_set_match_mode") @lib pub fn gtk_string_filter_set_match_mode(self: GtkStringFilter, mode: GtkStringFilterMatchMode)
+    @symbol("gtk_string_filter_set_search") @lib pub fn gtk_string_filter_set_search(self: GtkStringFilter, search: *const char)
     @symbol("gtk_string_list_new") @lib pub fn gtk_string_list_new(strings: *const char): GtkStringList
+    @symbol("gtk_string_list_append") @lib pub fn gtk_string_list_append(self: GtkStringList, string: *const char)
     @symbol("gtk_string_list_find") @lib pub fn gtk_string_list_find(self: GtkStringList, string: *const char): u32
     @symbol("gtk_string_list_get_string") @lib pub fn gtk_string_list_get_string(self: GtkStringList, position: u32): *const char
+    @symbol("gtk_string_list_remove") @lib pub fn gtk_string_list_remove(self: GtkStringList, position: u32)
+    @symbol("gtk_string_list_splice") @lib pub fn gtk_string_list_splice(self: GtkStringList, position: u32, n_removals: u32, additions: *const char)
+    @symbol("gtk_string_list_take") @lib pub fn gtk_string_list_take(self: GtkStringList, string: *const char)
     @symbol("gtk_string_object_new") @lib pub fn gtk_string_object_new(string: *const char): GtkStringObject
     @symbol("gtk_string_object_get_string") @lib pub fn gtk_string_object_get_string(self: GtkStringObject): *const char
     @symbol("gtk_string_sorter_new") @lib pub fn gtk_string_sorter_new(expression: GtkExpression): GtkStringSorter
     @symbol("gtk_string_sorter_get_collation") @lib pub fn gtk_string_sorter_get_collation(self: GtkStringSorter): GtkCollation
     @symbol("gtk_string_sorter_get_expression") @lib pub fn gtk_string_sorter_get_expression(self: GtkStringSorter): GtkExpression
     @symbol("gtk_string_sorter_get_ignore_case") @lib pub fn gtk_string_sorter_get_ignore_case(self: GtkStringSorter): i32
+    @symbol("gtk_string_sorter_set_collation") @lib pub fn gtk_string_sorter_set_collation(self: GtkStringSorter, collation: GtkCollation)
+    @symbol("gtk_string_sorter_set_expression") @lib pub fn gtk_string_sorter_set_expression(self: GtkStringSorter, expression: GtkExpression)
+    @symbol("gtk_string_sorter_set_ignore_case") @lib pub fn gtk_string_sorter_set_ignore_case(self: GtkStringSorter, ignore_case: i32)
     @symbol("gtk_svg_new") @lib pub fn gtk_svg_new(): GtkSvg
     @symbol("gtk_svg_new_from_bytes") @lib pub fn gtk_svg_new_from_bytes(bytes: GBytes): GtkSvg
     @symbol("gtk_svg_new_from_resource") @lib pub fn gtk_svg_new_from_resource(path: *const char): GtkSvg
     @symbol("gtk_svg_get_features") @lib pub fn gtk_svg_get_features(self: GtkSvg): GtkSvgFeatures
     @symbol("gtk_svg_get_state") @lib pub fn gtk_svg_get_state(self: GtkSvg): u32
     @symbol("gtk_svg_get_weight") @lib pub fn gtk_svg_get_weight(self: GtkSvg): f64
+    @symbol("gtk_svg_load_from_bytes") @lib pub fn gtk_svg_load_from_bytes(self: GtkSvg, bytes: GBytes)
+    @symbol("gtk_svg_load_from_resource") @lib pub fn gtk_svg_load_from_resource(self: GtkSvg, path: *const char)
+    @symbol("gtk_svg_pause") @lib pub fn gtk_svg_pause(self: GtkSvg)
+    @symbol("gtk_svg_play") @lib pub fn gtk_svg_play(self: GtkSvg)
     @symbol("gtk_svg_serialize") @lib pub fn gtk_svg_serialize(self: GtkSvg): GBytes
+    @symbol("gtk_svg_set_features") @lib pub fn gtk_svg_set_features(self: GtkSvg, features: GtkSvgFeatures)
+    @symbol("gtk_svg_set_frame_clock") @lib pub fn gtk_svg_set_frame_clock(self: GtkSvg, clock: GdkFrameClock)
+    @symbol("gtk_svg_set_state") @lib pub fn gtk_svg_set_state(self: GtkSvg, state: u32)
+    @symbol("gtk_svg_set_weight") @lib pub fn gtk_svg_set_weight(self: GtkSvg, weight: f64)
     @symbol("gtk_switch_new") @lib pub fn gtk_switch_new(): GtkWidget
     @symbol("gtk_switch_get_active") @lib pub fn gtk_switch_get_active(self: GtkSwitch): i32
     @symbol("gtk_switch_get_state") @lib pub fn gtk_switch_get_state(self: GtkSwitch): i32
+    @symbol("gtk_switch_set_active") @lib pub fn gtk_switch_set_active(self: GtkSwitch, is_active: i32)
+    @symbol("gtk_switch_set_state") @lib pub fn gtk_switch_set_state(self: GtkSwitch, state: i32)
     @symbol("gtk_text_new") @lib pub fn gtk_text_new(): GtkWidget
     @symbol("gtk_text_new_with_buffer") @lib pub fn gtk_text_new_with_buffer(buffer: GtkEntryBuffer): GtkWidget
     @symbol("gtk_text_get_activates_default") @lib pub fn gtk_text_get_activates_default(self: GtkText): i32
@@ -2560,12 +3329,38 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_text_get_truncate_multiline") @lib pub fn gtk_text_get_truncate_multiline(self: GtkText): i32
     @symbol("gtk_text_get_visibility") @lib pub fn gtk_text_get_visibility(self: GtkText): i32
     @symbol("gtk_text_grab_focus_without_selecting") @lib pub fn gtk_text_grab_focus_without_selecting(self: GtkText): i32
+    @symbol("gtk_text_set_activates_default") @lib pub fn gtk_text_set_activates_default(self: GtkText, activates: i32)
+    @symbol("gtk_text_set_buffer") @lib pub fn gtk_text_set_buffer(self: GtkText, buffer: GtkEntryBuffer)
+    @symbol("gtk_text_set_enable_emoji_completion") @lib pub fn gtk_text_set_enable_emoji_completion(self: GtkText, enable_emoji_completion: i32)
+    @symbol("gtk_text_set_extra_menu") @lib pub fn gtk_text_set_extra_menu(self: GtkText, model: GMenuModel)
+    @symbol("gtk_text_set_input_hints") @lib pub fn gtk_text_set_input_hints(self: GtkText, hints: GtkInputHints)
+    @symbol("gtk_text_set_input_purpose") @lib pub fn gtk_text_set_input_purpose(self: GtkText, purpose: GtkInputPurpose)
+    @symbol("gtk_text_set_max_length") @lib pub fn gtk_text_set_max_length(self: GtkText, length: i32)
+    @symbol("gtk_text_set_overwrite_mode") @lib pub fn gtk_text_set_overwrite_mode(self: GtkText, overwrite: i32)
+    @symbol("gtk_text_set_placeholder_text") @lib pub fn gtk_text_set_placeholder_text(self: GtkText, text: *const char)
+    @symbol("gtk_text_set_propagate_text_width") @lib pub fn gtk_text_set_propagate_text_width(self: GtkText, propagate_text_width: i32)
+    @symbol("gtk_text_set_truncate_multiline") @lib pub fn gtk_text_set_truncate_multiline(self: GtkText, truncate_multiline: i32)
+    @symbol("gtk_text_set_visibility") @lib pub fn gtk_text_set_visibility(self: GtkText, visible: i32)
+    @symbol("gtk_text_unset_invisible_char") @lib pub fn gtk_text_unset_invisible_char(self: GtkText)
     @symbol("gtk_text_buffer_new") @lib pub fn gtk_text_buffer_new(table: GtkTextTagTable): GtkTextBuffer
+    @symbol("gtk_text_buffer_add_mark") @lib pub fn gtk_text_buffer_add_mark(self: GtkTextBuffer, mark: GtkTextMark, where: GtkTextIter)
+    @symbol("gtk_text_buffer_add_selection_clipboard") @lib pub fn gtk_text_buffer_add_selection_clipboard(self: GtkTextBuffer, clipboard: GdkClipboard)
+    @symbol("gtk_text_buffer_apply_tag") @lib pub fn gtk_text_buffer_apply_tag(self: GtkTextBuffer, tag: GtkTextTag, start: GtkTextIter, end: GtkTextIter)
+    @symbol("gtk_text_buffer_apply_tag_by_name") @lib pub fn gtk_text_buffer_apply_tag_by_name(self: GtkTextBuffer, name: *const char, start: GtkTextIter, end: GtkTextIter)
     @symbol("gtk_text_buffer_backspace") @lib pub fn gtk_text_buffer_backspace(self: GtkTextBuffer, iter: GtkTextIter, interactive: i32, default_editable: i32): i32
+    @symbol("gtk_text_buffer_begin_irreversible_action") @lib pub fn gtk_text_buffer_begin_irreversible_action(self: GtkTextBuffer)
+    @symbol("gtk_text_buffer_begin_user_action") @lib pub fn gtk_text_buffer_begin_user_action(self: GtkTextBuffer)
+    @symbol("gtk_text_buffer_copy_clipboard") @lib pub fn gtk_text_buffer_copy_clipboard(self: GtkTextBuffer, clipboard: GdkClipboard)
     @symbol("gtk_text_buffer_create_child_anchor") @lib pub fn gtk_text_buffer_create_child_anchor(self: GtkTextBuffer, iter: GtkTextIter): GtkTextChildAnchor
     @symbol("gtk_text_buffer_create_mark") @lib pub fn gtk_text_buffer_create_mark(self: GtkTextBuffer, mark_name: *const char, where: GtkTextIter, left_gravity: i32): GtkTextMark
+    @symbol("gtk_text_buffer_cut_clipboard") @lib pub fn gtk_text_buffer_cut_clipboard(self: GtkTextBuffer, clipboard: GdkClipboard, default_editable: i32)
+    @symbol("gtk_text_buffer_delete") @lib pub fn gtk_text_buffer_delete(self: GtkTextBuffer, start: GtkTextIter, end: GtkTextIter)
     @symbol("gtk_text_buffer_delete_interactive") @lib pub fn gtk_text_buffer_delete_interactive(self: GtkTextBuffer, start_iter: GtkTextIter, end_iter: GtkTextIter, default_editable: i32): i32
+    @symbol("gtk_text_buffer_delete_mark") @lib pub fn gtk_text_buffer_delete_mark(self: GtkTextBuffer, mark: GtkTextMark)
+    @symbol("gtk_text_buffer_delete_mark_by_name") @lib pub fn gtk_text_buffer_delete_mark_by_name(self: GtkTextBuffer, name: *const char)
     @symbol("gtk_text_buffer_delete_selection") @lib pub fn gtk_text_buffer_delete_selection(self: GtkTextBuffer, interactive: i32, default_editable: i32): i32
+    @symbol("gtk_text_buffer_end_irreversible_action") @lib pub fn gtk_text_buffer_end_irreversible_action(self: GtkTextBuffer)
+    @symbol("gtk_text_buffer_end_user_action") @lib pub fn gtk_text_buffer_end_user_action(self: GtkTextBuffer)
     @symbol("gtk_text_buffer_get_can_redo") @lib pub fn gtk_text_buffer_get_can_redo(self: GtkTextBuffer): i32
     @symbol("gtk_text_buffer_get_can_undo") @lib pub fn gtk_text_buffer_get_can_undo(self: GtkTextBuffer): i32
     @symbol("gtk_text_buffer_get_char_count") @lib pub fn gtk_text_buffer_get_char_count(self: GtkTextBuffer): i32
@@ -2581,9 +3376,30 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_text_buffer_get_slice") @lib pub fn gtk_text_buffer_get_slice(self: GtkTextBuffer, start: GtkTextIter, end: GtkTextIter, include_hidden_chars: i32): *const char
     @symbol("gtk_text_buffer_get_tag_table") @lib pub fn gtk_text_buffer_get_tag_table(self: GtkTextBuffer): GtkTextTagTable
     @symbol("gtk_text_buffer_get_text") @lib pub fn gtk_text_buffer_get_text(self: GtkTextBuffer, start: GtkTextIter, end: GtkTextIter, include_hidden_chars: i32): *const char
+    @symbol("gtk_text_buffer_insert") @lib pub fn gtk_text_buffer_insert(self: GtkTextBuffer, iter: GtkTextIter, text: *const char, len: i32)
+    @symbol("gtk_text_buffer_insert_at_cursor") @lib pub fn gtk_text_buffer_insert_at_cursor(self: GtkTextBuffer, text: *const char, len: i32)
+    @symbol("gtk_text_buffer_insert_child_anchor") @lib pub fn gtk_text_buffer_insert_child_anchor(self: GtkTextBuffer, iter: GtkTextIter, anchor: GtkTextChildAnchor)
     @symbol("gtk_text_buffer_insert_interactive") @lib pub fn gtk_text_buffer_insert_interactive(self: GtkTextBuffer, iter: GtkTextIter, text: *const char, len: i32, default_editable: i32): i32
     @symbol("gtk_text_buffer_insert_interactive_at_cursor") @lib pub fn gtk_text_buffer_insert_interactive_at_cursor(self: GtkTextBuffer, text: *const char, len: i32, default_editable: i32): i32
+    @symbol("gtk_text_buffer_insert_markup") @lib pub fn gtk_text_buffer_insert_markup(self: GtkTextBuffer, iter: GtkTextIter, markup: *const char, len: i32)
+    @symbol("gtk_text_buffer_insert_range") @lib pub fn gtk_text_buffer_insert_range(self: GtkTextBuffer, iter: GtkTextIter, start: GtkTextIter, end: GtkTextIter)
     @symbol("gtk_text_buffer_insert_range_interactive") @lib pub fn gtk_text_buffer_insert_range_interactive(self: GtkTextBuffer, iter: GtkTextIter, start: GtkTextIter, end: GtkTextIter, default_editable: i32): i32
+    @symbol("gtk_text_buffer_move_mark") @lib pub fn gtk_text_buffer_move_mark(self: GtkTextBuffer, mark: GtkTextMark, where: GtkTextIter)
+    @symbol("gtk_text_buffer_move_mark_by_name") @lib pub fn gtk_text_buffer_move_mark_by_name(self: GtkTextBuffer, name: *const char, where: GtkTextIter)
+    @symbol("gtk_text_buffer_paste_clipboard") @lib pub fn gtk_text_buffer_paste_clipboard(self: GtkTextBuffer, clipboard: GdkClipboard, override_location: GtkTextIter, default_editable: i32)
+    @symbol("gtk_text_buffer_place_cursor") @lib pub fn gtk_text_buffer_place_cursor(self: GtkTextBuffer, where: GtkTextIter)
+    @symbol("gtk_text_buffer_redo") @lib pub fn gtk_text_buffer_redo(self: GtkTextBuffer)
+    @symbol("gtk_text_buffer_remove_all_tags") @lib pub fn gtk_text_buffer_remove_all_tags(self: GtkTextBuffer, start: GtkTextIter, end: GtkTextIter)
+    @symbol("gtk_text_buffer_remove_commit_notify") @lib pub fn gtk_text_buffer_remove_commit_notify(self: GtkTextBuffer, commit_notify_handler: u32)
+    @symbol("gtk_text_buffer_remove_selection_clipboard") @lib pub fn gtk_text_buffer_remove_selection_clipboard(self: GtkTextBuffer, clipboard: GdkClipboard)
+    @symbol("gtk_text_buffer_remove_tag") @lib pub fn gtk_text_buffer_remove_tag(self: GtkTextBuffer, tag: GtkTextTag, start: GtkTextIter, end: GtkTextIter)
+    @symbol("gtk_text_buffer_remove_tag_by_name") @lib pub fn gtk_text_buffer_remove_tag_by_name(self: GtkTextBuffer, name: *const char, start: GtkTextIter, end: GtkTextIter)
+    @symbol("gtk_text_buffer_select_range") @lib pub fn gtk_text_buffer_select_range(self: GtkTextBuffer, ins: GtkTextIter, bound: GtkTextIter)
+    @symbol("gtk_text_buffer_set_enable_undo") @lib pub fn gtk_text_buffer_set_enable_undo(self: GtkTextBuffer, enable_undo: i32)
+    @symbol("gtk_text_buffer_set_max_undo_levels") @lib pub fn gtk_text_buffer_set_max_undo_levels(self: GtkTextBuffer, max_undo_levels: u32)
+    @symbol("gtk_text_buffer_set_modified") @lib pub fn gtk_text_buffer_set_modified(self: GtkTextBuffer, setting: i32)
+    @symbol("gtk_text_buffer_set_text") @lib pub fn gtk_text_buffer_set_text(self: GtkTextBuffer, text: *const char, len: i32)
+    @symbol("gtk_text_buffer_undo") @lib pub fn gtk_text_buffer_undo(self: GtkTextBuffer)
     @symbol("gtk_text_child_anchor_new") @lib pub fn gtk_text_child_anchor_new(): GtkTextChildAnchor
     @symbol("gtk_text_child_anchor_new_with_replacement") @lib pub fn gtk_text_child_anchor_new_with_replacement(character: *const char): GtkTextChildAnchor
     @symbol("gtk_text_child_anchor_get_deleted") @lib pub fn gtk_text_child_anchor_get_deleted(self: GtkTextChildAnchor): i32
@@ -2593,14 +3409,20 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_text_mark_get_left_gravity") @lib pub fn gtk_text_mark_get_left_gravity(self: GtkTextMark): i32
     @symbol("gtk_text_mark_get_name") @lib pub fn gtk_text_mark_get_name(self: GtkTextMark): *const char
     @symbol("gtk_text_mark_get_visible") @lib pub fn gtk_text_mark_get_visible(self: GtkTextMark): i32
+    @symbol("gtk_text_mark_set_visible") @lib pub fn gtk_text_mark_set_visible(self: GtkTextMark, setting: i32)
     @symbol("gtk_text_tag_new") @lib pub fn gtk_text_tag_new(name: *const char): GtkTextTag
+    @symbol("gtk_text_tag_changed") @lib pub fn gtk_text_tag_changed(self: GtkTextTag, size_changed: i32)
     @symbol("gtk_text_tag_get_priority") @lib pub fn gtk_text_tag_get_priority(self: GtkTextTag): i32
+    @symbol("gtk_text_tag_set_priority") @lib pub fn gtk_text_tag_set_priority(self: GtkTextTag, priority: i32)
     @symbol("gtk_text_tag_table_new") @lib pub fn gtk_text_tag_table_new(): GtkTextTagTable
     @symbol("gtk_text_tag_table_add") @lib pub fn gtk_text_tag_table_add(self: GtkTextTagTable, tag: GtkTextTag): i32
     @symbol("gtk_text_tag_table_get_size") @lib pub fn gtk_text_tag_table_get_size(self: GtkTextTagTable): i32
     @symbol("gtk_text_tag_table_lookup") @lib pub fn gtk_text_tag_table_lookup(self: GtkTextTagTable, name: *const char): GtkTextTag
+    @symbol("gtk_text_tag_table_remove") @lib pub fn gtk_text_tag_table_remove(self: GtkTextTagTable, tag: GtkTextTag)
     @symbol("gtk_text_view_new") @lib pub fn gtk_text_view_new(): GtkWidget
     @symbol("gtk_text_view_new_with_buffer") @lib pub fn gtk_text_view_new_with_buffer(buffer: GtkTextBuffer): GtkWidget
+    @symbol("gtk_text_view_add_child_at_anchor") @lib pub fn gtk_text_view_add_child_at_anchor(self: GtkTextView, child: GtkWidget, anchor: GtkTextChildAnchor)
+    @symbol("gtk_text_view_add_overlay") @lib pub fn gtk_text_view_add_overlay(self: GtkTextView, child: GtkWidget, xpos: i32, ypos: i32)
     @symbol("gtk_text_view_backward_display_line") @lib pub fn gtk_text_view_backward_display_line(self: GtkTextView, iter: GtkTextIter): i32
     @symbol("gtk_text_view_backward_display_line_start") @lib pub fn gtk_text_view_backward_display_line_start(self: GtkTextView, iter: GtkTextIter): i32
     @symbol("gtk_text_view_forward_display_line") @lib pub fn gtk_text_view_forward_display_line(self: GtkTextView, iter: GtkTextIter): i32
@@ -2627,14 +3449,47 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_text_view_get_wrap_mode") @lib pub fn gtk_text_view_get_wrap_mode(self: GtkTextView): GtkWrapMode
     @symbol("gtk_text_view_im_context_filter_keypress") @lib pub fn gtk_text_view_im_context_filter_keypress(self: GtkTextView, event: GdkEvent): i32
     @symbol("gtk_text_view_move_mark_onscreen") @lib pub fn gtk_text_view_move_mark_onscreen(self: GtkTextView, mark: GtkTextMark): i32
+    @symbol("gtk_text_view_move_overlay") @lib pub fn gtk_text_view_move_overlay(self: GtkTextView, child: GtkWidget, xpos: i32, ypos: i32)
     @symbol("gtk_text_view_move_visually") @lib pub fn gtk_text_view_move_visually(self: GtkTextView, iter: GtkTextIter, count: i32): i32
     @symbol("gtk_text_view_place_cursor_onscreen") @lib pub fn gtk_text_view_place_cursor_onscreen(self: GtkTextView): i32
+    @symbol("gtk_text_view_remove") @lib pub fn gtk_text_view_remove(self: GtkTextView, child: GtkWidget)
+    @symbol("gtk_text_view_reset_cursor_blink") @lib pub fn gtk_text_view_reset_cursor_blink(self: GtkTextView)
+    @symbol("gtk_text_view_reset_im_context") @lib pub fn gtk_text_view_reset_im_context(self: GtkTextView)
+    @symbol("gtk_text_view_scroll_mark_onscreen") @lib pub fn gtk_text_view_scroll_mark_onscreen(self: GtkTextView, mark: GtkTextMark)
     @symbol("gtk_text_view_scroll_to_iter") @lib pub fn gtk_text_view_scroll_to_iter(self: GtkTextView, iter: GtkTextIter, within_margin: f64, use_align: i32, xalign: f64, yalign: f64): i32
+    @symbol("gtk_text_view_scroll_to_mark") @lib pub fn gtk_text_view_scroll_to_mark(self: GtkTextView, mark: GtkTextMark, within_margin: f64, use_align: i32, xalign: f64, yalign: f64)
+    @symbol("gtk_text_view_set_accepts_tab") @lib pub fn gtk_text_view_set_accepts_tab(self: GtkTextView, accepts_tab: i32)
+    @symbol("gtk_text_view_set_bottom_margin") @lib pub fn gtk_text_view_set_bottom_margin(self: GtkTextView, bottom_margin: i32)
+    @symbol("gtk_text_view_set_buffer") @lib pub fn gtk_text_view_set_buffer(self: GtkTextView, buffer: GtkTextBuffer)
+    @symbol("gtk_text_view_set_cursor_visible") @lib pub fn gtk_text_view_set_cursor_visible(self: GtkTextView, setting: i32)
+    @symbol("gtk_text_view_set_editable") @lib pub fn gtk_text_view_set_editable(self: GtkTextView, setting: i32)
+    @symbol("gtk_text_view_set_extra_menu") @lib pub fn gtk_text_view_set_extra_menu(self: GtkTextView, model: GMenuModel)
+    @symbol("gtk_text_view_set_gutter") @lib pub fn gtk_text_view_set_gutter(self: GtkTextView, win: GtkTextWindowType, widget: GtkWidget)
+    @symbol("gtk_text_view_set_indent") @lib pub fn gtk_text_view_set_indent(self: GtkTextView, indent: i32)
+    @symbol("gtk_text_view_set_input_hints") @lib pub fn gtk_text_view_set_input_hints(self: GtkTextView, hints: GtkInputHints)
+    @symbol("gtk_text_view_set_input_purpose") @lib pub fn gtk_text_view_set_input_purpose(self: GtkTextView, purpose: GtkInputPurpose)
+    @symbol("gtk_text_view_set_justification") @lib pub fn gtk_text_view_set_justification(self: GtkTextView, justification: GtkJustification)
+    @symbol("gtk_text_view_set_left_margin") @lib pub fn gtk_text_view_set_left_margin(self: GtkTextView, left_margin: i32)
+    @symbol("gtk_text_view_set_monospace") @lib pub fn gtk_text_view_set_monospace(self: GtkTextView, monospace: i32)
+    @symbol("gtk_text_view_set_overwrite") @lib pub fn gtk_text_view_set_overwrite(self: GtkTextView, overwrite: i32)
+    @symbol("gtk_text_view_set_pixels_above_lines") @lib pub fn gtk_text_view_set_pixels_above_lines(self: GtkTextView, pixels_above_lines: i32)
+    @symbol("gtk_text_view_set_pixels_below_lines") @lib pub fn gtk_text_view_set_pixels_below_lines(self: GtkTextView, pixels_below_lines: i32)
+    @symbol("gtk_text_view_set_pixels_inside_wrap") @lib pub fn gtk_text_view_set_pixels_inside_wrap(self: GtkTextView, pixels_inside_wrap: i32)
+    @symbol("gtk_text_view_set_right_margin") @lib pub fn gtk_text_view_set_right_margin(self: GtkTextView, right_margin: i32)
+    @symbol("gtk_text_view_set_top_margin") @lib pub fn gtk_text_view_set_top_margin(self: GtkTextView, top_margin: i32)
+    @symbol("gtk_text_view_set_wrap_mode") @lib pub fn gtk_text_view_set_wrap_mode(self: GtkTextView, wrap_mode: GtkWrapMode)
     @symbol("gtk_text_view_starts_display_line") @lib pub fn gtk_text_view_starts_display_line(self: GtkTextView, iter: GtkTextIter): i32
     @symbol("gtk_toggle_button_new") @lib pub fn gtk_toggle_button_new(): GtkWidget
     @symbol("gtk_toggle_button_new_with_label") @lib pub fn gtk_toggle_button_new_with_label(label: *const char): GtkWidget
     @symbol("gtk_toggle_button_new_with_mnemonic") @lib pub fn gtk_toggle_button_new_with_mnemonic(label: *const char): GtkWidget
     @symbol("gtk_toggle_button_get_active") @lib pub fn gtk_toggle_button_get_active(self: GtkToggleButton): i32
+    @symbol("gtk_toggle_button_set_active") @lib pub fn gtk_toggle_button_set_active(self: GtkToggleButton, is_active: i32)
+    @symbol("gtk_toggle_button_set_group") @lib pub fn gtk_toggle_button_set_group(self: GtkToggleButton, group: GtkToggleButton)
+    @symbol("gtk_tooltip_set_custom") @lib pub fn gtk_tooltip_set_custom(self: GtkTooltip, custom_widget: GtkWidget)
+    @symbol("gtk_tooltip_set_icon_from_icon_name") @lib pub fn gtk_tooltip_set_icon_from_icon_name(self: GtkTooltip, icon_name: *const char)
+    @symbol("gtk_tooltip_set_markup") @lib pub fn gtk_tooltip_set_markup(self: GtkTooltip, markup: *const char)
+    @symbol("gtk_tooltip_set_text") @lib pub fn gtk_tooltip_set_text(self: GtkTooltip, text: *const char)
+    @symbol("gtk_tooltip_set_tip_area") @lib pub fn gtk_tooltip_set_tip_area(self: GtkTooltip, rect: GdkRectangle)
     @symbol("gtk_tree_expander_new") @lib pub fn gtk_tree_expander_new(): GtkWidget
     @symbol("gtk_tree_expander_get_child") @lib pub fn gtk_tree_expander_get_child(self: GtkTreeExpander): GtkWidget
     @symbol("gtk_tree_expander_get_hide_expander") @lib pub fn gtk_tree_expander_get_hide_expander(self: GtkTreeExpander): i32
@@ -2642,10 +3497,16 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_tree_expander_get_indent_for_icon") @lib pub fn gtk_tree_expander_get_indent_for_icon(self: GtkTreeExpander): i32
     @symbol("gtk_tree_expander_get_item") @lib pub fn gtk_tree_expander_get_item(self: GtkTreeExpander): GObject
     @symbol("gtk_tree_expander_get_list_row") @lib pub fn gtk_tree_expander_get_list_row(self: GtkTreeExpander): GtkTreeListRow
+    @symbol("gtk_tree_expander_set_child") @lib pub fn gtk_tree_expander_set_child(self: GtkTreeExpander, child: GtkWidget)
+    @symbol("gtk_tree_expander_set_hide_expander") @lib pub fn gtk_tree_expander_set_hide_expander(self: GtkTreeExpander, hide_expander: i32)
+    @symbol("gtk_tree_expander_set_indent_for_depth") @lib pub fn gtk_tree_expander_set_indent_for_depth(self: GtkTreeExpander, indent_for_depth: i32)
+    @symbol("gtk_tree_expander_set_indent_for_icon") @lib pub fn gtk_tree_expander_set_indent_for_icon(self: GtkTreeExpander, indent_for_icon: i32)
+    @symbol("gtk_tree_expander_set_list_row") @lib pub fn gtk_tree_expander_set_list_row(self: GtkTreeExpander, list_row: GtkTreeListRow)
     @symbol("gtk_tree_list_model_get_autoexpand") @lib pub fn gtk_tree_list_model_get_autoexpand(self: GtkTreeListModel): i32
     @symbol("gtk_tree_list_model_get_child_row") @lib pub fn gtk_tree_list_model_get_child_row(self: GtkTreeListModel, position: u32): GtkTreeListRow
     @symbol("gtk_tree_list_model_get_passthrough") @lib pub fn gtk_tree_list_model_get_passthrough(self: GtkTreeListModel): i32
     @symbol("gtk_tree_list_model_get_row") @lib pub fn gtk_tree_list_model_get_row(self: GtkTreeListModel, position: u32): GtkTreeListRow
+    @symbol("gtk_tree_list_model_set_autoexpand") @lib pub fn gtk_tree_list_model_set_autoexpand(self: GtkTreeListModel, autoexpand: i32)
     @symbol("gtk_tree_list_row_get_child_row") @lib pub fn gtk_tree_list_row_get_child_row(self: GtkTreeListRow, position: u32): GtkTreeListRow
     @symbol("gtk_tree_list_row_get_depth") @lib pub fn gtk_tree_list_row_get_depth(self: GtkTreeListRow): u32
     @symbol("gtk_tree_list_row_get_expanded") @lib pub fn gtk_tree_list_row_get_expanded(self: GtkTreeListRow): i32
@@ -2653,12 +3514,15 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_tree_list_row_get_parent") @lib pub fn gtk_tree_list_row_get_parent(self: GtkTreeListRow): GtkTreeListRow
     @symbol("gtk_tree_list_row_get_position") @lib pub fn gtk_tree_list_row_get_position(self: GtkTreeListRow): u32
     @symbol("gtk_tree_list_row_is_expandable") @lib pub fn gtk_tree_list_row_is_expandable(self: GtkTreeListRow): i32
+    @symbol("gtk_tree_list_row_set_expanded") @lib pub fn gtk_tree_list_row_set_expanded(self: GtkTreeListRow, expanded: i32)
     @symbol("gtk_tree_list_row_sorter_new") @lib pub fn gtk_tree_list_row_sorter_new(sorter: GtkSorter): GtkTreeListRowSorter
     @symbol("gtk_tree_list_row_sorter_get_sorter") @lib pub fn gtk_tree_list_row_sorter_get_sorter(self: GtkTreeListRowSorter): GtkSorter
+    @symbol("gtk_tree_list_row_sorter_set_sorter") @lib pub fn gtk_tree_list_row_sorter_set_sorter(self: GtkTreeListRowSorter, sorter: GtkSorter)
     @symbol("gtk_try_expression_new") @lib pub fn gtk_try_expression_new(n_expressions: u32, expressions: GtkExpression): GtkTryExpression
     @symbol("gtk_uri_launcher_new") @lib pub fn gtk_uri_launcher_new(uri: *const char): GtkUriLauncher
     @symbol("gtk_uri_launcher_can_launch") @lib pub fn gtk_uri_launcher_can_launch(self: GtkUriLauncher, parent: GtkWindow): i32
     @symbol("gtk_uri_launcher_get_uri") @lib pub fn gtk_uri_launcher_get_uri(self: GtkUriLauncher): *const char
+    @symbol("gtk_uri_launcher_set_uri") @lib pub fn gtk_uri_launcher_set_uri(self: GtkUriLauncher, uri: *const char)
     @symbol("gtk_video_new") @lib pub fn gtk_video_new(): GtkWidget
     @symbol("gtk_video_new_for_filename") @lib pub fn gtk_video_new_for_filename(filename: *const char): GtkWidget
     @symbol("gtk_video_new_for_media_stream") @lib pub fn gtk_video_new_for_media_stream(stream: GtkMediaStream): GtkWidget
@@ -2667,15 +3531,31 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_video_get_graphics_offload") @lib pub fn gtk_video_get_graphics_offload(self: GtkVideo): GtkGraphicsOffloadEnabled
     @symbol("gtk_video_get_loop") @lib pub fn gtk_video_get_loop(self: GtkVideo): i32
     @symbol("gtk_video_get_media_stream") @lib pub fn gtk_video_get_media_stream(self: GtkVideo): GtkMediaStream
+    @symbol("gtk_video_set_autoplay") @lib pub fn gtk_video_set_autoplay(self: GtkVideo, autoplay: i32)
+    @symbol("gtk_video_set_filename") @lib pub fn gtk_video_set_filename(self: GtkVideo, filename: *const char)
+    @symbol("gtk_video_set_graphics_offload") @lib pub fn gtk_video_set_graphics_offload(self: GtkVideo, enabled: GtkGraphicsOffloadEnabled)
+    @symbol("gtk_video_set_loop") @lib pub fn gtk_video_set_loop(self: GtkVideo, arg: i32)
+    @symbol("gtk_video_set_media_stream") @lib pub fn gtk_video_set_media_stream(self: GtkVideo, stream: GtkMediaStream)
+    @symbol("gtk_video_set_resource") @lib pub fn gtk_video_set_resource(self: GtkVideo, resource_path: *const char)
     @symbol("gtk_viewport_new") @lib pub fn gtk_viewport_new(hadjustment: GtkAdjustment, vadjustment: GtkAdjustment): GtkWidget
     @symbol("gtk_viewport_get_child") @lib pub fn gtk_viewport_get_child(self: GtkViewport): GtkWidget
     @symbol("gtk_viewport_get_scroll_to_focus") @lib pub fn gtk_viewport_get_scroll_to_focus(self: GtkViewport): i32
+    @symbol("gtk_viewport_scroll_to") @lib pub fn gtk_viewport_scroll_to(self: GtkViewport, descendant: GtkWidget, scroll: GtkScrollInfo)
+    @symbol("gtk_viewport_set_child") @lib pub fn gtk_viewport_set_child(self: GtkViewport, child: GtkWidget)
+    @symbol("gtk_viewport_set_scroll_to_focus") @lib pub fn gtk_viewport_set_scroll_to_focus(self: GtkViewport, scroll_to_focus: i32)
+    @symbol("gtk_widget_action_set_enabled") @lib pub fn gtk_widget_action_set_enabled(self: GtkWidget, action_name: *const char, enabled: i32)
     @symbol("gtk_widget_activate") @lib pub fn gtk_widget_activate(self: GtkWidget): i32
     @symbol("gtk_widget_activate_action_variant") @lib pub fn gtk_widget_activate_action_variant(self: GtkWidget, name: *const char, args: GVariant): i32
+    @symbol("gtk_widget_activate_default") @lib pub fn gtk_widget_activate_default(self: GtkWidget)
+    @symbol("gtk_widget_add_controller") @lib pub fn gtk_widget_add_controller(self: GtkWidget, controller: GtkEventController)
+    @symbol("gtk_widget_add_css_class") @lib pub fn gtk_widget_add_css_class(self: GtkWidget, css_class: *const char)
+    @symbol("gtk_widget_add_mnemonic_label") @lib pub fn gtk_widget_add_mnemonic_label(self: GtkWidget, label: GtkWidget)
     @symbol("gtk_widget_child_focus") @lib pub fn gtk_widget_child_focus(self: GtkWidget, direction: GtkDirectionType): i32
     @symbol("gtk_widget_compute_expand") @lib pub fn gtk_widget_compute_expand(self: GtkWidget, orientation: GtkOrientation): i32
     @symbol("gtk_widget_contains") @lib pub fn gtk_widget_contains(self: GtkWidget, x: f64, y: f64): i32
+    @symbol("gtk_widget_dispose_template") @lib pub fn gtk_widget_dispose_template(self: GtkWidget, widget_type: u64)
     @symbol("gtk_drag_check_threshold") @lib pub fn gtk_drag_check_threshold(self: GtkWidget, start_x: i32, start_y: i32, current_x: i32, current_y: i32): i32
+    @symbol("gtk_widget_error_bell") @lib pub fn gtk_widget_error_bell(self: GtkWidget)
     @symbol("gtk_widget_get_ancestor") @lib pub fn gtk_widget_get_ancestor(self: GtkWidget, widget_type: u64): GtkWidget
     @symbol("gtk_widget_get_baseline") @lib pub fn gtk_widget_get_baseline(self: GtkWidget): i32
     @symbol("gtk_widget_get_can_focus") @lib pub fn gtk_widget_get_can_focus(self: GtkWidget): i32
@@ -2734,6 +3614,9 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_widget_has_focus") @lib pub fn gtk_widget_has_focus(self: GtkWidget): i32
     @symbol("gtk_widget_has_visible_focus") @lib pub fn gtk_widget_has_visible_focus(self: GtkWidget): i32
     @symbol("gtk_widget_in_destruction") @lib pub fn gtk_widget_in_destruction(self: GtkWidget): i32
+    @symbol("gtk_widget_init_template") @lib pub fn gtk_widget_init_template(self: GtkWidget)
+    @symbol("gtk_widget_insert_after") @lib pub fn gtk_widget_insert_after(self: GtkWidget, parent: GtkWidget, previous_sibling: GtkWidget)
+    @symbol("gtk_widget_insert_before") @lib pub fn gtk_widget_insert_before(self: GtkWidget, parent: GtkWidget, next_sibling: GtkWidget)
     @symbol("gtk_widget_is_ancestor") @lib pub fn gtk_widget_is_ancestor(self: GtkWidget, ancestor: GtkWidget): i32
     @symbol("gtk_widget_is_drawable") @lib pub fn gtk_widget_is_drawable(self: GtkWidget): i32
     @symbol("gtk_widget_is_focus") @lib pub fn gtk_widget_is_focus(self: GtkWidget): i32
@@ -2741,13 +3624,68 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_widget_is_visible") @lib pub fn gtk_widget_is_visible(self: GtkWidget): i32
     @symbol("gtk_widget_keynav_failed") @lib pub fn gtk_widget_keynav_failed(self: GtkWidget, direction: GtkDirectionType): i32
     @symbol("gtk_widget_list_mnemonic_labels") @lib pub fn gtk_widget_list_mnemonic_labels(self: GtkWidget): GtkWidget
+    @symbol("gtk_widget_map") @lib pub fn gtk_widget_map(self: GtkWidget)
     @symbol("gtk_widget_mnemonic_activate") @lib pub fn gtk_widget_mnemonic_activate(self: GtkWidget, group_cycling: i32): i32
     @symbol("gtk_widget_pick") @lib pub fn gtk_widget_pick(self: GtkWidget, x: f64, y: f64, flags: GtkPickFlags): GtkWidget
+    @symbol("gtk_widget_queue_allocate") @lib pub fn gtk_widget_queue_allocate(self: GtkWidget)
+    @symbol("gtk_widget_queue_draw") @lib pub fn gtk_widget_queue_draw(self: GtkWidget)
+    @symbol("gtk_widget_queue_resize") @lib pub fn gtk_widget_queue_resize(self: GtkWidget)
+    @symbol("gtk_widget_realize") @lib pub fn gtk_widget_realize(self: GtkWidget)
+    @symbol("gtk_widget_remove_controller") @lib pub fn gtk_widget_remove_controller(self: GtkWidget, controller: GtkEventController)
+    @symbol("gtk_widget_remove_css_class") @lib pub fn gtk_widget_remove_css_class(self: GtkWidget, css_class: *const char)
+    @symbol("gtk_widget_remove_mnemonic_label") @lib pub fn gtk_widget_remove_mnemonic_label(self: GtkWidget, label: GtkWidget)
+    @symbol("gtk_widget_remove_tick_callback") @lib pub fn gtk_widget_remove_tick_callback(self: GtkWidget, id: u32)
+    @symbol("gtk_widget_set_can_focus") @lib pub fn gtk_widget_set_can_focus(self: GtkWidget, can_focus: i32)
+    @symbol("gtk_widget_set_can_target") @lib pub fn gtk_widget_set_can_target(self: GtkWidget, can_target: i32)
+    @symbol("gtk_widget_set_child_visible") @lib pub fn gtk_widget_set_child_visible(self: GtkWidget, child_visible: i32)
+    @symbol("gtk_widget_set_css_classes") @lib pub fn gtk_widget_set_css_classes(self: GtkWidget, classes: *const char)
+    @symbol("gtk_widget_set_cursor") @lib pub fn gtk_widget_set_cursor(self: GtkWidget, cursor: GdkCursor)
+    @symbol("gtk_widget_set_cursor_from_name") @lib pub fn gtk_widget_set_cursor_from_name(self: GtkWidget, name: *const char)
+    @symbol("gtk_widget_set_direction") @lib pub fn gtk_widget_set_direction(self: GtkWidget, dir: GtkTextDirection)
+    @symbol("gtk_widget_set_focus_child") @lib pub fn gtk_widget_set_focus_child(self: GtkWidget, child: GtkWidget)
+    @symbol("gtk_widget_set_focus_on_click") @lib pub fn gtk_widget_set_focus_on_click(self: GtkWidget, focus_on_click: i32)
+    @symbol("gtk_widget_set_focusable") @lib pub fn gtk_widget_set_focusable(self: GtkWidget, focusable: i32)
+    @symbol("gtk_widget_set_halign") @lib pub fn gtk_widget_set_halign(self: GtkWidget, align: GtkAlign)
+    @symbol("gtk_widget_set_has_tooltip") @lib pub fn gtk_widget_set_has_tooltip(self: GtkWidget, has_tooltip: i32)
+    @symbol("gtk_widget_set_hexpand") @lib pub fn gtk_widget_set_hexpand(self: GtkWidget, expand: i32)
+    @symbol("gtk_widget_set_hexpand_set") @lib pub fn gtk_widget_set_hexpand_set(self: GtkWidget, set: i32)
+    @symbol("gtk_widget_set_layout_manager") @lib pub fn gtk_widget_set_layout_manager(self: GtkWidget, layout_manager: GtkLayoutManager)
+    @symbol("gtk_widget_set_limit_events") @lib pub fn gtk_widget_set_limit_events(self: GtkWidget, limit_events: i32)
+    @symbol("gtk_widget_set_margin_bottom") @lib pub fn gtk_widget_set_margin_bottom(self: GtkWidget, margin: i32)
+    @symbol("gtk_widget_set_margin_end") @lib pub fn gtk_widget_set_margin_end(self: GtkWidget, margin: i32)
+    @symbol("gtk_widget_set_margin_start") @lib pub fn gtk_widget_set_margin_start(self: GtkWidget, margin: i32)
+    @symbol("gtk_widget_set_margin_top") @lib pub fn gtk_widget_set_margin_top(self: GtkWidget, margin: i32)
+    @symbol("gtk_widget_set_name") @lib pub fn gtk_widget_set_name(self: GtkWidget, name: *const char)
+    @symbol("gtk_widget_set_opacity") @lib pub fn gtk_widget_set_opacity(self: GtkWidget, opacity: f64)
+    @symbol("gtk_widget_set_overflow") @lib pub fn gtk_widget_set_overflow(self: GtkWidget, overflow: GtkOverflow)
+    @symbol("gtk_widget_set_parent") @lib pub fn gtk_widget_set_parent(self: GtkWidget, parent: GtkWidget)
+    @symbol("gtk_widget_set_receives_default") @lib pub fn gtk_widget_set_receives_default(self: GtkWidget, receives_default: i32)
+    @symbol("gtk_widget_set_sensitive") @lib pub fn gtk_widget_set_sensitive(self: GtkWidget, sensitive: i32)
+    @symbol("gtk_widget_set_size_request") @lib pub fn gtk_widget_set_size_request(self: GtkWidget, width: i32, height: i32)
+    @symbol("gtk_widget_set_state_flags") @lib pub fn gtk_widget_set_state_flags(self: GtkWidget, flags: GtkStateFlags, clear: i32)
+    @symbol("gtk_widget_set_tooltip_markup") @lib pub fn gtk_widget_set_tooltip_markup(self: GtkWidget, markup: *const char)
+    @symbol("gtk_widget_set_tooltip_text") @lib pub fn gtk_widget_set_tooltip_text(self: GtkWidget, text: *const char)
+    @symbol("gtk_widget_set_valign") @lib pub fn gtk_widget_set_valign(self: GtkWidget, align: GtkAlign)
+    @symbol("gtk_widget_set_vexpand") @lib pub fn gtk_widget_set_vexpand(self: GtkWidget, expand: i32)
+    @symbol("gtk_widget_set_vexpand_set") @lib pub fn gtk_widget_set_vexpand_set(self: GtkWidget, set: i32)
+    @symbol("gtk_widget_set_visible") @lib pub fn gtk_widget_set_visible(self: GtkWidget, visible: i32)
     @symbol("gtk_widget_should_layout") @lib pub fn gtk_widget_should_layout(self: GtkWidget): i32
+    @symbol("gtk_widget_snapshot_child") @lib pub fn gtk_widget_snapshot_child(self: GtkWidget, child: GtkWidget, snapshot: GtkSnapshot)
+    @symbol("gtk_widget_trigger_tooltip_query") @lib pub fn gtk_widget_trigger_tooltip_query(self: GtkWidget)
+    @symbol("gtk_widget_unmap") @lib pub fn gtk_widget_unmap(self: GtkWidget)
+    @symbol("gtk_widget_unparent") @lib pub fn gtk_widget_unparent(self: GtkWidget)
+    @symbol("gtk_widget_unrealize") @lib pub fn gtk_widget_unrealize(self: GtkWidget)
+    @symbol("gtk_widget_unset_state_flags") @lib pub fn gtk_widget_unset_state_flags(self: GtkWidget, flags: GtkStateFlags)
     @symbol("gtk_widget_get_default_direction") @lib pub fn gtk_widget_get_default_direction(): GtkTextDirection
+    @symbol("gtk_widget_set_default_direction") @lib pub fn gtk_widget_set_default_direction(dir: GtkTextDirection)
     @symbol("gtk_widget_paintable_new") @lib pub fn gtk_widget_paintable_new(widget: GtkWidget): GtkWidgetPaintable
     @symbol("gtk_widget_paintable_get_widget") @lib pub fn gtk_widget_paintable_get_widget(self: GtkWidgetPaintable): GtkWidget
+    @symbol("gtk_widget_paintable_set_widget") @lib pub fn gtk_widget_paintable_set_widget(self: GtkWidgetPaintable, widget: GtkWidget)
     @symbol("gtk_window_new") @lib pub fn gtk_window_new(): GtkWidget
+    @symbol("gtk_window_close") @lib pub fn gtk_window_close(self: GtkWindow)
+    @symbol("gtk_window_destroy") @lib pub fn gtk_window_destroy(self: GtkWindow)
+    @symbol("gtk_window_fullscreen") @lib pub fn gtk_window_fullscreen(self: GtkWindow)
+    @symbol("gtk_window_fullscreen_on_monitor") @lib pub fn gtk_window_fullscreen_on_monitor(self: GtkWindow, monitor: GdkMonitor)
     @symbol("gtk_window_get_application") @lib pub fn gtk_window_get_application(self: GtkWindow): GtkApplication
     @symbol("gtk_window_get_child") @lib pub fn gtk_window_get_child(self: GtkWindow): GtkWidget
     @symbol("gtk_window_get_decorated") @lib pub fn gtk_window_get_decorated(self: GtkWindow): i32
@@ -2772,17 +3710,56 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_window_is_fullscreen") @lib pub fn gtk_window_is_fullscreen(self: GtkWindow): i32
     @symbol("gtk_window_is_maximized") @lib pub fn gtk_window_is_maximized(self: GtkWindow): i32
     @symbol("gtk_window_is_suspended") @lib pub fn gtk_window_is_suspended(self: GtkWindow): i32
+    @symbol("gtk_window_maximize") @lib pub fn gtk_window_maximize(self: GtkWindow)
+    @symbol("gtk_window_minimize") @lib pub fn gtk_window_minimize(self: GtkWindow)
+    @symbol("gtk_window_present") @lib pub fn gtk_window_present(self: GtkWindow)
+    @symbol("gtk_window_set_application") @lib pub fn gtk_window_set_application(self: GtkWindow, application: GtkApplication)
+    @symbol("gtk_window_set_child") @lib pub fn gtk_window_set_child(self: GtkWindow, child: GtkWidget)
+    @symbol("gtk_window_set_decorated") @lib pub fn gtk_window_set_decorated(self: GtkWindow, setting: i32)
+    @symbol("gtk_window_set_default_size") @lib pub fn gtk_window_set_default_size(self: GtkWindow, width: i32, height: i32)
+    @symbol("gtk_window_set_default_widget") @lib pub fn gtk_window_set_default_widget(self: GtkWindow, default_widget: GtkWidget)
+    @symbol("gtk_window_set_deletable") @lib pub fn gtk_window_set_deletable(self: GtkWindow, setting: i32)
+    @symbol("gtk_window_set_destroy_with_parent") @lib pub fn gtk_window_set_destroy_with_parent(self: GtkWindow, setting: i32)
+    @symbol("gtk_window_set_display") @lib pub fn gtk_window_set_display(self: GtkWindow, display: GdkDisplay)
+    @symbol("gtk_window_set_focus") @lib pub fn gtk_window_set_focus(self: GtkWindow, focus: GtkWidget)
+    @symbol("gtk_window_set_focus_visible") @lib pub fn gtk_window_set_focus_visible(self: GtkWindow, setting: i32)
+    @symbol("gtk_window_set_gravity") @lib pub fn gtk_window_set_gravity(self: GtkWindow, gravity: GtkWindowGravity)
+    @symbol("gtk_window_set_handle_menubar_accel") @lib pub fn gtk_window_set_handle_menubar_accel(self: GtkWindow, handle_menubar_accel: i32)
+    @symbol("gtk_window_set_hide_on_close") @lib pub fn gtk_window_set_hide_on_close(self: GtkWindow, setting: i32)
+    @symbol("gtk_window_set_icon_name") @lib pub fn gtk_window_set_icon_name(self: GtkWindow, name: *const char)
+    @symbol("gtk_window_set_mnemonics_visible") @lib pub fn gtk_window_set_mnemonics_visible(self: GtkWindow, setting: i32)
+    @symbol("gtk_window_set_modal") @lib pub fn gtk_window_set_modal(self: GtkWindow, modal: i32)
+    @symbol("gtk_window_set_resizable") @lib pub fn gtk_window_set_resizable(self: GtkWindow, resizable: i32)
+    @symbol("gtk_window_set_startup_id") @lib pub fn gtk_window_set_startup_id(self: GtkWindow, startup_id: *const char)
+    @symbol("gtk_window_set_title") @lib pub fn gtk_window_set_title(self: GtkWindow, title: *const char)
+    @symbol("gtk_window_set_titlebar") @lib pub fn gtk_window_set_titlebar(self: GtkWindow, titlebar: GtkWidget)
+    @symbol("gtk_window_set_transient_for") @lib pub fn gtk_window_set_transient_for(self: GtkWindow, parent: GtkWindow)
+    @symbol("gtk_window_unfullscreen") @lib pub fn gtk_window_unfullscreen(self: GtkWindow)
+    @symbol("gtk_window_unmaximize") @lib pub fn gtk_window_unmaximize(self: GtkWindow)
+    @symbol("gtk_window_unminimize") @lib pub fn gtk_window_unminimize(self: GtkWindow)
     @symbol("gtk_window_get_default_icon_name") @lib pub fn gtk_window_get_default_icon_name(): *const char
     @symbol("gtk_window_list_toplevels") @lib pub fn gtk_window_list_toplevels(): GtkWidget
+    @symbol("gtk_window_set_auto_startup_notification") @lib pub fn gtk_window_set_auto_startup_notification(setting: i32)
+    @symbol("gtk_window_set_default_icon_name") @lib pub fn gtk_window_set_default_icon_name(name: *const char)
+    @symbol("gtk_window_set_interactive_debugging") @lib pub fn gtk_window_set_interactive_debugging(enable: i32)
     @symbol("gtk_window_controls_new") @lib pub fn gtk_window_controls_new(side: GtkPackType): GtkWidget
     @symbol("gtk_window_controls_get_decoration_layout") @lib pub fn gtk_window_controls_get_decoration_layout(self: GtkWindowControls): *const char
     @symbol("gtk_window_controls_get_empty") @lib pub fn gtk_window_controls_get_empty(self: GtkWindowControls): i32
     @symbol("gtk_window_controls_get_side") @lib pub fn gtk_window_controls_get_side(self: GtkWindowControls): GtkPackType
     @symbol("gtk_window_controls_get_use_native_controls") @lib pub fn gtk_window_controls_get_use_native_controls(self: GtkWindowControls): i32
+    @symbol("gtk_window_controls_set_decoration_layout") @lib pub fn gtk_window_controls_set_decoration_layout(self: GtkWindowControls, layout: *const char)
+    @symbol("gtk_window_controls_set_side") @lib pub fn gtk_window_controls_set_side(self: GtkWindowControls, side: GtkPackType)
+    @symbol("gtk_window_controls_set_use_native_controls") @lib pub fn gtk_window_controls_set_use_native_controls(self: GtkWindowControls, setting: i32)
     @symbol("gtk_window_group_new") @lib pub fn gtk_window_group_new(): GtkWindowGroup
+    @symbol("gtk_window_group_add_window") @lib pub fn gtk_window_group_add_window(self: GtkWindowGroup, window: GtkWindow)
     @symbol("gtk_window_group_list_windows") @lib pub fn gtk_window_group_list_windows(self: GtkWindowGroup): GtkWindow
+    @symbol("gtk_window_group_remove_window") @lib pub fn gtk_window_group_remove_window(self: GtkWindowGroup, window: GtkWindow)
     @symbol("gtk_window_handle_new") @lib pub fn gtk_window_handle_new(): GtkWidget
     @symbol("gtk_window_handle_get_child") @lib pub fn gtk_window_handle_get_child(self: GtkWindowHandle): GtkWidget
+    @symbol("gtk_window_handle_set_child") @lib pub fn gtk_window_handle_set_child(self: GtkWindowHandle, child: GtkWidget)
+    @symbol("gtk_accessible_property_init_value") @lib pub fn gtk_accessible_property_init_value(property: GtkAccessibleProperty, value: GValue)
+    @symbol("gtk_accessible_relation_init_value") @lib pub fn gtk_accessible_relation_init_value(relation: GtkAccessibleRelation, value: GValue)
+    @symbol("gtk_accessible_state_init_value") @lib pub fn gtk_accessible_state_init_value(state: GtkAccessibleState, value: GValue)
     @symbol("gtk_editable_delegate_get_property") @lib pub fn gtk_editable_delegate_get_property(object: GObject, prop_id: u32, value: GValue, pspec: GParamSpec): i32
     @symbol("gtk_editable_delegate_set_property") @lib pub fn gtk_editable_delegate_set_property(object: GObject, prop_id: u32, value: GValue, pspec: GParamSpec): i32
     @symbol("gtk_editable_install_properties") @lib pub fn gtk_editable_install_properties(object_class: GObjectClass, first_prop: u32): u32
@@ -2797,6 +3774,9 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_accelerator_name_with_keycode") @lib pub fn gtk_accelerator_name_with_keycode(display: GdkDisplay, accelerator_key: u32, keycode: u32, accelerator_mods: GdkModifierType): *const char
     @symbol("gtk_accelerator_valid") @lib pub fn gtk_accelerator_valid(keyval: u32, modifiers: GdkModifierType): i32
     @symbol("gtk_check_version") @lib pub fn gtk_check_version(required_major: u32, required_minor: u32, required_micro: u32): *const char
+    @symbol("gtk_disable_portal_interfaces") @lib pub fn gtk_disable_portal_interfaces(portal_interfaces: *const char)
+    @symbol("gtk_disable_portals") @lib pub fn gtk_disable_portals()
+    @symbol("gtk_disable_setlocale") @lib pub fn gtk_disable_setlocale()
     @symbol("gtk_distribute_natural_allocation") @lib pub fn gtk_distribute_natural_allocation(extra_space: i32, n_requested_sizes: u32, sizes: GtkRequestedSize): i32
     @symbol("gtk_get_binary_age") @lib pub fn gtk_get_binary_age(): u32
     @symbol("gtk_get_debug_flags") @lib pub fn gtk_get_debug_flags(): GtkDebugFlags
@@ -2805,12 +3785,18 @@ pub enum GtkWrapMode: u32 {
     @symbol("gtk_get_major_version") @lib pub fn gtk_get_major_version(): u32
     @symbol("gtk_get_micro_version") @lib pub fn gtk_get_micro_version(): u32
     @symbol("gtk_get_minor_version") @lib pub fn gtk_get_minor_version(): u32
+    @symbol("gtk_init") @lib pub fn gtk_init()
     @symbol("gtk_init_check") @lib pub fn gtk_init_check(): i32
     @symbol("gtk_is_initialized") @lib pub fn gtk_is_initialized(): i32
     @symbol("gtk_param_spec_expression") @lib pub fn gtk_param_spec_expression(name: *const char, nick: *const char, blurb: *const char, flags: GParamFlags): GParamSpec
     @symbol("gtk_print_run_page_setup_dialog") @lib pub fn gtk_print_run_page_setup_dialog(parent: GtkWindow, page_setup: GtkPageSetup, settings: GtkPrintSettings): GtkPageSetup
+    @symbol("gtk_set_debug_flags") @lib pub fn gtk_set_debug_flags(flags: GtkDebugFlags)
+    @symbol("gtk_test_register_all_types") @lib pub fn gtk_test_register_all_types()
+    @symbol("gtk_test_widget_wait_for_draw") @lib pub fn gtk_test_widget_wait_for_draw(widget: GtkWidget)
     @symbol("gtk_value_dup_expression") @lib pub fn gtk_value_dup_expression(value: GValue): GtkExpression
     @symbol("gtk_value_get_expression") @lib pub fn gtk_value_get_expression(value: GValue): GtkExpression
+    @symbol("gtk_value_set_expression") @lib pub fn gtk_value_set_expression(value: GValue, expression: GtkExpression)
+    @symbol("gtk_value_take_expression") @lib pub fn gtk_value_take_expression(value: GValue, expression: GtkExpression)
 }
 
-// 1224 fn(s) emitted, 1508 skipped (unsupported params/return or already exported by another namespace)
+// 2210 fn(s) emitted, 522 skipped (unsupported params/return or already exported by another namespace)

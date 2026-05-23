@@ -165,6 +165,13 @@ pub fn parse_gir(path: &Path, repo: &mut Repo) -> Result<(), String> {
                 match tag.as_str() {
                     "type" => {
                         if let Some(name) = attr(&e, b"name") {
+                            // `<type name="none">` only appears in
+                            // return-value positions and means "void
+                            // return". Leave the slot untouched so
+                            // emit logic skips the `: T` suffix.
+                            if name == "none" {
+                                continue;
+                            }
                             let t = if let Some(p) = map_primitive(&name) {
                                 p
                             } else if name == "GLib.Error" {
