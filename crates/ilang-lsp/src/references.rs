@@ -7,10 +7,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use ilang_ast::Symbol as AstSymbol;
 use tower_lsp::lsp_types::{Location, Position, Range, Url};
 
-use crate::analyse::{analyse_path_to_doc, collect_workspace_il_files};
-use crate::text;
+use crate::analyse::{analyse_path_to_doc, collect_workspace_il_files, lookup_ref};
+use crate::text::{self, word_at};
+use crate::types::Doc;
 
 /// Collect every workspace `Location` whose RefEntry targets the
 /// decl identified by (`target_uri`, `target_span`, `name_len`).
@@ -184,4 +186,217 @@ pub(crate) fn scan_decl_name(
         i += 1;
     }
     None
+}
+
+pub(crate) fn handle_references(
+    docs: &HashMap<Url, Doc>,
+    uri: &Url,
+    pos: Position,
+    include_decl: bool,
+) -> Option<Vec<Location>> {
+    let doc = docs.get(uri)?;
+    // Resolve the cursor to the same (decl_uri, decl_span, name_len,
+    // decl_name_span) tuple `rename` uses; the only difference is
+    // we collect `Location`s instead of `TextEdit`s.
+    let (target_uri, target, decl_name_span) = if let Some(entry) = lookup_ref(doc, pos) {
+        if entry.signature.starts_with("this:") {
+            return None;
+        }
+        let owner = entry.target_uri.clone().unwrap_or_else(|| uri.clone());
+        (owner, (entry.target_span, entry.target_name_len), entry.target_span)
+    } else if let Some((word, _)) = word_at(&doc.text, pos) {
+        let sym = doc.symbols.get(&AstSymbol::intern(&word))?;
+        let name_span = ["fn", "class", "enum", "const"]
+            .iter()
+            .find_map(|kw| {
+                text::locate_let_name_with_kw(&doc.text, sym.span, kw, &sym.name)
+            })
+            .unwrap_or(sym.span);
+        (uri.clone(), (sym.span, sym.name.as_str().len() as u32), name_span)
+    } else {
+        return None;
+    };
+
+    let mut locations: Vec<Location> = Vec::new();
+    let opened_paths: std::collections::HashSet<PathBuf> = docs
+        .keys()
+        .filter_map(|u| u.to_file_path().ok())
+        .filter_map(|p| p.canonicalize().ok())
+        .collect();
+    for (doc_uri, d) in docs.iter() {
+        let is_owner = doc_uri == &target_uri;
+        push_ref_locations(&mut locations, doc_uri, d, &target_uri, target);
+        if is_owner && include_decl {
+            locations.push(decl_location(doc_uri, decl_name_span, target.1));
+        }
+    }
+    if let Ok(anchor_path) = target_uri.to_file_path() {
+        for path in collect_workspace_il_files(&anchor_path) {
+            if opened_paths.contains(&path) {
+                continue;
+            }
+            let Some(d) = analyse_path_to_doc(&path) else { continue };
+            let path_uri = match Url::from_file_path(&path) {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            let is_owner = path_uri == target_uri;
+            push_ref_locations(&mut locations, &path_uri, &d, &target_uri, target);
+            if is_owner && include_decl {
+                locations.push(decl_location(&path_uri, decl_name_span, target.1));
+            }
+        }
+    }
+    // Stable, de-duplicated output.
+    locations.sort_by(|a, b| {
+        (a.uri.as_str(), a.range.start.line, a.range.start.character)
+            .cmp(&(b.uri.as_str(), b.range.start.line, b.range.start.character))
+    });
+    locations.dedup_by(|a, b| a.uri == b.uri && a.range == b.range);
+    if locations.is_empty() {
+        None
+    } else {
+        Some(locations)
+    }
+}
+
+fn push_ref_locations(
+    out: &mut Vec<Location>,
+    doc_uri: &Url,
+    d: &Doc,
+    target_uri: &Url,
+    target: (ilang_ast::Span, u32),
+) {
+    let is_owner = doc_uri == target_uri;
+    for r in d.refs.iter() {
+        if r.signature.starts_with("this:") { continue; }
+        if r.target_span != target.0 || r.target_name_len != target.1 { continue; }
+        let matches = if is_owner {
+            r.target_uri.is_none()
+        } else {
+            r.target_uri.as_ref() == Some(target_uri)
+        };
+        if !matches { continue; }
+        out.push(Location {
+            uri: doc_uri.clone(),
+            range: Range {
+                start: Position {
+                    line: r.line.saturating_sub(1),
+                    character: r.start_col.saturating_sub(1),
+                },
+                end: Position {
+                    line: r.line.saturating_sub(1),
+                    character: r.end_col.saturating_sub(1),
+                },
+            },
+        });
+    }
+}
+
+fn decl_location(uri: &Url, decl_name_span: ilang_ast::Span, name_len: u32) -> Location {
+    Location {
+        uri: uri.clone(),
+        range: Range {
+            start: Position {
+                line: decl_name_span.line.saturating_sub(1),
+                character: decl_name_span.col.saturating_sub(1),
+            },
+            end: Position {
+                line: decl_name_span.line.saturating_sub(1),
+                character: decl_name_span.col.saturating_sub(1).saturating_add(name_len),
+            },
+        },
+    }
+}
+
+pub(crate) fn handle_document_highlight(
+    doc: &Doc,
+    pos: Position,
+) -> Option<Vec<tower_lsp::lsp_types::DocumentHighlight>> {
+    use tower_lsp::lsp_types::{DocumentHighlight, DocumentHighlightKind};
+
+    // Resolve the cursor to the same (target_span, name_len) the
+    // rename / references handlers use, then collect every in-file
+    // ref pointing at that target. Decl-name span is included so
+    // the cursor on the decl itself still highlights its uses below.
+    let (target, decl_name_span, decl_name_len) =
+        if let Some(entry) = lookup_ref(doc, pos) {
+            if entry.signature.starts_with("this:") {
+                return None;
+            }
+            (
+                (entry.target_span, entry.target_name_len),
+                entry.target_span,
+                entry.target_name_len,
+            )
+        } else if let Some((word, _)) = word_at(&doc.text, pos) {
+            let sym = doc.symbols.get(&AstSymbol::intern(&word))?;
+            let name_span = ["fn", "class", "enum", "const", "struct", "union", "interface"]
+                .iter()
+                .find_map(|kw| {
+                    text::locate_let_name_with_kw(&doc.text, sym.span, kw, &sym.name)
+                })
+                .unwrap_or(sym.span);
+            (
+                (sym.span, sym.name.as_str().len() as u32),
+                name_span,
+                sym.name.as_str().len() as u32,
+            )
+        } else {
+            return None;
+        };
+    let mut hits: Vec<DocumentHighlight> = Vec::new();
+    // Cross-file refs (where `target_uri` is set) point at a decl in
+    // another file — skip them, document highlight is local.
+    for r in &doc.refs {
+        if r.signature.starts_with("this:") {
+            continue;
+        }
+        if r.target_uri.is_some() {
+            continue;
+        }
+        if r.target_span != target.0 || r.target_name_len != target.1 {
+            continue;
+        }
+        hits.push(DocumentHighlight {
+            range: Range {
+                start: Position {
+                    line: r.line.saturating_sub(1),
+                    character: r.start_col.saturating_sub(1),
+                },
+                end: Position {
+                    line: r.line.saturating_sub(1),
+                    character: r.end_col.saturating_sub(1),
+                },
+            },
+            kind: Some(DocumentHighlightKind::TEXT),
+        });
+    }
+    // Include the decl itself when we can locate it in this file.
+    hits.push(DocumentHighlight {
+        range: Range {
+            start: Position {
+                line: decl_name_span.line.saturating_sub(1),
+                character: decl_name_span.col.saturating_sub(1),
+            },
+            end: Position {
+                line: decl_name_span.line.saturating_sub(1),
+                character: decl_name_span
+                    .col
+                    .saturating_sub(1)
+                    .saturating_add(decl_name_len),
+            },
+        },
+        kind: Some(DocumentHighlightKind::TEXT),
+    });
+    hits.sort_by(|a, b| {
+        (a.range.start.line, a.range.start.character)
+            .cmp(&(b.range.start.line, b.range.start.character))
+    });
+    hits.dedup_by(|a, b| a.range == b.range);
+    if hits.is_empty() {
+        None
+    } else {
+        Some(hits)
+    }
 }

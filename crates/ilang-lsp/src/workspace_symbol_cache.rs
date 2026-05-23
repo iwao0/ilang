@@ -230,3 +230,93 @@ pub(crate) fn mtime(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).ok()?.modified().ok()
 }
 
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+use tower_lsp::lsp_types::{Location, SymbolInformation, Url};
+
+use crate::analyse::collect_workspace_il_files;
+use crate::text::subsequence_ci;
+
+/// Cap the response to keep VSCode's quick-pick responsive on large
+/// workspaces. Picked to be well above any realistic result count
+/// for an ilang project.
+const MAX_RESULTS: usize = 2000;
+
+/// Orchestrate `workspace/symbol`. `open_texts` is a snapshot of
+/// the live buffers (keyed by canonical path), so the caller can
+/// release the docs lock before this walks the workspace. `cache`
+/// is the persistent disk-symbol cache the LSP keeps across
+/// requests.
+pub(crate) fn handle_workspace_symbol(
+    query: &str,
+    anchor: &Path,
+    open_texts: &HashMap<PathBuf, String>,
+    cache: &Mutex<HashMap<PathBuf, Entry>>,
+) -> Option<Vec<SymbolInformation>> {
+    let q_lower = query.to_lowercase();
+    let files = collect_workspace_il_files(anchor);
+    let mut out: Vec<SymbolInformation> = Vec::new();
+    for path in files {
+        if out.len() >= MAX_RESULTS {
+            break;
+        }
+        let Ok(uri) = Url::from_file_path(&path) else { continue };
+        let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
+        // Open buffer: parse the live text (may have unsaved edits),
+        // don't touch cache. Closed file: serve from cache when its
+        // on-disk mtime matches the cached entry; else parse and
+        // refresh the cache.
+        let entries: Vec<Symbol> = if let Some(text) = open_texts.get(&canon) {
+            build(text)
+        } else {
+            let disk_mtime = mtime(&canon);
+            let guard = cache.lock().unwrap();
+            let hit = guard
+                .get(&canon)
+                .filter(|e| e.mtime == disk_mtime)
+                .map(|e| e.items.clone());
+            match hit {
+                Some(items) => items,
+                None => {
+                    drop(guard);
+                    let Ok(text) = std::fs::read_to_string(&path) else { continue };
+                    let items = build(&text);
+                    cache.lock().unwrap().insert(
+                        canon.clone(),
+                        Entry { mtime: disk_mtime, items: items.clone() },
+                    );
+                    items
+                }
+            }
+        };
+        for s in entries {
+            if !subsequence_ci(&s.name, &q_lower) {
+                continue;
+            }
+            if out.len() >= MAX_RESULTS {
+                break;
+            }
+            #[allow(deprecated)]
+            out.push(SymbolInformation {
+                name: s.name,
+                kind: s.kind,
+                tags: None,
+                deprecated: None,
+                location: Location {
+                    uri: uri.clone(),
+                    range: s.range,
+                },
+                container_name: s.container,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}

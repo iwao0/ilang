@@ -373,142 +373,7 @@ impl LanguageServer for Backend {
         let pos = p.text_document_position.position;
         let include_decl = p.context.include_declaration;
         let docs = self.docs();
-        let Some(doc) = docs.get(&uri) else {
-            return Ok(None);
-        };
-        // Resolve the cursor to the same (decl_uri, decl_span,
-        // name_len, decl_name_span) tuple `rename` uses; the only
-        // difference is we collect `Location`s instead of
-        // `TextEdit`s.
-        let (target_uri, target, decl_name_span) = if let Some(entry) = lookup_ref(doc, pos)
-        {
-            if entry.signature.starts_with("this:") {
-                return Ok(None);
-            }
-            let owner = entry.target_uri.clone().unwrap_or_else(|| uri.clone());
-            (
-                owner,
-                (entry.target_span, entry.target_name_len),
-                entry.target_span,
-            )
-        } else if let Some((word, _)) = word_at(&doc.text, pos) {
-            if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&word)) {
-                let name_span = ["fn", "class", "enum", "const"]
-                    .iter()
-                    .find_map(|kw| {
-                        text::locate_let_name_with_kw(
-                            &doc.text, sym.span, kw, &sym.name,
-                        )
-                    })
-                    .unwrap_or(sym.span);
-                (
-                    uri.clone(),
-                    (sym.span, sym.name.as_str().len() as u32),
-                    name_span,
-                )
-            } else {
-                return Ok(None);
-            }
-        } else {
-            return Ok(None);
-        };
-
-        let mut locations: Vec<Location> = Vec::new();
-        let opened_paths: std::collections::HashSet<PathBuf> = docs
-            .keys()
-            .filter_map(|u| u.to_file_path().ok())
-            .filter_map(|p| p.canonicalize().ok())
-            .collect();
-        let push_ref_locs = |out: &mut Vec<Location>,
-                             d_uri: &Url,
-                             d: &crate::types::Doc,
-                             is_owner: bool| {
-            for r in d.refs.iter() {
-                if r.signature.starts_with("this:") { continue; }
-                if r.target_span != target.0 || r.target_name_len != target.1 { continue; }
-                let matches = if is_owner {
-                    r.target_uri.is_none()
-                } else {
-                    r.target_uri.as_ref() == Some(&target_uri)
-                };
-                if !matches { continue; }
-                out.push(Location {
-                    uri: d_uri.clone(),
-                    range: Range {
-                        start: Position {
-                            line: r.line.saturating_sub(1),
-                            character: r.start_col.saturating_sub(1),
-                        },
-                        end: Position {
-                            line: r.line.saturating_sub(1),
-                            character: r.end_col.saturating_sub(1),
-                        },
-                    },
-                });
-            }
-        };
-        for (doc_uri, d) in docs.iter() {
-            let is_owner = doc_uri == &target_uri;
-            push_ref_locs(&mut locations, doc_uri, d, is_owner);
-            if is_owner && include_decl {
-                locations.push(Location {
-                    uri: doc_uri.clone(),
-                    range: Range {
-                        start: Position {
-                            line: decl_name_span.line.saturating_sub(1),
-                            character: decl_name_span.col.saturating_sub(1),
-                        },
-                        end: Position {
-                            line: decl_name_span.line.saturating_sub(1),
-                            character: decl_name_span
-                                .col
-                                .saturating_sub(1)
-                                .saturating_add(target.1),
-                        },
-                    },
-                });
-            }
-        }
-        if let Ok(anchor_path) = target_uri.to_file_path() {
-            for path in collect_workspace_il_files(&anchor_path) {
-                if opened_paths.contains(&path) { continue; }
-                let Some(d) = analyse_path_to_doc(&path) else { continue };
-                let path_uri = match Url::from_file_path(&path) {
-                    Ok(u) => u,
-                    Err(_) => continue,
-                };
-                let is_owner = path_uri == target_uri;
-                push_ref_locs(&mut locations, &path_uri, &d, is_owner);
-                if is_owner && include_decl {
-                    locations.push(Location {
-                        uri: path_uri,
-                        range: Range {
-                            start: Position {
-                                line: decl_name_span.line.saturating_sub(1),
-                                character: decl_name_span.col.saturating_sub(1),
-                            },
-                            end: Position {
-                                line: decl_name_span.line.saturating_sub(1),
-                                character: decl_name_span
-                                    .col
-                                    .saturating_sub(1)
-                                    .saturating_add(target.1),
-                            },
-                        },
-                    });
-                }
-            }
-        }
-        // Stable, de-duplicated output.
-        locations.sort_by(|a, b| {
-            (a.uri.as_str(), a.range.start.line, a.range.start.character)
-                .cmp(&(b.uri.as_str(), b.range.start.line, b.range.start.character))
-        });
-        locations.dedup_by(|a, b| a.uri == b.uri && a.range == b.range);
-        if locations.is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(locations))
+        Ok(references::handle_references(&docs, &uri, pos, include_decl))
     }
 
     async fn prepare_rename(
@@ -629,12 +494,6 @@ impl LanguageServer for Backend {
         &self,
         p: WorkspaceSymbolParams,
     ) -> LspResult<Option<Vec<SymbolInformation>>> {
-        let query = p.query;
-        let q_lower = query.to_lowercase();
-        // Anchor the workspace scan on any open document's path so
-        // `collect_workspace_il_files` finds the right ilang.toml.
-        // When no buffer is open, fall back to the current working
-        // directory.
         let anchor: Option<PathBuf> = {
             let docs = self.docs();
             docs.keys()
@@ -642,14 +501,6 @@ impl LanguageServer for Backend {
                 .or_else(|| std::env::current_dir().ok())
         };
         let Some(anchor) = anchor else { return Ok(None) };
-        let files = collect_workspace_il_files(&anchor);
-        let mut out: Vec<SymbolInformation> = Vec::new();
-        // Cap the response to keep VSCode's quick-pick responsive on
-        // large workspaces. Picked to be well above any realistic
-        // result count for an ilang project.
-        const MAX_RESULTS: usize = 2000;
-        // Snapshot open-buffer texts so we don't hold the docs lock
-        // across the workspace walk.
         let open_texts: HashMap<PathBuf, String> = {
             let docs = self.docs();
             docs.iter()
@@ -660,71 +511,12 @@ impl LanguageServer for Backend {
                 })
                 .collect()
         };
-        for path in files {
-            if out.len() >= MAX_RESULTS {
-                break;
-            }
-            let Ok(uri) = Url::from_file_path(&path) else { continue };
-            let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
-            // Open buffer: parse the live text (may have unsaved
-            // edits), don't touch cache.
-            let entries: Vec<workspace_symbol_cache::Symbol> =
-                if let Some(text) = open_texts.get(&canon) {
-                    workspace_symbol_cache::build(text)
-                } else {
-                    // Closed file: serve from cache when its on-disk
-                    // mtime matches the cached entry; else parse and
-                    // refresh the cache.
-                    let disk_mtime = workspace_symbol_cache::mtime(&canon);
-                    let cache = self.workspace_sym_cache.lock().unwrap();
-                    let hit = cache
-                        .get(&canon)
-                        .filter(|e| e.mtime == disk_mtime)
-                        .map(|e| e.items.clone());
-                    match hit {
-                        Some(items) => items,
-                        None => {
-                            drop(cache);
-                            let Ok(text) = std::fs::read_to_string(&path) else { continue };
-                            let items = workspace_symbol_cache::build(&text);
-                            self.workspace_sym_cache.lock().unwrap().insert(
-                                canon.clone(),
-                                workspace_symbol_cache::Entry {
-                                    mtime: disk_mtime,
-                                    items: items.clone(),
-                                },
-                            );
-                            items
-                        }
-                    }
-                };
-            for s in entries {
-                if !subsequence_ci(&s.name, &q_lower) {
-                    continue;
-                }
-                if out.len() >= MAX_RESULTS {
-                    break;
-                }
-                #[allow(deprecated)]
-                out.push(SymbolInformation {
-                    name: s.name,
-                    kind: s.kind,
-                    tags: None,
-                    deprecated: None,
-                    location: Location {
-                        uri: uri.clone(),
-                        range: s.range,
-                    },
-                    container_name: s.container,
-                });
-            }
-        }
-        out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        if out.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(out))
-        }
+        Ok(workspace_symbol_cache::handle_workspace_symbol(
+            &p.query,
+            &anchor,
+            &open_texts,
+            &self.workspace_sym_cache,
+        ))
     }
 
     async fn goto_implementation(
@@ -778,96 +570,7 @@ impl LanguageServer for Backend {
         let pos = p.text_document_position_params.position;
         let docs = self.docs();
         let Some(doc) = docs.get(&uri) else { return Ok(None) };
-        // Resolve the cursor to the same (target_span, name_len) the
-        // rename / references handlers use, then collect every
-        // in-file ref pointing at that target. Decl-name span is
-        // included so the cursor on the decl itself still highlights
-        // its uses below.
-        let (target, decl_name_span, decl_name_len) =
-            if let Some(entry) = lookup_ref(doc, pos) {
-                if entry.signature.starts_with("this:") {
-                    return Ok(None);
-                }
-                (
-                    (entry.target_span, entry.target_name_len),
-                    entry.target_span,
-                    entry.target_name_len,
-                )
-            } else if let Some((word, _)) = word_at(&doc.text, pos) {
-                if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&word)) {
-                    let name_span = ["fn", "class", "enum", "const", "struct", "union", "interface"]
-                        .iter()
-                        .find_map(|kw| {
-                            text::locate_let_name_with_kw(
-                                &doc.text, sym.span, kw, &sym.name,
-                            )
-                        })
-                        .unwrap_or(sym.span);
-                    (
-                        (sym.span, sym.name.as_str().len() as u32),
-                        name_span,
-                        sym.name.as_str().len() as u32,
-                    )
-                } else {
-                    return Ok(None);
-                }
-            } else {
-                return Ok(None);
-            };
-        let mut hits: Vec<DocumentHighlight> = Vec::new();
-        // Cross-file refs (where `target_uri` is set) point at a decl
-        // in another file — skip them, document highlight is local.
-        for r in &doc.refs {
-            if r.signature.starts_with("this:") {
-                continue;
-            }
-            if r.target_uri.is_some() {
-                continue;
-            }
-            if r.target_span != target.0 || r.target_name_len != target.1 {
-                continue;
-            }
-            hits.push(DocumentHighlight {
-                range: Range {
-                    start: Position {
-                        line: r.line.saturating_sub(1),
-                        character: r.start_col.saturating_sub(1),
-                    },
-                    end: Position {
-                        line: r.line.saturating_sub(1),
-                        character: r.end_col.saturating_sub(1),
-                    },
-                },
-                kind: Some(DocumentHighlightKind::TEXT),
-            });
-        }
-        // Include the decl itself when we can locate it in this file.
-        hits.push(DocumentHighlight {
-            range: Range {
-                start: Position {
-                    line: decl_name_span.line.saturating_sub(1),
-                    character: decl_name_span.col.saturating_sub(1),
-                },
-                end: Position {
-                    line: decl_name_span.line.saturating_sub(1),
-                    character: decl_name_span
-                        .col
-                        .saturating_sub(1)
-                        .saturating_add(decl_name_len),
-                },
-            },
-            kind: Some(DocumentHighlightKind::TEXT),
-        });
-        hits.sort_by(|a, b| {
-            (a.range.start.line, a.range.start.character)
-                .cmp(&(b.range.start.line, b.range.start.character))
-        });
-        hits.dedup_by(|a, b| a.range == b.range);
-        if hits.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(hits))
-        }
+        Ok(references::handle_document_highlight(doc, pos))
     }
 
     async fn prepare_call_hierarchy(
