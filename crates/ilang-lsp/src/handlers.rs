@@ -1291,7 +1291,7 @@ impl LanguageServer for Backend {
                 )
             } else if let Some((word, _)) = word_at(&doc.text, pos) {
                 if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&word)) {
-                    let name_span = ["fn", "class", "enum", "const"]
+                    let name_span = ["fn", "class", "enum", "const", "struct", "union", "interface"]
                         .iter()
                         .find_map(|kw| {
                             text::locate_let_name_with_kw(
@@ -1858,7 +1858,7 @@ impl LanguageServer for Backend {
                 )
             } else if let Some((word, _)) = word_at(&doc.text, pos) {
                 if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&word)) {
-                    let name_span = ["fn", "class", "enum", "const"]
+                    let name_span = ["fn", "class", "enum", "const", "struct", "union", "interface"]
                         .iter()
                         .find_map(|kw| {
                             text::locate_let_name_with_kw(
