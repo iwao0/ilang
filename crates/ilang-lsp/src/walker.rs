@@ -491,66 +491,7 @@ impl<'a> Walker<'a> {
 
     pub(crate) fn walk_expr(&mut self, e: &Expr, scope: &mut Vec<Binding>, this_class: Option<&str>) {
         match &e.kind {
-            ExprKind::Var(name) => {
-                if let Some(b) = scope.iter().rev().find(|b| b.name == name.as_str()) {
-                    let sig = b
-                        .override_signature
-                        .clone()
-                        .unwrap_or_else(|| b.kind.render(name.as_str(), b.ty.as_ref()));
-                    self.push_ref(name.as_str(), e.span, b.span, name.as_str().len() as u32, sig);
-                } else if name.as_str().contains('.') {
-                    self.push_external_dotted_ref(name.as_str(), e.span);
-                } else if let Some(m) = this_class.and_then(|c| self.classes.get(&AstSymbol::intern(c))).and_then(
-                    |info| {
-                        info.getters
-                            .get(name)
-                            .or_else(|| info.fields.get(name))
-                            .or_else(|| info.methods.get(name))
-                    },
-                ) {
-                    // Implicit-`this` member access inside a class method.
-                    self.push_ref(name.as_str(), e.span, m.span, name.as_str().len() as u32, m.signature.clone());
-                } else if let Some(sym) = self.symbols.get(name) {
-                    // Top-level lets are registered in `symbols` with
-                    // a bare `let X` signature (collect_symbols can't
-                    // see the inferred type). The diag pre-pass fills
-                    // in `var_types` with the resolved type, so prefer
-                    // that for the rendered signature here.
-                    let sig = self
-                        .var_types
-                        .get(name)
-                        .map(|t| format!("let {name}: {t}"))
-                        .unwrap_or_else(|| sym.signature.clone());
-                    self.push_ref(
-                        name.as_str(),
-                        e.span,
-                        sym.span,
-                        sym.name.as_str().len() as u32,
-                        sig,
-                    );
-                } else if let Some(sig) = self.external_signatures.get(name) {
-                    // Selectively-imported bare name (`use M { X }`).
-                    // Source / doc info was harvested under the bare key.
-                    let loc = self.external_sources.get(name);
-                    let target_uri = loc
-                        .and_then(|l| Url::from_file_path(&l.path).ok());
-                    let (target_span, target_name_len, no_def) = match loc {
-                        Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
-                        _ => (e.span, name.as_str().len() as u32, target_uri.is_none()),
-                    };
-                    self.refs.push(RefEntry {
-                        line: e.span.line,
-                        start_col: e.span.col,
-                        end_col: e.span.col + name.as_str().len() as u32,
-                        target_span,
-                        target_name_len,
-                        signature: sig.clone(),
-                        no_definition: no_def,
-                        target_uri,
-                        doc: self.external_docs.get(name).cloned(),
-                    });
-                }
-            }
+            ExprKind::Var(name) => self.walk_expr_var(name, e.span, scope, this_class),
             ExprKind::This => {
                 if let Some(c) = this_class {
                     if let Some(info) = self.classes.get(&AstSymbol::intern(c)) {
@@ -559,394 +500,18 @@ impl<'a> Walker<'a> {
                     }
                 }
             }
-            ExprKind::Field { obj, name } => {
-                self.walk_expr(obj, scope, this_class);
-                // Built-in `.length` on string / array.
-                if name == "length" {
-                    let prefix = match self.infer_expr(obj, scope) {
-                        Some(Type::Str) => Some("string".to_string()),
-                        Some(Type::Array { elem, .. }) => Some(format!("{elem}[]")),
-                        _ => None,
-                    };
-                    if let Some(prefix) = prefix {
-                        if let Some((line, col)) = locate_dot_name(self.text, obj.span, name.as_str()) {
-                            self.refs.push(RefEntry {
-                                line,
-                                start_col: col,
-                                end_col: col + name.as_str().len() as u32,
-                                target_span: obj.span,
-                                target_name_len: name.as_str().len() as u32,
-                                signature: format!("(property) {prefix}.length: i64"),
-                                no_definition: true,
-                                target_uri: None,
-                            doc: None,
-                            });
-                            return;
-                        }
-                    }
-                }
-                if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
-                    if let Some(info) = self.classes.get(&AstSymbol::intern(&class)) {
-                        if let Some(m) = info
-                            .getters
-                            .get(name)
-                            .or_else(|| info.fields.get(name))
-                            .or_else(|| info.methods.get(name))
-                        {
-                            if let Some((line, col)) = locate_dot_name(self.text, obj.span, name.as_str()) {
-                                let (target, no_def, uri) = member_target(
-                                    m,
-                                    info,
-                                    &class,
-                                    self.external_sources,
-                                    line,
-                                    col,
-                                );
-                                self.refs.push(RefEntry {
-                                    line,
-                                    start_col: col,
-                                    end_col: col + name.as_str().len() as u32,
-                                    target_span: target,
-                                    target_name_len: name.as_str().len() as u32,
-                                    signature: m.signature.clone(),
-                                    no_definition: no_def,
-                                    target_uri: uri,
-                                    doc: m.doc.clone(),
-                                });
-                            }
-                        }
-                    }
-                }
-                // Enum variant access: `EnumName.Variant` parses as a
-                // Field, with `obj` resolving to a known external enum.
-                // Look up the composite `EnumName.Variant` key in the
-                // external maps (populated by `register_enum_variants*`)
-                // and push a ref so hover / F12 land on the variant
-                // declaration.
-                if let Some(obj_name) = enum_obj_name(obj) {
-                    let key = AstSymbol::intern(&format!("{obj_name}.{}", name));
-                    if let Some(sig) = self.external_signatures.get(&key).cloned() {
-                        if sig.starts_with("(variant)") {
-                            if let Some((line, col)) =
-                                locate_dot_name(self.text, obj.span, name.as_str())
-                            {
-                                let loc = self.external_sources.get(&key);
-                                let target_uri = loc
-                                    .and_then(|l| Url::from_file_path(&l.path).ok());
-                                let (target_span, target_name_len, no_def) = match loc {
-                                    Some(l) if target_uri.is_some() => {
-                                        (l.span, l.name_len, false)
-                                    }
-                                    _ => (
-                                        Span::new(line, col),
-                                        name.as_str().len() as u32,
-                                        target_uri.is_none(),
-                                    ),
-                                };
-                                self.refs.push(RefEntry {
-                                    line,
-                                    start_col: col,
-                                    end_col: col + name.as_str().len() as u32,
-                                    target_span,
-                                    target_name_len,
-                                    signature: sig,
-                                    no_definition: no_def,
-                                    target_uri,
-                                    doc: self.external_docs.get(&key).cloned(),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
+            ExprKind::Field { obj, name } => self.walk_expr_field(obj, name, scope, this_class),
             ExprKind::MethodCall { obj, method, args } => {
-                self.walk_expr(obj, scope, this_class);
-                for a in args {
-                    self.walk_expr(a, scope, this_class);
-                }
-                // Built-in string / array / Map methods.
-                let builtin = match self.infer_expr(obj, scope) {
-                    Some(Type::Str) => string_method_sig(method.as_str())
-                        .map(|s| (s, string_method_doc(method.as_str()))),
-                    Some(Type::Array { elem, .. }) => array_method_sig(method.as_str(), &elem)
-                        .map(|s| (s, array_method_doc(method.as_str()))),
-                    Some(Type::Generic(g))
-                        if g.base.as_str() == "Map" && g.args.len() == 2 =>
-                    {
-                        map_method_sig(method.as_str(), &g.args[0], &g.args[1])
-                            .map(|s| (s, map_method_doc(method.as_str())))
-                    }
-                    _ => None,
-                };
-                if let Some((sig, doc_text)) = builtin {
-                    if let Some((line, col)) = locate_dot_name(self.text, obj.span, method.as_str()) {
-                        self.refs.push(RefEntry {
-                            line,
-                            start_col: col,
-                            end_col: col + method.as_str().len() as u32,
-                            target_span: obj.span,
-                            target_name_len: method.as_str().len() as u32,
-                            signature: sig,
-                            no_definition: true,
-                            target_uri: None,
-                            doc: doc_text.map(|s| s.to_string()),
-                        });
-                        return;
-                    }
-                }
-                if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
-                    if let Some(info) = self.classes.get(&AstSymbol::intern(&class)) {
-                        if let Some(m) = info.methods.get(&AstSymbol::intern(method.as_str())) {
-                            if let Some((line, col)) = locate_dot_name(self.text, obj.span, method.as_str())
-                            {
-                                let (target, no_def, uri) = member_target(
-                                    m,
-                                    info,
-                                    &class,
-                                    self.external_sources,
-                                    line,
-                                    col,
-                                );
-                                self.refs.push(RefEntry {
-                                    line,
-                                    start_col: col,
-                                    end_col: col + method.as_str().len() as u32,
-                                    target_span: target,
-                                    target_name_len: method.as_str().len() as u32,
-                                    signature: m.signature.clone(),
-                                    no_definition: no_def,
-                                    target_uri: uri,
-                                    doc: m.doc.clone(),
-                                });
-                            }
-                        }
-                    }
-                }
+                self.walk_expr_method_call(obj, method, args, scope, this_class)
             }
             ExprKind::Call { callee, args } => {
-                if let Some(b) = scope.iter().rev().find(|b| b.name.as_str() == callee.as_str()) {
-                    let sig = b
-                        .override_signature
-                        .clone()
-                        .unwrap_or_else(|| b.kind.render(callee.as_str(), b.ty.as_ref()));
-                    self.push_ref(callee.as_str(), e.span, b.span, callee.as_str().len() as u32, sig);
-                } else if let Some(m) = this_class
-                    .and_then(|c| self.classes.get(&AstSymbol::intern(c)))
-                    .and_then(|info| info.methods.get(&AstSymbol::intern(callee.as_str())))
-                {
-                    // Implicit-`this` method call inside a class method.
-                    self.push_ref(
-                        callee.as_str(),
-                        e.span,
-                        m.span,
-                        callee.as_str().len() as u32,
-                        m.signature.clone(),
-                    );
-                } else if let Some(sym) = self.symbols.get(callee) {
-                    self.push_ref(
-                        callee.as_str(),
-                        e.span,
-                        sym.span,
-                        sym.name.as_str().len() as u32,
-                        sym.signature.clone(),
-                    );
-                } else if callee.as_str().contains('.') {
-                    self.push_external_dotted_ref(callee.as_str(), e.span);
-                } else if let Some(sig) = ffi_helper_signature(callee.as_str()) {
-                    // Same use_span guard as push_ref — synthesised
-                    // calls (e.g. `cstrFromString` inside the @objc
-                    // class desugar) borrow nearby user spans.
-                    if text::text_at_span_starts_with(self.text, e.span, callee.as_str()) {
-                        self.refs.push(RefEntry {
-                            line: e.span.line,
-                            start_col: e.span.col,
-                            end_col: e.span.col + callee.as_str().len() as u32,
-                            target_span: e.span,
-                            target_name_len: callee.as_str().len() as u32,
-                            signature: sig.to_string(),
-                            no_definition: true,
-                            target_uri: None,
-                            doc: None,
-                        });
-                    }
-                }
-                for a in args {
-                    self.walk_expr(a, scope, this_class);
-                }
+                self.walk_expr_call(callee, args, e.span, scope, this_class)
             }
             ExprKind::New { class, args, .. } => {
-                let info = self.classes.get(class);
-                let class_sig = info
-                    .map(|i| class_hover(class.as_str(), i))
-                    .unwrap_or_else(|| format!("class {class}"));
-                // The `new` keyword span is at e.span; the class name
-                // sits after `new ` so locate it explicitly. Without
-                // this, our ref entries would land on the keyword
-                // (and the dotted-name suffix wouldn't be found).
-                //
-                // When `new ClassName` isn't actually present in the
-                // source (e.g. a synth `new NSUserActivity(...)` the
-                // @objc desugar drops into the alloc method body),
-                // locate fails and the AST span points at the user's
-                // declaration line — which would hijack hover on
-                // unrelated tokens like the return-type colon. Walk
-                // the args (still useful for nested type refs) then
-                // skip the class ref entirely.
-                let class_str = class.as_str();
-                let Some(class_start) = locate_let_name_with_kw(
-                    self.text,
-                    e.span,
-                    "new",
-                    class_str.split('.').next().unwrap_or(class_str),
-                ) else {
-                    for a in args {
-                        self.walk_expr(a, scope, this_class);
-                    }
-                    return;
-                };
-                // F12 jumps to init when there is one; otherwise to the
-                // class declaration itself. `init_member` is `None` for
-                // classes without a defined init.
-                let init_member = info.and_then(|i| i.methods.get(&"init".into()));
-                if let Some(dot) = class_str.find('.') {
-                    let prefix = &class_str[..dot];
-                    let suffix = &class_str[dot + 1..];
-                    let prefix_loc = self.external_sources.get(&AstSymbol::intern(prefix));
-                    let prefix_uri = prefix_loc
-                        .and_then(|l| Url::from_file_path(&l.path).ok());
-                    let (prefix_target_span, prefix_target_name_len, prefix_no_def) =
-                        match prefix_loc {
-                            Some(l) if prefix_uri.is_some() => (l.span, l.name_len, false),
-                            _ => (class_start, prefix.len() as u32, true),
-                        };
-                    self.refs.push(RefEntry {
-                        line: class_start.line,
-                        start_col: class_start.col,
-                        end_col: class_start.col + prefix.len() as u32,
-                        target_span: prefix_target_span,
-                        target_name_len: prefix_target_name_len,
-                        signature: format!("(module) {prefix}"),
-                        no_definition: prefix_no_def,
-                        target_uri: prefix_uri,
-                        doc: None,
-                    });
-                    if let Some((line, col)) = locate_dot_name(self.text, class_start, suffix) {
-                        let loc = self.external_sources.get(class);
-                        let target_uri = loc
-                            .and_then(|l| Url::from_file_path(&l.path).ok());
-                        let is_external = info.map(|i| i.external).unwrap_or(true);
-                        let (target_span, target_name_len, no_def) = match (init_member, is_external) {
-                            (Some(im), false) => (im.span, suffix.len() as u32, false),
-                            (Some(im), true) if target_uri.is_some() => {
-                                (im.span, "init".len() as u32, false)
-                            }
-                            _ => match info {
-                                Some(i) if !i.external => {
-                                    (i.decl_span, suffix.len() as u32, false)
-                                }
-                                _ => match loc {
-                                    Some(l) if target_uri.is_some() => {
-                                        (l.span, l.name_len, false)
-                                    }
-                                    _ => {
-                                        (class_start, suffix.len() as u32, target_uri.is_none())
-                                    }
-                                },
-                            },
-                        };
-                        self.refs.push(RefEntry {
-                            line,
-                            start_col: col,
-                            end_col: col + suffix.len() as u32,
-                            target_span,
-                            target_name_len,
-                            signature: class_sig,
-                            no_definition: no_def,
-                            target_uri,
-                            doc: init_member.and_then(|m| m.doc.clone()),
-                        });
-                    }
-                } else if let Some(sym) = self.symbols.get(class) {
-                    let target_span = init_member.map(|m| m.span).unwrap_or(sym.span);
-                    self.refs.push(RefEntry {
-                        line: class_start.line,
-                        start_col: class_start.col,
-                        end_col: class_start.col + class.as_str().len() as u32,
-                        target_span,
-                        target_name_len: class.as_str().len() as u32,
-                        signature: class_sig,
-                        no_definition: false,
-                        target_uri: None,
-                        doc: init_member
-                            .and_then(|m| m.doc.clone())
-                            .or_else(|| sym.doc.clone()),
-                    });
-                }
-                for a in args {
-                    self.walk_expr(a, scope, this_class);
-                }
+                self.walk_expr_new(class, args, e.span, scope, this_class)
             }
             ExprKind::EnumCtor { enum_name, variant, args } => {
-                if let Some(sym) = self.symbols.get(enum_name) {
-                    self.push_ref(
-                        enum_name.as_str(),
-                        e.span,
-                        sym.span,
-                        sym.name.as_str().len() as u32,
-                        sym.signature.clone(),
-                    );
-                }
-                // Push a separate RefEntry for the variant name so
-                // hover / F12 work on `Enum.variant` at the variant
-                // half too. The composite `Enum.variant` key is
-                // populated by `register_enum_variants` for both
-                // buffer-local and cross-module enums.
-                let key = AstSymbol::intern(&format!(
-                    "{}.{}", enum_name, variant
-                ));
-                if let Some(sig) = self.external_signatures.get(&key).cloned() {
-                    if let Some((line, col)) =
-                        locate_dot_name(self.text, e.span, variant.as_str())
-                    {
-                        let loc = self.external_sources.get(&key);
-                        let target_uri = loc
-                            .and_then(|l| Url::from_file_path(&l.path).ok());
-                        let (target_span, target_name_len, no_def) = match loc {
-                            Some(l) if target_uri.is_some() => {
-                                (l.span, l.name_len, false)
-                            }
-                            _ => (
-                                Span::new(line, col),
-                                variant.as_str().len() as u32,
-                                target_uri.is_none(),
-                            ),
-                        };
-                        self.refs.push(RefEntry {
-                            line,
-                            start_col: col,
-                            end_col: col + variant.as_str().len() as u32,
-                            target_span,
-                            target_name_len,
-                            signature: sig,
-                            no_definition: no_def,
-                            target_uri,
-                            doc: self.external_docs.get(&key).cloned(),
-                        });
-                    }
-                }
-                match args {
-                    ilang_ast::CtorArgs::Tuple(es) => {
-                        for x in es {
-                            self.walk_expr(x, scope, this_class);
-                        }
-                    }
-                    ilang_ast::CtorArgs::Struct(pairs) => {
-                        for (_, x) in pairs {
-                            self.walk_expr(x, scope, this_class);
-                        }
-                    }
-                    ilang_ast::CtorArgs::Unit => {}
-                }
+                self.walk_expr_enum_ctor(enum_name, variant, args, e.span, scope, this_class)
             }
             ExprKind::Unary { expr, .. } => self.walk_expr(expr, scope, this_class),
             ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
@@ -1190,6 +755,477 @@ impl<'a> Walker<'a> {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn walk_expr_var(
+        &mut self,
+        name: &AstSymbol,
+        span: Span,
+        scope: &[Binding],
+        this_class: Option<&str>,
+    ) {
+        if let Some(b) = scope.iter().rev().find(|b| b.name == name.as_str()) {
+            let sig = b
+                .override_signature
+                .clone()
+                .unwrap_or_else(|| b.kind.render(name.as_str(), b.ty.as_ref()));
+            self.push_ref(name.as_str(), span, b.span, name.as_str().len() as u32, sig);
+        } else if name.as_str().contains('.') {
+            self.push_external_dotted_ref(name.as_str(), span);
+        } else if let Some(m) = this_class.and_then(|c| self.classes.get(&AstSymbol::intern(c))).and_then(
+            |info| {
+                info.getters
+                    .get(name)
+                    .or_else(|| info.fields.get(name))
+                    .or_else(|| info.methods.get(name))
+            },
+        ) {
+            // Implicit-`this` member access inside a class method.
+            self.push_ref(name.as_str(), span, m.span, name.as_str().len() as u32, m.signature.clone());
+        } else if let Some(sym) = self.symbols.get(name) {
+            // Top-level lets are registered in `symbols` with a bare
+            // `let X` signature (collect_symbols can't see the
+            // inferred type). The diag pre-pass fills in `var_types`
+            // with the resolved type, so prefer that for the rendered
+            // signature here.
+            let sig = self
+                .var_types
+                .get(name)
+                .map(|t| format!("let {name}: {t}"))
+                .unwrap_or_else(|| sym.signature.clone());
+            self.push_ref(
+                name.as_str(),
+                span,
+                sym.span,
+                sym.name.as_str().len() as u32,
+                sig,
+            );
+        } else if let Some(sig) = self.external_signatures.get(name) {
+            // Selectively-imported bare name (`use M { X }`). Source /
+            // doc info was harvested under the bare key.
+            let loc = self.external_sources.get(name);
+            let target_uri = loc.and_then(|l| Url::from_file_path(&l.path).ok());
+            let (target_span, target_name_len, no_def) = match loc {
+                Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
+                _ => (span, name.as_str().len() as u32, target_uri.is_none()),
+            };
+            self.refs.push(RefEntry {
+                line: span.line,
+                start_col: span.col,
+                end_col: span.col + name.as_str().len() as u32,
+                target_span,
+                target_name_len,
+                signature: sig.clone(),
+                no_definition: no_def,
+                target_uri,
+                doc: self.external_docs.get(name).cloned(),
+            });
+        }
+    }
+
+    fn walk_expr_field(
+        &mut self,
+        obj: &Expr,
+        name: &AstSymbol,
+        scope: &mut Vec<Binding>,
+        this_class: Option<&str>,
+    ) {
+        self.walk_expr(obj, scope, this_class);
+        // Built-in `.length` on string / array.
+        if name == "length" {
+            let prefix = match self.infer_expr(obj, scope) {
+                Some(Type::Str) => Some("string".to_string()),
+                Some(Type::Array { elem, .. }) => Some(format!("{elem}[]")),
+                _ => None,
+            };
+            if let Some(prefix) = prefix {
+                if let Some((line, col)) = locate_dot_name(self.text, obj.span, name.as_str()) {
+                    self.refs.push(RefEntry {
+                        line,
+                        start_col: col,
+                        end_col: col + name.as_str().len() as u32,
+                        target_span: obj.span,
+                        target_name_len: name.as_str().len() as u32,
+                        signature: format!("(property) {prefix}.length: i64"),
+                        no_definition: true,
+                        target_uri: None,
+                        doc: None,
+                    });
+                    return;
+                }
+            }
+        }
+        if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
+            if let Some(info) = self.classes.get(&AstSymbol::intern(&class)) {
+                if let Some(m) = info
+                    .getters
+                    .get(name)
+                    .or_else(|| info.fields.get(name))
+                    .or_else(|| info.methods.get(name))
+                {
+                    if let Some((line, col)) = locate_dot_name(self.text, obj.span, name.as_str()) {
+                        let (target, no_def, uri) = member_target(
+                            m,
+                            info,
+                            &class,
+                            self.external_sources,
+                            line,
+                            col,
+                        );
+                        self.refs.push(RefEntry {
+                            line,
+                            start_col: col,
+                            end_col: col + name.as_str().len() as u32,
+                            target_span: target,
+                            target_name_len: name.as_str().len() as u32,
+                            signature: m.signature.clone(),
+                            no_definition: no_def,
+                            target_uri: uri,
+                            doc: m.doc.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        // Enum variant access: `EnumName.Variant` parses as a Field,
+        // with `obj` resolving to a known external enum. Look up the
+        // composite `EnumName.Variant` key in the external maps
+        // (populated by `register_enum_variants*`) and push a ref so
+        // hover / F12 land on the variant declaration.
+        if let Some(obj_name) = enum_obj_name(obj) {
+            let key = AstSymbol::intern(&format!("{obj_name}.{}", name));
+            if let Some(sig) = self.external_signatures.get(&key).cloned() {
+                if sig.starts_with("(variant)") {
+                    if let Some((line, col)) =
+                        locate_dot_name(self.text, obj.span, name.as_str())
+                    {
+                        let loc = self.external_sources.get(&key);
+                        let target_uri = loc.and_then(|l| Url::from_file_path(&l.path).ok());
+                        let (target_span, target_name_len, no_def) = match loc {
+                            Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
+                            _ => (
+                                Span::new(line, col),
+                                name.as_str().len() as u32,
+                                target_uri.is_none(),
+                            ),
+                        };
+                        self.refs.push(RefEntry {
+                            line,
+                            start_col: col,
+                            end_col: col + name.as_str().len() as u32,
+                            target_span,
+                            target_name_len,
+                            signature: sig,
+                            no_definition: no_def,
+                            target_uri,
+                            doc: self.external_docs.get(&key).cloned(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    fn walk_expr_method_call(
+        &mut self,
+        obj: &Expr,
+        method: &AstSymbol,
+        args: &[Expr],
+        scope: &mut Vec<Binding>,
+        this_class: Option<&str>,
+    ) {
+        self.walk_expr(obj, scope, this_class);
+        for a in args {
+            self.walk_expr(a, scope, this_class);
+        }
+        // Built-in string / array / Map methods.
+        let builtin = match self.infer_expr(obj, scope) {
+            Some(Type::Str) => string_method_sig(method.as_str())
+                .map(|s| (s, string_method_doc(method.as_str()))),
+            Some(Type::Array { elem, .. }) => array_method_sig(method.as_str(), &elem)
+                .map(|s| (s, array_method_doc(method.as_str()))),
+            Some(Type::Generic(g)) if g.base.as_str() == "Map" && g.args.len() == 2 => {
+                map_method_sig(method.as_str(), &g.args[0], &g.args[1])
+                    .map(|s| (s, map_method_doc(method.as_str())))
+            }
+            _ => None,
+        };
+        if let Some((sig, doc_text)) = builtin {
+            if let Some((line, col)) = locate_dot_name(self.text, obj.span, method.as_str()) {
+                self.refs.push(RefEntry {
+                    line,
+                    start_col: col,
+                    end_col: col + method.as_str().len() as u32,
+                    target_span: obj.span,
+                    target_name_len: method.as_str().len() as u32,
+                    signature: sig,
+                    no_definition: true,
+                    target_uri: None,
+                    doc: doc_text.map(|s| s.to_string()),
+                });
+                return;
+            }
+        }
+        if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
+            if let Some(info) = self.classes.get(&AstSymbol::intern(&class)) {
+                if let Some(m) = info.methods.get(&AstSymbol::intern(method.as_str())) {
+                    if let Some((line, col)) = locate_dot_name(self.text, obj.span, method.as_str()) {
+                        let (target, no_def, uri) = member_target(
+                            m,
+                            info,
+                            &class,
+                            self.external_sources,
+                            line,
+                            col,
+                        );
+                        self.refs.push(RefEntry {
+                            line,
+                            start_col: col,
+                            end_col: col + method.as_str().len() as u32,
+                            target_span: target,
+                            target_name_len: method.as_str().len() as u32,
+                            signature: m.signature.clone(),
+                            no_definition: no_def,
+                            target_uri: uri,
+                            doc: m.doc.clone(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    fn walk_expr_call(
+        &mut self,
+        callee: &AstSymbol,
+        args: &[Expr],
+        span: Span,
+        scope: &mut Vec<Binding>,
+        this_class: Option<&str>,
+    ) {
+        if let Some(b) = scope.iter().rev().find(|b| b.name.as_str() == callee.as_str()) {
+            let sig = b
+                .override_signature
+                .clone()
+                .unwrap_or_else(|| b.kind.render(callee.as_str(), b.ty.as_ref()));
+            self.push_ref(callee.as_str(), span, b.span, callee.as_str().len() as u32, sig);
+        } else if let Some(m) = this_class
+            .and_then(|c| self.classes.get(&AstSymbol::intern(c)))
+            .and_then(|info| info.methods.get(&AstSymbol::intern(callee.as_str())))
+        {
+            // Implicit-`this` method call inside a class method.
+            self.push_ref(
+                callee.as_str(),
+                span,
+                m.span,
+                callee.as_str().len() as u32,
+                m.signature.clone(),
+            );
+        } else if let Some(sym) = self.symbols.get(callee) {
+            self.push_ref(
+                callee.as_str(),
+                span,
+                sym.span,
+                sym.name.as_str().len() as u32,
+                sym.signature.clone(),
+            );
+        } else if callee.as_str().contains('.') {
+            self.push_external_dotted_ref(callee.as_str(), span);
+        } else if let Some(sig) = ffi_helper_signature(callee.as_str()) {
+            // Same use_span guard as push_ref — synthesised calls
+            // (e.g. `cstrFromString` inside the @objc class desugar)
+            // borrow nearby user spans.
+            if text::text_at_span_starts_with(self.text, span, callee.as_str()) {
+                self.refs.push(RefEntry {
+                    line: span.line,
+                    start_col: span.col,
+                    end_col: span.col + callee.as_str().len() as u32,
+                    target_span: span,
+                    target_name_len: callee.as_str().len() as u32,
+                    signature: sig.to_string(),
+                    no_definition: true,
+                    target_uri: None,
+                    doc: None,
+                });
+            }
+        }
+        for a in args {
+            self.walk_expr(a, scope, this_class);
+        }
+    }
+
+    fn walk_expr_new(
+        &mut self,
+        class: &AstSymbol,
+        args: &[Expr],
+        span: Span,
+        scope: &mut Vec<Binding>,
+        this_class: Option<&str>,
+    ) {
+        let info = self.classes.get(class);
+        let class_sig = info
+            .map(|i| class_hover(class.as_str(), i))
+            .unwrap_or_else(|| format!("class {class}"));
+        // The `new` keyword span is at `span`; the class name sits
+        // after `new ` so locate it explicitly. Without this, our ref
+        // entries would land on the keyword (and the dotted-name
+        // suffix wouldn't be found).
+        //
+        // When `new ClassName` isn't actually present in the source
+        // (e.g. a synth `new NSUserActivity(...)` the @objc desugar
+        // drops into the alloc method body), locate fails and the AST
+        // span points at the user's declaration line — which would
+        // hijack hover on unrelated tokens like the return-type colon.
+        // Walk the args (still useful for nested type refs) then skip
+        // the class ref entirely.
+        let class_str = class.as_str();
+        let Some(class_start) = locate_let_name_with_kw(
+            self.text,
+            span,
+            "new",
+            class_str.split('.').next().unwrap_or(class_str),
+        ) else {
+            for a in args {
+                self.walk_expr(a, scope, this_class);
+            }
+            return;
+        };
+        // F12 jumps to init when there is one; otherwise to the class
+        // declaration itself. `init_member` is `None` for classes
+        // without a defined init.
+        let init_member = info.and_then(|i| i.methods.get(&"init".into()));
+        if let Some(dot) = class_str.find('.') {
+            let prefix = &class_str[..dot];
+            let suffix = &class_str[dot + 1..];
+            let prefix_loc = self.external_sources.get(&AstSymbol::intern(prefix));
+            let prefix_uri = prefix_loc.and_then(|l| Url::from_file_path(&l.path).ok());
+            let (prefix_target_span, prefix_target_name_len, prefix_no_def) = match prefix_loc {
+                Some(l) if prefix_uri.is_some() => (l.span, l.name_len, false),
+                _ => (class_start, prefix.len() as u32, true),
+            };
+            self.refs.push(RefEntry {
+                line: class_start.line,
+                start_col: class_start.col,
+                end_col: class_start.col + prefix.len() as u32,
+                target_span: prefix_target_span,
+                target_name_len: prefix_target_name_len,
+                signature: format!("(module) {prefix}"),
+                no_definition: prefix_no_def,
+                target_uri: prefix_uri,
+                doc: None,
+            });
+            if let Some((line, col)) = locate_dot_name(self.text, class_start, suffix) {
+                let loc = self.external_sources.get(class);
+                let target_uri = loc.and_then(|l| Url::from_file_path(&l.path).ok());
+                let is_external = info.map(|i| i.external).unwrap_or(true);
+                let (target_span, target_name_len, no_def) = match (init_member, is_external) {
+                    (Some(im), false) => (im.span, suffix.len() as u32, false),
+                    (Some(im), true) if target_uri.is_some() => {
+                        (im.span, "init".len() as u32, false)
+                    }
+                    _ => match info {
+                        Some(i) if !i.external => (i.decl_span, suffix.len() as u32, false),
+                        _ => match loc {
+                            Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
+                            _ => (class_start, suffix.len() as u32, target_uri.is_none()),
+                        },
+                    },
+                };
+                self.refs.push(RefEntry {
+                    line,
+                    start_col: col,
+                    end_col: col + suffix.len() as u32,
+                    target_span,
+                    target_name_len,
+                    signature: class_sig,
+                    no_definition: no_def,
+                    target_uri,
+                    doc: init_member.and_then(|m| m.doc.clone()),
+                });
+            }
+        } else if let Some(sym) = self.symbols.get(class) {
+            let target_span = init_member.map(|m| m.span).unwrap_or(sym.span);
+            self.refs.push(RefEntry {
+                line: class_start.line,
+                start_col: class_start.col,
+                end_col: class_start.col + class.as_str().len() as u32,
+                target_span,
+                target_name_len: class.as_str().len() as u32,
+                signature: class_sig,
+                no_definition: false,
+                target_uri: None,
+                doc: init_member
+                    .and_then(|m| m.doc.clone())
+                    .or_else(|| sym.doc.clone()),
+            });
+        }
+        for a in args {
+            self.walk_expr(a, scope, this_class);
+        }
+    }
+
+    fn walk_expr_enum_ctor(
+        &mut self,
+        enum_name: &AstSymbol,
+        variant: &AstSymbol,
+        args: &ilang_ast::CtorArgs,
+        span: Span,
+        scope: &mut Vec<Binding>,
+        this_class: Option<&str>,
+    ) {
+        if let Some(sym) = self.symbols.get(enum_name) {
+            self.push_ref(
+                enum_name.as_str(),
+                span,
+                sym.span,
+                sym.name.as_str().len() as u32,
+                sym.signature.clone(),
+            );
+        }
+        // Push a separate RefEntry for the variant name so hover / F12
+        // work on `Enum.variant` at the variant half too. The
+        // composite `Enum.variant` key is populated by
+        // `register_enum_variants` for both buffer-local and
+        // cross-module enums.
+        let key = AstSymbol::intern(&format!("{}.{}", enum_name, variant));
+        if let Some(sig) = self.external_signatures.get(&key).cloned() {
+            if let Some((line, col)) = locate_dot_name(self.text, span, variant.as_str()) {
+                let loc = self.external_sources.get(&key);
+                let target_uri = loc.and_then(|l| Url::from_file_path(&l.path).ok());
+                let (target_span, target_name_len, no_def) = match loc {
+                    Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
+                    _ => (
+                        Span::new(line, col),
+                        variant.as_str().len() as u32,
+                        target_uri.is_none(),
+                    ),
+                };
+                self.refs.push(RefEntry {
+                    line,
+                    start_col: col,
+                    end_col: col + variant.as_str().len() as u32,
+                    target_span,
+                    target_name_len,
+                    signature: sig,
+                    no_definition: no_def,
+                    target_uri,
+                    doc: self.external_docs.get(&key).cloned(),
+                });
+            }
+        }
+        match args {
+            ilang_ast::CtorArgs::Tuple(es) => {
+                for x in es {
+                    self.walk_expr(x, scope, this_class);
+                }
+            }
+            ilang_ast::CtorArgs::Struct(pairs) => {
+                for (_, x) in pairs {
+                    self.walk_expr(x, scope, this_class);
+                }
+            }
+            ilang_ast::CtorArgs::Unit => {}
         }
     }
 
