@@ -919,49 +919,9 @@ pub enum SysColor: i32 {
     menuBar                 = 30
 }
 
+use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU, HDC, HMONITOR, POINT, RECT }
+
 @extern(C, "user32") {
-    // ── Opaque handle types ───────────────────────────────────
-
-    /// Opaque window handle (`HWND` in win32). Pointer-sized, no
-    /// in-memory representation beyond the bare value — write
-    /// `hwnd: HWND` directly (no `*`) at every API boundary.
-    @handle pub struct HWND {}
-
-    /// Executable / DLL image handle. Obtain via
-    /// `GetModuleHandleA(0 as *const char) as HINSTANCE`.
-    @handle pub struct HINSTANCE {}
-
-    /// Icon handle — returned by `LoadIconA` / `LoadImageA`.
-    @handle pub struct HICON {}
-
-    /// Cursor handle — returned by `LoadCursorA` / `LoadImageA`.
-    @handle pub struct HCURSOR {}
-
-    /// GDI brush handle. Stock brush: `(COLOR_WINDOW + 1) as HBRUSH`.
-    @handle pub struct HBRUSH {}
-
-    /// Menu handle — returned by `CreateMenu` / `LoadMenuA`.
-    @handle pub struct HMENU {}
-
-    /// Device-context handle for GDI drawing operations.
-    @handle pub struct HDC {}
-
-    // ── Geometry structs ──────────────────────────────────────
-
-    /// `POINT { LONG x; LONG y; }` — 8 bytes.
-    pub struct POINT {
-        x: i32
-        y: i32
-    }
-
-    /// `RECT { LONG left, top, right, bottom; }` — 16 bytes.
-    pub struct RECT {
-        left:   i32
-        top:    i32
-        right:  i32
-        bottom: i32
-    }
-
     // ── Message structs ───────────────────────────────────────
 
     /// `MSG` returned by `GetMessageA` / posted by Windows.
@@ -1408,9 +1368,6 @@ pub enum SysColor: i32 {
     ): i32
 
     // ── Multi-monitor ─────────────────────────────────────────────
-
-    /// Opaque monitor handle. Returned by MonitorFromWindow etc.
-    @handle pub struct HMONITOR {}
 
     /// `MONITORINFO` — 40 bytes. Fill `cbSize` = 40 before calling
     /// `GetMonitorInfoA`.

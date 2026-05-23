@@ -96,15 +96,10 @@ pub enum StdHandle: u32 {
     error  = 0xFFFFFFF4   // STD_ERROR_HANDLE
 }
 
+use winnt { HANDLE }
+use windef { HMODULE }
+
 @extern(C, "kernel32") {
-    /// Generic kernel-object handle (`void *` in the SDK).
-    /// Used for files, threads, mutexes, events, etc.
-    @handle pub struct HANDLE {}
-
-    /// Module / executable image handle (`HMODULE == HINSTANCE`
-    /// in the SDK). Cast to `HINSTANCE` when passing to user32.
-    @handle pub struct HMODULE {}
-
     // ── Module ────────────────────────────────────────────────
     /// Returns the HMODULE of the running EXE when
     /// `lpModuleName` is `0 as *const char` (NULL).

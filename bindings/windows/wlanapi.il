@@ -8,8 +8,7 @@
 ///
 /// `WLAN_API_VERSION_2_0` = 2.
 
-use kernel32 { HANDLE }
-
+use winnt { HANDLE }
 @extern(C, "wlanapi") {
     /// 144-byte info struct per wireless interface (GUID + name +
     /// state). Layout is simplified to what callers need most.

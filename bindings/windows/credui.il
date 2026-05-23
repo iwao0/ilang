@@ -36,9 +36,7 @@ pub enum CredUiResult: u32 {
     insufficientBuffer = 122
 }
 
-use user32 { HWND }
-use gdi32 { HBITMAP }
-
+use windef { HBITMAP, HWND }
 @extern(C, "credui") {
     /// `CREDUI_INFOW` — visual customisation for the prompt.
     /// All fields except `cbSize` (must be 40 on x64) are optional.

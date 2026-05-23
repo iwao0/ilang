@@ -62,8 +62,7 @@ pub enum WerFaultReporting: u32 {
     disableThreadSuspension = 0x0040
 }
 
-use kernel32 { HANDLE }
-
+use winnt { HANDLE }
 @extern(C, "wer") {
     /// `WerReportCreate(pwzEventType, repType, pReportInformation,
     ///                  &hReportHandle)`.

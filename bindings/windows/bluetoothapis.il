@@ -15,8 +15,7 @@ pub enum BluetoothSearchFlag: u32 {
     returnAll         = 0x1F
 }
 
-use user32 { HWND }
-
+use windef { HWND }
 @extern(C, "BluetoothApis", "bthprops.cpl") {
     /// Opaque radio handle (returned by BluetoothFindFirstRadio).
     @handle pub struct HBLUETOOTH_RADIO {}

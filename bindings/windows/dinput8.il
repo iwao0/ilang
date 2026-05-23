@@ -63,8 +63,7 @@ pub enum DiEnumFlags: u32 {
 //   DIJOFS_POV(n)    = 32 + 4*n
 //   DIJOFS_BUTTON(n) = 48 + n
 
-use user32 { HINSTANCE }
-
+use windef { HINSTANCE }
 @extern(C, "dinput8") {
     /// Top-level DirectInput8 interface (IDirectInput8A).
     pub struct IDirectInput8 {}

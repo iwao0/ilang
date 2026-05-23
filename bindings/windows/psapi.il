@@ -14,8 +14,8 @@ pub enum ListModulesFilter: u32 {
     all     = 0x03   // bit32 | bit64
 }
 
-use kernel32 { HMODULE, HANDLE }
-
+use winnt { HANDLE }
+use windef { HMODULE }
 @extern(C, "psapi") {
     // ── MODULEINFO — 24 bytes on x64 ─────────────────────────────
 

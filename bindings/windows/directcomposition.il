@@ -17,8 +17,7 @@
 /// IDCompositionDevice / Visual / Target methods aren't bound at
 /// the ilang call level — walk the COM vtables.
 
-use user32 { HWND }
-
+use windef { HWND }
 @extern(C, "dcomp") {
     /// `DCompositionCreateDevice(dxgiDevice, iid, ppDevice)`.
     /// `dxgiDevice` is an `*IDXGIDevice` (or NULL for a Software

@@ -49,9 +49,8 @@ pub enum ScaleFactor: i32 {
     scale500     = 500
 }
 
-use user32 { HMONITOR }
-use kernel32 { HANDLE }
-
+use winnt { HANDLE }
+use windef { HMONITOR }
 @extern(C, "shcore") {
     // ── Process-level DPI awareness ──────────────────────────────
 

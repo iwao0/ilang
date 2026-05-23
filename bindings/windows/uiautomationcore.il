@@ -100,8 +100,7 @@ pub enum UiaTreeScope: i32 {
     subtree     = 0x7        // element | children | descendants
 }
 
-use user32 { HWND }
-
+use windef { HWND }
 @extern(C, "UIAutomationCore") {
     /// Provider-side return helper. Call from WM_GETOBJECT.
     /// Returns the LRESULT to pass back from your WndProc.

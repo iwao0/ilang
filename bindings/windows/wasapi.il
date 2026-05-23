@@ -11,8 +11,7 @@
 /// the COM vtables — no flat `@lib pub fn` declarations needed.
 
 use ole32 { GUID, IUnknown }
-use kernel32 { HANDLE }
-
+use winnt { HANDLE }
 // ─── EDataFlow / ERole / DeviceState ─────────────────────────────
 
 pub enum EDataFlow: u32 {

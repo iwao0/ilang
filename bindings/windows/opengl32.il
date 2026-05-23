@@ -110,8 +110,7 @@ pub enum GlBlend: u32 {
     srcAlphaSaturate   = 0x0308
 }
 
-use user32 { HDC }
-
+use windef { HDC }
 @extern(C, "opengl32") {
     // ── PIXELFORMATDESCRIPTOR — 40 bytes ─────────────────────────
 

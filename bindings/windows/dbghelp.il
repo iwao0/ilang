@@ -67,8 +67,7 @@ pub enum SymOpt: u32 {
     debug            = 0x80000000
 }
 
-use kernel32 { HANDLE }
-
+use winnt { HANDLE }
 @extern(C, "dbghelp") {
     // ── SYMBOL_INFO — 88 bytes + Name buffer ─────────────────────
 

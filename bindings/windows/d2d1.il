@@ -76,8 +76,7 @@ pub enum D2dPresentOptions: u32 {
     immediately     = 2
 }
 
-use user32 { HWND }
-
+use windef { HWND }
 @extern(C, "d2d1") {
     /// 32-bpp pixel format spec used by render targets / bitmaps.
     pub struct D2D1_PIXEL_FORMAT {

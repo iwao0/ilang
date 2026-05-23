@@ -102,8 +102,8 @@ pub enum DttFlags: u32 {
     composited  = 0x00002000
 }
 
-use user32 { HDC, HWND, RECT, POINT }
-use gdi32 { SIZE, LOGFONTW }
+use windef { HDC, HWND, POINT, RECT, SIZE }
+use gdi32 { LOGFONTW }
 use dwmapi { MARGINS }
 
 @extern(C, "uxtheme") {

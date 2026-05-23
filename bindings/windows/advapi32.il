@@ -178,8 +178,7 @@ pub enum EventLogType: u16 {
     auditFailure    = 0x0010
 }
 
-use kernel32 { HANDLE }
-
+use winnt { HANDLE }
 @extern(C, "advapi32") {
     // ── Opaque handles ────────────────────────────────────────────
 

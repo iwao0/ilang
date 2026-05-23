@@ -132,8 +132,7 @@ pub enum AccState: u32 {
     hasPopup       = 0x40000000
 }
 
-use user32 { HWND }
-
+use windef { HWND }
 @extern(C, "oleacc") {
     /// Get an `IAccessible` for `hwnd`. `dwObjectID` is `AccObjId.*`.
     /// `riid` is `IID_IAccessible` or `IID_IDispatch`. Returns S_OK.

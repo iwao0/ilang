@@ -65,8 +65,7 @@ pub enum SessionNotifyFlags: u32 {
 //   WTS_CURRENT_SESSION = 0xFFFFFFFF  → current session
 //   WTS_CURRENT_SERVER  = 0 as *void  → local server
 
-use user32 { HWND }
-
+use windef { HWND }
 @extern(C, "wtsapi32") {
     // ── WTS_SESSION_INFO — 32 bytes on x64 ───────────────────────
 

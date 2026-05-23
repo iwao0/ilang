@@ -105,9 +105,8 @@ pub enum CommDlgError: u32 {
     subtaskfailure    = 0x0006   // FNERR_SUBCLASSFAILURE
 }
 
-use user32 { HWND, HINSTANCE, HDC }
+use windef { HDC, HINSTANCE, HWND }
 use gdi32 { LOGFONTA }
-
 @extern(C, "comdlg32") {
     // ── OPENFILENAMEA — 88 bytes on x64 ──────────────────────────
 

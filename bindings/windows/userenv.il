@@ -3,8 +3,7 @@
 /// and creates the environment block used by CreateProcess for
 /// running code as a different user.
 
-use kernel32 { HANDLE }
-
+use winnt { HANDLE }
 @extern(C, "userenv") {
     // ── User profile paths ────────────────────────────────────────
 

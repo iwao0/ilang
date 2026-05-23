@@ -8,8 +8,7 @@ pub enum GradientFillMode: u32 {
     triangle = 2   // filled gradient triangle
 }
 
-use user32 { HDC }
-
+use windef { HDC }
 @extern(C, "msimg32") {
     // ── BLENDFUNCTION — 4 bytes ───────────────────────────────────
 

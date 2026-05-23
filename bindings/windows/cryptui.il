@@ -34,7 +34,7 @@ pub enum CryptUiWizExportFlags: u32 {
     ignoreErr           = 0x00000004
 }
 
-use user32 { HWND }
+use windef { HWND }
 use crypt32 { HCERTSTORE }
 
 @extern(C, "cryptui") {

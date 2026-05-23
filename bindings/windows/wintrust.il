@@ -49,9 +49,8 @@ pub enum WtdStateAction: u32 {
     autoCacheFlush  = 4
 }
 
-use user32 { HWND }
-use kernel32 { HANDLE }
-
+use winnt { HANDLE }
+use windef { HWND }
 @extern(C, "wintrust") {
     /// File-based info — point `pcwszFilePath` at the file to verify.
     pub struct WINTRUST_FILE_INFO {

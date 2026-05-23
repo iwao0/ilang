@@ -11,9 +11,8 @@
 ///   }
 ///   DestroyPhysicalMonitors(n, pms)
 
-use user32 { HMONITOR }
-use kernel32 { HANDLE }
-
+use winnt { HANDLE }
+use windef { HMONITOR }
 @extern(C, "dxva2") {
     /// 264-byte descriptor — handle + 256-wchar friendly name.
     pub struct PHYSICAL_MONITOR {

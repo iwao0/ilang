@@ -5,8 +5,7 @@
 /// disk). Pair with `wlanapi.WlanSetProfile` to install the
 /// resulting profile.
 
-use user32 { HWND }
-
+use windef { HWND }
 @extern(C, "eappcfg") {
     /// 8-byte EAP method id — (vendor_id, type_id) pair plus a 3-byte
     /// reserved field, packed.

@@ -5,7 +5,7 @@
 /// when using stock-object IDs.  The Win64 ABI treats `*T` and `i64`
 /// identically in registers, so unsafe casts are safe at the boundary.
 
-use user32 { HDC, HWND, RECT, POINT }
+use windef { HDC, HWND, HBRUSH, HBITMAP, HFONT, HPEN, HRGN, HPALETTE, HGDIOBJ, RECT, POINT, SIZE }
 
 // ─── Raster-operation codes (SRCCOPY etc.) ───────────────────────
 pub enum RasterOp: u32 {
@@ -249,38 +249,6 @@ pub enum FontPitchFamily: u32 {
 }
 
 @extern(C, "gdi32") {
-    // ── Opaque GDI handle types ───────────────────────────────────
-
-    /// Generic GDI object handle (HGDIOBJ). Returned by SelectObject
-    /// and used by DeleteObject. Cast from HPEN, HBRUSH, HFONT, etc.
-    @handle pub struct HGDIOBJ {}
-
-    /// GDI pen handle.
-    @handle pub struct HPEN {}
-
-    /// GDI solid or hatch brush handle.
-    @handle pub struct HBRUSHGDI {}
-
-    /// GDI font handle.
-    @handle pub struct HFONT {}
-
-    /// GDI bitmap handle.
-    @handle pub struct HBITMAP {}
-
-    /// GDI region handle.
-    @handle pub struct HRGN {}
-
-    /// GDI palette handle.
-    @handle pub struct HPALETTE {}
-
-    // ── Geometry / layout structs ─────────────────────────────────
-
-    /// `SIZE { cx: LONG, cy: LONG }` — 8 bytes.
-    pub struct SIZE {
-        cx: i32
-        cy: i32
-    }
-
     // ── Font / text structs ───────────────────────────────────────
 
     /// `LOGFONTA` — 60 bytes. Describes a logical font.
@@ -434,13 +402,13 @@ pub enum FontPitchFamily: u32 {
     // ── Brush ─────────────────────────────────────────────────────
 
     /// Creates a solid-color brush. `color`: COLORREF (0x00BBGGRR).
-    @lib pub fn CreateSolidBrush(color: u32): HBRUSHGDI
+    @lib pub fn CreateSolidBrush(color: u32): HBRUSH
 
     /// Creates a hatch brush. `iHatch`: HatchStyle.*, `color`: COLORREF.
-    @lib pub fn CreateHatchBrush(iHatch: i32, color: u32): HBRUSHGDI
+    @lib pub fn CreateHatchBrush(iHatch: i32, color: u32): HBRUSH
 
     /// Creates a pattern brush from a bitmap handle.
-    @lib pub fn CreatePatternBrush(hbm: HBITMAP): HBRUSHGDI
+    @lib pub fn CreatePatternBrush(hbm: HBITMAP): HBRUSH
 
     // ── Color / background ────────────────────────────────────────
 
@@ -868,7 +836,7 @@ pub enum FontPitchFamily: u32 {
 
     // ── Misc ──────────────────────────────────────────────────────
 
-    @lib pub fn FrameRect(hDC: *void, lprc: *const void, hbr: HBRUSHGDI): i32
+    @lib pub fn FrameRect(hDC: HDC, lprc: *const RECT, hbr: HBRUSH): i32
     @lib pub fn InvertRect(hDC: *void, lprc: *const void): i32
 
     // ── Font enumeration ─────────────────────────────────────────

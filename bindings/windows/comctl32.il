@@ -95,8 +95,7 @@ pub enum ImageListFlags: u32 {
     highQualityScale = 0x00020000
 }
 
-use user32 { HWND, HINSTANCE }
-
+use windef { HINSTANCE, HWND }
 @extern(C, "comctl32") {
     // ── Bootstrap ────────────────────────────────────────────────
 

@@ -130,9 +130,8 @@ pub enum NotifyIconDataFlags: u32 {
     showtip  = 0x00000080
 }
 
-use user32 { HINSTANCE, HICON, HWND }
-use kernel32 { HANDLE }
-
+use winnt { HANDLE }
+use windef { HICON, HINSTANCE, HWND }
 @extern(C, "shell32") {
     // ── Shell handle type ─────────────────────────────────────────
 

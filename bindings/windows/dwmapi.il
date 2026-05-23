@@ -85,9 +85,7 @@ pub enum DwmThumbnailFlags: u32 {
     sourceclientareaonly = 0x00000010
 }
 
-use user32 { HWND }
-use gdi32 { SIZE }
-
+use windef { HWND, SIZE }
 @extern(C, "dwmapi") {
     // ── Opaque thumbnail handle ───────────────────────────────────
 

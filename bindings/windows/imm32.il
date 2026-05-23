@@ -74,8 +74,7 @@ pub enum ImeNotifyAction: u32 {
     imeMenuSelected   = 0x0018
 }
 
-use user32 { HWND }
-
+use windef { HWND }
 @extern(C, "imm32") {
     // ── Opaque handle ─────────────────────────────────────────────
 

@@ -5,6 +5,8 @@
 /// each module.  Add new DLLs as separate files and re-export here.
 
 pub use winnull.*
+pub use winnt.*
+pub use windef.*
 pub use kernel32.*
 pub use user32.*
 pub use gdi32.*

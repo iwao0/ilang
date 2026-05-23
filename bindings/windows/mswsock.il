@@ -15,8 +15,7 @@
 /// discouraged); the exports below let you skip that hop in
 /// prototypes.
 
-use kernel32 { HANDLE }
-
+use winnt { HANDLE }
 @extern(C, "mswsock") {
     /// Per-call data for `TransmitFile`. Either of the head /
     /// tail buffers can be NULL.
