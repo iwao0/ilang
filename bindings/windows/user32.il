@@ -919,7 +919,336 @@ pub enum SysColor: i32 {
     menuBar                 = 30
 }
 
-use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU, HDC, HMONITOR, POINT, RECT }
+// ─── GetAncestor (GA_*) ──────────────────────────────────────
+pub enum WindowAncestor: u32 {
+    parent    = 1
+    root      = 2
+    rootOwner = 3
+}
+
+// ─── GetWindow / GetNextWindow (GW_*) ────────────────────────
+pub enum WindowRelation: u32 {
+    hwndFirst   = 0
+    hwndLast    = 1
+    hwndNext    = 2
+    hwndPrev    = 3
+    owner       = 4
+    child       = 5
+    enabledPopup = 6
+}
+
+// ─── RedrawWindow flags (RDW_*) ──────────────────────────────
+@flags
+pub enum RedrawWindowFlags: u32 {
+    invalidate     = 0x0001
+    internalPaint  = 0x0002
+    erase          = 0x0004
+    validate       = 0x0008
+    noInternalPaint = 0x0010
+    noErase        = 0x0020
+    noChildren     = 0x0040
+    allChildren    = 0x0080
+    updateNow      = 0x0100
+    eraseNow       = 0x0200
+    frame          = 0x0400
+    noFrame        = 0x0800
+}
+
+// ─── MENUITEMINFO masks (MIIM_*) / types (MFT_*) / states (MFS_*) ─
+@flags
+pub enum MenuItemInfoMask: u32 {
+    state      = 0x00000001
+    id         = 0x00000002
+    submenu    = 0x00000004
+    checkmarks = 0x00000008
+    type_      = 0x00000010
+    data       = 0x00000020
+    string     = 0x00000040
+    bitmap     = 0x00000080
+    fType      = 0x00000100
+    fState     = 0x00000200
+}
+
+@flags
+pub enum MenuItemType: u32 {
+    string         = 0x00000000
+    bitmap         = 0x00000004
+    menuBarBreak   = 0x00000020
+    menuBreak      = 0x00000040
+    ownerDraw      = 0x00000100
+    radioCheck     = 0x00000200
+    separator      = 0x00000800
+    rightOrder     = 0x00002000
+    rightJustify   = 0x00004000
+}
+
+@flags
+pub enum MenuItemState: u32 {
+    grayed    = 0x00000003
+    disabled  = 0x00000003
+    checked   = 0x00000008
+    hilite    = 0x00000080
+    unhilite  = 0x00000000
+    default   = 0x00001000
+}
+
+// ─── Scrollbar type / part codes (SB_*) ──────────────────────
+pub enum ScrollBar: i32 {
+    horz    = 0
+    vert    = 1
+    ctl     = 2     // a SCROLLBAR control
+    both    = 3
+}
+
+// ─── WinEvent constants (EVENT_*) — accessibility ────────────
+pub enum WinEvent: u32 {
+    /// EVENT_MIN — bottom of the range.
+    min                          = 0x00000001
+    /// EVENT_SYSTEM_FOREGROUND.
+    systemForeground             = 0x0003
+    systemMinimizeStart          = 0x0016
+    systemMinimizeEnd            = 0x0017
+    systemMoveSizeStart          = 0x000A
+    systemMoveSizeEnd            = 0x000B
+    objectCreate                 = 0x8000
+    objectDestroy                = 0x8001
+    objectShow                   = 0x8002
+    objectHide                   = 0x8003
+    objectReorder                = 0x8004
+    objectFocus                  = 0x8005
+    objectSelection              = 0x8006
+    objectValueChange            = 0x800E
+    objectNameChange             = 0x800C
+    objectLocationChange         = 0x800B
+    /// EVENT_MAX — top of the range.
+    max                          = 0x7FFFFFFF
+}
+
+@flags
+pub enum WinEventFlags: u32 {
+    outOfContext   = 0x0000
+    skipOwnThread  = 0x0001
+    skipOwnProcess = 0x0002
+    inContext      = 0x0004
+}
+
+// ─── DrawEdge / DrawFrameControl flags ───────────────────────
+@flags
+pub enum DrawEdgeStyle: u32 {
+    raisedOuter  = 0x0001
+    sunkenOuter  = 0x0002
+    raisedInner  = 0x0004
+    sunkenInner  = 0x0008
+    edgeBump     = 0x0005   // outerRaised | innerSunken
+    edgeRaised   = 0x0005
+    edgeSunken   = 0x000A
+    edgeEtched   = 0x0006
+}
+
+@flags
+pub enum DrawEdgeFlags: u32 {
+    left       = 0x0001
+    top        = 0x0002
+    right      = 0x0004
+    bottom     = 0x0008
+    rect       = 0x000F   // all four sides
+    diagonal   = 0x0010
+    middle     = 0x0800
+    soft       = 0x1000
+    adjust     = 0x2000
+    flat       = 0x4000
+    mono       = 0x8000
+}
+
+pub enum DrawFrameControlType: u32 {
+    caption = 1
+    menu    = 2
+    scroll  = 3
+    button  = 4
+    popupMenu = 5
+}
+
+@flags
+pub enum DrawFrameControlState: u32 {
+    /// Button check / radio / push state bits.
+    buttonCheck       = 0x0000
+    buttonRadioImage  = 0x0001
+    buttonRadioMask   = 0x0002
+    buttonRadio       = 0x0004
+    button3State      = 0x0008
+    buttonPush        = 0x0010
+    captionClose      = 0x0000
+    captionMin        = 0x0001
+    captionMax        = 0x0002
+    captionRestore    = 0x0003
+    captionHelp       = 0x0004
+    /// Common state modifiers.
+    inactive          = 0x0100
+    pushed            = 0x0200
+    checked           = 0x0400
+    transparent       = 0x0800
+    hot               = 0x1000
+    adjustRect        = 0x2000
+    flat              = 0x4000
+    mono              = 0x8000
+}
+
+// ─── DrawIconEx flags (DI_*) ─────────────────────────────────
+@flags
+pub enum DrawIconFlags: u32 {
+    mask         = 0x0001
+    image        = 0x0002
+    normal       = 0x0003   // mask | image
+    compat       = 0x0004
+    defaultSize  = 0x0008
+    nomirror     = 0x0010
+}
+
+// ─── ChangeDisplaySettings flags (CDS_*) ─────────────────────
+@flags
+pub enum ChangeDisplaySettingsFlags: u32 {
+    updateRegistry  = 0x00000001
+    test            = 0x00000002
+    fullscreen      = 0x00000004
+    global          = 0x00000008
+    setPrimary      = 0x00000010
+    videoParameters = 0x00000020
+    enableUnsafeModes = 0x00000100
+    disableUnsafeModes = 0x00000200
+    reset           = 0x40000000
+    noReset         = 0x10000000
+}
+
+// ─── ChangeDisplaySettings result (DISP_CHANGE_*) ────────────
+pub enum ChangeDisplaySettingsResult: i32 {
+    successful     = 0
+    restart        = 1
+    failed         = -1
+    badMode        = -2
+    notUpdated     = -3
+    badFlags       = -4
+    badParam       = -5
+    badDualView    = -6
+}
+
+// ─── ExitWindowsEx flags (EWX_*) ─────────────────────────────
+@flags
+pub enum ExitWindowsExFlags: u32 {
+    logoff      = 0x00
+    shutdown    = 0x01
+    reboot      = 0x02
+    force       = 0x04
+    poweroff    = 0x08
+    forceIfHung = 0x10
+    quickResolve = 0x20
+    restartApps = 0x40
+    hybridShutdown = 0x00400000
+    bootOptions = 0x01000000
+}
+
+// ─── ExitWindowsEx shutdown reason (SHTDN_REASON_*) ──────────
+@flags
+pub enum ShutdownReason: u32 {
+    majorOther       = 0x00000000
+    majorHardware    = 0x00010000
+    majorOperatingSystem = 0x00020000
+    majorSoftware    = 0x00030000
+    majorApplication = 0x00040000
+    majorSystem      = 0x00050000
+    majorPower       = 0x00060000
+    majorLegacyApi   = 0x00070000
+    minorOther       = 0x00000000
+    minorMaintenance = 0x00000001
+    minorInstallation = 0x00000002
+    minorUpgrade     = 0x00000003
+    minorReconfig    = 0x00000004
+    minorHung        = 0x00000005
+    minorUnstable    = 0x00000006
+    minorDriver      = 0x00000007
+    minorReinstall   = 0x00000008
+    minorHardwareDriver = 0x00000009
+    minorPowerFailure = 0x0000000C
+    minorBlueScreen  = 0x0000000F
+    flagPlanned      = 0x80000000
+}
+
+// ─── SendMessageTimeout flags (SMTO_*) ───────────────────────
+@flags
+pub enum SendMessageTimeoutFlags: u32 {
+    normal              = 0x0000
+    block               = 0x0001
+    abortIfHung         = 0x0002
+    noTimeoutIfNotHung  = 0x0008
+    errorOnExit         = 0x0020
+}
+
+// ─── RegisterPowerSettingNotification flags ──────────────────
+@flags
+pub enum DeviceNotifyFlags: u32 {
+    windowHandle   = 0x00000000
+    serviceHandle  = 0x00000001
+    allInterfaceClasses = 0x00000004
+}
+
+// ─── MapVirtualKey translation kind (MAPVK_*) ────────────────
+pub enum MapVirtualKeyType: u32 {
+    vkToVsc       = 0
+    vscToVk       = 1
+    vkToChar      = 2
+    vscToVkEx     = 3
+    /// Win Vista+: VK → VSC (extended).
+    vkToVscEx     = 4
+}
+
+// ─── Keyboard layout flags (KLF_*) ───────────────────────────
+@flags
+pub enum KeyboardLayoutFlags: u32 {
+    reorder           = 0x00000008
+    replaceLang       = 0x00000010
+    substituteOk      = 0x00000002
+    activate          = 0x00000001
+    notellShell       = 0x00000080
+    setForProcess     = 0x00000100
+    shiftLock         = 0x00010000
+}
+
+// ─── Standard clipboard formats (CF_*) ───────────────────────
+pub enum ClipboardFormat: u32 {
+    text         = 1
+    bitmap       = 2
+    metafilepict = 3
+    sylk         = 4
+    dif          = 5
+    tiff         = 6
+    oemText      = 7
+    dib          = 8
+    palette      = 9
+    penData      = 10
+    riff         = 11
+    wave         = 12
+    unicodeText  = 13
+    enhMetafile  = 14
+    hdrop        = 15
+    locale       = 16
+    dibV5        = 17
+    ownerDisplay = 0x0080
+    dspText      = 0x0081
+    dspBitmap    = 0x0082
+    dspMetafilePict = 0x0083
+    dspEnhMetafile = 0x008E
+}
+
+// ─── Accelerator key flags (for ACCEL.fVirt) ─────────────────
+@flags
+pub enum AccelFlags: u8 {
+    virtkey = 0x01
+    noinvert = 0x02
+    shift   = 0x04
+    control = 0x08
+    alt     = 0x10
+}
+
+use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU, HACCEL, HDC, HMONITOR, POINT, RECT, SIZE }
 
 @extern(C, "user32") {
     // ── Message structs ───────────────────────────────────────
@@ -2167,4 +2496,959 @@ use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU, HDC, HMONITOR, POIN
     /// Allows another process to call SetForegroundWindow.
     /// `dwProcessId`: target pid, or 0xFFFFFFFF (ASFW_ANY).
     @lib pub fn AllowSetForegroundWindow(dwProcessId: u32): i32
+
+    // ── Window queries / state ───────────────────────────────────
+
+    @lib pub fn IsWindowEnabled(hwnd: HWND): i32
+    @lib pub fn IsWindowUnicode(hwnd: HWND): i32
+    /// Returns non-zero if `hwnd` is maximized.
+    @lib pub fn IsZoomed(hwnd: HWND): i32
+    /// Returns non-zero if `hwnd` is minimized.
+    @lib pub fn IsIconic(hwnd: HWND): i32
+    @lib pub fn IsChild(hwndParent: HWND, hwnd: HWND): i32
+    @lib pub fn IsHungAppWindow(hwnd: HWND): i32
+
+    /// Returns the ancestor of `hwnd` matching `gaFlags` (WindowAncestor.*).
+    @lib pub fn GetAncestor(hwnd: HWND, gaFlags: u32): HWND
+
+    /// Returns the next / prev / child / owner window per `uCmd`.
+    @lib pub fn GetWindow(hwnd: HWND, uCmd: u32): HWND
+    @lib pub fn GetNextWindow(hwnd: HWND, uCmd: u32): HWND
+    @lib pub fn GetTopWindow(hwnd: HWND): HWND
+
+    /// Returns the foreground window of the calling thread (typically
+    /// the one that has the keyboard focus).
+    @lib pub fn GetActiveWindow(): HWND
+    @lib pub fn SetActiveWindow(hwnd: HWND): HWND
+
+    @lib pub fn GetClassNameA(hwnd: HWND, lpClassName: *char, nMaxCount: i32): i32
+    @lib pub fn GetClassNameW(hwnd: HWND, lpClassName: *u16, nMaxCount: i32): i32
+
+    @lib pub fn RealGetWindowClassA(hwnd: HWND, ptszClassName: *char, cchClassNameMax: u32): u32
+    @lib pub fn RealGetWindowClassW(hwnd: HWND, ptszClassName: *u16, cchClassNameMax: u32): u32
+
+    @lib pub fn GetClassInfoExA(
+        hInstance: HINSTANCE,
+        lpszClass: *const char,
+        lpwcx:     *WNDCLASSEXA
+    ): i32
+    @lib pub fn GetClassInfoExW(
+        hInstance: HINSTANCE,
+        lpszClass: *const u16,
+        lpwcx:     *WNDCLASSEXA
+    ): i32
+
+    @lib pub fn UnregisterClassA(lpClassName: *const char, hInstance: HINSTANCE): i32
+    @lib pub fn UnregisterClassW(lpClassName: *const u16, hInstance: HINSTANCE): i32
+
+    /// Like GetWindowText, but only the title-bar caption — never
+    /// sends WM_GETTEXT, so it works even when the window is hung.
+    @lib pub fn InternalGetWindowText(hwnd: HWND, pString: *u16, cchMaxCount: i32): i32
+
+    // ── DC variants ──────────────────────────────────────────────
+
+    /// Returns a DC that includes the entire window (caption + border)
+    /// instead of just the client area.
+    @lib pub fn GetWindowDC(hwnd: HWND): HDC
+
+    /// `flags`: DCX_WINDOW = 1, DCX_CACHE = 2, DCX_PARENTCLIP = 0x20,
+    /// DCX_CLIPSIBLINGS = 0x10, DCX_CLIPCHILDREN = 0x08, DCX_INTERSECTRGN = 0x80.
+    @lib pub fn GetDCEx(hwnd: HWND, hrgnClip: i64, flags: u32): HDC
+
+    // ── Point / window hit testing ───────────────────────────────
+
+    @lib pub fn WindowFromPoint(Point: POINT): HWND
+    @lib pub fn ChildWindowFromPoint(hwndParent: HWND, Point: POINT): HWND
+    @lib pub fn ChildWindowFromPointEx(hwndParent: HWND, pt: POINT, flags: u32): HWND
+    @lib pub fn RealChildWindowFromPoint(hwndParent: HWND, ptParentClientCoords: POINT): HWND
+
+    // ── Cursor info / extras ─────────────────────────────────────
+
+    /// `CURSORINFO` — 24 bytes. Set `cbSize = 24` before calling.
+    pub struct CURSORINFO {
+        cbSize:    u32
+        flags:     u32   // 0 = hidden, 1 = showing, 2 = suppressed (Win8+)
+        hCursor:   HCURSOR
+        ptScreenPos: POINT
+    }
+
+    @lib pub fn GetCursorInfo(pci: *CURSORINFO): i32
+    @lib pub fn DestroyCursor(hCursor: HCURSOR): i32
+    @lib pub fn DestroyIcon(hIcon: HICON): i32
+    @lib pub fn CopyIcon(hIcon: HICON): HICON
+
+    /// `ICONINFO` — 32 bytes.
+    pub struct ICONINFO {
+        fIcon:    i32       // 1 = icon, 0 = cursor
+        xHotspot: u32
+        yHotspot: u32
+        hbmMask:  i64       // *HBITMAP
+        hbmColor: i64       // *HBITMAP
+    }
+
+    @lib pub fn GetIconInfo(hIcon: HICON, piconinfo: *ICONINFO): i32
+    @lib pub fn CreateIconIndirect(piconinfo: *const ICONINFO): HICON
+
+    @lib pub fn CreateIcon(
+        hInstance: HINSTANCE,
+        nWidth:    i32,
+        nHeight:   i32,
+        cPlanes:   u8,
+        cBitsPixel: u8,
+        lpbANDbits: *const u8,
+        lpbXORbits: *const u8
+    ): HICON
+
+    @lib pub fn CreateIconFromResource(
+        presbits: *const u8,
+        dwResSize: u32,
+        fIcon:    i32,
+        dwVer:    u32
+    ): HICON
+    @lib pub fn CreateIconFromResourceEx(
+        presbits: *const u8,
+        dwResSize: u32,
+        fIcon:    i32,
+        dwVer:    u32,
+        cxDesired: i32,
+        cyDesired: i32,
+        Flags:    u32
+    ): HICON
+
+    @lib pub fn LoadCursorFromFileA(lpFileName: *const char): HCURSOR
+    @lib pub fn LoadCursorFromFileW(lpFileName: *const u16): HCURSOR
+
+    /// `id`: OCR_NORMAL, OCR_IBEAM, etc. (one of SystemCursor.*).
+    @lib pub fn SetSystemCursor(hcur: HCURSOR, id: u32): i32
+
+    /// Returns a new HBITMAP/HICON/HCURSOR. `uType`: ImageType.*,
+    /// `dwFlags`: LR_COPYRETURNORG (4), LR_COPYDELETEORG (8),
+    /// LR_COPYFROMRESOURCE (0x4000), LR_CREATEDIBSECTION (0x2000).
+    @lib pub fn CopyImage(h: i64, uType: u32, cx: i32, cy: i32, flags: u32): i64
+
+    // ── Caret (text cursor) ──────────────────────────────────────
+
+    @lib pub fn CreateCaret(hwnd: HWND, hBitmap: i64, nWidth: i32, nHeight: i32): i32
+    @lib pub fn DestroyCaret(): i32
+    @lib pub fn ShowCaret(hwnd: HWND): i32
+    @lib pub fn HideCaret(hwnd: HWND): i32
+    @lib pub fn SetCaretPos(X: i32, Y: i32): i32
+    @lib pub fn GetCaretPos(lpPoint: *POINT): i32
+    @lib pub fn SetCaretBlinkTime(uMSeconds: u32): i32
+    @lib pub fn GetCaretBlinkTime(): u32
+
+    // ── Painting / regions / redraw ──────────────────────────────
+
+    /// `bErase`: 1 to erase background, 0 to leave existing pixels.
+    @lib pub fn InvalidateRgn(hwnd: HWND, hRgn: i64, bErase: i32): i32
+    @lib pub fn ValidateRgn(hwnd: HWND, hRgn: i64): i32
+
+    @lib pub fn GetUpdateRect(hwnd: HWND, lpRect: *RECT, bErase: i32): i32
+    @lib pub fn GetUpdateRgn(hwnd: HWND, hRgn: i64, bErase: i32): i32
+
+    /// Disables redrawing to a window. Pass NULL HWND to re-enable.
+    /// Only one window may be locked at a time per thread.
+    @lib pub fn LockWindowUpdate(hWndLock: HWND): i32
+
+    /// `flags`: RedrawWindowFlags.*.
+    @lib pub fn RedrawWindow(
+        hwnd:    HWND,
+        lprcUpdate: *const RECT,
+        hrgnUpdate: i64,
+        flags:   u32
+    ): i32
+
+    @lib pub fn SetWindowRgn(hwnd: HWND, hRgn: i64, bRedraw: i32): i32
+    @lib pub fn GetWindowRgn(hwnd: HWND, hRgn: i64): i32
+    @lib pub fn GetWindowRgnBox(hwnd: HWND, lprc: *RECT): i32
+
+    @lib pub fn InvertRect(hDC: HDC, lprc: *const RECT): i32
+
+    // ── Drawing helpers ──────────────────────────────────────────
+
+    /// Draws a focus rectangle (dashed XOR'd border).
+    @lib pub fn DrawFocusRect(hDC: HDC, lprc: *const RECT): i32
+
+    /// Draws a Windows-style edge (raised / sunken / etched / bumped).
+    /// `edge`: DrawEdgeStyle.*, `grfFlags`: DrawEdgeFlags.*.
+    @lib pub fn DrawEdge(hdc: HDC, qrc: *RECT, edge: u32, grfFlags: u32): i32
+
+    /// Draws a button / caption / menu / scrollbar piece in the
+    /// classic theme. `uType`: DrawFrameControlType.*, `uState`:
+    /// DrawFrameControlState.* OR'd with state modifiers.
+    @lib pub fn DrawFrameControl(hdc: HDC, lprc: *RECT, uType: u32, uState: u32): i32
+
+    /// Draws icon / bitmap / string with optional dimming / outlining.
+    /// `flags`: DST_* (low byte) | DSS_* (high byte).
+    @lib pub fn DrawState(
+        hdc:    HDC,
+        hbrFore: HBRUSH,
+        lpOutputFunc: fn(HDC, i64, u64, i32, i32): i32,
+        lData:  i64,
+        wData:  u64,
+        x:      i32,
+        y:      i32,
+        cx:     i32,
+        cy:     i32,
+        flags:  u32
+    ): i32
+
+    @lib pub fn DrawIcon(hDC: HDC, X: i32, Y: i32, hIcon: HICON): i32
+
+    @lib pub fn DrawIconEx(
+        hdc:        HDC,
+        xLeft:      i32,
+        yTop:       i32,
+        hIcon:      HICON,
+        cxWidth:    i32,
+        cyHeight:   i32,
+        istepIfAniCur: u32,
+        hbrFlickerFreeDraw: HBRUSH,
+        diFlags:    u32
+    ): i32
+
+    @lib pub fn PaintDesktop(hdc: HDC): i32
+
+    // ── Accelerator tables ───────────────────────────────────────
+
+    /// `ACCEL` — 6 bytes packed in the SDK. Stored here as 8 bytes
+    /// (the layout the API expects in arrays passed to CreateAcceleratorTable).
+    pub struct ACCEL {
+        fVirt: u8     // AccelFlags.*
+        _pad:  u8
+        key:   u16
+        cmd:   u16
+        _pad2: u16
+    }
+
+    @lib pub fn CreateAcceleratorTableA(paccel: *ACCEL, cAccel: i32): HACCEL
+    @lib pub fn CreateAcceleratorTableW(paccel: *ACCEL, cAccel: i32): HACCEL
+    @lib pub fn DestroyAcceleratorTable(hAccel: HACCEL): i32
+
+    @lib pub fn LoadAcceleratorsA(hInstance: HINSTANCE, lpTableName: *const char): HACCEL
+    @lib pub fn LoadAcceleratorsW(hInstance: HINSTANCE, lpTableName: *const u16): HACCEL
+
+    @lib pub fn TranslateAcceleratorA(hwnd: HWND, hAccTable: HACCEL, lpMsg: *MSG): i32
+    @lib pub fn TranslateAcceleratorW(hwnd: HWND, hAccTable: HACCEL, lpMsg: *MSG): i32
+
+    @lib pub fn CopyAcceleratorTableA(hAccelSrc: HACCEL, lpAccelDst: *ACCEL, cAccelEntries: i32): i32
+    @lib pub fn CopyAcceleratorTableW(hAccelSrc: HACCEL, lpAccelDst: *ACCEL, cAccelEntries: i32): i32
+
+    // ── Menu (extended) ──────────────────────────────────────────
+
+    /// `MENUITEMINFOW` — 80 bytes on x64. Set `cbSize = 80` before
+    /// passing to Get/SetMenuItemInfo. `fMask`: MenuItemInfoMask.*
+    /// selects which fields are valid.
+    pub struct MENUITEMINFOW {
+        cbSize:        u32
+        fMask:         u32
+        fType:         u32   // MenuItemType.*
+        fState:        u32   // MenuItemState.*
+        wID:           u32
+        _pad:          u32
+        hSubMenu:      HMENU
+        hbmpChecked:   i64   // *HBITMAP
+        hbmpUnchecked: i64
+        dwItemData:    u64
+        dwTypeData:    *u16
+        cch:           u32
+        _pad2:         u32
+        hbmpItem:      i64
+    }
+
+    @lib pub fn GetMenuItemInfoA(
+        hMenu: HMENU,
+        item:  u32,
+        fByPosition: i32,
+        lpmii: *MENUITEMINFOW
+    ): i32
+    @lib pub fn GetMenuItemInfoW(
+        hMenu: HMENU,
+        item:  u32,
+        fByPosition: i32,
+        lpmii: *MENUITEMINFOW
+    ): i32
+
+    @lib pub fn SetMenuItemInfoA(
+        hMenu: HMENU,
+        item:  u32,
+        fByPositon: i32,
+        lpmii: *const MENUITEMINFOW
+    ): i32
+    @lib pub fn SetMenuItemInfoW(
+        hMenu: HMENU,
+        item:  u32,
+        fByPositon: i32,
+        lpmii: *const MENUITEMINFOW
+    ): i32
+
+    @lib pub fn InsertMenuItemA(
+        hMenu: HMENU,
+        item:  u32,
+        fByPosition: i32,
+        lpmi:  *const MENUITEMINFOW
+    ): i32
+    @lib pub fn InsertMenuItemW(
+        hMenu: HMENU,
+        item:  u32,
+        fByPosition: i32,
+        lpmi:  *const MENUITEMINFOW
+    ): i32
+
+    /// `MENUINFO` — 40 bytes. Set `cbSize = 40`. `fMask`:
+    ///   1 MIM_BACKGROUND, 2 MIM_HELPID, 4 MIM_MAXHEIGHT,
+    ///   8 MIM_MENUDATA, 0x10 MIM_STYLE, 0x80000000 MIM_APPLYTOSUBMENUS.
+    pub struct MENUINFO {
+        cbSize:          u32
+        fMask:           u32
+        dwStyle:         u32
+        cyMax:           u32
+        hbrBack:         HBRUSH
+        dwContextHelpID: u32
+        _pad:            u32
+        dwMenuData:      u64
+    }
+
+    @lib pub fn GetMenuInfo(hmenu: HMENU, lpMenuInfo: *MENUINFO): i32
+    @lib pub fn SetMenuInfo(hmenu: HMENU, lpMenuInfo: *const MENUINFO): i32
+
+    /// `TPMPARAMS` — 20 bytes; describes a no-touch rectangle for
+    /// TrackPopupMenuEx (the popup avoids this rect).
+    pub struct TPMPARAMS {
+        cbSize:    u32
+        rcExclude: RECT
+    }
+
+    @lib pub fn TrackPopupMenuEx(
+        hMenu:  HMENU,
+        uFlags: u32,
+        x:      i32,
+        y:      i32,
+        hwnd:   HWND,
+        lptpm:  *const TPMPARAMS
+    ): i32
+
+    @lib pub fn GetSystemMenu(hWnd: HWND, bRevert: i32): HMENU
+    @lib pub fn HiliteMenuItem(hWnd: HWND, hMenu: HMENU, uIDHiliteItem: u32, uHilite: u32): i32
+
+    @lib pub fn GetMenuStringA(hMenu: HMENU, uIDItem: u32, lpString: *char, cchMax: i32, flags: u32): i32
+    @lib pub fn GetMenuStringW(hMenu: HMENU, uIDItem: u32, lpString: *u16, cchMax: i32, flags: u32): i32
+
+    @lib pub fn SetMenuDefaultItem(hMenu: HMENU, uItem: u32, fByPos: i32): i32
+    /// `gmdiFlags`: 0 = GMDI_USEDISABLED-OFF, 1 = GMDI_GOINTOPOPUPS, 2 = GMDI_USEDISABLED.
+    @lib pub fn GetMenuDefaultItem(hMenu: HMENU, fByPos: i32, gmdiFlags: u32): u32
+
+    @lib pub fn SetMenuItemBitmaps(
+        hMenu: HMENU,
+        uPosition: u32,
+        uFlags:   u32,
+        hbmpUnchecked: i64,
+        hbmpChecked: i64
+    ): i32
+
+    @lib pub fn GetMenuState(hMenu: HMENU, uId: u32, uFlags: u32): u32
+    @lib pub fn GetMenuItemRect(hWnd: HWND, hMenu: HMENU, uItem: u32, lprcItem: *RECT): i32
+
+    // ── Scroll bar functions ─────────────────────────────────────
+
+    /// `nBar`: ScrollBar.*.
+    @lib pub fn GetScrollPos(hwnd: HWND, nBar: i32): i32
+    @lib pub fn SetScrollPos(hwnd: HWND, nBar: i32, nPos: i32, bRedraw: i32): i32
+    @lib pub fn GetScrollRange(hwnd: HWND, nBar: i32, lpMinPos: *i32, lpMaxPos: *i32): i32
+    @lib pub fn SetScrollRange(hwnd: HWND, nBar: i32, nMinPos: i32, nMaxPos: i32, bRedraw: i32): i32
+    @lib pub fn EnableScrollBar(hWnd: HWND, wSBflags: u32, wArrows: u32): i32
+
+    // ── Window properties ────────────────────────────────────────
+
+    @lib pub fn SetPropA(hwnd: HWND, lpString: *const char, hData: *void): i32
+    @lib pub fn SetPropW(hwnd: HWND, lpString: *const u16, hData: *void): i32
+
+    @lib pub fn GetPropA(hwnd: HWND, lpString: *const char): *void
+    @lib pub fn GetPropW(hwnd: HWND, lpString: *const u16): *void
+
+    @lib pub fn RemovePropA(hwnd: HWND, lpString: *const char): *void
+    @lib pub fn RemovePropW(hwnd: HWND, lpString: *const u16): *void
+
+    @lib pub fn EnumPropsA(hwnd: HWND, lpEnumFunc: fn(HWND, *const char, *void): i32): i32
+    @lib pub fn EnumPropsW(hwnd: HWND, lpEnumFunc: fn(HWND, *const u16, *void): i32): i32
+
+    // ── Clipboard (extended) ─────────────────────────────────────
+
+    /// Win8+: a monotonic counter incremented on every clipboard write.
+    @lib pub fn GetClipboardSequenceNumber(): u32
+
+    /// `hwnd` receives WM_CLIPBOARDUPDATE when the clipboard changes.
+    /// Free with RemoveClipboardFormatListener.
+    @lib pub fn AddClipboardFormatListener(hwnd: HWND): i32
+    @lib pub fn RemoveClipboardFormatListener(hwnd: HWND): i32
+
+    /// Returns the highest-priority format the clipboard can deliver
+    /// from `paFormatPriorityList[0..cFormats]`, or 0/-1 on failure.
+    @lib pub fn GetPriorityClipboardFormat(paFormatPriorityList: *u32, cFormats: i32): i32
+
+    /// Win Vista+: fills the caller-supplied buffer with the list of
+    /// formats currently on the clipboard.
+    @lib pub fn GetUpdatedClipboardFormats(
+        lpuiFormats:  *u32,
+        cFormats:     u32,
+        pcFormatsOut: *u32
+    ): i32
+
+    // ── Window event hooks (accessibility) ───────────────────────
+
+    @handle pub struct HWINEVENTHOOK {}
+
+    /// Installs an out-of-context accessibility hook. `eventMin`
+    /// / `eventMax` are from WinEvent.*; pass equal values to listen
+    /// to a single event.  `dwFlags`: WinEventFlags.*.
+    @lib pub fn SetWinEventHook(
+        eventMin:   u32,
+        eventMax:   u32,
+        hmodWinEventProc: HMODULE,
+        pfnWinEventProc: fn(HWINEVENTHOOK, u32, HWND, i64, i64, u32, u32),
+        idProcess:  u32,
+        idThread:   u32,
+        dwFlags:    u32
+    ): HWINEVENTHOOK
+
+    @lib pub fn UnhookWinEvent(hWinEventHook: HWINEVENTHOOK): i32
+
+    @lib pub fn IsWinEventHookInstalled(event: u32): i32
+
+    // `NotifyWinEvent` lives in oleacc.il.
+
+    // ── Display / monitor enumeration ────────────────────────────
+
+    /// `DEVMODEW` — 220 bytes on x64. This binding exposes only the
+    /// header + the most-used display fields. Pad the unused private-
+    /// driver-data area when filling via memory.
+    pub struct DEVMODEW {
+        dmDeviceName:     u16[32]
+        dmSpecVersion:    u16
+        dmDriverVersion:  u16
+        dmSize:           u16
+        dmDriverExtra:    u16
+        dmFields:         u32
+        dmPositionX:      i32   // union member; valid when DM_POSITION set
+        dmPositionY:      i32
+        dmDisplayOrientation: u32
+        dmDisplayFixedOutput: u32
+        dmColor:          i16
+        dmDuplex:         i16
+        dmYResolution:    i16
+        dmTTOption:       i16
+        dmCollate:        i16
+        dmFormName:       u16[32]
+        dmLogPixels:      u16
+        dmBitsPerPel:     u32
+        dmPelsWidth:      u32
+        dmPelsHeight:     u32
+        dmDisplayFlags:   u32   // also dmNup union
+        dmDisplayFrequency: u32
+        dmICMMethod:      u32
+        dmICMIntent:      u32
+        dmMediaType:      u32
+        dmDitherType:     u32
+        dmReserved1:      u32
+        dmReserved2:      u32
+        dmPanningWidth:   u32
+        dmPanningHeight:  u32
+    }
+
+    /// `DISPLAY_DEVICEW` — 840 bytes on x64. Set `cb = 840`.
+    pub struct DISPLAY_DEVICEW {
+        cb:           u32
+        _pad:         u32
+        DeviceName:   u16[32]
+        DeviceString: u16[128]
+        StateFlags:   u32
+        DeviceID:     u16[128]
+        DeviceKey:    u16[128]
+    }
+
+    /// `iModeNum`: 0..N to iterate. `ENUM_CURRENT_SETTINGS = 0xFFFFFFFF`,
+    /// `ENUM_REGISTRY_SETTINGS = 0xFFFFFFFE`.
+    @lib pub fn EnumDisplaySettingsA(
+        lpszDeviceName: *const char,
+        iModeNum:       u32,
+        lpDevMode:      *DEVMODEW
+    ): i32
+    @lib pub fn EnumDisplaySettingsW(
+        lpszDeviceName: *const u16,
+        iModeNum:       u32,
+        lpDevMode:      *DEVMODEW
+    ): i32
+
+    /// `dwFlags`: EDS_RAWMODE = 2, EDS_ROTATEDMODE = 4.
+    @lib pub fn EnumDisplaySettingsExA(
+        lpszDeviceName: *const char,
+        iModeNum:       u32,
+        lpDevMode:      *DEVMODEW,
+        dwFlags:        u32
+    ): i32
+    @lib pub fn EnumDisplaySettingsExW(
+        lpszDeviceName: *const u16,
+        iModeNum:       u32,
+        lpDevMode:      *DEVMODEW,
+        dwFlags:        u32
+    ): i32
+
+    @lib pub fn ChangeDisplaySettingsA(lpDevMode: *DEVMODEW, dwFlags: u32): i32
+    @lib pub fn ChangeDisplaySettingsW(lpDevMode: *DEVMODEW, dwFlags: u32): i32
+
+    @lib pub fn ChangeDisplaySettingsExA(
+        lpszDeviceName: *const char,
+        lpDevMode:      *DEVMODEW,
+        hwnd:           HWND,
+        dwflags:        u32,
+        lParam:         *void
+    ): i32
+    @lib pub fn ChangeDisplaySettingsExW(
+        lpszDeviceName: *const u16,
+        lpDevMode:      *DEVMODEW,
+        hwnd:           HWND,
+        dwflags:        u32,
+        lParam:         *void
+    ): i32
+
+    @lib pub fn EnumDisplayDevicesA(
+        lpDevice:      *const char,
+        iDevNum:       u32,
+        lpDisplayDevice: *DISPLAY_DEVICEW,
+        dwFlags:       u32
+    ): i32
+    @lib pub fn EnumDisplayDevicesW(
+        lpDevice:      *const u16,
+        iDevNum:       u32,
+        lpDisplayDevice: *DISPLAY_DEVICEW,
+        dwFlags:       u32
+    ): i32
+
+    // ── Power-setting notifications ──────────────────────────────
+
+    /// Registers `hRecipient` (HWND or service handle) to receive
+    /// WM_POWERBROADCAST when the named power-setting GUID changes.
+    @lib pub fn RegisterPowerSettingNotification(
+        hRecipient:     HANDLE,
+        PowerSettingGuid: *const GUID,
+        Flags:          u32              // DeviceNotifyFlags.*
+    ): *void
+
+    @lib pub fn UnregisterPowerSettingNotification(Handle: *void): i32
+
+    // ── Touch ────────────────────────────────────────────────────
+
+    /// `ulFlags`: 0 = default, 1 = TWF_FINETOUCH, 2 = TWF_WANTPALM.
+    @lib pub fn RegisterTouchWindow(hwnd: HWND, ulFlags: u32): i32
+    @lib pub fn UnregisterTouchWindow(hwnd: HWND): i32
+    @lib pub fn IsTouchWindow(hwnd: HWND, pulFlags: *u32): i32
+
+    /// `TOUCHINPUT` — 40 bytes.
+    pub struct TOUCHINPUT {
+        x:            i32
+        y:            i32
+        hSource:      HANDLE
+        dwID:         u32
+        dwFlags:      u32
+        dwMask:       u32
+        dwTime:       u32
+        dwExtraInfo:  u64
+        cxContact:    u32
+        cyContact:    u32
+    }
+
+    @lib pub fn GetTouchInputInfo(
+        hTouchInput:  HANDLE,
+        cInputs:      u32,
+        pInputs:      *TOUCHINPUT,
+        cbSize:       i32
+    ): i32
+
+    @lib pub fn CloseTouchInputHandle(hTouchInput: HANDLE): i32
+
+    // ── Window display affinity (DRM) ────────────────────────────
+
+    /// `dwAffinity`: 0 = WDA_NONE, 1 = WDA_MONITOR (block capture),
+    /// 0x11 = WDA_EXCLUDEFROMCAPTURE (Win10 2004+).
+    @lib pub fn SetWindowDisplayAffinity(hwnd: HWND, dwAffinity: u32): i32
+    @lib pub fn GetWindowDisplayAffinity(hwnd: HWND, pdwAffinity: *u32): i32
+
+    // ── Message functions (extended) ─────────────────────────────
+
+    @lib pub fn SendMessageTimeoutA(
+        hwnd:     HWND,
+        msg:      u32,
+        wParam:   u64,
+        lParam:   i64,
+        flags:    u32,
+        timeoutMs: u32,
+        lpdwResult: *u64
+    ): i64
+    @lib pub fn SendMessageTimeoutW(
+        hwnd:     HWND,
+        msg:      u32,
+        wParam:   u64,
+        lParam:   i64,
+        flags:    u32,
+        timeoutMs: u32,
+        lpdwResult: *u64
+    ): i64
+
+    @lib pub fn SendNotifyMessageA(hwnd: HWND, msg: u32, wParam: u64, lParam: i64): i32
+    @lib pub fn SendNotifyMessageW(hwnd: HWND, msg: u32, wParam: u64, lParam: i64): i32
+
+    @lib pub fn PostThreadMessageA(idThread: u32, msg: u32, wParam: u64, lParam: i64): i32
+    @lib pub fn PostThreadMessageW(idThread: u32, msg: u32, wParam: u64, lParam: i64): i32
+
+    /// Returns non-zero if the calling thread is in the middle of an
+    /// inter-thread SendMessage.
+    @lib pub fn InSendMessage(): i32
+    /// Returns ISMEX_NOSEND (0), ISMEX_SEND (1), ISMEX_NOTIFY (2),
+    /// ISMEX_CALLBACK (4), ISMEX_REPLIED (8).
+    @lib pub fn InSendMessageEx(lpReserved: *void): u32
+    @lib pub fn ReplyMessage(lResult: i64): i32
+
+    @lib pub fn WaitMessage(): i32
+
+    @lib pub fn TranslateMDISysAccel(hwndClient: HWND, lpMsg: *MSG): i32
+
+    @lib pub fn GetQueueStatus(flags: u32): u32
+
+    @lib pub fn GetInputState(): i32
+
+    @lib pub fn GetMessagePos(): u32
+    @lib pub fn GetMessageTime(): i32
+    @lib pub fn GetMessageExtraInfo(): i64
+    @lib pub fn SetMessageExtraInfo(lParam: i64): i64
+
+    // ── Enum / iterate ───────────────────────────────────────────
+
+    @lib pub fn EnumThreadWindows(
+        dwThreadId: u32,
+        lpfn:       fn(HWND, i64): i32,
+        lParam:     i64
+    ): i32
+
+    @lib pub fn EnumDesktopWindows(
+        hDesktop: HANDLE,
+        lpfn:     fn(HWND, i64): i32,
+        lParam:   i64
+    ): i32
+
+    // ── Window state ─────────────────────────────────────────────
+
+    /// Undocumented but stable Alt+Tab equivalent: makes `hwnd` the
+    /// foreground window even from a background process.
+    @lib pub fn SwitchToThisWindow(hwnd: HWND, fUnknown: i32)
+
+    /// `uFlags`: ExitWindowsExFlags.*, `dwReason`: ShutdownReason.*.
+    @lib pub fn ExitWindowsEx(uFlags: u32, dwReason: u32): i32
+
+    @lib pub fn ShutdownBlockReasonCreate(hwnd: HWND, pwszReason: *const u16): i32
+    @lib pub fn ShutdownBlockReasonDestroy(hwnd: HWND): i32
+    @lib pub fn ShutdownBlockReasonQuery(hwnd: HWND, pwszBuff: *u16, pcchBuff: *u32): i32
+
+    @lib pub fn ShowOwnedPopups(hwnd: HWND, fShow: i32): i32
+    @lib pub fn ArrangeIconicWindows(hwnd: HWND): u32
+    @lib pub fn AnyPopup(): i32
+    @lib pub fn CascadeWindows(
+        hwndParent: HWND,
+        wHow:       u32,
+        lpRect:     *const RECT,
+        cKids:      u32,
+        lpKids:     *const HWND
+    ): u16
+    @lib pub fn TileWindows(
+        hwndParent: HWND,
+        wHow:       u32,
+        lpRect:     *const RECT,
+        cKids:      u32,
+        lpKids:     *const HWND
+    ): u16
+
+    // ── Dialog (extended) ────────────────────────────────────────
+
+    @lib pub fn DialogBoxIndirectParamA(
+        hInstance:        HINSTANCE,
+        hDialogTemplate:  *const void,   // *DLGTEMPLATE
+        hWndParent:       HWND,
+        lpDialogFunc:     fn(HWND, u32, u64, i64): i64,
+        dwInitParam:      i64
+    ): i64
+    @lib pub fn DialogBoxIndirectParamW(
+        hInstance:        HINSTANCE,
+        hDialogTemplate:  *const void,
+        hWndParent:       HWND,
+        lpDialogFunc:     fn(HWND, u32, u64, i64): i64,
+        dwInitParam:      i64
+    ): i64
+
+    @lib pub fn CreateDialogIndirectParamA(
+        hInstance:        HINSTANCE,
+        lpTemplate:       *const void,
+        hWndParent:       HWND,
+        lpDialogFunc:     fn(HWND, u32, u64, i64): i64,
+        dwInitParam:      i64
+    ): HWND
+    @lib pub fn CreateDialogIndirectParamW(
+        hInstance:        HINSTANCE,
+        lpTemplate:       *const void,
+        hWndParent:       HWND,
+        lpDialogFunc:     fn(HWND, u32, u64, i64): i64,
+        dwInitParam:      i64
+    ): HWND
+
+    /// Converts dialog-template coordinates to client-pixel coordinates.
+    @lib pub fn MapDialogRect(hDlg: HWND, lpRect: *RECT): i32
+
+    /// Low 16 = horizontal dialog-base unit, high 16 = vertical.
+    @lib pub fn GetDialogBaseUnits(): i64
+
+    /// Walks the dialog tab order.
+    @lib pub fn GetNextDlgGroupItem(hDlg: HWND, hCtl: HWND, bPrevious: i32): HWND
+
+    // ── Keyboard input / state ───────────────────────────────────
+
+    @lib pub fn GetKeyboardState(lpKeyState: *u8): i32
+    @lib pub fn SetKeyboardState(lpKeyState: *u8): i32
+
+    /// Returns the active layout (HKL) for `idThread` (0 = caller).
+    @lib pub fn GetKeyboardLayout(idThread: u32): u64
+
+    /// `Flags`: KeyboardLayoutFlags.*. Returns the previous layout's HKL.
+    @lib pub fn ActivateKeyboardLayout(hkl: u64, Flags: u32): u64
+
+    @lib pub fn LoadKeyboardLayoutA(pwszKLID: *const char, Flags: u32): u64
+    @lib pub fn LoadKeyboardLayoutW(pwszKLID: *const u16, Flags: u32): u64
+
+    @lib pub fn UnloadKeyboardLayout(hkl: u64): i32
+
+    @lib pub fn GetKeyboardLayoutList(nBuff: i32, lpList: *u64): i32
+
+    @lib pub fn GetKeyboardLayoutNameA(pwszKLID: *char): i32
+    @lib pub fn GetKeyboardLayoutNameW(pwszKLID: *u16): i32
+
+    @lib pub fn GetKeyboardType(nTypeFlag: i32): i32
+
+    @lib pub fn GetKeyNameTextA(lParam: i64, lpString: *char, cchSize: i32): i32
+    @lib pub fn GetKeyNameTextW(lParam: i64, lpString: *u16, cchSize: i32): i32
+
+    @lib pub fn VkKeyScanA(ch: i8): i16
+    @lib pub fn VkKeyScanW(ch: u16): i16
+    @lib pub fn VkKeyScanExA(ch: i8, dwhkl: u64): i16
+    @lib pub fn VkKeyScanExW(ch: u16, dwhkl: u64): i16
+
+    @lib pub fn MapVirtualKeyExA(uCode: u32, uMapType: u32, dwhkl: u64): u32
+    @lib pub fn MapVirtualKeyExW(uCode: u32, uMapType: u32, dwhkl: u64): u32
+
+    /// Translates a virtual-key + key-state to Unicode chars.
+    /// Returns the count of UTF-16 code units written (or -1 for dead key).
+    @lib pub fn ToUnicode(
+        wVirtKey:   u32,
+        wScanCode:  u32,
+        lpKeyState: *const u8,
+        pwszBuff:   *u16,
+        cchBuff:    i32,
+        wFlags:     u32
+    ): i32
+
+    @lib pub fn ToUnicodeEx(
+        wVirtKey:   u32,
+        wScanCode:  u32,
+        lpKeyState: *const u8,
+        pwszBuff:   *u16,
+        cchBuff:    i32,
+        wFlags:     u32,
+        dwhkl:      u64
+    ): i32
+
+    @lib pub fn ToAscii(
+        wVirtKey:   u32,
+        wScanCode:  u32,
+        lpKeyState: *const u8,
+        lpChar:     *u16,
+        wFlags:     u32
+    ): i32
+
+    @lib pub fn ToAsciiEx(
+        wVirtKey:   u32,
+        wScanCode:  u32,
+        lpKeyState: *const u8,
+        lpChar:     *u16,
+        wFlags:     u32,
+        dwhkl:      u64
+    ): i32
+
+    /// Returns the queue status of `idAttach` (target thread) — needed
+    /// before SendInput against another thread.
+    @lib pub fn AttachThreadInput(idAttach: u32, idAttachTo: u32, fAttach: i32): i32
+
+    // ── Mouse (legacy / extras) ──────────────────────────────────
+
+    /// Legacy mouse-event injector. Modern code uses SendInput.
+    @lib pub fn mouse_event(
+        dwFlags:    u32,
+        dx:         i32,
+        dy:         i32,
+        dwData:     u32,
+        dwExtraInfo: u64
+    )
+
+    /// Legacy keyboard-event injector.
+    @lib pub fn keybd_event(
+        bVk:        u8,
+        bScan:      u8,
+        dwFlags:    u32,
+        dwExtraInfo: u64
+    )
+
+    /// Blocks all keyboard and mouse input from reaching applications.
+    /// Requires the calling thread to be in the foreground.
+    @lib pub fn BlockInput(fBlockIt: i32): i32
+
+    @lib pub fn SwapMouseButton(fSwap: i32): i32
+
+    // ── Char traversal / classification ──────────────────────────
+
+    /// Returns a pointer to the next character in a multi-byte string.
+    @lib pub fn CharNextA(lpsz: *const char): *char
+    @lib pub fn CharNextW(lpsz: *const u16): *u16
+    @lib pub fn CharPrevA(lpszStart: *const char, lpszCurrent: *const char): *char
+    @lib pub fn CharPrevW(lpszStart: *const u16, lpszCurrent: *const u16): *u16
+
+    /// In-place upper/lower-case conversion of a single character or
+    /// (when the pointer has its high bits set in 16-bit chars) NUL-
+    /// terminated string. The Buff variant operates on a length-counted buffer.
+    @lib pub fn CharUpperBuffA(lpsz: *char, cchLength: u32): u32
+    @lib pub fn CharUpperBuffW(lpsz: *u16, cchLength: u32): u32
+    @lib pub fn CharLowerBuffA(lpsz: *char, cchLength: u32): u32
+    @lib pub fn CharLowerBuffW(lpsz: *u16, cchLength: u32): u32
+
+    @lib pub fn OemToCharBuffA(lpszSrc: *const char, lpszDst: *char, cchDstLength: u32): i32
+    @lib pub fn OemToCharBuffW(lpszSrc: *const char, lpszDst: *u16, cchDstLength: u32): i32
+    @lib pub fn CharToOemBuffA(lpszSrc: *const char, lpszDst: *char, cchDstLength: u32): i32
+    @lib pub fn CharToOemBuffW(lpszSrc: *const u16, lpszDst: *char, cchDstLength: u32): i32
+
+    // ── Tabbed text rendering ────────────────────────────────────
+
+    @lib pub fn TabbedTextOutA(
+        hdc:        HDC,
+        x:          i32,
+        y:          i32,
+        lpString:   *const char,
+        chCount:    i32,
+        nTabPositions: i32,
+        lpnTabStopPositions: *const i32,
+        nTabOrigin: i32
+    ): i64
+
+    @lib pub fn TabbedTextOutW(
+        hdc:        HDC,
+        x:          i32,
+        y:          i32,
+        lpString:   *const u16,
+        chCount:    i32,
+        nTabPositions: i32,
+        lpnTabStopPositions: *const i32,
+        nTabOrigin: i32
+    ): i64
+
+    @lib pub fn GetTabbedTextExtentA(
+        hdc:        HDC,
+        lpString:   *const char,
+        chCount:    i32,
+        nTabPositions: i32,
+        lpnTabStopPositions: *const i32
+    ): u32
+
+    @lib pub fn GetTabbedTextExtentW(
+        hdc:        HDC,
+        lpString:   *const u16,
+        chCount:    i32,
+        nTabPositions: i32,
+        lpnTabStopPositions: *const i32
+    ): u32
+
+    // ── DPI helpers (extended) ───────────────────────────────────
+
+    /// Win10+: returns the DPI used by the process (per its awareness
+    /// context).
+    @lib pub fn GetSystemDpiForProcess(hProcess: HANDLE): u32
+
+    /// Win Vista+: returns the DPI awareness of the process.
+    /// 0 = unaware, 1 = system, 2 = per-monitor.
+    @lib pub fn GetAwarenessFromDpiAwarenessContext(value: *void): i32
+
+    /// Win10+: compares two DPI awareness contexts for equality.
+    @lib pub fn AreDpiAwarenessContextsEqual(dpiContextA: *void, dpiContextB: *void): i32
+
+    @lib pub fn LogicalToPhysicalPointForPerMonitorDPI(hwnd: HWND, lpPoint: *POINT): i32
+    @lib pub fn PhysicalToLogicalPointForPerMonitorDPI(hwnd: HWND, lpPoint: *POINT): i32
+
+    // ── Small utilities ──────────────────────────────────────────
+
+    /// `MAKEINTRESOURCE(id)` packs a numeric resource id into the
+    /// pointer slot expected by LoadResource / LoadIcon / etc. Use
+    /// `id as i64 as *const u16` directly in ilang — this binding
+    /// is just the C-level helper for source-grep matches.
+    @lib pub fn IsCharAlphaA(ch: i8): i32
+    @lib pub fn IsCharAlphaW(ch: u16): i32
+    @lib pub fn IsCharAlphaNumericA(ch: i8): i32
+    @lib pub fn IsCharAlphaNumericW(ch: u16): i32
+    @lib pub fn IsCharLowerA(ch: i8): i32
+    @lib pub fn IsCharLowerW(ch: u16): i32
+    @lib pub fn IsCharUpperA(ch: i8): i32
+    @lib pub fn IsCharUpperW(ch: u16): i32
+
+    /// Plays a system sound. `uType`: MessageBoxType.* mapped to
+    /// the matching MB_ICON* sound, or 0xFFFFFFFF (SND_DEFAULT).
+    @lib pub fn MessageBoxIndirectA(lpMsgBoxParams: *const void): i32
+    @lib pub fn MessageBoxIndirectW(lpMsgBoxParams: *const void): i32
+
+    @lib pub fn MessageBoxExA(
+        hwnd:      HWND,
+        lpText:    *const char,
+        lpCaption: *const char,
+        uType:     u32,
+        wLanguageId: u16
+    ): i32
+    @lib pub fn MessageBoxExW(
+        hwnd:      HWND,
+        lpText:    *const u16,
+        lpCaption: *const u16,
+        uType:     u32,
+        wLanguageId: u16
+    ): i32
+
+    @lib pub fn GetClassWord(hwnd: HWND, nIndex: i32): u16
+    @lib pub fn SetClassWord(hwnd: HWND, nIndex: i32, wNewWord: u16): u16
+
+    @lib pub fn GetClassLongA(hwnd: HWND, nIndex: i32): u32
+    @lib pub fn GetClassLongW(hwnd: HWND, nIndex: i32): u32
+    @lib pub fn SetClassLongA(hwnd: HWND, nIndex: i32, dwNewLong: i32): u32
+    @lib pub fn SetClassLongW(hwnd: HWND, nIndex: i32, dwNewLong: i32): u32
+
+    // ── Layered windows (extended) ───────────────────────────────
+
+    /// Vista+: per-pixel layered-window update for translucent
+    /// shaped overlays.  `pptDst` / `psize` may be NULL to keep
+    /// the previous values.
+    @lib pub fn UpdateLayeredWindow(
+        hwnd:        HWND,
+        hdcDst:      HDC,
+        pptDst:      *const POINT,
+        psize:       *const SIZE,
+        hdcSrc:      HDC,
+        pptSrc:      *const POINT,
+        crKey:       u32,
+        pblend:      *const void,    // *BLENDFUNCTION
+        dwFlags:     u32
+    ): i32
+
+    @lib pub fn UpdateLayeredWindowIndirect(
+        hwnd:    HWND,
+        pULWInfo: *const void
+    ): i32
+
+    @lib pub fn PrintWindow(hwnd: HWND, hdcBlt: HDC, nFlags: u32): i32
 }
