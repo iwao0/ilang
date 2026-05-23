@@ -27,9 +27,9 @@
 // Pull the few types we reference straight from the generated
 // buckets — going through the umbrella would create a circular
 // import (the umbrella `pub use`s this file too).
-use generated.gen_gobject { GObject }
-use generated.gen_glib { GMainLoop }
-use generated.gen_gtk { GtkWidget, GtkEntry }
+use generated.gobject { GObject }
+use generated.glib { GMainLoop }
+use generated.gtk { GtkWidget, GtkEntry }
 
 // ─── Gdk keyvals ─────────────────────────────────────────────
 // Subset libs/gui maps to W3C `KeyboardEvent.code`. Values from

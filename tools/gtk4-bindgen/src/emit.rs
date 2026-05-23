@@ -30,7 +30,7 @@ pub fn emit(repo: &Repo, out_dir: &Path) -> Result<(), String> {
     let mut global_emitted: HashSet<String> = HashSet::new();
 
     for ns in &repo.namespaces {
-        let file_stem = format!("gen_{}", ns.name.to_lowercase());
+        let file_stem = ns.name.to_lowercase();
         let path = out_dir.join(format!("{file_stem}.il"));
         let body = emit_namespace(ns, &known, &c_types, &mut global_emitted);
         fs::write(&path, body)
@@ -44,7 +44,7 @@ pub fn emit(repo: &Repo, out_dir: &Path) -> Result<(), String> {
 fn write_header_doc(out_dir: &Path) -> Result<(), String> {
     let path = out_dir.join("GENERATED.md");
     let body = "# generated GTK 4 bindings\n\n\
-        The `gen_<ns>.il` files in this directory are emitted by \
+        The `<ns>.il` files in this directory are emitted by \
         `gtk4-bindgen` from the GObject Introspection metadata \
         (`/opt/homebrew/share/gir-1.0/Gtk-4.0.gir` on macOS, the distro \
         equivalent on Linux). Do not hand-edit; rerun \
@@ -314,7 +314,7 @@ pub fn write_umbrella(
     body.push_str(
         "/// GTK 4 bindings — umbrella module.\n\
          ///\n\
-         /// Re-exports every `gen_<ns>.il` file produced by \
+         /// Re-exports every `<ns>.il` file produced by \
          `gtk4-bindgen` (under `generated/`) plus the sibling \
          `manual.il` if present (signal-connect callback shapes, \
          the Keyval keysym table, the GAction interface family, and \
@@ -342,9 +342,9 @@ pub fn discover_emitted_stems(out_dir: &Path) -> Vec<String> {
         if p.extension().and_then(|s| s.to_str()) != Some("il") {
             continue;
         }
-        let stem = match p.file_stem().and_then(|s| s.to_str()) {
-            Some(s) if s.starts_with("gen_") => s.to_string(),
-            _ => continue,
+        let Some(stem) = p.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string())
+        else {
+            continue;
         };
         out.push(stem);
     }

@@ -53,10 +53,10 @@ fn collect_test_fixtures() -> Vec<PathBuf> {
     out
 }
 
-/// Parses every `bindings/gtk4/generated/gen_*.il` file and groups
+/// Parses every `bindings/gtk4/generated/*.il` file and groups
 /// `@lib pub fn` declarations by source file. The hand-written
-/// bindings at the package root are deliberately ignored — the
-/// umbrella re-exports only the generated set.
+/// `manual.il` at the package root is deliberately ignored — its
+/// declarations don't carry GIR-derived `@symbol` attributes.
 fn parse_binding_fns() -> BTreeMap<String, Vec<String>> {
     let mut by_file: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let Ok(entries) = fs::read_dir(gtk4_dir().join("generated")) else {
@@ -67,9 +67,9 @@ fn parse_binding_fns() -> BTreeMap<String, Vec<String>> {
         if p.extension().and_then(|s| s.to_str()) != Some("il") {
             continue;
         }
-        let stem = match p.file_stem().and_then(|s| s.to_str()) {
-            Some(s) if s.starts_with("gen_") => s.to_string(),
-            _ => continue,
+        let Some(stem) = p.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string())
+        else {
+            continue;
         };
         let Ok(src) = fs::read_to_string(&p) else { continue };
         let mut fns: Vec<String> = Vec::new();

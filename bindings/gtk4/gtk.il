@@ -2,11 +2,11 @@
 
 /// GTK 4 bindings — umbrella module.
 ///
-/// Re-exports every `gen_<ns>.il` file produced by `gtk4-bindgen` (under `generated/`) plus the sibling `manual.il` if present (signal-connect callback shapes, the Keyval keysym table, the GAction interface family, and anything else GIR can't express).
+/// Re-exports every `<ns>.il` file produced by `gtk4-bindgen` (under `generated/`) plus the sibling `manual.il` if present (signal-connect callback shapes, the Keyval keysym table, the GAction interface family, and anything else GIR can't express).
 
-pub use generated.gen_gdk.*
-pub use generated.gen_gio.*
-pub use generated.gen_glib.*
-pub use generated.gen_gobject.*
-pub use generated.gen_gtk.*
+pub use generated.gdk.*
+pub use generated.gio.*
+pub use generated.glib.*
+pub use generated.gobject.*
+pub use generated.gtk.*
 pub use manual.*
