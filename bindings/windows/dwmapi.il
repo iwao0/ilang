@@ -86,6 +86,7 @@ pub enum DwmThumbnailFlags: u32 {
 }
 
 use user32 { HWND }
+use gdi32 { SIZE }
 
 @extern(C, "dwmapi") {
     // ── Opaque thumbnail handle ───────────────────────────────────
@@ -202,6 +203,6 @@ use user32 { HWND }
 
     @lib pub fn DwmQueryThumbnailSourceSize(
         hThumbnail: HTHUMBNAIL,
-        pSize:      *void    // *SIZE
+        pSize:      *SIZE
     ): i32
 }

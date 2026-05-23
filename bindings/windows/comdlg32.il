@@ -106,6 +106,7 @@ pub enum CommDlgError: u32 {
 }
 
 use user32 { HWND, HINSTANCE, HDC }
+use gdi32 { LOGFONTA }
 
 @extern(C, "comdlg32") {
     // ── OPENFILENAMEA — 88 bytes on x64 ──────────────────────────
@@ -170,7 +171,7 @@ use user32 { HWND, HINSTANCE, HDC }
         lStructSize:      u32
         hwndOwner:        HWND
         hDC:              HDC   // printer DC, or NULL for screen
-        lpLogFont:        *void // *LOGFONTA
+        lpLogFont:        *LOGFONTA
         iPointSize:       i32   // selected size × 10
         Flags:            u32   // ChooseFontFlags
         rgbColors:        u32   // COLORREF — selected colour

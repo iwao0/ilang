@@ -102,7 +102,9 @@ pub enum DttFlags: u32 {
     composited  = 0x00002000
 }
 
-use user32 { HDC, HWND }
+use user32 { HDC, HWND, RECT, POINT }
+use gdi32 { SIZE, LOGFONTW }
+use dwmapi { MARGINS }
 
 @extern(C, "uxtheme") {
     // ── Theme handle ──────────────────────────────────────────────
@@ -153,8 +155,8 @@ use user32 { HDC, HWND }
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
-        pRect:     *const void,    // *RECT
-        pClipRect: *const void
+        pRect:     *const RECT,
+        pClipRect: *const RECT       // NULL = use the full DC
     ): i32
 
     /// Extended variant with explicit options (DtBgFlags.*).
@@ -163,8 +165,8 @@ use user32 { HDC, HWND }
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
-        pRect:     *const void,
-        pOptions:  *const void     // *DTBGOPTS
+        pRect:     *const RECT,
+        pOptions:  *const void       // *DTBGOPTS (not bound)
     ): i32
 
     /// Draws themed text. `dwTextFlags`: DT_* (gdi DrawTextFormat),
@@ -178,7 +180,7 @@ use user32 { HDC, HWND }
         cchText:       i32,
         dwTextFlags:   u32,
         dwTextFlags2:  u32,
-        pRect:         *const void
+        pRect:         *const RECT
     ): i32
 
     /// Extended text with shadow/glow/color overrides (DTTOPTS).
@@ -190,7 +192,7 @@ use user32 { HDC, HWND }
         pszText:   *const u16,
         iCharCount: i32,
         dwTextFlags: u32,
-        pRect:     *void,
+        pRect:     *RECT,
         pOptions:  *const DTTOPTS
     ): i32
 
@@ -202,8 +204,8 @@ use user32 { HDC, HWND }
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
-        pBoundingRect: *const void,
-        pContentRect:  *void
+        pBoundingRect: *const RECT,
+        pContentRect:  *RECT
     ): i32
 
     /// Returns the rect of the themed background surrounding `pRect`.
@@ -212,8 +214,8 @@ use user32 { HDC, HWND }
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
-        pContentRect: *const void,
-        pExtentRect:  *void
+        pContentRect: *const RECT,
+        pExtentRect:  *RECT
     ): i32
 
     /// Returns the natural size of a part. `eSize`: 0=min, 1=true, 2=draw.
@@ -222,9 +224,9 @@ use user32 { HDC, HWND }
         hdc:       HDC,
         iPartId:   i32,
         iStateId:  i32,
-        prc:       *const void,
+        prc:       *const RECT,
         eSize:     i32,
-        psz:       *void      // *SIZE
+        psz:       *SIZE
     ): i32
 
     // ── Properties ────────────────────────────────────────────────
@@ -244,7 +246,7 @@ use user32 { HDC, HWND }
         iPartId:   i32,
         iStateId:  i32,
         iPropId:   i32,
-        pFont:     *void      // *LOGFONTW (92 bytes)
+        pFont:     *LOGFONTW
     ): i32
 
     @lib pub fn GetThemeMargins(
@@ -253,8 +255,8 @@ use user32 { HDC, HWND }
         iPartId:   i32,
         iStateId:  i32,
         iPropId:   i32,
-        prc:       *const void,
-        pMargins:  *void      // *MARGINS (16 bytes)
+        prc:       *const RECT,
+        pMargins:  *MARGINS
     ): i32
 
     @lib pub fn GetThemeInt(
@@ -288,7 +290,7 @@ use user32 { HDC, HWND }
         iPartId:   i32,
         iStateId:  i32,
         iPropId:   i32,
-        pPoint:    *void      // *POINT
+        pPoint:    *POINT
     ): i32
 
     @lib pub fn GetThemeRect(
@@ -296,7 +298,7 @@ use user32 { HDC, HWND }
         iPartId:   i32,
         iStateId:  i32,
         iPropId:   i32,
-        pRect:     *void
+        pRect:     *RECT
     ): i32
 
     @lib pub fn GetThemeBool(
@@ -353,9 +355,9 @@ use user32 { HDC, HWND }
     /// HDC for the off-screen buffer.
     @lib pub fn BeginBufferedPaint(
         hdcTarget: HDC,
-        prcTarget: *const void,
+        prcTarget: *const RECT,
         dwFormat:  u32,
-        pPaintParams: *const void,
+        pPaintParams: *const void,   // *BP_PAINTPARAMS (not bound)
         phdc:      *HDC
     ): *void
 

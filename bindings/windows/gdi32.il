@@ -5,7 +5,7 @@
 /// when using stock-object IDs.  The Win64 ABI treats `*T` and `i64`
 /// identically in registers, so unsafe casts are safe at the boundary.
 
-use user32 { HDC, HWND }
+use user32 { HDC, HWND, RECT, POINT }
 
 // ─── Raster-operation codes (SRCCOPY etc.) ───────────────────────
 pub enum RasterOp: u32 {
@@ -304,6 +304,25 @@ pub enum FontPitchFamily: u32 {
         lfFaceName:       u8[32]   // LF_FACESIZE = 32
     }
 
+    /// `LOGFONTW` — 92 bytes. Wide-string twin of LOGFONTA: same
+    /// numeric fields, but `lfFaceName` is UTF-16 (LF_FACESIZE = 32 wchars).
+    pub struct LOGFONTW {
+        lfHeight:         i32
+        lfWidth:          i32
+        lfEscapement:     i32
+        lfOrientation:    i32
+        lfWeight:         i32
+        lfItalic:         u8
+        lfUnderline:      u8
+        lfStrikeOut:      u8
+        lfCharSet:        u8
+        lfOutPrecision:   u8
+        lfClipPrecision:  u8
+        lfQuality:        u8
+        lfPitchAndFamily: u8
+        lfFaceName:       u16[32]
+    }
+
     /// `TEXTMETRICA` — 60 bytes. Returned by `GetTextMetricsA`.
     pub struct TEXTMETRICA {
         tmHeight:           i32
@@ -442,7 +461,7 @@ pub enum FontPitchFamily: u32 {
 
     /// Moves the current position to `(X, Y)`. `lpPoint` receives
     /// the previous position; pass `0 as *void` to discard.
-    @lib pub fn MoveToEx(hdc: HDC, X: i32, Y: i32, lpPoint: *void): i32
+    @lib pub fn MoveToEx(hdc: HDC, X: i32, Y: i32, lpPoint: *POINT): i32
 
     /// Draws a line from the current position to `(nXEnd, nYEnd)`,
     /// then updates the current position to `(nXEnd, nYEnd)`.
@@ -463,10 +482,10 @@ pub enum FontPitchFamily: u32 {
 
     /// Draws a filled polygon through `cPoints` vertices in `lpPoints`.
     /// `lpPoints` is a pointer to an array of POINT structs.
-    @lib pub fn Polygon(hdc: HDC, lpPoints: *void, cPoints: i32): i32
+    @lib pub fn Polygon(hdc: HDC, lpPoints: *POINT, cPoints: i32): i32
 
     /// Draws connected line segments through `cPoints` vertices.
-    @lib pub fn Polyline(hdc: HDC, lpPoints: *void, cPoints: i32): i32
+    @lib pub fn Polyline(hdc: HDC, lpPoints: *POINT, cPoints: i32): i32
 
     /// Draws an arc. `(nXStartArc,nYStartArc)` and `(nXEndArc,nYEndArc)`
     /// are radial endpoints of the arc (not on the ellipse itself).
@@ -510,14 +529,14 @@ pub enum FontPitchFamily: u32 {
         hdc:     HDC,
         lpchText: *const char,
         nCount:  i32,
-        lpRect:  *void,   // *RECT
+        lpRect:  *RECT,
         uFormat: u32
     ): i32
     @lib pub fn DrawTextW(
         hdc:     HDC,
         lpchText: *const u16,
         nCount:  i32,
-        lpRect:  *void,   // *RECT
+        lpRect:  *RECT,
         uFormat: u32
     ): i32
 
@@ -632,7 +651,7 @@ pub enum FontPitchFamily: u32 {
         left: i32, top: i32, right: i32, bottom: i32,
         widthEllipse: i32, heightEllipse: i32
     ): HRGN
-    @lib pub fn CreatePolygonRgn(lpPoints: *void, nCount: i32, fnPolyFillMode: i32): HRGN
+    @lib pub fn CreatePolygonRgn(lpPoints: *POINT, nCount: i32, fnPolyFillMode: i32): HRGN
 
     /// Combines `hrgnSrc1` and `hrgnSrc2` into `hrgnDest` using
     /// `fnCombineMode` (CombineRgnMode.*). Returns RegionResult.*.
@@ -658,12 +677,12 @@ pub enum FontPitchFamily: u32 {
     @lib pub fn SetMapMode(hdc: HDC, fnMapMode: i32): i32
     @lib pub fn GetMapMode(hdc: HDC): i32
 
-    @lib pub fn SetViewportOrgEx(hdc: HDC, X: i32, Y: i32, lpPoint: *void): i32
-    @lib pub fn SetWindowOrgEx(hdc: HDC, X: i32, Y: i32, lpPoint: *void): i32
-    @lib pub fn SetViewportExtEx(hdc: HDC, nXExtent: i32, nYExtent: i32, lpSize: *void): i32
-    @lib pub fn SetWindowExtEx(hdc: HDC, nXExtent: i32, nYExtent: i32, lpSize: *void): i32
-    @lib pub fn GetViewportOrgEx(hdc: HDC, lpPoint: *void): i32
-    @lib pub fn GetWindowOrgEx(hdc: HDC, lpPoint: *void): i32
+    @lib pub fn SetViewportOrgEx(hdc: HDC, X: i32, Y: i32, lpPoint: *POINT): i32
+    @lib pub fn SetWindowOrgEx(hdc: HDC, X: i32, Y: i32, lpPoint: *POINT): i32
+    @lib pub fn SetViewportExtEx(hdc: HDC, nXExtent: i32, nYExtent: i32, lpSize: *SIZE): i32
+    @lib pub fn SetWindowExtEx(hdc: HDC, nXExtent: i32, nYExtent: i32, lpSize: *SIZE): i32
+    @lib pub fn GetViewportOrgEx(hdc: HDC, lpPoint: *POINT): i32
+    @lib pub fn GetWindowOrgEx(hdc: HDC, lpPoint: *POINT): i32
 
     // ── Device capabilities ───────────────────────────────────────
 
@@ -702,13 +721,13 @@ pub enum FontPitchFamily: u32 {
 
     /// Draws a series of cubic Bézier curves.
     /// `lpPoints`: array of POINT structs; count must be 3n+1.
-    @lib pub fn PolyBezier(hdc: HDC, lpPoints: *void, cPoints: u32): i32
+    @lib pub fn PolyBezier(hdc: HDC, lpPoints: *POINT, cPoints: u32): i32
 
     /// Draws Bézier segments from current position; count must be 3n.
-    @lib pub fn PolyBezierTo(hdc: HDC, lpPoints: *void, cCount: u32): i32
+    @lib pub fn PolyBezierTo(hdc: HDC, lpPoints: *POINT, cCount: u32): i32
 
     /// Draws connected line segments updating current position.
-    @lib pub fn PolylineTo(hdc: HDC, lpPoints: *void, cCount: u32): i32
+    @lib pub fn PolylineTo(hdc: HDC, lpPoints: *POINT, cCount: u32): i32
 
     /// Draws a pie wedge (filled arc + two radii).
     @lib pub fn Pie(
@@ -732,13 +751,13 @@ pub enum FontPitchFamily: u32 {
     // ── Current position ──────────────────────────────────────────
 
     /// Fills `lpPoint` with the current pen position in logical coords.
-    @lib pub fn GetCurrentPositionEx(hdc: HDC, lpPoint: *void): i32
+    @lib pub fn GetCurrentPositionEx(hdc: HDC, lpPoint: *POINT): i32
 
     // ── Clip rect helpers ─────────────────────────────────────────
 
     /// Returns the bounding rect of the current clip region.
     /// Return value: 0=null region, 1=simple, 2=complex.
-    @lib pub fn GetClipBox(hdc: HDC, lpRect: *void): i32
+    @lib pub fn GetClipBox(hdc: HDC, lpRect: *RECT): i32
 
     /// Subtracts a rect from the current clip region.
     @lib pub fn ExcludeClipRect(
