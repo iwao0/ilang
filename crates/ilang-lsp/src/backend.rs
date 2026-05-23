@@ -219,6 +219,10 @@ pub(crate) async fn refresh_impl(
         .as_ref()
         .map(collect_external_interfaces)
         .unwrap_or_default();
+    let external_enums = merged
+        .as_ref()
+        .map(collect_external_enums)
+        .unwrap_or_default();
     // When the buffer parses cleanly, rebuild the doc from scratch.
     // Otherwise (mid-edit, e.g. just typed `.`), keep the previous
     // doc's classes/symbols so completion / hover still work, and
@@ -246,6 +250,7 @@ pub(crate) async fn refresh_impl(
                 &external_sources,
                 &external_docs,
                 &external_interfaces,
+                &external_enums,
             );
             d.external_docs = external_docs;
             let mut docs_lock = docs.lock().unwrap();

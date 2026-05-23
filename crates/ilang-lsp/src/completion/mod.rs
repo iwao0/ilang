@@ -332,13 +332,37 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
             ..CompletionItem::default()
         });
     }
+    // Per bare suffix + kind, keep only the entry with the shortest
+    // dotted prefix. Umbrella modules re-export through chains
+    // (`cocoa` → `appkit` → `controls`), so a type defined in
+    // `controls.il` ends up registered under three keys
+    // (`cocoa.X`, `cocoa.appkit.X`, `cocoa.appkit.controls.X`). All
+    // three forms used to surface as separate completion items and
+    // the editor's fuzzy matcher would happily pick the deepest one,
+    // inserting `cocoa.appkit.controls.X` where the user meant the
+    // umbrella `cocoa.X`. Collapse to the shortest path — that's the
+    // canonical one the umbrella exists to provide.
+    let bare_suffix = |s: &str| -> String {
+        s.rsplit_once('.').map(|(_, t)| t).unwrap_or(s).to_string()
+    };
+    // Sort so that within each (bare suffix, kind) group the entry
+    // with the fewest dots comes first, then dedup_by keeps it.
+    out.sort_by(|a, b| {
+        (
+            bare_suffix(&a.label),
+            a.kind.map(|k| format!("{k:?}")).unwrap_or_default(),
+            a.label.matches('.').count(),
+            a.label.clone(),
+        )
+            .cmp(&(
+                bare_suffix(&b.label),
+                b.kind.map(|k| format!("{k:?}")).unwrap_or_default(),
+                b.label.matches('.').count(),
+                b.label.clone(),
+            ))
+    });
+    out.dedup_by(|a, b| bare_suffix(&a.label) == bare_suffix(&b.label) && a.kind == b.kind);
     out.sort_by(|a, b| a.label.cmp(&b.label));
-    // Dedupe by (label, kind): when an external type is re-exported
-    // through multiple modules (`appkit.NSApplication` +
-    // `cocoa.NSApplication`) the bare-label rewrite collapses both
-    // entries to the same display name. Some clients hide / drop
-    // the whole list when they see duplicates.
-    out.dedup_by(|a, b| a.label == b.label && a.kind == b.kind);
     out
 }
 

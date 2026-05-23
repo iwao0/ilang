@@ -630,6 +630,27 @@ pub(crate) fn collect_external_signatures(
 /// `NSApplicationDelegate` (bare, via `use cocoa { … }`) or
 /// `cocoa.NSApplicationDelegate` (whole-module reference) finds
 /// the same `InterfaceDecl` through this map.
+/// Collect enum decls from the loader-merged program so the
+/// completion handler can list `EnumName.<variant>` candidates
+/// even when the enum lives in an imported module. Keyed both by
+/// the loader-prefixed name (`cocoa.NSWindowStyleMask`) and the
+/// bare suffix (`NSWindowStyleMask`) — selective imports refer to
+/// the bare form while whole-module references use the prefix.
+pub(crate) fn collect_external_enums(
+    prog: &Program,
+) -> HashMap<AstSymbol, ilang_ast::EnumDecl> {
+    let mut out: HashMap<AstSymbol, ilang_ast::EnumDecl> = HashMap::new();
+    for it in &prog.items {
+        if let Item::Enum(e) = it {
+            out.insert(e.name, e.clone());
+            if let Some(bare) = e.name.as_str().rsplit_once('.').map(|(_, t)| t) {
+                out.insert(AstSymbol::intern(bare), e.clone());
+            }
+        }
+    }
+    out
+}
+
 pub(crate) fn collect_external_interfaces(
     prog: &Program,
 ) -> HashMap<AstSymbol, ilang_ast::InterfaceDecl> {

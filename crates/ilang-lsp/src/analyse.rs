@@ -147,6 +147,10 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
         .as_ref()
         .map(collect_external_interfaces)
         .unwrap_or_default();
+    let external_enums = merged
+        .as_ref()
+        .map(collect_external_enums)
+        .unwrap_or_default();
     // Mirror backend's auto-lift on the local parse so a
     // `class C : NSObject { ... }` exposes its synthesized
     // `alloc` / `init` / `register` methods through
@@ -161,6 +165,7 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
         &external_sources,
         &external_docs,
         &external_interfaces,
+        &external_enums,
     );
     doc.external_docs = external_docs;
     Some(doc)

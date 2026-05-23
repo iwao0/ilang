@@ -71,6 +71,7 @@ pub(crate) fn build_doc(
     external_sources: &ExternalSources,
     external_docs: &HashMap<AstSymbol, String>,
     external_interfaces: &HashMap<AstSymbol, ilang_ast::InterfaceDecl>,
+    external_enums: &HashMap<AstSymbol, ilang_ast::EnumDecl>,
 ) -> Doc {
     let symbols = collect_symbols(prog, &text);
     let mut classes = collect_classes(prog, &text);
@@ -358,12 +359,17 @@ pub(crate) fn build_doc(
     // reference like `class C : MyDel { … }` without re-parsing.
     let mut local_interfaces: HashMap<AstSymbol, ilang_ast::InterfaceDecl> =
         HashMap::new();
+    let mut local_enums: HashMap<AstSymbol, ilang_ast::EnumDecl> =
+        HashMap::new();
     let mut selective_use_names: std::collections::HashSet<AstSymbol> =
         std::collections::HashSet::new();
     for item in &prog.items {
         match item {
             ilang_ast::Item::Interface(i) => {
                 local_interfaces.insert(i.name, i.clone());
+            }
+            ilang_ast::Item::Enum(e) => {
+                local_enums.insert(e.name, e.clone());
             }
             ilang_ast::Item::ExternC(b) => {
                 for iface in b.interfaces.iter() {
@@ -393,6 +399,8 @@ pub(crate) fn build_doc(
         external_sources: external_sources.clone(),
         external_interfaces: external_interfaces.clone(),
         local_interfaces,
+        local_enums,
+        external_enums: external_enums.clone(),
         selective_use_names,
     }
 }

@@ -25,7 +25,8 @@ mod enums;
 mod harvest;
 mod walk;
 pub(crate) use collect::{
-    collect_external_classes, collect_external_interfaces, collect_external_signatures,
+    collect_external_classes, collect_external_enums, collect_external_interfaces,
+    collect_external_signatures,
 };
 pub(crate) use enums::{
     discriminant_literal_text, register_builtin_enums, register_enum_variants,

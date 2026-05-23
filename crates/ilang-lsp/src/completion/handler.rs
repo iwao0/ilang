@@ -132,6 +132,34 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                     it.filter_text = Some(prefix.clone());
                 }
             }
+            // Stamp `sortText` so the client ranks
+            //   (1) items where the typed prefix appears as a
+            //       contiguous substring in the label (earliest
+            //       position wins) — typing `nso` puts `NSObject`
+            //       above `NSApplication` even though both pass
+            //       the server's subsequence filter;
+            //   (2) shorter module paths above longer ones —
+            //       bare `X` (selectively imported) beats
+            //       `cocoa.X` beats `cocoa.appkit.X`;
+            //   (3) alphabetical label as the final tiebreak.
+            // Without this VSCode sees identical `filterText`
+            // across every item and falls back to lexical label
+            // sort, which buries `NSObject` under unrelated `NSA`-
+            // prefixed names.
+            let lowered_prefix = prefix.to_lowercase();
+            for it in items.iter_mut() {
+                let lowered_label = it.label.to_lowercase();
+                let substr_pos = if lowered_prefix.is_empty() {
+                    0usize
+                } else {
+                    lowered_label
+                        .find(&lowered_prefix)
+                        .unwrap_or(usize::MAX / 2)
+                };
+                let dots = it.label.matches('.').count();
+                it.sort_text =
+                    Some(format!("{substr_pos:08}_{dots:02}_{}", it.label));
+            }
             return Some(CompletionResponse::List(CompletionList {
                 is_incomplete: true,
                 items,
@@ -258,9 +286,28 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
     };
     // Receiver can be:
     // - a class name (`Counter.`)        -> static members
+    // - an enum name (`NSWindowStyleMask.`) -> variants
     // - a variable typed as some class (`c.`) -> instance members
     // Anything else falls through and we return nothing.
-    let want_static = doc.classes.contains_key(&AstSymbol::intern(&receiver));
+    let receiver_key = AstSymbol::intern(&receiver);
+    if let Some(en) = doc
+        .local_enums
+        .get(&receiver_key)
+        .or_else(|| doc.external_enums.get(&receiver_key))
+    {
+        let items: Vec<CompletionItem> = en
+            .variants
+            .iter()
+            .map(|v| CompletionItem {
+                label: v.name.as_str().to_string(),
+                kind: Some(CompletionItemKind::ENUM_MEMBER),
+                detail: Some(format!("(variant) {}.{}", en.name, v.name)),
+                ..CompletionItem::default()
+            })
+            .collect();
+        return Some(CompletionResponse::Array(items));
+    }
+    let want_static = doc.classes.contains_key(&receiver_key);
     let class_name = if want_static {
         receiver.clone()
     } else if receiver == "console" {

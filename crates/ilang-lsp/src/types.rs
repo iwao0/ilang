@@ -193,6 +193,14 @@ pub(crate) struct Doc {
     #[allow(dead_code)]
     pub(crate) local_interfaces:
         HashMap<AstSymbol, ilang_ast::InterfaceDecl>,
+    /// Enum declarations from the local buffer plus imported
+    /// modules, keyed by bare name (and dotted form for
+    /// imported entries). Drives `EnumName.<.>` completion so
+    /// typing `NSWindowStyleMask.` surfaces the variant list.
+    #[allow(dead_code)]
+    pub(crate) local_enums: HashMap<AstSymbol, ilang_ast::EnumDecl>,
+    #[allow(dead_code)]
+    pub(crate) external_enums: HashMap<AstSymbol, ilang_ast::EnumDecl>,
     /// Bare names brought into the buffer's namespace by a
     /// selective use (`use M { X, Y }`). Type completion checks
     /// this set to decide whether `cocoa.NSApplicationDelegate`
