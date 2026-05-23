@@ -25,8 +25,39 @@ use tower_lsp::lsp_types::{
 
 use super::imports::organize_imports;
 use super::infer_expr_type_with_scope;
-use super::text;
+use super::text::{self, line_start_before};
 use super::text_utils::{byte_range_to_lsp_range, byte_to_position};
+
+/// From an iterator of `(item, lo, hi)` byte ranges, return the
+/// innermost one whose `[lo..=hi]` contains `cursor_byte`. "Innermost"
+/// is the smallest extent, mirroring how nested scopes shrink toward
+/// the cursor. Returns `None` when nothing contains the cursor.
+///
+/// All four cursor-anchored quick-fixes (`fill_match_arms_at`,
+/// `generate_init_at`, `implement_interface_methods_at`,
+/// `interface_method_stub_completions_at`) used to inline this same
+/// pick-smallest-containing loop; share it here.
+fn pick_innermost_containing<T>(
+    iter: impl IntoIterator<Item = (T, usize, usize)>,
+    cursor_byte: usize,
+) -> Option<(T, usize, usize)> {
+    let mut chosen: Option<(T, usize, usize)> = None;
+    for (item, lo, hi) in iter {
+        if cursor_byte < lo || cursor_byte > hi {
+            continue;
+        }
+        let extent = hi.saturating_sub(lo);
+        match &chosen {
+            None => chosen = Some((item, lo, hi)),
+            Some((_, c_lo, c_hi)) => {
+                if extent < c_hi.saturating_sub(*c_lo) {
+                    chosen = Some((item, lo, hi));
+                }
+            }
+        }
+    }
+    chosen
+}
 
 /// Find an enclosing `match` expression at `cursor` and, when its
 /// scrutinee resolves to an enum declared in `prog`, return the byte
@@ -57,22 +88,8 @@ pub(crate) fn fill_match_arms_at(
     // Pick innermost match whose `{ ... }` contains the cursor.
     let cursor_byte =
         text::line_col_to_offset(text, cursor.line + 1, cursor.character + 1)?;
-    let mut chosen: Option<(&Expr, usize, usize)> = None;
-    for (e, lo, hi) in &all {
-        if cursor_byte < *lo || cursor_byte > *hi {
-            continue;
-        }
-        let span = (*hi).saturating_sub(*lo);
-        match chosen {
-            None => chosen = Some((*e, *lo, *hi)),
-            Some((_, c_lo, c_hi)) => {
-                if span < c_hi.saturating_sub(c_lo) {
-                    chosen = Some((*e, *lo, *hi));
-                }
-            }
-        }
-    }
-    let (mexpr, _open, close) = chosen?;
+    let (mexpr, _open, close) =
+        pick_innermost_containing(all.iter().copied(), cursor_byte)?;
     let ExprKind::Match { scrutinee, arms } = &mexpr.kind else {
         return None;
     };
@@ -105,14 +122,7 @@ pub(crate) fn fill_match_arms_at(
     }
     // Indentation: copy the closing `}`'s line indent so each new
     // arm sits one level deeper.
-    let close_line_start = {
-        let bytes = text.as_bytes();
-        let mut i = close;
-        while i > 0 && bytes[i - 1] != b'\n' {
-            i -= 1;
-        }
-        i
-    };
+    let close_line_start = line_start_before(text, close);
     let base_indent: String = text[close_line_start..close]
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
@@ -159,26 +169,12 @@ pub(crate) fn generate_init_at(
 ) -> Option<(usize, String)> {
     let cursor_byte =
         text::line_col_to_offset(text, cursor.line + 1, cursor.character + 1)?;
-    let mut chosen: Option<(&ClassDecl, usize, usize)> = None;
-    for it in &prog.items {
-        let Item::Class(c) = it else { continue };
-        let Some((open, close)) = match_brace_range(text, c.span) else {
-            continue;
-        };
-        if cursor_byte < open || cursor_byte > close {
-            continue;
-        }
-        let extent = close.saturating_sub(open);
-        match chosen {
-            None => chosen = Some((c, open, close)),
-            Some((_, c_open, c_close)) => {
-                if extent < c_close.saturating_sub(c_open) {
-                    chosen = Some((c, open, close));
-                }
-            }
-        }
-    }
-    let (cls, _open, close) = chosen?;
+    let class_ranges = prog.items.iter().filter_map(|it| {
+        let Item::Class(c) = it else { return None };
+        let (open, close) = match_brace_range(text, c.span)?;
+        Some((c, open, close))
+    });
+    let (cls, _open, close) = pick_innermost_containing(class_ranges, cursor_byte)?;
     if cls.extern_lib.is_some() || cls.is_repr_c {
         return None;
     }
@@ -194,14 +190,7 @@ pub(crate) fn generate_init_at(
     }
     // Indentation: copy the closing `}`'s line indent for the class
     // and indent body / params one level deeper.
-    let close_line_start = {
-        let bytes = text.as_bytes();
-        let mut i = close;
-        while i > 0 && bytes[i - 1] != b'\n' {
-            i -= 1;
-        }
-        i
-    };
+    let close_line_start = line_start_before(text, close);
     let base_indent: String = text[close_line_start..close]
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
@@ -481,33 +470,19 @@ pub(crate) fn implement_interface_methods_at(
         text::line_col_to_offset(text, cursor.line + 1, cursor.character + 1)?;
 
     // Find the innermost `class … { … }` containing the cursor.
-    // Walks top-level classes AND `@objc class` declarations
-    // wrapped in an `@extern(ObjC) { … }` block. The cursor counts
-    // as "inside" the class anywhere from the `class` keyword
-    // through the closing `}` — so VSCode's lightbulb, which often
-    // anchors on the header line rather than the body, still
-    // surfaces this action.
-    let mut chosen: Option<(&ClassDecl, usize, usize)> = None;
-    for c in all_classes(prog) {
-        let Some((open, close)) = match_brace_range(text, c.span) else {
-            continue;
-        };
+    // Walks top-level classes AND `@objc class` declarations wrapped
+    // in an `@extern(ObjC) { … }` block. The cursor counts as
+    // "inside" the class anywhere from the `class` keyword through
+    // the closing `}` — so VSCode's lightbulb, which often anchors
+    // on the header line rather than the body, still surfaces this
+    // action.
+    let class_ranges = all_classes(prog).filter_map(|c| {
+        let (open, close) = match_brace_range(text, c.span)?;
         let start = text::line_col_to_offset(text, c.span.line, c.span.col)
             .unwrap_or(open);
-        if cursor_byte < start || cursor_byte > close {
-            continue;
-        }
-        let extent = close.saturating_sub(start);
-        match chosen {
-            None => chosen = Some((c, open, close)),
-            Some((_, o, cl)) => {
-                if extent < cl.saturating_sub(o) {
-                    chosen = Some((c, open, close));
-                }
-            }
-        }
-    }
-    let (cls, _open, close) = chosen?;
+        Some((c, start, close))
+    });
+    let (cls, _start, close) = pick_innermost_containing(class_ranges, cursor_byte)?;
 
     // Collect every interface name in the class's base list.
     // The parser puts the FIRST base name into `cd.parent`
@@ -561,17 +536,10 @@ pub(crate) fn implement_interface_methods_at(
         return None;
     }
 
-    // Indentation: copy the closing `}`'s line indent for the
-    // class (whitespace before the brace's column) and add four
-    // spaces for the method body.
-    let close_line_start = {
-        let bytes = text.as_bytes();
-        let mut i = close;
-        while i > 0 && bytes[i - 1] != b'\n' {
-            i -= 1;
-        }
-        i
-    };
+    // Indentation: copy the closing `}`'s line indent for the class
+    // (whitespace before the brace's column) and add four spaces for
+    // the method body.
+    let close_line_start = line_start_before(text, close);
     let base_indent: String = text[close_line_start..close]
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
@@ -697,26 +665,12 @@ pub(crate) fn interface_method_stub_completions_at(
         return out;
     };
     // Find the innermost class containing the cursor.
-    let mut chosen: Option<(&ClassDecl, usize, usize)> = None;
-    for it in &prog.items {
-        let Item::Class(c) = it else { continue };
-        let Some((open, close)) = match_brace_range(text, c.span) else {
-            continue;
-        };
-        if cursor_byte < open || cursor_byte > close {
-            continue;
-        }
-        let extent = close.saturating_sub(open);
-        match chosen {
-            None => chosen = Some((c, open, close)),
-            Some((_, o, cl)) => {
-                if extent < cl.saturating_sub(o) {
-                    chosen = Some((c, open, close));
-                }
-            }
-        }
-    }
-    let Some((cls, _open, _close)) = chosen else {
+    let class_ranges = prog.items.iter().filter_map(|it| {
+        let Item::Class(c) = it else { return None };
+        let (open, close) = match_brace_range(text, c.span)?;
+        Some((c, open, close))
+    });
+    let Some((cls, _open, _close)) = pick_innermost_containing(class_ranges, cursor_byte) else {
         return out;
     };
 
