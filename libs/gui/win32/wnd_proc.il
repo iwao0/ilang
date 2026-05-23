@@ -36,6 +36,7 @@ use edit     { tryEditChange }
 use combo    { tryComboSelect }
 use list     { tryListSelect }
 use slider   { trySliderChange }
+use menu     { tryMenuClick }
 use super.event
 
 // ─── modifier helpers (GetKeyState high-bit set ⇒ pressed) ─────
@@ -217,6 +218,11 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             // equality so each widget's id space stays private.
             let ctrlHwnd = lParam as i64
             let notify = ((wParam >> 16) & 0xFFFF) as i32
+            if notify == 0 && ctrlHwnd == 0 {
+                // Menu item: lParam is 0, LOWORD(wParam) is the item id.
+                let id = (wParam & 0xFFFF) as i32
+                if tryMenuClick(id) { return 0 }
+            }
             if notify == 0 {
                 // BN_CLICKED — button / checkbox / radio share
                 // the same notify value; first match wins.

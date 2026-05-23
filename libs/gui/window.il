@@ -27,7 +27,9 @@ use gui_impl {
     setOnMouseMove,
     setOnMouseDown,
     setOnMouseUp,
+    setWindowMenuBar,
 }
+use menubar { Menu }
 
 /// A top-level OS window. Construct with `new Window()`, then
 /// configure (`title` / `width` / `height` / `addChild`) before
@@ -133,6 +135,21 @@ pub class Window : EventTarget {
     pub addChild(child: Control) {
         child.attachTo(this)
     }
+
+    /// Install `menus` as the window's menu bar. On macOS this
+    /// drives the system-wide screen menu bar (the `windowHandle`
+    /// argument is accepted for API symmetry and ignored). On
+    /// Windows each window owns its own menu bar.
+    pub setMenuBar(menus: Menu[]) {
+        let handles: i64[] = []
+        let n = menus.length
+        let i = 0
+        while i < n {
+            handles.push(menus[i].handle)
+            i = i + 1
+        }
+        setWindowMenuBar(this.handle, handles)
+    }
 }
 
 /// Base class for every gui widget that lives inside a `Window`.
@@ -141,5 +158,5 @@ pub class Window : EventTarget {
 /// fails-soft (the control simply never appears).
 pub class Control : EventTarget {
     pub init() { super() }
-    pub attachTo(window: Window) { let _ = window }
+    pub attachTo(window: Window) {}
 }

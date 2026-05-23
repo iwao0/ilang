@@ -56,34 +56,17 @@ let VIEW_TO_WINDOW = new Map<i64, i64>()
 
 pub fn noOp1() {}
 pub fn noOp2(w: f64, h: f64) {
-    let _ = w
-    let _ = h
 }
 pub fn noOpKey(c: string, k1: bool, k2: bool, k3: bool, k4: bool) {
-    let _ = c
-    let _ = k1
-    let _ = k2
-    let _ = k3
-    let _ = k4
 }
 pub fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {
-    let _ = x
-    let _ = y
-    let _ = b
-    let _ = k1
-    let _ = k2
-    let _ = k3
-    let _ = k4
 }
 pub fn noOpClick(x: f64, y: f64, b: i32) {
-    let _ = x
-    let _ = y
-    let _ = b
 }
-pub fn noOpBool(b: bool) { let _ = b }
-pub fn noOpText(s: string) { let _ = s }
-pub fn noOpF64(v: f64) { let _ = v }
-pub fn noOpI32(i: i32) { let _ = i }
+pub fn noOpBool(b: bool) {}
+pub fn noOpText(s: string) {}
+pub fn noOpF64(v: f64) {}
+pub fn noOpI32(i: i32) {}
 
 /// Register the GuiView ↔ NSWindow link so key/mouse dispatch
 /// in `GuiView` can resolve `this.handle` to a window handle in
@@ -164,9 +147,19 @@ pub fn keyCodeToEnum(k: KeyCode): event.KeyCode {
 
 // ─── window delegate (close + resize) ─────────────────────────
 
+/// Window handles whose `windowWillClose:` notification has
+/// already been dispatched. Cocoa fires the notification a second
+/// time during `app.terminate:` (the terminate pass calls `close`
+/// on every still-open window, and our window is mid-close), so
+/// the bare delegate would call `slot.onClose()` twice.
+let CLOSE_FIRED = new Map<i64, bool>()
+
 pub class GuiDelegate : NSObject {
     pub windowWillClose(n: NSNotification) {
-        if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
+        let h = n.notificationObject.handle
+        if CLOSE_FIRED.has(h) { return }
+        CLOSE_FIRED[h] = true
+        if let some(slot) = WINDOWS.get(h) {
             let cb = slot.onClose
             cb()
         }
