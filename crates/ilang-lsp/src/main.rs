@@ -66,7 +66,7 @@ use builtins::{
     array_method_doc, array_method_sig, ffi_helper_signature, map_method_doc, map_method_sig,
     string_method_doc, string_method_sig,
 };
-use project::{collect_dep_paths, find_project_file, find_umbrella};
+use project::{find_project_file, find_umbrella};
 use text::{
     locate_class_base_name, locate_dot_name, locate_if_let_some_name, locate_let_name,
     locate_let_name_with_kw, locate_property_name, locate_selective_name, locate_type_after_colon,
