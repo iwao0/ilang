@@ -28,6 +28,8 @@
 use ilang_ast::{Expr, ExprKind, Item, MatchArm, Program, Stmt, StmtKind};
 use ilang_lexer::{tokenize, Token, TokenKind};
 
+use crate::text_utils::compute_line_starts;
+
 mod rewrap;
 
 use rewrap::{finalize, rewrap_long_lines, LineState};
@@ -591,16 +593,6 @@ fn leading_indent_of(src: &str, line_starts: &[usize], line: u32) -> String {
         }
     }
     out
-}
-
-fn compute_line_starts(src: &str) -> Vec<usize> {
-    let mut starts = vec![0usize];
-    for (i, ch) in src.char_indices() {
-        if ch == '\n' {
-            starts.push(i + 1);
-        }
-    }
-    starts
 }
 
 /// `line` / `col` are 1-based; returns the byte offset of that

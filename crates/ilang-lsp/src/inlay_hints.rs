@@ -279,7 +279,7 @@ fn push_destructure_hint(
     ty: &Type,
     out: &mut Vec<InlayHint>,
 ) {
-    let Some(off) = line_col_to_byte(text, stmt_span.line, stmt_span.col) else {
+    let Some(off) = text::line_col_to_offset(text, stmt_span.line, stmt_span.col) else {
         return;
     };
     let bytes = text.as_bytes();
@@ -306,7 +306,9 @@ fn push_destructure_hint(
         i += 1;
     }
     let Some(byte_pos) = found else { return };
-    let (line, col) = offset_to_line_col(text, byte_pos);
+    let Some((line, col)) = text::offset_to_line_col(text, byte_pos) else {
+        return;
+    };
     out.push(InlayHint {
         position: Position {
             line:      line.saturating_sub(1),
@@ -320,40 +322,6 @@ fn push_destructure_hint(
         padding_right: Some(false),
         data: None,
     });
-}
-
-fn line_col_to_byte(text: &str, line: u32, col: u32) -> Option<usize> {
-    let mut current_line: u32 = 1;
-    let mut current_col: u32 = 1;
-    for (i, c) in text.char_indices() {
-        if current_line == line && current_col == col {
-            return Some(i);
-        }
-        if c == '\n' {
-            current_line += 1;
-            current_col = 1;
-        } else {
-            current_col += 1;
-        }
-    }
-    None
-}
-
-fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
-    let mut line: u32 = 1;
-    let mut col: u32 = 1;
-    for (i, c) in text.char_indices() {
-        if i == offset {
-            return (line, col);
-        }
-        if c == '\n' {
-            line += 1;
-            col = 1;
-        } else {
-            col += 1;
-        }
-    }
-    (line, col)
 }
 
 fn walk_expr(

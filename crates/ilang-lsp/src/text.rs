@@ -8,21 +8,45 @@ use ilang_lexer::{tokenize, TokenKind};
 use tower_lsp::lsp_types::{Position, Range};
 
 /// Convert a 1-based (line, col) into a byte offset into `text`.
+///
+/// `col` is a 1-based **character** index (matches the lexer's
+/// `Span.col`, which increments per `char` rather than per byte —
+/// see `ilang_lexer::scanner`). Multi-byte UTF-8 columns therefore
+/// resolve to the byte where the *char* sits, not `line_start + col`.
 pub(crate) fn line_col_to_offset(text: &str, line: u32, col: u32) -> Option<usize> {
     let mut cur_line = 1u32;
     let mut line_start = 0usize;
-    let bytes = text.as_bytes();
-    for (i, &b) in bytes.iter().enumerate() {
+    for (i, ch) in text.char_indices() {
         if cur_line == line {
-            return Some(line_start + col.saturating_sub(1) as usize);
+            let target_col = col.saturating_sub(1) as usize;
+            let mut byte = line_start;
+            let mut walked = 0usize;
+            for c in text[line_start..].chars() {
+                if walked >= target_col || c == '\n' {
+                    return Some(byte);
+                }
+                byte += c.len_utf8();
+                walked += 1;
+            }
+            return Some(byte);
         }
-        if b == b'\n' {
+        if ch == '\n' {
             cur_line += 1;
             line_start = i + 1;
         }
     }
     if cur_line == line {
-        return Some(line_start + col.saturating_sub(1) as usize);
+        let target_col = col.saturating_sub(1) as usize;
+        let mut byte = line_start;
+        let mut walked = 0usize;
+        for c in text[line_start..].chars() {
+            if walked >= target_col {
+                return Some(byte);
+            }
+            byte += c.len_utf8();
+            walked += 1;
+        }
+        return Some(byte);
     }
     None
 }
@@ -42,21 +66,25 @@ pub(crate) fn text_at_span_starts_with(text: &str, span: ilang_ast::Span, name: 
         .unwrap_or(false)
 }
 
-/// Inverse of `line_col_to_offset`.
+/// Inverse of `line_col_to_offset`. `col` is a 1-based **character**
+/// index (matches the lexer's `Span.col`).
 pub(crate) fn offset_to_line_col(text: &str, offset: usize) -> Option<(u32, u32)> {
-    let bytes = text.as_bytes();
-    if offset > bytes.len() {
+    if offset > text.len() {
         return None;
     }
     let mut line = 1u32;
-    let mut line_start = 0usize;
-    for (i, &b) in bytes.iter().enumerate().take(offset) {
-        if b == b'\n' {
+    let mut col = 1u32;
+    for (i, ch) in text.char_indices() {
+        if i >= offset {
+            return Some((line, col));
+        }
+        if ch == '\n' {
             line += 1;
-            line_start = i + 1;
+            col = 1;
+        } else {
+            col += 1;
         }
     }
-    let col = (offset - line_start) as u32 + 1;
     Some((line, col))
 }
 
