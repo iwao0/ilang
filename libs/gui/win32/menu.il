@@ -84,7 +84,7 @@ pub fn menuAddSubmenu(parentHandle: i64, childHandle: i64) {
         if let some(child) = MENUS.get(childHandle) {
             let w = toWideUtf8(child.title) as *u16
             let flags = (MenuFlags.popup as u32) | (MenuFlags.string as u32)
-            AppendMenuW(parent.handle, flags, child.handle as i64 as u64, w)
+            AppendMenuW(parent.handle, flags, child.handle as u64, w)
             HeapFree(GetProcessHeap(), 0 as u32, w as *void)
         }
     }
@@ -100,7 +100,7 @@ pub fn setWindowMenuBar(windowHandle: i64, menuHandles: i64[]) {
         if let some(slot) = MENUS.get(menuHandles[i]) {
             let w = toWideUtf8(slot.title) as *u16
             let flags = (MenuFlags.popup as u32) | (MenuFlags.string as u32)
-            AppendMenuW(bar, flags, slot.handle as i64 as u64, w)
+            AppendMenuW(bar, flags, slot.handle as u64, w)
             HeapFree(GetProcessHeap(), 0 as u32, w as *void)
         }
         i = i + 1

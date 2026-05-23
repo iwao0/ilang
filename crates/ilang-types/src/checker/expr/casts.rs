@@ -116,8 +116,13 @@ impl TypeChecker {
             t,
             Type::RawPtr { inner, .. } if matches!(**inner, Type::CVoid)
         );
-        if (from == Type::I64 && is_com_iface(ty))
-            || (is_com_iface(&from) && *ty == Type::I64)
+        // Pointer-sized integer predicate: handles, COM interfaces,
+        // and raw pointers all share an 8-byte ABI shape on x64, so
+        // either signed (LONG_PTR / i64) or unsigned (UINT_PTR / u64)
+        // is a valid bit-equivalent integer view.
+        let is_ptr_sized_int = |t: &Type| matches!(t, Type::I64 | Type::U64);
+        if (is_ptr_sized_int(&from) && is_com_iface(ty))
+            || (is_com_iface(&from) && is_ptr_sized_int(ty))
             || (is_void_ptr(&from) && is_com_iface(ty))
             || (is_com_iface(&from) && is_void_ptr(ty))
         {
@@ -127,7 +132,9 @@ impl TypeChecker {
         // interface` (a bare pointer-sized opaque handle), so allow
         // the same set of escape-hatch casts. Lets the user lift an
         // i64-typed `wndProc` arg into a real `HWND` value, and
-        // shuffle handles through `*void` FFI slots.
+        // shuffle handles through `*void` FFI slots.  Either i64 or
+        // u64 is accepted (the latter matches the SDK's UINT_PTR
+        // typedef used for HMENU command ids, WPARAM, etc.).
         let is_handle_obj = |t: &Type| match t {
             Type::Object(name) => self
                 .classes
@@ -136,8 +143,8 @@ impl TypeChecker {
                 .unwrap_or(false),
             _ => false,
         };
-        if (from == Type::I64 && is_handle_obj(ty))
-            || (is_handle_obj(&from) && *ty == Type::I64)
+        if (is_ptr_sized_int(&from) && is_handle_obj(ty))
+            || (is_handle_obj(&from) && is_ptr_sized_int(ty))
             || (is_void_ptr(&from) && is_handle_obj(ty))
             || (is_handle_obj(&from) && is_void_ptr(ty))
             || (is_handle_obj(&from) && is_handle_obj(ty))  // HMODULE→HINSTANCE etc.
