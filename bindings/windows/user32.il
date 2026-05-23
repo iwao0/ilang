@@ -1248,7 +1248,7 @@ pub enum AccelFlags: u8 {
     alt     = 0x10
 }
 
-use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU, HACCEL, HDC, HMONITOR, POINT, RECT, SIZE }
+use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HBITMAP, HMENU, HACCEL, HDC, HMONITOR, POINT, RECT, SIZE }
 
 @extern(C, "user32") {
     // ── Message structs ───────────────────────────────────────
@@ -2582,8 +2582,8 @@ use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU, HACCEL, HDC, HMONIT
         fIcon:    i32       // 1 = icon, 0 = cursor
         xHotspot: u32
         yHotspot: u32
-        hbmMask:  i64       // *HBITMAP
-        hbmColor: i64       // *HBITMAP
+        hbmMask:  HBITMAP
+        hbmColor: HBITMAP
     }
 
     @lib pub fn GetIconInfo(hIcon: HICON, piconinfo: *ICONINFO): i32
@@ -2628,7 +2628,7 @@ use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU, HACCEL, HDC, HMONIT
 
     // ── Caret (text cursor) ──────────────────────────────────────
 
-    @lib pub fn CreateCaret(hwnd: HWND, hBitmap: i64, nWidth: i32, nHeight: i32): i32
+    @lib pub fn CreateCaret(hwnd: HWND, hBitmap: HBITMAP, nWidth: i32, nHeight: i32): i32
     @lib pub fn DestroyCaret(): i32
     @lib pub fn ShowCaret(hwnd: HWND): i32
     @lib pub fn HideCaret(hwnd: HWND): i32
@@ -2747,13 +2747,13 @@ use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU, HACCEL, HDC, HMONIT
         wID:           u32
         _pad:          u32
         hSubMenu:      HMENU
-        hbmpChecked:   i64   // *HBITMAP
-        hbmpUnchecked: i64
+        hbmpChecked:   HBITMAP
+        hbmpUnchecked: HBITMAP
         dwItemData:    u64
         dwTypeData:    *u16
         cch:           u32
         _pad2:         u32
-        hbmpItem:      i64
+        hbmpItem:      HBITMAP
     }
 
     @lib pub fn GetMenuItemInfoA(
@@ -2842,8 +2842,8 @@ use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU, HACCEL, HDC, HMONIT
         hMenu: HMENU,
         uPosition: u32,
         uFlags:   u32,
-        hbmpUnchecked: i64,
-        hbmpChecked: i64
+        hbmpUnchecked: HBITMAP,
+        hbmpChecked: HBITMAP
     ): i32
 
     @lib pub fn GetMenuState(hMenu: HMENU, uId: u32, uFlags: u32): u32
