@@ -7,34 +7,34 @@
 /// there are no function imports.
 
 // ─── HRESULT — common values from winerror.h ─────────────────────
-// HRESULT is a 32-bit signed status code returned by every COM API
-// and many Win32 APIs. High bit set = failure. We expose it as
-// `i32` at the call boundary; this enum holds the most-used codes.
-pub enum HResult: i32 {
-    ok               = 0
+// HRESULT is a 32-bit status code returned by every COM API and many
+// Win32 APIs. High bit set = failure. Exposed as `u32` so the hex
+// literals from winerror.h drop in unchanged.
+pub enum HResult: u32 {
+    ok               = 0x00000000
     /// S_FALSE — call succeeded but returned "no" / "nothing to do".
     /// Distinguished from `ok` by callers that care; both are success.
-    sFalse           = 1
-    /// E_NOTIMPL — not implemented (0x80004001).
-    eNotImpl         = -2147467263
-    /// E_NOINTERFACE — QueryInterface didn't find the IID (0x80004002).
-    eNoInterface     = -2147467262
-    /// E_POINTER — invalid pointer argument (0x80004003).
-    ePointer         = -2147467261
-    /// E_ABORT — operation aborted by user (0x80004004).
-    eAbort           = -2147467260
-    /// E_FAIL — unspecified failure (0x80004005).
-    eFail            = -2147467259
-    /// E_UNEXPECTED — catastrophic failure (0x8000FFFF).
-    eUnexpected      = -2147418113
-    /// E_ACCESSDENIED — caller lacks the required rights (0x80070005).
-    eAccessDenied    = -2147024891
-    /// E_HANDLE — invalid handle (0x80070006).
-    eHandle          = -2147024890
-    /// E_OUTOFMEMORY — allocation failure (0x8007000E).
-    eOutOfMemory     = -2147024882
-    /// E_INVALIDARG — at least one argument is invalid (0x80070057).
-    eInvalidArg      = -2147024809
+    sFalse           = 0x00000001
+    /// E_NOTIMPL — not implemented.
+    eNotImpl         = 0x80004001
+    /// E_NOINTERFACE — QueryInterface didn't find the IID.
+    eNoInterface     = 0x80004002
+    /// E_POINTER — invalid pointer argument.
+    ePointer         = 0x80004003
+    /// E_ABORT — operation aborted by user.
+    eAbort           = 0x80004004
+    /// E_FAIL — unspecified failure.
+    eFail            = 0x80004005
+    /// E_UNEXPECTED — catastrophic failure.
+    eUnexpected      = 0x8000FFFF
+    /// E_ACCESSDENIED — caller lacks the required rights.
+    eAccessDenied    = 0x80070005
+    /// E_HANDLE — invalid handle.
+    eHandle          = 0x80070006
+    /// E_OUTOFMEMORY — allocation failure.
+    eOutOfMemory     = 0x8007000E
+    /// E_INVALIDARG — at least one argument is invalid.
+    eInvalidArg      = 0x80070057
 }
 
 @extern(C) {
