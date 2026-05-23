@@ -1248,7 +1248,8 @@ pub enum AccelFlags: u8 {
     alt     = 0x10
 }
 
-use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HBITMAP, HMENU, HACCEL, HDC, HMONITOR, POINT, RECT, SIZE }
+use winnt { HANDLE }
+use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HBITMAP, HMENU, HACCEL, HDC, HMONITOR, HRAWINPUT, POINT, RECT, SIZE }
 
 @extern(C, "user32") {
     // ── Message structs ───────────────────────────────────────
@@ -2288,7 +2289,7 @@ use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HBITMAP, HMENU, HACCEL, HD
     pub struct RAWINPUTHEADER {
         dwType:    u32      // 0=mouse, 1=keyboard, 2=HID
         dwSize:    u32
-        hDevice:   *void    // HANDLE
+        hDevice:   HANDLE
         wParam:    u64
     }
 
@@ -2305,7 +2306,7 @@ use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HBITMAP, HMENU, HACCEL, HD
     /// `uiCommand`: 0x10000003 (RID_INPUT) for data, 0x10000005 (RID_HEADER) for header only.
     /// Pass `0 as *void` for `pData` to query the size.
     @lib pub fn GetRawInputData(
-        hRawInput: *void,
+        hRawInput: HRAWINPUT,
         uiCommand: u32,
         pData:     *void,
         pcbSize:   *u32,
@@ -2319,16 +2320,16 @@ use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HBITMAP, HMENU, HACCEL, HD
     ): u32
 
     @lib pub fn GetRawInputDeviceInfoA(
-        hDevice: *void,
+        hDevice:   HANDLE,
         uiCommand: u32,
-        pData:   *void,
-        pcbSize: *u32
+        pData:     *void,
+        pcbSize:   *u32
     ): u32
     @lib pub fn GetRawInputDeviceInfoW(
-        hDevice: *void,
+        hDevice:   HANDLE,
         uiCommand: u32,
-        pData:   *void,
-        pcbSize: *u32
+        pData:     *void,
+        pcbSize:   *u32
     ): u32
 
     // ── Scroll bar ────────────────────────────────────────────────
