@@ -95,7 +95,7 @@ pub enum GdkDmabufError: u32 {
 
 @flags
 pub enum GdkDragAction: u32 {
-    none_ = 0x0
+    none = 0x0
     copy = 0x1
     move = 0x2
     link = 0x4
@@ -144,7 +144,7 @@ pub enum GdkEventType: u32 {
 
 @flags
 pub enum GdkFrameClockPhase: u32 {
-    none_ = 0x0
+    none = 0x0
     flush_events = 0x1
     before_paint = 0x2
     update = 0x4
@@ -183,7 +183,7 @@ pub enum GdkGravity: u32 {
     south_west = 7
     south = 8
     south_east = 9
-    static_ = 10
+    static = 10
 }
 
 pub enum GdkInputSource: u32 {
@@ -197,7 +197,7 @@ pub enum GdkInputSource: u32 {
 }
 
 pub enum GdkKeyMatch: u32 {
-    none_ = 0
+    none = 0
     partial = 1
     exact = 2
 }
@@ -324,7 +324,7 @@ pub enum GdkScrollUnit: u32 {
 
 @flags
 pub enum GdkSeatCapabilities: u32 {
-    none_ = 0x0
+    none = 0x0
     pointer = 0x1
     touch = 0x2
     tablet_stylus = 0x4
@@ -336,7 +336,7 @@ pub enum GdkSeatCapabilities: u32 {
 
 pub enum GdkSubpixelLayout: u32 {
     unknown = 0
-    none_ = 1
+    none = 1
     horizontal_rgb = 2
     horizontal_bgr = 3
     vertical_rgb = 4

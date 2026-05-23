@@ -196,17 +196,16 @@ fn emit_enum(out: &mut String, en: &EnumDef) {
 
 fn sanitize_member(name: &str) -> String {
     // GIR member names are lowercase-with-hyphens. Convert to
-    // lower_snake; replace leading-digit names with `key0` etc. so
-    // they parse as identifiers.
+    // lower_snake; prefix `v` to leading-digit names so they parse
+    // as identifiers. Keywords are allowed in enum variant position
+    // — `pub enum E { none, true, ... }` parses fine since variants
+    // always show up after a `.` — so don't suffix them.
     let mut s: String = name
         .chars()
         .map(|c| if c == '-' { '_' } else { c })
         .collect();
     if s.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
         s = format!("v{}", s);
-    }
-    if is_ilang_keyword(&s) {
-        s.push('_');
     }
     s
 }

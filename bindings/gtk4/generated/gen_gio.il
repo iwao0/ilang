@@ -4,7 +4,7 @@
 
 @flags
 pub enum GAppInfoCreateFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     needs_terminal = 0x1
     supports_uris = 0x2
     supports_startup_notification = 0x4
@@ -36,7 +36,7 @@ pub enum GAskPasswordFlags: u32 {
 
 @flags
 pub enum GBusNameOwnerFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     allow_replacement = 0x1
     replace = 0x2
     do_not_queue = 0x4
@@ -44,20 +44,20 @@ pub enum GBusNameOwnerFlags: u32 {
 
 @flags
 pub enum GBusNameWatcherFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     auto_start = 0x1
 }
 
 pub enum GBusType: u32 {
     starter = 0xffffffffffffffff
-    none_ = 0
+    none = 0
     system = 1
     session = 2
 }
 
 @flags
 pub enum GConverterFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     input_at_end = 0x1
     flush = 0x2
 }
@@ -82,20 +82,20 @@ pub enum GCredentialsType: u32 {
 
 @flags
 pub enum GDBusCallFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     no_auto_start = 0x1
     allow_interactive_authorization = 0x2
 }
 
 @flags
 pub enum GDBusCapabilityFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     unix_fd_passing = 0x1
 }
 
 @flags
 pub enum GDBusConnectionFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     authentication_client = 0x1
     authentication_server = 0x2
     authentication_allow_anonymous = 0x4
@@ -155,7 +155,7 @@ pub enum GDBusError: u32 {
 
 @flags
 pub enum GDBusInterfaceSkeletonFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     handle_method_invocations_in_thread = 0x1
 }
 
@@ -166,7 +166,7 @@ pub enum GDBusMessageByteOrder: u32 {
 
 @flags
 pub enum GDBusMessageFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     no_reply_expected = 0x1
     no_auto_start = 0x2
     allow_interactive_authorization = 0x4
@@ -195,20 +195,20 @@ pub enum GDBusMessageType: u32 {
 
 @flags
 pub enum GDBusObjectManagerClientFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     do_not_auto_start = 0x1
 }
 
 @flags
 pub enum GDBusPropertyInfoFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     readable = 0x1
     writable = 0x2
 }
 
 @flags
 pub enum GDBusProxyFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     do_not_load_properties = 0x1
     do_not_connect_signals = 0x2
     do_not_auto_start = 0x4
@@ -219,13 +219,13 @@ pub enum GDBusProxyFlags: u32 {
 
 @flags
 pub enum GDBusSendMessageFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     preserve_serial = 0x1
 }
 
 @flags
 pub enum GDBusServerFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     run_in_thread = 0x1
     authentication_allow_anonymous = 0x2
     authentication_require_same_user = 0x4
@@ -233,7 +233,7 @@ pub enum GDBusServerFlags: u32 {
 
 @flags
 pub enum GDBusSignalFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     no_match_rule = 0x1
     match_arg0_namespace = 0x2
     match_arg0_path = 0x4
@@ -241,7 +241,7 @@ pub enum GDBusSignalFlags: u32 {
 
 @flags
 pub enum GDBusSubtreeFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     dispatch_to_unenumerated_nodes = 0x1
 }
 
@@ -260,7 +260,7 @@ pub enum GDataStreamNewlineType: u32 {
 
 @flags
 pub enum GDriveStartFlags: u32 {
-    none_ = 0x0
+    none = 0x0
 }
 
 pub enum GDriveStartStopType: u32 {
@@ -287,7 +287,7 @@ pub enum GEmblemOrigin: u32 {
 
 @flags
 pub enum GFileAttributeInfoFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     copy_with_file = 0x1
     copy_when_moved = 0x2
 }
@@ -313,7 +313,7 @@ pub enum GFileAttributeType: u32 {
 
 @flags
 pub enum GFileCopyFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     overwrite = 0x1
     backup = 0x2
     nofollow_symlinks = 0x4
@@ -325,14 +325,14 @@ pub enum GFileCopyFlags: u32 {
 
 @flags
 pub enum GFileCreateFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     private = 0x1
     replace_destination = 0x2
 }
 
 @flags
 pub enum GFileMeasureFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     report_any_error = 0x2
     apparent_size = 0x4
     no_xdev = 0x8
@@ -354,7 +354,7 @@ pub enum GFileMonitorEvent: u32 {
 
 @flags
 pub enum GFileMonitorFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     watch_mounts = 0x1
     send_moved = 0x2
     watch_hard_links = 0x4
@@ -363,7 +363,7 @@ pub enum GFileMonitorFlags: u32 {
 
 @flags
 pub enum GFileQueryInfoFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     nofollow_symlinks = 0x1
 }
 
@@ -437,13 +437,13 @@ pub enum GIOErrorEnum: u32 {
 
 @flags
 pub enum GIOModuleScopeFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     block_duplicates = 0x1
 }
 
 @flags
 pub enum GIOStreamSpliceFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     close_stream1 = 0x1
     close_stream2 = 0x2
     wait_for_both = 0x4
@@ -457,7 +457,7 @@ pub enum GMemoryMonitorWarningLevel: u32 {
 
 @flags
 pub enum GMountMountFlags: u32 {
-    none_ = 0x0
+    none = 0x0
 }
 
 pub enum GMountOperationResult: u32 {
@@ -468,7 +468,7 @@ pub enum GMountOperationResult: u32 {
 
 @flags
 pub enum GMountUnmountFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     force = 0x1
 }
 
@@ -488,7 +488,7 @@ pub enum GNotificationPriority: u32 {
 
 @flags
 pub enum GOutputStreamSpliceFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     close_source = 0x1
     close_target = 0x2
 }
@@ -533,13 +533,13 @@ pub enum GResourceError: u32 {
 
 @flags
 pub enum GResourceFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     compressed = 0x1
 }
 
 @flags
 pub enum GResourceLookupFlags: u32 {
-    none_ = 0x0
+    none = 0x0
 }
 
 @flags
@@ -580,7 +580,7 @@ pub enum GSocketListenerEvent: u32 {
 
 @flags
 pub enum GSocketMsgFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     oob = 0x1
     peek = 0x2
     dontroute = 0x4
@@ -603,7 +603,7 @@ pub enum GSocketType: u32 {
 
 @flags
 pub enum GSubprocessFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     stdin_pipe = 0x1
     stdin_inherit = 0x2
     stdout_pipe = 0x4
@@ -617,11 +617,11 @@ pub enum GSubprocessFlags: u32 {
 
 @flags
 pub enum GTestDBusFlags: u32 {
-    none_ = 0x0
+    none = 0x0
 }
 
 pub enum GTlsAuthenticationMode: u32 {
-    none_ = 0
+    none = 0
     requested = 1
     required = 2
 }
@@ -641,7 +641,7 @@ pub enum GTlsCertificateFlags: u32 {
 
 @flags
 pub enum GTlsCertificateRequestFlags: u32 {
-    none_ = 0x0
+    none = 0x0
 }
 
 pub enum GTlsChannelBindingError: u32 {
@@ -660,13 +660,13 @@ pub enum GTlsChannelBindingType: u32 {
 
 @flags
 pub enum GTlsDatabaseLookupFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     keypair = 0x1
 }
 
 @flags
 pub enum GTlsDatabaseVerifyFlags: u32 {
-    none_ = 0x0
+    none = 0x0
 }
 
 pub enum GTlsError: u32 {
@@ -689,7 +689,7 @@ pub enum GTlsInteractionResult: u32 {
 
 @flags
 pub enum GTlsPasswordFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     retry = 0x2
     many_tries = 0x4
     final_try = 0x8

@@ -58,7 +58,7 @@ pub enum GSignalMatchType: u32 {
 
 @flags
 pub enum GTypeFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     abstract = 0x10
     value_abstract = 0x20
     final = 0x40

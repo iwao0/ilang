@@ -9,15 +9,15 @@ pub enum GtkAccessibleAnnouncementPriority: u32 {
 }
 
 pub enum GtkAccessibleAutocomplete: u32 {
-    none_ = 0
+    none = 0
     inline = 1
     list = 2
     both = 3
 }
 
 pub enum GtkAccessibleInvalidState: u32 {
-    false_ = 0
-    true_ = 1
+    false = 0
+    true = 1
     grammar = 2
     spelling = 3
 }
@@ -119,7 +119,7 @@ pub enum GtkAccessibleRole: u32 {
     menu_item_checkbox = 37
     menu_item_radio = 38
     navigation = 39
-    none_ = 40
+    none = 40
     note = 41
     option = 42
     presentation = 43
@@ -167,7 +167,7 @@ pub enum GtkAccessibleRole: u32 {
 }
 
 pub enum GtkAccessibleSort: u32 {
-    none_ = 0
+    none = 0
     ascending = 1
     descending = 2
     other = 3
@@ -199,8 +199,8 @@ pub enum GtkAccessibleTextGranularity: u32 {
 }
 
 pub enum GtkAccessibleTristate: u32 {
-    false_ = 0
-    true_ = 1
+    false = 0
+    true = 1
     mixed = 2
 }
 
@@ -226,7 +226,7 @@ pub enum GtkArrowType: u32 {
     down = 1
     left = 2
     right = 3
-    none_ = 4
+    none = 4
 }
 
 pub enum GtkBaselinePosition: u32 {
@@ -236,7 +236,7 @@ pub enum GtkBaselinePosition: u32 {
 }
 
 pub enum GtkBorderStyle: u32 {
-    none_ = 0
+    none = 0
     hidden = 1
     solid = 2
     inset = 3
@@ -272,7 +272,7 @@ pub enum GtkBuilderError: u32 {
 }
 
 pub enum GtkButtonsType: u32 {
-    none_ = 0
+    none = 0
     ok = 1
     close = 2
     cancel = 3
@@ -281,13 +281,13 @@ pub enum GtkButtonsType: u32 {
 }
 
 pub enum GtkCollation: u32 {
-    none_ = 0
+    none = 0
     unicode = 1
     filename = 2
 }
 
 pub enum GtkConstraintAttribute: u32 {
-    none_ = 0
+    none = 0
     left = 1
     right = 2
     top = 3
@@ -423,7 +423,7 @@ pub enum GtkEntryIconPosition: u32 {
 
 @flags
 pub enum GtkEventControllerScrollFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     vertical = 0x1
     horizontal = 0x2
     discrete = 0x4
@@ -433,7 +433,7 @@ pub enum GtkEventControllerScrollFlags: u32 {
 }
 
 pub enum GtkEventSequenceState: u32 {
-    none_ = 0
+    none = 0
     claimed = 1
     denied = 2
 }
@@ -454,8 +454,8 @@ pub enum GtkFilterChange: u32 {
 }
 
 pub enum GtkFilterMatch: u32 {
-    some_ = 0
-    none_ = 1
+    some = 0
+    none = 1
     all = 2
 }
 
@@ -478,7 +478,7 @@ pub enum GtkGraphicsOffloadEnabled: u32 {
 
 @flags
 pub enum GtkIconLookupFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     force_regular = 0x1
     force_symbolic = 0x2
     preload = 0x4
@@ -504,7 +504,7 @@ pub enum GtkImageType: u32 {
 
 @flags
 pub enum GtkInputHints: u32 {
-    none_ = 0x0
+    none = 0x0
     spellcheck = 0x1
     no_spellcheck = 0x2
     word_completion = 0x4
@@ -590,7 +590,7 @@ pub enum GtkLicense: u32 {
 
 @flags
 pub enum GtkListScrollFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     focus = 0x1
     select = 0x2
 }
@@ -624,7 +624,7 @@ pub enum GtkMovementStep: u32 {
 
 pub enum GtkNaturalWrapMode: u32 {
     inherit = 0
-    none_ = 1
+    none = 1
     word = 2
 }
 
@@ -787,12 +787,12 @@ pub enum GtkPrintStatus: u32 {
 }
 
 pub enum GtkPropagationLimit: u32 {
-    none_ = 0
+    none = 0
     same_native = 1
 }
 
 pub enum GtkPropagationPhase: u32 {
-    none_ = 0
+    none = 0
     capture = 1
     bubble = 2
     target = 3
@@ -814,7 +814,7 @@ pub enum GtkReducedMotion: u32 {
 }
 
 pub enum GtkRevealerTransitionType: u32 {
-    none_ = 0
+    none = 0
     crossfade = 1
     slide_right = 2
     slide_left = 3
@@ -840,7 +840,7 @@ pub enum GtkScrollStep: u32 {
 }
 
 pub enum GtkScrollType: u32 {
-    none_ = 0
+    none = 0
     jump = 1
     step_backward = 2
     step_forward = 3
@@ -864,7 +864,7 @@ pub enum GtkScrollablePolicy: u32 {
 }
 
 pub enum GtkSelectionMode: u32 {
-    none_ = 0
+    none = 0
     single = 1
     browse = 2
     multiple = 3
@@ -901,7 +901,7 @@ pub enum GtkShortcutType: u32 {
 }
 
 pub enum GtkSizeGroupMode: u32 {
-    none_ = 0
+    none = 0
     horizontal = 1
     vertical = 2
     both = 3
@@ -927,7 +927,7 @@ pub enum GtkSorterChange: u32 {
 
 pub enum GtkSorterOrder: u32 {
     partial = 0
-    none_ = 1
+    none = 1
     total = 2
 }
 
@@ -947,7 +947,7 @@ pub enum GtkSpinType: u32 {
 }
 
 pub enum GtkStackTransitionType: u32 {
-    none_ = 0
+    none = 0
     crossfade = 1
     slide_right = 2
     slide_left = 3
@@ -1000,7 +1000,7 @@ pub enum GtkStringFilterMatchMode: u32 {
 
 @flags
 pub enum GtkStyleContextPrintFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     recurse = 0x1
     show_style = 0x2
     show_change = 0x4
@@ -1053,7 +1053,7 @@ pub enum GtkTextBufferNotifyFlags: u32 {
 }
 
 pub enum GtkTextDirection: u32 {
-    none_ = 0
+    none = 0
     ltr = 1
     rtl = 2
 }
@@ -1085,7 +1085,7 @@ pub enum GtkTextWindowType: u32 {
 }
 
 pub enum GtkUnit: u32 {
-    none_ = 0
+    none = 0
     points = 1
     inch = 2
     mm = 3
@@ -1110,7 +1110,7 @@ pub enum GtkWindowGravity: u32 {
 }
 
 pub enum GtkWrapMode: u32 {
-    none_ = 0
+    none = 0
     char = 1
     word = 2
     word_char = 3

@@ -103,7 +103,7 @@ pub enum GFileError: u32 {
     rofs = 8
     txtbsy = 9
     fault = 10
-    loop_ = 11
+    loop = 11
     nospc = 12
     nomem = 13
     mfile = 14
@@ -121,7 +121,7 @@ pub enum GFileError: u32 {
 
 @flags
 pub enum GFileSetContentsFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     consistent = 0x1
     durable = 0x2
     only_existing = 0x4
@@ -167,7 +167,7 @@ pub enum GIOChannelError: u32 {
 
 @flags
 pub enum GIOCondition: u32 {
-    in_ = 0x1
+    in = 0x1
     out = 0x4
     pri = 0x2
     err = 0x8
@@ -176,7 +176,7 @@ pub enum GIOCondition: u32 {
 }
 
 pub enum GIOError: u32 {
-    none_ = 0
+    none = 0
     again = 1
     inval = 2
     unknown = 3
@@ -184,7 +184,7 @@ pub enum GIOError: u32 {
 
 @flags
 pub enum GIOFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     append = 0x1
     nonblock = 0x2
     is_readable = 0x4
@@ -212,7 +212,7 @@ pub enum GKeyFileError: u32 {
 
 @flags
 pub enum GKeyFileFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     keep_comments = 0x1
     keep_translations = 0x2
 }
@@ -237,7 +237,7 @@ pub enum GLogWriterOutput: u32 {
 
 @flags
 pub enum GMainContextFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     ownerless_polling = 0x1
 }
 
@@ -289,7 +289,7 @@ pub enum GOnceStatus: u32 {
 }
 
 pub enum GOptionArg: u32 {
-    none_ = 0
+    none = 0
     string = 1
     int = 2
     callback = 3
@@ -308,7 +308,7 @@ pub enum GOptionError: u32 {
 
 @flags
 pub enum GOptionFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     hidden = 0x1
     in_main = 0x2
     reverse = 0x4
@@ -343,7 +343,7 @@ pub enum GRegexError: u32 {
     compile = 0
     optimize = 1
     replace = 2
-    match_ = 3
+    match = 3
     internal = 4
     stray_backslash = 101
     missing_control_char = 102
@@ -451,7 +451,7 @@ pub enum GSpawnError: u32 {
     noent = 8
     nomem = 9
     notdir = 10
-    loop_ = 11
+    loop = 11
     txtbusy = 12
     io = 13
     nfile = 14
@@ -485,7 +485,7 @@ pub enum GTestFileType: u32 {
 }
 
 pub enum GTestLogType: u32 {
-    none_ = 0
+    none = 0
     error = 1
     start_binary = 2
     list_case = 3
@@ -535,7 +535,7 @@ pub enum GTokenType: u32 {
     right_brace = 93
     equal_sign = 61
     comma = 44
-    none_ = 256
+    none = 256
     error = 257
     char = 258
     binary = 259
@@ -845,7 +845,7 @@ pub enum GUriError: u32 {
 
 @flags
 pub enum GUriFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     parse_relaxed = 0x1
     has_password = 0x2
     has_auth_params = 0x4
@@ -859,7 +859,7 @@ pub enum GUriFlags: u32 {
 
 @flags
 pub enum GUriHideFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     userinfo = 0x1
     password = 0x2
     auth_params = 0x4
@@ -869,7 +869,7 @@ pub enum GUriHideFlags: u32 {
 
 @flags
 pub enum GUriParamsFlags: u32 {
-    none_ = 0x0
+    none = 0x0
     case_insensitive = 0x1
     www_form = 0x2
     parse_relaxed = 0x4
