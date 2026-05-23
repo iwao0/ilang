@@ -2,7 +2,7 @@
 /// runs horizontally.
 
 use gtk {
-    GtkWidget, GtkScale, GtkFixed, GObject,
+    GtkWidget, GtkScale, GtkRange, GtkFixed, GObject, GtkOrientation,
     gtk_scale_new_with_range, gtk_range_set_value, gtk_range_get_value,
     gtk_range_set_range,
     gtk_fixed_put, gtk_fixed_move,
@@ -30,7 +30,7 @@ let SLIDERS = new Map<i64, SliderSlot>()
         let key = s as i64
         if let some(slot) = SLIDERS.get(key) {
             let cb = slot.onChange
-            cb(gtk_range_get_value(slot.scale))
+            cb(gtk_range_get_value(slot.scale as GtkRange))
         }
     }
 }
@@ -48,8 +48,8 @@ pub fn createNativeSlider(
         none    { return -1 }
     }
     // GtkOrientation: 0 = horizontal, 1 = vertical.
-    let s = gtk_scale_new_with_range(0 as i32, min, max, 1.0)
-    gtk_range_set_value(s, value)
+    let s = gtk_scale_new_with_range(0 as GtkOrientation, min, max, 1.0) as GtkScale
+    gtk_range_set_value(s as GtkRange, value)
     gtk_widget_set_size_request(s as GtkWidget, width as i32, height as i32)
     gtk_widget_set_sensitive(s as GtkWidget, if enabled { 1 as i32 } else { 0 as i32 })
     gtk_widget_set_visible(s as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
@@ -71,14 +71,14 @@ pub fn setOnSliderChange(handle: i64, cb: fn(f64)) {
     if let some(slot) = SLIDERS.get(handle) { slot.onChange = cb }
 }
 pub fn setSliderRange(handle: i64, min: f64, max: f64) {
-    if let some(slot) = SLIDERS.get(handle) { gtk_range_set_range(slot.scale, min, max) }
+    if let some(slot) = SLIDERS.get(handle) { gtk_range_set_range(slot.scale as GtkRange, min, max) }
 }
 pub fn setSliderValue(handle: i64, value: f64) {
-    if let some(slot) = SLIDERS.get(handle) { gtk_range_set_value(slot.scale, value) }
+    if let some(slot) = SLIDERS.get(handle) { gtk_range_set_value(slot.scale as GtkRange, value) }
 }
 pub fn readSliderValue(handle: i64): f64 {
     match SLIDERS.get(handle) {
-        some(slot) { gtk_range_get_value(slot.scale) }
+        some(slot) { gtk_range_get_value(slot.scale as GtkRange) }
         none       { 0.0 }
     }
 }

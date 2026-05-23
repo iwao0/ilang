@@ -60,8 +60,8 @@ pub fn createNativeList(
         some(s) { s }
         none    { return -1 }
     }
-    let scroll = gtk_scrolled_window_new()
-    let lb     = gtk_list_box_new()
+    let scroll = gtk_scrolled_window_new() as GtkScrolledWindow
+    let lb     = gtk_list_box_new() as GtkListBox
     gtk_scrolled_window_set_child(scroll, lb as GtkWidget)
     gtk_widget_set_size_request(scroll as GtkWidget, width as i32, height as i32)
     gtk_widget_set_sensitive(lb as GtkWidget, if enabled { 1 as i32 } else { 0 as i32 })
@@ -88,8 +88,8 @@ pub fn setOnListSelect(handle: i64, cb: fn(i32)) {
 
 pub fn addListItem(handle: i64, item: string) {
     if let some(slot) = LISTS.get(handle) {
-        let label = gtk_label_new(cstrFromString(item))
-        let row = gtk_list_box_row_new()
+        let label = gtk_label_new(cstrFromString(item)) as GtkLabel
+        let row = gtk_list_box_row_new() as GtkListBoxRow
         gtk_list_box_row_set_child(row, label as GtkWidget)
         gtk_list_box_append(slot.listBox, row as GtkWidget)
     }

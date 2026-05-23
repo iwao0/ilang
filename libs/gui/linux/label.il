@@ -30,7 +30,7 @@ pub fn createNativeLabel(
         some(s) { s }
         none    { return -1 }
     }
-    let label = gtk_label_new(cstrFromString(text))
+    let label = gtk_label_new(cstrFromString(text)) as GtkLabel
     gtk_widget_set_size_request(label as GtkWidget, width as i32, height as i32)
     gtk_widget_set_visible(
         label as GtkWidget,

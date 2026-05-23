@@ -45,7 +45,7 @@ pub fn createNativeProgress(
         some(s) { s }
         none    { return -1 }
     }
-    let bar = gtk_progress_bar_new()
+    let bar = gtk_progress_bar_new() as GtkProgressBar
     gtk_widget_set_size_request(bar as GtkWidget, width as i32, height as i32)
     gtk_widget_set_visible(bar as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
     gtk_fixed_put(winSlot.fixed, bar as GtkWidget, x, y)

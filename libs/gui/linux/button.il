@@ -65,7 +65,7 @@ pub fn createNativeButton(
         some(s) { s }
         none    { return -1 }
     }
-    let btn = gtk_button_new_with_label(cstrFromString(text))
+    let btn = gtk_button_new_with_label(cstrFromString(text)) as GtkButton
     gtk_widget_set_size_request(btn as GtkWidget, width as i32, height as i32)
     gtk_widget_set_sensitive(
         btn as GtkWidget,

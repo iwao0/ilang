@@ -46,7 +46,7 @@ pub fn createNativeEdit(
         some(s) { s }
         none    { return -1 }
     }
-    let entry = gtk_entry_new()
+    let entry = gtk_entry_new() as GtkEntry
     gtk_editable_set_text(entry, cstrFromString(text))
     gtk_widget_set_size_request(entry as GtkWidget, width as i32, height as i32)
     gtk_widget_set_sensitive(

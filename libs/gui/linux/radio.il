@@ -58,7 +58,7 @@ pub fn createNativeRadio(
         some(s) { s }
         none    { return -1 }
     }
-    let r = gtk_check_button_new_with_label(cstrFromString(text))
+    let r = gtk_check_button_new_with_label(cstrFromString(text)) as GtkCheckButton
     if let some(leader) = GROUP_LEADERS.get(windowHandle) {
         gtk_check_button_set_group(r, leader)
     } else {

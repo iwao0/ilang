@@ -18,9 +18,9 @@
 use gtk {
     GMenu, GMenuModel, GAction, GSimpleAction, GActionMap, GActionGroup,
     GSimpleActionGroup, GVariantType, GObject, GtkWidget, GtkBox,
-    GtkPopoverMenuBar, GtkWindow, GtkFixed,
+    GtkPopoverMenuBar, GtkWindow, GtkFixed, GtkOrientation,
     GtkShortcutController, GtkShortcut, GtkShortcutTrigger,
-    GtkShortcutAction, GtkEventController,
+    GtkShortcutAction, GtkShortcutScope, GtkEventController,
     g_menu_new, g_menu_append, g_menu_append_submenu, g_menu_append_section,
     g_simple_action_new, g_simple_action_group_new, g_action_map_add_action,
     gtk_popover_menu_bar_new_from_model,
@@ -187,8 +187,8 @@ pub fn setWindowMenuBar(windowHandle: i64, menuHandles: i64[]) {
         // Install pending menu accelerators on a fresh shortcut
         // controller. Scope = GLOBAL so the shortcut fires
         // regardless of which widget owns focus.
-        let sc = gtk_shortcut_controller_new()
-        gtk_shortcut_controller_set_scope(sc, 2 as i32)
+        let sc = gtk_shortcut_controller_new() as GtkShortcutController
+        gtk_shortcut_controller_set_scope(sc, 2 as GtkShortcutScope)
         let sn = SHORTCUTS.length
         let si = 0
         while si < sn {
@@ -196,7 +196,7 @@ pub fn setWindowMenuBar(windowHandle: i64, menuHandles: i64[]) {
             let trigger = gtk_shortcut_trigger_parse_string(
                 cstrFromString(p.accel)
             )
-            let action = gtk_named_action_new(cstrFromString(p.action))
+            let action = gtk_named_action_new(cstrFromString(p.action)) as GtkShortcutAction
             let shortcut = gtk_shortcut_new(trigger, action)
             gtk_shortcut_controller_add_shortcut(sc, shortcut)
             si = si + 1
@@ -205,8 +205,8 @@ pub fn setWindowMenuBar(windowHandle: i64, menuHandles: i64[]) {
             wslot.win as GtkWidget, sc as GtkEventController
         )
 
-        let menubar = gtk_popover_menu_bar_new_from_model(bar as GMenuModel)
-        let vbox = gtk_box_new(1 as i32, 0 as i32)
+        let menubar = gtk_popover_menu_bar_new_from_model(bar as GMenuModel) as GtkPopoverMenuBar
+        let vbox = gtk_box_new(1 as GtkOrientation, 0 as i32) as GtkBox
 
         // Reparent fixed: keep an extra ref across detach so
         // gtk_window_set_child(NULL) doesn't destroy it.

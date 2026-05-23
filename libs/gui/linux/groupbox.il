@@ -34,7 +34,7 @@ pub fn createNativeGroupBox(
         some(s) { s }
         none    { return -1 }
     }
-    let f = gtk_frame_new(cstrFromString(text))
+    let f = gtk_frame_new(cstrFromString(text)) as GtkFrame
     gtk_widget_set_size_request(f as GtkWidget, width as i32, height as i32)
     gtk_widget_set_visible(f as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
     gtk_fixed_put(winSlot.fixed, f as GtkWidget, x, y)

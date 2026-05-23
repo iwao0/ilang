@@ -48,7 +48,7 @@ pub fn createNativeCheckbox(
         some(s) { s }
         none    { return -1 }
     }
-    let cb = gtk_check_button_new_with_label(cstrFromString(text))
+    let cb = gtk_check_button_new_with_label(cstrFromString(text)) as GtkCheckButton
     gtk_check_button_set_active(cb, if checked { 1 as i32 } else { 0 as i32 })
     gtk_widget_set_size_request(cb as GtkWidget, width as i32, height as i32)
     gtk_widget_set_sensitive(cb as GtkWidget, if enabled { 1 as i32 } else { 0 as i32 })

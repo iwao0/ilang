@@ -9,7 +9,7 @@
 use gtk {
     GtkWidget, GtkWindow, GObject, GtkFixed, GMainLoop,
     GtkEventController, GtkEventControllerKey, GtkEventControllerMotion,
-    GtkGestureClick, Keyval,
+    GtkGestureClick, GtkGestureSingle, Keyval,
     gtk_init, gtk_window_new,
     gtk_window_set_title, gtk_window_set_default_size,
     gtk_window_present, gtk_window_set_child, gtk_window_destroy,
@@ -180,7 +180,7 @@ fn dispatchKey(winH: i64, keyval: u32, state: u32, down: bool) {
 fn dispatchClick(gesture: i64, winH: i64, x: f64, y: f64, down: bool) {
     if let some(slot) = WINDOWS.get(winH) {
         let btn = buttonToW3C(
-            gtk_gesture_single_get_current_button(gesture as GtkGestureClick)
+            gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
         )
         let st = gtk_event_controller_get_current_event_state(
             gesture as GtkEventController
@@ -201,13 +201,16 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         gtk_init()
         GTK_INITED[0] = true
     }
-    let win = gtk_window_new()
+    // GIR types `gtk_window_new` as returning the parent `GtkWidget`;
+    // every window-side call expects a `GtkWindow`, so down-cast once
+    // at construction.
+    let win = gtk_window_new() as GtkWindow
     gtk_window_set_title(win, cstrFromString(title))
     gtk_window_set_default_size(win, width as i32, height as i32)
 
     // Absolute-positioning container — every widget goes through
     // gtk_fixed_put rather than the default child slot.
-    let fixed = gtk_fixed_new()
+    let fixed = gtk_fixed_new() as GtkFixed
     gtk_window_set_child(win, fixed as GtkWidget)
 
     let handle = win as i64
@@ -223,7 +226,7 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
 
     // Key controller — emits "key-pressed" / "key-released" on
     // every keystroke while the window has focus.
-    let keyCtrl = gtk_event_controller_key_new()
+    let keyCtrl = gtk_event_controller_key_new() as GtkEventControllerKey
     g_signal_connect_key(
         keyCtrl as GObject, cstrFromString("key-pressed"),
         linux_key_pressed, handle as *void, 0 as i64, 0 as u32
@@ -237,7 +240,7 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     )
 
     // Pointer motion controller.
-    let motionCtrl = gtk_event_controller_motion_new()
+    let motionCtrl = gtk_event_controller_motion_new() as GtkEventControllerMotion
     g_signal_connect_motion(
         motionCtrl as GObject, cstrFromString("motion"),
         linux_motion, handle as *void, 0 as i64, 0 as u32
@@ -249,8 +252,8 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     // Click gesture — `button=0` matches every button so the
     // handler can report which one fired via
     // `gtk_gesture_single_get_current_button`.
-    let click = gtk_gesture_click_new()
-    gtk_gesture_single_set_button(click, 0 as u32)
+    let click = gtk_gesture_click_new() as GtkGestureClick
+    gtk_gesture_single_set_button(click as GtkGestureSingle, 0 as u32)
     g_signal_connect_click(
         click as GObject, cstrFromString("pressed"),
         linux_pressed, handle as *void, 0 as i64, 0 as u32
