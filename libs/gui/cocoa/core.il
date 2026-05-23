@@ -193,6 +193,13 @@ pub class GuiDelegate : NSObject {
 pub class GuiView : NSView {
     pub acceptsFirstResponder(): bool { true }
 
+    /// Flip the contentView's coordinate system so subview positions
+    /// (and convertPoint:fromView: results) use a top-left origin —
+    /// the Windows / W3C convention the gui-core layer hands us.
+    /// Without this, widget y values would land at the bottom of the
+    /// window instead of the top.
+    pub isFlipped(): bool { true }
+
     pub keyDown(event: NSEvent) {
         if let some(slot) = this.windowSlot() {
             let cb = slot.onKeyDown
@@ -241,15 +248,16 @@ pub class GuiView : NSView {
             // outside its own frame. Clip to the view's bounds here
             // so callers only see in-content events.
             if p.x < 0.0 || p.y < 0.0 || p.x > w || p.y > h { return }
-            // Cocoa origin = bottom-left; flip Y so callers see the
-            // W3C / DOM convention (top-left origin).
+            // GuiView overrides `isFlipped` to true, so `p.y` is
+            // already in the W3C / DOM top-left convention — pass it
+            // through unchanged.
             let flags = event.modifierFlags as u64
             let cb = match kind {
                 1 { slot.onMouseDown }
                 2 { slot.onMouseUp }
                 _ { slot.onMouseMove }
             }
-            cb(p.x, h - p.y, button, modCtrl(flags), modShift(flags),
+            cb(p.x, p.y, button, modCtrl(flags), modShift(flags),
                modAlt(flags), modMeta(flags))
         }
     }
