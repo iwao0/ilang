@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use ilang_ast::Symbol as AstSymbol;
 use tower_lsp::lsp_types::{Location, Position, Range, Url};
 
-use crate::analyse::{analyse_path_to_doc, collect_workspace_il_files, lookup_ref};
+use crate::analyse::{for_each_closed_workspace_doc, lookup_ref};
 use crate::text::{self, word_at};
 use crate::types::Doc;
 
@@ -56,15 +56,10 @@ pub(crate) fn collect_reference_locations(
         push(&mut out, doc_uri, doc, is_owner);
     }
     if let Ok(anchor) = target_uri.to_file_path() {
-        for path in collect_workspace_il_files(&anchor) {
-            if let Ok(c) = path.canonicalize() {
-                if seen.contains(&c) { continue; }
-            }
-            let Some(doc) = analyse_path_to_doc(&path) else { continue };
-            let Ok(uri) = Url::from_file_path(&path) else { continue };
+        for_each_closed_workspace_doc(&anchor, &seen, |uri, doc| {
             let is_owner = uri == *target_uri;
             push(&mut out, &uri, &doc, is_owner);
-        }
+        });
     }
     out.sort_by(|a, b| {
         (a.uri.as_str(), a.range.start.line, a.range.start.character)
@@ -222,21 +217,13 @@ pub(crate) fn handle_references(
         }
     }
     if let Ok(anchor_path) = target_uri.to_file_path() {
-        for path in collect_workspace_il_files(&anchor_path) {
-            if opened_paths.contains(&path) {
-                continue;
-            }
-            let Some(d) = analyse_path_to_doc(&path) else { continue };
-            let path_uri = match Url::from_file_path(&path) {
-                Ok(u) => u,
-                Err(_) => continue,
-            };
+        for_each_closed_workspace_doc(&anchor_path, &opened_paths, |path_uri, d| {
             let is_owner = path_uri == target_uri;
             push_ref_locations(&mut locations, &path_uri, &d, &target_uri, target);
             if is_owner && include_decl {
                 locations.push(decl_location(&path_uri, decl_name_span, target.1));
             }
-        }
+        });
     }
     // Stable, de-duplicated output.
     locations.sort_by(|a, b| {

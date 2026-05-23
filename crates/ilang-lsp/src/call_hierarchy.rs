@@ -15,7 +15,8 @@ use serde_json::json;
 use tower_lsp::lsp_types::*;
 
 use crate::types::{Doc, RefEntry};
-use crate::{analyse_path_to_doc, collect_workspace_il_files, text};
+use crate::analyse::for_each_closed_workspace_doc;
+use crate::text;
 
 /// Self-contained identity for a function / method, plumbed through
 /// the `CallHierarchyItem.data` field so incoming/outgoing requests
@@ -366,14 +367,7 @@ pub(crate) fn incoming_calls(
         );
     }
     // Pass 2: closed files (workspace walk).
-    for path in collect_workspace_il_files(&anchor_path) {
-        if let Ok(canon) = path.canonicalize() {
-            if seen_paths.contains(&canon) {
-                continue;
-            }
-        }
-        let Some(doc) = analyse_path_to_doc(&path) else { continue };
-        let Ok(path_uri) = Url::from_file_path(&path) else { continue };
+    for_each_closed_workspace_doc(&anchor_path, &seen_paths, |path_uri, doc| {
         let is_owner = path_uri == item.uri;
         accumulate_incoming(
             &path_uri,
@@ -383,7 +377,7 @@ pub(crate) fn incoming_calls(
             is_owner,
             &mut by_caller,
         );
-    }
+    });
     by_caller
         .into_values()
         .map(|(caller_uri, fr, ranges)| CallHierarchyIncomingCall {

@@ -246,12 +246,7 @@ pub(crate) fn count_references(
             .count();
     }
     if let Ok(anchor_path) = target_uri.to_file_path() {
-        for path in crate::collect_workspace_il_files(&anchor_path) {
-            if let Ok(canon) = path.canonicalize() {
-                if seen_paths.contains(&canon) { continue; }
-            }
-            let Some(doc) = crate::analyse_path_to_doc(&path) else { continue };
-            let Ok(path_uri) = Url::from_file_path(&path) else { continue };
+        crate::analyse::for_each_closed_workspace_doc(&anchor_path, &seen_paths, |path_uri, doc| {
             let is_owner = path_uri == *target_uri;
             count += doc
                 .refs
@@ -267,7 +262,7 @@ pub(crate) fn count_references(
                     }
                 })
                 .count();
-        }
+        });
     }
     count
 }

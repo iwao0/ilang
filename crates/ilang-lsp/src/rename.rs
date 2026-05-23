@@ -11,7 +11,7 @@ use ilang_ast::Symbol as AstSymbol;
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{Position, TextEdit, Url, WorkspaceEdit};
 
-use crate::analyse::{analyse_path_to_doc, collect_workspace_il_files, lookup_ref};
+use crate::analyse::{for_each_closed_workspace_doc, lookup_ref};
 use crate::rename_conflicts;
 use crate::text::{self, is_keyword, is_valid_identifier, read_word_at, word_at};
 use crate::types::Doc;
@@ -139,23 +139,13 @@ pub(crate) fn handle_rename(
     // the decl's owning file so the walk starts in the same
     // project (`ilang.toml` directory, or the file's parent).
     if let Ok(anchor_path) = target_uri.to_file_path() {
-        for path in collect_workspace_il_files(&anchor_path) {
-            if opened_paths.contains(&path) {
-                continue;
-            }
-            let Some(doc) = analyse_path_to_doc(&path) else {
-                continue;
-            };
-            let path_uri = match Url::from_file_path(&path) {
-                Ok(u) => u,
-                Err(_) => continue,
-            };
+        for_each_closed_workspace_doc(&anchor_path, &opened_paths, |path_uri, doc| {
             let is_owner = path_uri == target_uri;
             let edits = collect_doc_edits(&doc, &target_uri, target, decl_name_span, &new_name, is_owner);
             if !edits.is_empty() {
                 changes.insert(path_uri, edits);
             }
-        }
+        });
     }
     if changes.is_empty() {
         return Ok(None);

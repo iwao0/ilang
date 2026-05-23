@@ -17,7 +17,8 @@ use ilang_parser::parse;
 use tower_lsp::lsp_types::*;
 
 use crate::types::Doc;
-use crate::{analyse_path_to_doc, collect_workspace_il_files, text};
+use crate::analyse::for_each_closed_workspace_doc;
+use crate::text;
 
 /// What kind of implementation request we're servicing. Drives the
 /// workspace walk and the per-class filter.
@@ -122,18 +123,11 @@ pub(crate) fn collect(
         let Ok(prog) = parse(&tokens) else { continue };
         gather_from_program(uri, &doc.text, &prog, &effective_target, &mut out);
     }
-    for path in collect_workspace_il_files(anchor) {
-        if let Ok(canon) = path.canonicalize() {
-            if seen.contains(&canon) {
-                continue;
-            }
-        }
-        let Some(d) = analyse_path_to_doc(&path) else { continue };
-        let Ok(uri) = Url::from_file_path(&path) else { continue };
-        let Ok(tokens) = tokenize(&d.text) else { continue };
-        let Ok(prog) = parse(&tokens) else { continue };
+    for_each_closed_workspace_doc(anchor, &seen, |uri, d| {
+        let Ok(tokens) = tokenize(&d.text) else { return };
+        let Ok(prog) = parse(&tokens) else { return };
         gather_from_program(&uri, &d.text, &prog, &effective_target, &mut out);
-    }
+    });
     out.sort_by(|a, b| {
         (a.uri.as_str(), a.range.start.line, a.range.start.character)
             .cmp(&(b.uri.as_str(), b.range.start.line, b.range.start.character))

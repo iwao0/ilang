@@ -171,6 +171,31 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
 /// (or the file's own directory if there's no project file). Used
 /// by workspace-wide rename to pick up references in files that
 /// aren't currently open.
+/// Walk every `.il` file under the project rooted at `anchor`,
+/// invoke `visit` with each closed file's `(Url, Doc)`. Files whose
+/// canonical path appears in `seen` are skipped — pass open
+/// buffers' canonical paths there so cross-file passes don't
+/// reprocess them off the on-disk version.
+///
+/// Mirrors the per-call sites' previous "iterate
+/// collect_workspace_il_files; canonicalize; skip-if-seen;
+/// analyse_path_to_doc; Url::from_file_path" boilerplate.
+pub(crate) fn for_each_closed_workspace_doc(
+    anchor: &Path,
+    seen: &HashSet<PathBuf>,
+    mut visit: impl FnMut(Url, Doc),
+) {
+    for path in collect_workspace_il_files(anchor) {
+        let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
+        if seen.contains(&canon) {
+            continue;
+        }
+        let Some(doc) = analyse_path_to_doc(&path) else { continue };
+        let Ok(uri) = Url::from_file_path(&path) else { continue };
+        visit(uri, doc);
+    }
+}
+
 pub(crate) fn collect_workspace_il_files(anchor: &Path) -> Vec<PathBuf> {
     let entry_dir = anchor
         .canonicalize()
