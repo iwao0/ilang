@@ -467,7 +467,16 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         if s.starts_with("__") {
             continue;
         }
+        // Module entries (`(module) cocoa`) come back from the harvest
+        // under their bare key alongside `cocoa.NSObject` etc. The
+        // MODULE listing further down already surfaces them; emitting
+        // them here too would push a second `cocoa` item classified
+        // as FUNCTION (the default fallthrough below since the
+        // signature doesn't begin with `class`/`enum`/...).
         let body = sig_body_skip_attrs(sig);
+        if body.starts_with("(module) ") {
+            continue;
+        }
         let kind = if body.starts_with("class ")
             || body.starts_with("struct ")
             || body.starts_with("union ")
@@ -498,6 +507,48 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
             ..CompletionItem::default()
         });
     }
+    // Selective imports (`use cocoa { NSWindowStyleMask, makeWindow }`)
+    // register names only in `selective_use_names`; the signature
+    // lives under the dotted key in `external_signatures`. The bare
+    // loop above misses them because dotted keys are filtered. Add a
+    // bare-label completion for each selectively imported name by
+    // walking the dotted external map for a suffix match.
+    for bare_name in doc.selective_use_names.iter() {
+        let bare = bare_name.as_str();
+        if bare.starts_with("__") { continue; }
+        if doc.symbols.contains_key(bare_name) { continue; }
+        if doc.var_types.contains_key(bare_name) { continue; }
+        if doc.external_signatures.contains_key(bare_name) { continue; }
+        let Some(sig) = doc.external_signatures.iter().find_map(|(k, v)| {
+            (k.as_str().rsplit_once('.').map(|(_, t)| t) == Some(bare)).then(|| v.clone())
+        }) else { continue };
+        let body = sig_body_skip_attrs(&sig);
+        let kind = if body.starts_with("class ")
+            || body.starts_with("struct ")
+            || body.starts_with("union ")
+        {
+            CompletionItemKind::CLASS
+        } else if body.starts_with("enum ") {
+            CompletionItemKind::ENUM
+        } else if body.starts_with("interface ") || body.starts_with("@objc interface ") {
+            CompletionItemKind::INTERFACE
+        } else if body.starts_with("const ") {
+            CompletionItemKind::CONSTANT
+        } else {
+            CompletionItemKind::FUNCTION
+        };
+        let (insert_text, fmt) = call_snippet(bare, kind);
+        let command = trigger_sig_help_command(kind);
+        out.push(CompletionItem {
+            label: bare.to_string(),
+            kind: Some(kind),
+            detail: Some(sig),
+            insert_text,
+            insert_text_format: fmt,
+            command,
+            ..CompletionItem::default()
+        });
+    }
     let mut modules: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for key in doc.external_signatures.keys() {
         if let Some((m, _)) = key.as_str().split_once('.') {
@@ -505,6 +556,20 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         }
     }
     for m in modules {
+        // `NSWindowStyleMask.titled` etc. live in `external_signatures`
+        // as dotted keys (variant accesses), so the split above would
+        // happily pick `NSWindowStyleMask` as a "module" and produce
+        // a phantom MODULE entry next to the real ENUM one. Skip any
+        // prefix that's actually a known type/enum/interface.
+        let m_key = crate::AstSymbol::intern(&m);
+        let is_known_type = doc.local_enums.contains_key(&m_key)
+            || doc.external_enums.contains_key(&m_key)
+            || doc.classes.contains_key(&m_key)
+            || doc.local_interfaces.contains_key(&m_key)
+            || doc.external_interfaces.contains_key(&m_key);
+        if is_known_type {
+            continue;
+        }
         out.push(CompletionItem {
             label: m.clone(),
             kind: Some(CompletionItemKind::MODULE),

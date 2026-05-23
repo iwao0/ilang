@@ -808,6 +808,38 @@ pub(crate) fn receiver_before_dot(text: &str, pos: Position) -> Option<String> {
 /// Given a signature label like `(method) Counter.init(a: i64, b: i64)`,
 /// return byte-offset ranges for each parameter span. The LSP client
 /// uses them to bold the active parameter.
+/// Extract the type name from the `i`-th parameter slot of a fn-style
+/// signature label like `fn makeWindow(title: string, mask:
+/// NSWindowStyleMask): NSWindow`. Returns the bare type name (no
+/// `[]` / `?` / `*` suffixes) so completion can match it against
+/// known classes / enums / vars. Returns `None` for out-of-range
+/// indices or unparseable slots.
+pub(crate) fn nth_param_type_name(signature: &str, arg_index: usize) -> Option<String> {
+    let offsets = parameter_offsets(signature);
+    let (s, e) = offsets.get(arg_index).copied()?;
+    let slot = signature.get(s as usize..e as usize)?;
+    let after_colon = slot.split_once(':').map(|(_, t)| t.trim())?;
+    // Strip the common suffixes / prefixes that don't affect the
+    // base type name. Order-sensitive: peel `*const` / `*` prefixes
+    // before walking the trailing chars.
+    let mut t = after_colon;
+    for prefix in ["*const ", "*mut ", "*"] {
+        if let Some(rest) = t.strip_prefix(prefix) {
+            t = rest.trim_start();
+            break;
+        }
+    }
+    let mut end = t.len();
+    for (i, c) in t.char_indices() {
+        if !(c.is_ascii_alphanumeric() || c == '_' || c == '.') {
+            end = i;
+            break;
+        }
+    }
+    let bare = &t[..end];
+    if bare.is_empty() { None } else { Some(bare.to_string()) }
+}
+
 pub(crate) fn parameter_offsets(label: &str) -> Vec<(u32, u32)> {
     let bytes = label.as_bytes();
     let Some(close) = bytes.iter().rposition(|&b| b == b')') else {

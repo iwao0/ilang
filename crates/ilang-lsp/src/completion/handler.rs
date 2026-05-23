@@ -282,6 +282,18 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                 }
             }
         }
+        // When the cursor sits inside a function-call's argument list
+        // (`f(a, b, |)`), figure out the expected type of the active
+        // slot from the callee's signature and boost matching items
+        // — vars typed as that type, the type itself, its enum
+        // variants — to the top of the list via `sortText`. Without
+        // this, typing `,` in `makeWindow(..., |)` leaves the user
+        // staring at an alphabetic dump of every visible identifier.
+        if let Some(call) = text::call_context_at(&doc.text, pos) {
+            if let Some(expected) = expected_param_type(doc, &call) {
+                boost_arg_matches(&mut items, &expected, doc);
+            }
+        }
         return Some(CompletionResponse::Array(items));
     };
     // Receiver can be:
@@ -534,3 +546,98 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
     Some(CompletionResponse::Array(items))
 }
 
+
+/// Look up the callee identified by `call` and return the bare type
+/// name expected at the active argument slot, or `None` when the
+/// callee / signature isn't resolvable. Mirrors the lookup order
+/// `handle_signature_help` uses so the boost lights up for every
+/// callable that gets a signature popup.
+fn expected_param_type(doc: &Doc, call: &text::CallContext) -> Option<String> {
+    let key = AstSymbol::intern(&call.callee);
+    if call.is_new {
+        let info = doc.classes.get(&key)?;
+        let init = info.inits.first()?;
+        return text::nth_param_type_name(&init.signature, call.arg_index);
+    }
+    let sig: String = if let Some(sym) = doc.symbols.get(&key) {
+        sym.signature.clone()
+    } else if let Some(s) = doc.external_signatures.get(&key) {
+        s.clone()
+    } else if let Some(s) = lookup_selective_bare(doc, &call.callee) {
+        // `use cocoa { makeWindow }` registers `makeWindow` only in
+        // `selective_use_names` — the signature lives under the
+        // dotted key (`cocoa.makeWindow`). Walk the external map to
+        // recover it. Without this, sig-driven boosting silently
+        // gives up on every selectively-imported callable.
+        s
+    } else if let Some((recv, method)) = call.callee.rsplit_once('.') {
+        // Method call: walk the receiver chain through
+        // `resolve_receiver_class` and look up `method` on the
+        // resolved class. Matches the signature_help path so
+        // `this.foo.bar(<here>)` gets the same expected-type
+        // treatment as a bare call.
+        let class = if recv == "console" {
+            Some("Console".to_string())
+        } else {
+            // The cursor offset for chain resolution doesn't matter
+            // here — we just need the receiver's static class. Pass
+            // the buffer's end to keep within range.
+            resolve_receiver_class(doc, recv, doc.text.len())
+        }?;
+        let info = doc.classes.get(&AstSymbol::intern(&class))?;
+        let m = info.methods.get(&AstSymbol::intern(method))?;
+        m.signature.clone()
+    } else {
+        return None;
+    };
+    text::nth_param_type_name(&sig, call.arg_index)
+}
+
+/// Push items whose declared type or label matches `expected` to
+/// the top of the list by stamping a `sortText` prefix. Variables
+/// typed as `expected`, the type / enum name itself, and the type's
+/// `EnumName.variant` entries all rank above the alphabetic
+/// fallback that handles everything else.
+fn boost_arg_matches(items: &mut Vec<CompletionItem>, expected: &str, doc: &Doc) {
+    for it in items.iter_mut() {
+        let label = it.label.as_str();
+        let var_match = doc
+            .var_classes
+            .get(&AstSymbol::intern(label))
+            .map(|c| c == expected)
+            .unwrap_or(false)
+            || doc
+                .var_types
+                .get(&AstSymbol::intern(label))
+                .and_then(|t| match t {
+                    Type::Object(n) => Some(n.as_str() == expected),
+                    _ => None,
+                })
+                .unwrap_or(false);
+        let name_match = label == expected;
+        let bucket = if var_match || name_match { "0_" } else { "9_" };
+        it.sort_text = Some(format!("{bucket}{label}"));
+    }
+}
+
+/// Recover the signature of a selectively-imported external name
+/// (`use cocoa { makeWindow }` → bare key `makeWindow`). The harvest
+/// stores the signature under the dotted module path
+/// (`cocoa.makeWindow`) and only flags the bare name in
+/// `selective_use_names`, so a plain `get(bare)` always misses.
+/// Returns `None` when the name isn't selectively imported or no
+/// matching dotted key exists.
+fn lookup_selective_bare(doc: &Doc, bare: &str) -> Option<String> {
+    let key = AstSymbol::intern(bare);
+    if !doc.selective_use_names.contains(&key) {
+        return None;
+    }
+    for (k, sig) in doc.external_signatures.iter() {
+        if let Some((_, suffix)) = k.as_str().rsplit_once('.') {
+            if suffix == bare {
+                return Some(sig.clone());
+            }
+        }
+    }
+    None
+}
