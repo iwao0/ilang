@@ -10,6 +10,7 @@ members = [
     "crates/ilang-runtime",
     "crates/ilang-cli",
     "crates/ilang-lsp",
+    "tools/gtk4-bindgen",
 ]
 
 [workspace.package]

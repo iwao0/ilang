@@ -1,0 +1,13 @@
+[package]
+name = "gtk4-bindgen"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+
+[[bin]]
+name = "gtk4-bindgen"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+quick-xml = "0.36"
