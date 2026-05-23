@@ -17,6 +17,7 @@ mod imports;
 mod inlay_hints;
 mod project;
 mod references;
+mod rename;
 mod rename_conflicts;
 mod selection_range;
 mod semantic_tokens;
