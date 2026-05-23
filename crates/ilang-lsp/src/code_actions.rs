@@ -484,54 +484,11 @@ pub(crate) fn implement_interface_methods_at(
     });
     let (cls, _start, close) = pick_innermost_containing(class_ranges, cursor_byte)?;
 
-    // Collect every interface name in the class's base list.
-    // The parser puts the FIRST base name into `cd.parent`
-    // regardless of whether it's a class or interface, so check
-    // both slots and filter against the known interface registry.
-    let mut iface_decls: Vec<&InterfaceDecl> = Vec::new();
-    let bases: Vec<AstSymbol> = cls
-        .parent
-        .iter()
-        .copied()
-        .chain(cls.interfaces.iter().copied())
-        .collect();
-    for b in bases {
-        if let Some(decl) = find_interface_decl(prog, b) {
-            iface_decls.push(decl);
-        } else if let Some(decl) = external_interfaces.get(&b) {
-            // Cross-module reference (e.g. `use cocoa { NSApplicationDelegate }`).
-            iface_decls.push(decl);
-        }
-    }
+    let iface_decls = collect_base_interface_decls(cls, prog, external_interfaces);
     if iface_decls.is_empty() {
         return None;
     }
-
-    // Collect the class's existing method names (instance +
-    // static) so we don't re-stub anything the user already
-    // wrote.
-    let mut existing: HashSet<&str> = HashSet::new();
-    for m in cls.methods.iter().chain(cls.static_methods.iter()) {
-        existing.insert(m.name.as_str());
-    }
-
-    let mut missing: Vec<&InterfaceMethod> = Vec::new();
-    let mut seen_method_names: HashSet<&str> = HashSet::new();
-    for iface in iface_decls.iter() {
-        for m in iface.methods.iter() {
-            let n = m.name.as_str();
-            if existing.contains(n) {
-                continue;
-            }
-            // Skip duplicates across interfaces — two protocols
-            // declaring `controlTextDidChange` shouldn't insert
-            // two copies. First-listed wins.
-            if !seen_method_names.insert(n) {
-                continue;
-            }
-            missing.push(m);
-        }
-    }
+    let missing = enumerate_missing_methods(cls, &iface_decls);
     if missing.is_empty() {
         return None;
     }
@@ -548,26 +505,13 @@ pub(crate) fn implement_interface_methods_at(
     let inner_indent = format!("{body_indent}    ");
 
     let mut out = String::new();
-    for m in &missing {
+    for (_iface, m) in &missing {
         if m.is_optional {
             out.push_str(&body_indent);
             out.push_str("// optional (`?`) — delete if not overriding\n");
         }
         out.push_str(&body_indent);
-        out.push_str("pub ");
-        out.push_str(m.name.as_str());
-        out.push('(');
-        let params: Vec<String> = m
-            .params
-            .iter()
-            .map(|p| format!("{}: {}", p.name.as_str(), p.ty))
-            .collect();
-        out.push_str(&params.join(", "));
-        out.push(')');
-        if let Some(ret) = &m.ret {
-            out.push_str(": ");
-            out.push_str(&format!("{ret}"));
-        }
+        out.push_str(&format_method_header(m));
         out.push_str(" {\n");
         out.push_str(&inner_indent);
         out.push_str("// TODO\n");
@@ -622,6 +566,78 @@ fn find_interface_decl(prog: &Program, name: AstSymbol) -> Option<&InterfaceDecl
     None
 }
 
+/// Collect every interface declaration named in `cls`'s base list.
+/// The parser puts the first base name into `parent` regardless of
+/// whether it's a class or interface, so check both `parent` and
+/// `interfaces`. Local and external interface registries are tried in
+/// turn; cross-module references (`use cocoa { NSApplicationDelegate }`)
+/// resolve through `external_interfaces`. Returns an empty vec when
+/// the class implements no known interface.
+fn collect_base_interface_decls<'a>(
+    cls: &ClassDecl,
+    prog: &'a Program,
+    external_interfaces: &'a HashMap<AstSymbol, InterfaceDecl>,
+) -> Vec<&'a InterfaceDecl> {
+    let mut out: Vec<&InterfaceDecl> = Vec::new();
+    let bases = cls.parent.iter().copied().chain(cls.interfaces.iter().copied());
+    for b in bases {
+        if let Some(decl) = find_interface_decl(prog, b) {
+            out.push(decl);
+        } else if let Some(decl) = external_interfaces.get(&b) {
+            out.push(decl);
+        }
+    }
+    out
+}
+
+/// Enumerate every interface method `cls` doesn't yet implement,
+/// paired with the interface it was declared in (for callers that
+/// want to render an "interface X — implement" detail string).
+/// Skips both methods already on the class and duplicates across
+/// multiple base interfaces (first-listed wins, so two protocols
+/// declaring `controlTextDidChange` don't yield two stubs).
+fn enumerate_missing_methods<'a>(
+    cls: &ClassDecl,
+    iface_decls: &[&'a InterfaceDecl],
+) -> Vec<(&'a InterfaceDecl, &'a InterfaceMethod)> {
+    let mut existing: HashSet<&str> = HashSet::new();
+    for m in cls.methods.iter().chain(cls.static_methods.iter()) {
+        existing.insert(m.name.as_str());
+    }
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut out: Vec<(&InterfaceDecl, &InterfaceMethod)> = Vec::new();
+    for iface in iface_decls {
+        for m in iface.methods.iter() {
+            let n = m.name.as_str();
+            if existing.contains(n) {
+                continue;
+            }
+            if !seen.insert(n) {
+                continue;
+            }
+            out.push((iface, m));
+        }
+    }
+    out
+}
+
+/// Render `pub name(params): ret` (the part both quick-fix paths
+/// emit verbatim), without the trailing body braces or any
+/// indentation — callers append the body themselves to control
+/// whitespace / snippet stops.
+fn format_method_header(m: &InterfaceMethod) -> String {
+    let params: Vec<String> = m
+        .params
+        .iter()
+        .map(|p| format!("{}: {}", p.name.as_str(), p.ty))
+        .collect();
+    let ret = match &m.ret {
+        Some(t) => format!(": {t}"),
+        None => String::new(),
+    };
+    format!("pub {}({}){}", m.name.as_str(), params.join(", "), ret)
+}
+
 /// Pick a sensible default value literal for a return-typed
 /// interface-method stub. Returns `None` for types where no
 /// default makes sense (object refs, arrays, optionals, etc.) —
@@ -674,75 +690,31 @@ pub(crate) fn interface_method_stub_completions_at(
         return out;
     };
 
-    // Collect the interface decls the class's base list names.
-    let mut iface_decls: Vec<&InterfaceDecl> = Vec::new();
-    let bases: Vec<AstSymbol> = cls
-        .parent
-        .iter()
-        .copied()
-        .chain(cls.interfaces.iter().copied())
-        .collect();
-    for b in bases {
-        if let Some(decl) = find_interface_decl(prog, b) {
-            iface_decls.push(decl);
-        } else if let Some(decl) = external_interfaces.get(&b) {
-            iface_decls.push(decl);
-        }
-    }
+    let iface_decls = collect_base_interface_decls(cls, prog, external_interfaces);
     if iface_decls.is_empty() {
         return out;
     }
-
-    // Skip methods the class already implements.
-    let mut existing: HashSet<&str> = HashSet::new();
-    for m in cls.methods.iter().chain(cls.static_methods.iter()) {
-        existing.insert(m.name.as_str());
-    }
-
-    let mut seen: HashSet<&str> = HashSet::new();
-    for iface in iface_decls {
-        for m in iface.methods.iter() {
-            let name = m.name.as_str();
-            if existing.contains(name) {
-                continue;
+    for (iface, m) in enumerate_missing_methods(cls, &iface_decls) {
+        let name = m.name.as_str();
+        // LSP snippet syntax: `$0` is the final cursor stop. No
+        // indentation: the editor inserts at cursor and re-indents.
+        let mut snippet = format_method_header(m);
+        snippet.push_str(" {\n    $0");
+        if let Some(ret) = &m.ret {
+            if let Some(default) = default_value_for(ret) {
+                snippet.push('\n');
+                snippet.push_str("    ");
+                snippet.push_str(default);
             }
-            if !seen.insert(name) {
-                continue;
-            }
-            // Snippet body — newline-separated multi-line insertion.
-            // LSP snippet syntax: `$0` is the final cursor stop.
-            let params: Vec<String> = m
-                .params
-                .iter()
-                .map(|p| format!("{}: {}", p.name.as_str(), p.ty))
-                .collect();
-            let mut snippet = String::new();
-            snippet.push_str("pub ");
-            snippet.push_str(name);
-            snippet.push('(');
-            snippet.push_str(&params.join(", "));
-            snippet.push(')');
-            if let Some(ret) = &m.ret {
-                snippet.push_str(": ");
-                snippet.push_str(&format!("{ret}"));
-            }
-            snippet.push_str(" {\n    $0");
-            if let Some(ret) = &m.ret {
-                if let Some(default) = default_value_for(ret) {
-                    snippet.push('\n');
-                    snippet.push_str("    ");
-                    snippet.push_str(default);
-                }
-            }
-            snippet.push_str("\n}");
-            let detail = Some(format!(
-                "{} {}{}",
-                if m.is_optional { "optional" } else { "required" },
-                iface.name.as_str(),
-                if m.is_optional { "" } else { " — implement" }
-            ));
-            out.push((name.to_string(), detail, snippet));
         }
+        snippet.push_str("\n}");
+        let detail = Some(format!(
+            "{} {}{}",
+            if m.is_optional { "optional" } else { "required" },
+            iface.name.as_str(),
+            if m.is_optional { "" } else { " — implement" }
+        ));
+        out.push((name.to_string(), detail, snippet));
     }
     out
 }
