@@ -128,9 +128,20 @@ pub(crate) fn build_tokens(doc: &Doc) -> Vec<SemanticToken> {
     let mut out: Vec<ClassifiedToken> = Vec::new();
 
     for tok in tokens {
-        let TokenKind::Ident(name) = &tok.kind else {
-            continue;
+        // Keyword tokens (`none`, `true`, `class`, …) can stand in
+        // for identifiers — most commonly as enum variant names or
+        // after a `.`. Pick up their source spelling via
+        // `keyword_str` so the position lookup below still finds
+        // the matching RefEntry. Pure Ident tokens take the same
+        // code path.
+        let (name_borrowed, name_owned): (Option<&str>, Option<String>) = match &tok.kind {
+            TokenKind::Ident(n) => (Some(n.as_str()), None),
+            other => match other.keyword_str() {
+                Some(s) => (None, Some(s.to_string())),
+                None => continue,
+            },
         };
+        let name: &str = name_borrowed.unwrap_or_else(|| name_owned.as_deref().unwrap());
         let line1 = tok.span.line;
         let col1 = tok.span.col;
         let len = name.len() as u32;
