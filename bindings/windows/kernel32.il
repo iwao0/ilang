@@ -346,8 +346,89 @@ pub enum ThreadpoolCallbackPriority: u32 {
     low    = 2
 }
 
+// ─── Waitable timer flags ────────────────────────────────────
+@flags
+pub enum CreateWaitableTimerFlags: u32 {
+    manualReset    = 0x00000001
+    /// High-resolution timer (Win10 1803+).
+    highResolution = 0x00000002
+}
+
+// ─── SetThreadExecutionState flags (ES_*) ────────────────────
+@flags
+pub enum ExecutionState: u32 {
+    continuous       = 0x80000000
+    displayRequired  = 0x00000002
+    systemRequired   = 0x00000001
+    awayModeRequired = 0x00000040
+}
+
+// ─── Console control event codes (CTRL_*_EVENT) ──────────────
+pub enum ConsoleCtrlEvent: u32 {
+    cEvent        = 0
+    breakEvent    = 1
+    closeEvent    = 2
+    logoffEvent   = 5
+    shutdownEvent = 6
+}
+
+// ─── INPUT_RECORD event types ────────────────────────────────
+pub enum InputEventType: u16 {
+    keyEvent              = 0x0001
+    mouseEvent            = 0x0002
+    windowBufferSizeEvent = 0x0004
+    menuEvent             = 0x0008
+    focusEvent            = 0x0010
+}
+
+// ─── PROCESSOR_FEATURE_* (IsProcessorFeaturePresent) ─────────
+pub enum ProcessorFeature: u32 {
+    floatingPointPrecisionErrata = 0
+    floatingPointEmulated        = 1
+    compareExchangeDouble        = 2
+    mmxInstructionsAvailable     = 3
+    sseInstructionsAvailable     = 6
+    threeDnowInstructionsAvailable = 7
+    rdtscInstructionAvailable    = 8
+    paeEnabled                   = 9
+    sse2InstructionsAvailable    = 10
+    nxEnabled                    = 12
+    sse3InstructionsAvailable    = 13
+    compareExchange128           = 14
+    compare64Exchange128         = 15
+    channelsEnabled              = 16
+    xsaveEnabled                 = 17
+    secondLevelAddressTranslation = 20
+    virtEnabled                  = 21
+    rdwrfsgsbase                 = 22
+    fastreposmovsb               = 23
+    armV8InstructionsAvailable   = 29
+    armV8CryptoInstructionsAvailable = 30
+}
+
+// ─── Symlink creation flags (SYMBOLIC_LINK_FLAG_*) ───────────
+@flags
+pub enum SymbolicLinkFlags: u32 {
+    file                    = 0x00000000
+    directory               = 0x00000001
+    allowUnprivilegedCreate = 0x00000002   // Win10 1703+, Developer Mode
+}
+
+// ─── FindFirstFileEx info levels / search ops ────────────────
+pub enum FindexInfoLevel: i32 {
+    standard     = 0
+    basic        = 1   // skip cAlternateFileName (faster)
+    maxInfoLevel = 2
+}
+
+pub enum FindexSearchOp: i32 {
+    nameMatch          = 0
+    limitToDirectories = 1
+    limitToDevices     = 2
+}
+
 use winnt { HANDLE, GUID, SYSTEMTIME, FILETIME, FileAttribute, PageProtection }
-use windef { HMODULE, HWND }
+use windef { HMODULE, HWND, HRSRC }
 
 @extern(C, "kernel32") {
     // ── Module ────────────────────────────────────────────────
@@ -2344,4 +2425,854 @@ use windef { HMODULE, HWND }
     @lib pub fn InterlockedCompareExchange64(
         Destination: *i64, Exchange: i64, Comparand: i64
     ): i64
+
+    // ── Waitable timers ──────────────────────────────────────────
+
+    @lib pub fn CreateWaitableTimerA(
+        lpTimerAttributes: *void,
+        bManualReset:      i32,
+        lpTimerName:       *const char
+    ): HANDLE
+    @lib pub fn CreateWaitableTimerW(
+        lpTimerAttributes: *void,
+        bManualReset:      i32,
+        lpTimerName:       *const u16
+    ): HANDLE
+
+    @lib pub fn CreateWaitableTimerExA(
+        lpTimerAttributes: *void,
+        lpTimerName:       *const char,
+        dwFlags:           u32,    // CreateWaitableTimerFlags.*
+        dwDesiredAccess:   u32
+    ): HANDLE
+    @lib pub fn CreateWaitableTimerExW(
+        lpTimerAttributes: *void,
+        lpTimerName:       *const u16,
+        dwFlags:           u32,
+        dwDesiredAccess:   u32
+    ): HANDLE
+
+    @lib pub fn OpenWaitableTimerA(dwDesiredAccess: u32, bInheritHandle: i32, lpTimerName: *const char): HANDLE
+    @lib pub fn OpenWaitableTimerW(dwDesiredAccess: u32, bInheritHandle: i32, lpTimerName: *const u16): HANDLE
+
+    /// `lpDueTime`: negative = relative, 100-ns units; positive = absolute UTC FILETIME.
+    /// `lPeriod`: 0 = one-shot, otherwise period in ms after the first fire.
+    @lib pub fn SetWaitableTimer(
+        hTimer:           HANDLE,
+        lpDueTime:        *const i64,
+        lPeriod:          i32,
+        pfnCompletionRoutine: fn(*void, u32, u32),
+        lpArgToCompletionRoutine: *void,
+        fResume:          i32
+    ): i32
+
+    @lib pub fn SetWaitableTimerEx(
+        hTimer:           HANDLE,
+        lpDueTime:        *const i64,
+        lPeriod:          i32,
+        pfnCompletionRoutine: fn(*void, u32, u32),
+        lpArgToCompletionRoutine: *void,
+        WakeContext:      *void,
+        TolerableDelay:   u32
+    ): i32
+
+    @lib pub fn CancelWaitableTimer(hTimer: HANDLE): i32
+
+    // ── Synchronization-object opens ─────────────────────────────
+
+    @lib pub fn OpenMutexA(dwDesiredAccess: u32, bInheritHandle: i32, lpName: *const char): HANDLE
+    @lib pub fn OpenMutexW(dwDesiredAccess: u32, bInheritHandle: i32, lpName: *const u16): HANDLE
+
+    @lib pub fn OpenEventA(dwDesiredAccess: u32, bInheritHandle: i32, lpName: *const char): HANDLE
+    @lib pub fn OpenEventW(dwDesiredAccess: u32, bInheritHandle: i32, lpName: *const u16): HANDLE
+
+    // ── Cross-process memory ─────────────────────────────────────
+
+    @lib pub fn ReadProcessMemory(
+        hProcess:           HANDLE,
+        lpBaseAddress:      *const void,
+        lpBuffer:           *void,
+        nSize:              u64,
+        lpNumberOfBytesRead: *u64
+    ): i32
+
+    @lib pub fn WriteProcessMemory(
+        hProcess:           HANDLE,
+        lpBaseAddress:      *void,
+        lpBuffer:           *const void,
+        nSize:              u64,
+        lpNumberOfBytesWritten: *u64
+    ): i32
+
+    @lib pub fn VirtualAllocEx(
+        hProcess:         HANDLE,
+        lpAddress:        *void,
+        dwSize:           u64,
+        flAllocationType: u32,
+        flProtect:        u32
+    ): *void
+
+    @lib pub fn VirtualFreeEx(
+        hProcess:   HANDLE,
+        lpAddress:  *void,
+        dwSize:     u64,
+        dwFreeType: u32
+    ): i32
+
+    @lib pub fn VirtualProtectEx(
+        hProcess:       HANDLE,
+        lpAddress:      *void,
+        dwSize:         u64,
+        flNewProtect:   u32,
+        lpflOldProtect: *u32
+    ): i32
+
+    // ── Process image / version ──────────────────────────────────
+
+    /// Vista+: returns the full image path. `dwFlags`: 0 = Win32 path,
+    /// 1 = native (`\Device\HarddiskVolumeN\...`).
+    @lib pub fn QueryFullProcessImageNameA(
+        hProcess:  HANDLE,
+        dwFlags:   u32,
+        lpExeName: *char,
+        lpdwSize:  *u32
+    ): i32
+    @lib pub fn QueryFullProcessImageNameW(
+        hProcess:  HANDLE,
+        dwFlags:   u32,
+        lpExeName: *u16,
+        lpdwSize:  *u32
+    ): i32
+
+    @lib pub fn GetProcessHandleCount(hProcess: HANDLE, pdwHandleCount: *u32): i32
+
+    /// Returns the major/minor version of the Win32 subsystem the
+    /// process was built for. Pass 0 for the calling process.
+    @lib pub fn GetProcessVersion(ProcessId: u32): u32
+
+    /// Returns one of: 0 = unknown, 0x0001 = user objects,
+    /// 0x0002 = GDI objects. Useful for diagnosing handle leaks.
+    @lib pub fn GetGuiResources(hProcess: HANDLE, uiFlags: u32): u32
+
+    // ── Module extras ────────────────────────────────────────────
+
+    /// `dwFlags`: 0 (default), 1 = GET_MODULE_HANDLE_EX_FLAG_PIN
+    /// (refuses to unload), 2 = FROM_ADDRESS, 4 = UNCHANGED_REFCOUNT.
+    @lib pub fn GetModuleHandleExA(
+        dwFlags:     u32,
+        lpModuleName: *const char,
+        phModule:    *HMODULE
+    ): i32
+    @lib pub fn GetModuleHandleExW(
+        dwFlags:     u32,
+        lpModuleName: *const u16,
+        phModule:    *HMODULE
+    ): i32
+
+    /// Stops the OS from calling `DllMain(DLL_THREAD_*)` for `hLibModule`.
+    @lib pub fn DisableThreadLibraryCalls(hLibModule: HMODULE): i32
+
+    // ── Resources (read-only access to .rsrc) ────────────────────
+
+    @lib pub fn FindResourceA(
+        hModule: HMODULE,
+        lpName:  *const char,
+        lpType:  *const char
+    ): HRSRC
+    @lib pub fn FindResourceW(
+        hModule: HMODULE,
+        lpName:  *const u16,
+        lpType:  *const u16
+    ): HRSRC
+
+    @lib pub fn FindResourceExA(
+        hModule:   HMODULE,
+        lpType:    *const char,
+        lpName:    *const char,
+        wLanguage: u16
+    ): HRSRC
+    @lib pub fn FindResourceExW(
+        hModule:   HMODULE,
+        lpType:    *const u16,
+        lpName:    *const u16,
+        wLanguage: u16
+    ): HRSRC
+
+    @lib pub fn LoadResource(hModule: HMODULE, hResInfo: HRSRC): HANDLE
+    @lib pub fn LockResource(hResData: HANDLE): *void
+    @lib pub fn SizeofResource(hModule: HMODULE, hResInfo: HRSRC): u32
+    @lib pub fn FreeResource(hResData: HANDLE): i32
+
+    @lib pub fn EnumResourceTypesA(
+        hModule:    HMODULE,
+        lpEnumFunc: fn(HMODULE, *char, i64): i32,
+        lParam:     i64
+    ): i32
+    @lib pub fn EnumResourceTypesW(
+        hModule:    HMODULE,
+        lpEnumFunc: fn(HMODULE, *u16, i64): i32,
+        lParam:     i64
+    ): i32
+
+    @lib pub fn EnumResourceNamesA(
+        hModule:    HMODULE,
+        lpType:     *const char,
+        lpEnumFunc: fn(HMODULE, *const char, *char, i64): i32,
+        lParam:     i64
+    ): i32
+    @lib pub fn EnumResourceNamesW(
+        hModule:    HMODULE,
+        lpType:     *const u16,
+        lpEnumFunc: fn(HMODULE, *const u16, *u16, i64): i32,
+        lParam:     i64
+    ): i32
+
+    @lib pub fn BeginUpdateResourceA(pFileName: *const char, bDeleteExistingResources: i32): HANDLE
+    @lib pub fn BeginUpdateResourceW(pFileName: *const u16, bDeleteExistingResources: i32): HANDLE
+
+    @lib pub fn UpdateResourceA(
+        hUpdate:   HANDLE,
+        lpType:    *const char,
+        lpName:    *const char,
+        wLanguage: u16,
+        lpData:    *const void,
+        cb:        u32
+    ): i32
+    @lib pub fn UpdateResourceW(
+        hUpdate:   HANDLE,
+        lpType:    *const u16,
+        lpName:    *const u16,
+        wLanguage: u16,
+        lpData:    *const void,
+        cb:        u32
+    ): i32
+
+    @lib pub fn EndUpdateResourceA(hUpdate: HANDLE, fDiscard: i32): i32
+    @lib pub fn EndUpdateResourceW(hUpdate: HANDLE, fDiscard: i32): i32
+
+    // ── Console input / control handler ──────────────────────────
+
+    /// 16-byte key event record (matches the C union layout).
+    pub struct KEY_EVENT_RECORD {
+        bKeyDown:          i32
+        wRepeatCount:      u16
+        wVirtualKeyCode:   u16
+        wVirtualScanCode:  u16
+        /// Union of UnicodeChar / AsciiChar — we expose the wide view.
+        uChar:             u16
+        dwControlKeyState: u32
+    }
+
+    pub struct MOUSE_EVENT_RECORD {
+        dwMousePosition:   COORD
+        dwButtonState:     u32
+        dwControlKeyState: u32
+        dwEventFlags:      u32
+    }
+
+    pub struct WINDOW_BUFFER_SIZE_RECORD {
+        dwSize: COORD
+    }
+
+    pub struct MENU_EVENT_RECORD {
+        dwCommandId: u32
+    }
+
+    pub struct FOCUS_EVENT_RECORD {
+        bSetFocus: i32
+    }
+
+    /// `INPUT_RECORD` — 20 bytes. The Event union is exposed as
+    /// an opaque 16-byte buffer; reinterpret based on `EventType`
+    /// (one of `InputEventType.*`).
+    pub struct INPUT_RECORD {
+        EventType: u16
+        _pad:      u16
+        Event:     u8[16]
+    }
+
+    @lib pub fn PeekConsoleInputA(
+        hConsoleInput:        HANDLE,
+        lpBuffer:             *INPUT_RECORD,
+        nLength:              u32,
+        lpNumberOfEventsRead: *u32
+    ): i32
+    @lib pub fn PeekConsoleInputW(
+        hConsoleInput:        HANDLE,
+        lpBuffer:             *INPUT_RECORD,
+        nLength:              u32,
+        lpNumberOfEventsRead: *u32
+    ): i32
+
+    @lib pub fn ReadConsoleInputA(
+        hConsoleInput:        HANDLE,
+        lpBuffer:             *INPUT_RECORD,
+        nLength:              u32,
+        lpNumberOfEventsRead: *u32
+    ): i32
+    @lib pub fn ReadConsoleInputW(
+        hConsoleInput:        HANDLE,
+        lpBuffer:             *INPUT_RECORD,
+        nLength:              u32,
+        lpNumberOfEventsRead: *u32
+    ): i32
+
+    @lib pub fn WriteConsoleInputA(
+        hConsoleInput:           HANDLE,
+        lpBuffer:                *const INPUT_RECORD,
+        nLength:                 u32,
+        lpNumberOfEventsWritten: *u32
+    ): i32
+    @lib pub fn WriteConsoleInputW(
+        hConsoleInput:           HANDLE,
+        lpBuffer:                *const INPUT_RECORD,
+        nLength:                 u32,
+        lpNumberOfEventsWritten: *u32
+    ): i32
+
+    @lib pub fn GetNumberOfConsoleInputEvents(
+        hConsoleInput:    HANDLE,
+        lpNumberOfEvents: *u32
+    ): i32
+
+    /// Installs a Ctrl+C / Ctrl+Break / window-close handler.
+    /// Pass `0 as fn(u32): i32` for HandlerRoutine and `Add = 1`
+    /// to ignore Ctrl+C in the current process.
+    @lib pub fn SetConsoleCtrlHandler(
+        HandlerRoutine: fn(u32): i32,
+        Add:            i32
+    ): i32
+
+    @lib pub fn GenerateConsoleCtrlEvent(dwCtrlEvent: u32, dwProcessGroupId: u32): i32
+
+    /// `CONSOLE_CURSOR_INFO` — 8 bytes.
+    pub struct CONSOLE_CURSOR_INFO {
+        dwSize:   u32
+        bVisible: i32
+    }
+
+    @lib pub fn GetConsoleCursorInfo(
+        hConsoleOutput:        HANDLE,
+        lpConsoleCursorInfo:   *CONSOLE_CURSOR_INFO
+    ): i32
+    @lib pub fn SetConsoleCursorInfo(
+        hConsoleOutput:        HANDLE,
+        lpConsoleCursorInfo:   *const CONSOLE_CURSOR_INFO
+    ): i32
+
+    @lib pub fn GetConsoleProcessList(lpdwProcessList: *u32, dwProcessCount: u32): u32
+
+    @lib pub fn SetConsoleScreenBufferSize(hConsoleOutput: HANDLE, dwSize: COORD): i32
+
+    @lib pub fn SetConsoleWindowInfo(
+        hConsoleOutput:  HANDLE,
+        bAbsolute:       i32,
+        lpConsoleWindow: *const SMALL_RECT
+    ): i32
+
+    @lib pub fn GetLargestConsoleWindowSize(hConsoleOutput: HANDLE): COORD
+
+    @lib pub fn SetConsoleActiveScreenBuffer(hConsoleOutput: HANDLE): i32
+
+    @lib pub fn CreateConsoleScreenBuffer(
+        dwDesiredAccess:      u32,
+        dwShareMode:          u32,
+        lpSecurityAttributes: *void,
+        dwFlags:              u32,   // CONSOLE_TEXTMODE_BUFFER = 1
+        lpScreenBufferData:   *void
+    ): HANDLE
+
+    // ── Named pipe extended ──────────────────────────────────────
+
+    @lib pub fn WaitNamedPipeA(lpNamedPipeName: *const char, nTimeOut: u32): i32
+    @lib pub fn WaitNamedPipeW(lpNamedPipeName: *const u16, nTimeOut: u32): i32
+
+    @lib pub fn SetNamedPipeHandleState(
+        hNamedPipe:           HANDLE,
+        lpMode:               *u32,
+        lpMaxCollectionCount: *u32,
+        lpCollectDataTimeout: *u32
+    ): i32
+
+    @lib pub fn PeekNamedPipe(
+        hNamedPipe:             HANDLE,
+        lpBuffer:               *void,
+        nBufferSize:            u32,
+        lpBytesRead:            *u32,
+        lpTotalBytesAvail:      *u32,
+        lpBytesLeftThisMessage: *u32
+    ): i32
+
+    @lib pub fn GetNamedPipeInfo(
+        hNamedPipe:      HANDLE,
+        lpFlags:         *u32,
+        lpOutBufferSize: *u32,
+        lpInBufferSize:  *u32,
+        lpMaxInstances:  *u32
+    ): i32
+
+    @lib pub fn DisconnectNamedPipe(hNamedPipe: HANDLE): i32
+
+    @lib pub fn TransactNamedPipe(
+        hNamedPipe:     HANDLE,
+        lpInBuffer:     *void,
+        nInBufferSize:  u32,
+        lpOutBuffer:    *void,
+        nOutBufferSize: u32,
+        lpBytesRead:    *u32,
+        lpOverlapped:   *OVERLAPPED
+    ): i32
+
+    @lib pub fn CallNamedPipeA(
+        lpNamedPipeName: *const char,
+        lpInBuffer:      *void,
+        nInBufferSize:   u32,
+        lpOutBuffer:     *void,
+        nOutBufferSize:  u32,
+        lpBytesRead:     *u32,
+        nTimeOut:        u32
+    ): i32
+    @lib pub fn CallNamedPipeW(
+        lpNamedPipeName: *const u16,
+        lpInBuffer:      *void,
+        nInBufferSize:   u32,
+        lpOutBuffer:     *void,
+        nOutBufferSize:  u32,
+        lpBytesRead:     *u32,
+        nTimeOut:        u32
+    ): i32
+
+    // ── System info / memory (extended) ──────────────────────────
+
+    /// Like GetSystemInfo but always reports the *native* machine info
+    /// even from a WOW64 process.
+    @lib pub fn GetNativeSystemInfo(lpSystemInfo: *SYSTEM_INFO)
+
+    /// `MEMORYSTATUSEX` — 64 bytes. Set `dwLength = 64` before calling.
+    pub struct MEMORYSTATUSEX {
+        dwLength:                u32
+        dwMemoryLoad:            u32
+        ullTotalPhys:            u64
+        ullAvailPhys:            u64
+        ullTotalPageFile:        u64
+        ullAvailPageFile:        u64
+        ullTotalVirtual:         u64
+        ullAvailVirtual:         u64
+        ullAvailExtendedVirtual: u64
+    }
+
+    @lib pub fn GlobalMemoryStatusEx(lpBuffer: *MEMORYSTATUSEX): i32
+
+    /// Vista+: returns physically installed RAM in kilobytes.
+    @lib pub fn GetPhysicallyInstalledSystemMemory(TotalMemoryInKilobytes: *u64): i32
+
+    @lib pub fn IsProcessorFeaturePresent(ProcessorFeature: u32): i32
+
+    @lib pub fn GetLogicalProcessorInformation(
+        Buffer:         *void,
+        ReturnedLength: *u32
+    ): i32
+
+    /// `RelationshipType`: 0 = ProcessorCore, 1 = NumaNode, 2 = Cache,
+    /// 3 = ProcessorPackage, 4 = Group, 7 = Module, 0xFFFF = All.
+    @lib pub fn GetLogicalProcessorInformationEx(
+        RelationshipType: i32,
+        Buffer:           *void,
+        ReturnedLength:   *u32
+    ): i32
+
+    /// Reads an ACPI/SMBIOS/firmware table. Provider sigs:
+    ///   'ACPI' (0x41435049), 'FIRM' (0x4649524D), 'RSMB' (0x52534D42).
+    @lib pub fn GetSystemFirmwareTable(
+        FirmwareTableProviderSignature: u32,
+        FirmwareTableID:                u32,
+        pFirmwareTableBuffer:           *void,
+        BufferSize:                     u32
+    ): u32
+
+    // ── Power / sleep prevention ─────────────────────────────────
+
+    /// Prevents display sleep / system sleep while the calling thread
+    /// is alive (or until cleared with `ES_CONTINUOUS` alone).
+    /// Returns the previous state flags.
+    @lib pub fn SetThreadExecutionState(esFlags: u32): u32
+
+    // ── WOW64 / 32-on-64 redirection ─────────────────────────────
+
+    /// Win10+: returns the host (native) and process (emulated) machine
+    /// IDs (IMAGE_FILE_MACHINE_*).
+    @lib pub fn IsWow64Process2(
+        hProcess:        HANDLE,
+        pProcessMachine: *u16,
+        pNativeMachine:  *u16
+    ): i32
+
+    @lib pub fn Wow64DisableWow64FsRedirection(OldValue: **void): i32
+    @lib pub fn Wow64RevertWow64FsRedirection(OldValue: *void): i32
+
+    @lib pub fn GetSystemWow64DirectoryA(lpBuffer: *char, uSize: u32): u32
+    @lib pub fn GetSystemWow64DirectoryW(lpBuffer: *u16, uSize: u32): u32
+
+    // ── Atom tables (clipboard / RPC helpers — legacy) ───────────
+
+    @lib pub fn GlobalAddAtomA(lpString: *const char): u16
+    @lib pub fn GlobalAddAtomW(lpString: *const u16): u16
+    @lib pub fn GlobalDeleteAtom(nAtom: u16): u16
+    @lib pub fn GlobalFindAtomA(lpString: *const char): u16
+    @lib pub fn GlobalFindAtomW(lpString: *const u16): u16
+    @lib pub fn GlobalGetAtomNameA(nAtom: u16, lpBuffer: *char, nSize: i32): u32
+    @lib pub fn GlobalGetAtomNameW(nAtom: u16, lpBuffer: *u16, nSize: i32): u32
+
+    @lib pub fn AddAtomA(lpString: *const char): u16
+    @lib pub fn AddAtomW(lpString: *const u16): u16
+    @lib pub fn DeleteAtom(nAtom: u16): u16
+    @lib pub fn FindAtomA(lpString: *const char): u16
+    @lib pub fn FindAtomW(lpString: *const u16): u16
+
+    // ── Hard links / symbolic links / file replace / compress ────
+
+    @lib pub fn CreateHardLinkA(
+        lpFileName:           *const char,
+        lpExistingFileName:   *const char,
+        lpSecurityAttributes: *void
+    ): i32
+    @lib pub fn CreateHardLinkW(
+        lpFileName:           *const u16,
+        lpExistingFileName:   *const u16,
+        lpSecurityAttributes: *void
+    ): i32
+
+    /// Requires SE_CREATE_SYMBOLIC_LINK_NAME privilege unless
+    /// `SymbolicLinkFlags.allowUnprivilegedCreate` is OR'd in and
+    /// Developer Mode is on.
+    @lib pub fn CreateSymbolicLinkA(
+        lpSymlinkFileName: *const char,
+        lpTargetFileName:  *const char,
+        dwFlags:           u32
+    ): u8
+    @lib pub fn CreateSymbolicLinkW(
+        lpSymlinkFileName: *const u16,
+        lpTargetFileName:  *const u16,
+        dwFlags:           u32
+    ): u8
+
+    /// Atomically swaps `lpReplacedFileName` with `lpReplacementFileName`.
+    /// `lpBackupFileName`: optional renamed copy of the original (NULL to discard).
+    /// `dwReplaceFlags`: 0 = default; 1 = REPLACEFILE_WRITE_THROUGH,
+    /// 2 = REPLACEFILE_IGNORE_MERGE_ERRORS, 4 = REPLACEFILE_IGNORE_ACL_ERRORS.
+    @lib pub fn ReplaceFileA(
+        lpReplacedFileName:    *const char,
+        lpReplacementFileName: *const char,
+        lpBackupFileName:      *const char,
+        dwReplaceFlags:        u32,
+        lpExclude:             *void,
+        lpReserved:            *void
+    ): i32
+    @lib pub fn ReplaceFileW(
+        lpReplacedFileName:    *const u16,
+        lpReplacementFileName: *const u16,
+        lpBackupFileName:      *const u16,
+        dwReplaceFlags:        u32,
+        lpExclude:             *void,
+        lpReserved:            *void
+    ): i32
+
+    @lib pub fn GetCompressedFileSizeA(lpFileName: *const char, lpFileSizeHigh: *u32): u32
+    @lib pub fn GetCompressedFileSizeW(lpFileName: *const u16, lpFileSizeHigh: *u32): u32
+
+    // ── FindFirstFileEx ──────────────────────────────────────────
+
+    /// Faster directory listing. `fInfoLevelId`: `FindexInfoLevel.basic`
+    /// skips the `cAlternateFileName` field. `dwAdditionalFlags`:
+    /// 1 = FIND_FIRST_EX_CASE_SENSITIVE, 2 = FIND_FIRST_EX_LARGE_FETCH.
+    @lib pub fn FindFirstFileExA(
+        lpFileName:        *const char,
+        fInfoLevelId:      i32,
+        lpFindFileData:    *WIN32_FIND_DATAA,
+        fSearchOp:         i32,
+        lpSearchFilter:    *void,
+        dwAdditionalFlags: u32
+    ): HANDLE
+    @lib pub fn FindFirstFileExW(
+        lpFileName:        *const u16,
+        fInfoLevelId:      i32,
+        lpFindFileData:    *WIN32_FIND_DATAA,
+        fSearchOp:         i32,
+        lpSearchFilter:    *void,
+        dwAdditionalFlags: u32
+    ): HANDLE
+
+    // ── DOS device names ─────────────────────────────────────────
+
+    /// Translates a DOS device name (e.g. "C:") to its NT target path.
+    @lib pub fn QueryDosDeviceA(lpDeviceName: *const char, lpTargetPath: *char, ucchMax: u32): u32
+    @lib pub fn QueryDosDeviceW(lpDeviceName: *const u16, lpTargetPath: *u16, ucchMax: u32): u32
+
+    @lib pub fn DefineDosDeviceA(dwFlags: u32, lpDeviceName: *const char, lpTargetPath: *const char): i32
+    @lib pub fn DefineDosDeviceW(dwFlags: u32, lpDeviceName: *const u16, lpTargetPath: *const u16): i32
+
+    // ── Volume / drive ───────────────────────────────────────────
+
+    /// Returns the volume GUIDs for all paths sharing the volume of
+    /// `lpszVolumeName` (NUL-separated, double-NUL terminated).
+    @lib pub fn GetVolumePathNamesForVolumeNameA(
+        lpszVolumeName:      *const char,
+        lpszVolumePathNames: *char,
+        cchBufferLength:     u32,
+        lpcchReturnLength:   *u32
+    ): i32
+    @lib pub fn GetVolumePathNamesForVolumeNameW(
+        lpszVolumeName:      *const u16,
+        lpszVolumePathNames: *u16,
+        cchBufferLength:     u32,
+        lpcchReturnLength:   *u32
+    ): i32
+
+    @lib pub fn GetVolumeNameForVolumeMountPointA(
+        lpszVolumeMountPoint: *const char,
+        lpszVolumeName:       *char,
+        cchBufferLength:      u32
+    ): i32
+    @lib pub fn GetVolumeNameForVolumeMountPointW(
+        lpszVolumeMountPoint: *const u16,
+        lpszVolumeName:       *u16,
+        cchBufferLength:      u32
+    ): i32
+
+    @lib pub fn SetVolumeMountPointA(
+        lpszVolumeMountPoint: *const char,
+        lpszVolumeName:       *const char
+    ): i32
+    @lib pub fn SetVolumeMountPointW(
+        lpszVolumeMountPoint: *const u16,
+        lpszVolumeName:       *const u16
+    ): i32
+
+    @lib pub fn DeleteVolumeMountPointA(lpszVolumeMountPoint: *const char): i32
+    @lib pub fn DeleteVolumeMountPointW(lpszVolumeMountPoint: *const u16): i32
+
+    // ── Locale formatting ────────────────────────────────────────
+
+    @lib pub fn GetDateFormatA(
+        Locale:    u32,
+        dwFlags:   u32,
+        lpDate:    *const SYSTEMTIME,
+        lpFormat:  *const char,
+        lpDateStr: *char,
+        cchDate:   i32
+    ): i32
+    @lib pub fn GetDateFormatW(
+        Locale:    u32,
+        dwFlags:   u32,
+        lpDate:    *const SYSTEMTIME,
+        lpFormat:  *const u16,
+        lpDateStr: *u16,
+        cchDate:   i32
+    ): i32
+
+    /// Win7+: locale-name variant.
+    @lib pub fn GetDateFormatEx(
+        lpLocaleName: *const u16,
+        dwFlags:      u32,
+        lpDate:       *const SYSTEMTIME,
+        lpFormat:     *const u16,
+        lpDateStr:    *u16,
+        cchDate:      i32,
+        lpCalendar:   *const u16
+    ): i32
+
+    @lib pub fn GetTimeFormatA(
+        Locale:    u32,
+        dwFlags:   u32,
+        lpTime:    *const SYSTEMTIME,
+        lpFormat:  *const char,
+        lpTimeStr: *char,
+        cchTime:   i32
+    ): i32
+    @lib pub fn GetTimeFormatW(
+        Locale:    u32,
+        dwFlags:   u32,
+        lpTime:    *const SYSTEMTIME,
+        lpFormat:  *const u16,
+        lpTimeStr: *u16,
+        cchTime:   i32
+    ): i32
+
+    @lib pub fn GetTimeFormatEx(
+        lpLocaleName: *const u16,
+        dwFlags:      u32,
+        lpTime:       *const SYSTEMTIME,
+        lpFormat:     *const u16,
+        lpTimeStr:    *u16,
+        cchTime:      i32
+    ): i32
+
+    @lib pub fn GetNumberFormatA(
+        Locale:       u32,
+        dwFlags:      u32,
+        lpValue:      *const char,
+        lpFormat:     *const void,   // *NUMBERFMTA (not bound)
+        lpNumberStr:  *char,
+        cchNumber:    i32
+    ): i32
+    @lib pub fn GetNumberFormatW(
+        Locale:       u32,
+        dwFlags:      u32,
+        lpValue:      *const u16,
+        lpFormat:     *const void,
+        lpNumberStr:  *u16,
+        cchNumber:    i32
+    ): i32
+
+    @lib pub fn GetCurrencyFormatA(
+        Locale:        u32,
+        dwFlags:       u32,
+        lpValue:       *const char,
+        lpFormat:      *const void,
+        lpCurrencyStr: *char,
+        cchCurrency:   i32
+    ): i32
+    @lib pub fn GetCurrencyFormatW(
+        Locale:        u32,
+        dwFlags:       u32,
+        lpValue:       *const u16,
+        lpFormat:      *const void,
+        lpCurrencyStr: *u16,
+        cchCurrency:   i32
+    ): i32
+
+    @lib pub fn GetGeoInfoA(
+        Location:    u32,
+        GeoType:     u32,
+        lpGeoData:   *char,
+        cchData:     i32,
+        LangId:      u16
+    ): i32
+    @lib pub fn GetGeoInfoW(
+        Location:    u32,
+        GeoType:     u32,
+        lpGeoData:   *u16,
+        cchData:     i32,
+        LangId:      u16
+    ): i32
+
+    @lib pub fn GetUserGeoID(GeoClass: u32): u32
+    @lib pub fn SetUserGeoID(GeoId: u32): i32
+
+    // ── File information by handle (extended) ────────────────────
+
+    /// `FileInformationClass` codes (selected): 0 FileBasicInfo,
+    /// 1 FileStandardInfo, 2 FileNameInfo, 3 FileRenameInfo (set),
+    /// 5 FileStreamInfo, 6 FileCompressionInfo, 7 FileAttributeTagInfo,
+    /// 8 FileIdBothDirectoryInfo (Vista+), 18 FileDispositionInfo (delete).
+    @lib pub fn GetFileInformationByHandleEx(
+        hFile:                HANDLE,
+        FileInformationClass: i32,
+        lpFileInformation:    *void,
+        dwBufferSize:         u32
+    ): i32
+
+    @lib pub fn SetFileInformationByHandle(
+        hFile:                HANDLE,
+        FileInformationClass: i32,
+        lpFileInformation:    *void,
+        dwBufferSize:         u32
+    ): i32
+
+    // ── Misc time / path ─────────────────────────────────────────
+
+    /// Win11+: per-user temp path that survives session resets.
+    /// Falls back to GetTempPath on older systems via the loader.
+    @lib pub fn GetTempPath2A(BufferLength: u32, Buffer: *char): u32
+    @lib pub fn GetTempPath2W(BufferLength: u32, Buffer: *u16): u32
+
+    @lib pub fn GetSystemTimeAdjustment(
+        lpTimeAdjustment:         *u32,
+        lpTimeIncrement:          *u32,
+        lpTimeAdjustmentDisabled: *i32
+    ): i32
+
+    // ── Activation context (A variant + ref counting) ────────────
+
+    @lib pub fn CreateActCtxA(pActCtx: *const void): i64
+    @lib pub fn AddRefActCtx(hActCtx: i64)
+
+    @lib pub fn FindActCtxSectionStringA(
+        dwFlags:           u32,
+        lpExtensionGuid:   *const GUID,
+        ulSectionId:       u32,
+        lpStringToFind:    *const char,
+        ReturnedData:      *void
+    ): i32
+    @lib pub fn FindActCtxSectionStringW(
+        dwFlags:           u32,
+        lpExtensionGuid:   *const GUID,
+        ulSectionId:       u32,
+        lpStringToFind:    *const u16,
+        ReturnedData:      *void
+    ): i32
+
+    // ── Synchronization barriers (Vista+) ────────────────────────
+
+    /// `SYNCHRONIZATION_BARRIER` — 32 bytes; opaque.
+    pub struct SYNCHRONIZATION_BARRIER {
+        Reserved1: u32
+        Reserved2: u32
+        Reserved3: u64[2]
+        Reserved4: u32
+        Reserved5: u32
+    }
+
+    @lib pub fn InitializeSynchronizationBarrier(
+        lpBarrier:     *SYNCHRONIZATION_BARRIER,
+        lTotalThreads: i32,
+        lSpinCount:    i32
+    ): i32
+
+    /// `dwFlags`: 0, 1 = SYNCHRONIZATION_BARRIER_FLAGS_SPIN_ONLY,
+    /// 2 = SYNCHRONIZATION_BARRIER_FLAGS_BLOCK_ONLY,
+    /// 4 = SYNCHRONIZATION_BARRIER_FLAGS_NO_DELETE.
+    @lib pub fn EnterSynchronizationBarrier(
+        lpBarrier: *SYNCHRONIZATION_BARRIER,
+        dwFlags:   u32
+    ): i32
+
+    @lib pub fn DeleteSynchronizationBarrier(lpBarrier: *SYNCHRONIZATION_BARRIER): i32
+
+    // ── Misc utilities ───────────────────────────────────────────
+
+    /// Computes `(nNumber * nNumerator + nDenominator/2) / nDenominator`
+    /// with 64-bit intermediates. Returns -1 on overflow.
+    @lib pub fn MulDiv(nNumber: i32, nNumerator: i32, nDenominator: i32): i32
+
+    /// Set process working-set bounds (advisory). Pass `-1` for either
+    /// value to keep it unchanged.
+    @lib pub fn SetProcessWorkingSetSize(
+        hProcess:           HANDLE,
+        dwMinimumWorkingSetSize: u64,
+        dwMaximumWorkingSetSize: u64
+    ): i32
+
+    @lib pub fn GetProcessWorkingSetSize(
+        hProcess:           HANDLE,
+        lpMinimumWorkingSetSize: *u64,
+        lpMaximumWorkingSetSize: *u64
+    ): i32
+
+    /// `Vista+`: returns 16-bit Windows version of the process the
+    /// thread that called Sleep(0) yields to.
+    @lib pub fn GetProcessIoCounters(hProcess: HANDLE, lpIoCounters: *void): i32
+
+    /// Sets the working-set bounds and policy class. `Flags`:
+    /// 1 = QUOTA_LIMITS_HARDWS_MIN_ENABLE, 2 = MIN_DISABLE,
+    /// 4 = MAX_ENABLE, 8 = MAX_DISABLE.
+    @lib pub fn SetProcessWorkingSetSizeEx(
+        hProcess:           HANDLE,
+        dwMinimumWorkingSetSize: u64,
+        dwMaximumWorkingSetSize: u64,
+        Flags:              u32
+    ): i32
+
+    /// Returns the calling thread's stack guarantee (Vista+).
+    @lib pub fn SetThreadStackGuarantee(StackSizeInBytes: *u32): i32
 }
