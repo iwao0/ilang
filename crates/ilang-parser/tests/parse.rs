@@ -209,6 +209,26 @@ fn duplicate_param_name_in_closure_is_rejected() {
 }
 
 #[test]
+fn reading_underscore_is_rejected() {
+    let src = "fn f(_: i64) { _ }";
+    let toks = tokenize(src).unwrap();
+    let err = parse(&toks).expect_err("`_` is write-only");
+    match err {
+        ParseError::Generic { msg, .. } => {
+            assert!(msg.contains("discard placeholder"), "got: {msg}");
+        }
+        other => panic!("expected Generic, got {other:?}"),
+    }
+}
+
+#[test]
+fn underscore_in_binder_position_is_fine() {
+    let src = "let _ = 1 + 2; let _: i64 = 3;";
+    let toks = tokenize(src).unwrap();
+    parse(&toks).expect("binding to `_` (without reading it) is valid");
+}
+
+#[test]
 fn if_expression_with_elif() {
     let p = parse_str("if true { 1 } elif false { 2 } else { 3 }");
     match p.tail.map(|t| t.kind) {

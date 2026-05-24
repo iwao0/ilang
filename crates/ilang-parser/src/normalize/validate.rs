@@ -136,6 +136,17 @@ fn validate_expr(e: &Expr, modules: &HashMap<Symbol, Symbol>) -> Result<(), Pars
         ExprKind::StructLit { class, .. } => {
             check_dotted_ref(class, "", e.span, modules)?;
         }
+        // `_` is the discard / wildcard name. It's valid in binder
+        // positions (`let _ = expr`, `fn(_: T)`, `match { _ => ... }`)
+        // but referring back to it pulls the discarded value out of
+        // thin air. Reject the read so duplicate-`_` parameters stay
+        // meaningfully "ignored".
+        ExprKind::Var(name) if name.as_str() == "_" => {
+            return Err(ParseError::Generic {
+                msg: "`_` is a discard placeholder and cannot be read".to_string(),
+                span: e.span,
+            });
+        }
         _ => {}
     }
     walk_expr_children_ref(
