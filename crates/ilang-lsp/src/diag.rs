@@ -363,6 +363,8 @@ pub(crate) fn build_doc(
         HashMap::new();
     let mut selective_use_names: std::collections::HashSet<AstSymbol> =
         std::collections::HashSet::new();
+    let mut imported_modules: std::collections::HashSet<AstSymbol> =
+        std::collections::HashSet::new();
     for item in &prog.items {
         match item {
             ilang_ast::Item::Interface(i) => {
@@ -380,6 +382,17 @@ pub(crate) fn build_doc(
                 if let Some(names) = u.selective.as_ref() {
                     for n in names.iter() {
                         selective_use_names.insert(*n);
+                    }
+                }
+                // Record the user-facing namespace name (skips
+                // `use M as _` which suppresses the namespace).
+                match u.alias {
+                    ilang_ast::UseAlias::Discard => {}
+                    ilang_ast::UseAlias::Named(name) => {
+                        imported_modules.insert(name);
+                    }
+                    ilang_ast::UseAlias::Default => {
+                        imported_modules.insert(u.module);
                     }
                 }
             }
@@ -404,6 +417,7 @@ pub(crate) fn build_doc(
         local_interfaces,
         local_enums,
         selective_use_names,
+        imported_modules,
     }
 }
 

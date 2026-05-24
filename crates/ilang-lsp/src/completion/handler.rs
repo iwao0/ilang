@@ -13,8 +13,9 @@ use tower_lsp::lsp_types::{
 
 use super::{
     at_attribute_position, at_type_position, attribute_completions, brace_depth_at,
-    call_snippet, enclosing_class, enclosing_use_module, global_completions,
-    in_extern_c_block, preceding_kw_introduces_binder, push_extern_c_keywords,
+    call_snippet, classify_signature_kind, enclosing_class, enclosing_use_module,
+    global_completions, in_extern_c_block, in_extern_objc_block,
+    preceding_kw_introduces_binder, push_extern_c_keywords,
     push_ffi_helper_completions, trigger_sig_help_command, type_completions,
 };
 use crate::builtins::{
@@ -115,6 +116,13 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         // After `:` we're in a type position — only suggest types.
         if at_type_position(&doc.text, off) {
             let mut items = type_completions(doc);
+            // `ObjCBlock<F>` only makes sense inside an
+            // `@extern(ObjC) { ... }` block — drop it everywhere
+            // else so trigging completion on `O` doesn't surface
+            // it in ordinary ilang code.
+            if !in_extern_objc_block(&doc.text, off) {
+                items.retain(|it| it.label != "ObjCBlock");
+            }
             // Server-side fuzzy filter against the typed prefix.
             // VSCode's client filter scores `app` against
             // `NSApplicationDelegate` below its visibility
@@ -180,23 +188,14 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                     if is_synthesized_objc_helper(suffix) {
                         return None;
                     }
-                    // Strip leading `@attr` lines (e.g. `@objc\n`,
-                    // `@flags\n`) so the kind classifier can still
-                    // see the `class` / `enum` keyword on the
-                    // first content line.
-                    let body = sig_body_skip_attrs(sig);
-                    let kind = if body.starts_with("class ")
-                        || body.starts_with("struct ")
-                        || body.starts_with("union ")
-                    {
-                        CompletionItemKind::CLASS
-                    } else if body.starts_with("enum ") {
-                        CompletionItemKind::ENUM
-                    } else if body.starts_with("const ") {
-                        CompletionItemKind::CONSTANT
-                    } else {
-                        CompletionItemKind::FUNCTION
-                    };
+                    // Hide nested sub-module names — `pub use button.*`
+                    // re-exports `button.il`'s contents into the
+                    // parent namespace but leaves `button` itself
+                    // unreachable from `use M { ... }`.
+                    let kind = classify_signature_kind(sig);
+                    if kind == CompletionItemKind::MODULE {
+                        return None;
+                    }
                     Some(CompletionItem {
                         label: suffix.to_string(),
                         kind: Some(kind),
@@ -210,6 +209,14 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         }
         let at_top_level = brace_depth_at(&doc.text, off) <= 0;
         let mut items = global_completions(doc, at_top_level);
+        // `ObjCBlock<F>` is meaningless outside an
+        // `@extern(ObjC) { ... }` block — `register_builtin_enums`
+        // dumps it into `external_signatures` so hover works, which
+        // also makes it bleed into the bare-name completion list.
+        // Drop it here when the cursor isn't inside such a block.
+        if !in_extern_objc_block(&doc.text, off) {
+            items.retain(|it| it.label != "ObjCBlock");
+        }
         if in_extern_c_block(&doc.text, off) {
             push_ffi_helper_completions(&mut items);
             push_extern_c_keywords(&mut items);
@@ -445,21 +452,16 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                 if is_synthesized_objc_helper(suffix) {
                     return None;
                 }
-                let body = sig_body_skip_attrs(sig);
-                let kind = if body.starts_with("class ")
-                    || body.starts_with("struct ")
-                    || body.starts_with("union ")
-                {
-                    CompletionItemKind::CLASS
-                } else if body.starts_with("enum ") {
-                    CompletionItemKind::ENUM
-                } else if body.starts_with("(variant)") {
-                    CompletionItemKind::ENUM_MEMBER
-                } else if body.starts_with("const ") {
-                    CompletionItemKind::CONSTANT
-                } else {
-                    CompletionItemKind::FUNCTION
-                };
+                // Skip sub-module names (`gui.button` etc.) — the
+                // loader registers `(module) gui.button` for every
+                // sibling file even when `gui.il` only re-exports
+                // `pub use button.*` (which flattens the contents
+                // and leaves the `gui.button` namespace itself
+                // unreachable from the consumer's side).
+                let kind = classify_signature_kind(sig);
+                if kind == CompletionItemKind::MODULE {
+                    return None;
+                }
                 let (insert_text, fmt) = call_snippet(suffix, kind);
                 let command = trigger_sig_help_command(kind);
                 let documentation = doc.external.docs.get(k).cloned().map(|d| {

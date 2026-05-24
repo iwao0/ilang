@@ -205,6 +205,11 @@ pub(crate) struct Doc {
     /// should be inserted as the dotted form (not in the set) or
     /// the bare form (already imported, dotted would just clutter).
     pub(crate) selective_use_names: HashSet<AstSymbol>,
+    /// Module-level namespace names the file actually pulled in via
+    /// `use` (`gui`, `cocoa as c`, …). The MODULE completion list
+    /// filters against this so a transitive dep (e.g. `cocoa` reached
+    /// through `gui`) doesn't bleed into a file that only `use gui`s.
+    pub(crate) imported_modules: HashSet<AstSymbol>,
 }
 
 impl Doc {

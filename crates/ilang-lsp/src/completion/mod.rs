@@ -21,7 +21,7 @@ mod handler;
 mod types;
 pub(crate) use context::{
     at_attribute_position, at_type_position, brace_depth_at, enclosing_class,
-    enclosing_use_module, in_extern_c_block, literal_token_at,
+    enclosing_use_module, in_extern_c_block, in_extern_objc_block, literal_token_at,
     preceding_kw_introduces_binder,
 };
 pub(crate) use globals::global_completions;

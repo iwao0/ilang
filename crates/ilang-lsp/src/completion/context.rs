@@ -42,6 +42,17 @@ pub(crate) fn literal_token_at(src: &str, span: Span) -> Option<String> {
 /// enclosing block, and we check whether `@extern(C)` precedes it
 /// (with optional whitespace).
 pub(crate) fn in_extern_c_block(text: &str, offset: usize) -> bool {
+    in_extern_block(text, offset, b"C")
+}
+
+/// `true` when the cursor sits inside an `@extern(ObjC, ...) { ... }`
+/// block. Used to gate `@objc`-only built-ins (`ObjCBlock<F>`) so they
+/// only surface where they actually make sense.
+pub(crate) fn in_extern_objc_block(text: &str, offset: usize) -> bool {
+    in_extern_block(text, offset, b"ObjC")
+}
+
+fn in_extern_block(text: &str, offset: usize, kind: &[u8]) -> bool {
     let bytes = text.as_bytes();
     let end = offset.min(bytes.len());
     let mut depth: i32 = 0;
@@ -53,11 +64,9 @@ pub(crate) fn in_extern_c_block(text: &str, offset: usize) -> bool {
             b'{' => {
                 if depth > 0 {
                     depth -= 1;
-                } else if extern_c_precedes(bytes, i) {
+                } else if extern_kind_precedes(bytes, i, kind) {
                     return true;
                 }
-                // Either way, keep walking past this `{` to inspect
-                // outer enclosing braces too.
             }
             _ => {}
         }
@@ -65,9 +74,11 @@ pub(crate) fn in_extern_c_block(text: &str, offset: usize) -> bool {
     false
 }
 
-/// `true` if `@extern(C)` (with optional whitespace) appears
-/// immediately before byte index `at`.
-fn extern_c_precedes(bytes: &[u8], at: usize) -> bool {
+/// `true` if `@extern(<kind>)` or `@extern(<kind>, ...)` appears
+/// immediately before byte index `at` (with optional whitespace
+/// at every gap). `kind` is the literal kind bytes (`b"C"` or
+/// `b"ObjC"`).
+fn extern_kind_precedes(bytes: &[u8], at: usize, kind: &[u8]) -> bool {
     let mut j = at;
     while j > 0 && matches!(bytes[j - 1], b' ' | b'\t' | b'\r' | b'\n') {
         j -= 1;
@@ -75,29 +86,48 @@ fn extern_c_precedes(bytes: &[u8], at: usize) -> bool {
     if j == 0 || bytes[j - 1] != b')' {
         return false;
     }
+    // Skip the attribute's parenthesised argument list (kind + any
+    // trailing `, "libname"` etc.) by paren-balance.
     let mut k = j - 1;
-    while k > 0 && matches!(bytes[k - 1], b' ' | b'\t') {
+    let mut depth = 1i32;
+    while k > 0 && depth > 0 {
         k -= 1;
+        match bytes[k] {
+            b')' => depth += 1,
+            b'(' => depth -= 1,
+            _ => {}
+        }
     }
-    if k == 0 || bytes[k - 1] != b'C' {
+    if bytes.get(k).copied() != Some(b'(') {
         return false;
     }
-    k -= 1;
-    while k > 0 && matches!(bytes[k - 1], b' ' | b'\t') {
-        k -= 1;
+    // Re-scan the parenthesised slice for the kind token at its
+    // head (first comma-separated entry, ignoring leading
+    // whitespace).
+    let inner_start = k + 1;
+    let inner_end = j - 1;
+    let inner = &bytes[inner_start..inner_end];
+    let mut p = 0;
+    while p < inner.len() && matches!(inner[p], b' ' | b'\t') {
+        p += 1;
     }
-    if k == 0 || bytes[k - 1] != b'(' {
+    if inner.len() - p < kind.len() || &inner[p..p + kind.len()] != kind {
         return false;
     }
-    k -= 1;
-    while k > 0 && matches!(bytes[k - 1], b' ' | b'\t') {
-        k -= 1;
-    }
-    if k < 6 || &bytes[k - 6..k] != b"extern" {
+    let tail = inner.get(p + kind.len()).copied().unwrap_or(b',');
+    if tail.is_ascii_alphanumeric() || tail == b'_' {
         return false;
     }
-    let kk = k - 6;
-    kk >= 1 && bytes[kk - 1] == b'@'
+    // Backtrack from the `(` to confirm `@extern` precedes it.
+    let mut q = k;
+    while q > 0 && matches!(bytes[q - 1], b' ' | b'\t') {
+        q -= 1;
+    }
+    if q < 6 || &bytes[q - 6..q] != b"extern" {
+        return false;
+    }
+    let r = q - 6;
+    r >= 1 && bytes[r - 1] == b'@'
 }
 
 /// `true` when the cursor sits in attribute syntax — i.e. an `@`

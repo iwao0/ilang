@@ -248,6 +248,14 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         if is_known_type {
             continue;
         }
+        // Transitive deps (a dep of a dep) end up in
+        // `external.signatures` too — `use gui` pulls cocoa /
+        // appkit / foundation in for the loader, but the user's
+        // file only sees `gui`. Skip module names the buffer
+        // didn't actually `use`.
+        if !doc.imported_modules.contains(&m_key) {
+            continue;
+        }
         out.push(CompletionItem {
             label: m.clone(),
             kind: Some(CompletionItemKind::MODULE),
