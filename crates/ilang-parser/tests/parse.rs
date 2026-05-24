@@ -172,6 +172,43 @@ fn invalid_assign_target() {
 }
 
 #[test]
+fn duplicate_param_name_is_rejected() {
+    let toks = tokenize("fn add(a: i64, a: i64) { 0 }").unwrap();
+    let err = parse(&toks).expect_err("duplicate param should fail to parse");
+    match err {
+        ParseError::Generic { msg, .. } => {
+            assert!(
+                msg.contains("duplicate parameter name") && msg.contains('a'),
+                "unexpected error message: {msg}"
+            );
+        }
+        other => panic!("expected Generic, got {other:?}"),
+    }
+}
+
+#[test]
+fn duplicate_underscore_params_allowed() {
+    let toks = tokenize("fn ignore(_: i64, _: i64) { 0 }").unwrap();
+    parse(&toks).expect("two `_` params is fine — they're the discard pattern");
+}
+
+#[test]
+fn duplicate_param_name_in_method_is_rejected() {
+    let src = "class C { pub init() {} pub m(x: i64, x: i64) {} }";
+    let toks = tokenize(src).unwrap();
+    let err = parse(&toks).expect_err("duplicate method param should fail");
+    assert!(matches!(err, ParseError::Generic { .. }));
+}
+
+#[test]
+fn duplicate_param_name_in_closure_is_rejected() {
+    let src = "let f = fn(x: i64, x: i64) { 0 }";
+    let toks = tokenize(src).unwrap();
+    let err = parse(&toks).expect_err("duplicate closure param should fail");
+    assert!(matches!(err, ParseError::Generic { .. }));
+}
+
+#[test]
 fn if_expression_with_elif() {
     let p = parse_str("if true { 1 } elif false { 2 } else { 3 }");
     match p.tail.map(|t| t.kind) {

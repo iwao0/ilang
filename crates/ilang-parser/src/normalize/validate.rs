@@ -6,11 +6,32 @@
 use std::collections::HashMap;
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, Item, Program, Span, Stmt, StmtKind, Symbol, Type,
+    Block, ClassDecl, Expr, ExprKind, Item, Param, Program, Span, Stmt, StmtKind, Symbol, Type,
 };
 
 use crate::error::ParseError;
 use ilang_ast::walk::walk_expr_children_ref;
+
+/// Reject duplicate parameter names in a fn / method / closure
+/// signature. `_` is special-cased: it's the "ignore" wildcard
+/// (matches the way ilang treats `_` elsewhere as a discard
+/// pattern), so `fn(_: i64, _: i64)` is allowed even though both
+/// slots share the literal name.
+fn check_duplicate_params(params: &[Param]) -> Result<(), ParseError> {
+    let mut seen: std::collections::HashSet<Symbol> = std::collections::HashSet::new();
+    for p in params {
+        if p.name.as_str() == "_" {
+            continue;
+        }
+        if !seen.insert(p.name) {
+            return Err(ParseError::Generic {
+                msg: format!("duplicate parameter name `{}`", p.name),
+                span: p.span,
+            });
+        }
+    }
+    Ok(())
+}
 
 fn check_dotted_ref(
     name: &Symbol,
@@ -104,6 +125,7 @@ fn validate_expr(e: &Expr, modules: &HashMap<Symbol, Symbol>) -> Result<(), Pars
             validate_type(ty, e.span, modules)?;
         }
         ExprKind::FnExpr { params, ret, .. } => {
+            check_duplicate_params(params)?;
             for p in params.iter() {
                 validate_type(&p.ty, p.span, modules)?;
             }
@@ -135,6 +157,7 @@ fn validate_class(c: &ClassDecl, modules: &HashMap<Symbol, Symbol>) -> Result<()
         validate_expr(&sf.value, modules)?;
     }
     for m in c.methods.iter().chain(c.static_methods.iter()) {
+        check_duplicate_params(&m.params)?;
         for p in m.params.iter() {
             validate_type(&p.ty, p.span, modules)?;
             if let Some(d) = &p.default {
@@ -152,6 +175,7 @@ fn validate_class(c: &ClassDecl, modules: &HashMap<Symbol, Symbol>) -> Result<()
             validate_block(&g.body, modules)?;
         }
         if let Some(s) = &prop.setter {
+            check_duplicate_params(&s.params)?;
             for p in s.params.iter() {
                 validate_type(&p.ty, p.span, modules)?;
             }
@@ -165,6 +189,7 @@ pub(super) fn validate_program(prog: &Program, modules: &HashMap<Symbol, Symbol>
     for item in &prog.items {
         match item {
             Item::Fn(f) => {
+                check_duplicate_params(&f.params)?;
                 for p in f.params.iter() {
                     validate_type(&p.ty, p.span, modules)?;
                     if let Some(d) = &p.default {
@@ -189,6 +214,7 @@ pub(super) fn validate_program(prog: &Program, modules: &HashMap<Symbol, Symbol>
                     use ilang_ast::ExternCItem;
                     match inner {
                         ExternCItem::FnDef(f) => {
+                            check_duplicate_params(&f.params)?;
                             for p in f.params.iter() {
                                 validate_type(&p.ty, p.span, modules)?;
                             }
@@ -198,6 +224,7 @@ pub(super) fn validate_program(prog: &Program, modules: &HashMap<Symbol, Symbol>
                             validate_block(&f.body, modules)?;
                         }
                         ExternCItem::FnDecl { params, ret, span, .. } => {
+                            check_duplicate_params(params)?;
                             for p in params.iter() {
                                 validate_type(&p.ty, p.span, modules)?;
                             }
