@@ -39,16 +39,6 @@ use slider   { trySliderChange }
 use menu     { tryMenuClick }
 use super.event
 
-// ─── modifier helpers (GetKeyState high-bit set ⇒ pressed) ─────
-
-fn keyDown(vk: i32): bool {
-    (GetKeyState(vk) as i32 & 0x8000) != 0
-}
-fn modShift(): bool { keyDown(VirtualKey.shift as i32) }
-fn modCtrl():  bool { keyDown(VirtualKey.control as i32) }
-fn modAlt():   bool { keyDown(VirtualKey.alt as i32) }
-fn modMeta():  bool { keyDown(VirtualKey.lWin as i32) || keyDown(VirtualKey.rWin as i32) }
-
 // ─── VirtualKey → W3C KeyboardEvent.code ──────────────────────
 
 fn vkToString(vk: VirtualKey): string {
@@ -112,6 +102,16 @@ fn vkToEnum(vk: VirtualKey): event.KeyCode {
 }
 
 @extern(C) {
+
+// ─── modifier helpers (GetKeyState high-bit set ⇒ pressed) ─────
+
+fn keyDown(vk: i32): bool {
+    (GetKeyState(vk) as i32 & 0x8000) != 0
+}
+fn modShift(): bool { keyDown(VirtualKey.shift as i32) }
+fn modCtrl():  bool { keyDown(VirtualKey.control as i32) }
+fn modAlt():   bool { keyDown(VirtualKey.alt as i32) }
+fn modMeta():  bool { keyDown(VirtualKey.lWin as i32) || keyDown(VirtualKey.rWin as i32) }
 
 /// Window procedure shared by every gui-win32 window. Per-instance
 /// state is keyed by the window's HWND in `core.WINDOWS`; the

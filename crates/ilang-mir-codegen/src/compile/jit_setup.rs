@@ -273,13 +273,13 @@ pub fn compile_with_builtins(
     // are NUL-terminated `*const u8` already, so most "C-string"
     // helpers are identity at the bit level.
     jit_builder.symbol("$array.dataPtr", ilang_runtime::__array_data_ptr as *const u8);
-    jit_builder.symbol("cstrFromString", ilang_runtime::cstr_from_string as *const u8);
-    jit_builder.symbol("stringFromCstr", ilang_runtime::string_from_cstr as *const u8);
-    jit_builder.symbol("cstrArrayToStrings", ilang_runtime::cstr_array_to_strings as *const u8);
-    jit_builder.symbol("freeCstr", ilang_runtime::free_cstr as *const u8);
-    jit_builder.symbol("errnoCheck", ilang_runtime::errno_check_i32 as *const u8);
-    jit_builder.symbol("errnoCheckI64", ilang_runtime::errno_check_i64 as *const u8);
-    jit_builder.symbol("bytesFromBuffer", ilang_runtime::bytes_from_buffer as *const u8);
+    jit_builder.symbol("$ffi.cstrFromString", ilang_runtime::cstr_from_string as *const u8);
+    jit_builder.symbol("$ffi.stringFromCstr", ilang_runtime::string_from_cstr as *const u8);
+    jit_builder.symbol("$ffi.cstrArrayToStrings", ilang_runtime::cstr_array_to_strings as *const u8);
+    jit_builder.symbol("$ffi.freeCstr", ilang_runtime::free_cstr as *const u8);
+    jit_builder.symbol("$ffi.errnoCheck", ilang_runtime::errno_check_i32 as *const u8);
+    jit_builder.symbol("$ffi.errnoCheckI64", ilang_runtime::errno_check_i64 as *const u8);
+    jit_builder.symbol("$ffi.bytesFromBuffer", ilang_runtime::bytes_from_buffer as *const u8);
     jit_builder.symbol("$os.errno", ilang_runtime::os_errno as *const u8);
     jit_builder.symbol("$os.setErrno", ilang_runtime::os_set_errno as *const u8);
     jit_builder.symbol("$os.libLoaded", ilang_runtime::os_lib_loaded as *const u8);
