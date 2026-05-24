@@ -244,7 +244,7 @@ impl<'a> BodyCx<'a> {
             let dst = self.fb.new_value(to.clone());
             self.fb.push_inst(Inst::Call {
                 dst: Some(dst),
-                callee: FuncRef::Builtin(Symbol::intern("__array_data_ptr")),
+                callee: FuncRef::Builtin(Symbol::intern("$array.dataPtr")),
                 args: Box::new([v]),
             });
             return Ok(dst);

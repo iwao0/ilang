@@ -83,15 +83,15 @@ pub fn compile_with_builtins(
     // Map runtime backed by Rust's HashMap<i64, i64> (one box per
     // map). Keys / values flow through as i64 cells (heap pointers
     // share identity when interned).
-    jit_builder.symbol("__map_new", ilang_runtime::__map_new as *const u8);
-    jit_builder.symbol("__map_get", ilang_runtime::__map_get as *const u8);
-    jit_builder.symbol("__map_get_optional", ilang_runtime::__map_get_optional as *const u8);
-    jit_builder.symbol("__map_set", ilang_runtime::__map_set as *const u8);
-    jit_builder.symbol("__map_has", ilang_runtime::__map_has as *const u8);
-    jit_builder.symbol("__map_size", ilang_runtime::__map_size as *const u8);
-    jit_builder.symbol("__map_delete", ilang_runtime::__map_delete as *const u8);
-    jit_builder.symbol("__map_keys", ilang_runtime::__map_keys as *const u8);
-    jit_builder.symbol("__map_values", ilang_runtime::__map_values as *const u8);
+    jit_builder.symbol("$map.new", ilang_runtime::__map_new as *const u8);
+    jit_builder.symbol("$map.get", ilang_runtime::__map_get as *const u8);
+    jit_builder.symbol("$map.getOptional", ilang_runtime::__map_get_optional as *const u8);
+    jit_builder.symbol("$map.set", ilang_runtime::__map_set as *const u8);
+    jit_builder.symbol("$map.has", ilang_runtime::__map_has as *const u8);
+    jit_builder.symbol("$map.size", ilang_runtime::__map_size as *const u8);
+    jit_builder.symbol("$map.delete", ilang_runtime::__map_delete as *const u8);
+    jit_builder.symbol("$map.keys", ilang_runtime::__map_keys as *const u8);
+    jit_builder.symbol("$map.values", ilang_runtime::__map_values as *const u8);
     // Promise + thread pool runtime.
     jit_builder.symbol("__promise_resolve", ilang_runtime::__promise_resolve as *const u8);
     jit_builder.symbol("__promise_reject", ilang_runtime::__promise_reject as *const u8);
@@ -155,44 +155,44 @@ pub fn compile_with_builtins(
     // Default string builtins. Returns are NUL-terminated `*const u8`
     // pointers to leaked Rust-side allocations. Acceptable until the
     // ARC-backed StringRc runtime arrives.
-    jit_builder.symbol("__str_length", ilang_runtime::__str_length as *const u8);
-    jit_builder.symbol("__str_concat", ilang_runtime::__str_concat as *const u8);
+    jit_builder.symbol("$string.length", ilang_runtime::__str_length as *const u8);
+    jit_builder.symbol("$string.concat", ilang_runtime::__str_concat as *const u8);
     jit_builder.symbol(
-        "__str_concat_inplace",
+        "$string.concatInplace",
         ilang_runtime::__str_concat_inplace as *const u8,
     );
-    jit_builder.symbol("__str_eq", ilang_runtime::__str_eq as *const u8);
-    jit_builder.symbol("__int_to_string", ilang_runtime::__int_to_string as *const u8);
-    jit_builder.symbol("__bool_to_string", ilang_runtime::__bool_to_string as *const u8);
-    jit_builder.symbol("__str_to_upper", ilang_runtime::__str_to_upper as *const u8);
-    jit_builder.symbol("__str_to_lower", ilang_runtime::__str_to_lower as *const u8);
-    jit_builder.symbol("__str_trim", ilang_runtime::__str_trim as *const u8);
-    jit_builder.symbol("__str_includes", ilang_runtime::__str_includes as *const u8);
-    jit_builder.symbol("__str_starts_with", ilang_runtime::__str_starts_with as *const u8);
-    jit_builder.symbol("__str_ends_with", ilang_runtime::__str_ends_with as *const u8);
-    jit_builder.symbol("__str_char_at", ilang_runtime::__str_char_at as *const u8);
-    jit_builder.symbol("__str_slice", ilang_runtime::__str_slice as *const u8);
-    jit_builder.symbol("__str_replace", ilang_runtime::__str_replace as *const u8);
-    jit_builder.symbol("__array_index_of", ilang_runtime::__array_index_of as *const u8);
-    jit_builder.symbol("__array_includes", ilang_runtime::__array_includes as *const u8);
-    jit_builder.symbol("__array_push", ilang_runtime::__array_push as *const u8);
-    jit_builder.symbol("__array_pop", ilang_runtime::__array_pop as *const u8);
-    jit_builder.symbol("__array_remove", ilang_runtime::__array_remove as *const u8);
-    jit_builder.symbol("__array_remove_at", ilang_runtime::__array_remove_at as *const u8);
-    jit_builder.symbol("__array_find", ilang_runtime::__array_find as *const u8);
-    jit_builder.symbol("__array_find_index", ilang_runtime::__array_find_index as *const u8);
-    jit_builder.symbol("__array_every", ilang_runtime::__array_every as *const u8);
-    jit_builder.symbol("__array_some", ilang_runtime::__array_some as *const u8);
-    jit_builder.symbol("__array_concat", ilang_runtime::__array_concat as *const u8);
-    jit_builder.symbol("__array_reverse", ilang_runtime::__array_reverse as *const u8);
-    jit_builder.symbol("__array_join", ilang_runtime::__array_join as *const u8);
-    jit_builder.symbol("__array_shift", ilang_runtime::__array_shift as *const u8);
-    jit_builder.symbol("__array_unshift", ilang_runtime::__array_unshift as *const u8);
-    jit_builder.symbol("__array_fill", ilang_runtime::__array_fill as *const u8);
-    jit_builder.symbol("__array_sort", ilang_runtime::__array_sort as *const u8);
-    jit_builder.symbol("__fixed_to_dyn", ilang_runtime::__fixed_to_dyn as *const u8);
+    jit_builder.symbol("$string.eq", ilang_runtime::__str_eq as *const u8);
+    jit_builder.symbol("$string.fromInt", ilang_runtime::__int_to_string as *const u8);
+    jit_builder.symbol("$string.fromBool", ilang_runtime::__bool_to_string as *const u8);
+    jit_builder.symbol("$string.toUpper", ilang_runtime::__str_to_upper as *const u8);
+    jit_builder.symbol("$string.toLower", ilang_runtime::__str_to_lower as *const u8);
+    jit_builder.symbol("$string.trim", ilang_runtime::__str_trim as *const u8);
+    jit_builder.symbol("$string.includes", ilang_runtime::__str_includes as *const u8);
+    jit_builder.symbol("$string.startsWith", ilang_runtime::__str_starts_with as *const u8);
+    jit_builder.symbol("$string.endsWith", ilang_runtime::__str_ends_with as *const u8);
+    jit_builder.symbol("$string.charAt", ilang_runtime::__str_char_at as *const u8);
+    jit_builder.symbol("$string.slice", ilang_runtime::__str_slice as *const u8);
+    jit_builder.symbol("$string.replace", ilang_runtime::__str_replace as *const u8);
+    jit_builder.symbol("$array.indexOf", ilang_runtime::__array_index_of as *const u8);
+    jit_builder.symbol("$array.includes", ilang_runtime::__array_includes as *const u8);
+    jit_builder.symbol("$array.push", ilang_runtime::__array_push as *const u8);
+    jit_builder.symbol("$array.pop", ilang_runtime::__array_pop as *const u8);
+    jit_builder.symbol("$array.remove", ilang_runtime::__array_remove as *const u8);
+    jit_builder.symbol("$array.removeAt", ilang_runtime::__array_remove_at as *const u8);
+    jit_builder.symbol("$array.find", ilang_runtime::__array_find as *const u8);
+    jit_builder.symbol("$array.findIndex", ilang_runtime::__array_find_index as *const u8);
+    jit_builder.symbol("$array.every", ilang_runtime::__array_every as *const u8);
+    jit_builder.symbol("$array.some", ilang_runtime::__array_some as *const u8);
+    jit_builder.symbol("$array.concat", ilang_runtime::__array_concat as *const u8);
+    jit_builder.symbol("$array.reverse", ilang_runtime::__array_reverse as *const u8);
+    jit_builder.symbol("$array.join", ilang_runtime::__array_join as *const u8);
+    jit_builder.symbol("$array.shift", ilang_runtime::__array_shift as *const u8);
+    jit_builder.symbol("$array.unshift", ilang_runtime::__array_unshift as *const u8);
+    jit_builder.symbol("$array.fill", ilang_runtime::__array_fill as *const u8);
+    jit_builder.symbol("$array.sort", ilang_runtime::__array_sort as *const u8);
+    jit_builder.symbol("$array.fixedToDyn", ilang_runtime::__fixed_to_dyn as *const u8);
     jit_builder.symbol("__enum_box", ilang_runtime::__enum_box as *const u8);
-    jit_builder.symbol("__c_array_to_array", ilang_runtime::__c_array_to_array as *const u8);
+    jit_builder.symbol("$array.fromCArray", ilang_runtime::__c_array_to_array as *const u8);
     jit_builder.symbol("__repl_load_slot", ilang_runtime::__repl_load_slot as *const u8);
     jit_builder.symbol("__repl_store_slot", ilang_runtime::__repl_store_slot as *const u8);
     // Raw-memory FFI marshalling: `readT(p, off): T` / `writeT(p,
@@ -219,11 +219,11 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__write_u64", ilang_runtime::__write_u64 as *const u8);
     jit_builder.symbol("__write_f32", ilang_runtime::__write_f32 as *const u8);
     jit_builder.symbol("__write_f64", ilang_runtime::__write_f64 as *const u8);
-    jit_builder.symbol("__array_map", ilang_runtime::__array_map as *const u8);
-    jit_builder.symbol("__array_filter", ilang_runtime::__array_filter as *const u8);
-    jit_builder.symbol("__array_for_each", ilang_runtime::__array_for_each as *const u8);
-    jit_builder.symbol("__array_slice", ilang_runtime::__array_slice as *const u8);
-    jit_builder.symbol("__str_split", ilang_runtime::__str_split as *const u8);
+    jit_builder.symbol("$array.map", ilang_runtime::__array_map as *const u8);
+    jit_builder.symbol("$array.filter", ilang_runtime::__array_filter as *const u8);
+    jit_builder.symbol("$array.forEach", ilang_runtime::__array_for_each as *const u8);
+    jit_builder.symbol("$array.slice", ilang_runtime::__array_slice as *const u8);
+    jit_builder.symbol("$string.split", ilang_runtime::__str_split as *const u8);
     jit_builder.symbol("__virt_dispatch", ilang_runtime::__virt_dispatch as *const u8);
     jit_builder.symbol("__drop_dispatch", ilang_runtime::__drop_dispatch as *const u8);
     jit_builder.symbol("__print_object", ilang_runtime::__print_object as *const u8);
@@ -236,16 +236,16 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__retain_object", ilang_runtime::__retain_object as *const u8);
     jit_builder.symbol("__release_closure", ilang_runtime::__release_closure as *const u8);
     jit_builder.symbol("__retain_closure", ilang_runtime::__retain_closure as *const u8);
-    jit_builder.symbol("__release_array", ilang_runtime::__release_array as *const u8);
-    jit_builder.symbol("__retain_array", ilang_runtime::__retain_array as *const u8);
+    jit_builder.symbol("$array.release", ilang_runtime::__release_array as *const u8);
+    jit_builder.symbol("$array.retain", ilang_runtime::__retain_array as *const u8);
     jit_builder.symbol("__release_optional", ilang_runtime::__release_optional as *const u8);
     jit_builder.symbol("__retain_optional", ilang_runtime::__retain_optional as *const u8);
     jit_builder.symbol("__release_tuple", ilang_runtime::__release_tuple as *const u8);
     jit_builder.symbol("__retain_tuple", ilang_runtime::__retain_tuple as *const u8);
-    jit_builder.symbol("__release_map", ilang_runtime::__release_map as *const u8);
-    jit_builder.symbol("__retain_map", ilang_runtime::__retain_map as *const u8);
-    jit_builder.symbol("__release_string", ilang_runtime::__release_string as *const u8);
-    jit_builder.symbol("__retain_string", ilang_runtime::__retain_string as *const u8);
+    jit_builder.symbol("$map.release", ilang_runtime::__release_map as *const u8);
+    jit_builder.symbol("$map.retain", ilang_runtime::__retain_map as *const u8);
+    jit_builder.symbol("$string.release", ilang_runtime::__release_string as *const u8);
+    jit_builder.symbol("$string.retain", ilang_runtime::__retain_string as *const u8);
     // Always-on memory-tracking helpers exposed through `test.liveAlloc*`
     // / `test.liveStringCount`. Used by the leak-detection fixtures
     // under tests/programs/.
@@ -265,14 +265,14 @@ pub fn compile_with_builtins(
         ilang_runtime::__enum_unit_get_checked as *const u8,
     );
     jit_builder.symbol("__enum_disc_str", ilang_runtime::__enum_disc_str as *const u8);
-    jit_builder.symbol("__map_set_value_kind", ilang_runtime::__map_set_value_kind as *const u8);
-    jit_builder.symbol("__map_set_print_kinds", ilang_runtime::__map_set_print_kinds as *const u8);
+    jit_builder.symbol("$map.setValueKind", ilang_runtime::__map_set_value_kind as *const u8);
+    jit_builder.symbol("$map.setPrintKinds", ilang_runtime::__map_set_print_kinds as *const u8);
     jit_builder.symbol("__print_map", ilang_runtime::__print_map as *const u8);
     // FFI marshalling helpers — registered both with their bare names
     // (used inside `@extern(C)` blocks) and qualified names. Strings
     // are NUL-terminated `*const u8` already, so most "C-string"
     // helpers are identity at the bit level.
-    jit_builder.symbol("__array_data_ptr", ilang_runtime::__array_data_ptr as *const u8);
+    jit_builder.symbol("$array.dataPtr", ilang_runtime::__array_data_ptr as *const u8);
     jit_builder.symbol("cstrFromString", ilang_runtime::cstr_from_string as *const u8);
     jit_builder.symbol("stringFromCstr", ilang_runtime::string_from_cstr as *const u8);
     jit_builder.symbol("cstrArrayToStrings", ilang_runtime::cstr_array_to_strings as *const u8);

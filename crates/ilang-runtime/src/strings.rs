@@ -106,7 +106,7 @@ pub fn live_string_count() -> i64 {
     reg.len() as i64
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.retain")]
 pub extern "C" fn __retain_string(p: i64) {
     if p == 0 {
         return;
@@ -117,7 +117,7 @@ pub extern "C" fn __retain_string(p: i64) {
     }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.release")]
 pub extern "C" fn __release_string(p: i64) {
     if p == 0 {
         return;
@@ -138,7 +138,7 @@ pub extern "C" fn __release_string(p: i64) {
 // String operations
 // --------------------------------------------------------------------
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.length")]
 pub extern "C" fn __str_length(p: i64) -> i64 {
     let bytes = unsafe { cstr_bytes(p) };
     std::str::from_utf8(bytes)
@@ -146,7 +146,7 @@ pub extern "C" fn __str_length(p: i64) -> i64 {
         .unwrap_or(bytes.len() as i64)
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.concat")]
 pub extern "C" fn __str_concat(a: i64, b: i64) -> i64 {
     let sa = unsafe { cstr_bytes(a) };
     let sb = unsafe { cstr_bytes(b) };
@@ -169,7 +169,7 @@ pub extern "C" fn __str_concat(a: i64, b: i64) -> i64 {
 /// `s = s + expr` rewrite emitted by the MIR — never call this
 /// from user code or from contexts where another binding still
 /// reads `a`.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.concatInplace")]
 pub extern "C" fn __str_concat_inplace(a: i64, b: i64) -> i64 {
     if a == 0 {
         // No backing yet — fall back to the regular path.
@@ -253,7 +253,7 @@ pub extern "C" fn __str_concat_inplace(a: i64, b: i64) -> i64 {
     new_body
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.eq")]
 pub extern "C" fn __str_eq(a: i64, b: i64) -> i64 {
     if a == b {
         return 1;
@@ -263,54 +263,54 @@ pub extern "C" fn __str_eq(a: i64, b: i64) -> i64 {
     if sa == sb { 1 } else { 0 }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.fromInt")]
 pub extern "C" fn __int_to_string(n: i64) -> i64 {
     leak_cstring(n.to_string())
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.fromBool")]
 pub extern "C" fn __bool_to_string(b: i64) -> i64 {
     leak_cstring(if b != 0 { "true".to_string() } else { "false".to_string() })
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.toUpper")]
 pub extern "C" fn __str_to_upper(p: i64) -> i64 {
     leak_cstring(cstr_to_str(p).to_uppercase())
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.toLower")]
 pub extern "C" fn __str_to_lower(p: i64) -> i64 {
     leak_cstring(cstr_to_str(p).to_lowercase())
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.trim")]
 pub extern "C" fn __str_trim(p: i64) -> i64 {
     leak_cstring(cstr_to_str(p).trim().to_string())
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.includes")]
 pub extern "C" fn __str_includes(p: i64, q: i64) -> i64 {
     if cstr_to_str(p).contains(cstr_to_str(q)) { 1 } else { 0 }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.startsWith")]
 pub extern "C" fn __str_starts_with(p: i64, q: i64) -> i64 {
     if cstr_to_str(p).starts_with(cstr_to_str(q)) { 1 } else { 0 }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.endsWith")]
 pub extern "C" fn __str_ends_with(p: i64, q: i64) -> i64 {
     if cstr_to_str(p).ends_with(cstr_to_str(q)) { 1 } else { 0 }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.charAt")]
 pub extern "C" fn __str_char_at(p: i64, idx: i64) -> i64 {
     let s = cstr_to_str(p);
     let c = s.chars().nth(idx as usize);
     leak_cstring(c.map(|c| c.to_string()).unwrap_or_default())
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.slice")]
 pub extern "C" fn __str_slice(p: i64, start: i64, end: i64) -> i64 {
     let s = cstr_to_str(p);
     let chars: Vec<char> = s.chars().collect();
@@ -320,7 +320,7 @@ pub extern "C" fn __str_slice(p: i64, start: i64, end: i64) -> i64 {
     leak_cstring(chars[lo..hi].iter().collect::<String>())
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.replace")]
 pub extern "C" fn __str_replace(p: i64, from: i64, to: i64) -> i64 {
     let s = cstr_to_str(p);
     let f = cstr_to_str(from);
@@ -328,7 +328,7 @@ pub extern "C" fn __str_replace(p: i64, from: i64, to: i64) -> i64 {
     leak_cstring(s.replace(f, t))
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$string.split")]
 pub extern "C" fn __str_split(p: i64, sep: i64) -> i64 {
     let s = cstr_to_str(p);
     let sp = cstr_to_str(sep);

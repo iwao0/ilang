@@ -51,7 +51,7 @@ fn map_key_to_raw(k: &MapKey) -> i64 {
     }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$map.new")]
 pub extern "C" fn __map_new() -> i64 {
     let m = Box::new(ManagedMap {
         rc: AtomicI64::new(1),
@@ -64,7 +64,7 @@ pub extern "C" fn __map_new() -> i64 {
     Box::into_raw(m) as i64
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$map.setPrintKinds")]
 pub extern "C" fn __map_set_print_kinds(map: i64, key_kind: i64, val_kind: i64) {
     if map == 0 {
         return;
@@ -74,7 +74,7 @@ pub extern "C" fn __map_set_print_kinds(map: i64, key_kind: i64, val_kind: i64) 
     m.val_print_kind = val_kind;
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$map.setValueKind")]
 pub extern "C" fn __map_set_value_kind(map: i64, kind: i64) {
     if map == 0 {
         return;
@@ -83,7 +83,7 @@ pub extern "C" fn __map_set_value_kind(map: i64, kind: i64) {
     m.val_kind = kind;
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$map.get")]
 pub extern "C" fn __map_get(map: i64, key: i64) -> i64 {
     if map == 0 {
         return 0;
@@ -102,7 +102,7 @@ pub extern "C" fn __map_get(map: i64, key: i64) -> i64 {
     v
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$map.getOptional")]
 pub extern "C" fn __map_get_optional(map: i64, key: i64) -> i64 {
     if map == 0 {
         return 0;
@@ -129,7 +129,7 @@ pub extern "C" fn __map_get_optional(map: i64, key: i64) -> i64 {
     }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$map.set")]
 pub extern "C" fn __map_set(map: i64, key: i64, value: i64) {
     if map == 0 {
         return;
@@ -151,7 +151,7 @@ pub extern "C" fn __map_set(map: i64, key: i64, value: i64) {
     }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$map.has")]
 pub extern "C" fn __map_has(map: i64, key: i64) -> i64 {
     if map == 0 {
         return 0;
@@ -161,7 +161,7 @@ pub extern "C" fn __map_has(map: i64, key: i64) -> i64 {
     if m.inner.contains_key(&mk) { 1 } else { 0 }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$map.size")]
 pub extern "C" fn __map_size(map: i64) -> i64 {
     if map == 0 {
         return 0;
@@ -170,7 +170,7 @@ pub extern "C" fn __map_size(map: i64) -> i64 {
     m.inner.len() as i64
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$map.delete")]
 pub extern "C" fn __map_delete(map: i64, key: i64) -> i64 {
     if map == 0 {
         return 0;
@@ -189,7 +189,7 @@ pub extern "C" fn __map_delete(map: i64, key: i64) -> i64 {
     }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$map.keys")]
 pub extern "C" fn __map_keys(map: i64) -> i64 {
     if map == 0 {
         return build_i64_array(&[], KIND_NONE);
@@ -212,7 +212,7 @@ pub extern "C" fn __map_keys(map: i64) -> i64 {
     build_i64_array(&keys, elem_kind)
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$map.values")]
 pub extern "C" fn __map_values(map: i64) -> i64 {
     if map == 0 {
         return build_i64_array(&[], KIND_NONE);
@@ -263,7 +263,7 @@ pub extern "C" fn __print_map(map_ptr: i64) {
     let _ = o.write_all(out.as_bytes());
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$map.retain")]
 pub extern "C" fn __retain_map(map: i64) {
     if map == 0 {
         return;
@@ -281,7 +281,7 @@ pub extern "C" fn __retain_map(map: i64) {
     }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$map.release")]
 pub extern "C" fn __release_map(map: i64) {
     if map == 0 {
         return;

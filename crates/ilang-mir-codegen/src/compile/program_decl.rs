@@ -109,40 +109,40 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let map_new_id = {
         let mut sig = module.make_signature();
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("__map_new", Linkage::Import, &sig)?
+        module.declare_function("$map.new", Linkage::Import, &sig)?
     };
     let map_get_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("__map_get", Linkage::Import, &sig)?
+        module.declare_function("$map.get", Linkage::Import, &sig)?
     };
     let map_get_optional_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("__map_get_optional", Linkage::Import, &sig)?
+        module.declare_function("$map.getOptional", Linkage::Import, &sig)?
     };
     let map_set_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
-        module.declare_function("__map_set", Linkage::Import, &sig)?
+        module.declare_function("$map.set", Linkage::Import, &sig)?
     };
     let map_has_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("__map_has", Linkage::Import, &sig)?
+        module.declare_function("$map.has", Linkage::Import, &sig)?
     };
-    let map_size_id = declare_unary_i64(module, "__map_size")?;
-    let map_delete_id = declare_binary_i64(module, "__map_delete")?;
-    let map_keys_id = declare_unary_i64(module, "__map_keys")?;
-    let map_values_id = declare_unary_i64(module, "__map_values")?;
+    let map_size_id = declare_unary_i64(module, "$map.size")?;
+    let map_delete_id = declare_binary_i64(module, "$map.delete")?;
+    let map_keys_id = declare_unary_i64(module, "$map.keys")?;
+    let map_values_id = declare_unary_i64(module, "$map.values")?;
     // Promise runtime imports.
     let promise_resolve_id = declare_binary_i64(module, "__promise_resolve")?;
     let promise_reject_id = declare_unary_i64(module, "__promise_reject")?;
@@ -228,7 +228,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             module.declare_function(name, Linkage::Import, &sig)?;
             Ok(())
         };
-        decl_unary("__array_data_ptr", false)?;
+        decl_unary("$array.dataPtr", false)?;
         decl_unary("__enum_box", false)?;
         decl_unary("cstrFromString", false)?;
         decl_unary("stringFromCstr", false)?;
@@ -246,7 +246,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("__c_array_to_array", Linkage::Import, &sig)?;
+        module.declare_function("$array.fromCArray", Linkage::Import, &sig)?;
     }
     {
         // bytesFromBuffer(p: *const void, n: size_t) -> u8[] — thin
@@ -325,26 +325,26 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         module.declare_function("__repl_store_slot", Linkage::Import, &sig)?;
     }
     let str_ids = StrIds {
-        length: declare_unary_i64(module, "__str_length")?,
-        concat: declare_binary_i64(module, "__str_concat")?,
-        concat_inplace: declare_binary_i64(module, "__str_concat_inplace")?,
-        eq: declare_binary_i64(module, "__str_eq")?,
-        int_to_string: declare_unary_i64(module, "__int_to_string")?,
-        bool_to_string: declare_unary_i64(module, "__bool_to_string")?,
-        to_upper: declare_unary_i64(module, "__str_to_upper")?,
-        to_lower: declare_unary_i64(module, "__str_to_lower")?,
-        trim: declare_unary_i64(module, "__str_trim")?,
-        includes: declare_binary_i64(module, "__str_includes")?,
-        starts_with: declare_binary_i64(module, "__str_starts_with")?,
-        ends_with: declare_binary_i64(module, "__str_ends_with")?,
-        char_at: declare_binary_i64(module, "__str_char_at")?,
+        length: declare_unary_i64(module, "$string.length")?,
+        concat: declare_binary_i64(module, "$string.concat")?,
+        concat_inplace: declare_binary_i64(module, "$string.concatInplace")?,
+        eq: declare_binary_i64(module, "$string.eq")?,
+        int_to_string: declare_unary_i64(module, "$string.fromInt")?,
+        bool_to_string: declare_unary_i64(module, "$string.fromBool")?,
+        to_upper: declare_unary_i64(module, "$string.toUpper")?,
+        to_lower: declare_unary_i64(module, "$string.toLower")?,
+        trim: declare_unary_i64(module, "$string.trim")?,
+        includes: declare_binary_i64(module, "$string.includes")?,
+        starts_with: declare_binary_i64(module, "$string.startsWith")?,
+        ends_with: declare_binary_i64(module, "$string.endsWith")?,
+        char_at: declare_binary_i64(module, "$string.charAt")?,
         slice: {
             let mut sig = module.make_signature();
             sig.params.push(AbiParam::new(types::I64));
             sig.params.push(AbiParam::new(types::I64));
             sig.params.push(AbiParam::new(types::I64));
             sig.returns.push(AbiParam::new(types::I64));
-            module.declare_function("__str_slice", Linkage::Import, &sig)?
+            module.declare_function("$string.slice", Linkage::Import, &sig)?
         },
         replace: {
             let mut sig = module.make_signature();
@@ -352,26 +352,26 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             sig.params.push(AbiParam::new(types::I64));
             sig.params.push(AbiParam::new(types::I64));
             sig.returns.push(AbiParam::new(types::I64));
-            module.declare_function("__str_replace", Linkage::Import, &sig)?
+            module.declare_function("$string.replace", Linkage::Import, &sig)?
         },
-        array_index_of: declare_binary_i64(module, "__array_index_of")?,
-        array_includes: declare_binary_i64(module, "__array_includes")?,
+        array_index_of: declare_binary_i64(module, "$array.indexOf")?,
+        array_includes: declare_binary_i64(module, "$array.includes")?,
         array_push: {
             let mut sig = module.make_signature();
             sig.params.push(AbiParam::new(types::I64));
             sig.params.push(AbiParam::new(types::I64));
-            module.declare_function("__array_push", Linkage::Import, &sig)?
+            module.declare_function("$array.push", Linkage::Import, &sig)?
         },
-        array_pop: declare_unary_i64(module, "__array_pop")?,
-        array_remove: declare_binary_i64(module, "__array_remove")?,
-        array_remove_at: declare_binary_i64(module, "__array_remove_at")?,
-        array_map: declare_ternary_i64(module, "__array_map")?,
-        array_filter: declare_binary_i64(module, "__array_filter")?,
+        array_pop: declare_unary_i64(module, "$array.pop")?,
+        array_remove: declare_binary_i64(module, "$array.remove")?,
+        array_remove_at: declare_binary_i64(module, "$array.removeAt")?,
+        array_map: declare_ternary_i64(module, "$array.map")?,
+        array_filter: declare_binary_i64(module, "$array.filter")?,
         array_for_each: {
             let mut sig = module.make_signature();
             sig.params.push(AbiParam::new(types::I64));
             sig.params.push(AbiParam::new(types::I64));
-            module.declare_function("__array_for_each", Linkage::Import, &sig)?
+            module.declare_function("$array.forEach", Linkage::Import, &sig)?
         },
         array_slice: {
             let mut sig = module.make_signature();
@@ -379,30 +379,30 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             sig.params.push(AbiParam::new(types::I64));
             sig.params.push(AbiParam::new(types::I64));
             sig.returns.push(AbiParam::new(types::I64));
-            module.declare_function("__array_slice", Linkage::Import, &sig)?
+            module.declare_function("$array.slice", Linkage::Import, &sig)?
         },
-        array_find: declare_binary_i64(module, "__array_find")?,
-        array_find_index: declare_binary_i64(module, "__array_find_index")?,
-        array_every: declare_binary_i64(module, "__array_every")?,
-        array_some: declare_binary_i64(module, "__array_some")?,
-        array_concat: declare_binary_i64(module, "__array_concat")?,
-        array_reverse: declare_unary_i64(module, "__array_reverse")?,
-        array_join: declare_binary_i64(module, "__array_join")?,
-        array_shift: declare_unary_i64(module, "__array_shift")?,
+        array_find: declare_binary_i64(module, "$array.find")?,
+        array_find_index: declare_binary_i64(module, "$array.findIndex")?,
+        array_every: declare_binary_i64(module, "$array.every")?,
+        array_some: declare_binary_i64(module, "$array.some")?,
+        array_concat: declare_binary_i64(module, "$array.concat")?,
+        array_reverse: declare_unary_i64(module, "$array.reverse")?,
+        array_join: declare_binary_i64(module, "$array.join")?,
+        array_shift: declare_unary_i64(module, "$array.shift")?,
         array_unshift: {
             let mut sig = module.make_signature();
             sig.params.push(AbiParam::new(types::I64));
             sig.params.push(AbiParam::new(types::I64));
-            module.declare_function("__array_unshift", Linkage::Import, &sig)?
+            module.declare_function("$array.unshift", Linkage::Import, &sig)?
         },
         array_fill: {
             let mut sig = module.make_signature();
             sig.params.push(AbiParam::new(types::I64));
             sig.params.push(AbiParam::new(types::I64));
-            module.declare_function("__array_fill", Linkage::Import, &sig)?
+            module.declare_function("$array.fill", Linkage::Import, &sig)?
         },
-        array_sort: declare_binary_i64(module, "__array_sort")?,
-        str_split: declare_binary_i64(module, "__str_split")?,
+        array_sort: declare_binary_i64(module, "$array.sort")?,
+        str_split: declare_binary_i64(module, "$string.split")?,
         virt_dispatch: declare_binary_i64(module, "__virt_dispatch")?,
         fixed_to_dyn: {
             let mut sig = module.make_signature();
@@ -411,7 +411,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             sig.params.push(AbiParam::new(types::I64));
             sig.params.push(AbiParam::new(types::I64));
             sig.returns.push(AbiParam::new(types::I64));
-            module.declare_function("__fixed_to_dyn", Linkage::Import, &sig)?
+            module.declare_function("$array.fixedToDyn", Linkage::Import, &sig)?
         },
     };
     let panic_fn_id = declare_unit_i64(module, "__ilang_panic")?;
@@ -428,16 +428,16 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let retain_obj_id = declare_unit_i64(module, "__retain_object")?;
     let release_closure_id = declare_unit_i64(module, "__release_closure")?;
     let retain_closure_id = declare_unit_i64(module, "__retain_closure")?;
-    let release_array_id = declare_unit_i64(module, "__release_array")?;
-    let retain_array_id = declare_unit_i64(module, "__retain_array")?;
+    let release_array_id = declare_unit_i64(module, "$array.release")?;
+    let retain_array_id = declare_unit_i64(module, "$array.retain")?;
     let release_optional_id = declare_unit_i64(module, "__release_optional")?;
     let retain_optional_id = declare_unit_i64(module, "__retain_optional")?;
     let release_tuple_id = declare_unit_i64(module, "__release_tuple")?;
     let retain_tuple_id = declare_unit_i64(module, "__retain_tuple")?;
-    let release_map_id = declare_unit_i64(module, "__release_map")?;
-    let retain_map_id = declare_unit_i64(module, "__retain_map")?;
-    let release_string_id = declare_unit_i64(module, "__release_string")?;
-    let retain_string_id = declare_unit_i64(module, "__retain_string")?;
+    let release_map_id = declare_unit_i64(module, "$map.release")?;
+    let retain_map_id = declare_unit_i64(module, "$map.retain")?;
+    let release_string_id = declare_unit_i64(module, "$string.release")?;
+    let retain_string_id = declare_unit_i64(module, "$string.retain")?;
     let enum_unit_get_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
@@ -468,14 +468,14 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
-        module.declare_function("__map_set_value_kind", Linkage::Import, &sig)?
+        module.declare_function("$map.setValueKind", Linkage::Import, &sig)?
     };
     let map_set_print_kinds_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
-        module.declare_function("__map_set_print_kinds", Linkage::Import, &sig)?
+        module.declare_function("$map.setPrintKinds", Linkage::Import, &sig)?
     };
     let print_map_id = declare_unit_i64(module, "__print_map")?;
     let class_name_id = declare_unary_i64(module, "__class_name")?;

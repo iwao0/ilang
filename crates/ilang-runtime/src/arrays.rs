@@ -21,7 +21,7 @@ pub(crate) unsafe fn array_header(arr: i64) -> (i64, i64, i64) {
     }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.indexOf")]
 pub extern "C" fn __array_index_of(arr: i64, value: i64) -> i64 {
     if arr == 0 {
         return -1;
@@ -36,7 +36,7 @@ pub extern "C" fn __array_index_of(arr: i64, value: i64) -> i64 {
     -1
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.includes")]
 pub extern "C" fn __array_includes(arr: i64, value: i64) -> i64 {
     if __array_index_of(arr, value) >= 0 { 1 } else { 0 }
 }
@@ -54,7 +54,7 @@ unsafe fn store_packed(data: i64, idx: i64, stride: i64, value: i64) {
     }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.push")]
 pub extern "C" fn __array_push(arr: i64, value: i64) {
     if arr == 0 {
         return;
@@ -90,7 +90,7 @@ pub extern "C" fn __array_push(arr: i64, value: i64) {
 /// Returns the popped value as Optional<T>: a 3-cell heap
 /// `[value | rc | kind_tag]`, or 0 (none). Inherits the array's
 /// elem kind tag so the Optional's cascade drops the cell properly.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.pop")]
 pub extern "C" fn __array_pop(arr: i64) -> i64 {
     if arr == 0 {
         return 0;
@@ -143,7 +143,7 @@ unsafe fn shift_left_one(data: i64, from: i64, len: i64, stride: i64) {
 /// per-cell refcount — no retain on the removed value, no release;
 /// the array's length drops by one so the slot's old reference is
 /// effectively handed to the returned Optional.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.removeAt")]
 pub extern "C" fn __array_remove_at(arr: i64, index: i64) -> i64 {
     if arr == 0 {
         return 0;
@@ -178,7 +178,7 @@ pub extern "C" fn __array_remove_at(arr: i64, index: i64) -> i64 {
 /// return `1` on success, `0` when no element matched. The array
 /// drops its reference to the matched cell (release on heap kinds)
 /// since the value isn't handed back to the caller.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.remove")]
 pub extern "C" fn __array_remove(arr: i64, value: i64) -> i64 {
     if arr == 0 {
         return 0;
@@ -215,7 +215,7 @@ pub extern "C" fn __array_remove(arr: i64, value: i64) -> i64 {
     }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.dataPtr")]
 pub extern "C" fn __array_data_ptr(arr: i64) -> i64 {
     if arr == 0 {
         return 0;
@@ -236,7 +236,7 @@ pub extern "C" fn bytes_from_buffer(p: i64, n: i64) -> i64 {
 
 /// `arrayFromCArray<T>(src, n, stride, kind_tag)` — copy `n × stride`
 /// bytes from a C-side array into a fresh ilang dyn-array.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.fromCArray")]
 pub extern "C" fn __c_array_to_array(src: i64, n: i64, stride: i64, kind_tag: i64) -> i64 {
     let n_safe = if n < 0 { 0 } else { n };
     let bytes = n_safe * stride;
@@ -258,7 +258,7 @@ pub extern "C" fn __c_array_to_array(src: i64, n: i64, stride: i64, kind_tag: i6
 }
 
 /// Retain an array (`++rc`).
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.retain")]
 pub extern "C" fn __retain_array(arr_ptr: i64) {
     if arr_ptr == 0 {
         return;
@@ -269,7 +269,7 @@ pub extern "C" fn __retain_array(arr_ptr: i64) {
 
 /// Release an array (`--rc`); free header + data buffer at rc 0.
 /// Cascade-releases each stored element via `release_field_by_kind`.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.release")]
 pub extern "C" fn __release_array(arr_ptr: i64) {
     if arr_ptr == 0 {
         return;
@@ -323,7 +323,7 @@ pub(crate) fn build_i64_array(items: &[i64], elem_kind: i64) -> i64 {
 
 /// Wrap an inline fixed-length array (a bare `ptr` to `len` elements
 /// of `stride` bytes each) into a dynamic-array header.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.fixedToDyn")]
 pub extern "C" fn __fixed_to_dyn(ptr: i64, len: i64, stride: i64, kind_tag: i64) -> i64 {
     let header = __mir_alloc(48);
     unsafe {
@@ -375,7 +375,7 @@ fn box_optional_cell(value: i64, elem_tag: i64) -> i64 {
     cell as i64
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.map")]
 pub extern "C" fn __array_map(arr: i64, closure: i64, result_kind: i64) -> i64 {
     if arr == 0 || closure == 0 {
         return build_i64_array(&[], result_kind);
@@ -390,7 +390,7 @@ pub extern "C" fn __array_map(arr: i64, closure: i64, result_kind: i64) -> i64 {
     build_i64_array(&out, result_kind)
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.filter")]
 pub extern "C" fn __array_filter(arr: i64, closure: i64) -> i64 {
     if arr == 0 || closure == 0 {
         return build_i64_array(&[], KIND_NONE);
@@ -411,7 +411,7 @@ pub extern "C" fn __array_filter(arr: i64, closure: i64) -> i64 {
     build_i64_array(&out, elem_kind)
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.slice")]
 pub extern "C" fn __array_slice(arr: i64, start: i64, end: i64) -> i64 {
     if arr == 0 {
         return build_i64_array(&[], KIND_NONE);
@@ -432,7 +432,7 @@ pub extern "C" fn __array_slice(arr: i64, start: i64, end: i64) -> i64 {
     build_i64_array(&out, elem_kind)
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.forEach")]
 pub extern "C" fn __array_for_each(arr: i64, closure: i64) {
     if arr == 0 || closure == 0 {
         return;
@@ -448,7 +448,7 @@ pub extern "C" fn __array_for_each(arr: i64, closure: i64) {
 /// `Optional<T>`. Empty / no-match → 0 (`none`). The array keeps
 /// its own reference to the matched cell, so the Optional grabs
 /// a fresh +1 via `retain_field_by_kind` before boxing.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.find")]
 pub extern "C" fn __array_find(arr: i64, closure: i64) -> i64 {
     if arr == 0 || closure == 0 {
         return 0;
@@ -467,7 +467,7 @@ pub extern "C" fn __array_find(arr: i64, closure: i64) -> i64 {
 
 /// Index of the first cell for which `pred(cell)` returns non-zero,
 /// or `-1` when nothing matched.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.findIndex")]
 pub extern "C" fn __array_find_index(arr: i64, closure: i64) -> i64 {
     if arr == 0 || closure == 0 {
         return -1;
@@ -485,7 +485,7 @@ pub extern "C" fn __array_find_index(arr: i64, closure: i64) -> i64 {
 
 /// `1` when `pred(cell)` returns non-zero for every cell (vacuously
 /// true on an empty array). Short-circuits on the first `0`.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.every")]
 pub extern "C" fn __array_every(arr: i64, closure: i64) -> i64 {
     if arr == 0 || closure == 0 {
         return 1;
@@ -503,7 +503,7 @@ pub extern "C" fn __array_every(arr: i64, closure: i64) -> i64 {
 
 /// `1` when `pred(cell)` returns non-zero for at least one cell;
 /// `0` otherwise (including the empty array case).
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.some")]
 pub extern "C" fn __array_some(arr: i64, closure: i64) -> i64 {
     if arr == 0 || closure == 0 {
         return 0;
@@ -523,7 +523,7 @@ pub extern "C" fn __array_some(arr: i64, closure: i64) -> i64 {
 /// every cell of `b`. Both source arrays keep their own references
 /// to the underlying heap cells; the new array bumps each cell's
 /// refcount so all three holders are accounted for.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.concat")]
 pub extern "C" fn __array_concat(a: i64, b: i64) -> i64 {
     let a_len = if a == 0 { 0 } else { unsafe { array_header(a).0 } };
     let b_len = if b == 0 { 0 } else { unsafe { array_header(b).0 } };
@@ -561,7 +561,7 @@ pub extern "C" fn __array_concat(a: i64, b: i64) -> i64 {
 /// Build a fresh array with the cells of `arr` in reverse order.
 /// Each heap cell gains one extra reference (the new array holds
 /// it alongside the original).
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.reverse")]
 pub extern "C" fn __array_reverse(arr: i64) -> i64 {
     if arr == 0 {
         return build_i64_array(&[], KIND_NONE);
@@ -582,7 +582,7 @@ pub extern "C" fn __array_reverse(arr: i64) -> i64 {
 /// Join a `string[]` into a single ilang string with `sep` between
 /// each cell. The type checker restricts the receiver to `string[]`
 /// so cells dereference cleanly via `cstr_to_str`.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.join")]
 pub extern "C" fn __array_join(arr: i64, sep: i64) -> i64 {
     if arr == 0 {
         return leak_cstring(String::new());
@@ -603,7 +603,7 @@ pub extern "C" fn __array_join(arr: i64, sep: i64) -> i64 {
 /// Remove and return the first cell as `Optional<T>`. Empty
 /// arrays return 0 (`none`). The Optional inherits the array's
 /// reference (no retain) — the array's length drops by one.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.shift")]
 pub extern "C" fn __array_shift(arr: i64) -> i64 {
     if arr == 0 {
         return 0;
@@ -637,7 +637,7 @@ pub extern "C" fn __array_shift(arr: i64) -> i64 {
 /// Insert `value` at index 0, shifting the rest right by one and
 /// growing the backing buffer if needed. The MIR side already
 /// bumped the value's refcount on heap kinds, so we just store.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.unshift")]
 pub extern "C" fn __array_unshift(arr: i64, value: i64) {
     if arr == 0 {
         return;
@@ -681,7 +681,7 @@ pub extern "C" fn __array_unshift(arr: i64, value: i64) {
 /// Replace every cell with `value`. Releases the previously stored
 /// cell on heap kinds and retains `value` for each slot it lands
 /// in, so refcount stays balanced after the bulk overwrite.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.fill")]
 pub extern "C" fn __array_fill(arr: i64, value: i64) {
     if arr == 0 {
         return;
@@ -713,7 +713,7 @@ pub extern "C" fn __array_fill(arr: i64, value: i64) {
 /// them by `cmp(a, b)`. `cmp` returns negative / zero / positive
 /// for less / equal / greater — same convention `qsort_r` /
 /// `Array.prototype.sort` use.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$array.sort")]
 pub extern "C" fn __array_sort(arr: i64, closure: i64) -> i64 {
     if arr == 0 {
         return build_i64_array(&[], KIND_NONE);
