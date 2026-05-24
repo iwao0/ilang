@@ -416,7 +416,11 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                     .filter(|n| {
                         // Fixed-length arrays can't grow / shrink.
                         !(fixed.is_some()
-                            && matches!(**n, "push" | "pop" | "remove" | "removeAt"))
+                            && matches!(
+                                **n,
+                                "push" | "pop" | "shift" | "unshift"
+                                    | "remove" | "removeAt",
+                            ))
                     })
                     .filter_map(|n| {
                         array_method_sig(n, elem)

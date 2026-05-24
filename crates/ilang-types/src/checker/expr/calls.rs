@@ -464,7 +464,10 @@ impl TypeChecker {
                 }
                 return Ok(Type::Array { elem: elem.clone(), fixed: None });
             }
-            if method == "map" || method == "filter" || method == "forEach" {
+            if matches!(
+                method.as_str(),
+                "map" | "filter" | "forEach" | "find" | "findIndex" | "every" | "some",
+            ) {
                 if args.len() != 1 {
                     return Err(TypeError::ArityMismatch {
                         name: method.clone(),
@@ -489,21 +492,210 @@ impl TypeChecker {
                         span: args[0].span,
                     });
                 }
+                // `filter` / `find` / `findIndex` / `every` / `some`
+                // all take a `fn(T): bool` predicate; reject mismatched
+                // returns with a single shared check.
+                let needs_bool = matches!(
+                    method.as_str(),
+                    "filter" | "find" | "findIndex" | "every" | "some",
+                );
+                if needs_bool && !matches!(ret, Type::Bool) {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Bool,
+                        got: ret,
+                        span: args[0].span,
+                    });
+                }
                 return Ok(match method.as_str() {
                     "map" => Type::Array { elem: Box::new(ret), fixed: None },
-                    "filter" => {
-                        if !matches!(ret, Type::Bool) {
-                            return Err(TypeError::Mismatch {
-                                expected: Type::Bool,
-                                got: ret,
-                                span: args[0].span,
-                            });
-                        }
-                        Type::Array { elem: elem.clone(), fixed: None }
-                    }
+                    "filter" => Type::Array { elem: elem.clone(), fixed: None },
                     "forEach" => Type::Unit,
+                    "find" => Type::Optional(elem.clone()),
+                    "findIndex" => Type::I64,
+                    "every" | "some" => Type::Bool,
                     _ => unreachable!(),
                 });
+            }
+            if method == "concat" {
+                if args.len() != 1 {
+                    return Err(TypeError::ArityMismatch {
+                        name: "concat".into(),
+                        expected: 1,
+                        got: args.len(),
+                        span,
+                    });
+                }
+                let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                let other_elem = match &at {
+                    Type::Array { elem: e, .. } => (**e).clone(),
+                    _ => return Err(TypeError::Mismatch {
+                        expected: Type::Array {
+                            elem: elem.clone(),
+                            fixed: None,
+                        },
+                        got: at,
+                        span: args[0].span,
+                    }),
+                };
+                if !assignable(elem, &other_elem)
+                    && !self.assignable_obj(elem, &other_elem)
+                {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Array {
+                            elem: elem.clone(),
+                            fixed: None,
+                        },
+                        got: at,
+                        span: args[0].span,
+                    });
+                }
+                return Ok(Type::Array { elem: elem.clone(), fixed: None });
+            }
+            if method == "reverse" {
+                if !args.is_empty() {
+                    return Err(TypeError::ArityMismatch {
+                        name: "reverse".into(),
+                        expected: 0,
+                        got: args.len(),
+                        span,
+                    });
+                }
+                return Ok(Type::Array { elem: elem.clone(), fixed: None });
+            }
+            if method == "join" {
+                // Only `string[]` has a natural `join`. For numeric
+                // arrays the user can `.map(x -> x.toString())` first.
+                if !matches!(**elem, Type::Str) {
+                    return Err(TypeError::UnknownMethod {
+                        class: Symbol::intern(&format!("{ot}")),
+                        method: method.clone(),
+                        span,
+                    });
+                }
+                if args.len() != 1 {
+                    return Err(TypeError::ArityMismatch {
+                        name: "join".into(),
+                        expected: 1,
+                        got: args.len(),
+                        span,
+                    });
+                }
+                let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                if !matches!(at, Type::Str) {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Str,
+                        got: at,
+                        span: args[0].span,
+                    });
+                }
+                return Ok(Type::Str);
+            }
+            if method == "shift" {
+                if fixed.is_some() {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Array {
+                            elem: elem.clone(),
+                            fixed: None,
+                        },
+                        got: ot.clone(),
+                        span,
+                    });
+                }
+                if !args.is_empty() {
+                    return Err(TypeError::ArityMismatch {
+                        name: "shift".into(),
+                        expected: 0,
+                        got: args.len(),
+                        span,
+                    });
+                }
+                return Ok(Type::Optional(elem.clone()));
+            }
+            if method == "unshift" {
+                if fixed.is_some() {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Array {
+                            elem: elem.clone(),
+                            fixed: None,
+                        },
+                        got: ot.clone(),
+                        span,
+                    });
+                }
+                if args.len() != 1 {
+                    return Err(TypeError::ArityMismatch {
+                        name: "unshift".into(),
+                        expected: 1,
+                        got: args.len(),
+                        span,
+                    });
+                }
+                let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                if !self.value_assignable(&args[0], &at, elem) {
+                    return Err(TypeError::Mismatch {
+                        expected: (**elem).clone(),
+                        got: at,
+                        span: args[0].span,
+                    });
+                }
+                return Ok(Type::Unit);
+            }
+            if method == "fill" {
+                if args.len() != 1 {
+                    return Err(TypeError::ArityMismatch {
+                        name: "fill".into(),
+                        expected: 1,
+                        got: args.len(),
+                        span,
+                    });
+                }
+                let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                if !self.value_assignable(&args[0], &at, elem) {
+                    return Err(TypeError::Mismatch {
+                        expected: (**elem).clone(),
+                        got: at,
+                        span: args[0].span,
+                    });
+                }
+                return Ok(Type::Unit);
+            }
+            if method == "sort" {
+                if args.len() != 1 {
+                    return Err(TypeError::ArityMismatch {
+                        name: "sort".into(),
+                        expected: 1,
+                        got: args.len(),
+                        span,
+                    });
+                }
+                let ft = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                let (params, ret) = match &ft {
+                    Type::Fn(fty) => (fty.params.clone(), fty.ret.clone()),
+                    _ => return Err(TypeError::Mismatch {
+                        expected: Type::func(
+                            vec![(**elem).clone(), (**elem).clone()],
+                            Type::I64,
+                        ),
+                        got: ft,
+                        span: args[0].span,
+                    }),
+                };
+                let two_args_ok = params.len() == 2
+                    && (assignable(elem, &params[0])
+                        || self.assignable_obj(elem, &params[0]))
+                    && (assignable(elem, &params[1])
+                        || self.assignable_obj(elem, &params[1]));
+                if !two_args_ok || !matches!(ret, Type::I64) {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::func(
+                            vec![(**elem).clone(), (**elem).clone()],
+                            Type::I64,
+                        ),
+                        got: Type::func(params.to_vec(), ret.clone()),
+                        span: args[0].span,
+                    });
+                }
+                return Ok(Type::Array { elem: elem.clone(), fixed: None });
             }
             return Err(TypeError::UnknownMethod {
                 class: Symbol::intern(&format!("{ot}")),

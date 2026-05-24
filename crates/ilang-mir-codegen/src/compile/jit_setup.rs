@@ -179,6 +179,17 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__array_pop", ilang_runtime::__array_pop as *const u8);
     jit_builder.symbol("__array_remove", ilang_runtime::__array_remove as *const u8);
     jit_builder.symbol("__array_remove_at", ilang_runtime::__array_remove_at as *const u8);
+    jit_builder.symbol("__array_find", ilang_runtime::__array_find as *const u8);
+    jit_builder.symbol("__array_find_index", ilang_runtime::__array_find_index as *const u8);
+    jit_builder.symbol("__array_every", ilang_runtime::__array_every as *const u8);
+    jit_builder.symbol("__array_some", ilang_runtime::__array_some as *const u8);
+    jit_builder.symbol("__array_concat", ilang_runtime::__array_concat as *const u8);
+    jit_builder.symbol("__array_reverse", ilang_runtime::__array_reverse as *const u8);
+    jit_builder.symbol("__array_join", ilang_runtime::__array_join as *const u8);
+    jit_builder.symbol("__array_shift", ilang_runtime::__array_shift as *const u8);
+    jit_builder.symbol("__array_unshift", ilang_runtime::__array_unshift as *const u8);
+    jit_builder.symbol("__array_fill", ilang_runtime::__array_fill as *const u8);
+    jit_builder.symbol("__array_sort", ilang_runtime::__array_sort as *const u8);
     jit_builder.symbol("__fixed_to_dyn", ilang_runtime::__fixed_to_dyn as *const u8);
     jit_builder.symbol("__enum_box", ilang_runtime::__enum_box as *const u8);
     jit_builder.symbol("__c_array_to_array", ilang_runtime::__c_array_to_array as *const u8);

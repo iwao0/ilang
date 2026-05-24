@@ -381,6 +381,27 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("__array_slice", Linkage::Import, &sig)?
         },
+        array_find: declare_binary_i64(module, "__array_find")?,
+        array_find_index: declare_binary_i64(module, "__array_find_index")?,
+        array_every: declare_binary_i64(module, "__array_every")?,
+        array_some: declare_binary_i64(module, "__array_some")?,
+        array_concat: declare_binary_i64(module, "__array_concat")?,
+        array_reverse: declare_unary_i64(module, "__array_reverse")?,
+        array_join: declare_binary_i64(module, "__array_join")?,
+        array_shift: declare_unary_i64(module, "__array_shift")?,
+        array_unshift: {
+            let mut sig = module.make_signature();
+            sig.params.push(AbiParam::new(types::I64));
+            sig.params.push(AbiParam::new(types::I64));
+            module.declare_function("__array_unshift", Linkage::Import, &sig)?
+        },
+        array_fill: {
+            let mut sig = module.make_signature();
+            sig.params.push(AbiParam::new(types::I64));
+            sig.params.push(AbiParam::new(types::I64));
+            module.declare_function("__array_fill", Linkage::Import, &sig)?
+        },
+        array_sort: declare_binary_i64(module, "__array_sort")?,
         str_split: declare_binary_i64(module, "__str_split")?,
         virt_dispatch: declare_binary_i64(module, "__virt_dispatch")?,
         fixed_to_dyn: {

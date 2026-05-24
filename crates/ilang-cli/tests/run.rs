@@ -886,6 +886,137 @@ fn jit_array_remove_string_releases_cell() {
 }
 
 #[test]
+fn jit_array_find_returns_some_on_match() {
+    let p = write_tmp(
+        "arr_find_hit.il",
+        "let xs: i64[] = [1, 2, 3, 4]\n\
+         let r = xs.find(fn(x: i64): bool { x == 3 })\n\
+         if r.isSome { r.unwrap() } else { -1 }",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3");
+}
+
+#[test]
+fn jit_array_find_index_misses_with_negative_one() {
+    let p = write_tmp(
+        "arr_findidx_miss.il",
+        "let xs: i64[] = [1, 2, 3]\n\
+         xs.findIndex(fn(x: i64): bool { x == 99 })",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "-1");
+}
+
+#[test]
+fn jit_array_every_some_combinations() {
+    // `every` is vacuously true on empty arrays; `some` is false.
+    // Mix both on a non-empty array to cover the typical branches.
+    let p = write_tmp(
+        "arr_every_some.il",
+        "let xs: i64[] = [2, 4, 6]\n\
+         let allEven = xs.every(fn(x: i64): bool { x % 2 == 0 })\n\
+         let anyOdd = xs.some(fn(x: i64): bool { x % 2 == 1 })\n\
+         if allEven && !anyOdd { 1 } else { 0 }",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "1");
+}
+
+#[test]
+fn jit_array_concat_preserves_sources() {
+    // `concat` must build a fresh array without disturbing the
+    // two source arrays.
+    let p = write_tmp(
+        "arr_concat.il",
+        "let a: i64[] = [1, 2]\n\
+         let b: i64[] = [3, 4]\n\
+         let c = a.concat(b)\n\
+         c.length * 1000 + a.length * 100 + b.length * 10",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    // 4 in c, 2 in a, 2 in b → 4220.
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "4220");
+}
+
+#[test]
+fn jit_array_reverse_returns_copy() {
+    let p = write_tmp(
+        "arr_reverse.il",
+        "let a: i64[] = [1, 2, 3]\n\
+         let r = a.reverse()\n\
+         r.indexOf(1) * 100 + a.indexOf(1)",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    // 1 lands at index 2 in r, still at 0 in a → 200.
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "200");
+}
+
+#[test]
+fn jit_array_join_strings() {
+    let p = write_tmp(
+        "arr_join.il",
+        "let xs: string[] = [\"foo\", \"bar\", \"baz\"]\n\
+         xs.join(\", \")",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "foo, bar, baz");
+}
+
+#[test]
+fn jit_array_shift_unshift_round_trip() {
+    // shift then unshift the same value should reproduce the
+    // original layout.
+    let p = write_tmp(
+        "arr_shift_unshift.il",
+        "let q: i64[] = [10, 20, 30]\n\
+         let head = q.shift()\n\
+         if head.isNone { -1 } else {\n\
+             q.unshift(head.unwrap())\n\
+             q.length * 100 + q.indexOf(10)\n\
+         }",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    // length still 3, 10 back at index 0 → 300.
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "300");
+}
+
+#[test]
+fn jit_array_fill_overwrites_all_cells() {
+    let p = write_tmp(
+        "arr_fill.il",
+        "let xs: i64[] = [1, 2, 3, 4]\n\
+         xs.fill(7)\n\
+         xs.indexOf(1) + xs.indexOf(7)",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    // 1 is gone (-1), 7 is at 0 → -1 + 0 = -1.
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "-1");
+}
+
+#[test]
+fn jit_array_sort_ascending() {
+    let p = write_tmp(
+        "arr_sort.il",
+        "let xs: i64[] = [5, 2, 8, 1, 9, 3]\n\
+         let s = xs.sort(fn(a: i64, b: i64): i64 { a - b })\n\
+         s.indexOf(1) * 1000 + s.indexOf(9)",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    // 1 at index 0, 9 at index 5 → 5.
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "5");
+}
+
+#[test]
 fn jit_array_indexof_string() {
     let p = write_tmp(
         "indexof_str.il",

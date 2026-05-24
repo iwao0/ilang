@@ -11,6 +11,7 @@
 use crate::alloc::{__mir_alloc, __mir_free};
 use crate::cascade::{release_field_by_kind, retain_field_by_kind};
 use crate::kind::KIND_NONE;
+use crate::strings::{cstr_to_str, leak_cstring};
 
 #[inline]
 pub(crate) unsafe fn array_header(arr: i64) -> (i64, i64, i64) {
@@ -347,6 +348,33 @@ unsafe fn call_closure_1(closure: i64, arg: i64) -> i64 {
     }
 }
 
+/// Invoke a closure with two args plus the trailing env pointer.
+/// Used by `__array_sort`'s comparator callback.
+unsafe fn call_closure_2(closure: i64, a: i64, b: i64) -> i64 {
+    unsafe {
+        let fn_ptr = *(closure as *const i64);
+        let f: extern "C" fn(i64, i64, i64) -> i64 = std::mem::transmute(fn_ptr);
+        f(a, b, closure)
+    }
+}
+
+/// Box an array cell into a fresh `Optional<T>` heap block
+/// (`[value | rc | kind_tag]`). The cell counts as one new
+/// reference: bump rc on heap kinds before boxing so the Optional
+/// owns its own +1 alongside the array's existing one.
+fn box_optional_cell(value: i64, elem_tag: i64) -> i64 {
+    if elem_tag != KIND_NONE {
+        retain_field_by_kind(value, elem_tag);
+    }
+    let cell = __mir_alloc(24) as *mut i64;
+    unsafe {
+        *cell = value;
+        *cell.add(1) = 1;
+        *cell.add(2) = elem_tag;
+    }
+    cell as i64
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __array_map(arr: i64, closure: i64, result_kind: i64) -> i64 {
     if arr == 0 || closure == 0 {
@@ -414,5 +442,298 @@ pub extern "C" fn __array_for_each(arr: i64, closure: i64) {
         let cell = unsafe { *((data + i * 8) as *const i64) };
         unsafe { call_closure_1(closure, cell) };
     }
+}
+
+/// First cell for which `pred(cell)` returns non-zero, boxed as
+/// `Optional<T>`. Empty / no-match → 0 (`none`). The array keeps
+/// its own reference to the matched cell, so the Optional grabs
+/// a fresh +1 via `retain_field_by_kind` before boxing.
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_find(arr: i64, closure: i64) -> i64 {
+    if arr == 0 || closure == 0 {
+        return 0;
+    }
+    let (len, _cap, data) = unsafe { array_header(arr) };
+    let elem_kind = unsafe { *((arr + 32) as *const i64) };
+    for i in 0..len {
+        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let hit = unsafe { call_closure_1(closure, cell) };
+        if hit != 0 {
+            return box_optional_cell(cell, elem_kind);
+        }
+    }
+    0
+}
+
+/// Index of the first cell for which `pred(cell)` returns non-zero,
+/// or `-1` when nothing matched.
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_find_index(arr: i64, closure: i64) -> i64 {
+    if arr == 0 || closure == 0 {
+        return -1;
+    }
+    let (len, _cap, data) = unsafe { array_header(arr) };
+    for i in 0..len {
+        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let hit = unsafe { call_closure_1(closure, cell) };
+        if hit != 0 {
+            return i;
+        }
+    }
+    -1
+}
+
+/// `1` when `pred(cell)` returns non-zero for every cell (vacuously
+/// true on an empty array). Short-circuits on the first `0`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_every(arr: i64, closure: i64) -> i64 {
+    if arr == 0 || closure == 0 {
+        return 1;
+    }
+    let (len, _cap, data) = unsafe { array_header(arr) };
+    for i in 0..len {
+        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let hit = unsafe { call_closure_1(closure, cell) };
+        if hit == 0 {
+            return 0;
+        }
+    }
+    1
+}
+
+/// `1` when `pred(cell)` returns non-zero for at least one cell;
+/// `0` otherwise (including the empty array case).
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_some(arr: i64, closure: i64) -> i64 {
+    if arr == 0 || closure == 0 {
+        return 0;
+    }
+    let (len, _cap, data) = unsafe { array_header(arr) };
+    for i in 0..len {
+        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let hit = unsafe { call_closure_1(closure, cell) };
+        if hit != 0 {
+            return 1;
+        }
+    }
+    0
+}
+
+/// Build a fresh array containing every cell of `a` followed by
+/// every cell of `b`. Both source arrays keep their own references
+/// to the underlying heap cells; the new array bumps each cell's
+/// refcount so all three holders are accounted for.
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_concat(a: i64, b: i64) -> i64 {
+    let a_len = if a == 0 { 0 } else { unsafe { array_header(a).0 } };
+    let b_len = if b == 0 { 0 } else { unsafe { array_header(b).0 } };
+    let elem_kind = if a != 0 {
+        unsafe { *((a + 32) as *const i64) }
+    } else if b != 0 {
+        unsafe { *((b + 32) as *const i64) }
+    } else {
+        KIND_NONE
+    };
+    let mut out: Vec<i64> = Vec::with_capacity((a_len + b_len) as usize);
+    if a != 0 {
+        let data = unsafe { *((a + 16) as *const i64) };
+        for i in 0..a_len {
+            let cell = unsafe { *((data + i * 8) as *const i64) };
+            if elem_kind != KIND_NONE {
+                retain_field_by_kind(cell, elem_kind);
+            }
+            out.push(cell);
+        }
+    }
+    if b != 0 {
+        let data = unsafe { *((b + 16) as *const i64) };
+        for i in 0..b_len {
+            let cell = unsafe { *((data + i * 8) as *const i64) };
+            if elem_kind != KIND_NONE {
+                retain_field_by_kind(cell, elem_kind);
+            }
+            out.push(cell);
+        }
+    }
+    build_i64_array(&out, elem_kind)
+}
+
+/// Build a fresh array with the cells of `arr` in reverse order.
+/// Each heap cell gains one extra reference (the new array holds
+/// it alongside the original).
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_reverse(arr: i64) -> i64 {
+    if arr == 0 {
+        return build_i64_array(&[], KIND_NONE);
+    }
+    let (len, _cap, data) = unsafe { array_header(arr) };
+    let elem_kind = unsafe { *((arr + 32) as *const i64) };
+    let mut out: Vec<i64> = Vec::with_capacity(len as usize);
+    for i in (0..len).rev() {
+        let cell = unsafe { *((data + i * 8) as *const i64) };
+        if elem_kind != KIND_NONE {
+            retain_field_by_kind(cell, elem_kind);
+        }
+        out.push(cell);
+    }
+    build_i64_array(&out, elem_kind)
+}
+
+/// Join a `string[]` into a single ilang string with `sep` between
+/// each cell. The type checker restricts the receiver to `string[]`
+/// so cells dereference cleanly via `cstr_to_str`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_join(arr: i64, sep: i64) -> i64 {
+    if arr == 0 {
+        return leak_cstring(String::new());
+    }
+    let (len, _cap, data) = unsafe { array_header(arr) };
+    let sep_str = cstr_to_str(sep);
+    let mut out = String::new();
+    for i in 0..len {
+        if i > 0 {
+            out.push_str(sep_str);
+        }
+        let cell = unsafe { *((data + i * 8) as *const i64) };
+        out.push_str(cstr_to_str(cell));
+    }
+    leak_cstring(out)
+}
+
+/// Remove and return the first cell as `Optional<T>`. Empty
+/// arrays return 0 (`none`). The Optional inherits the array's
+/// reference (no retain) — the array's length drops by one.
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_shift(arr: i64) -> i64 {
+    if arr == 0 {
+        return 0;
+    }
+    unsafe {
+        let h = arr as *mut i64;
+        let len = *h;
+        if len <= 0 {
+            return 0;
+        }
+        let data = *h.add(2);
+        let stride = *h.add(5);
+        let addr = data as *const u8;
+        let value: i64 = match stride {
+            1 => *(addr as *const u8) as i64,
+            2 => *(addr as *const u16) as i64,
+            4 => *(addr as *const u32) as i64,
+            _ => *(addr as *const i64),
+        };
+        shift_left_one(data, 1, len, stride);
+        *h = len - 1;
+        let elem_tag = *h.add(4);
+        let cell = __mir_alloc(24) as *mut i64;
+        *cell = value;
+        *cell.add(1) = 1;
+        *cell.add(2) = elem_tag;
+        cell as i64
+    }
+}
+
+/// Insert `value` at index 0, shifting the rest right by one and
+/// growing the backing buffer if needed. The MIR side already
+/// bumped the value's refcount on heap kinds, so we just store.
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_unshift(arr: i64, value: i64) {
+    if arr == 0 {
+        return;
+    }
+    unsafe {
+        let h = arr as *mut i64;
+        let len = *h;
+        let cap = *h.add(1);
+        let stride = *h.add(5);
+        let data = if len < cap {
+            *h.add(2)
+        } else {
+            let new_cap = (cap * 2).max(4);
+            let new_data = __mir_alloc(new_cap * stride);
+            let old_data = *h.add(2);
+            if len > 0 && old_data != 0 {
+                std::ptr::copy_nonoverlapping(
+                    old_data as *const u8,
+                    new_data as *mut u8,
+                    (len * stride) as usize,
+                );
+            }
+            if old_data != 0 && cap > 0 {
+                __mir_free(old_data, cap * stride);
+            }
+            *h.add(1) = new_cap;
+            *h.add(2) = new_data;
+            new_data
+        };
+        // Make room at index 0 — move cells [0..len) one slot right.
+        if len > 0 {
+            let src = data as *const u8;
+            let dst = (data + stride) as *mut u8;
+            std::ptr::copy(src, dst, (len * stride) as usize);
+        }
+        store_packed(data, 0, stride, value);
+        *h = len + 1;
+    }
+}
+
+/// Replace every cell with `value`. Releases the previously stored
+/// cell on heap kinds and retains `value` for each slot it lands
+/// in, so refcount stays balanced after the bulk overwrite.
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_fill(arr: i64, value: i64) {
+    if arr == 0 {
+        return;
+    }
+    unsafe {
+        let h = arr as *const i64;
+        let len = *h;
+        let data = *h.add(2);
+        let elem_tag = *h.add(4);
+        let stride = *h.add(5);
+        for i in 0..len {
+            if elem_tag != KIND_NONE {
+                let old = match stride {
+                    1 => *((data + i * stride) as *const u8) as i64,
+                    2 => *((data + i * stride) as *const u16) as i64,
+                    4 => *((data + i * stride) as *const u32) as i64,
+                    _ => *((data + i * stride) as *const i64),
+                };
+                release_field_by_kind(old, elem_tag);
+                retain_field_by_kind(value, elem_tag);
+            }
+            store_packed(data, i, stride, value);
+        }
+    }
+}
+
+/// Comparator-based stable sort. Builds a new array containing
+/// each source cell (with a fresh retain on heap kinds) and orders
+/// them by `cmp(a, b)`. `cmp` returns negative / zero / positive
+/// for less / equal / greater — same convention `qsort_r` /
+/// `Array.prototype.sort` use.
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_sort(arr: i64, closure: i64) -> i64 {
+    if arr == 0 {
+        return build_i64_array(&[], KIND_NONE);
+    }
+    let (len, _cap, data) = unsafe { array_header(arr) };
+    let elem_kind = unsafe { *((arr + 32) as *const i64) };
+    let mut buf: Vec<i64> = Vec::with_capacity(len as usize);
+    for i in 0..len {
+        let cell = unsafe { *((data + i * 8) as *const i64) };
+        if elem_kind != KIND_NONE {
+            retain_field_by_kind(cell, elem_kind);
+        }
+        buf.push(cell);
+    }
+    if closure != 0 {
+        buf.sort_by(|a, b| {
+            let r = unsafe { call_closure_2(closure, *a, *b) };
+            r.cmp(&0)
+        });
+    }
+    build_i64_array(&buf, elem_kind)
 }
 

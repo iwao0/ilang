@@ -730,6 +730,158 @@ impl<'a> BodyCx<'a> {
                 });
                 Ok((self.const_unit(), MirTy::Unit))
             }
+            (MirTy::Array { elem, .. }, "find") => {
+                if args.len() != 1 {
+                    return Err(LowerError::Other("Array.find takes 1 arg".into()));
+                }
+                let elem_ty = (**elem).clone();
+                let opt_ty = MirTy::Optional(Box::new(elem_ty));
+                let (fv, _) = self.lower_expr(&args[0])?;
+                let v = self.fb.new_value(opt_ty.clone());
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Builtin(Symbol::intern("array_find")),
+                    args: Box::new([ov, fv]),
+                });
+                Ok((v, opt_ty))
+            }
+            (MirTy::Array { .. }, "findIndex") => {
+                if args.len() != 1 {
+                    return Err(LowerError::Other("Array.findIndex takes 1 arg".into()));
+                }
+                let (fv, _) = self.lower_expr(&args[0])?;
+                let v = self.fb.new_value(MirTy::I64);
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Builtin(Symbol::intern("array_find_index")),
+                    args: Box::new([ov, fv]),
+                });
+                Ok((v, MirTy::I64))
+            }
+            (MirTy::Array { .. }, m @ ("every" | "some")) => {
+                if args.len() != 1 {
+                    return Err(LowerError::Other(format!(
+                        "Array.{m} takes 1 arg"
+                    )));
+                }
+                let (fv, _) = self.lower_expr(&args[0])?;
+                let builtin = if m == "every" {
+                    "array_every"
+                } else {
+                    "array_some"
+                };
+                let v = self.fb.new_value(MirTy::Bool);
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Builtin(Symbol::intern(builtin)),
+                    args: Box::new([ov, fv]),
+                });
+                Ok((v, MirTy::Bool))
+            }
+            (MirTy::Array { elem, .. }, "concat") => {
+                if args.len() != 1 {
+                    return Err(LowerError::Other("Array.concat takes 1 arg".into()));
+                }
+                let arr_ty = MirTy::Array { elem: elem.clone(), len: None };
+                let (av, _) = self.lower_expr(&args[0])?;
+                let v = self.fb.new_value(arr_ty.clone());
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Builtin(Symbol::intern("array_concat")),
+                    args: Box::new([ov, av]),
+                });
+                Ok((v, arr_ty))
+            }
+            (MirTy::Array { elem, .. }, "reverse") => {
+                let arr_ty = MirTy::Array { elem: elem.clone(), len: None };
+                let v = self.fb.new_value(arr_ty.clone());
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Builtin(Symbol::intern("array_reverse")),
+                    args: Box::new([ov]),
+                });
+                Ok((v, arr_ty))
+            }
+            (MirTy::Array { .. }, "join") => {
+                if args.len() != 1 {
+                    return Err(LowerError::Other("Array.join takes 1 arg".into()));
+                }
+                let (sv, _) = self.lower_expr(&args[0])?;
+                let v = self.fb.new_value(MirTy::Str);
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Builtin(Symbol::intern("array_join")),
+                    args: Box::new([ov, sv]),
+                });
+                Ok((v, MirTy::Str))
+            }
+            (MirTy::Array { elem, .. }, "shift") => {
+                let elem_ty = (**elem).clone();
+                let opt_ty = MirTy::Optional(Box::new(elem_ty));
+                let v = self.fb.new_value(opt_ty.clone());
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Builtin(Symbol::intern("array_shift")),
+                    args: Box::new([ov]),
+                });
+                Ok((v, opt_ty))
+            }
+            (MirTy::Array { elem, .. }, "unshift") => {
+                if args.len() != 1 {
+                    return Err(LowerError::Other("Array.unshift takes 1 arg".into()));
+                }
+                let elem_ty = (**elem).clone();
+                let value_is_fresh = self.is_fresh_object_expr(&args[0]);
+                let (av, aty) = self.lower_expr(&args[0])?;
+                let coerced = if aty == elem_ty {
+                    av
+                } else {
+                    self.coerce(av, &aty, &elem_ty, args[0].span)?
+                };
+                // Mirror push: bump rc on borrowed heap values so the
+                // array cell holds a real reference.
+                if !value_is_fresh {
+                    retain_if_heap(&mut self.fb, coerced, &elem_ty);
+                }
+                self.fb.push_inst(Inst::Call {
+                    dst: None,
+                    callee: FuncRef::Builtin(Symbol::intern("array_unshift")),
+                    args: Box::new([ov, coerced]),
+                });
+                Ok((self.const_unit(), MirTy::Unit))
+            }
+            (MirTy::Array { elem, .. }, "fill") => {
+                if args.len() != 1 {
+                    return Err(LowerError::Other("Array.fill takes 1 arg".into()));
+                }
+                let elem_ty = (**elem).clone();
+                let (av, aty) = self.lower_expr(&args[0])?;
+                let coerced = if aty == elem_ty {
+                    av
+                } else {
+                    self.coerce(av, &aty, &elem_ty, args[0].span)?
+                };
+                self.fb.push_inst(Inst::Call {
+                    dst: None,
+                    callee: FuncRef::Builtin(Symbol::intern("array_fill")),
+                    args: Box::new([ov, coerced]),
+                });
+                Ok((self.const_unit(), MirTy::Unit))
+            }
+            (MirTy::Array { elem, .. }, "sort") => {
+                if args.len() != 1 {
+                    return Err(LowerError::Other("Array.sort takes 1 arg".into()));
+                }
+                let arr_ty = MirTy::Array { elem: elem.clone(), len: None };
+                let (fv, _) = self.lower_expr(&args[0])?;
+                let v = self.fb.new_value(arr_ty.clone());
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Builtin(Symbol::intern("array_sort")),
+                    args: Box::new([ov, fv]),
+                });
+                Ok((v, arr_ty))
+            }
             (MirTy::Array { elem, .. }, "slice") => {
                 let arr_ty = MirTy::Array { elem: elem.clone(), len: None };
                 let mut arg_vals = vec![ov];

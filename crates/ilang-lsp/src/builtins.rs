@@ -126,8 +126,10 @@ pub(crate) fn primitive_method_doc(method: &str) -> Option<&'static str> {
 
 pub(crate) fn array_method_names() -> &'static [&'static str] {
     &[
-        "push", "pop", "remove", "removeAt", "indexOf", "includes",
-        "slice", "map", "filter", "forEach",
+        "push", "pop", "shift", "unshift", "remove", "removeAt",
+        "indexOf", "includes", "find", "findIndex", "every", "some",
+        "slice", "concat", "reverse", "fill", "sort",
+        "map", "filter", "forEach", "join",
     ]
 }
 
@@ -171,14 +173,27 @@ pub(crate) fn array_method_sig(method: &str, elem: &Type) -> Option<String> {
     let body = match method {
         "push" => format!("push(v: {elem}): ()"),
         "pop" => format!("pop(): {elem}?"),
+        "shift" => format!("shift(): {elem}?"),
+        "unshift" => format!("unshift(v: {elem}): ()"),
         "remove" => format!("remove(v: {elem}): bool"),
         "removeAt" => format!("removeAt(i: i64): {elem}?"),
         "indexOf" => format!("indexOf(v: {elem}): i64"),
         "includes" => format!("includes(v: {elem}): bool"),
+        "find" => format!("find(pred: fn({elem}): bool): {elem}?"),
+        "findIndex" => format!("findIndex(pred: fn({elem}): bool): i64"),
+        "every" => format!("every(pred: fn({elem}): bool): bool"),
+        "some" => format!("some(pred: fn({elem}): bool): bool"),
         "slice" => format!("slice(start: i64, end: i64): {elem}[]"),
+        "concat" => format!("concat(other: {elem}[]): {elem}[]"),
+        "reverse" => format!("reverse(): {elem}[]"),
+        "fill" => format!("fill(v: {elem}): ()"),
+        "sort" => format!("sort(cmp: fn({elem}, {elem}): i64): {elem}[]"),
         "map" => format!("map<U>(f: fn({elem}): U): U[]"),
         "filter" => format!("filter(pred: fn({elem}): bool): {elem}[]"),
         "forEach" => format!("forEach(f: fn({elem}): ()): ()"),
+        // `join` is only legal on `string[]` — surface it just for
+        // that elem so the completion lines up with the type-checker.
+        "join" if matches!(elem, Type::Str) => "join(sep: string): string".to_string(),
         _ => return None,
     };
     Some(format!("(method) {elem}[].{body}"))
@@ -220,14 +235,25 @@ pub(crate) fn array_method_doc(method: &str) -> Option<&'static str> {
     Some(match method {
         "push" => "Appends `v` to the end of the array. Mutates the receiver.",
         "pop" => "Removes and returns the last element, or `none` when the array is empty.",
+        "shift" => "Removes and returns the first element, or `none` when the array is empty.",
+        "unshift" => "Inserts `v` at index 0, shifting the existing elements right.",
         "remove" => "Removes the first element equal to `v`. Returns `true` when an element was removed, `false` otherwise.",
         "removeAt" => "Removes the element at index `i` and returns it, or `none` when `i` is out of `[0, length)`.",
         "indexOf" => "Returns the index of the first element equal to `v`, or `-1` when no element matches.",
         "includes" => "Returns `true` when any element equals `v`.",
+        "find" => "Returns the first element for which `pred(elem)` returns `true`, or `none` when nothing matches.",
+        "findIndex" => "Returns the index of the first element for which `pred(elem)` returns `true`, or `-1` when nothing matches.",
+        "every" => "Returns `true` when `pred(elem)` returns `true` for every element. Vacuously `true` on an empty array.",
+        "some" => "Returns `true` when `pred(elem)` returns `true` for at least one element. `false` on an empty array.",
         "slice" => "Returns a new array covering indices `[start, end)`. Indices are clamped to the array's length.",
+        "concat" => "Returns a new array whose contents are this array followed by `other`. Source arrays are untouched.",
+        "reverse" => "Returns a new array with the elements in reverse order. The receiver is untouched.",
+        "fill" => "Overwrites every cell with `v`. Mutates the receiver.",
+        "sort" => "Returns a new array sorted by `cmp(a, b)` — negative for `a < b`, zero for equal, positive for `a > b`.",
         "map" => "Returns a new array of `f(elem)` for each element, in order.",
         "filter" => "Returns a new array of every element for which `pred(elem)` returns `true`.",
         "forEach" => "Invokes `f` on each element in order. Returns nothing.",
+        "join" => "Concatenates the strings in this `string[]` with `sep` between each pair, returning a single string.",
         _ => return None,
     })
 }
