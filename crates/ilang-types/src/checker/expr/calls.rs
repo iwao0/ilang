@@ -734,20 +734,13 @@ impl TypeChecker {
         // compiles but panics at JIT time with `can't resolve symbol
         // X`. Gate the call so the diagnostic lands at the source.
         //
-        // Exemption: `@lib("objc")` — the ObjC runtime's reference-
-        // counting primitives (`objc_retain` / `objc_release`) the
-        // cocoa bindings expose via plain `pub fn` wrappers.
-        // ilang-runtime hooks the bindings used to declare as
-        // `@lib("c") @symbol("__ilang_*")` are now `@intrinsic(...)`
-        // items, which the parser emits with empty `lib_names` —
-        // they fall through this check naturally.
+        // ilang-runtime hooks that used to need an exemption now go
+        // through `@intrinsic(...)`, which the parser emits with empty
+        // `lib_names` — those fall through this check naturally.
         if !*self.in_extern_c.borrow() {
-            let all_dlsym_not_exempt = !sigs.is_empty()
-                && sigs.iter().all(|s| {
-                    !s.lib_names.is_empty()
-                        && !s.lib_names.iter().any(|n| n.as_str() == "objc")
-                });
-            if all_dlsym_not_exempt {
+            let all_dlsym = !sigs.is_empty()
+                && sigs.iter().all(|s| !s.lib_names.is_empty());
+            if all_dlsym {
                 let libs_label = sigs[0]
                     .lib_names
                     .iter()
