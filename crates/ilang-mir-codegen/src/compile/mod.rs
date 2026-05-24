@@ -81,6 +81,8 @@ pub(super) struct StrIds {
     pub(super) array_includes: cranelift_module::FuncId,
     pub(super) array_push: cranelift_module::FuncId,
     pub(super) array_pop: cranelift_module::FuncId,
+    pub(super) array_remove: cranelift_module::FuncId,
+    pub(super) array_remove_at: cranelift_module::FuncId,
     pub(super) array_map: cranelift_module::FuncId,
     pub(super) array_filter: cranelift_module::FuncId,
     pub(super) array_for_each: cranelift_module::FuncId,

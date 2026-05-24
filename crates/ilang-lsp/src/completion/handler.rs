@@ -415,7 +415,8 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                     .into_iter()
                     .filter(|n| {
                         // Fixed-length arrays can't grow / shrink.
-                        !(fixed.is_some() && matches!(**n, "push" | "pop"))
+                        !(fixed.is_some()
+                            && matches!(**n, "push" | "pop" | "remove" | "removeAt"))
                     })
                     .filter_map(|n| {
                         array_method_sig(n, elem)

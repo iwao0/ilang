@@ -811,6 +811,81 @@ fn jit_array_pop_empty_returns_none() {
 }
 
 #[test]
+fn jit_array_remove_at_returns_element_and_shifts() {
+    // removeAt drops the slot at the given index, shifts the tail
+    // left by one, and returns the popped value wrapped in Optional.
+    let p = write_tmp(
+        "remove_at.il",
+        "let xs: i64[] = [10, 20, 30, 40]\n\
+         let r = xs.removeAt(1)\n\
+         if r.isSome { r.unwrap() + xs.length * 1000 } else { -1 }",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    // Removed value (20) + 3 remaining * 1000 = 3020.
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3020");
+}
+
+#[test]
+fn jit_array_remove_at_out_of_range_returns_none() {
+    let p = write_tmp(
+        "remove_at_oob.il",
+        "let xs: i64[] = [1, 2]\n\
+         let r = xs.removeAt(99)\n\
+         if r.isNone { xs.length } else { -1 }",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    // OOB index leaves the array untouched (length still 2).
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "2");
+}
+
+#[test]
+fn jit_array_remove_first_match_only() {
+    // remove drops the first equal cell and returns true; duplicates
+    // further down stay in place.
+    let p = write_tmp(
+        "remove_first.il",
+        "let xs: i64[] = [1, 2, 3, 2, 1]\n\
+         let ok = xs.remove(2)\n\
+         if ok { xs.indexOf(2) } else { -99 }",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    // After removing the first `2` (at index 1), the second `2` is
+    // at index 2.
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "2");
+}
+
+#[test]
+fn jit_array_remove_missing_returns_false() {
+    let p = write_tmp(
+        "remove_miss.il",
+        "let xs: i64[] = [1, 2, 3]\n\
+         if xs.remove(99) { -1 } else { xs.length }",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3");
+}
+
+#[test]
+fn jit_array_remove_string_releases_cell() {
+    // Heap (string) elements: remove must release the dropped cell
+    // so the program runs leak-free. We can't assert leak-free
+    // directly from the CLI, but at minimum the program must succeed.
+    let p = write_tmp(
+        "remove_str.il",
+        "let xs: string[] = [\"a\", \"b\", \"c\"]\n\
+         let ok = xs.remove(\"b\")\n\
+         if ok { xs.length } else { -1 }",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "2");
+}
+
+#[test]
 fn jit_array_indexof_string() {
     let p = write_tmp(
         "indexof_str.il",

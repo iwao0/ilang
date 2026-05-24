@@ -348,6 +348,8 @@ pub(super) fn lower_call<M: Module>(
                 "array_includes" => Some(str_ids.array_includes),
                 "array_push" => Some(str_ids.array_push),
                 "array_pop" => Some(str_ids.array_pop),
+                "array_remove" => Some(str_ids.array_remove),
+                "array_remove_at" => Some(str_ids.array_remove_at),
                 "array_map" => Some(str_ids.array_map),
                 "array_filter" => Some(str_ids.array_filter),
                 "array_for_each" => Some(str_ids.array_for_each),

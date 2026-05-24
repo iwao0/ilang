@@ -361,6 +361,64 @@ impl TypeChecker {
                 }
                 return Ok(Type::Optional(elem.clone()));
             }
+            if method == "removeAt" {
+                if fixed.is_some() {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Array {
+                            elem: elem.clone(),
+                            fixed: None,
+                        },
+                        got: ot.clone(),
+                        span,
+                    });
+                }
+                if args.len() != 1 {
+                    return Err(TypeError::ArityMismatch {
+                        name: "removeAt".into(),
+                        expected: 1,
+                        got: args.len(),
+                        span,
+                    });
+                }
+                let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                if !self.value_assignable(&args[0], &at, &Type::I64) {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::I64,
+                        got: at,
+                        span: args[0].span,
+                    });
+                }
+                return Ok(Type::Optional(elem.clone()));
+            }
+            if method == "remove" {
+                if fixed.is_some() {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Array {
+                            elem: elem.clone(),
+                            fixed: None,
+                        },
+                        got: ot.clone(),
+                        span,
+                    });
+                }
+                if args.len() != 1 {
+                    return Err(TypeError::ArityMismatch {
+                        name: "remove".into(),
+                        expected: 1,
+                        got: args.len(),
+                        span,
+                    });
+                }
+                let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                if !self.value_assignable(&args[0], &at, elem) {
+                    return Err(TypeError::Mismatch {
+                        expected: (**elem).clone(),
+                        got: at,
+                        span: args[0].span,
+                    });
+                }
+                return Ok(Type::Bool);
+            }
             if method == "indexOf" || method == "includes" {
                 if args.len() != 1 {
                     return Err(TypeError::ArityMismatch {

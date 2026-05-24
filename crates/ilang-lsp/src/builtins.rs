@@ -103,7 +103,8 @@ pub(crate) fn string_method_names() -> &'static [&'static str] {
 
 pub(crate) fn array_method_names() -> &'static [&'static str] {
     &[
-        "push", "pop", "indexOf", "includes", "slice", "map", "filter", "forEach",
+        "push", "pop", "remove", "removeAt", "indexOf", "includes",
+        "slice", "map", "filter", "forEach",
     ]
 }
 
@@ -147,6 +148,8 @@ pub(crate) fn array_method_sig(method: &str, elem: &Type) -> Option<String> {
     let body = match method {
         "push" => format!("push(v: {elem}): ()"),
         "pop" => format!("pop(): {elem}?"),
+        "remove" => format!("remove(v: {elem}): bool"),
+        "removeAt" => format!("removeAt(i: i64): {elem}?"),
         "indexOf" => format!("indexOf(v: {elem}): i64"),
         "includes" => format!("includes(v: {elem}): bool"),
         "slice" => format!("slice(start: i64, end: i64): {elem}[]"),
@@ -194,6 +197,8 @@ pub(crate) fn array_method_doc(method: &str) -> Option<&'static str> {
     Some(match method {
         "push" => "Appends `v` to the end of the array. Mutates the receiver.",
         "pop" => "Removes and returns the last element, or `none` when the array is empty.",
+        "remove" => "Removes the first element equal to `v`. Returns `true` when an element was removed, `false` otherwise.",
+        "removeAt" => "Removes the element at index `i` and returns it, or `none` when `i` is out of `[0, length)`.",
         "indexOf" => "Returns the index of the first element equal to `v`, or `-1` when no element matches.",
         "includes" => "Returns `true` when any element equals `v`.",
         "slice" => "Returns a new array covering indices `[start, end)`. Indices are clamped to the array's length.",

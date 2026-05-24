@@ -363,6 +363,8 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             module.declare_function("__array_push", Linkage::Import, &sig)?
         },
         array_pop: declare_unary_i64(module, "__array_pop")?,
+        array_remove: declare_binary_i64(module, "__array_remove")?,
+        array_remove_at: declare_binary_i64(module, "__array_remove_at")?,
         array_map: declare_ternary_i64(module, "__array_map")?,
         array_filter: declare_binary_i64(module, "__array_filter")?,
         array_for_each: {

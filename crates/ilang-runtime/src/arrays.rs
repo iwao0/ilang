@@ -120,6 +120,100 @@ pub extern "C" fn __array_pop(arr: i64) -> i64 {
     }
 }
 
+/// Shift cells [from..len) down by one slot in-place. Caller is
+/// responsible for the length decrement and for releasing the
+/// element that lived at `from-1` before the shift.
+#[inline]
+unsafe fn shift_left_one(data: i64, from: i64, len: i64, stride: i64) {
+    unsafe {
+        if from >= len {
+            return;
+        }
+        let dst = (data + (from - 1) * stride) as *mut u8;
+        let src = (data + from * stride) as *const u8;
+        let bytes = ((len - from) * stride) as usize;
+        std::ptr::copy(src, dst, bytes);
+    }
+}
+
+/// Remove the cell at `index` and return it as `Optional<T>`
+/// (3-cell heap box `[value | rc | kind_tag]`, or 0 for none when
+/// `index` is out of `[0, len)`). The Optional inherits the array's
+/// per-cell refcount — no retain on the removed value, no release;
+/// the array's length drops by one so the slot's old reference is
+/// effectively handed to the returned Optional.
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_remove_at(arr: i64, index: i64) -> i64 {
+    if arr == 0 {
+        return 0;
+    }
+    unsafe {
+        let h = arr as *mut i64;
+        let len = *h;
+        if index < 0 || index >= len {
+            return 0;
+        }
+        let data = *h.add(2);
+        let stride = *h.add(5);
+        let addr = (data + index * stride) as *const u8;
+        let value: i64 = match stride {
+            1 => *(addr as *const u8) as i64,
+            2 => *(addr as *const u16) as i64,
+            4 => *(addr as *const u32) as i64,
+            _ => *(addr as *const i64),
+        };
+        shift_left_one(data, index + 1, len, stride);
+        *h = len - 1;
+        let elem_tag = *h.add(4);
+        let cell = __mir_alloc(24) as *mut i64;
+        *cell = value;
+        *cell.add(1) = 1;
+        *cell.add(2) = elem_tag;
+        cell as i64
+    }
+}
+
+/// Remove the first cell whose stored value equals `value` and
+/// return `1` on success, `0` when no element matched. The array
+/// drops its reference to the matched cell (release on heap kinds)
+/// since the value isn't handed back to the caller.
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_remove(arr: i64, value: i64) -> i64 {
+    if arr == 0 {
+        return 0;
+    }
+    unsafe {
+        let h = arr as *mut i64;
+        let len = *h;
+        let data = *h.add(2);
+        let stride = *h.add(5);
+        let mut idx: i64 = -1;
+        for i in 0..len {
+            let addr = (data + i * stride) as *const u8;
+            let cell: i64 = match stride {
+                1 => *(addr as *const u8) as i64,
+                2 => *(addr as *const u16) as i64,
+                4 => *(addr as *const u32) as i64,
+                _ => *(addr as *const i64),
+            };
+            if cell == value {
+                idx = i;
+                break;
+            }
+        }
+        if idx < 0 {
+            return 0;
+        }
+        let elem_tag = *h.add(4);
+        if elem_tag != KIND_NONE {
+            release_field_by_kind(value, elem_tag);
+        }
+        shift_left_one(data, idx + 1, len, stride);
+        *h = len - 1;
+        1
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __array_data_ptr(arr: i64) -> i64 {
     if arr == 0 {

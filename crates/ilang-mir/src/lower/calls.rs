@@ -617,6 +617,45 @@ impl<'a> BodyCx<'a> {
                 });
                 Ok((v, opt_ty))
             }
+            (MirTy::Array { elem, .. }, "removeAt") => {
+                if args.len() != 1 {
+                    return Err(LowerError::Other("Array.removeAt takes 1 arg".into()));
+                }
+                let elem_ty = (**elem).clone();
+                let opt_ty = MirTy::Optional(Box::new(elem_ty));
+                let (iv, ity) = self.lower_expr(&args[0])?;
+                let iv = if ity == MirTy::I64 {
+                    iv
+                } else {
+                    self.coerce(iv, &ity, &MirTy::I64, args[0].span)?
+                };
+                let v = self.fb.new_value(opt_ty.clone());
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Builtin(Symbol::intern("array_remove_at")),
+                    args: Box::new([ov, iv]),
+                });
+                Ok((v, opt_ty))
+            }
+            (MirTy::Array { elem, .. }, "remove") => {
+                if args.len() != 1 {
+                    return Err(LowerError::Other("Array.remove takes 1 arg".into()));
+                }
+                let elem_ty = (**elem).clone();
+                let (av, aty) = self.lower_expr(&args[0])?;
+                let coerced = if aty == elem_ty {
+                    av
+                } else {
+                    self.coerce(av, &aty, &elem_ty, args[0].span)?
+                };
+                let v = self.fb.new_value(MirTy::Bool);
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Builtin(Symbol::intern("array_remove")),
+                    args: Box::new([ov, coerced]),
+                });
+                Ok((v, MirTy::Bool))
+            }
             (MirTy::Array { .. }, "indexOf") => {
                 if args.len() != 1 {
                     return Err(LowerError::Other("Array.indexOf takes 1 arg".into()));

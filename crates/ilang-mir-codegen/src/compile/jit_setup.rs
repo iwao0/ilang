@@ -177,6 +177,8 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__array_includes", ilang_runtime::__array_includes as *const u8);
     jit_builder.symbol("__array_push", ilang_runtime::__array_push as *const u8);
     jit_builder.symbol("__array_pop", ilang_runtime::__array_pop as *const u8);
+    jit_builder.symbol("__array_remove", ilang_runtime::__array_remove as *const u8);
+    jit_builder.symbol("__array_remove_at", ilang_runtime::__array_remove_at as *const u8);
     jit_builder.symbol("__fixed_to_dyn", ilang_runtime::__fixed_to_dyn as *const u8);
     jit_builder.symbol("__enum_box", ilang_runtime::__enum_box as *const u8);
     jit_builder.symbol("__c_array_to_array", ilang_runtime::__c_array_to_array as *const u8);
