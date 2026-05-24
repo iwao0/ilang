@@ -581,7 +581,7 @@ impl<'a> BodyCx<'a> {
                         let raw_u64 = self.fb.new_value(MirTy::U64);
                         self.fb.push_inst(Inst::Call {
                             dst: Some(raw_u64),
-                            callee: FuncRef::Builtin(Symbol::intern("__read_u64")),
+                            callee: FuncRef::Builtin(Symbol::intern("$ffi.readU64")),
                             args: Box::new([addr, off_v]),
                         });
                         // Re-tag the loaded u64 as the declared field

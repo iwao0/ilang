@@ -1240,7 +1240,7 @@ impl Lower {
             let raw = bcx.fb.new_value(MirTy::I64);
             bcx.fb.push_inst(Inst::Call {
                 dst: Some(raw),
-                callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                callee: FuncRef::Builtin(Symbol::intern("$repl.loadSlot")),
                 args: Box::new([idx_v]),
             });
             let v = bcx.i64_to_slot_value(raw, &ty)?;

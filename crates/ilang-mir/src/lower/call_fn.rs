@@ -80,26 +80,26 @@ impl<'a> BodyCx<'a> {
         // unchanged — the host helper does the offset arithmetic
         // and the right-width primitive load/store.
         let mem_io = match callee.as_str() {
-            "readI8" => Some(("__read_i8", MirTy::I8)),
-            "readI16" => Some(("__read_i16", MirTy::I16)),
-            "readI32" => Some(("__read_i32", MirTy::I32)),
-            "readI64" => Some(("__read_i64", MirTy::I64)),
-            "readU8" => Some(("__read_u8", MirTy::U8)),
-            "readU16" => Some(("__read_u16", MirTy::U16)),
-            "readU32" => Some(("__read_u32", MirTy::U32)),
-            "readU64" => Some(("__read_u64", MirTy::U64)),
-            "readF32" => Some(("__read_f32", MirTy::F32)),
-            "readF64" => Some(("__read_f64", MirTy::F64)),
-            "writeI8" => Some(("__write_i8", MirTy::Unit)),
-            "writeI16" => Some(("__write_i16", MirTy::Unit)),
-            "writeI32" => Some(("__write_i32", MirTy::Unit)),
-            "writeI64" => Some(("__write_i64", MirTy::Unit)),
-            "writeU8" => Some(("__write_u8", MirTy::Unit)),
-            "writeU16" => Some(("__write_u16", MirTy::Unit)),
-            "writeU32" => Some(("__write_u32", MirTy::Unit)),
-            "writeU64" => Some(("__write_u64", MirTy::Unit)),
-            "writeF32" => Some(("__write_f32", MirTy::Unit)),
-            "writeF64" => Some(("__write_f64", MirTy::Unit)),
+            "readI8" => Some(("$ffi.readI8", MirTy::I8)),
+            "readI16" => Some(("$ffi.readI16", MirTy::I16)),
+            "readI32" => Some(("$ffi.readI32", MirTy::I32)),
+            "readI64" => Some(("$ffi.readI64", MirTy::I64)),
+            "readU8" => Some(("$ffi.readU8", MirTy::U8)),
+            "readU16" => Some(("$ffi.readU16", MirTy::U16)),
+            "readU32" => Some(("$ffi.readU32", MirTy::U32)),
+            "readU64" => Some(("$ffi.readU64", MirTy::U64)),
+            "readF32" => Some(("$ffi.readF32", MirTy::F32)),
+            "readF64" => Some(("$ffi.readF64", MirTy::F64)),
+            "writeI8" => Some(("$ffi.writeI8", MirTy::Unit)),
+            "writeI16" => Some(("$ffi.writeI16", MirTy::Unit)),
+            "writeI32" => Some(("$ffi.writeI32", MirTy::Unit)),
+            "writeI64" => Some(("$ffi.writeI64", MirTy::Unit)),
+            "writeU8" => Some(("$ffi.writeU8", MirTy::Unit)),
+            "writeU16" => Some(("$ffi.writeU16", MirTy::Unit)),
+            "writeU32" => Some(("$ffi.writeU32", MirTy::Unit)),
+            "writeU64" => Some(("$ffi.writeU64", MirTy::Unit)),
+            "writeF32" => Some(("$ffi.writeF32", MirTy::Unit)),
+            "writeF64" => Some(("$ffi.writeF64", MirTy::Unit)),
             _ => None,
         };
         if let Some((host_sym, ret_ty)) = mem_io {
@@ -133,24 +133,39 @@ impl<'a> BodyCx<'a> {
             });
             return Ok((dst.unwrap_or_else(|| self.const_unit()), ret_ty));
         }
-        // FFI marshalling helpers (auto-routed to host symbols).
+        // FFI marshalling helpers (auto-routed to host symbols). The
+        // user types the bare name (`cstrFromString(...)`); the host
+        // symbol lives under the `$ffi.<name>` namespace so it can't
+        // collide with a user-defined fn of the same name.
         let ffi_helper = match callee.as_str() {
-            "cstrFromString" => Some(MirTy::I64),
-            "stringFromCstr" => Some(MirTy::Str),
-            "cstrArrayToStrings" => Some(MirTy::Array {
-                elem: Box::new(MirTy::Str),
-                len: None,
-            }),
-            "freeCstr" => Some(MirTy::Unit),
-            "errnoCheck" => Some(MirTy::Optional(Box::new(MirTy::I32))),
-            "errnoCheckI64" => Some(MirTy::Optional(Box::new(MirTy::I64))),
-            "bytesFromBuffer" => Some(MirTy::Array {
-                elem: Box::new(MirTy::U8),
-                len: None,
-            }),
+            "cstrFromString" => Some(("$ffi.cstrFromString", MirTy::I64)),
+            "stringFromCstr" => Some(("$ffi.stringFromCstr", MirTy::Str)),
+            "cstrArrayToStrings" => Some((
+                "$ffi.cstrArrayToStrings",
+                MirTy::Array {
+                    elem: Box::new(MirTy::Str),
+                    len: None,
+                },
+            )),
+            "freeCstr" => Some(("$ffi.freeCstr", MirTy::Unit)),
+            "errnoCheck" => Some((
+                "$ffi.errnoCheck",
+                MirTy::Optional(Box::new(MirTy::I32)),
+            )),
+            "errnoCheckI64" => Some((
+                "$ffi.errnoCheckI64",
+                MirTy::Optional(Box::new(MirTy::I64)),
+            )),
+            "bytesFromBuffer" => Some((
+                "$ffi.bytesFromBuffer",
+                MirTy::Array {
+                    elem: Box::new(MirTy::U8),
+                    len: None,
+                },
+            )),
             _ => None,
         };
-        if let Some(ret_ty) = ffi_helper {
+        if let Some((host_sym, ret_ty)) = ffi_helper {
             let mut arg_vals = Vec::with_capacity(args.len());
             for a in args {
                 let (v, _vty) = self.lower_expr(a)?;
@@ -163,7 +178,7 @@ impl<'a> BodyCx<'a> {
             };
             self.fb.push_inst(Inst::Call {
                 dst,
-                callee: FuncRef::Builtin(callee),
+                callee: FuncRef::Builtin(Symbol::intern(host_sym)),
                 args: arg_vals.into_boxed_slice(),
             });
             return Ok((dst.unwrap_or_else(|| self.const_unit()), ret_ty));
@@ -189,7 +204,7 @@ impl<'a> BodyCx<'a> {
                     let raw = self.fb.new_value(MirTy::I64);
                     self.fb.push_inst(Inst::Call {
                         dst: Some(raw),
-                        callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                        callee: FuncRef::Builtin(Symbol::intern("$repl.loadSlot")),
                         args: Box::new([idx_v]),
                     });
                     // Borrow from the slot — the slot keeps the

@@ -24,7 +24,7 @@ fn class_size_table() -> &'static Mutex<HashMap<u32, i64>> {
     CLASS_SIZE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$class.registerSize")]
 pub extern "C" fn __register_class_size(class_id: i64, size: i64) {
     let mut t = class_size_table().lock().expect("class size table poisoned");
     t.insert(class_id as u32, size);
@@ -49,13 +49,13 @@ fn object_field_table() -> &'static Mutex<HashMap<u32, Vec<(i64, i64)>>> {
     OBJECT_FIELD_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$class.registerObjectField")]
 pub extern "C" fn __register_object_field(class_id: i64, offset: i64, kind: i64) {
     let mut t = object_field_table().lock().expect("field table poisoned");
     t.entry(class_id as u32).or_default().push((offset, kind));
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$class.releaseObjectFields")]
 pub extern "C" fn __release_object_fields(class_id: i64, obj_ptr: i64) {
     if obj_ptr == 0 {
         return;
@@ -83,13 +83,13 @@ fn vtable() -> &'static Mutex<HashMap<(u32, u32), i64>> {
     VTABLE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$class.registerVtableEntry")]
 pub extern "C" fn __register_vtable_entry(class_id: i64, slot: i64, fn_addr: i64) {
     let mut t = vtable().lock().expect("vtable poisoned");
     t.insert((class_id as u32, slot as u32), fn_addr);
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$class.virtDispatch")]
 pub extern "C" fn __virt_dispatch(class_id: i64, slot: i64) -> i64 {
     let t = vtable().lock().expect("vtable poisoned");
     *t.get(&(class_id as u32, slot as u32)).unwrap_or(&0)
@@ -101,13 +101,13 @@ fn drop_table() -> &'static Mutex<HashMap<u32, i64>> {
     DROP_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$class.registerDrop")]
 pub extern "C" fn __register_drop(class_id: i64, fn_addr: i64) {
     let mut t = drop_table().lock().expect("drop table poisoned");
     t.insert(class_id as u32, fn_addr);
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$class.dropDispatch")]
 pub extern "C" fn __drop_dispatch(class_id: i64) -> i64 {
     let t = drop_table().lock().expect("drop table poisoned");
     *t.get(&(class_id as u32)).unwrap_or(&0)
@@ -117,7 +117,7 @@ pub extern "C" fn __drop_dispatch(class_id: i64) -> i64 {
 // Object retain / release
 // --------------------------------------------------------------------
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$class.retainObject")]
 pub extern "C" fn __retain_object(obj_ptr: i64) {
     if obj_ptr == 0 {
         return;
@@ -126,7 +126,7 @@ pub extern "C" fn __retain_object(obj_ptr: i64) {
     unsafe { crate::refcount::atomic_retain(rc_ptr) };
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$class.releaseObject")]
 pub extern "C" fn __release_object(obj_ptr: i64) {
     if obj_ptr == 0 {
         return;
@@ -163,7 +163,7 @@ pub(crate) fn class_print_info() -> &'static Mutex<HashMap<u32, ClassPrintInfo>>
     CLASS_PRINT_INFO.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$class.registerPrintName")]
 pub extern "C" fn __register_class_print_name(class_id: i64, name_str_ptr: i64) {
     let name = cstr_to_str(name_str_ptr).to_string();
     let mut t = class_print_info().lock().expect("class print info poisoned");
@@ -173,7 +173,7 @@ pub extern "C" fn __register_class_print_name(class_id: i64, name_str_ptr: i64) 
     entry.name = name;
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$class.registerPrintField")]
 pub extern "C" fn __register_class_print_field(
     class_id: i64,
     idx: i64,
@@ -192,7 +192,7 @@ pub extern "C" fn __register_class_print_field(
     entry.fields[i] = (name, pk);
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$class.name")]
 pub extern "C" fn __class_name(class_id: i64) -> i64 {
     let name = {
         let t = class_print_info().lock().expect("class print info poisoned");
@@ -279,7 +279,7 @@ fn struct_print_info() -> &'static Mutex<HashMap<u32, Vec<StructPrintField>>> {
     STRUCT_PRINT_INFO.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$class.registerStructPrintField")]
 pub extern "C" fn __register_struct_print_field(
     class_id: i64,
     idx: i64,

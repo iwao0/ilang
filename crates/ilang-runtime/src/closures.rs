@@ -19,7 +19,7 @@ fn closure_capture_table() -> &'static Mutex<HashMap<i64, Vec<(i64, i64)>>> {
     CLOSURE_CAPTURE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$closure.registerCapture")]
 pub extern "C" fn __register_closure_capture(fn_addr: i64, offset: i64, kind: i64) {
     let mut t = closure_capture_table().lock().expect("closure capture table poisoned");
     t.entry(fn_addr).or_default().push((offset, kind));
@@ -31,13 +31,13 @@ fn closure_size_table() -> &'static Mutex<HashMap<i64, i64>> {
     CLOSURE_SIZE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$closure.registerSize")]
 pub extern "C" fn __register_closure_size(fn_addr: i64, size: i64) {
     let mut t = closure_size_table().lock().expect("closure size table poisoned");
     t.insert(fn_addr, size);
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$closure.release")]
 pub extern "C" fn __release_closure(closure_ptr: i64) {
     if closure_ptr == 0 {
         return;
@@ -67,7 +67,7 @@ pub extern "C" fn __release_closure(closure_ptr: i64) {
     }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$closure.retain")]
 pub extern "C" fn __retain_closure(closure_ptr: i64) {
     if closure_ptr == 0 {
         return;

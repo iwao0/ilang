@@ -77,12 +77,12 @@ unsafe fn promise_ref<'a>(ptr: i64) -> &'a ManagedPromise {
     unsafe { &*(ptr as *const ManagedPromise) }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$promise.pending")]
 pub extern "C" fn __promise_pending() -> i64 {
     alloc_pending()
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$promise.resolve")]
 pub extern "C" fn __promise_resolve(value: i64, kind: i64) -> i64 {
     // Take ownership of `value` (caller's +1 transfers in).
     let p = Box::new(ManagedPromise {
@@ -95,7 +95,7 @@ pub extern "C" fn __promise_resolve(value: i64, kind: i64) -> i64 {
     Box::into_raw(p) as i64
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$promise.reject")]
 pub extern "C" fn __promise_reject(msg: i64) -> i64 {
     // `msg` is a string pointer; we take ownership.
     let p = Box::new(ManagedPromise {
@@ -108,7 +108,7 @@ pub extern "C" fn __promise_reject(msg: i64) -> i64 {
     Box::into_raw(p) as i64
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$promise.retain")]
 pub extern "C" fn __retain_promise(p: i64) {
     if p == 0 {
         return;
@@ -131,7 +131,7 @@ pub extern "C" fn __retain_promise(p: i64) {
     }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$promise.release")]
 pub extern "C" fn __release_promise(p: i64) {
     if p == 0 {
         return;
@@ -389,12 +389,12 @@ fn settle_reject(p: i64, msg: i64) {
     }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$promise.then")]
 pub extern "C" fn __promise_then(p: i64, on_resolve: i64, out_kind: i64) -> i64 {
     register_continuation(p, on_resolve, 0, out_kind)
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$promise.catch")]
 pub extern "C" fn __promise_catch(p: i64, on_reject: i64, out_kind: i64) -> i64 {
     register_continuation(p, 0, on_reject, out_kind)
 }
@@ -460,7 +460,7 @@ fn alloc_callback_closure(stub_addr: i64, promise_ptr: i64, extra_kind: Option<i
     cell as i64
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$promise.withExecutor")]
 pub extern "C" fn __promise_with_executor(executor_closure: i64, value_kind: i64) -> i64 {
     ensure_stubs_registered();
     let promise = alloc_pending();
@@ -500,7 +500,7 @@ pub extern "C" fn __promise_with_executor(executor_closure: i64, value_kind: i64
 /// Block until every pending pool task has run. Called from the
 /// driver at program-end so pending Promise continuations actually
 /// finish before exit.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$promise.drain")]
 pub extern "C" fn __promise_drain() {
     pool::drain();
 }
@@ -519,12 +519,12 @@ pub extern "C" fn __promise_drain() {
 // with the rest of the Promise API).
 // --------------------------------------------------------------------
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$promise.settleResolve")]
 pub extern "C" fn __promise_settle_resolve(p: i64, value: i64, kind: i64) {
     settle_resolve(p, value, kind);
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$promise.settleReject")]
 pub extern "C" fn __promise_settle_reject(p: i64, msg: i64) {
     settle_reject(p, msg);
 }
@@ -684,7 +684,7 @@ fn read_promise_array(arr_ptr: i64) -> Vec<i64> {
     out
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$promise.all")]
 pub extern "C" fn __promise_all(arr_ptr: i64, value_kind: i64) -> i64 {
     ensure_agg_stubs_registered();
     let promises = read_promise_array(arr_ptr);
@@ -748,7 +748,7 @@ pub extern "C" fn __promise_all(arr_ptr: i64, value_kind: i64) -> i64 {
     agg
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$promise.race")]
 pub extern "C" fn __promise_race(arr_ptr: i64, value_kind: i64) -> i64 {
     ensure_agg_stubs_registered();
     let promises = read_promise_array(arr_ptr);

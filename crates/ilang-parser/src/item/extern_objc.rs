@@ -2928,7 +2928,7 @@ fn finalize_objc_block(
                     }),
                     libs: Box::new([Symbol::intern("c")]),
                     optional: false,
-                    c_symbol: Some(Symbol::intern("__ilang_objc_imp_lookup")),
+                    c_symbol: Some(Symbol::intern("$ilang.objcImpLookup")),
                     variadic: false,
                     span: block_span,
                 });

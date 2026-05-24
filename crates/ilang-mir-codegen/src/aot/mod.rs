@@ -376,7 +376,7 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
         // `main` returns. No-op if the user never touched a Promise.
         let drain_sig = module.make_signature();
         let drain_id = module.declare_function(
-            "__promise_drain",
+            "$promise.drain",
             Linkage::Import,
             &drain_sig,
         )?;
@@ -472,39 +472,39 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_vtable_entry", Linkage::Import, &s)?
+        module.declare_function("$class.registerVtableEntry", Linkage::Import, &s)?
     };
     let reg_drop = {
         let mut s = module.make_signature();
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_drop", Linkage::Import, &s)?
+        module.declare_function("$class.registerDrop", Linkage::Import, &s)?
     };
     let reg_class_size = {
         let mut s = module.make_signature();
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_class_size", Linkage::Import, &s)?
+        module.declare_function("$class.registerSize", Linkage::Import, &s)?
     };
     let reg_object_field = {
         let mut s = module.make_signature();
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_object_field", Linkage::Import, &s)?
+        module.declare_function("$class.registerObjectField", Linkage::Import, &s)?
     };
     let reg_closure_capture = {
         let mut s = module.make_signature();
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_closure_capture", Linkage::Import, &s)?
+        module.declare_function("$closure.registerCapture", Linkage::Import, &s)?
     };
     let reg_closure_size = {
         let mut s = module.make_signature();
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_closure_size", Linkage::Import, &s)?
+        module.declare_function("$closure.registerSize", Linkage::Import, &s)?
     };
     let reg_enum_payload_kind = {
         let mut s = module.make_signature();
@@ -512,13 +512,13 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_enum_payload_kind", Linkage::Import, &s)?
+        module.declare_function("$enum.registerPayloadKind", Linkage::Import, &s)?
     };
     let reg_class_print_name = {
         let mut s = module.make_signature();
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_class_print_name", Linkage::Import, &s)?
+        module.declare_function("$class.registerPrintName", Linkage::Import, &s)?
     };
     let reg_class_print_field = {
         let mut s = module.make_signature();
@@ -526,7 +526,7 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_class_print_field", Linkage::Import, &s)?
+        module.declare_function("$class.registerPrintField", Linkage::Import, &s)?
     };
     let reg_struct_print_field = {
         let mut s = module.make_signature();
@@ -536,13 +536,13 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_struct_print_field", Linkage::Import, &s)?
+        module.declare_function("$class.registerStructPrintField", Linkage::Import, &s)?
     };
     let reg_enum_print_name = {
         let mut s = module.make_signature();
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_enum_print_name", Linkage::Import, &s)?
+        module.declare_function("$enum.registerPrintName", Linkage::Import, &s)?
     };
     let reg_enum_print_variant_name = {
         let mut s = module.make_signature();
@@ -550,7 +550,7 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
         module.declare_function(
-            "__register_enum_print_variant_name",
+            "$enum.registerPrintVariantName",
             Linkage::Import,
             &s,
         )?
@@ -562,7 +562,7 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
         module.declare_function(
-            "__register_enum_print_variant_payload_pk",
+            "$enum.registerPrintVariantPayloadPk",
             Linkage::Import,
             &s,
         )?
@@ -578,18 +578,18 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_enum_disc_str", Linkage::Import, &s)?
+        module.declare_function("$enum.registerDiscStr", Linkage::Import, &s)?
     };
     let reg_lib_group_begin = {
         let mut s = module.make_signature();
         s.returns.push(AbiParam::new(types::I64));
-        module.declare_function("__register_lib_group_begin", Linkage::Import, &s)?
+        module.declare_function("$os.registerLibGroupBegin", Linkage::Import, &s)?
     };
     let reg_lib_group_member = {
         let mut s = module.make_signature();
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_lib_group_member", Linkage::Import, &s)?
+        module.declare_function("$os.registerLibGroupMember", Linkage::Import, &s)?
     };
 
     // Scan the whole program for `MirTy::Weak(C)` references so the

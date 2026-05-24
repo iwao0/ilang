@@ -8,7 +8,7 @@ use crate::cascade::release_field_by_kind;
 /// Release an Optional cell. Decrements the rc at offset +8, runs
 /// the inner-kind cascade based on the tag at +16, then frees the
 /// 24-byte cell.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$optional.release")]
 pub extern "C" fn __release_optional(opt_ptr: i64) {
     if opt_ptr == 0 {
         return;
@@ -24,7 +24,7 @@ pub extern "C" fn __release_optional(opt_ptr: i64) {
     __mir_free(opt_ptr, 24);
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$optional.retain")]
 pub extern "C" fn __retain_optional(opt_ptr: i64) {
     if opt_ptr == 0 {
         return;

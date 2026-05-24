@@ -229,7 +229,7 @@ pub extern "C" fn __array_data_ptr(arr: i64) -> i64 {
 /// helper so `@extern(C)` bindings can build an owned byte array
 /// from a C function's `(const char *, size_t)` output without
 /// hand-rolling the array header.
-#[unsafe(export_name = "bytesFromBuffer")]
+#[unsafe(export_name = "$ffi.bytesFromBuffer")]
 pub extern "C" fn bytes_from_buffer(p: i64, n: i64) -> i64 {
     __c_array_to_array(p, n, 1, 0)
 }

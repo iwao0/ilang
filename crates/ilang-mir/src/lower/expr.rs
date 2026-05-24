@@ -492,7 +492,7 @@ impl<'a> BodyCx<'a> {
                         let raw = self.fb.new_value(MirTy::I64);
                         self.fb.push_inst(Inst::Call {
                             dst: Some(raw),
-                            callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                            callee: FuncRef::Builtin(Symbol::intern("$repl.loadSlot")),
                             args: Box::new([idx_v]),
                         });
                         Some(self.i64_to_slot_value(raw, &slot_ty)?)
@@ -506,7 +506,7 @@ impl<'a> BodyCx<'a> {
                     let idx_v = self.const_int(MirTy::I64, idx as i64);
                     self.fb.push_inst(Inst::Call {
                         dst: None,
-                        callee: FuncRef::Builtin(Symbol::intern("__repl_store_slot")),
+                        callee: FuncRef::Builtin(Symbol::intern("$repl.storeSlot")),
                         args: Box::new([idx_v, v_i64]),
                     });
                     if let Some(old) = old_v {
@@ -877,7 +877,7 @@ impl<'a> BodyCx<'a> {
                 let raw = self.fb.new_value(MirTy::I64);
                 self.fb.push_inst(Inst::Call {
                     dst: Some(raw),
-                    callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                    callee: FuncRef::Builtin(Symbol::intern("$repl.loadSlot")),
                     args: Box::new([idx_v]),
                 });
                 let v = self.i64_to_slot_value(raw, &slot_ty)?;
@@ -890,7 +890,7 @@ impl<'a> BodyCx<'a> {
             let raw = self.fb.new_value(MirTy::I64);
             self.fb.push_inst(Inst::Call {
                 dst: Some(raw),
-                callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                callee: FuncRef::Builtin(Symbol::intern("$repl.loadSlot")),
                 args: Box::new([idx_v]),
             });
             let v = self.i64_to_slot_value(raw, &slot_ty)?;

@@ -68,7 +68,7 @@ impl<'a> BodyCx<'a> {
             let dst = self.fb.new_value(to.clone());
             self.fb.push_inst(Inst::Call {
                 dst: Some(dst),
-                callee: FuncRef::Builtin(Symbol::intern("__enum_box")),
+                callee: FuncRef::Builtin(Symbol::intern("$enum.box")),
                 args: Box::new([i64_v]),
             });
             return Ok(dst);

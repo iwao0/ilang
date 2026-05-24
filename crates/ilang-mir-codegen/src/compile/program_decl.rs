@@ -97,13 +97,13 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("__mir_alloc", Linkage::Import, &sig)?
+        module.declare_function("$alloc.alloc", Linkage::Import, &sig)?
     };
     let free_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
-        module.declare_function("__mir_free", Linkage::Import, &sig)?
+        module.declare_function("$alloc.free", Linkage::Import, &sig)?
     };
     // Map runtime imports.
     let map_new_id = {
@@ -144,35 +144,35 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let map_keys_id = declare_unary_i64(module, "$map.keys")?;
     let map_values_id = declare_unary_i64(module, "$map.values")?;
     // Promise runtime imports.
-    let promise_resolve_id = declare_binary_i64(module, "__promise_resolve")?;
-    let promise_reject_id = declare_unary_i64(module, "__promise_reject")?;
-    let promise_then_id = declare_ternary_i64(module, "__promise_then")?;
-    let promise_catch_id = declare_ternary_i64(module, "__promise_catch")?;
+    let promise_resolve_id = declare_binary_i64(module, "$promise.resolve")?;
+    let promise_reject_id = declare_unary_i64(module, "$promise.reject")?;
+    let promise_then_id = declare_ternary_i64(module, "$promise.then")?;
+    let promise_catch_id = declare_ternary_i64(module, "$promise.catch")?;
     let promise_with_executor_id =
-        declare_binary_i64(module, "__promise_with_executor")?;
+        declare_binary_i64(module, "$promise.withExecutor")?;
     let promise_drain_id = {
         let sig = module.make_signature();
-        module.declare_function("__promise_drain", Linkage::Import, &sig)?
+        module.declare_function("$promise.drain", Linkage::Import, &sig)?
     };
-    let promise_all_id = declare_binary_i64(module, "__promise_all")?;
-    let promise_race_id = declare_binary_i64(module, "__promise_race")?;
+    let promise_all_id = declare_binary_i64(module, "$promise.all")?;
+    let promise_race_id = declare_binary_i64(module, "$promise.race")?;
     let promise_pending_id = {
         let mut sig = module.make_signature();
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("__promise_pending", Linkage::Import, &sig)?
+        module.declare_function("$promise.pending", Linkage::Import, &sig)?
     };
     let promise_settle_resolve_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
-        module.declare_function("__promise_settle_resolve", Linkage::Import, &sig)?
+        module.declare_function("$promise.settleResolve", Linkage::Import, &sig)?
     };
     let promise_settle_reject_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
-        module.declare_function("__promise_settle_reject", Linkage::Import, &sig)?
+        module.declare_function("$promise.settleReject", Linkage::Import, &sig)?
     };
     // `__ilang_make_objc_block(closure: i64, kind: i64) -> i64`.
     // Always declared even on non-macOS hosts so MIR programs that
@@ -229,13 +229,13 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             Ok(())
         };
         decl_unary("$array.dataPtr", false)?;
-        decl_unary("__enum_box", false)?;
-        decl_unary("cstrFromString", false)?;
-        decl_unary("stringFromCstr", false)?;
-        decl_unary("cstrArrayToStrings", false)?;
-        decl_unary("freeCstr", true)?;
-        decl_unary("errnoCheck", false)?;
-        decl_unary("errnoCheckI64", false)?;
+        decl_unary("$enum.box", false)?;
+        decl_unary("$ffi.cstrFromString", false)?;
+        decl_unary("$ffi.stringFromCstr", false)?;
+        decl_unary("$ffi.cstrArrayToStrings", false)?;
+        decl_unary("$ffi.freeCstr", true)?;
+        decl_unary("$ffi.errnoCheck", false)?;
+        decl_unary("$ffi.errnoCheckI64", false)?;
         // os.errno / os.setErrno are declared by the user's @extern(C)
         // block (the `os` stdlib); we just register the host symbols.
     }
@@ -257,12 +257,12 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("bytesFromBuffer", Linkage::Import, &sig)?;
+        module.declare_function("$ffi.bytesFromBuffer", Linkage::Import, &sig)?;
     }
     // `read*(p: i64, off: i64) -> {i64|f32|f64}` declarations.
     for name in &[
-        "__read_i8", "__read_i16", "__read_i32", "__read_i64",
-        "__read_u8", "__read_u16", "__read_u32", "__read_u64",
+        "$ffi.readI8", "$ffi.readI16", "$ffi.readI32", "$ffi.readI64",
+        "$ffi.readU8", "$ffi.readU16", "$ffi.readU32", "$ffi.readU64",
     ] {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
@@ -275,19 +275,19 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::F32));
-        module.declare_function("__read_f32", Linkage::Import, &sig)?;
+        module.declare_function("$ffi.readF32", Linkage::Import, &sig)?;
     }
     {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::F64));
-        module.declare_function("__read_f64", Linkage::Import, &sig)?;
+        module.declare_function("$ffi.readF64", Linkage::Import, &sig)?;
     }
     // `write*(p: i64, off: i64, v: {i64|f32|f64})` declarations.
     for name in &[
-        "__write_i8", "__write_i16", "__write_i32", "__write_i64",
-        "__write_u8", "__write_u16", "__write_u32", "__write_u64",
+        "$ffi.writeI8", "$ffi.writeI16", "$ffi.writeI32", "$ffi.writeI64",
+        "$ffi.writeU8", "$ffi.writeU16", "$ffi.writeU32", "$ffi.writeU64",
     ] {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
@@ -300,14 +300,14 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::F32));
-        module.declare_function("__write_f32", Linkage::Import, &sig)?;
+        module.declare_function("$ffi.writeF32", Linkage::Import, &sig)?;
     }
     {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::F64));
-        module.declare_function("__write_f64", Linkage::Import, &sig)?;
+        module.declare_function("$ffi.writeF64", Linkage::Import, &sig)?;
     }
     // REPL slot accessors. Loaded as imports so chunk-level
     // compilations don't need a fresh declaration; the host symbol
@@ -316,13 +316,13 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("__repl_load_slot", Linkage::Import, &sig)?;
+        module.declare_function("$repl.loadSlot", Linkage::Import, &sig)?;
     }
     {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
-        module.declare_function("__repl_store_slot", Linkage::Import, &sig)?;
+        module.declare_function("$repl.storeSlot", Linkage::Import, &sig)?;
     }
     let str_ids = StrIds {
         length: declare_unary_i64(module, "$string.length")?,
@@ -403,7 +403,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         },
         array_sort: declare_binary_i64(module, "$array.sort")?,
         str_split: declare_binary_i64(module, "$string.split")?,
-        virt_dispatch: declare_binary_i64(module, "__virt_dispatch")?,
+        virt_dispatch: declare_binary_i64(module, "$class.virtDispatch")?,
         fixed_to_dyn: {
             let mut sig = module.make_signature();
             sig.params.push(AbiParam::new(types::I64));
@@ -415,7 +415,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         },
     };
     let panic_fn_id = declare_unit_i64(module, "$ilang.panic")?;
-    let drop_dispatch_id = declare_unary_i64(module, "__drop_dispatch")?;
+    let drop_dispatch_id = declare_unary_i64(module, "$class.dropDispatch")?;
     let print_object_id = declare_unit_i64(module, "$print.object")?;
     let print_struct_id = {
         let mut sig = module.make_signature();
@@ -424,16 +424,16 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         module.declare_function("$print.struct", Linkage::Import, &sig)?
     };
     let print_fn_id = declare_unit_i64(module, "$print.fn")?;
-    let release_obj_id = declare_unit_i64(module, "__release_object")?;
-    let retain_obj_id = declare_unit_i64(module, "__retain_object")?;
-    let release_closure_id = declare_unit_i64(module, "__release_closure")?;
-    let retain_closure_id = declare_unit_i64(module, "__retain_closure")?;
+    let release_obj_id = declare_unit_i64(module, "$class.releaseObject")?;
+    let retain_obj_id = declare_unit_i64(module, "$class.retainObject")?;
+    let release_closure_id = declare_unit_i64(module, "$closure.release")?;
+    let retain_closure_id = declare_unit_i64(module, "$closure.retain")?;
     let release_array_id = declare_unit_i64(module, "$array.release")?;
     let retain_array_id = declare_unit_i64(module, "$array.retain")?;
-    let release_optional_id = declare_unit_i64(module, "__release_optional")?;
-    let retain_optional_id = declare_unit_i64(module, "__retain_optional")?;
-    let release_tuple_id = declare_unit_i64(module, "__release_tuple")?;
-    let retain_tuple_id = declare_unit_i64(module, "__retain_tuple")?;
+    let release_optional_id = declare_unit_i64(module, "$optional.release")?;
+    let retain_optional_id = declare_unit_i64(module, "$optional.retain")?;
+    let release_tuple_id = declare_unit_i64(module, "$tuple.release")?;
+    let retain_tuple_id = declare_unit_i64(module, "$tuple.retain")?;
     let release_map_id = declare_unit_i64(module, "$map.release")?;
     let retain_map_id = declare_unit_i64(module, "$map.retain")?;
     let release_string_id = declare_unit_i64(module, "$string.release")?;
@@ -443,27 +443,27 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("__enum_unit_get", Linkage::Import, &sig)?
+        module.declare_function("$enum.unitGet", Linkage::Import, &sig)?
     };
     let enum_unit_get_checked_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("__enum_unit_get_checked", Linkage::Import, &sig)?
+        module.declare_function("$enum.unitGetChecked", Linkage::Import, &sig)?
     };
     let enum_disc_str_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("__enum_disc_str", Linkage::Import, &sig)?
+        module.declare_function("$enum.discStr", Linkage::Import, &sig)?
     };
-    let enum_alloc_id = declare_ternary_i64(module, "__enum_alloc")?;
-    let release_enum_id = declare_unit_i64(module, "__release_enum")?;
-    let retain_enum_id = declare_unit_i64(module, "__retain_enum")?;
-    let release_promise_id = declare_unit_i64(module, "__release_promise")?;
-    let retain_promise_id = declare_unit_i64(module, "__retain_promise")?;
+    let enum_alloc_id = declare_ternary_i64(module, "$enum.alloc")?;
+    let release_enum_id = declare_unit_i64(module, "$enum.release")?;
+    let retain_enum_id = declare_unit_i64(module, "$enum.retain")?;
+    let release_promise_id = declare_unit_i64(module, "$promise.release")?;
+    let retain_promise_id = declare_unit_i64(module, "$promise.retain")?;
     let map_set_val_kind_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
@@ -478,7 +478,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         module.declare_function("$map.setPrintKinds", Linkage::Import, &sig)?
     };
     let print_map_id = declare_unit_i64(module, "$print.map")?;
-    let class_name_id = declare_unary_i64(module, "__class_name")?;
+    let class_name_id = declare_unary_i64(module, "$class.name")?;
     let print_weak_id = declare_unit_i64(module, "$print.weak")?;
     let print_enum_id = {
         let mut sig = module.make_signature();

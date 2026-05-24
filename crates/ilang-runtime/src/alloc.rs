@@ -16,7 +16,7 @@ static FREE_COUNT: AtomicI64 = AtomicI64::new(0);
 /// and leak the `Vec<u8>`'s data pointer. Mirrored by `__mir_free`,
 /// which reconstructs the same `Vec` to drop. Tracked in the live-
 /// alloc counters so `test.liveAlloc*()` can detect leaks.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$alloc.alloc")]
 pub extern "C" fn __mir_alloc(size: i64) -> i64 {
     let n = size as usize;
     let mut v: Vec<u8> = vec![0; n];
@@ -30,7 +30,7 @@ pub extern "C" fn __mir_alloc(size: i64) -> i64 {
 /// Free a previously `__mir_alloc`'d block. The caller passes the
 /// original `size` so we can rebuild the matching `Vec<u8>` and drop
 /// it. A null pointer or non-positive size is a no-op.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$alloc.free")]
 pub extern "C" fn __mir_free(ptr: i64, size: i64) {
     if ptr == 0 || size <= 0 {
         return;

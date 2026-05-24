@@ -361,10 +361,10 @@ unsafe fn raw_cstr_bytes<'a>(p: i64) -> &'a [u8] { unsafe {
     std::slice::from_raw_parts(q, len)
 }}
 
-#[unsafe(export_name = "cstrFromString")]
+#[unsafe(export_name = "$ffi.cstrFromString")]
 pub extern "C" fn cstr_from_string(p: i64) -> i64 { p }
 
-#[unsafe(export_name = "stringFromCstr")]
+#[unsafe(export_name = "$ffi.stringFromCstr")]
 pub extern "C" fn string_from_cstr(p: i64) -> i64 {
     if p == 0 {
         return leak_cstring(String::new());
@@ -373,7 +373,7 @@ pub extern "C" fn string_from_cstr(p: i64) -> i64 {
     leak_cstring(String::from_utf8_lossy(bytes).into_owned())
 }
 
-#[unsafe(export_name = "cstrArrayToStrings")]
+#[unsafe(export_name = "$ffi.cstrArrayToStrings")]
 pub extern "C" fn cstr_array_to_strings(ptrs: i64) -> i64 {
     let mut elems: Vec<i64> = Vec::new();
     if ptrs != 0 {

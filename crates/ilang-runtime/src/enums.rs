@@ -34,7 +34,7 @@ fn enum_payload_kinds() -> &'static Mutex<HashMap<(u32, i64), Vec<i64>>> {
     ENUM_PAYLOAD_KINDS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$enum.registerPayloadKind")]
 pub extern "C" fn __register_enum_payload_kind(
     global_eid: i64,
     tag: i64,
@@ -50,7 +50,7 @@ pub extern "C" fn __register_enum_payload_kind(
     entry[idx] = kind;
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$enum.box")]
 pub extern "C" fn __enum_box(disc: i64) -> i64 {
     let p = __mir_alloc(8);
     unsafe { *(p as *mut i64) = disc; }
@@ -63,7 +63,7 @@ fn enum_unit_cache() -> &'static Mutex<HashMap<(u32, i64), i64>> {
     ENUM_UNIT_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$enum.unitGet")]
 pub extern "C" fn __enum_unit_get(global_eid: i64, disc: i64) -> i64 {
     let key = (global_eid as u32, disc);
     {
@@ -78,7 +78,7 @@ pub extern "C" fn __enum_unit_get(global_eid: i64, disc: i64) -> i64 {
     *m.entry(key).or_insert(p)
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$enum.unitGetChecked")]
 pub extern "C" fn __enum_unit_get_checked(global_eid: i64, disc: i64) -> i64 {
     let (valid, name) = {
         let t = enum_print_info().lock().expect("enum print info poisoned");
@@ -98,7 +98,7 @@ pub extern "C" fn __enum_unit_get_checked(global_eid: i64, disc: i64) -> i64 {
     __enum_unit_get(global_eid, disc)
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$enum.alloc")]
 pub extern "C" fn __enum_alloc(global_eid: i64, n_payload: i64, disc: i64) -> i64 {
     let total = (1 + n_payload) * 8;
     let ptr = __mir_alloc(total);
@@ -113,7 +113,7 @@ pub extern "C" fn __enum_alloc(global_eid: i64, n_payload: i64, disc: i64) -> i6
     ptr
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$enum.retain")]
 pub extern "C" fn __retain_enum(p: i64) {
     if p == 0 {
         return;
@@ -124,7 +124,7 @@ pub extern "C" fn __retain_enum(p: i64) {
     }
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$enum.release")]
 pub extern "C" fn __release_enum(p: i64) {
     if p == 0 {
         return;
@@ -176,7 +176,7 @@ pub(crate) fn enum_print_info() -> &'static Mutex<HashMap<u32, EnumPrintInfo>> {
     ENUM_PRINT_INFO.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$enum.registerPrintName")]
 pub extern "C" fn __register_enum_print_name(eid: i64, name_str_ptr: i64) {
     let name = cstr_to_str(name_str_ptr).to_string();
     let mut t = enum_print_info().lock().expect("enum print info poisoned");
@@ -187,7 +187,7 @@ pub extern "C" fn __register_enum_print_name(eid: i64, name_str_ptr: i64) {
     entry.name = name;
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$enum.registerPrintVariantName")]
 pub extern "C" fn __register_enum_print_variant_name(
     eid: i64,
     disc: i64,
@@ -202,7 +202,7 @@ pub extern "C" fn __register_enum_print_variant_name(
     entry.variants.entry(disc).or_insert_with(|| (String::new(), Vec::new())).0 = name;
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$enum.registerPrintVariantPayloadPk")]
 pub extern "C" fn __register_enum_print_variant_payload_pk(
     eid: i64,
     disc: i64,
@@ -283,7 +283,7 @@ fn enum_disc_str_table() -> &'static Mutex<HashMap<(u32, i64), String>> {
     ENUM_DISC_STR.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$enum.registerDiscStr")]
 pub extern "C" fn __register_enum_disc_str(
     global_eid: i64,
     disc: i64,
@@ -296,7 +296,7 @@ pub extern "C" fn __register_enum_disc_str(
         .insert((global_eid as u32, disc), s);
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$enum.discStr")]
 pub extern "C" fn __enum_disc_str(global_eid: i64, disc: i64) -> i64 {
     let t = enum_disc_str_table()
         .lock()

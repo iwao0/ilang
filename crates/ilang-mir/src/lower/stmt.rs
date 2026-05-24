@@ -205,7 +205,7 @@ impl<'a> BodyCx<'a> {
                         }
                         self.fb.push_inst(Inst::Call {
                             dst: None,
-                            callee: FuncRef::Builtin(Symbol::intern("__repl_store_slot")),
+                            callee: FuncRef::Builtin(Symbol::intern("$repl.storeSlot")),
                             args: Box::new([idx_v, v_i64]),
                         });
                     }

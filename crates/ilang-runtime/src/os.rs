@@ -14,7 +14,7 @@ use crate::strings::{cstr_bytes, leak_cstring};
 // --------------------------------------------------------------------
 
 /// Returns Optional<i32> as a heap cell: 0 = none, ptr = some(rc).
-#[unsafe(export_name = "errnoCheck")]
+#[unsafe(export_name = "$ffi.errnoCheck")]
 pub extern "C" fn errno_check_i32(rc: i32) -> i64 {
     if rc < 0 {
         return 0;
@@ -24,7 +24,7 @@ pub extern "C" fn errno_check_i32(rc: i32) -> i64 {
     cell as i64
 }
 
-#[unsafe(export_name = "errnoCheckI64")]
+#[unsafe(export_name = "$ffi.errnoCheckI64")]
 pub extern "C" fn errno_check_i64(rc: i64) -> i64 {
     if rc < 0 {
         return 0;
@@ -34,7 +34,7 @@ pub extern "C" fn errno_check_i64(rc: i64) -> i64 {
     cell as i64
 }
 
-#[unsafe(export_name = "freeCstr")]
+#[unsafe(export_name = "$ffi.freeCstr")]
 pub extern "C" fn free_cstr(_p: i64) {
     // No-op identity: ilang strings are registry-tracked and the
     // C-side never owns the buffer.
@@ -97,7 +97,7 @@ fn lib_groups() -> &'static Mutex<Vec<Vec<String>>> {
 
 /// Append one `@lib(...)` group. The codegen calls this once per
 /// extern fn whose lib list has more than one entry.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$os.registerLibGroupBegin")]
 pub extern "C" fn __register_lib_group_begin() -> i64 {
     let mut g = lib_groups().lock().expect("lib groups poisoned");
     g.push(Vec::new());
@@ -105,7 +105,7 @@ pub extern "C" fn __register_lib_group_begin() -> i64 {
 }
 
 /// Append one name to the group started by `__register_lib_group_begin`.
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$os.registerLibGroupMember")]
 pub extern "C" fn __register_lib_group_member(group_idx: i64, name_str_ptr: i64) {
     let bytes = unsafe { cstr_bytes(name_str_ptr) };
     let name = String::from_utf8_lossy(bytes).into_owned();
@@ -308,7 +308,7 @@ const RTLD_DEFAULT: *mut u8 = -2isize as *mut u8;
 /// parser-generated `register()` body uses; the handle is ignored —
 /// we always search both the JIT-registered table and the host's
 /// `RTLD_DEFAULT`.
-#[unsafe(export_name = "__ilang_objc_imp_lookup")]
+#[unsafe(export_name = "$ilang.objcImpLookup")]
 pub extern "C" fn __ilang_objc_imp_lookup(_handle: i64, name_ptr: i64) -> i64 {
     if name_ptr == 0 {
         return 0;

@@ -7,7 +7,7 @@
 use crate::alloc::__mir_free;
 use crate::cascade::release_field_by_kind;
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$tuple.release")]
 pub extern "C" fn __release_tuple(tup_ptr: i64) {
     if tup_ptr == 0 {
         return;
@@ -30,7 +30,7 @@ pub extern "C" fn __release_tuple(tup_ptr: i64) {
     __mir_free(base, 16 + arity.max(1) * 8);
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$tuple.retain")]
 pub extern "C" fn __retain_tuple(tup_ptr: i64) {
     if tup_ptr == 0 {
         return;
