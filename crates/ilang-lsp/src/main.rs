@@ -64,7 +64,7 @@ use tower_lsp::lsp_types::Position;
 
 use builtins::{
     array_method_doc, array_method_sig, ffi_helper_signature, map_method_doc, map_method_sig,
-    string_method_doc, string_method_sig,
+    primitive_method_doc, primitive_method_sig, string_method_doc, string_method_sig,
 };
 use project::{find_project_file, find_umbrella};
 use text::{

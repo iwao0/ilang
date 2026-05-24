@@ -10,8 +10,8 @@ use tower_lsp::lsp_types::{
 };
 
 use crate::builtins::{
-    array_method_doc, array_method_sig, ffi_helper_signature, string_method_doc,
-    string_method_sig,
+    array_method_doc, array_method_sig, ffi_helper_signature, primitive_method_doc,
+    primitive_method_sig, string_method_doc, string_method_sig,
 };
 use crate::completion;
 use crate::text::{self, call_context_at, generic_args_context_at, parameter_offsets};
@@ -165,6 +165,14 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                         .map(|s| (s, string_method_doc(method))),
                     Some(Type::Array { elem, .. }) => array_method_sig(method, elem)
                         .map(|s| (s, array_method_doc(method))),
+                    // Numeric primitives + bool: `toString` is the
+                    // only built-in method. Surface its signature so
+                    // the popup fires the same way as on strings /
+                    // arrays.
+                    Some(t) if t.is_numeric() || matches!(t, Type::Bool) => {
+                        primitive_method_sig(method, t)
+                            .map(|s| (s, primitive_method_doc(method)))
+                    }
                     _ => None,
                 };
                 if let Some((sig, doc_text)) = builtin {

@@ -101,6 +101,29 @@ pub(crate) fn string_method_names() -> &'static [&'static str] {
     ]
 }
 
+/// Built-in methods shared by every numeric primitive and `bool`.
+/// Currently just `toString` — the type checker accepts `.toString()`
+/// on any value where `is_numeric()` returns `true` or that is
+/// `Type::Bool` (see `checker::expr::calls`).
+pub(crate) fn primitive_method_names() -> &'static [&'static str] {
+    &["toString"]
+}
+
+pub(crate) fn primitive_method_sig(method: &str, ty: &Type) -> Option<String> {
+    let body = match method {
+        "toString" => "toString(): string",
+        _ => return None,
+    };
+    Some(format!("(method) {ty}.{body}"))
+}
+
+pub(crate) fn primitive_method_doc(method: &str) -> Option<&'static str> {
+    Some(match method {
+        "toString" => "Returns the value's decimal (`123`) or JS-style float (`1.5`) string. `true` / `false` for `bool`.",
+        _ => return None,
+    })
+}
+
 pub(crate) fn array_method_names() -> &'static [&'static str] {
     &[
         "push", "pop", "remove", "removeAt", "indexOf", "includes",

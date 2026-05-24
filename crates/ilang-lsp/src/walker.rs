@@ -1003,6 +1003,13 @@ impl<'a> Walker<'a> {
                 map_method_sig(method.as_str(), &g.args[0], &g.args[1])
                     .map(|s| (s, map_method_doc(method.as_str())))
             }
+            // Numeric primitives + bool: `toString` etc. So `i64`
+            // values hover with the same kind of popup that `string`
+            // / array receivers get.
+            Some(t) if t.is_numeric() || matches!(t, Type::Bool) => {
+                primitive_method_sig(method.as_str(), &t)
+                    .map(|s| (s, primitive_method_doc(method.as_str())))
+            }
             _ => None,
         };
         if let Some((sig, doc_text)) = builtin {

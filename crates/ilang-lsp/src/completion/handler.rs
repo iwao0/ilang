@@ -20,8 +20,8 @@ use super::{
 };
 use crate::builtins::{
     array_method_doc, array_method_names, array_method_sig, map_method_doc,
-    map_method_names, map_method_sig, string_method_doc, string_method_names,
-    string_method_sig,
+    map_method_names, map_method_sig, primitive_method_doc, primitive_method_names,
+    primitive_method_sig, string_method_doc, string_method_names, string_method_sig,
 };
 use crate::code_actions::interface_method_stub_completions_textual;
 use crate::helpers::{self, sig_body_skip_attrs};
@@ -434,6 +434,19 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                         })
                         .collect()
                 }
+                // Numeric primitives and `bool` share a small set of
+                // built-in methods (`toString`). The type-checker
+                // (`checker::expr::calls`) gates them by
+                // `is_numeric() || == Type::Bool`; mirror that here.
+                t if t.is_numeric() || matches!(t, Type::Bool) => {
+                    primitive_method_names()
+                        .into_iter()
+                        .filter_map(|n| {
+                            primitive_method_sig(n, t)
+                                .map(|s| (n.to_string(), s, primitive_method_doc(n)))
+                        })
+                        .collect()
+                }
                 _ => Vec::new(),
             };
             if !entries.is_empty() {
@@ -461,19 +474,24 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                         }
                     })
                     .collect();
-                // `length` is a property, not a method.
-                items.push(CompletionItem {
-                    label: "length".to_string(),
-                    kind: Some(CompletionItemKind::FIELD),
-                    detail: Some(match ty {
-                        Type::Str => "(property) string.length: i64".to_string(),
-                        Type::Array { elem, .. } => {
-                            format!("(property) {elem}[].length: i64")
-                        }
-                        _ => unreachable!(),
-                    }),
-                    ..CompletionItem::default()
-                });
+                // `length` is a property, not a method. Only strings
+                // and arrays carry it — numeric / bool receivers
+                // surface `toString` only, no property side-car.
+                let length_detail = match ty {
+                    Type::Str => Some("(property) string.length: i64".to_string()),
+                    Type::Array { elem, .. } => {
+                        Some(format!("(property) {elem}[].length: i64"))
+                    }
+                    _ => None,
+                };
+                if let Some(detail) = length_detail {
+                    items.push(CompletionItem {
+                        label: "length".to_string(),
+                        kind: Some(CompletionItemKind::FIELD),
+                        detail: Some(detail),
+                        ..CompletionItem::default()
+                    });
+                }
                 items.sort_by(|a, b| a.label.cmp(&b.label));
                 return Some(CompletionResponse::Array(items));
             }
@@ -1006,6 +1024,32 @@ mod lib_filter_tests {
         assert!(
             labels.iter().any(|l| l == "STARTUPINFOA"),
             "C-only struct must surface inside @extern(C), got: {labels:?}"
+        );
+    }
+
+    #[test]
+    fn primitive_receiver_surfaces_to_string() {
+        // `let a: i64 = 0\na.` — the receiver is a numeric primitive,
+        // so completion should at minimum suggest `toString` (which
+        // the type checker accepts on every numeric / bool value).
+        // Before the primitive_method_* hookup the dispatch fell
+        // through to the empty case and the user saw nothing.
+        use std::collections::HashMap;
+        let mut doc = Doc::default();
+        doc.text = "let a: i64 = 0\na.\n".to_string();
+        doc.var_types = HashMap::new();
+        doc.var_types.insert(AstSymbol::intern("a"), Type::I64);
+        let pos = Position { line: 1, character: 2 };
+        let resp = handle_completion(&doc, pos)
+            .expect("expected a completion response for `a.`");
+        let items = match resp {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let labels: Vec<&str> = items.iter().map(|it| it.label.as_str()).collect();
+        assert!(
+            labels.iter().any(|l| *l == "toString"),
+            "expected `toString` in i64 receiver completion, got: {labels:?}"
         );
     }
 
