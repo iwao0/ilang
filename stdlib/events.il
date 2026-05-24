@@ -47,30 +47,9 @@ pub class EventEmitter<T> {
     /// only; call again to drop further duplicates.
     pub off(event: string, listener: fn(T)): bool {
         if let some(arr) = this.listeners.get(event) {
-            let n = arr.length
-            let i = 0
-            let found_idx = -1
-            while i < n {
-                if arr[i] == listener {
-                    found_idx = i
-                    i = n
-                } else {
-                    i = i + 1
-                }
-            }
-            if found_idx < 0 { return false }
-            // Rebuild without the matching slot — arrays don't
-            // have a `splice` primitive.
-            let next: fn(T)[] = []
-            let j = 0
-            while j < n {
-                if j != found_idx { next.push(arr[j]) }
-                j = j + 1
-            }
-            if next.length == 0 {
+            if !arr.remove(listener) { return false }
+            if arr.length == 0 {
                 let _ = this.listeners.delete(event)
-            } else {
-                this.listeners[event] = next
             }
             true
         } else {
@@ -139,28 +118,7 @@ pub class Signal<T> {
     /// matching listener was found, `false` otherwise. Call again
     /// to drop further duplicates.
     pub remove(listener: fn(T)): bool {
-        let n = this.listeners.length
-        let i = 0
-        let found_idx = -1
-        while i < n {
-            if this.listeners[i] == listener {
-                found_idx = i
-                i = n
-            } else {
-                i = i + 1
-            }
-        }
-        if found_idx < 0 { return false }
-        // Rebuild without the matching slot — arrays don't have
-        // a `splice` primitive.
-        let next: fn(T)[] = []
-        let j = 0
-        while j < n {
-            if j != found_idx { next.push(this.listeners[j]) }
-            j = j + 1
-        }
-        this.listeners = next
-        true
+        this.listeners.remove(listener)
     }
 
     /// Synchronously fire every registered listener in
