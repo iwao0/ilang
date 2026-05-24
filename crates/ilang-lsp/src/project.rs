@@ -126,8 +126,26 @@ pub(crate) fn collect_dep_tree(entry: &Path) -> Result<DepTree, String> {
                 // file sits inside the manifest's own package
                 // directory or inside one of its (transitive)
                 // dep directories.
-                let covers = entry_canon.starts_with(&pf_dir)
-                    || out.dirs.iter().any(|d| entry_canon.starts_with(d));
+                //
+                // The "under pf_dir" arm is only safe for the
+                // FIRST (innermost) match: an outer manifest is
+                // also an ancestor of every sub-package directory,
+                // so accepting it via the pf_dir arm would
+                // overwrite a real sub-package match (libs/gui/
+                // would clobber libs/gui/win32/ on macOS because
+                // libs/gui/ilang.toml's macOS-resolved `gui_impl`
+                // points at cocoa, not win32). Once we already
+                // have a best_tree, an outer manifest may only
+                // override if its tree TRANSITIVELY includes the
+                // entry as a dep — which is exactly the
+                // consumer-pulls-in-inner-package case the outer
+                // walk was added for.
+                let covers = if best_tree.is_none() {
+                    entry_canon.starts_with(&pf_dir)
+                        || out.dirs.iter().any(|d| entry_canon.starts_with(d))
+                } else {
+                    out.dirs.iter().any(|d| entry_canon.starts_with(d))
+                };
                 if covers {
                     best_tree = Some(out);
                 }

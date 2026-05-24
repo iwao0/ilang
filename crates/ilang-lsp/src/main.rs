@@ -939,6 +939,80 @@ class MyApp : MyDel {
     }
 
     #[test]
+    pub(crate) fn dep_tree_prefers_inner_manifest_for_sub_package_file() {
+        // Regression for the bug where opening `libs/gui/win32/
+        // button.il` on macOS resolved the dep tree against the
+        // outer `libs/gui/ilang.toml` (whose macOS-resolved
+        // `gui_impl` is cocoa) instead of the inner
+        // `libs/gui/win32/ilang.toml` (which declares `windows`).
+        // The collateral damage was the entire windows binding
+        // disappearing from completion — `HeapFree`, `HMODULE`,
+        // `CreateWindowExW`, every Win32 type — even though those
+        // are exactly what the file uses.
+        use std::path::PathBuf;
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("libs/gui/win32/button.il");
+        let dep_tree = crate::project::collect_dep_tree(&path)
+            .expect("dep tree collection");
+        let has_windows = dep_tree
+            .dirs
+            .iter()
+            .any(|d| d.ends_with("bindings/windows"));
+        assert!(
+            has_windows,
+            "expected dep tree for libs/gui/win32/button.il to include \
+             bindings/windows; got {:#?}",
+            dep_tree.dirs
+        );
+    }
+
+    #[test]
+    pub(crate) fn selective_use_surfaces_extern_c_lib_fn_inside_extern_c_block() {
+        // End-to-end reproduction of the user-reported bug at
+        // `libs/gui/win32/button.il`: `use windows { HeapFree,
+        // ... }` selectively imports an `@lib pub fn HeapFree(...)`
+        // declaration that lives behind a chain of `pub use`
+        // re-exports (windows.il → kernel32.il). Inside an
+        // `@extern(C) { ... }` block in the same file, typing `h`
+        // must surface `HeapFree` as a completion candidate.
+        use std::path::PathBuf;
+        use crate::completion::handle_completion;
+        use tower_lsp::lsp_types::{CompletionResponse, Position};
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("libs/gui/win32/button.il");
+        let mut doc = analyse::analyse_path_to_doc(&path)
+            .expect("libs/gui/win32/button.il must load");
+        // Slip a probe `    h` line in just before the existing
+        // `HeapFree(GetProcessHeap(), 0 as u32, classW ...` call
+        // so the cursor sits inside the same @extern(C) block.
+        let mut lines: Vec<String> = doc.text.lines().map(|s| s.to_string()).collect();
+        let probe_line_idx = lines
+            .iter()
+            .position(|l| l.contains("HeapFree(GetProcessHeap(), 0 as u32, classW"))
+            .expect("expected HeapFree(classW...) line in fixture");
+        lines.insert(probe_line_idx, "    h".to_string());
+        doc.text = lines.join("\n");
+        let pos = Position { line: probe_line_idx as u32, character: 5 };
+        let items = match handle_completion(&doc, pos)
+            .expect("completion at `h` must return a response")
+        {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let labels: Vec<String> = items.into_iter().map(|it| it.label).collect();
+        assert!(
+            labels.iter().any(|l| l == "HeapFree"),
+            "expected `HeapFree` in completion list; matching `h*` \
+             labels: {:?}",
+            labels.iter().filter(|l| l.starts_with('H')).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     pub(crate) fn lambda_param_dot_completion_surfaces_event_fields() {
         // Real reproduction of the user-reported bug:
         // `examples/libs/gui/window/main.il` has multiple
