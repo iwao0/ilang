@@ -97,7 +97,11 @@ fn keyword_completions(at_top_level: bool, out: &mut Vec<CompletionItem>) {
 /// names appear — `use module` namespaces show up as the module name
 /// itself, not as `module.member` (those land in the `module.`
 /// completion list).
-pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<CompletionItem> {
+pub(crate) fn global_completions(
+    doc: &Doc,
+    at_top_level: bool,
+    in_extern_c: bool,
+) -> Vec<CompletionItem> {
     let mut out: Vec<CompletionItem> = Vec::new();
     for (name, sym) in doc.symbols.iter() {
         // Hide every `__`-prefixed name. Covers synthesized @objc
@@ -163,6 +167,16 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         if s.starts_with("__") {
             continue;
         }
+        // `@lib`-attributed extern declarations (the bare-name half
+        // of `use M { * }` over a module that contains `@extern(C,
+        // "lib") { @lib pub fn ... }`) are only callable from inside
+        // another `@extern(C) { ... }` block — their raw C pointer
+        // params can't even be constructed outside one. Drop them
+        // from the bare-name list when the cursor isn't in such a
+        // block so they don't pollute ordinary code's completion.
+        if !in_extern_c && sig.starts_with("@lib(") {
+            continue;
+        }
         // Module entries (`(module) cocoa`) come back from the harvest
         // under their bare key alongside `cocoa.NSObject` etc. The
         // MODULE listing further down already surfaces them; emitting
@@ -206,6 +220,12 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         let Some(sig) = doc.external.signatures.iter().find_map(|(k, v)| {
             (k.as_str().rsplit_once('.').map(|(_, t)| t) == Some(bare)).then(|| v.clone())
         }) else { continue };
+        // Same `@lib(` filter as the wildcard-bare path above — a
+        // selectively-imported extern declaration is still only
+        // callable inside `@extern(C) { ... }`.
+        if !in_extern_c && sig.starts_with("@lib(") {
+            continue;
+        }
         let kind = classify_signature_kind(&sig);
         let (insert_text, fmt) = call_snippet(bare, kind);
         let command = trigger_sig_help_command(kind);

@@ -254,7 +254,8 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
             return Some(CompletionResponse::Array(items));
         }
         let at_top_level = brace_depth_at(&doc.text, off) <= 0;
-        let mut items = global_completions(doc, at_top_level);
+        let in_extern_c = in_extern_c_block(&doc.text, off);
+        let mut items = global_completions(doc, at_top_level, in_extern_c);
         // `ObjCBlock<F>` is meaningless outside an
         // `@extern(ObjC) { ... }` block — `register_builtin_enums`
         // dumps it into `external_signatures` so hover works, which
@@ -263,7 +264,7 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         if !in_extern_objc_block(&doc.text, off) {
             items.retain(|it| it.label != "ObjCBlock");
         }
-        if in_extern_c_block(&doc.text, off) {
+        if in_extern_c {
             push_ffi_helper_completions(&mut items);
             push_extern_c_keywords(&mut items);
         }
@@ -479,6 +480,9 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         // Receiver may be a `use module` namespace — list its
         // re-exported items (e.g. `math.` -> `sqrt`, `pi`, ...).
         let prefix = format!("{receiver}.");
+        let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
+            .unwrap_or(doc.text.len());
+        let in_extern_c = in_extern_c_block(&doc.text, off);
         let mut items: Vec<CompletionItem> = doc
             .external
             .signatures
@@ -496,6 +500,16 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                 // into the module's namespace but aren't user-
                 // facing.
                 if is_synthesized_objc_helper(suffix) {
+                    return None;
+                }
+                // `@lib`-attributed fns from inside `@extern(C, "…")`
+                // blocks take raw C pointer / `*char` / `size_t`
+                // parameter types that the type checker only allows
+                // inside another `@extern(C) { ... }` block. Listing
+                // them in a regular `module.<.>` popup invites the
+                // user to call them where the call would never
+                // type-check anyway, so hide them outside extern-C.
+                if !in_extern_c && sig.starts_with("@lib(") {
                     return None;
                 }
                 // Skip sub-module names (`gui.button` etc.) — the
@@ -801,4 +815,79 @@ fn fn_param_type_inner(ty: &str) -> Option<&str> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod lib_filter_tests {
+    use super::*;
+    use crate::types::Doc;
+
+    fn doc_with_windows_module() -> Doc {
+        let mut doc = Doc::default();
+        doc.text = "use windows\n\nwindows.\n".to_string();
+        // Module marker — `analyse_path_to_doc` would normally emit
+        // this so `windows` resolves as a receiver in the completion
+        // dispatch.
+        doc.external.signatures.insert(
+            AstSymbol::intern("windows"),
+            "(module) windows".to_string(),
+        );
+        // Two children of the `windows` namespace: one with the
+        // `@lib(...)` prefix that the harvest emits for `@extern(C,
+        // "kernel32") { @lib pub fn ... }` declarations, and one
+        // plain re-export that should always remain visible.
+        doc.external.signatures.insert(
+            AstSymbol::intern("windows.GetModuleHandleA"),
+            "@lib(\"kernel32\")\nfn windows.GetModuleHandleA(lpModuleName: *const char): HMODULE"
+                .to_string(),
+        );
+        doc.external.signatures.insert(
+            AstSymbol::intern("windows.WindowsHelper"),
+            "fn windows.WindowsHelper(x: i64): i64".to_string(),
+        );
+        doc.imported_modules.insert(AstSymbol::intern("windows"));
+        doc
+    }
+
+    fn labels_after_dot(text: &str, after_dot_line: u32, after_dot_col: u32) -> Vec<String> {
+        let mut doc = doc_with_windows_module();
+        doc.text = text.to_string();
+        let resp = handle_completion(
+            &doc,
+            Position { line: after_dot_line, character: after_dot_col },
+        )
+        .expect("expected a completion response");
+        let items = match resp {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        items.into_iter().map(|it| it.label).collect()
+    }
+
+    #[test]
+    fn lib_fn_hidden_after_windows_dot_at_top_level() {
+        // Cursor is at the end of `windows.` on line 3.
+        let labels = labels_after_dot("use windows\n\nwindows.\n", 2, 8);
+        assert!(
+            !labels.iter().any(|l| l == "GetModuleHandleA"),
+            "expected @lib fn `GetModuleHandleA` to be hidden outside @extern(C), \
+             got: {labels:?}"
+        );
+        assert!(
+            labels.iter().any(|l| l == "WindowsHelper"),
+            "non-@lib re-exports must still surface, got: {labels:?}"
+        );
+    }
+
+    #[test]
+    fn lib_fn_visible_after_windows_dot_inside_extern_c() {
+        // Same dotted access, but cursor sits inside an
+        // `@extern(C) { ... }` block — the @lib fn now belongs.
+        let src = "use windows\n@extern(C) {\n    windows.\n}\n";
+        let labels = labels_after_dot(src, 2, 12);
+        assert!(
+            labels.iter().any(|l| l == "GetModuleHandleA"),
+            "@lib fn must surface inside @extern(C), got: {labels:?}"
+        );
+    }
 }
