@@ -842,30 +842,68 @@ pub(crate) fn nth_param_type_name(signature: &str, arg_index: usize) -> Option<S
 
 pub(crate) fn parameter_offsets(label: &str) -> Vec<(u32, u32)> {
     let bytes = label.as_bytes();
-    let Some(close) = bytes.iter().rposition(|&b| b == b')') else {
+    // Skip the parser-tag prefix (`(method) `, `(static method) `,
+    // `(getter) ` …). Each prefix is a `(...)` pair containing only
+    // alphabetic chars + whitespace; keep peeling them until the
+    // next `(` is the real parameter list. Without this the
+    // rposition trick below picked the `()` from a return type
+    // like `): ()` and reported zero parameters.
+    let mut scan_from = 0usize;
+    loop {
+        while scan_from < bytes.len()
+            && matches!(bytes[scan_from], b' ' | b'\t' | b'\r' | b'\n')
+        {
+            scan_from += 1;
+        }
+        if bytes.get(scan_from).copied() != Some(b'(') {
+            break;
+        }
+        // Find the matching `)` and check the contents look tag-like.
+        let mut depth = 1i32;
+        let mut end = scan_from + 1;
+        while end < bytes.len() && depth > 0 {
+            match bytes[end] {
+                b'(' => depth += 1,
+                b')' => depth -= 1,
+                _ => {}
+            }
+            end += 1;
+        }
+        if depth != 0 {
+            break;
+        }
+        let inside = &bytes[scan_from + 1..end - 1];
+        let tag_like = !inside.is_empty()
+            && inside
+                .iter()
+                .all(|b| b.is_ascii_alphabetic() || matches!(*b, b' ' | b'\t'));
+        if !tag_like {
+            break;
+        }
+        scan_from = end;
+    }
+    // First `(` after the prefix tags is the parameter list opener.
+    let Some(open) = (scan_from..bytes.len()).find(|&i| bytes[i] == b'(') else {
         return Vec::new();
     };
-    let mut depth = 0i32;
-    let mut open: Option<usize> = None;
-    let mut i = close;
-    loop {
-        match bytes[i] {
-            b')' => depth += 1,
-            b'(' => {
+    let mut depth = 1i32;
+    let mut close_idx: Option<usize> = None;
+    let mut j = open + 1;
+    while j < bytes.len() {
+        match bytes[j] {
+            b'(' => depth += 1,
+            b')' => {
                 depth -= 1;
                 if depth == 0 {
-                    open = Some(i);
+                    close_idx = Some(j);
                     break;
                 }
             }
             _ => {}
         }
-        if i == 0 {
-            break;
-        }
-        i -= 1;
+        j += 1;
     }
-    let Some(open) = open else {
+    let Some(close) = close_idx else {
         return Vec::new();
     };
     if close <= open + 1 {
