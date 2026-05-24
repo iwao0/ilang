@@ -453,10 +453,30 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                 let mut items: Vec<CompletionItem> = entries
                     .into_iter()
                     .map(|(name, sig, doc_text)| {
+                        // Built-in array methods like `forEach` /
+                        // `map` / `filter` take a closure parameter;
+                        // route through `build_method_call_snippet`
+                        // so the snippet expands to a ready-to-fill
+                        // `fn(${1:_}: T) { ${2} }` instead of bare
+                        // `forEach(`.
                         let (insert_text, fmt) =
-                            call_snippet(name.as_str(), CompletionItemKind::METHOD);
-                        let command =
-                            trigger_sig_help_command(CompletionItemKind::METHOD);
+                            build_method_call_snippet(name.as_str(), sig.as_str())
+                                .map(|(t, f)| (Some(t), Some(f)))
+                                .unwrap_or_else(|| {
+                                    call_snippet(
+                                        name.as_str(),
+                                        CompletionItemKind::METHOD,
+                                    )
+                                });
+                        // Re-fire signature help once the snippet
+                        // expansion lands the cursor inside the call
+                        // so the param overlay shows up immediately.
+                        let command = Some(tower_lsp::lsp_types::Command {
+                            title: String::new(),
+                            command: "editor.action.triggerParameterHints"
+                                .to_string(),
+                            arguments: None,
+                        });
                         CompletionItem {
                             label: name.as_str().to_string(),
                             kind: Some(CompletionItemKind::METHOD),
@@ -803,15 +823,42 @@ fn build_method_call_snippet(
         // `fn(...) { ... }` scaffolding.
         if let Some(inner) = param_ty.and_then(fn_param_type_inner) {
             let inner = inner.trim();
+            let body_ret = param_ty.and_then(fn_param_return_type);
+            // Pick an initial body literal so the expanded lambda is
+            // accept-clean even before the user types anything.
+            // Without this, `filter` lands `fn(_: i64) { }` which
+            // returns unit and trips the `fn(T): bool` check.
+            let body = |idx: usize| match body_ret {
+                Some("bool") => format!("${{{idx}:true}}"),
+                _ => format!("${{{idx}}}"),
+            };
+            // Explicit return-type annotation on the closure literal.
+            // ilang doesn't infer the return type from the
+            // surrounding call site's expected closure type, so a
+            // bare `fn(_: T) { true }` for `filter` still trips
+            // `fn(T): bool`. Annotate for the concrete primitives
+            // where we can spell the type; skip `()` (the default)
+            // and anything that looks generic (single uppercase
+            // letter) since `: U` wouldn't resolve inside the
+            // closure literal.
+            let ret_ann = match body_ret {
+                Some(r) if needs_explicit_ret_ann(r) => format!(": {r}"),
+                _ => String::new(),
+            };
             if inner.is_empty() {
                 let i = tab_idx;
                 tab_idx += 1;
-                slots.push(format!("fn() {{ ${} }}", i));
+                slots.push(format!("fn(){ret_ann} {{ {} }}", body(i)));
             } else if !inner.contains(',') {
                 let i1 = tab_idx;
                 let i2 = tab_idx + 1;
                 tab_idx += 2;
-                slots.push(format!("fn(${{{}:_}}: {}) {{ ${} }}", i1, inner, i2));
+                slots.push(format!(
+                    "fn(${{{}:_}}: {}){ret_ann} {{ {} }}",
+                    i1,
+                    inner,
+                    body(i2),
+                ));
             } else {
                 // Multi-arg closure — splitting on `,` is unsafe
                 // (`Map<K, V>` tears apart). Drop back to a plain
@@ -831,6 +878,57 @@ fn build_method_call_snippet(
         format!("{name}({})", slots.join(", ")),
         InsertTextFormat::SNIPPET,
     ))
+}
+
+/// `true` when the closure literal we synthesise should carry an
+/// explicit `: <ret>` annotation. Concrete primitives need it
+/// because ilang doesn't propagate the surrounding expected-fn
+/// type into the closure body's return-type inference; `()` is the
+/// default so an empty body already matches; a bare uppercase
+/// letter is a generic param from the outer signature and the
+/// closure literal can't name it.
+fn needs_explicit_ret_ann(ret: &str) -> bool {
+    let r = ret.trim();
+    if r.is_empty() || r == "()" {
+        return false;
+    }
+    // Generic-looking single identifier (`T`, `U`, `Key`, …) starts
+    // with an uppercase ASCII letter and has no further punctuation.
+    // Skip those — emitting `: T` would compile-error inside the
+    // closure literal because T isn't in scope.
+    let is_word = r
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_');
+    let starts_upper = r.chars().next().is_some_and(|c| c.is_ascii_uppercase());
+    if is_word && starts_upper {
+        return false;
+    }
+    true
+}
+
+/// `Some(ret)` when `ty` is a top-level `fn(...): R` type, where
+/// `ret` is the textual return type after the outer `): `. Returns
+/// `None` for fn types without a written return (`fn(T)`) and for
+/// non-fn types.
+fn fn_param_return_type(ty: &str) -> Option<&str> {
+    let t = ty.trim();
+    let rest = t.strip_prefix("fn(")?;
+    let bytes = rest.as_bytes();
+    let mut depth = 1i32;
+    for (i, b) in bytes.iter().enumerate() {
+        match *b {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    let after = rest[i + 1..].trim_start();
+                    return after.strip_prefix(':').map(str::trim_start);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// `Some(inner)` when `ty` is a top-level `fn(...)` type, where
@@ -1024,6 +1122,88 @@ mod lib_filter_tests {
         assert!(
             labels.iter().any(|l| l == "STARTUPINFOA"),
             "C-only struct must surface inside @extern(C), got: {labels:?}"
+        );
+    }
+
+    #[test]
+    fn array_filter_completion_seeds_true_body() {
+        // `b.filter` needs a `fn(T): bool` closure. Seed the body
+        // with `true` so accepting the completion produces a
+        // type-checkable lambda, not an empty-body unit lambda
+        // that fails the return-type check.
+        use std::collections::HashMap;
+        let mut doc = Doc::default();
+        doc.text = "let b: i64[] = []\nb.\n".to_string();
+        doc.var_types = HashMap::new();
+        doc.var_types.insert(
+            AstSymbol::intern("b"),
+            Type::Array { elem: Box::new(Type::I64), fixed: None },
+        );
+        let pos = Position { line: 1, character: 2 };
+        let resp = handle_completion(&doc, pos)
+            .expect("expected a completion response for `b.`");
+        let items = match resp {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let filter = items
+            .iter()
+            .find(|it| it.label == "filter")
+            .expect("filter must be in the candidates");
+        let snippet = filter
+            .insert_text
+            .as_ref()
+            .expect("filter completion must carry a snippet");
+        assert!(
+            snippet.contains("true"),
+            "filter body must seed a bool literal so the lambda \
+             returns the expected `bool`, got: {snippet}"
+        );
+        assert!(
+            snippet.contains("): bool"),
+            "filter closure must carry an explicit `: bool` return \
+             annotation — ilang doesn't infer it from the call site, \
+             got: {snippet}"
+        );
+    }
+
+    #[test]
+    fn array_for_each_completion_expands_lambda_snippet() {
+        // Typing `b.` for `let b: i64[] = []` should offer `forEach`
+        // with a snippet that drops the cursor into a pre-built
+        // `fn(${1:_}: i64) { ${2} }` body — same expansion the
+        // user-defined-method path already provides.
+        use std::collections::HashMap;
+        let mut doc = Doc::default();
+        doc.text = "let b: i64[] = []\nb.\n".to_string();
+        doc.var_types = HashMap::new();
+        doc.var_types.insert(
+            AstSymbol::intern("b"),
+            Type::Array { elem: Box::new(Type::I64), fixed: None },
+        );
+        let pos = Position { line: 1, character: 2 };
+        let resp = handle_completion(&doc, pos)
+            .expect("expected a completion response for `b.`");
+        let items = match resp {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let for_each = items
+            .iter()
+            .find(|it| it.label == "forEach")
+            .expect("forEach must be in the candidates");
+        assert_eq!(
+            for_each.insert_text_format,
+            Some(InsertTextFormat::SNIPPET),
+            "forEach must be inserted as a SNIPPET so placeholders are honoured"
+        );
+        let snippet = for_each
+            .insert_text
+            .as_ref()
+            .expect("forEach completion must carry a snippet");
+        assert!(
+            snippet.contains("fn(") && snippet.contains("i64"),
+            "snippet should pre-build a `fn(_: i64) {{ }}` lambda, got: {snippet}"
         );
     }
 
