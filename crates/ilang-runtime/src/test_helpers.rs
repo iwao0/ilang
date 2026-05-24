@@ -166,15 +166,20 @@ pub extern "C" fn test_counted_free_count() -> i32 {
     COUNTED_FREE_COUNT.load(std::sync::atomic::Ordering::SeqCst)
 }
 
-/// `test.applyI32Cb(cb, a, b): i32` — invoke an ilang closure
-/// pointer as a 2-arg i32 callback.
+/// `test.applyI32Cb(cb, a, b): i32` — invoke a top-level ilang fn
+/// passed across the C boundary as a callback. `@extern(C)` /
+/// `@intrinsic` parameters of `fn(...)` type receive a bare
+/// `FuncAddr` (8-byte code pointer, no closure box), so `cb_ptr` is
+/// the function's entry address directly — not a closure header.
+/// The function's cranelift signature still appends a hidden env
+/// slot for non-extern fns, hence the 3-arg cast; we pass `0` for
+/// env because top-level fns don't read it.
 #[unsafe(export_name = "$test.applyI32Cb")]
-pub extern "C" fn test_apply_i32_cb(closure_ptr: i64, a: i64, b: i64) -> i32 {
-    if closure_ptr == 0 {
+pub extern "C" fn test_apply_i32_cb(cb_ptr: i64, a: i64, b: i64) -> i32 {
+    if cb_ptr == 0 {
         return 0;
     }
-    let fn_addr = unsafe { *(closure_ptr as *const i64) };
     let f: extern "C" fn(i64, i64, i64) -> i32 =
-        unsafe { std::mem::transmute(fn_addr) };
-    f(a, b, closure_ptr)
+        unsafe { std::mem::transmute(cb_ptr) };
+    f(a, b, 0)
 }
