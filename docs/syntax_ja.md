@@ -750,13 +750,38 @@ let trailing = [1, 2, 3,]       // 末尾コンマ可
 xs[1]                            // 添字読み取り
 xs[0] = 100                      // 添字代入
 xs.length                        // i64 を返す (組み込み)
-xs.push(40)                      // 動的配列のみ。固定長は型エラー
-xs.pop()                         // T? を返す (空なら none)。動的配列のみ
-xs.indexOf(20)                   // i64 を返す (見つからなければ -1)
-xs.includes(20)                  // bool を返す
+
+// 破壊的操作 (動的配列のみ。固定長は型エラー)
+xs.push(40)                                  // 末尾に追加、() を返す
+xs.pop()                                     // T? — 末尾を取り出す (空なら none)
+xs.shift()                                   // T? — 先頭を取り出す
+xs.unshift(0)                                // 先頭 (index 0) に挿入、()
+xs.remove(20)                                // bool — 値が一致する最初の要素を削除
+xs.removeAt(1)                               // T? — 指定 index を削除 (範囲外は none)
+xs.fill(7)                                   // 全セルを上書き、()
+
+// 検索・述語
+xs.indexOf(20)                               // i64 (見つからなければ -1)
+xs.includes(20)                              // bool
+xs.find(fn(x: i32): bool { x > 15 })         // T? — 最初に true を返した要素
+xs.findIndex(fn(x: i32): bool { x > 15 })    // i64 — そのインデックス、無ければ -1
+xs.every(fn(x: i32): bool { x > 0 })         // bool — 全要素が true (空配列なら true)
+xs.some(fn(x: i32): bool { x > 0 })          // bool — 少なくとも 1 つが true
+
+// 新しい配列を返す (元の配列は変えない)
+xs.slice(0, 2)                               // T[] — [start, end)
+xs.concat([100, 200])                        // T[] — this ++ other
+xs.reverse()                                 // T[] — 反転コピー
+xs.map(fn(x: i32): i64 { x * 10 })           // U[] — 要素ごとに写像
+xs.filter(fn(x: i32): bool { x > 10 })       // T[] — マッチした要素のみ
+xs.sort(fn(a: i32, b: i32): i64 { a - b })   // T[] — comparator は < / = / > 0
+xs.forEach(fn(x: i32) { console.log(x) })    // () — 各要素に対し f を実行
+
+// `string[]` 限定
+ss.join(", ")                                // string — 区切り文字列で連結
 ```
 
-高階メソッドもサポート: `xs.map(fn)` / `xs.filter(pred)` / `xs.forEach(fn)` / `xs.slice(start, end)`。コールバックは **第一級関数** または **クロージャ** (匿名 `fn` で外側のローカル変数を value-capture できる — §6 参照)。`length` / `push` / `pop` / `indexOf` / `includes` / `for-in` 含めて **interpreter / JIT とも同等** — 要素型の制限はありません。
+コールバックは **第一級関数** または **クロージャ** (匿名 `fn` で外側のローカル変数を value-capture できる — §6 参照) を渡せます。すべての組み込みメソッドは **interpreter / JIT とも同等**、要素型の制限なし。破壊的操作 (`push` / `pop` / `shift` / `unshift` / `remove` / `removeAt` / `fill`) は dynamic 配列のみで、固定長レシーバには型エラー。新配列を返す系 (`slice` / `concat` / `reverse` / `map` / `filter` / `sort`) は元の配列を変更せず、ヒープ要素は適切に retain した新バッファを返します。
 
 ---
 

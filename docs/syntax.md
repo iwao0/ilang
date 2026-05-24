@@ -950,19 +950,46 @@ let trailing = [1, 2, 3,]       // trailing comma allowed
 xs[1]                            // index read
 xs[0] = 100                      // index write
 xs.length                        // returns i64 (built-in)
-xs.push(40)                      // dynamic only; fixed-length errors
-xs.pop()                         // returns T? (none if empty); dynamic only
-xs.indexOf(20)                   // i64 (-1 if missing)
-xs.includes(20)                  // bool
+
+// Mutating ops (dynamic arrays only — fixed-length errors)
+xs.push(40)                                  // append, ()
+xs.pop()                                     // T? — last (none if empty)
+xs.shift()                                   // T? — first
+xs.unshift(0)                                // prepend at index 0, ()
+xs.remove(20)                                // bool — drop first cell == v
+xs.removeAt(1)                               // T? — drop at index (none if OOB)
+xs.fill(7)                                   // overwrite every cell, ()
+
+// Search / predicate
+xs.indexOf(20)                               // i64 (-1 if missing)
+xs.includes(20)                              // bool
+xs.find(fn(x: i32): bool { x > 15 })         // T? — first match
+xs.findIndex(fn(x: i32): bool { x > 15 })    // i64 — index of first match, -1 otherwise
+xs.every(fn(x: i32): bool { x > 0 })         // bool — all match (vacuously true on empty)
+xs.some(fn(x: i32): bool { x > 0 })          // bool — at least one match
+
+// Produce a new array (sources untouched)
+xs.slice(0, 2)                               // T[] — [start, end)
+xs.concat([100, 200])                        // T[] — this ++ other
+xs.reverse()                                 // T[] — fresh reversed copy
+xs.map(fn(x: i32): i64 { x * 10 })           // U[] — map element-wise
+xs.filter(fn(x: i32): bool { x > 10 })       // T[] — keep matches
+xs.sort(fn(a: i32, b: i32): i64 { a - b })   // T[] — comparator returns < / = / > 0
+xs.forEach(fn(x: i32) { console.log(x) })    // () — invoke f on each
+
+// `string[]` only
+ss.join(", ")                                // string — concat cells with sep
 ```
 
-Higher-order methods: `xs.map(fn)` / `xs.filter(pred)` /
-`xs.forEach(fn)` / `xs.slice(start, end)`. Callbacks may be
-**first-class functions** or **closures** (anonymous `fn` capturing
-outer locals by value — see §6). `length` / `push` / `pop` /
-`indexOf` / `includes` / `for-in` and the higher-order methods all
-work in **both interpreter and JIT** with no element-type
-restrictions.
+Callbacks may be **first-class functions** or **closures**
+(anonymous `fn` capturing outer locals by value — see §6). Every
+built-in method works in **both interpreter and JIT** with no
+element-type restrictions. The mutating ops (`push` / `pop` /
+`shift` / `unshift` / `remove` / `removeAt` / `fill`) require a
+dynamic-length receiver — fixed-length arrays surface a type
+error. The new-array ops (`slice` / `concat` / `reverse` / `map` /
+`filter` / `sort`) leave the receiver alone and hand back a fresh
+buffer with the right cells retained.
 
 ---
 
