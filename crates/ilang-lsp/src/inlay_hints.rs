@@ -22,6 +22,7 @@ use ilang_ast::{
 use std::collections::HashMap;
 use tower_lsp::lsp_types::*;
 
+use crate::helpers::sig_body_skip_attrs;
 use crate::text;
 use crate::types::Doc;
 
@@ -604,6 +605,12 @@ fn lookup_external_param_names(cx: &Cx, callee: &str) -> Option<Vec<String>> {
 /// p2: T2): R` shapes. Returns `None` when the string doesn't
 /// look like a callable signature.
 fn parse_param_names_from_signature(sig: &str) -> Option<Vec<String>> {
+    // Skip any leading `@attr` / `@attr(...)` lines that
+    // `render_user_attrs` prepends to the hover signature.
+    // Without this, `@lib("user32")\nfn name(dwExStyle: u32, …)`
+    // would match the `(` inside `@lib("user32")` first and pull
+    // `"user32"` out as the first param name.
+    let sig = sig_body_skip_attrs(sig);
     let open = sig.find('(')?;
     let bytes = sig.as_bytes();
     let mut depth: i32 = 0;

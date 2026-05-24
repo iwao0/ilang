@@ -8,6 +8,8 @@ use ilang_lexer::{tokenize, TokenKind};
 use ilang_parser::parse;
 use tower_lsp::lsp_types::{Position, Range};
 
+use crate::helpers::sig_body_skip_attrs;
+
 /// Tokenise + parse `text` into a `Program`. Returns `None` if either
 /// step fails — the lex/parse error itself is discarded since LSP
 /// passes that rely on a fresh parse here just want best-effort.
@@ -841,7 +843,20 @@ pub(crate) fn nth_param_type_name(signature: &str, arg_index: usize) -> Option<S
 }
 
 pub(crate) fn parameter_offsets(label: &str) -> Vec<(u32, u32)> {
-    let bytes = label.as_bytes();
+    // Strip leading `@attr` / `@attr(...)` lines so the scanner
+    // doesn't lock onto the `(` inside e.g. `@lib("user32")` and
+    // treat its content as the parameter list. Returned offsets
+    // are still relative to the original `label`, so callers that
+    // pass them into `ParameterLabel::LabelOffsets` keep working.
+    let stripped = sig_body_skip_attrs(label);
+    let prefix_len = (label.len() - stripped.len()) as u32;
+    parameter_offsets_raw(stripped.as_bytes())
+        .into_iter()
+        .map(|(s, e)| (s + prefix_len, e + prefix_len))
+        .collect()
+}
+
+fn parameter_offsets_raw(bytes: &[u8]) -> Vec<(u32, u32)> {
     // Skip the parser-tag prefix (`(method) `, `(static method) `,
     // `(getter) ` …). Each prefix is a `(...)` pair containing only
     // alphabetic chars + whitespace; keep peeling them until the

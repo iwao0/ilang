@@ -969,6 +969,63 @@ class MyApp : MyDel {
     }
 
     #[test]
+    pub(crate) fn inlay_hint_for_lib_fn_call_uses_real_param_names() {
+        // Reproduction of the bug at `libs/gui/win32/button.il` L63:
+        // the first arg `0,` of `CreateWindowExW(...)` got an inlay
+        // hint of `"user32":` because `parse_param_names_from_signature`
+        // grabbed the `(` from the `@lib("user32")` prefix attribute
+        // instead of skipping past it to the real `fn …(dwExStyle:
+        // u32, …)` paren list.
+        use std::path::PathBuf;
+        use crate::completion::handle_completion;
+        use tower_lsp::lsp_types::Position;
+        let _ = (handle_completion, Position { line: 0, character: 0 });
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("libs/gui/win32/button.il");
+        let doc = analyse::analyse_path_to_doc(&path)
+            .expect("libs/gui/win32/button.il must load");
+        // Find the L62 `let hwnd = CreateWindowExW(` line, then ask
+        // for inlay hints covering the call's arg block.
+        let target = doc
+            .text
+            .lines()
+            .enumerate()
+            .find(|(_, l)| l.contains("let hwnd = CreateWindowExW("))
+            .map(|(i, _)| i as u32)
+            .expect("expected CreateWindowExW call line");
+        use tower_lsp::lsp_types::Range;
+        let range = Range {
+            start: Position { line: target, character: 0 },
+            end: Position { line: target + 12, character: 0 },
+        };
+        let hints = crate::inlay_hints::build_hints(&doc, range);
+        // Collect every hint label as plain text.
+        let labels: Vec<String> = hints
+            .iter()
+            .map(|h| match &h.label {
+                tower_lsp::lsp_types::InlayHintLabel::String(s) => s.clone(),
+                tower_lsp::lsp_types::InlayHintLabel::LabelParts(parts) => parts
+                    .iter()
+                    .map(|p| p.value.clone())
+                    .collect::<Vec<_>>()
+                    .join(""),
+            })
+            .collect();
+        assert!(
+            !labels.iter().any(|l| l.contains("user32")),
+            "inlay hints must not pull the `@lib(\"user32\")` prefix \
+             as a param name; got {labels:?}"
+        );
+        assert!(
+            labels.iter().any(|l| l.contains("dwExStyle")),
+            "expected `dwExStyle:` inlay hint on CreateWindowExW's \
+             first arg; got {labels:?}"
+        );
+    }
+
+    #[test]
     pub(crate) fn selective_use_surfaces_extern_c_lib_fn_inside_extern_c_block() {
         // End-to-end reproduction of the user-reported bug at
         // `libs/gui/win32/button.il`: `use windows { HeapFree,
