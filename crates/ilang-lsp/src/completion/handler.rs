@@ -45,6 +45,52 @@ use crate::Doc;
 /// Each subsequent segment looks up a field / getter / method on
 /// the current class and continues with the declared return type's
 /// class.
+/// Walk the same dotted-chain `resolve_receiver_class` does but
+/// return the last segment's declared type instead of the bare class
+/// name. Used by signature-help to recover concrete generic
+/// arguments (`Signal<CloseEvent>`) so member signatures can render
+/// `fn(CloseEvent)` instead of `fn(T)`.
+pub(crate) fn resolve_receiver_type(
+    doc: &Doc,
+    receiver: &str,
+    text_offset: usize,
+) -> Option<Type> {
+    if receiver.is_empty() {
+        return None;
+    }
+    let segments: Vec<&str> = receiver.split('.').collect();
+    let mut current_class: Option<String> = if segments[0] == "this" {
+        enclosing_class(&doc.text, text_offset)
+    } else if doc.classes.contains_key(&AstSymbol::intern(segments[0])) {
+        Some(segments[0].to_string())
+    } else if let Some(c) = doc
+        .var_classes
+        .get(&AstSymbol::intern(segments[0]))
+        .cloned()
+    {
+        Some(c)
+    } else {
+        return doc.var_types.get(&AstSymbol::intern(segments[0])).cloned();
+    };
+    let mut current_ty: Option<Type> = current_class
+        .as_ref()
+        .map(|c| Type::Object(AstSymbol::intern(c)));
+    for seg in &segments[1..] {
+        let cls = current_class.as_deref()?;
+        let info = doc.classes.get(&AstSymbol::intern(cls))?;
+        let key = AstSymbol::intern(seg);
+        let m = info
+            .getters
+            .get(&key)
+            .or_else(|| info.fields.get(&key))
+            .or_else(|| info.methods.get(&key))?;
+        let ret = m.ret_ty.clone()?;
+        current_class = helpers::type_to_class(&ret);
+        current_ty = Some(ret);
+    }
+    current_ty
+}
+
 pub(crate) fn resolve_receiver_class(
     doc: &Doc,
     receiver: &str,

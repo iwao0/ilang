@@ -54,6 +54,13 @@ pub(crate) struct ClassInfo {
     /// Decl keyword used in source (`class` / `struct` / `union`).
     /// Drives hover phrasing for ARC classes vs `@extern(C)` structs.
     pub(crate) kind: ClassKind,
+    /// Names of the class's generic type parameters in declaration
+    /// order (`Signal<T>` → `["T"]`). Empty for non-generic classes.
+    /// Used by signature-help to substitute the concrete type
+    /// arguments back into `add(listener: fn(T))`-style member
+    /// signatures so the user sees `fn(CloseEvent)` instead of
+    /// `fn(T)`.
+    pub(crate) type_params: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

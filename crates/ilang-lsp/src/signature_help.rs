@@ -120,21 +120,37 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
             // declared type, not just a single `var_classes` hop.
             // Falls back to the built-in string / array signatures
             // below when the receiver is one of those primitives.
+            let off = text::line_col_to_offset(
+                &doc.text,
+                pos.line + 1,
+                pos.character + 1,
+            )
+            .unwrap_or(doc.text.len());
             let class = if recv == "console" {
                 Some("Console".to_string())
             } else {
-                let off = text::line_col_to_offset(
-                    &doc.text,
-                    pos.line + 1,
-                    pos.character + 1,
-                )
-                .unwrap_or(doc.text.len());
                 completion::resolve_receiver_class(doc, recv, off)
+            };
+            // Recover the receiver's full type so a `Signal<CloseEvent>`
+            // can substitute `T -> CloseEvent` into the member's
+            // signature instead of showing the raw `fn(T)`.
+            let recv_ty = if recv == "console" {
+                None
+            } else {
+                completion::resolve_receiver_type(doc, recv, off)
             };
             if let Some(c) = class {
                 if let Some(info) = doc.classes.get(&AstSymbol::intern(&c)) {
                     if let Some(m) = info.methods.get(&AstSymbol::intern(method)) {
-                        out.push(m.clone());
+                        let mut m = m.clone();
+                        if let Some(generic_args) = recv_ty.as_ref().and_then(generic_args_of) {
+                            substitute_type_params(
+                                &mut m.signature,
+                                &info.type_params,
+                                &generic_args,
+                            );
+                        }
+                        out.push(m);
                     }
                 }
             }
@@ -207,3 +223,73 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
     })
 }
 
+
+/// Pull the generic-argument list out of a receiver type if it
+/// happens to be a `Type::Generic` instantiation. Anything else
+/// (plain `Object`, `Array`, primitives, …) returns `None` so the
+/// caller can skip substitution.
+fn generic_args_of(ty: &Type) -> Option<Vec<Type>> {
+    match ty {
+        Type::Generic(g) => Some(g.args.to_vec()),
+        _ => None,
+    }
+}
+
+/// Replace every `\bT\b` (and other parameter names) in `sig` with
+/// the corresponding concrete type. Walks character-by-character so
+/// substrings inside larger identifiers (`Tuple`, `Result`) stay
+/// untouched. `params` and `args` are zipped pairwise; surplus
+/// entries on either side are silently skipped.
+fn substitute_type_params(sig: &mut String, params: &[String], args: &[Type]) {
+    if params.is_empty() || args.is_empty() {
+        return;
+    }
+    let n = params.len().min(args.len());
+    for i in 0..n {
+        let name = &params[i];
+        let replacement = format!("{}", args[i]);
+        if name == &replacement {
+            continue;
+        }
+        *sig = replace_whole_word(sig, name, &replacement);
+    }
+}
+
+/// Replace every whole-word occurrence of `needle` in `src` with
+/// `repl`. A "word" boundary is anything that isn't an ASCII letter,
+/// digit, or `_`. Avoids touching `Tuple` when `T` is the needle.
+fn replace_whole_word(src: &str, needle: &str, repl: &str) -> String {
+    let bytes = src.as_bytes();
+    let needle_bytes = needle.as_bytes();
+    if needle_bytes.is_empty() || needle_bytes.len() > bytes.len() {
+        return src.to_string();
+    }
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    while i <= bytes.len() {
+        if i + needle_bytes.len() <= bytes.len()
+            && &bytes[i..i + needle_bytes.len()] == needle_bytes
+        {
+            let before_ok = i == 0
+                || {
+                    let b = bytes[i - 1];
+                    !(b.is_ascii_alphanumeric() || b == b'_')
+                };
+            let after_ok = i + needle_bytes.len() == bytes.len()
+                || {
+                    let b = bytes[i + needle_bytes.len()];
+                    !(b.is_ascii_alphanumeric() || b == b'_')
+                };
+            if before_ok && after_ok {
+                out.push_str(repl);
+                i += needle_bytes.len();
+                continue;
+            }
+        }
+        if i < bytes.len() {
+            out.push(bytes[i] as char);
+        }
+        i += 1;
+    }
+    out
+}

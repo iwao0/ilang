@@ -344,6 +344,7 @@ pub(crate) fn install_builtin_classes(out: &mut HashMap<AstSymbol, ClassInfo>) {
     );
     out.entry("Console".into()).or_insert(ClassInfo {
         decl_span: Span::dummy(),
+        type_params: Vec::new(),
         fields: HashMap::new(),
         methods,
         getters: HashMap::new(),
@@ -411,6 +412,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                                 name.clone(),
                                 ClassInfo {
                                     decl_span: *span,
+                                    type_params: Vec::new(),
                                     fields,
                                     methods: HashMap::new(),
                                     getters: HashMap::new(),
@@ -569,6 +571,11 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                 c.name.into(),
                 ClassInfo {
                     decl_span: c.span,
+                    type_params: c
+                        .type_params
+                        .iter()
+                        .map(|s| s.as_str().to_string())
+                        .collect(),
                     fields,
                     methods,
                     getters,
@@ -630,6 +637,8 @@ fn register_interface_as_class(
         i.name,
         ClassInfo {
             decl_span: i.span,
+            // Interfaces don't carry generic params today.
+            type_params: Vec::new(),
             fields: HashMap::new(),
             methods,
             getters: HashMap::new(),

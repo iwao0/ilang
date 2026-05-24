@@ -25,7 +25,7 @@ pub(crate) use context::{
     preceding_kw_introduces_binder,
 };
 pub(crate) use globals::global_completions;
-pub(crate) use handler::{handle_completion, resolve_receiver_class};
+pub(crate) use handler::{handle_completion, resolve_receiver_class, resolve_receiver_type};
 pub(crate) use types::type_completions;
 
 pub(super) const PRIMITIVE_TYPES: &[&str] = &[

@@ -112,6 +112,7 @@ pub(crate) fn collect_external_classes(
                                 name.clone(),
                                 ClassInfo {
                                     decl_span: *span,
+                                    type_params: Vec::new(),
                                     fields,
                                     methods: HashMap::new(),
                                     getters: HashMap::new(),
@@ -284,6 +285,11 @@ pub(crate) fn collect_external_classes(
             c.name.into(),
             ClassInfo {
                 decl_span: c.span,
+                type_params: c
+                    .type_params
+                    .iter()
+                    .map(|s| s.as_str().to_string())
+                    .collect(),
                 fields,
                 methods,
                 getters,
@@ -450,6 +456,7 @@ fn register_external_interface(
         i.name,
         ClassInfo {
             decl_span: i.span,
+            type_params: Vec::new(),
             fields: HashMap::new(),
             methods,
             getters: HashMap::new(),
