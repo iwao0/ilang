@@ -10,8 +10,16 @@ use tower_lsp::lsp_types::{
 use super::{classify_signature_kind, kind_is_type, BUILTIN_GENERIC_TYPES, PRIMITIVE_TYPES};
 use crate::Doc;
 
-pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
+pub(crate) fn type_completions(doc: &Doc, in_extern_c: bool) -> Vec<CompletionItem> {
     let mut out: Vec<CompletionItem> = Vec::new();
+    // Same hide-outside-extern-C gate the value-position paths apply:
+    // a struct / union whose fields require raw C types can't be
+    // named in a regular `let x: T` slot either.
+    let c_only_structs = if in_extern_c {
+        std::collections::HashSet::new()
+    } else {
+        super::c_only_struct_suffixes(doc)
+    };
     for t in PRIMITIVE_TYPES {
         out.push(CompletionItem {
             label: (*t).to_string(),
@@ -107,6 +115,13 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
             .map(|(_, t)| t)
             .unwrap_or(name.as_str());
         if bare.starts_with("__") {
+            continue;
+        }
+        // Hide `@extern(C) struct/union` types whose fields drag in
+        // raw C pointers / `char` / `void` / `size_t` from regular
+        // type-position completion — see the rationale in
+        // `completion::c_only_struct_suffixes`.
+        if c_only_structs.contains(bare) {
             continue;
         }
         // Label depends on whether the bare name is already imported

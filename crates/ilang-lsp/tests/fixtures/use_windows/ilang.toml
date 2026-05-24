@@ -1,0 +1,5 @@
+[package]
+name = "lsp_use_windows_fixture"
+
+[deps]
+windows = "../../../../../bindings/windows"

@@ -67,6 +67,24 @@ pub(crate) fn sig_body_skip_attrs(sig: &str) -> &str {
 /// `@extern(C)` struct declaration. Each marker lands on its own
 /// line followed by a newline, so the hover shows
 /// `@handle\nstruct Name` instead of cramming them onto one line.
+/// `true` when `ty` is, or transitively contains, a C-only type
+/// (raw pointer, `char`, `void`, `size_t`, `ssize_t`). Matches the
+/// type-checker's `first_c_only_type` rule so the LSP can hide
+/// `@extern(C) { struct ... }` declarations whose fields can't be
+/// constructed outside another `@extern(C) { ... }` block.
+pub(crate) fn contains_c_only_type(ty: &Type) -> bool {
+    match ty {
+        Type::RawPtr { .. } | Type::CVoid | Type::CChar | Type::Size | Type::SSize => true,
+        Type::Array { elem, .. } => contains_c_only_type(elem),
+        Type::Optional(inner) | Type::Weak(inner) => contains_c_only_type(inner),
+        Type::Generic(g) => g.args.iter().any(contains_c_only_type),
+        Type::Fn(ft) => ft.params.iter().any(contains_c_only_type)
+            || contains_c_only_type(&ft.ret),
+        Type::Tuple(elems) => elems.iter().any(contains_c_only_type),
+        _ => false,
+    }
+}
+
 /// Returns an empty string when no markers are set — drop-in for
 /// `format!("{attrs}struct {name}")`.
 pub(crate) fn render_struct_attrs(is_packed: bool, is_handle: bool) -> String {

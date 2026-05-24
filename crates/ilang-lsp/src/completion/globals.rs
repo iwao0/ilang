@@ -103,6 +103,14 @@ pub(crate) fn global_completions(
     in_extern_c: bool,
 ) -> Vec<CompletionItem> {
     let mut out: Vec<CompletionItem> = Vec::new();
+    // Suffixes of `@extern(C) struct/union` names whose fields drag in
+    // a C-only type — hidden from bare-name completion outside the
+    // extern-C scope. Empty inside extern-C so the entries surface.
+    let c_only_structs = if in_extern_c {
+        std::collections::HashSet::new()
+    } else {
+        super::c_only_struct_suffixes(doc)
+    };
     for (name, sym) in doc.symbols.iter() {
         // Hide every `__`-prefixed name. Covers synthesized @objc
         // desugar helpers (`__objc_*`, `__super_*`) plus C-ABI
@@ -177,6 +185,13 @@ pub(crate) fn global_completions(
         if !in_extern_c && sig.starts_with("@lib(") {
             continue;
         }
+        // `@extern(C) { struct / union ... }` declarations whose
+        // fields use raw pointer / `char` / `void` / `size_t` are
+        // similarly only constructible inside another extern-C
+        // block. Same hide-outside rule.
+        if c_only_structs.contains(s) {
+            continue;
+        }
         // Module entries (`(module) cocoa`) come back from the harvest
         // under their bare key alongside `cocoa.NSObject` etc. The
         // MODULE listing further down already surfaces them; emitting
@@ -224,6 +239,11 @@ pub(crate) fn global_completions(
         // selectively-imported extern declaration is still only
         // callable inside `@extern(C) { ... }`.
         if !in_extern_c && sig.starts_with("@lib(") {
+            continue;
+        }
+        // And the same hide-outside rule for selectively-imported
+        // C-only struct / union names.
+        if c_only_structs.contains(bare) {
             continue;
         }
         let kind = classify_signature_kind(&sig);

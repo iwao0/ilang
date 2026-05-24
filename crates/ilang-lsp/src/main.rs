@@ -841,6 +841,176 @@ class MyApp : MyDel {
     }
 
     #[test]
+    pub(crate) fn windows_actctxw_hidden_from_top_level_type_completion() {
+        // End-to-end: load a tiny `use windows` fixture through the
+        // real loader → harvest → `collect_external_classes` pipeline
+        // and confirm that `ACTCTXW` (whose fields use `*const u16`)
+        // does NOT surface in top-level type-position completion.
+        // Mirrors the user-visible bug where typing `let x: ` at the
+        // top of a `use windows` file dumped every Win32 struct
+        // including the C-only ones.
+        use std::path::PathBuf;
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("tests/fixtures/use_windows/main.il");
+        let doc = analyse::analyse_path_to_doc(&path)
+            .expect("fixtures/use_windows/main.il must load");
+        // Sanity: harvest actually saw ACTCTXW from kernel32.
+        let saw_actctxw = doc.external.signatures.keys().any(|k| {
+            k.as_str().rsplit_once('.').map(|(_, t)| t) == Some("ACTCTXW")
+        });
+        assert!(
+            saw_actctxw,
+            "harvest did not surface ACTCTXW — fixture / loader setup is off; \
+             keys ending in `.ACTCTXW`: {:?}",
+            doc.external
+                .signatures
+                .keys()
+                .filter(|k| k.as_str().ends_with(".ACTCTXW"))
+                .collect::<Vec<_>>()
+        );
+        // Type-position completion outside extern-C must hide it.
+        let labels: Vec<String> = type_completions(&doc, false)
+            .into_iter()
+            .map(|it| it.label)
+            .collect();
+        assert!(
+            !labels.iter().any(|l| l == "windows.ACTCTXW" || l == "ACTCTXW"),
+            "ACTCTXW (has `*const u16` fields) leaked into top-level \
+             type completion: matching labels = {:?}",
+            labels
+                .iter()
+                .filter(|l| l.ends_with("ACTCTXW"))
+                .collect::<Vec<_>>()
+        );
+        // Inside extern-C it must surface again.
+        let labels_in_extern: Vec<String> = type_completions(&doc, true)
+            .into_iter()
+            .map(|it| it.label)
+            .collect();
+        assert!(
+            labels_in_extern.iter().any(|l| l == "windows.ACTCTXW" || l == "ACTCTXW"),
+            "ACTCTXW must surface inside @extern(C). \
+             First 80 labels: {:?}",
+            labels_in_extern.iter().take(80).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    pub(crate) fn diag_scan_user_file_for_actctxw() {
+        // Replays target/test.il's exact shape and tries every cursor
+        // position on every line, dumping any completion that mentions
+        // ACTCTXW. Catches a context I might have missed in the more
+        // targeted tests.
+        use std::path::PathBuf;
+        use crate::completion::handle_completion;
+        use tower_lsp::lsp_types::{CompletionResponse, Position};
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("tests/fixtures/use_windows/main.il");
+        let mut doc = analyse::analyse_path_to_doc(&path)
+            .expect("fixtures/use_windows/main.il must load");
+        doc.text = "use windows\n\nfn add(a: i64, _: i64) {\n    console.log(\"add\", a)\n}\nadd(1, 2)\n".to_string();
+        let mut leaks: Vec<String> = Vec::new();
+        let line_count = doc.text.lines().count() as u32;
+        for line in 0..=line_count {
+            let line_str = doc.text.lines().nth(line as usize).unwrap_or("");
+            let line_len = line_str.chars().count() as u32;
+            for col in 0..=line_len {
+                let pos = Position { line, character: col };
+                let Some(resp) = handle_completion(&doc, pos) else { continue };
+                let items = match resp {
+                    CompletionResponse::Array(items) => items,
+                    CompletionResponse::List(list) => list.items,
+                };
+                for it in items {
+                    if it.label.contains("ACTCTXW") {
+                        leaks.push(format!(
+                            "line={line} col={col} label={:?} detail={:?}",
+                            it.label, it.detail
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(
+            leaks.is_empty(),
+            "ACTCTXW leaked into completion at these cursor positions:\n{}",
+            leaks.join("\n")
+        );
+    }
+
+    #[test]
+    pub(crate) fn windows_actctxw_hidden_for_bare_top_level_prefix() {
+        // Reproduce the user's actual scenario: target/test.il with
+        // `use windows` and a regular top-level fn, cursor typing
+        // a bare prefix (no `.`, no `:`) at the very top. Every
+        // completion item returned must NOT mention ACTCTXW in any
+        // form — bare label, dotted label, or filter text.
+        use std::path::PathBuf;
+        use crate::completion::handle_completion;
+        use tower_lsp::lsp_types::{CompletionResponse, Position};
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("tests/fixtures/use_windows/main.il");
+        let mut doc = analyse::analyse_path_to_doc(&path)
+            .expect("fixtures/use_windows/main.il must load");
+        // Type a single letter at the very top of the file to mimic
+        // VSCode's per-keystroke completion request.
+        doc.text = "use windows\n\nA\n".to_string();
+        let pos = Position { line: 2, character: 1 };
+        let resp = handle_completion(&doc, pos).expect("completion response");
+        let items = match resp {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let offending: Vec<String> = items
+            .iter()
+            .filter(|it| {
+                it.label.ends_with("ACTCTXW")
+                    || it.filter_text.as_deref().is_some_and(|t| t.contains("ACTCTXW"))
+            })
+            .map(|it| {
+                format!(
+                    "label={:?} filter_text={:?} detail={:?}",
+                    it.label, it.filter_text, it.detail
+                )
+            })
+            .collect();
+        assert!(
+            offending.is_empty(),
+            "bare top-level completion still surfaces ACTCTXW: {offending:#?}"
+        );
+    }
+
+    #[test]
+    pub(crate) fn windows_actctxw_hidden_after_dot_at_top_level() {
+        // Same fixture, but exercise the receiver-after-dot path
+        // (`windows.<.>`). The user-visible bug also surfaced here.
+        use std::path::PathBuf;
+        use crate::completion::handle_completion;
+        use tower_lsp::lsp_types::{CompletionResponse, Position};
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("tests/fixtures/use_windows/main.il");
+        let mut doc = analyse::analyse_path_to_doc(&path)
+            .expect("fixtures/use_windows/main.il must load");
+        // Overlay a buffer line that ends in `windows.` so
+        // `receiver_before_dot` resolves to `windows`.
+        doc.text.push_str("\nwindows.\n");
+        let line = doc.text.lines().count() as u32 - 2;
+        let pos = Position { line, character: 8 };
+        let resp = handle_completion(&doc, pos).expect("completion response");
+        let items = match resp {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let labels: Vec<String> = items.into_iter().map(|it| it.label).collect();
+        assert!(
+            !labels.iter().any(|l| l == "ACTCTXW"),
+            "ACTCTXW leaked into `windows.<.>` at top level: \
+             labels ending in ACTCTXW = {:?}",
+            labels.iter().filter(|l| l.ends_with("ACTCTXW")).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     pub(crate) fn type_completion_surfaces_cocoa_interface_for_example_click() {
         // Load examples/macos/cocoa_click/main.il through the same
         // path the LSP uses and inspect `type_completions(doc)`.
@@ -856,7 +1026,7 @@ class MyApp : MyDel {
         path.push("examples/macos/cocoa_click/main.il");
         let doc = analyse::analyse_path_to_doc(&path)
             .expect("examples/macos/cocoa_click/main.il must load");
-        let items = type_completions(&doc);
+        let items = type_completions(&doc, false);
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(
             labels.iter().any(|l| *l == "cocoa.NSApplicationDelegate"),

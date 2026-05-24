@@ -161,7 +161,7 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         }
         // After `:` we're in a type position — only suggest types.
         if at_type_position(&doc.text, off) {
-            let mut items = type_completions(doc);
+            let mut items = type_completions(doc, in_extern_c_block(&doc.text, off));
             // `ObjCBlock<F>` only makes sense inside an
             // `@extern(ObjC) { ... }` block — drop it everywhere
             // else so trigging completion on `O` doesn't surface
@@ -483,6 +483,11 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
             .unwrap_or(doc.text.len());
         let in_extern_c = in_extern_c_block(&doc.text, off);
+        let c_only_structs = if in_extern_c {
+            std::collections::HashSet::new()
+        } else {
+            super::c_only_struct_suffixes(doc)
+        };
         let mut items: Vec<CompletionItem> = doc
             .external
             .signatures
@@ -510,6 +515,15 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                 // user to call them where the call would never
                 // type-check anyway, so hide them outside extern-C.
                 if !in_extern_c && sig.starts_with("@lib(") {
+                    return None;
+                }
+                // Same idea for `@extern(C) { struct / union ... }`
+                // declarations whose fields mention raw pointers /
+                // `char` / `void` / `size_t`: those fields can't be
+                // populated outside an `@extern(C)` block, so a
+                // top-level `windows.STARTUPINFOA` candidate would
+                // only lead the user into a type error.
+                if c_only_structs.contains(suffix) {
                     return None;
                 }
                 // Skip sub-module names (`gui.button` etc.) — the
@@ -823,6 +837,9 @@ mod lib_filter_tests {
     use crate::types::Doc;
 
     fn doc_with_windows_module() -> Doc {
+        use crate::types::{ClassInfo, ClassKind, MemberInfo};
+        use ilang_ast::Span;
+        use std::collections::HashMap;
         let mut doc = Doc::default();
         doc.text = "use windows\n\nwindows.\n".to_string();
         // Module marker — `analyse_path_to_doc` would normally emit
@@ -844,6 +861,73 @@ mod lib_filter_tests {
         doc.external.signatures.insert(
             AstSymbol::intern("windows.WindowsHelper"),
             "fn windows.WindowsHelper(x: i64): i64".to_string(),
+        );
+        // Two struct entries: STARTUPINFOA holds a `*char` field
+        // (C-only — hide from non-extern completion), and PLAIN_RECT
+        // is all `i32` (must stay visible).
+        doc.external.signatures.insert(
+            AstSymbol::intern("windows.STARTUPINFOA"),
+            "struct windows.STARTUPINFOA".to_string(),
+        );
+        doc.external.signatures.insert(
+            AstSymbol::intern("windows.PLAIN_RECT"),
+            "struct windows.PLAIN_RECT".to_string(),
+        );
+        let mk_field = |name: &str, ty: Type| -> (AstSymbol, MemberInfo) {
+            (
+                AstSymbol::intern(name),
+                MemberInfo {
+                    span: Span::new(1, 1),
+                    signature: format!("(property) X.{name}: {ty}"),
+                    ret_ty: Some(ty),
+                    is_static: false,
+                    is_pub: true,
+                    doc: None,
+                    source_path: None,
+                },
+            )
+        };
+        let mut startup_fields = HashMap::new();
+        startup_fields.extend([mk_field("cb", Type::U32), mk_field(
+            "lpTitle",
+            Type::RawPtr { is_const: false, inner: Box::new(Type::CChar) },
+        )]);
+        doc.classes.insert(
+            AstSymbol::intern("kernel32.STARTUPINFOA"),
+            ClassInfo {
+                decl_span: Span::new(1, 1),
+                type_params: Vec::new(),
+                fields: startup_fields,
+                methods: HashMap::new(),
+                getters: HashMap::new(),
+                setters: HashMap::new(),
+                external: true,
+                init_overloads: 0,
+                inits: Vec::new(),
+                kind: ClassKind::Struct,
+            },
+        );
+        let mut rect_fields = HashMap::new();
+        rect_fields.extend([
+            mk_field("x", Type::I32),
+            mk_field("y", Type::I32),
+            mk_field("w", Type::I32),
+            mk_field("h", Type::I32),
+        ]);
+        doc.classes.insert(
+            AstSymbol::intern("windef.PLAIN_RECT"),
+            ClassInfo {
+                decl_span: Span::new(1, 1),
+                type_params: Vec::new(),
+                fields: rect_fields,
+                methods: HashMap::new(),
+                getters: HashMap::new(),
+                setters: HashMap::new(),
+                external: true,
+                init_overloads: 0,
+                inits: Vec::new(),
+                kind: ClassKind::Struct,
+            },
         );
         doc.imported_modules.insert(AstSymbol::intern("windows"));
         doc
@@ -888,6 +972,57 @@ mod lib_filter_tests {
         assert!(
             labels.iter().any(|l| l == "GetModuleHandleA"),
             "@lib fn must surface inside @extern(C), got: {labels:?}"
+        );
+    }
+
+    #[test]
+    fn c_only_struct_hidden_after_windows_dot_at_top_level() {
+        let labels = labels_after_dot("use windows\n\nwindows.\n", 2, 8);
+        assert!(
+            !labels.iter().any(|l| l == "STARTUPINFOA"),
+            "STARTUPINFOA (has `*char` field) must be hidden outside \
+             @extern(C), got: {labels:?}"
+        );
+        assert!(
+            labels.iter().any(|l| l == "PLAIN_RECT"),
+            "PLAIN_RECT (only i32 fields) must stay visible, got: {labels:?}"
+        );
+    }
+
+    #[test]
+    fn c_only_struct_visible_after_windows_dot_inside_extern_c() {
+        let src = "use windows\n@extern(C) {\n    windows.\n}\n";
+        let labels = labels_after_dot(src, 2, 12);
+        assert!(
+            labels.iter().any(|l| l == "STARTUPINFOA"),
+            "C-only struct must surface inside @extern(C), got: {labels:?}"
+        );
+    }
+
+    #[test]
+    fn c_only_struct_hidden_in_type_position_at_top_level() {
+        // `let x: <here>` — VSCode invokes completion in a type
+        // position, which goes through `type_completions`. Dotted
+        // labels like `windows.STARTUPINFOA` flow through this path
+        // separately from the value-position bare list.
+        let doc = doc_with_windows_module();
+        let mut local = doc.clone();
+        local.text = "use windows\nlet x: \n".to_string();
+        let pos = Position { line: 1, character: 7 };
+        let resp = handle_completion(&local, pos).expect("type completion response");
+        let items = match resp {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let labels: Vec<&str> = items.iter().map(|it| it.label.as_str()).collect();
+        assert!(
+            !labels.iter().any(|l| *l == "windows.STARTUPINFOA"),
+            "type-position completion must hide C-only struct outside \
+             @extern(C), got: {labels:?}"
+        );
+        assert!(
+            labels.iter().any(|l| *l == "windows.PLAIN_RECT"),
+            "plain C struct must stay visible in type position, got: {labels:?}"
         );
     }
 }

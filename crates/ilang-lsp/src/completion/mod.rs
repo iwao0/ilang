@@ -13,7 +13,8 @@ use tower_lsp::lsp_types::{
 };
 
 use super::builtins::ffi_helper_signature;
-use super::helpers::sig_body_skip_attrs;
+use super::helpers::{contains_c_only_type, sig_body_skip_attrs};
+use super::types::{ClassKind, Doc};
 
 mod context;
 mod globals;
@@ -25,6 +26,36 @@ pub(crate) use context::{
     preceding_kw_introduces_binder,
 };
 pub(crate) use globals::global_completions;
+
+/// Bare suffixes of every external `@extern(C)` struct / union whose
+/// fields transitively mention a C-only type (raw pointer, `char`,
+/// `void`, `size_t`, `ssize_t`). The receiver-after-dot and bare-name
+/// completion paths consult this set to hide those entries outside
+/// `@extern(C) { ... }` — the type checker would reject any
+/// construction at such a call site anyway.
+///
+/// Built per-completion-request; the per-doc class index is bounded
+/// by the merged program's struct count so the one-shot pass is
+/// cheap relative to the candidate filter loops that follow.
+pub(crate) fn c_only_struct_suffixes(doc: &Doc) -> std::collections::HashSet<String> {
+    doc.classes
+        .iter()
+        .filter(|(_, info)| {
+            info.external
+                && matches!(info.kind, ClassKind::Struct | ClassKind::Union)
+                && info
+                    .fields
+                    .values()
+                    .any(|m| m.ret_ty.as_ref().is_some_and(contains_c_only_type))
+        })
+        .filter_map(|(k, _)| {
+            k.as_str()
+                .rsplit_once('.')
+                .map(|(_, s)| s.to_string())
+                .or_else(|| Some(k.as_str().to_string()))
+        })
+        .collect()
+}
 pub(crate) use handler::{handle_completion, resolve_receiver_class, resolve_receiver_type};
 pub(crate) use types::type_completions;
 
