@@ -26,14 +26,14 @@ class ProgressSlot {
 
 let PROGRESS_BARS = new Map<i64, ProgressSlot>()
 
+@extern(C) {
+
 fn applyFraction(slot: ProgressSlot) {
     let span = slot.max - slot.min
     let frac = if span > 0.0 { (slot.value - slot.min) / span } else { 0.0 }
     let clamped = if frac < 0.0 { 0.0 } else { if frac > 1.0 { 1.0 } else { frac } }
     gtk_progress_bar_set_fraction(slot.bar, clamped)
 }
-
-@extern(C) {
 
 pub fn createNativeProgress(
     windowHandle: i64,
