@@ -35,12 +35,14 @@ pub(crate) fn build_hints(doc: &Doc, range: Range) -> Vec<InlayHint> {
     // Build a per-file callee table for parameter-hint resolution.
     // Cross-file calls fall through (no hint emitted).
     let callees = build_callee_table(&prog);
+    let fn_returns = build_fn_return_table(&prog);
 
     let mut out: Vec<InlayHint> = Vec::new();
     let cx = Cx {
         text,
         doc,
         callees: &callees,
+        fn_returns: &fn_returns,
     };
     for item in &prog.items {
         walk_item_for_hints(&cx, item, None, &mut out);
@@ -50,9 +52,13 @@ pub(crate) fn build_hints(doc: &Doc, range: Range) -> Vec<InlayHint> {
 }
 
 struct Cx<'a> {
-    text:    &'a str,
-    doc:     &'a Doc,
-    callees: &'a CalleeTable,
+    text:       &'a str,
+    doc:        &'a Doc,
+    callees:    &'a CalleeTable,
+    /// Per-file top-level fn → declared return type. Lets `infer(Call)`
+    /// resolve `let x = local_fn()` hints; cross-file fns fall through
+    /// to `doc.external.returns`.
+    fn_returns: &'a HashMap<String, Type>,
 }
 
 type CalleeTable = HashMap<CalleeKey, Vec<Param>>;
@@ -65,6 +71,36 @@ enum CalleeKey {
     Method { class: String, name: String },
     /// `init` overloads (matched by arity since names collide).
     Init { class: String, arity: usize },
+}
+
+fn build_fn_return_table(prog: &Program) -> HashMap<String, Type> {
+    let mut out: HashMap<String, Type> = HashMap::new();
+    for item in &prog.items {
+        match item {
+            Item::Fn(f) => {
+                if let Some(t) = &f.ret {
+                    out.insert(f.name.as_str().to_string(), t.clone());
+                }
+            }
+            Item::ExternC(b) => {
+                for inner in b.items.iter() {
+                    match inner {
+                        ilang_ast::ExternCItem::FnDef(f) => {
+                            if let Some(t) = &f.ret {
+                                out.insert(f.name.as_str().to_string(), t.clone());
+                            }
+                        }
+                        ilang_ast::ExternCItem::FnDecl { name, ret: Some(t), .. } => {
+                            out.insert(name.as_str().to_string(), t.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 fn build_callee_table(prog: &Program) -> CalleeTable {
@@ -711,11 +747,7 @@ fn infer(
                 .returns
                 .get(callee)
                 .cloned()
-                .or_else(|| {
-                    let fn_key = CalleeKey::Fn(callee.as_str().to_string());
-                    cx.callees.get(&fn_key);
-                    None
-                })
+                .or_else(|| cx.fn_returns.get(callee.as_str()).cloned())
         }
         ExprKind::MethodCall { obj, method, .. } => {
             let cls = resolve_obj_class(cx, obj, scope, this_class)?;
