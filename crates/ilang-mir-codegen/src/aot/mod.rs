@@ -425,7 +425,7 @@ fn declare_ilang_string_data(
     text: &str,
 ) -> Result<DataId, AotError> {
     let n = AOT_STR_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let sym = format!("__aot_str_{n}");
+    let sym = format!("$aot.str_{n}");
     let body = text.as_bytes();
     let mut bytes: Vec<u8> = Vec::with_capacity(8 + body.len() + 1);
     bytes.extend_from_slice(&(body.len() as i64).to_le_bytes());
@@ -672,7 +672,7 @@ fn emit_aot_init(
             continue;
         }
         let name = func.name.as_str();
-        if name.starts_with("__anon_fn_") || name.starts_with("__main") {
+        if name.starts_with("$anon.fn_") || name.starts_with("$main") {
             fn_display_name_data.push(None);
             continue;
         }
@@ -725,7 +725,7 @@ fn emit_aot_init(
 
     let init_sig = module.make_signature();
     let init_id =
-        module.declare_function("__ilang_aot_init", Linkage::Local, &init_sig)?;
+        module.declare_function("$ilang.aotInit", Linkage::Local, &init_sig)?;
     ctx.func = ClifFunc::with_name_signature(
         UserFuncName::user(0, init_id.as_u32()),
         init_sig,

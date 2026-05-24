@@ -206,7 +206,7 @@ pub fn hoist_anon_fns(
 fn fresh_anon_name(counter: &mut u32) -> Symbol {
     let n = *counter;
     *counter += 1;
-    Symbol::intern(&format!("__anon_fn_{n}"))
+    Symbol::intern(&format!("$anon.fn_{n}"))
 }
 
 fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {

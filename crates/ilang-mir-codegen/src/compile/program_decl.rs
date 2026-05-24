@@ -180,26 +180,26 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     // the runtime symbol returns 0 (the macOS-only impl is gated
     // out) and the program fails at call time.
     let make_objc_block_id =
-        declare_binary_i64(module, "__ilang_make_objc_block")?;
+        declare_binary_i64(module, "$objc.make_block")?;
     // ObjCBlock.invoke(args) per-shape entry points. Each declares
     // the matching C-ABI signature; calls flow through the
     // `invoke_*_block` builtin names in `lower_inst::calls`.
     let invoke_void_block_id =
-        declare_unit_i64(module, "__ilang_invoke_void_block")?;
+        declare_unit_i64(module, "$objc.invoke_void_block")?;
     let invoke_obj_block_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
-        module.declare_function("__ilang_invoke_obj_block", Linkage::Import, &sig)?
+        module.declare_function("$objc.invoke_obj_block", Linkage::Import, &sig)?
     };
     let invoke_obj_to_obj_block_id =
-        declare_binary_i64(module, "__ilang_invoke_obj_to_obj_block")?;
+        declare_binary_i64(module, "$objc.invoke_obj_to_obj_block")?;
     let invoke_void_bytes_block_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
-        module.declare_function("__ilang_invoke_void_bytes_block", Linkage::Import, &sig)?
+        module.declare_function("$objc.invoke_void_bytes_block", Linkage::Import, &sig)?
     };
     let invoke_void_three_obj_block_id = {
         let mut sig = module.make_signature();
@@ -208,14 +208,14 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         module.declare_function(
-            "__ilang_invoke_void_three_obj_block", Linkage::Import, &sig,
+            "$objc.invoke_void_three_obj_block", Linkage::Import, &sig,
         )?
     };
     let invoke_void_bool_block_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I8));
-        module.declare_function("__ilang_invoke_void_bool_block", Linkage::Import, &sig)?
+        module.declare_function("$objc.invoke_void_bool_block", Linkage::Import, &sig)?
     };
     // FFI marshalling helpers as imports.
     {
@@ -581,17 +581,17 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         module.define_data(did, &desc).map_err(CompileError::Module)?;
         Ok(did)
     };
-    let panic_msg_div = declare_msg("__panic_msg_div", "panic: division by zero")?;
-    let panic_msg_mod = declare_msg("__panic_msg_mod", "panic: modulo by zero / division by zero")?;
-    let panic_msg_oob = declare_msg("__panic_msg_oob", "panic: index out of bounds")?;
-    let panic_msg_unwrap = declare_msg("__panic_msg_unwrap", "panic: unwrap of None")?;
-    let lit_none = declare_msg("__lit_none", "none")?;
-    let lit_some_open = declare_msg("__lit_some_open", "some(")?;
-    let lit_close_paren = declare_msg("__lit_cparen", ")")?;
-    let lit_open_paren = declare_msg("__lit_oparen", "(")?;
-    let lit_open_bracket = declare_msg("__lit_obracket", "[")?;
-    let lit_close_bracket = declare_msg("__lit_cbracket", "]")?;
-    let lit_comma_sp = declare_msg("__lit_comma_sp", ", ")?;
+    let panic_msg_div = declare_msg("$panic.msgDiv", "panic: division by zero")?;
+    let panic_msg_mod = declare_msg("$panic.msgMod", "panic: modulo by zero / division by zero")?;
+    let panic_msg_oob = declare_msg("$panic.msgOob", "panic: index out of bounds")?;
+    let panic_msg_unwrap = declare_msg("$panic.msgUnwrap", "panic: unwrap of None")?;
+    let lit_none = declare_msg("$lit.none", "none")?;
+    let lit_some_open = declare_msg("$lit.someOpen", "some(")?;
+    let lit_close_paren = declare_msg("$lit.cparen", ")")?;
+    let lit_open_paren = declare_msg("$lit.oparen", "(")?;
+    let lit_open_bracket = declare_msg("$lit.obracket", "[")?;
+    let lit_close_bracket = declare_msg("$lit.cbracket", "]")?;
+    let lit_comma_sp = declare_msg("$lit.commaSp", ", ")?;
 
     // Declare a Cranelift data symbol for every static slot. Each
     // slot occupies an i64 cell (f64 / bool stored via bitcast /
@@ -611,7 +611,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         };
         let mut desc = DataDescription::new();
         desc.define(bytes.into_boxed_slice());
-        let name = format!("__static_{}", s.id.0);
+        let name = format!("$static.{}", s.id.0);
         let did = module.declare_data(&name, Linkage::Local, true, false)?;
         module.define_data(did, &desc).map_err(CompileError::Module)?;
         static_data.insert(s.id, did);

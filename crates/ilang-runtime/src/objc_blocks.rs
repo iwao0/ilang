@@ -392,7 +392,7 @@ static VOID_TWO_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
 /// `void(^)(void)` calling convention. Exposed for unit-test
 /// drivers; production code hands the block to ObjC methods that
 /// own the invocation.
-#[unsafe(export_name = "__ilang_invoke_void_block")]
+#[unsafe(export_name = "$objc.invoke_void_block")]
 pub extern "C" fn invoke_void_block_via_runtime(block_ptr: i64) {
     if block_ptr == 0 {
         return;
@@ -410,7 +410,7 @@ pub extern "C" fn invoke_void_block_via_runtime(block_ptr: i64) {
 
 /// Same idea for `void(^)(id)` — invoke the block with the given
 /// raw id argument. Test-only driver for `make_obj_block`.
-#[unsafe(export_name = "__ilang_invoke_obj_block")]
+#[unsafe(export_name = "$objc.invoke_obj_block")]
 pub extern "C" fn invoke_obj_block_via_runtime(block_ptr: i64, arg: i64) {
     if block_ptr == 0 {
         return;
@@ -428,7 +428,7 @@ pub extern "C" fn invoke_obj_block_via_runtime(block_ptr: i64, arg: i64) {
 
 /// Same idea for `id(^)(id)` — invoke and return the result.
 /// Test-only driver for `make_obj_to_obj_block`.
-#[unsafe(export_name = "__ilang_invoke_obj_to_obj_block")]
+#[unsafe(export_name = "$objc.invoke_obj_to_obj_block")]
 pub extern "C" fn invoke_obj_to_obj_block_via_runtime(block_ptr: i64, arg: i64) -> i64 {
     if block_ptr == 0 {
         return 0;
@@ -447,7 +447,7 @@ pub extern "C" fn invoke_obj_to_obj_block_via_runtime(block_ptr: i64, arg: i64) 
 /// `void(^)(void *, size_t)` invoker. Both extra args are passed
 /// straight through as i64 — the block's invoke trampoline reads
 /// them with the C ABI's natural register layout.
-#[unsafe(export_name = "__ilang_invoke_void_bytes_block")]
+#[unsafe(export_name = "$objc.invoke_void_bytes_block")]
 pub extern "C" fn invoke_void_bytes_block_via_runtime(
     block_ptr: i64, ptr: i64, len: i64,
 ) {
@@ -469,7 +469,7 @@ pub extern "C" fn invoke_void_bytes_block_via_runtime(
 /// to the block's trampoline. Used by callers that want to
 /// trigger an incoming completion handler delivered through a
 /// delegate slot.
-#[unsafe(export_name = "__ilang_invoke_void_three_obj_block")]
+#[unsafe(export_name = "$objc.invoke_void_three_obj_block")]
 pub extern "C" fn invoke_void_three_obj_block_via_runtime(
     block_ptr: i64, a: i64, b: i64, c: i64,
 ) {
@@ -489,7 +489,7 @@ pub extern "C" fn invoke_void_three_obj_block_via_runtime(
 
 /// `void(^)(BOOL)` invoker. The single `val` is a Rust `bool`
 /// (1-byte) to match the block ABI on macOS.
-#[unsafe(export_name = "__ilang_invoke_void_bool_block")]
+#[unsafe(export_name = "$objc.invoke_void_bool_block")]
 pub extern "C" fn invoke_void_bool_block_via_runtime(block_ptr: i64, val: bool) {
     if block_ptr == 0 {
         return;
@@ -641,7 +641,7 @@ pub extern "C" fn make_void_bytes_block(closure_ptr: i64) -> i64 {
 /// params) — the two args land in the closure verbatim as raw
 /// `id` handles. Differs from `make_void_bytes_block` only in
 /// the NSMethodSignature encoding string.
-#[unsafe(export_name = "__ilang_make_void_two_obj_block")]
+#[unsafe(export_name = "$objc.make_void_two_obj_block")]
 pub extern "C" fn make_void_two_obj_block(closure_ptr: i64) -> i64 {
     if closure_ptr == 0 {
         return 0;
@@ -665,7 +665,7 @@ pub extern "C" fn make_void_two_obj_block(closure_ptr: i64) -> i64 {
 /// `fn(b: bool): unit`. Used by completion handlers that report
 /// a single success / failure flag (e.g.
 /// `NSExtensionContext.openURL:completionHandler:`).
-#[unsafe(export_name = "__ilang_make_void_bool_block")]
+#[unsafe(export_name = "$objc.make_void_bool_block")]
 pub extern "C" fn make_void_bool_block(closure_ptr: i64) -> i64 {
     if closure_ptr == 0 {
         return 0;
@@ -754,7 +754,7 @@ pub enum BlockKind {
     VoidTwoObj = 6,
 }
 
-#[unsafe(export_name = "__ilang_make_objc_block")]
+#[unsafe(export_name = "$objc.make_block")]
 pub extern "C" fn make_objc_block(closure_ptr: i64, kind: i64) -> i64 {
     match kind {
         0 => make_void_block(closure_ptr),

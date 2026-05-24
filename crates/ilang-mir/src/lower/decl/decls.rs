@@ -1108,7 +1108,7 @@ impl Lower {
     }
 
     pub(in crate::lower) fn lower_main(&mut self, stmts: &[Stmt], tail: Option<&Expr>) -> Result<(), LowerError> {
-        let main_name = Symbol::intern("__main");
+        let main_name = Symbol::intern("$main");
         let mut fb = FunctionBuilder::new(main_name, main_name, MirTy::I64, FunctionKind::Local);
         let entry = fb.new_block();
         fb.switch_to(entry);

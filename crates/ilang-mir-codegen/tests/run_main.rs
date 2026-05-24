@@ -9,7 +9,7 @@ use ilang_mir::{
 use ilang_mir_codegen::{compile_program, compile_with_builtins, run_main, BuiltinDecl};
 
 fn build_const_program(value: i64) -> Program {
-    let main = Symbol::intern("__main");
+    let main = Symbol::intern("$main");
     let mut fb = FunctionBuilder::new(main, main, MirTy::I64, FunctionKind::Local);
     let entry = fb.new_block();
     fb.switch_to(entry);
@@ -34,7 +34,7 @@ fn run_const_returns_value() {
 
 #[test]
 fn run_arithmetic() {
-    let main = Symbol::intern("__main");
+    let main = Symbol::intern("$main");
     let mut fb = FunctionBuilder::new(main, main, MirTy::I64, FunctionKind::Local);
     let entry = fb.new_block();
     fb.switch_to(entry);
@@ -87,7 +87,7 @@ fn run_call_between_fns() {
         .into_boxed_slice(),
     );
 
-    let main = Symbol::intern("__main");
+    let main = Symbol::intern("$main");
     let mut fb_main = FunctionBuilder::new(main, main, MirTy::I64, FunctionKind::Local);
     let me = fb_main.new_block();
     fb_main.switch_to(me);
@@ -116,7 +116,7 @@ fn run_call_between_fns() {
 #[test]
 fn run_switch() {
     // switch on i64: match 2 { 1 -> 100; 2 -> 200; default -> 999 }
-    let main = Symbol::intern("__main");
+    let main = Symbol::intern("$main");
     let mut fb = FunctionBuilder::new(main, main, MirTy::I64, FunctionKind::Local);
     let entry = fb.new_block();
     let case1 = fb.new_block();
@@ -187,7 +187,7 @@ extern "C" fn host_strlen(p: i64) -> i64 {
 fn run_builtin_call() {
     // Build:
     //   fn main(): i64 { __double_builtin(21) }
-    let main = Symbol::intern("__main");
+    let main = Symbol::intern("$main");
     let mut fb = FunctionBuilder::new(main, main, MirTy::I64, FunctionKind::Local);
     let entry = fb.new_block();
     fb.switch_to(entry);
@@ -220,7 +220,7 @@ fn run_builtin_call() {
 fn run_string_const_via_builtin() {
     // Build a tiny MIR program that creates a string const and
     // passes it to a host-registered C-style strlen-like fn.
-    let main = Symbol::intern("__main");
+    let main = Symbol::intern("$main");
     let mut fb = FunctionBuilder::new(main, main, MirTy::I64, FunctionKind::Local);
     let entry = fb.new_block();
     fb.switch_to(entry);
@@ -255,7 +255,7 @@ fn run_string_const_via_builtin() {
 #[test]
 fn run_branching() {
     // if 1 > 0 { 100 } else { 200 }  → 100
-    let main = Symbol::intern("__main");
+    let main = Symbol::intern("$main");
     let mut fb = FunctionBuilder::new(main, main, MirTy::I64, FunctionKind::Local);
     let entry = fb.new_block();
     let then_b = fb.new_block();

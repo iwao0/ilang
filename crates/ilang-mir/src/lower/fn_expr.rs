@@ -199,7 +199,7 @@ impl<'a> BodyCx<'a> {
         // for any subsequent callers.
         let n = *self.anon_counter;
         *self.anon_counter += 1;
-        let name = Symbol::intern(&format!("__anon_fn_{n}"));
+        let name = Symbol::intern(&format!("$anon.fn_{n}"));
         let id = FuncId(self.funcs.len() as u32);
         self.funcs.push(placeholder_function(name));
         self.fn_ids.insert(name, id);

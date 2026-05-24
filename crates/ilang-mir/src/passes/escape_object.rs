@@ -332,7 +332,7 @@ fn check_inst_escape(
         // a dangling stack address. Treat those builtins specially
         // and leak every arg unconditionally.
         Call { callee: FuncRef::Builtin(sym), args, .. }
-            if matches!(sym.as_str(), "__repl_store_slot")
+            if matches!(sym.as_str(), "$repl.storeSlot")
         => {
             for a in args.iter() {
                 leak(a);

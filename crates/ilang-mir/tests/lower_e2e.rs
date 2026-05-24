@@ -486,7 +486,7 @@ fn closure_captures_local() {
         scale(3)
     "#;
     let dump = lower(src);
-    assert!(dump.contains("__anon_fn_0"), "expected synthesised fn:\n{dump}");
+    assert!(dump.contains("$anon.fn_0"), "expected synthesised fn:\n{dump}");
     assert!(dump.contains("make_closure"));
     assert!(dump.contains("load_capture"));
 }
