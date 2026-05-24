@@ -57,6 +57,45 @@ pub(crate) fn trigger_sig_help_command(_kind: CompletionItemKind) -> Option<Comm
     None
 }
 
+/// Map a buffer-side signature string (`class Foo`, `enum Bar`,
+/// `@flags\nenum Bar`, `(module) m`, `interface I`, …) to the
+/// LSP `CompletionItemKind` the editor should render. Used by
+/// every completion path that turns a stored signature into a
+/// completion item so the kind classifier stays in one place.
+/// Unknown / function-shaped signatures fall through to FUNCTION.
+pub(crate) fn classify_signature_kind(sig: &str) -> CompletionItemKind {
+    let body = sig_body_skip_attrs(sig);
+    if body.starts_with("class ")
+        || body.starts_with("struct ")
+        || body.starts_with("union ")
+    {
+        CompletionItemKind::CLASS
+    } else if body.starts_with("enum ") {
+        CompletionItemKind::ENUM
+    } else if body.starts_with("interface ") || body.starts_with("@objc interface ") {
+        CompletionItemKind::INTERFACE
+    } else if body.starts_with("const ") {
+        CompletionItemKind::CONSTANT
+    } else if body.starts_with("(module) ") {
+        CompletionItemKind::MODULE
+    } else {
+        CompletionItemKind::FUNCTION
+    }
+}
+
+/// `true` when `kind` represents a type-ish entry (class / enum /
+/// struct / union / interface) — used to filter the type-position
+/// completion list to types only.
+pub(crate) fn kind_is_type(kind: CompletionItemKind) -> bool {
+    matches!(
+        kind,
+        CompletionItemKind::CLASS
+            | CompletionItemKind::ENUM
+            | CompletionItemKind::INTERFACE
+            | CompletionItemKind::STRUCT
+    )
+}
+
 /// ilang keywords. Each entry tags whether the keyword may appear at
 /// the file's top level, inside a block (fn / method body / class
 /// body / etc.), or both. The completion fallback filters by the
@@ -272,21 +311,9 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
             ..CompletionItem::default()
         });
     }
-    let is_type_sig = |sig: &str| -> bool {
-        let body = sig_body_skip_attrs(sig);
-        body.starts_with("class ")
-            || body.starts_with("struct ")
-            || body.starts_with("union ")
-            || body.starts_with("enum ")
-            || body.starts_with("interface ")
-            || body.starts_with("@objc interface ")
-    };
-    let is_interface_sig = |sig: &str| -> bool {
-        let body = sig_body_skip_attrs(sig);
-        body.starts_with("interface ") || body.starts_with("@objc interface ")
-    };
     for (name, sym) in doc.symbols.iter() {
-        if !is_type_sig(&sym.signature) {
+        let kind = classify_signature_kind(&sym.signature);
+        if !kind_is_type(kind) {
             continue;
         }
         // Hide every `__`-prefixed type — synthesised @objc desugar
@@ -295,11 +322,6 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
         if name.as_str().starts_with("__") {
             continue;
         }
-        let kind = if is_interface_sig(&sym.signature) {
-            CompletionItemKind::INTERFACE
-        } else {
-            CompletionItemKind::CLASS
-        };
         out.push(CompletionItem {
             label: name.as_str().to_string(),
             kind: Some(kind),
@@ -310,7 +332,8 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
     // Imported types brought in via `use module` show as
     // `module.TypeName`.
     for (name, sig) in doc.external_signatures.iter() {
-        if !is_type_sig(sig) {
+        let kind = classify_signature_kind(sig);
+        if !kind_is_type(kind) {
             continue;
         }
         // Strip the module prefix before testing — `__`-prefixed
@@ -324,11 +347,6 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
         if bare.starts_with("__") {
             continue;
         }
-        let kind = if is_interface_sig(sig) {
-            CompletionItemKind::INTERFACE
-        } else {
-            CompletionItemKind::CLASS
-        };
         // Label depends on whether the bare name is already imported
         // (`use cocoa { NSApplicationDelegate }`): if yes, show bare
         // (matches how the user will reference it); if no, show the
@@ -421,19 +439,7 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         if name.as_str().starts_with("__") {
             continue;
         }
-        let body = sig_body_skip_attrs(&sym.signature);
-        let kind = if body.starts_with("class ")
-            || body.starts_with("struct ")
-            || body.starts_with("union ")
-        {
-            CompletionItemKind::CLASS
-        } else if body.starts_with("enum ") {
-            CompletionItemKind::ENUM
-        } else if body.starts_with("const ") {
-            CompletionItemKind::CONSTANT
-        } else {
-            CompletionItemKind::FUNCTION
-        };
+        let kind = classify_signature_kind(&sym.signature);
         let (insert_text, fmt) = call_snippet(name.as_str(), kind);
         let command = trigger_sig_help_command(kind);
         out.push(CompletionItem {
@@ -495,22 +501,10 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         // them here too would push a second `cocoa` item classified
         // as FUNCTION (the default fallthrough below since the
         // signature doesn't begin with `class`/`enum`/...).
-        let body = sig_body_skip_attrs(sig);
-        if body.starts_with("(module) ") {
+        let kind = classify_signature_kind(sig);
+        if kind == CompletionItemKind::MODULE {
             continue;
         }
-        let kind = if body.starts_with("class ")
-            || body.starts_with("struct ")
-            || body.starts_with("union ")
-        {
-            CompletionItemKind::CLASS
-        } else if body.starts_with("enum ") {
-            CompletionItemKind::ENUM
-        } else if body.starts_with("const ") {
-            CompletionItemKind::CONSTANT
-        } else {
-            CompletionItemKind::FUNCTION
-        };
         let (insert_text, fmt) = call_snippet(s, kind);
         let command = trigger_sig_help_command(kind);
         out.push(CompletionItem {
@@ -544,21 +538,7 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         let Some(sig) = doc.external_signatures.iter().find_map(|(k, v)| {
             (k.as_str().rsplit_once('.').map(|(_, t)| t) == Some(bare)).then(|| v.clone())
         }) else { continue };
-        let body = sig_body_skip_attrs(&sig);
-        let kind = if body.starts_with("class ")
-            || body.starts_with("struct ")
-            || body.starts_with("union ")
-        {
-            CompletionItemKind::CLASS
-        } else if body.starts_with("enum ") {
-            CompletionItemKind::ENUM
-        } else if body.starts_with("interface ") || body.starts_with("@objc interface ") {
-            CompletionItemKind::INTERFACE
-        } else if body.starts_with("const ") {
-            CompletionItemKind::CONSTANT
-        } else {
-            CompletionItemKind::FUNCTION
-        };
+        let kind = classify_signature_kind(&sig);
         let (insert_text, fmt) = call_snippet(bare, kind);
         let command = trigger_sig_help_command(kind);
         out.push(CompletionItem {
