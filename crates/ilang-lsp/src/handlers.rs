@@ -185,6 +185,19 @@ impl LanguageServer for Backend {
             // every file that imports M. Without this re-run,
             // the dependents keep stale red squiggles until the
             // user touches each file.
+            //
+            // The fan-out is expensive (one full type-check per
+            // open file), so skip it if a newer change to the
+            // primary buffer has already arrived — only the
+            // latest keystroke's fan-out actually runs. This
+            // keeps sustained typing responsive while still
+            // catching the cross-module case on the next idle.
+            {
+                let v = versions.lock().unwrap();
+                if v.get(&uri).copied() != Some(version) {
+                    return;
+                }
+            }
             let other_docs: Vec<(Url, String)> = {
                 let lock = docs.lock().unwrap();
                 lock.iter()
@@ -193,6 +206,14 @@ impl LanguageServer for Backend {
                     .collect()
             };
             for (other_uri, other_text) in other_docs {
+                // Re-check before each dependent so the user can
+                // still abort the fan-out mid-way by typing.
+                {
+                    let v = versions.lock().unwrap();
+                    if v.get(&uri).copied() != Some(version) {
+                        return;
+                    }
+                }
                 refresh_impl(&client, &docs, other_uri, other_text).await;
             }
         });
