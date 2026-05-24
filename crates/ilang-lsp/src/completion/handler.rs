@@ -169,7 +169,8 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         if let Some(module) = enclosing_use_module(&doc.text, off) {
             let prefix = format!("{module}.");
             let mut items: Vec<CompletionItem> = doc
-                .external_signatures
+                .external
+                .signatures
                 .iter()
                 .filter_map(|(k, sig)| {
                     let suffix = k.as_str().strip_prefix(&prefix)?;
@@ -224,7 +225,7 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                 &doc.text,
                 off,
                 &doc.local_interfaces,
-                &doc.external_interfaces,
+                &doc.external.interfaces,
             );
             for (label, detail, snippet) in stubs {
                 items.push(CompletionItem {
@@ -312,7 +313,7 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
     if let Some(en) = doc
         .local_enums
         .get(&receiver_key)
-        .or_else(|| doc.external_enums.get(&receiver_key))
+        .or_else(|| doc.external.enums.get(&receiver_key))
     {
         let items: Vec<CompletionItem> = en
             .variants
@@ -426,7 +427,8 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         // re-exported items (e.g. `math.` -> `sqrt`, `pi`, ...).
         let prefix = format!("{receiver}.");
         let mut items: Vec<CompletionItem> = doc
-            .external_signatures
+            .external
+            .signatures
             .iter()
             .filter_map(|(k, sig)| {
                 let suffix = k.as_str().strip_prefix(&prefix)?;
@@ -460,7 +462,7 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                 };
                 let (insert_text, fmt) = call_snippet(suffix, kind);
                 let command = trigger_sig_help_command(kind);
-                let documentation = doc.external_docs.get(k).cloned().map(|d| {
+                let documentation = doc.external.docs.get(k).cloned().map(|d| {
                     Documentation::MarkupContent(MarkupContent {
                         kind: MarkupKind::Markdown,
                         value: d,
@@ -568,7 +570,7 @@ fn expected_param_type(doc: &Doc, call: &text::CallContext) -> Option<String> {
     }
     let sig: String = if let Some(sym) = doc.symbols.get(&key) {
         sym.signature.clone()
-    } else if let Some(s) = doc.external_signatures.get(&key) {
+    } else if let Some(s) = doc.external.signatures.get(&key) {
         s.clone()
     } else if let Some(s) = doc.lookup_selective_bare(&call.callee) {
         // `use cocoa { makeWindow }` registers `makeWindow` only in

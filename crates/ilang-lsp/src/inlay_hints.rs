@@ -559,7 +559,7 @@ fn push_param_hints_for_method(
 /// calls to fns imported via `use module`.
 fn lookup_external_param_names(cx: &Cx, callee: &str) -> Option<Vec<String>> {
     let key = AstSymbol::intern(callee);
-    let sig = cx.doc.external_signatures.get(&key)?;
+    let sig = cx.doc.external.signatures.get(&key)?;
     parse_param_names_from_signature(sig)
 }
 
@@ -707,7 +707,8 @@ fn infer(
         }
         ExprKind::Call { callee, .. } => {
             cx.doc
-                .external_returns
+                .external
+                .returns
                 .get(callee)
                 .cloned()
                 .or_else(|| {

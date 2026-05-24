@@ -262,7 +262,7 @@ pub(crate) fn name_is_interface(doc: &Doc, name: &str) -> bool {
         .get(&key)
         .map(|info| info.kind == crate::types::ClassKind::Interface)
         .unwrap_or(false)
-        || doc.external_interfaces.contains_key(&key)
+        || doc.external.interfaces.contains_key(&key)
         || doc.local_interfaces.contains_key(&key)
 }
 

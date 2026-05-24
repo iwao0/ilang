@@ -252,7 +252,7 @@ pub(crate) async fn refresh_impl(
                 &external_interfaces,
                 &external_enums,
             );
-            d.external_docs = external_docs;
+            d.external.docs = external_docs;
             let mut docs_lock = docs.lock().unwrap();
             // If the user typed more characters between the start
             // of this refresh and now, `did_change` will have
@@ -279,16 +279,16 @@ pub(crate) async fn refresh_impl(
                 entry.text = text;
             }
             if !external_sigs.is_empty() {
-                entry.external_signatures = external_sigs;
+                entry.external.signatures = external_sigs;
             }
             if !external_rets.is_empty() {
-                entry.external_returns = external_rets;
+                entry.external.returns = external_rets;
             }
             if !external_docs.is_empty() {
-                entry.external_docs = external_docs;
+                entry.external.docs = external_docs;
             }
             if !external_sources.is_empty() {
-                entry.external_sources = external_sources;
+                entry.external.sources = external_sources;
             }
         }
     }

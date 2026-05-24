@@ -227,10 +227,10 @@ impl LanguageServer for Backend {
             // Selectively-imported bare name (`use M { X }`) — the
             // signature lives in `external_signatures` keyed by the
             // bare name, mirroring the buffer-local index.
-            if let Some(sig) = doc.external_signatures.get(&key) {
+            if let Some(sig) = doc.external.signatures.get(&key) {
                 return Ok(Some(make_hover_with_doc(
                     sig,
-                    doc.external_docs.get(&key).map(|s| s.as_str()),
+                    doc.external.docs.get(&key).map(|s| s.as_str()),
                 )));
             }
         }
@@ -293,7 +293,7 @@ impl LanguageServer for Backend {
             // Selectively-imported bare type / fn (`use M { X }`) —
             // `external_sources` carries the file path + decl span
             // for a cross-file jump.
-            if let Some(loc) = doc.external_sources.get(&key) {
+            if let Some(loc) = doc.external.sources.get(&key) {
                 if let Ok(target_uri) = Url::from_file_path(&loc.path) {
                     let range = locate_decl_name_range(
                         &target_uri,
@@ -456,7 +456,7 @@ impl LanguageServer for Backend {
         };
         let text = doc.text.clone();
         let var_types = doc.var_types.clone();
-        let external_interfaces = doc.external_interfaces.clone();
+        let external_interfaces = doc.external.interfaces.clone();
         drop(docs);
         Ok(code_actions::handle_code_action(&p, &text, &var_types, &external_interfaces))
     }

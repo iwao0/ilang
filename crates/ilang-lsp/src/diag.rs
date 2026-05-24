@@ -393,14 +393,16 @@ pub(crate) fn build_doc(
         refs,
         var_classes,
         var_types,
-        external_signatures: external_signatures.clone(),
-        external_docs: external_docs.clone(),
-        external_returns: external_returns.clone(),
-        external_sources: external_sources.clone(),
-        external_interfaces: external_interfaces.clone(),
+        external: crate::types::ExternalIndex {
+            signatures: external_signatures.clone(),
+            docs: external_docs.clone(),
+            returns: external_returns.clone(),
+            sources: external_sources.clone(),
+            interfaces: external_interfaces.clone(),
+            enums: external_enums.clone(),
+        },
         local_interfaces,
         local_enums,
-        external_enums: external_enums.clone(),
         selective_use_names,
     }
 }

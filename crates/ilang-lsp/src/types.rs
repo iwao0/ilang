@@ -136,6 +136,33 @@ impl RefEntry {
     }
 }
 
+/// Cross-file index built by harvesting every dep the loader reaches.
+/// Bundled into `Doc` so the dozen call sites that need imported
+/// names don't each take six map arguments. Field names match the
+/// per-decl-kind they hold; keys are intern symbols (dotted module
+/// paths or bare names for selective imports — see each individual
+/// builder for the exact key shape).
+#[derive(Clone, Default)]
+pub(crate) struct ExternalIndex {
+    /// Hover signatures for `module.name` references — keyed both
+    /// by `module.X` (full) and bare `X` (selective import).
+    pub(crate) signatures: HashMap<AstSymbol, String>,
+    /// `///`-prefixed doc comments. Same key shape as `signatures`.
+    pub(crate) docs: HashMap<AstSymbol, String>,
+    /// Return types for imported fns. Drives `let x = math.sqrt(...)`
+    /// inference.
+    pub(crate) returns: HashMap<AstSymbol, ilang_ast::Type>,
+    /// Source-file location for each imported decl (cross-file F12).
+    pub(crate) sources: ExternalSources,
+    /// Interface decls keyed by bare name (and dotted form for
+    /// imported entries). Drives the "implement missing interface
+    /// methods" code action.
+    pub(crate) interfaces: HashMap<AstSymbol, ilang_ast::InterfaceDecl>,
+    /// Enum decls keyed the same way as `interfaces`. Drives
+    /// `EnumName.<.>` variant completion.
+    pub(crate) enums: HashMap<AstSymbol, ilang_ast::EnumDecl>,
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct Doc {
     pub(crate) text: String,
@@ -155,35 +182,9 @@ pub(crate) struct Doc {
     /// non-class types (string / array) so their built-in methods show
     /// up.
     pub(crate) var_types: HashMap<AstSymbol, Type>,
-    /// Hover-only signatures for names imported via `use module` (e.g.
-    /// `math.sqrt`, `math.pi`). The loader prefixes imported items
-    /// with the module name, so this map keyed on `module.fn_name`
-    /// catches references the buffer-only walker can't resolve.
-    /// F12 to these is not supported because we don't carry per-decl
-    /// file paths.
-    #[allow(dead_code)]
-    pub(crate) external_signatures: HashMap<AstSymbol, String>,
-    /// Doc comments (`///`) attached to imported `module.X` decls.
-    /// Same key shape as `external_signatures`.
-    pub(crate) external_docs: HashMap<AstSymbol, String>,
-    /// Source-file location for imported decls (cross-file F12).
-    /// Keyed both by `module.X` (whole import) and by bare `X`
-    /// (selective import).
-    pub(crate) external_sources: ExternalSources,
-    /// Return types for `module.fn` declarations brought in via
-    /// `use module`. Populated alongside `external_signatures` so
-    /// `let x = math.sqrt(...)` infers as f64.
-    #[allow(dead_code)]
-    pub(crate) external_returns: HashMap<AstSymbol, Type>,
-    /// Interface declarations from imported modules, keyed both by
-    /// the bare name (`NSApplicationDelegate`) for selective
-    /// imports and the prefixed form (`cocoa.NSApplicationDelegate`)
-    /// for whole-module references. Drives the "implement missing
-    /// interface methods" code action when a class names a
-    /// cross-module interface in its base list.
-    #[allow(dead_code)]
-    pub(crate) external_interfaces:
-        HashMap<AstSymbol, ilang_ast::InterfaceDecl>,
+    /// Cross-file index harvested from `use module` deps. See
+    /// `ExternalIndex` for the per-field key shape.
+    pub(crate) external: ExternalIndex,
     /// Interface declarations from the local buffer's last
     /// successful parse, keyed by bare name. Kept here so the
     /// completion / code-action paths can resolve interface
@@ -193,14 +194,11 @@ pub(crate) struct Doc {
     #[allow(dead_code)]
     pub(crate) local_interfaces:
         HashMap<AstSymbol, ilang_ast::InterfaceDecl>,
-    /// Enum declarations from the local buffer plus imported
-    /// modules, keyed by bare name (and dotted form for
-    /// imported entries). Drives `EnumName.<.>` completion so
-    /// typing `NSWindowStyleMask.` surfaces the variant list.
+    /// Enum declarations from the local buffer's last successful
+    /// parse, keyed by bare name. The imported counterpart lives
+    /// under `external.enums`.
     #[allow(dead_code)]
     pub(crate) local_enums: HashMap<AstSymbol, ilang_ast::EnumDecl>,
-    #[allow(dead_code)]
-    pub(crate) external_enums: HashMap<AstSymbol, ilang_ast::EnumDecl>,
     /// Bare names brought into the buffer's namespace by a
     /// selective use (`use M { X, Y }`). Type completion checks
     /// this set to decide whether `cocoa.NSApplicationDelegate`
@@ -222,7 +220,7 @@ impl Doc {
         if !self.selective_use_names.contains(&key) {
             return None;
         }
-        for (k, sig) in self.external_signatures.iter() {
+        for (k, sig) in self.external.signatures.iter() {
             if let Some((_, suffix)) = k.as_str().rsplit_once('.') {
                 if suffix == bare {
                     return Some(sig.clone());

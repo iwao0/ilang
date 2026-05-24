@@ -93,7 +93,7 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
     }
     // Imported types brought in via `use module` show as
     // `module.TypeName`.
-    for (name, sig) in doc.external_signatures.iter() {
+    for (name, sig) in doc.external.signatures.iter() {
         let kind = classify_signature_kind(sig);
         if !kind_is_type(kind) {
             continue;

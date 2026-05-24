@@ -149,7 +149,7 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
     // `external_signatures`; everything containing a `.` is a
     // module-qualified entry that surfaces through the module-name
     // listing further down instead.
-    for (name, sig) in doc.external_signatures.iter() {
+    for (name, sig) in doc.external.signatures.iter() {
         let s = name.as_str();
         if s.contains('.') {
             continue;
@@ -179,7 +179,7 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
             label: s.to_string(),
             kind: Some(kind),
             detail: Some(sig.clone()),
-            documentation: doc.external_docs.get(name).cloned().map(|d| {
+            documentation: doc.external.docs.get(name).cloned().map(|d| {
                 Documentation::MarkupContent(MarkupContent {
                     kind: MarkupKind::Markdown,
                     value: d,
@@ -202,8 +202,8 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         if bare.starts_with("__") { continue; }
         if doc.symbols.contains_key(bare_name) { continue; }
         if doc.var_types.contains_key(bare_name) { continue; }
-        if doc.external_signatures.contains_key(bare_name) { continue; }
-        let Some(sig) = doc.external_signatures.iter().find_map(|(k, v)| {
+        if doc.external.signatures.contains_key(bare_name) { continue; }
+        let Some(sig) = doc.external.signatures.iter().find_map(|(k, v)| {
             (k.as_str().rsplit_once('.').map(|(_, t)| t) == Some(bare)).then(|| v.clone())
         }) else { continue };
         let kind = classify_signature_kind(&sig);
@@ -220,7 +220,7 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         });
     }
     let mut modules: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    for key in doc.external_signatures.keys() {
+    for key in doc.external.signatures.keys() {
         if let Some((m, _)) = key.as_str().split_once('.') {
             modules.insert(m.to_string());
         }
@@ -240,10 +240,10 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
             .iter()
             .any(|(n, _, _, _)| *n == m);
         let is_known_type = doc.local_enums.contains_key(&m_key)
-            || doc.external_enums.contains_key(&m_key)
+            || doc.external.enums.contains_key(&m_key)
             || doc.classes.contains_key(&m_key)
             || doc.local_interfaces.contains_key(&m_key)
-            || doc.external_interfaces.contains_key(&m_key)
+            || doc.external.interfaces.contains_key(&m_key)
             || is_builtin_generic;
         if is_known_type {
             continue;

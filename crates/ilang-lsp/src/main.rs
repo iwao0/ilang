@@ -735,7 +735,8 @@ class MyApp : MyDel {
         let doc = analyse::analyse_path_to_doc(&path)
             .expect("bindings/cocoa/spritekit/node.il must load");
         let ns_string_loc = doc
-            .external_sources
+            .external
+            .sources
             .get(&AstSymbol::intern("NSString"))
             .expect("F12 should resolve `NSString` through foundation/mod.il");
         // The target file must be the actual declaration site, not

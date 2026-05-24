@@ -167,7 +167,7 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
         &external_interfaces,
         &external_enums,
     );
-    doc.external_docs = external_docs;
+    doc.external.docs = external_docs;
     Some(doc)
 }
 

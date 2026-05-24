@@ -86,7 +86,7 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                 doc: None,
                 source_path: None,
             });
-        } else if let Some(s) = doc.external_signatures.get(&AstSymbol::intern(&call.callee)) {
+        } else if let Some(s) = doc.external.signatures.get(&AstSymbol::intern(&call.callee)) {
             out.push(MemberInfo {
                 span: Span::dummy(),
                 signature: s.clone(),
