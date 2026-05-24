@@ -16,20 +16,32 @@ use crate::ops::{assignable, bin_result, int_literal_fits};
 use super::*;
 
 impl TypeChecker {
-    pub fn check(&mut self, prog: &Program) -> Result<Type, TypeError> {
+    /// Run the full check pass. Returns the program's final type
+    /// (the last stmt / tail expression, or `Unit`) alongside every
+    /// `TypeError` collected during the walk. An empty `Vec` means
+    /// the program type-checks cleanly. Errors do not short-circuit
+    /// — each independent failure (per top-level item, per stmt, per
+    /// call argument, per class member) is recorded so a single pass
+    /// surfaces the full diagnostic list.
+    pub fn check(&mut self, prog: &Program) -> (Type, Vec<TypeError>) {
+        // Each `check` call starts with a clean error slate so the
+        // REPL / chunked-CLI path (which reuses one `TypeChecker`
+        // across multiple chunks) doesn't replay previous chunks'
+        // errors.
+        self.reset_errors();
         // Pass 0: refuse to redefine built-in names. Otherwise a user
         // `class Console { ... }` would silently overwrite the built-in
         // signature and `console.log` would call the user code.
         for item in &prog.items {
             match item {
                 Item::Class(c) if is_reserved_class(c.name.as_str()) => {
-                    return Err(TypeError::ReservedName {
+                    self.record(TypeError::ReservedName {
                         name: c.name.clone(),
                         span: c.span,
                     });
                 }
                 Item::Enum(e) if is_reserved_class(e.name.as_str()) => {
-                    return Err(TypeError::ReservedName {
+                    self.record(TypeError::ReservedName {
                         name: e.name.clone(),
                         span: e.span,
                     });
@@ -59,13 +71,14 @@ impl TypeChecker {
                 let mut seen: HashSet<Symbol> = HashSet::new();
                 for m in i.methods.iter() {
                     if !seen.insert(m.name.clone()) {
-                        return Err(TypeError::Unsupported {
+                        self.record(TypeError::Unsupported {
                             what: format!(
                                 "interface {:?} declares method {:?} more than once",
                                 i.name, m.name
                             ),
                             span: m.span,
                         });
+                        continue;
                     }
                     methods.push(InterfaceMethodSig {
                         name: m.name.clone(),
@@ -101,7 +114,7 @@ impl TypeChecker {
                     let any_generic = !sig.type_params.is_empty()
                         || entry.iter().any(|s| !s.type_params.is_empty());
                     if any_generic && !entry.is_empty() {
-                        return Err(TypeError::Unsupported {
+                        self.record(TypeError::Unsupported {
                             what: format!(
                                 "fn {:?} mixes a generic declaration with another overload — \
                                  generic functions cannot share a name with other fns",
@@ -109,9 +122,10 @@ impl TypeChecker {
                             ),
                             span: f.span,
                         });
+                        continue;
                     }
                     if entry.iter().any(|s| s.params == sig.params) {
-                        return Err(TypeError::Unsupported {
+                        self.record(TypeError::Unsupported {
                             what: format!(
                                 "fn {:?} has a duplicate overload (same parameter types as a \
                                  previous declaration)",
@@ -119,6 +133,7 @@ impl TypeChecker {
                             ),
                             span: f.span,
                         });
+                        continue;
                     }
                     entry.push(sig);
                 }
@@ -133,12 +148,21 @@ impl TypeChecker {
                         if self.interfaces.contains_key(pname) {
                             None
                         } else {
-                            Some(self.classes.get(&pname).cloned().ok_or_else(|| {
-                                TypeError::UndefinedClass {
-                                    name: pname.clone(),
-                                    span: c.span,
+                            match self.classes.get(&pname).cloned() {
+                                Some(s) => Some(s),
+                                None => {
+                                    self.record(TypeError::UndefinedClass {
+                                        name: pname.clone(),
+                                        span: c.span,
+                                    });
+                                    // Skip this class entirely — without a
+                                    // resolved parent we'd produce dozens of
+                                    // bogus errors against missing methods /
+                                    // fields. The single UndefinedClass is
+                                    // the actionable diagnostic.
+                                    continue;
                                 }
-                            })?)
+                            }
                         }
                     } else {
                         None
@@ -170,7 +194,13 @@ impl TypeChecker {
                         }
                         false
                     };
-                    let sig = class_signature(c, parent_sig.as_ref(), &is_sub)?;
+                    let sig = match class_signature(c, parent_sig.as_ref(), &is_sub) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            self.record(e);
+                            continue;
+                        }
+                    };
                     // `is_sub`'s shared borrow of `self.classes` ends
                     // here via NLL — no explicit `drop` needed before
                     // the mutable `insert` below.
@@ -196,20 +226,21 @@ impl TypeChecker {
                     *self.in_extern_c.borrow_mut() = true;
                     let result = self.collect_extern_c_signatures(block);
                     *self.in_extern_c.borrow_mut() = false;
-                    result?;
+                    self.record_if_err(result);
                 }
                 Item::Interface(i) => {
                     let mut methods = Vec::with_capacity(i.methods.len());
                     let mut seen: HashSet<Symbol> = HashSet::new();
                     for m in i.methods.iter() {
                         if !seen.insert(m.name.clone()) {
-                            return Err(TypeError::Unsupported {
+                            self.record(TypeError::Unsupported {
                                 what: format!(
                                     "interface {:?} declares method {:?} more than once",
                                     i.name, m.name
                                 ),
                                 span: m.span,
                             });
+                            continue;
                         }
                         methods.push(InterfaceMethodSig {
                             name: m.name.clone(),
@@ -240,7 +271,7 @@ impl TypeChecker {
         // is registered in `self.classes`, so we can validate the
         // top-level (`restrict_c_types: true`) ones — they must not
         // mention any C-only type, transitively.
-        self.validate_restrict_c_structs(prog)?;
+        self.record_if_err(self.validate_restrict_c_structs(prog));
 
         // Validate interface method signatures now that every
         // sibling class / enum / struct name resolves. Extern-
@@ -262,27 +293,17 @@ impl TypeChecker {
             };
             let prev = *self.in_extern_c.borrow();
             *self.in_extern_c.borrow_mut() = scope_is_extern_c;
-            let mut iface_err: Option<TypeError> = None;
-            'outer: for i in iface_list {
+            for i in iface_list {
                 for m in i.methods.iter() {
                     for p in m.params.iter() {
-                        if let Err(e) = self.validate_type(&p.ty, p.span, &[]) {
-                            iface_err = Some(e);
-                            break 'outer;
-                        }
+                        self.record_if_err(self.validate_type(&p.ty, p.span, &[]));
                     }
                     if let Some(r) = &m.ret {
-                        if let Err(e) = self.validate_type(r, m.span, &[]) {
-                            iface_err = Some(e);
-                            break 'outer;
-                        }
+                        self.record_if_err(self.validate_type(r, m.span, &[]));
                     }
                 }
             }
             *self.in_extern_c.borrow_mut() = prev;
-            if let Some(e) = iface_err {
-                return Err(e);
-            }
         }
 
         // Pre-register top-level `let X: T = expr` bindings as
@@ -311,8 +332,17 @@ impl TypeChecker {
                     // later, with full diagnostics. Without this, the
                     // top-level let stays invisible to free-fn / method
                     // bodies and they fail with "undefined variable".
+                    // Speculative check: any error here is discarded
+                    // (and excluded from the accumulator) — the same
+                    // expression is re-checked for real in the stmt
+                    // loop below where its errors get properly
+                    // reported. Without the truncate, we'd
+                    // double-report.
                     let env_snapshot: Vars = self.vars.clone();
-                    self.check_expr(value, &env_snapshot, None, None, 0).ok()
+                    let saved = self.errors.borrow().len();
+                    let out = self.check_expr(value, &env_snapshot, None, None, 0).ok();
+                    self.errors.borrow_mut().truncate(saved);
+                    out
                 };
                 if let Some(t) = bind_ty {
                     self.vars.insert(name.clone(), t);
@@ -337,15 +367,15 @@ impl TypeChecker {
             };
             *self.current_module.borrow_mut() = item_module;
             match item {
-                Item::Fn(f) => self.check_fn(f, None)?,
-                Item::Class(c) => self.check_class(c)?,
-                Item::Enum(e) => self.check_enum(e)?,
+                Item::Fn(f) => self.record_if_err(self.check_fn(f, None)),
+                Item::Class(c) => self.record_if_err(self.check_class(c)),
+                Item::Enum(e) => self.record_if_err(self.check_enum(e)),
                 Item::Use(_) | Item::Const(_) => {}
                 Item::ExternC(block) => {
                     *self.in_extern_c.borrow_mut() = true;
                     let result = self.check_extern_c_bodies(block);
                     *self.in_extern_c.borrow_mut() = false;
-                    result?;
+                    self.record_if_err(result);
                 }
                 Item::Interface(_) => {}
             }
@@ -360,10 +390,11 @@ impl TypeChecker {
             // Inner-scope shadowing is still allowed.
             if let StmtKind::Let { name, .. } = &s.kind {
                 if is_reserved_global(name.as_str()) {
-                    return Err(TypeError::ReservedName {
+                    self.record(TypeError::ReservedName {
                         name: name.clone(),
                         span: s.span,
                     });
+                    continue;
                 }
             }
             // Top-level stmts merged in from a sub-module carry
@@ -375,14 +406,14 @@ impl TypeChecker {
             if let Some(m) = &s.source_module {
                 *self.current_module.borrow_mut() = m.as_str().to_string();
             }
-            last = self.check_stmt(s, &mut env, None, None, 0)?;
+            last = self.or_record(self.check_stmt(s, &mut env, None, None, 0));
             *self.current_module.borrow_mut() = saved_module;
         }
         if let Some(t) = &prog.tail {
-            last = self.check_expr(t, &env, None, None, 0)?;
+            last = self.or_record(self.check_expr(t, &env, None, None, 0));
         }
         self.vars = env;
-        Ok(last)
+        (last, self.errors.borrow().clone())
     }
 
 }

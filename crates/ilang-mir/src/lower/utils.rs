@@ -273,6 +273,11 @@ pub fn ty_to_mir(t: &Type) -> Result<MirTy, LowerError> {
         Type::CChar => MirTy::CChar,
         Type::CVoid => MirTy::CVoid,
         Type::Any => return Err(LowerError::Unsupported("Type::Any (variadic builtins)")),
+        // Type::Error is a type-checker sentinel — programs containing
+        // it never reach MIR lowering (the CLI bails earlier on a
+        // non-empty `errors()`). Treat as unreachable in case a future
+        // path forgets the bail.
+        Type::Error => return Err(LowerError::Unsupported("Type::Error sentinel reached MIR")),
         Type::Object(_) => return Err(LowerError::Unsupported("Object type (classes)")),
         Type::Generic(_) => return Err(LowerError::Unsupported("Generic class instantiation")),
         Type::TypeVar(s) => MirTy::TypeVar(*s),

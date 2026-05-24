@@ -169,11 +169,13 @@ impl TypeChecker {
                 });
             }
             for (i, arg) in args.iter().enumerate() {
-                let at = self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
+                let at = self.or_record(
+                    self.check_expr(arg, env, ret_ty, in_class, loop_depth),
+                );
                 if i < sig.params.len() {
                     let p = &sig.params[i];
                     if !matches!(p, Type::Any) && !self.value_assignable(arg, &at, p) {
-                        return Err(TypeError::Mismatch {
+                        self.record(TypeError::Mismatch {
                             expected: p.clone(),
                             got: at,
                             span: arg.span,
@@ -221,9 +223,11 @@ impl TypeChecker {
             });
         }
         for (param_ty, arg) in sig.params.iter().zip(effective.iter()) {
-            let at = self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
+            let at = self.or_record(
+                self.check_expr(arg, env, ret_ty, in_class, loop_depth),
+            );
             if !self.value_assignable(arg, &at, param_ty) {
-                return Err(TypeError::Mismatch {
+                self.record(TypeError::Mismatch {
                     expected: param_ty.clone(),
                     got: at,
                     span: arg.span,

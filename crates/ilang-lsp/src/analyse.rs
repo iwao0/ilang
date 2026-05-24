@@ -268,7 +268,8 @@ pub(crate) fn analyse(
     }
     if let Some(prog) = merged {
         let mut tc = TypeChecker::new();
-        if let Err(e) = tc.check(prog) {
+        let (_, errs) = tc.check(prog);
+        for e in errs {
             out.push(diag(e.span(), e.to_string()));
         }
         for w in tc.warnings() {
@@ -283,7 +284,8 @@ pub(crate) fn analyse(
     let _ = path;
     let prog = parse(&tokens).expect("parse already validated");
     let mut tc = TypeChecker::new();
-    if let Err(e) = tc.check(&prog) {
+    let (_, errs) = tc.check(&prog);
+    for e in errs {
         out.push(diag(e.span(), e.to_string()));
     }
     for w in tc.warnings() {
@@ -292,3 +294,34 @@ pub(crate) fn analyse(
     out
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tower_lsp::lsp_types::DiagnosticSeverity;
+
+    fn err_diagnostics(src: &str) -> Vec<crate::diag::DiagEntry> {
+        analyse(src, None, &None, false)
+            .into_iter()
+            .filter(|d| d.diagnostic.severity == Some(DiagnosticSeverity::ERROR))
+            .collect()
+    }
+
+    #[test]
+    fn single_undefined_var_reports_one_diagnostic() {
+        let diags = err_diagnostics("let x = undef");
+        assert_eq!(diags.len(), 1, "got: {diags:?}");
+    }
+
+    // The LSP layer maps the checker's `Vec<TypeError>` 1:1 onto
+    // diagnostics, so `console.log(aa, bb)` surfaces a diagnostic on
+    // both `aa` and `bb`.
+    #[test]
+    fn console_log_two_bad_args_show_two_diagnostics() {
+        let diags = err_diagnostics("console.log(aa, bb)");
+        assert_eq!(
+            diags.len(),
+            2,
+            "expected diagnostic per bad arg, got {diags:?}"
+        );
+    }
+}

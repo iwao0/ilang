@@ -28,10 +28,18 @@ use walks::{block_uses_this_directly, collect_this_field_assignments, refine_ret
 /// literal (or its unary negation) infers into any integer type whose
 /// range it fits — this is what lets `let x: u8 = 5` work even though
 /// the literal's natural type is i64.
-/// `if` の枝合流専用の判定: 値式が **素の数値リテラル** (整数/浮動小数、
-/// 任意で単項 `-`) で、`target` 型に収まるかどうか。`assignable` を経由
-/// しないので i64 値→f64 のような暗黙拡張は通さない。
+/// Specialised judgement used by `if`-arm convergence: returns whether
+/// the value expression is a **bare numeric literal** (integer or
+/// float, optionally with a unary `-`) that fits into `target`. This
+/// path does *not* go through `assignable`, so implicit widening like
+/// an i64 *value* → f64 is rejected here even though `assignable`
+/// would allow it for non-literal sources.
 pub(super) fn numeric_literal_fits(value: &Expr, target: &Type) -> bool {
+    // Error sentinel as target: accept silently so a literal isn't
+    // re-reported against a slot whose real type is already broken.
+    if matches!(target, Type::Error) {
+        return true;
+    }
     match &value.kind {
         ExprKind::Int(n) => {
             if target.is_int() {
@@ -77,6 +85,11 @@ pub(super) fn literal_assignable_with<F>(
 where
     F: Fn(Symbol, Symbol) -> bool,
 {
+    // Error sentinel on either side: absorb so we don't generate a
+    // follow-up Mismatch on top of the original failure.
+    if matches!(vt, Type::Error) || matches!(target, Type::Error) {
+        return true;
+    }
     // Integer literals get a fits-in-target check FIRST: the
     // general `assignable` rule allows int↔int narrowing without
     // a cast, which is fine for runtime-typed values but wrong
@@ -528,6 +541,12 @@ pub struct TypeChecker {
     /// `DiagnosticSeverity::WARNING`. Accumulated via `warn(...)`,
     /// consumed via `warnings()`.
     pub(super) type_warnings: std::cell::RefCell<Vec<TypeWarning>>,
+    /// Fatal type errors accumulated during the current `check` pass.
+    /// Internal sub-checks call `record(e)` and continue with a
+    /// `Type::Error` placeholder so multiple independent errors surface
+    /// in one pass (e.g. both `aa` and `bb` in `console.log(aa, bb)`).
+    /// `check()` returns these alongside the program's final type.
+    pub(super) errors: std::cell::RefCell<Vec<crate::error::TypeError>>,
 }
 
 /// A non-fatal diagnostic — surfaced alongside (not instead of)
@@ -583,6 +602,42 @@ impl TypeChecker {
 
     pub(super) fn warn(&self, span: Span, message: String) {
         self.type_warnings.borrow_mut().push(TypeWarning { message, span });
+    }
+
+    /// Push a fatal type error onto the accumulator. Callers that were
+    /// previously short-circuiting with `?` now call `record` and
+    /// continue with a `Type::Error` placeholder so cascade errors are
+    /// suppressed by the `ops::assignable` Error-absorption rules.
+    pub(super) fn record(&self, e: crate::error::TypeError) {
+        self.errors.borrow_mut().push(e);
+    }
+
+    /// Convenience: unwrap a `Result<Type, TypeError>` from a sub-check
+    /// by recording any error and substituting `Type::Error`. Lets
+    /// internal call sites stay terse while the underlying functions
+    /// migrate from `?` to push-and-continue semantics.
+    pub(super) fn or_record(&self, r: Result<Type, crate::error::TypeError>) -> Type {
+        r.unwrap_or_else(|e| { self.record(e); Type::Error })
+    }
+
+    /// Same shape as `or_record` but for `Result<(), TypeError>`
+    /// side-effect-only checks (class / enum / fn-body validation).
+    pub(super) fn record_if_err(&self, r: Result<(), crate::error::TypeError>) {
+        if let Err(e) = r { self.record(e); }
+    }
+
+    /// Drain and return the accumulated errors. Used by `check()` at
+    /// the end of a pass; also exposed publicly so callers (CLI, LSP)
+    /// can iterate over all reported diagnostics in one go.
+    pub fn errors(&self) -> Vec<crate::error::TypeError> {
+        self.errors.borrow().clone()
+    }
+
+    /// Clear the accumulator. The REPL / chunked-CLI path calls `check`
+    /// multiple times on the same `TypeChecker`; without this each
+    /// successive chunk would re-report the previous chunk's errors.
+    pub(super) fn reset_errors(&self) {
+        self.errors.borrow_mut().clear();
     }
 
     /// Map of generic-fn call site → (callee name, inferred type args).

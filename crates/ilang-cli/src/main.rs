@@ -260,14 +260,17 @@ fn lower_to_mir(
     let display_path = path.display().to_string();
     let prog = if wrap_print { wrap_trailing_print(prog) } else { prog };
     let mut tc = TypeChecker::new();
-    if let Err(e) = tc.check(&prog) {
-        let err_file = e.span().source_file.as_str();
-        let path_for_err = if err_file.is_empty() {
-            display_path.as_str()
-        } else {
-            err_file
-        };
-        eprintln!("{path_for_err} {e}");
+    let (_, errs) = tc.check(&prog);
+    if !errs.is_empty() {
+        for e in &errs {
+            let err_file = e.span().source_file.as_str();
+            let path_for_err = if err_file.is_empty() {
+                display_path.as_str()
+            } else {
+                err_file
+            };
+            eprintln!("{path_for_err} {e}");
+        }
         return Err(ExitCode::FAILURE);
     }
     for w in tc.warnings() {
@@ -758,9 +761,10 @@ impl ReplSession {
         // TypeChecker already remembers fn / class / enum / let
         // signatures from prior chunks via `self.vars` / `self.fns`
         // / `self.classes`.
-        self.tc
-            .check(&chunk_prog)
-            .map_err(|e| format!("<repl> {e}"))?;
+        let (_, chunk_errs) = self.tc.check(&chunk_prog);
+        if let Some(e) = chunk_errs.first() {
+            return Err(format!("<repl> {e}"));
+        }
 
         // Promote any new top-level `let` to a slot. The AST type
         // gets resolved to MirTy inside the lowerer once it has

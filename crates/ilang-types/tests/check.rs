@@ -4,9 +4,24 @@ use ilang_parser::parse;
 use ilang_types::{check, TypeChecker, TypeError};
 
 fn ty(src: &str) -> Result<Type, TypeError> {
+    let (t, errs) = errors_and_ty(src);
+    match errs.into_iter().next() {
+        Some(e) => Err(e),
+        None => Ok(t),
+    }
+}
+
+fn errors_and_ty(src: &str) -> (Type, Vec<TypeError>) {
     let toks = tokenize(src).unwrap();
     let prog = parse(&toks).unwrap();
     check(&prog)
+}
+
+// Full error list from a single check pass. `ty()` collapses to the
+// first error for backward compat with the older single-error tests;
+// tests that need to assert on multiple errors call `errors` directly.
+fn errors(src: &str) -> Vec<TypeError> {
+    errors_and_ty(src).1
 }
 
 #[test]
@@ -107,11 +122,15 @@ fn repl_persistence() {
     let mut tc = TypeChecker::new();
     let toks = tokenize("let x = 1.0;").unwrap();
     let p = parse(&toks).unwrap();
-    assert_eq!(tc.check(&p).unwrap(), Type::Unit);
+    let (t, errs) = tc.check(&p);
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+    assert_eq!(t, Type::Unit);
 
     let toks = tokenize("x + 2").unwrap();
     let p = parse(&toks).unwrap();
-    assert_eq!(tc.check(&p).unwrap(), Type::F64);
+    let (t, errs) = tc.check(&p);
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+    assert_eq!(t, Type::F64);
 }
 
 #[test]
@@ -277,7 +296,8 @@ fn type_error_carries_span() {
     // The undefined variable `z` is at line 1, column 9 (1-based).
     let toks = tokenize("let x = z").unwrap();
     let prog = parse(&toks).unwrap();
-    let err = check(&prog).unwrap_err();
+    let (_, errs) = check(&prog);
+    let err = errs.into_iter().next().expect("expected an error");
     let span = err.span();
     assert_eq!((span.line, span.col), (1, 9));
     let s = format!("{err}");
@@ -475,6 +495,138 @@ fn empty_array_needs_annotation() {
     ));
     // Annotated form is fine and produces an empty dynamic array.
     assert!(ty("let a: i32[] = []").is_ok());
+}
+
+// ───── previously-uncovered TypeError variants ────────────────────
+// Guards that each of these variants is still produced after the
+// multi-error rewrite (each was previously absent from the test suite,
+// so a silent loss of detection would have gone unnoticed).
+
+#[test]
+fn undefined_class_in_annotation_rejected() {
+    assert!(matches!(
+        ty("let x: NoSuch = 0"),
+        Err(TypeError::UndefinedClass { .. })
+    ));
+}
+
+#[test]
+fn unknown_field_access_rejected() {
+    let src = "class P { init() {} } new P().missing";
+    assert!(matches!(ty(src), Err(TypeError::UnknownField { .. })));
+}
+
+#[test]
+fn unknown_method_call_rejected() {
+    let src = "class P { init() {} } new P().nope()";
+    assert!(matches!(ty(src), Err(TypeError::UnknownMethod { .. })));
+}
+
+#[test]
+fn this_outside_method_rejected() {
+    assert!(matches!(
+        ty("this"),
+        Err(TypeError::ThisOutsideMethod { .. })
+    ));
+    assert!(matches!(
+        ty("fn f() { this }"),
+        Err(TypeError::ThisOutsideMethod { .. })
+    ));
+}
+
+#[test]
+fn tuple_destructure_arity_mismatch_unsupported() {
+    // Representative `Unsupported` trigger: tuple-destructure slot
+    // count mismatch.
+    assert!(matches!(
+        ty("let (a, b) = (1, 2, 3)"),
+        Err(TypeError::Unsupported { .. })
+    ));
+}
+
+#[test]
+fn deprecated_method_call_emits_warning() {
+    let src = r#"
+        class C {
+            init() {}
+            @deprecated("use bar") foo() {}
+            bar() {}
+        }
+        new C().foo()
+    "#;
+    let toks = tokenize(src).unwrap();
+    let prog = parse(&toks).unwrap();
+    let mut tc = TypeChecker::new();
+    let (_, errs) = tc.check(&prog);
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+    let ws = tc.warnings();
+    assert_eq!(ws.len(), 1, "expected one deprecation warning, got {ws:?}");
+    assert!(
+        ws[0].message.contains("deprecated"),
+        "warning message lacks 'deprecated': {:?}",
+        ws[0].message
+    );
+}
+
+// ───── cascade suppression ────────────────────────────────────────
+// Programs whose first error makes subsequent expressions trivially
+// ill-typed must still report exactly one error — the placeholder
+// `Type::Error` propagation in `ops::assignable` & friends absorbs
+// the follow-up so the diagnostic list stays focused on the root
+// cause.
+
+#[test]
+fn cascade_undefined_then_binary_stays_single() {
+    // Only the `undef` UndefinedVariable surfaces — no follow-up
+    // BadBinary from `x + 1`.
+    assert!(matches!(
+        ty("let x = undef; x + 1"),
+        Err(TypeError::UndefinedVariable { .. })
+    ));
+}
+
+#[test]
+fn cascade_mismatch_then_use_stays_single() {
+    assert!(matches!(
+        ty("let x: i64 = \"s\"; x + 1"),
+        Err(TypeError::Mismatch { .. })
+    ));
+}
+
+#[test]
+fn cascade_unknown_method_on_undefined_var_stays_single() {
+    // Only the `noSuch` UndefinedVariable surfaces — no follow-up
+    // UnknownMethod from the `.method()` call against it.
+    assert!(matches!(
+        ty("noSuch.method()"),
+        Err(TypeError::UndefinedVariable { .. })
+    ));
+}
+
+// ───── multi-error headline ───────────────────────────────────────
+// Locks in that one pass collects every independent error.
+
+#[test]
+fn console_log_reports_each_undefined_arg() {
+    let errs = errors("console.log(aa, bb)");
+    assert_eq!(
+        errs.len(),
+        2,
+        "expected one error per bad arg, got {errs:?}"
+    );
+    assert!(matches!(errs[0], TypeError::UndefinedVariable { .. }));
+    assert!(matches!(errs[1], TypeError::UndefinedVariable { .. }));
+}
+
+#[test]
+fn separate_statements_each_report_their_error() {
+    // Distinct errors on distinct stmts are both collected.
+    let errs = errors("let x = undef1\nlet y = undef2");
+    assert_eq!(
+        errs.len(),
+        2,
+        "expected one error per bad let, got {errs:?}"
+    );
 }
 
 #[test]

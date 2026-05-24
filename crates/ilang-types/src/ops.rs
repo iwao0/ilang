@@ -8,6 +8,12 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
     if from == to {
         return true;
     }
+    // Either side is the type-checker error sentinel: silently accept
+    // so we don't pile cascading "type X vs Y" follow-ups on top of an
+    // already-reported failure upstream.
+    if matches!(from, Type::Error) || matches!(to, Type::Error) {
+        return true;
+    }
     if matches!(to, Type::Any) {
         return true;
     }
@@ -147,6 +153,11 @@ pub(crate) fn int_literal_fits(n: i64, t: &Type) -> bool {
 /// `Bool`; this helper handles numeric promotion only.
 pub(crate) fn numeric_result(l: &Type, r: &Type) -> Option<Type> {
     use Type::*;
+    // Error sentinel on either side suppresses further checking — return
+    // Error so the caller propagates it without raising a fresh BadBinary.
+    if matches!(l, Type::Error) || matches!(r, Type::Error) {
+        return Some(Type::Error);
+    }
     // Reject non-numeric inputs up front. Without this guard the
     // "one int + one float" fallthrough at the end silently treats
     // arbitrary types as `F32`, which made `Object == Object` and
@@ -181,6 +192,12 @@ pub(crate) fn numeric_result(l: &Type, r: &Type) -> Option<Type> {
 }
 
 pub(crate) fn bin_result(op: BinOp, l: &Type, r: &Type) -> Result<Type, TypeError> {
+    // Error sentinel on either side: swallow the binop so a stale
+    // failure doesn't manifest as a phantom BadBinary on top of the
+    // original error.
+    if matches!(l, Type::Error) || matches!(r, Type::Error) {
+        return Ok(Type::Error);
+    }
     let is_bit = matches!(
         op,
         BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr

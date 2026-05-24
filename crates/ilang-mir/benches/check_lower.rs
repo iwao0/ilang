@@ -44,7 +44,7 @@ fn load_corpus() -> Vec<(String, ilang_ast::Program, u64)> {
         // load/check/lower already rejects is by definition not a
         // candidate for steady-state pipeline measurement.
         let Ok(prog) = ilang_parser::loader::load_program(p) else { continue };
-        if ilang_types::check(&prog).is_err() { continue }
+        if !ilang_types::check(&prog).1.is_empty() { continue }
         if ilang_mir::lower_program(&prog).is_err() { continue }
         let bytes = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
         let name = p.strip_prefix(&dir).unwrap_or(p).display().to_string();
@@ -70,7 +70,7 @@ fn bench_all(c: &mut Criterion) {
         b.iter(|| {
             let mut ok = 0usize;
             for (_, prog, _) in &corpus {
-                if ilang_types::check(prog).is_ok() {
+                if ilang_types::check(prog).1.is_empty() {
                     ok += 1;
                 }
             }
@@ -86,7 +86,7 @@ fn bench_all(c: &mut Criterion) {
                 // that here so the lower bench reflects realistic
                 // upstream state (and because monomorph collection in
                 // lower can rely on check-side resolution).
-                if ilang_types::check(prog).is_err() { continue }
+                if !ilang_types::check(prog).1.is_empty() { continue }
                 if ilang_mir::lower_program(prog).is_ok() {
                     ok += 1;
                 }

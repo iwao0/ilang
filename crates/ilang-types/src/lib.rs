@@ -17,6 +17,9 @@ pub use checker::{TypeChecker, TypeWarning};
 pub use error::TypeError;
 
 /// One-shot type check for callers that don't need to keep state.
-pub fn check(prog: &Program) -> Result<Type, TypeError> {
+/// Returns the program's final type alongside every error collected
+/// during the pass — an empty `Vec` means the program type-checks
+/// cleanly.
+pub fn check(prog: &Program) -> (Type, Vec<TypeError>) {
     TypeChecker::new().check(prog)
 }

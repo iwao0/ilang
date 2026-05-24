@@ -58,6 +58,17 @@ pub enum Type {
     /// that accept any value. The parser does not produce it; user code
     /// cannot annotate a binding with it.
     Any,
+    /// Sentinel returned by the type checker for sub-expressions that
+    /// already produced a `TypeError`. Lets the checker keep walking
+    /// the rest of the program (so multiple independent errors surface
+    /// in one pass) without emitting cascading "type X vs Y" follow-up
+    /// errors against a value whose real type is unknown. Treated as
+    /// universally assignable / numeric-compatible by `ops::assignable`
+    /// and friends so it silently absorbs further checks. Programs
+    /// containing this type never reach MIR / codegen — the CLI bails
+    /// on any non-empty `errors()` before lowering — so downstream
+    /// crates only need an `unreachable!()` arm for completeness.
+    Error,
     /// Raw C pointer — only nameable inside an `@extern(C) { ... }`
     /// block. `*char`, `*void`, `*const char`, `*i32`, `*MyStruct`,
     /// etc. The bool is `true` for `*const T`, `false` for plain `*T`
@@ -244,6 +255,7 @@ impl std::fmt::Display for Type {
             Type::Optional(inner) => write!(f, "{inner}?"),
             Type::Weak(inner) => write!(f, "{inner}.weak"),
             Type::Any => write!(f, "any"),
+            Type::Error => write!(f, "<error>"),
             Type::RawPtr { is_const: true, inner } => write!(f, "*const {inner}"),
             Type::RawPtr { is_const: false, inner } => write!(f, "*{inner}"),
             Type::CVoid => write!(f, "void"),

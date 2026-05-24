@@ -1,7 +1,7 @@
 use ilang_ast::{Span, Symbol, Type};
 use thiserror::Error;
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Clone, Error, PartialEq)]
 pub enum TypeError {
     #[error("{span}: type mismatch: expected {expected}, got {got}")]
     Mismatch {
