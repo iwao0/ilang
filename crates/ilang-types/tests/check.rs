@@ -603,6 +603,99 @@ fn cascade_unknown_method_on_undefined_var_stays_single() {
     ));
 }
 
+// ───── @lib call must be inside @extern(...) ─────────────────────
+// Calling a dlsym'd `@lib pub fn ...` declaration from ordinary code
+// fails at JIT time with `can't resolve symbol X`. The type checker
+// rejects the call up front; the only exception is `@lib("objc")`
+// (the ObjC runtime primitives the cocoa bindings expose through
+// wrapper fns).
+
+#[test]
+fn lib_kernel32_fn_called_outside_extern_rejected() {
+    let src = r#"
+        @extern(C, "kernel32") {
+            @lib pub fn GetProcessId(p: i64): u32
+        }
+        GetProcessId(0)
+    "#;
+    let errs = errors(src);
+    assert!(
+        errs.iter().any(|e| matches!(e, TypeError::Unsupported { what, .. } if what.contains("@lib"))),
+        "expected @lib-outside-extern error, got {errs:?}"
+    );
+}
+
+#[test]
+fn lib_kernel32_fn_called_inside_another_extern_block_ok() {
+    let src = r#"
+        @extern(C, "kernel32") {
+            @lib pub fn GetProcessId(p: i64): u32
+        }
+        @extern(C) {
+            pub fn wrap(p: i64): u32 { GetProcessId(p) }
+        }
+    "#;
+    let errs = errors(src);
+    assert!(errs.is_empty(), "calling from @extern(C) must type-check: {errs:?}");
+}
+
+#[test]
+fn lib_c_with_ilang_runtime_symbol_called_outside_extern_ok() {
+    // Mirrors `bindings/cocoa/foundation/core.il`'s `withObjcError`:
+    // `@lib("c") @symbol("__ilang_objc_err_slot_ptr")` runtime hooks
+    // are also called from plain `pub fn` wrappers. The `__ilang_*`
+    // symbol-prefix exemption keeps them compiling.
+    let src = r#"
+        @extern(C) {
+            @lib("c") @symbol("__ilang_objc_err_slot_ptr")
+                fn _objc_err_slot_ptr(): i64
+        }
+        pub fn slot(): i64 { _objc_err_slot_ptr() }
+        let _ = slot()
+    "#;
+    let errs = errors(src);
+    assert!(
+        errs.is_empty(),
+        "@lib(\"c\") + @symbol(\"__ilang_*\") must be callable anywhere: {errs:?}"
+    );
+}
+
+#[test]
+fn lib_c_without_ilang_runtime_symbol_still_rejected() {
+    // Sanity: only the `__ilang_*` symbol prefix gets the exemption.
+    // A `@lib("c") @symbol("printf")` call from outside @extern stays
+    // an error so the gate doesn't silently waive every C library.
+    let src = r#"
+        @extern(C) {
+            @lib("c") @symbol("printf") fn _printf(s: i64): i32
+        }
+        _printf(0)
+    "#;
+    let errs = errors(src);
+    assert!(
+        errs.iter().any(|e| matches!(e, TypeError::Unsupported { what, .. } if what.contains("@lib"))),
+        "non-ilang @lib(\"c\") must still error: {errs:?}"
+    );
+}
+
+#[test]
+fn lib_objc_fn_called_outside_extern_ok() {
+    // Mirrors `bindings/cocoa/foundation/core.il`'s `objcRetain`:
+    // a plain `pub fn` wraps an `@lib("objc")` runtime primitive.
+    // The exemption keeps that pattern compiling.
+    let src = r#"
+        @extern(C) {
+            @lib("objc") fn _objc_retain(h: i64): i64
+        }
+        pub fn objcRetain(h: i64): i64 {
+            if h == 0 { 0 } else { _objc_retain(h) }
+        }
+        let _ = objcRetain(0)
+    "#;
+    let errs = errors(src);
+    assert!(errs.is_empty(), "@lib(\"objc\") must be callable anywhere: {errs:?}");
+}
+
 // ───── multi-error headline ───────────────────────────────────────
 // Locks in that one pass collects every independent error.
 

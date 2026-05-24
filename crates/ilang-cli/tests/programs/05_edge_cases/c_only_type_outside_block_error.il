@@ -1,9 +1,10 @@
-// Calling an FFI fn that returns a C-only type from outside the
-// `@extern(C)` block is rejected even when the call itself looks
-// well-typed — this stops raw pointers from escaping into user code
-// via FFI return values.
+// Calling an `@lib` extern declaration from outside an `@extern(C)`
+// block is rejected — the symbol only resolves through the
+// extern-C codegen path, and ordinary code that called it would
+// also let raw pointer return types (`*const char` here) escape
+// into user code.
 //
-// expect-error: only allowed inside an @extern(C)
+// expect-error: only callable inside an @extern
 use test
 
 @extern(C) {

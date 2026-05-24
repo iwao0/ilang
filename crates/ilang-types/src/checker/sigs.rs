@@ -337,6 +337,7 @@ pub(super) fn signature_of(f: &FnDecl) -> Signature {
         defaults: f.params.iter().map(|p| p.default.clone()).collect(),
         is_pub: f.is_pub,
         deprecated,
+        lib_names: Vec::new(), c_symbol: None,
     }
 }
 

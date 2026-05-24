@@ -12,11 +12,18 @@ use test
 
     // Different ilang name, same C symbol — both resolve to libc::abs.
     @lib("c") @symbol("abs") fn intAbs(x: i32): i32
+
+    // `@lib` declarations only resolve through the extern-C codegen
+    // path, so they must be reached from inside another @extern(C)
+    // block. Expose them via thin wrappers ordinary script code can
+    // call.
+    pub fn callMyAbs(x: i32): i32 { myAbs(x) }
+    pub fn callIntAbs(x: i32): i32 { intAbs(x) }
 }
 
-test.expect(myAbs(-7 as i32) as i64, 7)
-test.expect(myAbs(42 as i32) as i64, 42)
+test.expect(callMyAbs(-7 as i32) as i64, 7)
+test.expect(callMyAbs(42 as i32) as i64, 42)
 
 // Both wrappers reach the same underlying C fn.
-test.expect(intAbs(-100 as i32) as i64, 100)
-test.expect(intAbs(0 as i32) as i64, 0)
+test.expect(callIntAbs(-100 as i32) as i64, 100)
+test.expect(callIntAbs(0 as i32) as i64, 0)

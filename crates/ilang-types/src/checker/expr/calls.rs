@@ -555,6 +555,7 @@ impl TypeChecker {
                     defaults: vec![None; im.params.len()],
                     is_pub: true,
             deprecated: None,
+                    lib_names: Vec::new(), c_symbol: None,
                 };
                 let chosen = self.resolve_method_call(
                     class_name.into(), *method, &[sig], args, env, ret_ty, in_class,
@@ -637,7 +638,7 @@ impl TypeChecker {
                 decl_span: raw.decl_span,
                 defaults: raw.defaults.clone(),
                 is_pub: raw.is_pub,
-                deprecated: raw.deprecated.clone(),
+                deprecated: raw.deprecated.clone(), lib_names: raw.lib_names.clone(), c_symbol: raw.c_symbol,
             })
             .collect();
         // At least one overload must be reachable from the
@@ -706,7 +707,7 @@ impl TypeChecker {
                 params: ft.params.to_vec(),
                 ret: ft.ret.clone(),
                 variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
-                defaults: Vec::new(), is_pub: true, deprecated: None };
+                defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new(), c_symbol: None };
             self.check_args(*callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
             return Ok(sig.ret);
         }
@@ -728,6 +729,50 @@ impl TypeChecker {
                 span,
             }
         })?;
+        // `@lib(...) pub fn ...` declarations resolve through the
+        // extern codegen's dlsym path; calling one from ordinary code
+        // compiles but panics at JIT time with `can't resolve symbol
+        // X`. Gate the call so the diagnostic lands at the source.
+        //
+        // Exemptions (the call is always allowed when either holds):
+        //   - `@lib("objc")` — ObjC runtime primitives (retain /
+        //     release) the cocoa bindings expose via wrapper fns;
+        //   - `@symbol("__ilang_*")` — ilang's own runtime hooks
+        //     (e.g. `_objc_err_slot_ptr`) that bindings call from
+        //     ordinary wrapper bodies.
+        let is_exempt_sig = |s: &Signature| -> bool {
+            if s.lib_names.iter().any(|n| n.as_str() == "objc") {
+                return true;
+            }
+            if let Some(sym) = s.c_symbol {
+                if sym.as_str().starts_with("__ilang_") {
+                    return true;
+                }
+            }
+            false
+        };
+        if !*self.in_extern_c.borrow() {
+            let all_dlsym_not_exempt = !sigs.is_empty()
+                && sigs
+                    .iter()
+                    .all(|s| !s.lib_names.is_empty() && !is_exempt_sig(s));
+            if all_dlsym_not_exempt {
+                let libs_label = sigs[0]
+                    .lib_names
+                    .iter()
+                    .map(|s| format!("\"{}\"", s.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                self.record(TypeError::Unsupported {
+                    what: format!(
+                        "{callee:?}: @lib({libs_label}) extern declaration, \
+                         only callable inside an @extern(...) {{ ... }} block"
+                    ),
+                    span,
+                });
+                return Ok(Type::Error);
+            }
+        }
         // Generic fns can't share a name with overloads (we
         // reject that at registration time), so a generic slot
         // is always exactly one signature. Fall through to the
@@ -933,7 +978,7 @@ impl TypeChecker {
                     decl_span: init.decl_span,
                     defaults: init.defaults.clone(),
                     is_pub: init.is_pub,
-                    deprecated: init.deprecated.clone(),
+                    deprecated: init.deprecated.clone(), lib_names: init.lib_names.clone(), c_symbol: init.c_symbol,
                 })
                 .collect();
             let chosen = self.resolve_method_call(

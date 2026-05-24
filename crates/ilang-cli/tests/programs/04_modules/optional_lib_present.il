@@ -6,12 +6,16 @@ use test
 
 @extern(C) {
     @lib("c") @optional fn abs(x: i32): i32
+
+    // `@lib` declarations only resolve through the extern-C codegen
+    // path; wrap the call so ordinary script code can drive it.
+    pub fn callAbs(x: i32): i32 { abs(x) }
 }
 
 test.expectTrue(os.libLoaded("c"))
 
 let result = if os.libLoaded("c") {
-    abs(-9)
+    callAbs(-9)
 } else {
     -1 as i32
 }

@@ -7,10 +7,14 @@ use test
 
 @extern(C) {
     @lib("definitely_not_a_real_lib_xyz999.so", "c") fn abs(x: i32): i32
+
+    // `@lib` declarations only resolve through the extern-C codegen
+    // path; wrap the call so ordinary script code can drive it.
+    pub fn callAbs(x: i32): i32 { abs(x) }
 }
 
-// abs(-3) must succeed via the fallback.
-test.expect(abs(-3) as i64, 3)
+// callAbs(-3) must succeed via the fallback.
+test.expect(callAbs(-3) as i64, 3)
 
 // libLoaded reports under the primary name even when only the
 // fallback opened. This is the documented contract.

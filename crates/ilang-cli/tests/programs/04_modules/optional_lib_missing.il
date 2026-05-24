@@ -10,12 +10,16 @@ use test
 
 @extern(C) {
     @lib("definitely_not_a_real_lib_xyz123.so") @optional fn never_called(): i64
+
+    // `@lib` declarations only resolve through the extern-C codegen
+    // path; wrap the call so ordinary script code can drive it.
+    pub fn callNeverCalled(): i64 { never_called() }
 }
 
 test.expectFalse(os.libLoaded("definitely_not_a_real_lib_xyz123.so"))
 
 let result = if os.libLoaded("definitely_not_a_real_lib_xyz123.so") {
-    never_called()
+    callNeverCalled()
 } else {
     -1
 }

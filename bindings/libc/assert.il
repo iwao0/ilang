@@ -27,12 +27,20 @@
 
 use stdlib { abort }
 
+@extern(C) {
+    // `@lib` declarations only resolve through the extern-C codegen
+    // path, so the actual `abort()` invocation has to live inside
+    // an `@extern(C) { ... }` block. The wrapper is the public
+    // entry point ordinary script code calls.
+    fn doAbort() { abort() }
+}
+
 /// Abort the process when `cond` is false; no-op otherwise.
 /// The C macro variant that prints the failing expression + file +
 /// line isn't reproducible at runtime — use `assertMsg` when you
 /// want any context in the crash report.
 pub fn assert(cond: bool) {
-    if !cond { abort() }
+    if !cond { doAbort() }
 }
 
 /// Log `msg` to stdout, then abort. Use when an assertion failure
@@ -40,7 +48,7 @@ pub fn assert(cond: bool) {
 pub fn assertMsg(cond: bool, msg: string) {
     if !cond {
         console.log(msg)
-        abort()
+        doAbort()
     }
 }
 

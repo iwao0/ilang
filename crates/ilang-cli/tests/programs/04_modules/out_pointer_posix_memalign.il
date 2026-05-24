@@ -18,10 +18,19 @@ use test
     fn freeRaw(p: i64) {
         free(p as *Buf)
     }
+
+    // `@lib` calls only resolve through the extern-C codegen path,
+    // so the actual `posix_memalign(...)` invocation has to live
+    // inside an `@extern(C) { ... }` block. The wrapper takes a
+    // regular `i64[]` (array-to-pointer coercion happens at the
+    // C boundary inside this block).
+    pub fn callPosixMemalign(slot: i64[], alignment: size_t, size: size_t): i32 {
+        posix_memalign(slot, alignment, size)
+    }
 }
 
 let slot: i64[] = [0]
-let rc = posix_memalign(slot, 64 as u64, 1024 as u64)
+let rc = callPosixMemalign(slot, 64 as u64, 1024 as u64)
 test.expect(rc as i64, 0)
 
 // Slot now holds the raw `void *`. The pointer can be passed to
