@@ -337,7 +337,8 @@ pub(crate) fn install_builtin_classes(out: &mut HashMap<AstSymbol, ClassInfo>) {
             signature: "(method) Console.log(...args): ()".to_string(),
             ret_ty: Some(Type::Unit),
             is_static: false,
-                doc: None,
+            is_pub: true,
+            doc: None,
             source_path: None,
         },
     );
@@ -394,6 +395,13 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                                         ),
                                         ret_ty: Some(f.ty.clone()),
                                         is_static: false,
+                                        // @extern(C) struct fields have
+                                        // no `pub` marker; the type
+                                        // checker treats the whole
+                                        // struct's fields as accessible
+                                        // since the struct is the FFI
+                                        // surface itself.
+                                        is_pub: true,
                                         doc: text::extract_doc_above(src, f.span.line),
                                         source_path: None,
                                     },
@@ -434,6 +442,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                         signature: format!("(property) {}.{}: {}", c.name, f.name, f.ty),
                         ret_ty: Some(f.ty.clone()),
                         is_static: false,
+                        is_pub: f.is_pub,
                         doc: text::extract_doc_above(src, f.span.line),
                         source_path: None,
                     },
@@ -454,6 +463,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                         ),
                         ret_ty: Some(f.ty.clone()),
                         is_static: true,
+                        is_pub: f.is_pub,
                         doc: text::extract_doc_above(src, f.span.line),
                         source_path: None,
                     },
@@ -473,6 +483,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                         ),
                         ret_ty: Some(prop.ty.clone()),
                         is_static: prop.is_static,
+                        is_pub: prop.is_pub,
                         doc: text::extract_doc_above(src, prop.span.line),
                         source_path: None,
                     },
@@ -490,6 +501,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                             ),
                             ret_ty: Some(prop.ty.clone()),
                             is_static: prop.is_static,
+                            is_pub: prop.is_pub,
                             doc: text::extract_doc_above(src, g.span.line),
                             source_path: None,
                         },
@@ -506,6 +518,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                             ),
                             ret_ty: Some(prop.ty.clone()),
                             is_static: prop.is_static,
+                            is_pub: prop.is_pub,
                             doc: text::extract_doc_above(src, s.span.line),
                             source_path: None,
                         },
@@ -526,6 +539,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                     ),
                     ret_ty: m.ret.clone(),
                     is_static: false,
+                    is_pub: m.is_pub,
                     doc: text::extract_doc_above(src, m.span.line),
                     source_path: None,
                 };
@@ -546,6 +560,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                     ),
                     ret_ty: m.ret.clone(),
                     is_static: true,
+                    is_pub: m.is_pub,
                     doc: text::extract_doc_above(src, m.span.line),
                     source_path: None,
                 });
@@ -602,6 +617,10 @@ fn register_interface_as_class(
                 signature: format!("(method) {}.{}({}){}", i.name, m.name, params, ret_str),
                 ret_ty,
                 is_static: false,
+                // Interface methods are part of the public
+                // contract — every consumer-side `obj.method()`
+                // can reach them.
+                is_pub: true,
                 doc: text::extract_doc_above(src, m.span.line),
                 source_path: None,
             },

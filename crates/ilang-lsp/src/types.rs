@@ -88,6 +88,11 @@ pub(crate) struct MemberInfo {
     /// `true` for `static` fields / methods. Drives `Counter.<.>`
     /// completion (which should only list static members).
     pub(crate) is_static: bool,
+    /// `true` when the source decl carries `pub`. Receiver
+    /// completion (`obj.<.>`) from outside the class hides
+    /// non-pub members so `_height` doesn't bleed into the
+    /// public API surface.
+    pub(crate) is_pub: bool,
     /// `///`-prefixed doc comment lines above the member.
     pub(crate) doc: Option<String>,
     /// File path containing this member's declaration. Set on

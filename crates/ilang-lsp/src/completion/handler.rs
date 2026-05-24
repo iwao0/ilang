@@ -489,9 +489,16 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         return None;
     }
     let info = doc.classes.get(&AstSymbol::intern(&class_name)).unwrap();
+    // `obj.<.>` from outside the class hides non-`pub` members
+    // (`_height` etc.). `this.<.>` is treated as inside-the-class
+    // access and surfaces everything.
+    let outside_class = receiver != "this";
     let mut items: Vec<CompletionItem> = Vec::new();
     for (name, m) in info.fields.iter() {
         if m.is_static != want_static {
+            continue;
+        }
+        if outside_class && !m.is_pub {
             continue;
         }
         // Hide the @objc desugar's internal bookkeeping
@@ -533,6 +540,9 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
             continue;
         }
         if m.is_static != want_static {
+            continue;
+        }
+        if outside_class && !m.is_pub {
             continue;
         }
         let (insert_text, fmt) = call_snippet(name.as_str(), CompletionItemKind::METHOD);

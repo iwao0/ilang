@@ -74,6 +74,7 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                 signature: sym.signature.clone(),
                 ret_ty: None,
                 is_static: false,
+                is_pub: true,
                 doc: None,
                 source_path: None,
             });
@@ -83,6 +84,7 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                 signature: sig.to_string(),
                 ret_ty: None,
                 is_static: false,
+                is_pub: true,
                 doc: None,
                 source_path: None,
             });
@@ -92,6 +94,7 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                 signature: s.clone(),
                 ret_ty: None,
                 is_static: false,
+                is_pub: true,
                 doc: None,
                 source_path: None,
             });
@@ -106,6 +109,7 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                 signature: s,
                 ret_ty: None,
                 is_static: false,
+                is_pub: true,
                 doc: None,
                 source_path: None,
             });
@@ -153,6 +157,7 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                         signature: sig,
                         ret_ty: None,
                         is_static: false,
+                        is_pub: true,
                         doc: doc_text.map(|s| s.to_string()),
                         source_path: None,
                     });
