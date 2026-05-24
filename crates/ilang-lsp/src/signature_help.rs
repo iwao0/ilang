@@ -240,6 +240,14 @@ fn generic_args_of(ty: &Type) -> Option<Vec<Type>> {
 /// substrings inside larger identifiers (`Tuple`, `Result`) stay
 /// untouched. `params` and `args` are zipped pairwise; surplus
 /// entries on either side are silently skipped.
+pub(crate) fn substitute_type_params_in(
+    sig: &mut String,
+    params: &[String],
+    args: &[Type],
+) {
+    substitute_type_params(sig, params, args);
+}
+
 fn substitute_type_params(sig: &mut String, params: &[String], args: &[Type]) {
     if params.is_empty() || args.is_empty() {
         return;

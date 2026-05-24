@@ -539,6 +539,17 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
     // (`_height` etc.). `this.<.>` is treated as inside-the-class
     // access and surfaces everything.
     let outside_class = receiver != "this";
+    // Recover the receiver's concrete generic args (`Signal<KeyEvent>`)
+    // so the snippet/detail show `fn(KeyEvent)` instead of the
+    // declared `fn(T)`.
+    let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
+        .unwrap_or(doc.text.len());
+    let generic_args: Vec<Type> = resolve_receiver_type(doc, &receiver, off)
+        .and_then(|ty| match ty {
+            Type::Generic(g) => Some(g.args.to_vec()),
+            _ => None,
+        })
+        .unwrap_or_default();
     let mut items: Vec<CompletionItem> = Vec::new();
     for (name, m) in info.fields.iter() {
         if m.is_static != want_static {
@@ -591,12 +602,29 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         if outside_class && !m.is_pub {
             continue;
         }
-        let (insert_text, fmt) = call_snippet(name.as_str(), CompletionItemKind::METHOD);
-        let command = trigger_sig_help_command(CompletionItemKind::METHOD);
+        let mut effective_sig = m.signature.clone();
+        if !generic_args.is_empty() && !info.type_params.is_empty() {
+            crate::signature_help::substitute_type_params_in(
+                &mut effective_sig,
+                &info.type_params,
+                &generic_args,
+            );
+        }
+        let (insert_text, fmt) = build_method_call_snippet(name.as_str(), &effective_sig)
+            .map(|(t, f)| (Some(t), Some(f)))
+            .unwrap_or_else(|| call_snippet(name.as_str(), CompletionItemKind::METHOD));
+        // Re-fire signature help once the snippet expansion lands the
+        // cursor inside `(` so the user sees the parameter overlay
+        // without having to type `(` themselves.
+        let command = Some(tower_lsp::lsp_types::Command {
+            title: String::new(),
+            command: "editor.action.triggerParameterHints".to_string(),
+            arguments: None,
+        });
         items.push(CompletionItem {
             label: name.as_str().to_string(),
             kind: Some(CompletionItemKind::METHOD),
-            detail: Some(m.signature.clone()),
+            detail: Some(effective_sig),
             documentation: m.doc.clone().map(|d| {
                 Documentation::MarkupContent(MarkupContent {
                     kind: MarkupKind::Markdown,
@@ -687,3 +715,90 @@ fn boost_arg_matches(items: &mut Vec<CompletionItem>, expected: &str, doc: &Doc)
     }
 }
 
+
+/// Build a snippet for `name(${1:p1}, ${2:p2}, ...)` from a method's
+/// signature string. Parses each parameter slot via
+/// `text::parameter_offsets`, takes the bit before the first `:` as
+/// the parameter name, and wraps each name in a numbered LSP snippet
+/// placeholder so accepting the completion drops the cursor into the
+/// first argument with the param name pre-selected. Returns `None`
+/// when the signature has no parsable parameter list — the caller
+/// falls back to the no-snippet default.
+fn build_method_call_snippet(
+    name: &str,
+    signature: &str,
+) -> Option<(String, InsertTextFormat)> {
+    let offsets = text::parameter_offsets(signature);
+    if offsets.is_empty() {
+        return Some((format!("{name}()"), InsertTextFormat::SNIPPET));
+    }
+    // Every placeholder is `_` — neutral, doesn't trigger VSCode's
+    // "select similar identifier" highlight, and signals "fill me
+    // in" without prescribing a name (the user can overtype with
+    // whatever makes sense for their call site).
+    let mut slots: Vec<String> = Vec::with_capacity(offsets.len());
+    let mut tab_idx = 1usize;
+    for (s, e) in offsets.iter() {
+        let slot = signature.get(*s as usize..*e as usize)?;
+        let param_ty = slot.split_once(':').map(|(_, t)| t.trim());
+        // When the param's type is itself a closure (`fn(T)`),
+        // expand to `fn(${1:_}: T) { ${2} }` so the user gets a
+        // ready-to-fill lambda instead of having to type the whole
+        // `fn(...) { ... }` scaffolding.
+        if let Some(inner) = param_ty.and_then(fn_param_type_inner) {
+            let inner = inner.trim();
+            if inner.is_empty() {
+                let i = tab_idx;
+                tab_idx += 1;
+                slots.push(format!("fn() {{ ${} }}", i));
+            } else if !inner.contains(',') {
+                let i1 = tab_idx;
+                let i2 = tab_idx + 1;
+                tab_idx += 2;
+                slots.push(format!("fn(${{{}:_}}: {}) {{ ${} }}", i1, inner, i2));
+            } else {
+                // Multi-arg closure — splitting on `,` is unsafe
+                // (`Map<K, V>` tears apart). Drop back to a plain
+                // `_` slot so the user types the whole closure
+                // themselves.
+                let i = tab_idx;
+                tab_idx += 1;
+                slots.push(format!("${{{}:_}}", i));
+            }
+        } else {
+            let i = tab_idx;
+            tab_idx += 1;
+            slots.push(format!("${{{}:_}}", i));
+        }
+    }
+    Some((
+        format!("{name}({})", slots.join(", ")),
+        InsertTextFormat::SNIPPET,
+    ))
+}
+
+/// `Some(inner)` when `ty` is a top-level `fn(...)` type, where
+/// `inner` is whatever sits between the outer parens. Returns
+/// `None` for non-fn types (`i64`, `string`, `Map<K, V>`, ...).
+fn fn_param_type_inner(ty: &str) -> Option<&str> {
+    let t = ty.trim();
+    let rest = t.strip_prefix("fn(")?;
+    // Ignore trailing `: RetTy` etc. by chopping at the matching
+    // `)` via paren balance — `fn(fn(T))` style nested closures
+    // are rare but the balance keeps them parseable.
+    let bytes = rest.as_bytes();
+    let mut depth = 1i32;
+    for (i, b) in bytes.iter().enumerate() {
+        match *b {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&rest[..i]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
