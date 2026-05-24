@@ -526,6 +526,15 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                 if c_only_structs.contains(suffix) {
                     return None;
                 }
+                // `@handle pub struct` opaque-pointer types are
+                // declaration-side bindings used inside `@extern(C)`
+                // blocks. They surface in `module.<.>` listings as
+                // plain structs, but offering them as top-level
+                // candidates points the user at a name they can only
+                // meaningfully use from another extern-C block.
+                if !in_extern_c && helpers::is_handle_struct_signature(sig) {
+                    return None;
+                }
                 // Skip sub-module names (`gui.button` etc.) — the
                 // loader registers `(module) gui.button` for every
                 // sibling file even when `gui.il` only re-exports

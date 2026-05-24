@@ -124,6 +124,13 @@ pub(crate) fn type_completions(doc: &Doc, in_extern_c: bool) -> Vec<CompletionIt
         if c_only_structs.contains(bare) {
             continue;
         }
+        // `@handle pub struct` opaque-pointer types live behind
+        // `@extern(C) { ... }` boundaries — see the rationale in
+        // `helpers::is_handle_struct_signature`. Hide them from
+        // `let x: T` / `fn f(p: T)` suggestions outside extern-C.
+        if !in_extern_c && crate::helpers::is_handle_struct_signature(sig) {
+            continue;
+        }
         // Label depends on whether the bare name is already imported
         // (`use cocoa { NSApplicationDelegate }`): if yes, show bare
         // (matches how the user will reference it); if no, show the

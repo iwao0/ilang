@@ -192,6 +192,12 @@ pub(crate) fn global_completions(
         if c_only_structs.contains(s) {
             continue;
         }
+        // `@handle pub struct` opaque-pointer types belong inside
+        // another `@extern(C) { ... }` block — hide them from the
+        // bare top-level surface for the same reason.
+        if !in_extern_c && crate::helpers::is_handle_struct_signature(sig) {
+            continue;
+        }
         // Module entries (`(module) cocoa`) come back from the harvest
         // under their bare key alongside `cocoa.NSObject` etc. The
         // MODULE listing further down already surfaces them; emitting
@@ -244,6 +250,11 @@ pub(crate) fn global_completions(
         // And the same hide-outside rule for selectively-imported
         // C-only struct / union names.
         if c_only_structs.contains(bare) {
+            continue;
+        }
+        // Selectively-imported `@handle` structs are likewise only
+        // meaningful inside another extern-C block.
+        if !in_extern_c && crate::helpers::is_handle_struct_signature(&sig) {
             continue;
         }
         let kind = classify_signature_kind(&sig);

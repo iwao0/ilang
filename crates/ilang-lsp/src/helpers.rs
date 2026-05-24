@@ -85,6 +85,31 @@ pub(crate) fn contains_c_only_type(ty: &Type) -> bool {
     }
 }
 
+/// `true` when the stored signature describes an `@handle pub struct`
+/// declaration — `@handle\nstruct M.Name` or
+/// `@packed\n@handle\nstruct M.Name`. Used by the completion paths
+/// to drop `@handle` opaque-pointer types from regular (non-extern-C)
+/// candidate lists: they're declared inside `@extern(C) { ... }`
+/// blocks and only meaningful in code that's already in one.
+pub(crate) fn is_handle_struct_signature(sig: &str) -> bool {
+    let mut rest = sig;
+    let mut saw_handle = false;
+    loop {
+        let line_end = rest.find('\n').unwrap_or(rest.len());
+        let line = rest[..line_end].trim_end();
+        if !line.starts_with('@') {
+            return saw_handle && line.starts_with("struct ");
+        }
+        if line == "@handle" {
+            saw_handle = true;
+        }
+        if line_end >= rest.len() {
+            return false;
+        }
+        rest = &rest[line_end + 1..];
+    }
+}
+
 /// Returns an empty string when no markers are set — drop-in for
 /// `format!("{attrs}struct {name}")`.
 pub(crate) fn render_struct_attrs(is_packed: bool, is_handle: bool) -> String {
