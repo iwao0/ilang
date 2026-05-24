@@ -1,11 +1,8 @@
 /// propsys — PROPVARIANT manual construction + read smoke test.
 
 use test
-use windows {
-    PROPVARIANT,
-    PropVariantClear,
-    PropVariantToInt32, PropVariantToDouble,
-}
+use wasapi { PROPVARIANT }
+use propsys { PropVariantClear, PropVariantToInt32, PropVariantToDouble }
 
 @extern(C) {
     pub fn run() {

@@ -2,9 +2,9 @@
 
 use test
 use windows {
-    IcmpCreateFile, IcmpCloseHandle, IcmpSendEcho,
     HeapAlloc, HeapFree, GetProcessHeap,
 }
+use iphlpapi { IcmpCreateFile, IcmpCloseHandle, IcmpSendEcho }
 
 @extern(C) {
     pub fn run() {

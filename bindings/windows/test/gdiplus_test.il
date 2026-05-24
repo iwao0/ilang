@@ -1,9 +1,7 @@
 /// gdiplus — startup / shutdown lifecycle.
 
 use test
-use windows {
-    GdiplusStartup, GdiplusShutdown, GdiplusStartupInput,
-}
+use gdiplus { GdiplusStartup, GdiplusShutdown, GdiplusStartupInput }
 
 @extern(C) {
     pub fn run() {

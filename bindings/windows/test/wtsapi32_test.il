@@ -1,9 +1,10 @@
 /// wtsapi32 — session information for the calling process.
 
 use test
-use windows {
+use wtsapi32 {
     WTSGetActiveConsoleSessionId,
-    WTSEnumerateSessionsA, WTSFreeMemory,
+    WTSEnumerateSessionsA,
+    WTSFreeMemory,
     WTS_SESSION_INFO,
 }
 

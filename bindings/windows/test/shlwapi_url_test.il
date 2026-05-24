@@ -2,9 +2,9 @@
 
 use test
 use windows {
-    UrlIsA, UrlCanonicalizeA, UrlCombineA, UrlCompareA,
     HeapAlloc, HeapFree, GetProcessHeap,
 }
+use shlwapi { UrlIsA, UrlCanonicalizeA, UrlCombineA, UrlCompareA }
 
 @extern(C) {
     pub fn run() {

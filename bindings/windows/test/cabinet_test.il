@@ -2,11 +2,16 @@
 
 use test
 use windows {
-    CreateCompressor, CreateDecompressor,
-    Compress, Decompress,
-    CloseCompressor, CloseDecompressor,
-    CompressAlgo,
     GetProcessHeap, HeapAlloc, HeapFree,
+}
+use cabinet {
+    CreateCompressor,
+    CreateDecompressor,
+    Compress,
+    Decompress,
+    CloseCompressor,
+    CloseDecompressor,
+    CompressAlgo,
 }
 
 @extern(C) {

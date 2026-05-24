@@ -1,10 +1,13 @@
 /// uxtheme — visual styles availability and theme open/close.
 
 use test
-use windows {
-    IsThemeActive, IsAppThemed,
-    OpenThemeData, CloseThemeData,
-    BufferedPaintInit, BufferedPaintUnInit,
+use uxtheme {
+    IsThemeActive,
+    IsAppThemed,
+    OpenThemeData,
+    CloseThemeData,
+    BufferedPaintInit,
+    BufferedPaintUnInit,
 }
 
 @extern(C) {

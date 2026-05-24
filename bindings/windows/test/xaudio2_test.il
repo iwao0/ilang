@@ -17,12 +17,16 @@ use test
 use ole32 { CoInitializeEx, CoUninitialize, CoInit, IUnknown }
 use windows {
     NULL,
+}
+use xaudio2 {
     XAudio2Create,
     XAudio2Processor,
-    XAUDIO2_DEFAULT_CHANNELS, XAUDIO2_DEFAULT_SAMPLERATE,
+    XAUDIO2_DEFAULT_CHANNELS,
+    XAUDIO2_DEFAULT_SAMPLERATE,
     XAUDIO2_DEFAULT_AUDIO_CATEGORY,
     XAUDIO2_PERFORMANCE_DATA,
-    IXAudio2, IXAudio2MasteringVoice,
+    IXAudio2,
+    IXAudio2MasteringVoice,
     XAUDIO2_EFFECT_CHAIN,
 }
 

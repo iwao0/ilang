@@ -1,10 +1,7 @@
 /// dwmapi — composition status and window attribute query.
 
 use test
-use windows {
-    DwmIsCompositionEnabled,
-    DwmFlush,
-}
+use dwmapi { DwmIsCompositionEnabled, DwmFlush }
 
 @extern(C) {
     pub fn run() {

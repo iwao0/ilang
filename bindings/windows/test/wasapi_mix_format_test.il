@@ -18,11 +18,16 @@ use ole32 {
 }
 use windows {
     NULL,
-    EDataFlow, ERole,
+}
+use wasapi {
+    EDataFlow,
+    ERole,
     AudioClientShareMode,
-    CLSID_MMDeviceEnumerator, IID_IMMDeviceEnumerator,
+    CLSID_MMDeviceEnumerator,
+    IID_IMMDeviceEnumerator,
     IID_IAudioClient,
-    IMMDeviceEnumerator, IMMDevice,
+    IMMDeviceEnumerator,
+    IMMDevice,
     IAudioClient,
     WAVEFORMATEX_WASAPI,
 }

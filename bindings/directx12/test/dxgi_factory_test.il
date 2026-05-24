@@ -13,7 +13,8 @@
 use test
 use windows {
     HANDLE,
-    NULL,}
+    NULL,
+}
 use directx12 { CreateDXGIFactory2, DXGI_ADAPTER_DESC1, DxgiAdapterFlag, DxgiGpuPreference, IDXGIAdapter1, IDXGIFactory6 }
 use winnt { GUID }
 use ole32 { IUnknown }

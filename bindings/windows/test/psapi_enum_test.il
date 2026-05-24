@@ -2,12 +2,16 @@
 
 use test
 use windows {
-    EnumProcesses, EnumProcessModules,
-    GetModuleBaseNameA, GetModuleFileNameExA,
-    GetMappedFileNameA,
     OpenProcess, CloseHandle, GetCurrentProcess,
     HeapAlloc, HeapFree, GetProcessHeap,
     lstrlenA,
+}
+use psapi {
+    EnumProcesses,
+    EnumProcessModules,
+    GetModuleBaseNameA,
+    GetModuleFileNameExA,
+    GetMappedFileNameA,
 }
 
 @extern(C) {

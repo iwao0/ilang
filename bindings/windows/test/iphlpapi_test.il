@@ -1,9 +1,7 @@
 /// iphlpapi — buffer-size query for GetNetworkParams.
 
 use test
-use windows {
-    GetNetworkParams,
-}
+use iphlpapi { GetNetworkParams }
 
 @extern(C) {
     pub fn run() {

@@ -2,13 +2,11 @@
 
 use test
 use windows {
-    PROCESS_MEMORY_COUNTERS,
-    GetProcessMemoryInfo,
     GetCurrentProcess,
-    GetProcessImageFileNameA,
     HeapAlloc, HeapFree, GetProcessHeap,
     lstrlenA,
 }
+use psapi { PROCESS_MEMORY_COUNTERS, GetProcessMemoryInfo, GetProcessImageFileNameA }
 
 @extern(C) {
     pub fn run() {

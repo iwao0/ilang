@@ -2,9 +2,12 @@
 
 use test
 use winnt { GUID }
-use windows {
-    D2D1CreateFactory, D2dFactoryType,
-    D2D1MakeRotateMatrix, D2D1_MATRIX_3X2_F, D2D1_POINT_2F,
+use d2d1 {
+    D2D1CreateFactory,
+    D2dFactoryType,
+    D2D1MakeRotateMatrix,
+    D2D1_MATRIX_3X2_F,
+    D2D1_POINT_2F,
     D2D1IsMatrixInvertible,
 }
 

@@ -2,10 +2,9 @@
 
 use test
 use windows {
-    CRYPT_DATA_BLOB,
-    CryptProtectData, CryptUnprotectData,
     LocalFree,
 }
+use crypt32 { CRYPT_DATA_BLOB, CryptProtectData, CryptUnprotectData }
 
 @extern(C) {
     pub fn run() {

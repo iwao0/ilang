@@ -22,7 +22,6 @@ use windows {
     FileAccess, FileCreation, FileAttribute,
     HeapAlloc, HeapFree, GetProcessHeap,
     MultiByteToWideChar, WideCharToMultiByte,
-    SetWindowTheme,
     INITCOMMONCONTROLSEX, InitCommonControlsEx, Icc,
     // Modern UI font: Segoe UI 9pt via CreateFontA + WM_SETFONT.
     CreateFontA,
@@ -30,6 +29,7 @@ use windows {
     FontQuality, FontPitchFamily,
     SendMessageA,
 }
+use uxtheme { SetWindowTheme }
 
 // True once `enableComctl32V6` has run; subsequent calls bail
 // out so the activation context stays installed at most once

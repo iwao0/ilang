@@ -1,7 +1,8 @@
 /// wer — flag get / set + handle lifecycle smoke test.
 
 use test
-use windows { WerSetFlags, WerGetFlags, WerFaultReporting, GetCurrentProcess }
+use windows { GetCurrentProcess }
+use wer { WerSetFlags, WerGetFlags, WerFaultReporting }
 
 @extern(C) {
     pub fn run() {

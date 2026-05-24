@@ -1,9 +1,13 @@
 /// dnsapi — DnsFlushResolverCache + DnsValidateName_A smoke test.
 
 use test
-use windows {
-    DnsFlushResolverCache, DnsValidateName_A,
-    DnsQuery_A, DnsRecordListFree, DnsType, DnsQueryOptions,
+use dnsapi {
+    DnsFlushResolverCache,
+    DnsValidateName_A,
+    DnsQuery_A,
+    DnsRecordListFree,
+    DnsType,
+    DnsQueryOptions,
     DNS_RECORD,
 }
 

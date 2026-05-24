@@ -1,10 +1,7 @@
 /// d3d11 — WARP device creation smoke test.
 
 use test
-use windows {
-    D3D11CreateDevice, D3dDriverType, D3dFeatureLevel,
-    D3d11CreateDeviceFlags,
-}
+use d3d11 { D3D11CreateDevice, D3dDriverType, D3dFeatureLevel, D3d11CreateDeviceFlags }
 
 @extern(C) {
     pub fn run() {

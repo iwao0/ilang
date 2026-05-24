@@ -1,7 +1,7 @@
 /// sensapi — IsNetworkAlive smoke test.
 
 use test
-use windows { IsNetworkAlive }
+use sensapi { IsNetworkAlive }
 
 @extern(C) {
     pub fn run() {

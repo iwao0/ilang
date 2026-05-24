@@ -1,7 +1,8 @@
 /// msi — UI-mode setter + product-enum smoke test.
 
 use test
-use windows { MsiSetInternalUI, MsiEnumProductsA, InstallUiLevel, GetProcessHeap, HeapAlloc, HeapFree }
+use windows { GetProcessHeap, HeapAlloc, HeapFree }
+use msi { MsiSetInternalUI, MsiEnumProductsA, InstallUiLevel }
 
 @extern(C) {
     pub fn run() {

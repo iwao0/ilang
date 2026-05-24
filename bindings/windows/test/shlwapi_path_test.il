@@ -1,9 +1,13 @@
 /// shlwapi — path inspection / decomposition.
 
 use test
-use windows {
-    PathFileExistsA, PathIsRelativeA, PathIsRootA,
-    PathFindFileNameA, PathFindExtensionA, PathGetDriveNumberA,
+use shlwapi {
+    PathFileExistsA,
+    PathIsRelativeA,
+    PathIsRootA,
+    PathFindFileNameA,
+    PathFindExtensionA,
+    PathGetDriveNumberA,
 }
 
 @extern(C) {

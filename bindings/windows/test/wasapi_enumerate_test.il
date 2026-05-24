@@ -13,10 +13,16 @@ use ole32 {
 }
 use windows {
     NULL,
-    EDataFlow, DeviceState,
-    CLSID_MMDeviceEnumerator, IID_IMMDeviceEnumerator,
+}
+use wasapi {
+    EDataFlow,
+    DeviceState,
+    CLSID_MMDeviceEnumerator,
+    IID_IMMDeviceEnumerator,
     IID_IMMDevice,
-    IMMDeviceEnumerator, IMMDeviceCollection, IMMDevice,
+    IMMDeviceEnumerator,
+    IMMDeviceCollection,
+    IMMDevice,
 }
 
 @extern(C) {

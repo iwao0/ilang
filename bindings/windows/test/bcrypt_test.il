@@ -2,11 +2,19 @@
 
 use test
 use windows {
-    BCryptOpenAlgorithmProvider, BCryptCloseAlgorithmProvider,
-    BCryptCreateHash, BCryptHashData, BCryptFinishHash, BCryptDestroyHash,
-    BCryptGenRandom, BCryptGetProperty,
-    BCRYPT_ALG_HANDLE, BCRYPT_HASH_HANDLE,
     HeapAlloc, HeapFree, GetProcessHeap,
+}
+use bcrypt {
+    BCryptOpenAlgorithmProvider,
+    BCryptCloseAlgorithmProvider,
+    BCryptCreateHash,
+    BCryptHashData,
+    BCryptFinishHash,
+    BCryptDestroyHash,
+    BCryptGenRandom,
+    BCryptGetProperty,
+    BCRYPT_ALG_HANDLE,
+    BCRYPT_HASH_HANDLE,
 }
 
 @extern(C) {

@@ -1,11 +1,7 @@
 /// shlwapi — string search / convert helpers.
 
 use test
-use windows {
-    StrStrA, StrStrIA,
-    StrCmpNA, StrCmpNIA,
-    StrToIntA,
-}
+use shlwapi { StrStrA, StrStrIA, StrCmpNA, StrCmpNIA, StrToIntA }
 
 @extern(C) {
     pub fn run() {

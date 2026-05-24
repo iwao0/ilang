@@ -2,9 +2,9 @@
 
 use test
 use windows {
-    CryptBinaryToStringA, CryptStringToBinaryA,
     HeapAlloc, HeapFree, GetProcessHeap,
 }
+use crypt32 { CryptBinaryToStringA, CryptStringToBinaryA }
 
 @extern(C) {
     pub fn run() {

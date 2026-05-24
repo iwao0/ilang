@@ -10,7 +10,8 @@
 
 use test
 use windows {
-    HANDLE, NULL,}
+    HANDLE, NULL,
+}
 use directx12 { CreateDXGIFactory2, DXGI_QUERY_VIDEO_MEMORY_INFO, DxgiFeature, IDXGIAdapter, IDXGIAdapter3, IDXGIFactory4, IDXGIFactory5 }
 use winnt { GUID }
 use ole32 { IUnknown }

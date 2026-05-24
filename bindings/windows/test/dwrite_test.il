@@ -2,7 +2,7 @@
 
 use test
 use winnt { GUID }
-use windows { DWriteCreateFactory, DWriteFactoryType }
+use dwrite { DWriteCreateFactory, DWriteFactoryType }
 
 @extern(C) {
     pub fn run() {

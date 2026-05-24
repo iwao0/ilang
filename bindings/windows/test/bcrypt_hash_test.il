@@ -8,12 +8,19 @@
 
 use test
 use windows {
-    BCRYPT_ALG_HANDLE, BCRYPT_HASH_HANDLE,
-    BCryptOpenAlgorithmProvider, BCryptCloseAlgorithmProvider,
-    BCryptCreateHash, BCryptHashData, BCryptFinishHash, BCryptDestroyHash,
-    BCryptGetProperty,
     HeapAlloc, HeapFree, GetProcessHeap,
     MultiByteToWideChar,
+}
+use bcrypt {
+    BCRYPT_ALG_HANDLE,
+    BCRYPT_HASH_HANDLE,
+    BCryptOpenAlgorithmProvider,
+    BCryptCloseAlgorithmProvider,
+    BCryptCreateHash,
+    BCryptHashData,
+    BCryptFinishHash,
+    BCryptDestroyHash,
+    BCryptGetProperty,
 }
 
 @extern(C) {

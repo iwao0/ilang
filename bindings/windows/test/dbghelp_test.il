@@ -2,10 +2,15 @@
 
 use test
 use windows {
-    SymInitialize, SymCleanup,
-    SymSetOptions, SymGetOptions,
     GetCurrentProcess,
-    UnDecorateSymbolName, SymOpt,
+}
+use dbghelp {
+    SymInitialize,
+    SymCleanup,
+    SymSetOptions,
+    SymGetOptions,
+    UnDecorateSymbolName,
+    SymOpt,
 }
 
 @extern(C) {
