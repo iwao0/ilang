@@ -1,5 +1,5 @@
 // `xs.push(new Child())` where `xs: Parent[]` (cd61814).
-use test
+use std.test
 
 class Animal {
     init() {}

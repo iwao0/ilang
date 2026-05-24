@@ -1,6 +1,6 @@
 /// NSPointerArray — strong-object variant + add/remove/replace.
 
-use test
+use std.test
 use foundation { NSPointerArray, NSString, nsstr, ilstr }
 
 let pa = NSPointerArray.strongObjectsPointerArray()

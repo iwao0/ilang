@@ -1,7 +1,7 @@
 // Multi-step `as` casts. `numeric_conversions.il` covers single-hop
 // casts with in-range values; this fixture stresses chains where
 // each hop changes width and/or sign and may truncate.
-use test
+use std.test
 
 // Down-then-up: 1000 → i8 (-24) → i64.
 test.expect(1000 as i8 as i64, -24)

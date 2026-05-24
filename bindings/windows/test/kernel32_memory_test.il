@@ -1,6 +1,6 @@
 /// kernel32 — heap allocation lifecycle.
 
-use test
+use std.test
 use windows {
     GetProcessHeap, HeapAlloc, HeapFree, HeapSize,
     GlobalAlloc, GlobalLock, GlobalUnlock, GlobalSize, GlobalFree,

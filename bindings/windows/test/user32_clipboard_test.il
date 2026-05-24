@@ -1,6 +1,6 @@
 /// user32 — clipboard format registration and Open/Close round-trip.
 
-use test
+use std.test
 use windows {
     OpenClipboard, CloseClipboard, EmptyClipboard,
     RegisterClipboardFormatA, GetClipboardFormatNameA,

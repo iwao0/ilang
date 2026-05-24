@@ -6,7 +6,7 @@
 /// native control on realization; calls after `addChild` propagate
 /// immediately.
 
-use events { Signal }
+use std.events { Signal }
 use event { SelectEvent }
 use window { Window, Control }
 use gui_impl {

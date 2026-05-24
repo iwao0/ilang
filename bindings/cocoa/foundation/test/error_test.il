@@ -1,6 +1,6 @@
 /// NSError — construct and read back domain / code / userInfo.
 
-use test
+use std.test
 use foundation { NSError, NSMutableDictionary, NSObject, nsstr, ilstr }
 
 let info = NSMutableDictionary.alloc().init()

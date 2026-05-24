@@ -1,6 +1,6 @@
 /// shlwapi — string search / convert helpers.
 
-use test
+use std.test
 use shlwapi { StrStrA, StrStrIA, StrCmpNA, StrCmpNIA, StrToIntA }
 
 @extern(C) {

@@ -1,7 +1,7 @@
 // Tuple / array literal elements that are aliased heap refs need
 // retain at construction (ca137fc). Pre-fix JIT segfaulted /
 // out-of-bounds-panicked on the second access.
-use test
+use std.test
 
 fn run(): i64 {
     let total: i64 = 0

@@ -12,7 +12,7 @@
 // brings the leak back.
 //
 
-use test
+use std.test
 
 class T {
     n: i64

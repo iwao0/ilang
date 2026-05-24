@@ -1,6 +1,6 @@
 /// NSMenu / NSMenuItem — construct, populate, inspect.
 
-use test
+use std.test
 use appkit { NSMenu, NSMenuItem }
 use foundation { nsstr, ilstr }
 

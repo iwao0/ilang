@@ -1,5 +1,5 @@
 // `loop` evaluates to a `break v` value.
-use test
+use std.test
 
 let n = loop {
     break 42

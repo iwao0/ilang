@@ -1,5 +1,5 @@
 // All comparison operators, on ints / floats / strings / bools.
-use test
+use std.test
 
 // Integer comparisons.
 test.expectBool(1 < 2, true)

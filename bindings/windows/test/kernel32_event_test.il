@@ -1,6 +1,6 @@
 /// kernel32 — Event / mutex synchronisation primitives.
 
-use test
+use std.test
 use windows {
     HANDLE,
     CreateEventA, SetEvent, ResetEvent,

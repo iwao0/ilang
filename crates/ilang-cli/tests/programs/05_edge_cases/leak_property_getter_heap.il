@@ -9,7 +9,7 @@
 // calls.
 //
 
-use test
+use std.test
 
 class Vec {
     coords: i64[]

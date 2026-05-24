@@ -1,5 +1,5 @@
 // Methods returning the receiver enable chaining (fluent style).
-use test
+use std.test
 
 class Builder {
     n: i64

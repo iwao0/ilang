@@ -1,6 +1,6 @@
 // `let x: Parent = new Child()` — implicit upcast on the let
 // annotation. Was rejected by the TC's let arm before fb16dfc.
-use test
+use std.test
 
 class Animal {
     n: i64

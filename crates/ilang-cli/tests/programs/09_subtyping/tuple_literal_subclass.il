@@ -1,6 +1,6 @@
 // Tuple literal element subclass — `(Parent, Parent) ← (Child, Child)`
 // (cd61814 + 32111f1).
-use test
+use std.test
 
 class Animal {
     init() {}

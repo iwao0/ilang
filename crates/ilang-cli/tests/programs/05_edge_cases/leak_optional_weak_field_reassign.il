@@ -6,7 +6,7 @@
 // counts that prevent eventual deallocation.
 //
 
-use test
+use std.test
 
 class Node {
     parent: Node.weak?

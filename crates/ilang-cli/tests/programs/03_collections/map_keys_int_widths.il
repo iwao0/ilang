@@ -3,7 +3,7 @@
 // and all unsigned to u64, so `Map<u8, V>.keys()[0]` came back
 // as u64 and `+ 1u8` produced 256 instead of u8 wraparound.
 // (eval/value.rs MapKey commit 889a7e4.)
-use test
+use std.test
 
 let m = new Map<u8, string>()
 m.set(5u8, "five")

@@ -2,7 +2,7 @@
 // through `o.inner` — the existing Inner instance. Replacing
 // `o.inner` with a fresh Inner detaches the original (which
 // continues to live as long as the outside binding holds it).
-use test
+use std.test
 
 class Inner {
     v: i64

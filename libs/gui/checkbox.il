@@ -3,7 +3,7 @@
 /// `setButtonType(NSButtonTypeSwitch)`. `onToggle` fires whenever
 /// the checked state flips.
 
-use events { Signal }
+use std.events { Signal }
 use event { ToggleEvent }
 use window { Window, Control }
 use gui_impl {

@@ -1,7 +1,7 @@
 // libc.assert / libc.assertMsg — happy-path no-op.
 // (We can't easily exercise the abort path in a normal fixture,
 // since aborting the process flags the run as a failure.)
-use test
+use std.test
 use libc { assert, assertMsg }
 
 @extern(C) {

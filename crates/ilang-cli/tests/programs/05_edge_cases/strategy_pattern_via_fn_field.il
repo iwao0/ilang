@@ -3,7 +3,7 @@
 // swap behaviour. Verifies that the closure value survives storage
 // in a field, retrieval via `let`, and replacement (which must
 // release the previous closure).
-use test
+use std.test
 
 class Strategy {
     f: fn(i64): i64

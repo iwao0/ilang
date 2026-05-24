@@ -1,6 +1,6 @@
 /// kernel32 — runtime DLL loading and symbol lookup.
 
-use test
+use std.test
 use windows {
     LoadLibraryA, FreeLibrary, GetProcAddress, GetModuleHandleA,
 }

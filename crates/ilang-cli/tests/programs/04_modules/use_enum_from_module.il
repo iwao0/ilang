@@ -1,6 +1,6 @@
 // Construct + match an enum declared in another module. Both the
 // enum value and the helper fn are accessed via the module name.
-use test
+use std.test
 use lib_shapes
 
 let c = lib_shapes.Color.green

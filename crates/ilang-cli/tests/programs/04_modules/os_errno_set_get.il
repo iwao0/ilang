@@ -2,8 +2,8 @@
 // named POSIX constants. Runs in both interpreter and JIT — the
 // errno store is per-thread and both backends use the same C
 // runtime for the read/write.
-use os
-use test
+use std.os
+use std.test
 
 os.setErrno(os.ENOENT)
 test.expect(os.errno() as i64, 2)

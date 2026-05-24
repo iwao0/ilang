@@ -1,7 +1,7 @@
 /// Built-in `test` module — assertion helpers for self-checking
 /// scripts and integration-test fixtures. On failure each helper prints
 /// a short report to stderr and aborts with non-zero exit, so a
-/// fixture file `use test` + a sequence of `test.expect(...)` calls
+/// fixture file `use std.test` + a sequence of `test.expect(...)` calls
 /// can be the entire test program.
 
 /// Asserts `actual == expected` for i64 values. On failure prints

@@ -9,7 +9,7 @@
 /// On hosts where D3D12GetInterface isn't installed (very old
 /// Windows builds), a negative HRESULT bails the test cleanly.
 
-use test
+use std.test
 use windows { HANDLE }
 use directx12 {
     D3D12GetInterface,

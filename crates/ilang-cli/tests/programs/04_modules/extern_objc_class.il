@@ -11,7 +11,7 @@
 //   obj.isEqual(other)           — instance method taking @objc class arg
 //
 // jit: skip
-use test
+use std.test
 
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
     @objc class NSObject {

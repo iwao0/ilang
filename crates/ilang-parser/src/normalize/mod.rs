@@ -214,7 +214,18 @@ fn build_ctx(prog: &Program) -> Ctx {
                     ctx.modules.insert(u.module.clone(), u.module.clone());
                 }
                 UseAlias::Named(name) => {
-                    ctx.modules.insert(name.clone(), u.module.clone());
+                    // Path-style `use a.b` (the parser sets
+                    // alias = Named(b), subpath = [b]): the merged
+                    // module's symbols live under `b`, NOT `a`. Map
+                    // identity so dealias doesn't rewrite `b.X` →
+                    // `a.X`. For plain `use a as b` (subpath empty),
+                    // the canonical name still is `a`.
+                    let canonical = u
+                        .subpath
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| u.module.clone());
+                    ctx.modules.insert(name.clone(), canonical);
                 }
                 UseAlias::Discard => {}
             },

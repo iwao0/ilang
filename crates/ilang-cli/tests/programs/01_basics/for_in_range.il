@@ -1,5 +1,5 @@
 // Rust 風の `for i in a..b` (排他) と `for i in a..=b` (包含).
-use test
+use std.test
 
 let sum_excl = 0
 for i in 1..5 {

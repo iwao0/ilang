@@ -3,7 +3,7 @@
 // + trailing separator the JS way (every position contributes a
 // slot, including empty ones). `string_edge.il` covers empty input
 // and multibyte; this is the splitter-specific corner.
-use test
+use std.test
 
 // Escape codepoints all count as single chars.
 test.expect("\r\n\t\0".length, 4)

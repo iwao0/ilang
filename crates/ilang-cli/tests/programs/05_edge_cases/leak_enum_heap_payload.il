@@ -10,7 +10,7 @@
 // dangling forever even after the cell was reclaimed.
 //
 
-use test
+use std.test
 
 enum Box {
     holds: (i64[])

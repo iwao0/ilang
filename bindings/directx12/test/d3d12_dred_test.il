@@ -12,7 +12,7 @@
 ///
 /// Bails cleanly when DRED isn't installed (Graphics Tools missing).
 
-use test
+use std.test
 use windows { HANDLE, NULL }
 use directx12 {
     D3D12GetDebugInterface, D3D12CreateDevice,

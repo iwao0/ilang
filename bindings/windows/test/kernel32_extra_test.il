@@ -1,6 +1,6 @@
 /// kernel32 — assorted utility coverage.
 
-use test
+use std.test
 use windows {
     GetLogicalDrives, GetDriveTypeA,
     GetDiskFreeSpaceExA,

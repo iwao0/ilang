@@ -11,7 +11,7 @@
 /// call fails (no d3dcompiler_47, no write access, etc.) so CI
 /// without the SDK still runs to the end.
 
-use test
+use std.test
 use windows {
     HANDLE, NULL,
     GetProcessHeap, HeapAlloc, HeapFree,

@@ -2,7 +2,7 @@
 // type. The body's tail is checked through `value_assignable` so
 // composite literals (Array, Tuple, Optional) flow through too
 // (cd61814).
-use test
+use std.test
 
 class Animal {
     init() {}

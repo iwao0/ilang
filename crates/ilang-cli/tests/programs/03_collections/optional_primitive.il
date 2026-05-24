@@ -1,6 +1,6 @@
 // Optional<T> with primitive T — JIT heap-boxes the payload so 0 can
 // still be a valid Some(0) while None is its own state.
-use test
+use std.test
 
 // i64
 let i_some: i64? = some(42)

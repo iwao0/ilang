@@ -7,7 +7,7 @@
 // `super.method(args)` AST node into `this.__super_method(args)`.
 //
 // jit: skip
-use test
+use std.test
 
 @extern(ObjC) {
     @objc class NSObject {

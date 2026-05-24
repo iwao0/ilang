@@ -9,7 +9,7 @@
 ///
 /// Bootstraps a device + direct queue; bails cleanly when no GPU.
 
-use test
+use std.test
 use windows {
     HANDLE,
     NULL,

@@ -1,6 +1,6 @@
 /// kernel32 — environment variables and computer / user name.
 
-use test
+use std.test
 use windows {
     GetEnvironmentVariableA, SetEnvironmentVariableA,
     ExpandEnvironmentStringsA,

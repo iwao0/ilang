@@ -1,6 +1,6 @@
 /// NSAttributedString / NSMutableAttributedString.
 
-use test
+use std.test
 use foundation { NSAttributedString, NSMutableAttributedString,
                  NSMutableDictionary, nsstr, ilstr, makeRange }
 

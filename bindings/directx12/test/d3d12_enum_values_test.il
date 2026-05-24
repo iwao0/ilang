@@ -6,7 +6,7 @@
 /// drift between the binding and the SDK headers would silently
 /// mis-render or mis-link.
 
-use test
+use std.test
 // HANDLE is referenced by ID3D12Fence::SetEventOnCompletion deep in
 // the binding; ilang's import resolver wants it in scope here too.
 use windows { HANDLE }

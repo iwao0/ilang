@@ -1,7 +1,7 @@
 // Deeply nested generic class instantiation. Each (Box, args)
 // pair monomorphizes to its own concrete class; nesting works
 // without depth limits.
-use test
+use std.test
 
 class Box<T> {
     x: T

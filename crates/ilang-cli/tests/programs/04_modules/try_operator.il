@@ -2,7 +2,7 @@
 // `Result.ok(v)` to `v`, and on `Result.err(e)` early-returns
 // `Result.err(e)` from the enclosing fn (whose own return type
 // must therefore be `Result<_, E>` with the same `E`).
-use test
+use std.test
 
 fn parse(s: string): Result<i32, string> {
     if s == "42" { Result.ok(42 as i32) }

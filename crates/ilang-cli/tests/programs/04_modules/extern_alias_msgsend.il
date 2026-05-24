@@ -20,7 +20,7 @@
 //      produce the same C-side result.
 //
 // jit: skip
-use test
+use std.test
 
 @extern(C) {
     // Canonical: matches the C function's real signature.

@@ -1,5 +1,5 @@
 // Optional<T> with heap T (string, Object).
-use test
+use std.test
 
 let s_opt: string? = some("hi")
 test.expectBool(s_opt.isSome, true)

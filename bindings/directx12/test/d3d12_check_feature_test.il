@@ -6,7 +6,7 @@
 /// is available, queries D3D12_OPTIONS to read back tier values
 /// and creates a 16-slot timestamp query heap.
 
-use test
+use std.test
 use windows { HANDLE }
 use directx12 {
     D3D12CreateDevice,

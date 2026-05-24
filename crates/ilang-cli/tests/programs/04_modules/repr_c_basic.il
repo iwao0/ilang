@@ -1,7 +1,7 @@
 // `@extern(C) { struct ... }` basics: declare, allocate, read/write
 // fields. Doesn't actually call any native fn — just exercises the
 // layout / zero-init semantics so failures localise easily.
-use test
+use std.test
 
 @extern(C) {
     struct point {

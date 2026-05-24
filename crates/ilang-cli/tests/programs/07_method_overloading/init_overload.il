@@ -1,5 +1,5 @@
 // init() can be overloaded; `new C(...)` picks the best match.
-use test
+use std.test
 
 class Point {
     x: i64

@@ -1,5 +1,5 @@
 // Overloading by parameter count.
-use test
+use std.test
 
 fn make(): string { "default" }
 fn make(s: string): string { s }

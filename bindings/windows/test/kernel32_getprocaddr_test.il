@@ -6,7 +6,7 @@
 /// call site uses `Inst::CallRawIndirect` (no closure dispatch, no env
 /// arg) instead of the normal closure path.
 
-use test
+use std.test
 use windows {
     LoadLibraryA, GetProcAddress, FreeLibrary,
     GetCurrentProcessId, GetTickCount,

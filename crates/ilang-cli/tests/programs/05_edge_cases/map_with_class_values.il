@@ -2,7 +2,7 @@
 // the previous instance (which must be released so its deinit fires
 // only when no other binding holds it); reads return the current
 // instance pointer.
-use test
+use std.test
 
 class Point {
     x: i64

@@ -2,7 +2,7 @@
 // the entry module — sanity counterpart to the
 // `cross_module_pub_*_access` fixtures.
 use lib_acl
-use test
+use std.test
 
 let f = new lib_acl.Foo()
 test.expect(f.visible as i64, 2)

@@ -6,7 +6,7 @@
 /// CNG / DXGI / DirectWrite call that takes a UTF-16 string but
 /// where ilang only has UTF-8 string literals.
 
-use test
+use std.test
 use windows {
     HeapAlloc, HeapFree, GetProcessHeap,
     MultiByteToWideChar,

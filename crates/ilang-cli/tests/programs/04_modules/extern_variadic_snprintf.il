@@ -9,7 +9,7 @@
 //
 // Raw `char *` / `*const char` stay inside the `@extern(C)` block;
 // callers see ordinary ilang types via per-shape wrappers.
-use test
+use std.test
 
 @extern(C) {
     @lib("c") fn snprintf(buf: *u8, n: size_t, fmt: *const char, ...): i32

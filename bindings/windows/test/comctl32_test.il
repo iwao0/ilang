@@ -1,6 +1,6 @@
 /// comctl32 — basic init + image list lifecycle.
 
-use test
+use std.test
 use windows {
     INITCOMMONCONTROLSEX, InitCommonControlsEx, Icc,
     ImageList_Create, ImageList_Destroy, ImageList_GetImageCount,

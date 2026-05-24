@@ -1,6 +1,6 @@
 // if/else arms returning sibling subclasses unify at their nearest
 // common ancestor (a5e9e2c, 92a2185).
-use test
+use std.test
 
 class Animal {
     init() {}

@@ -1,6 +1,6 @@
 /// wtsapi32 — session information for the calling process.
 
-use test
+use std.test
 use wtsapi32 {
     WTSGetActiveConsoleSessionId,
     WTSEnumerateSessionsA,

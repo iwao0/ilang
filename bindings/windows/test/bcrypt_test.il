@@ -1,6 +1,6 @@
 /// bcrypt — random bytes, SHA-256 hash of a known input.
 
-use test
+use std.test
 use windows {
     HeapAlloc, HeapFree, GetProcessHeap,
 }

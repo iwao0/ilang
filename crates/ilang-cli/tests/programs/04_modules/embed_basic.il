@@ -2,7 +2,7 @@
 // The path is resolved relative to **this** source file. `T` must
 // be either `string` (UTF-8 text; invalid UTF-8 = compile error)
 // or `u8[]` (raw bytes).
-use test
+use std.test
 
 @embed("embed_data.txt") const greeting: string
 @embed("embed_data.txt") const raw: u8[]

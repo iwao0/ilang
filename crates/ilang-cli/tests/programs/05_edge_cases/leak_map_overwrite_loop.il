@@ -11,7 +11,7 @@
 // zero and triggers deinit.
 //
 
-use test
+use std.test
 
 class Counter {
     n: i64

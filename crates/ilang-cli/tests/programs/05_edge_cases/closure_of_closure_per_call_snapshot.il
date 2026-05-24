@@ -3,7 +3,7 @@
 // local. The inner closure captures THAT local — so each inner
 // remembers its own per-call value, while the outer keeps counting
 // up across calls.
-use test
+use std.test
 
 fn outer(): fn(): fn(): i64 {
     let n = 0

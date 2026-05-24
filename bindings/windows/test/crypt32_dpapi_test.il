@@ -1,6 +1,6 @@
 /// crypt32 — DPAPI round-trip: protect → unprotect → byte equality.
 
-use test
+use std.test
 use windows {
     LocalFree,
 }

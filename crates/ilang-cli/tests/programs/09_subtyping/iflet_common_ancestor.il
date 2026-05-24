@@ -1,6 +1,6 @@
 // if-let branches with subclass results unify at common ancestor
 // (92a2185 — was missing entirely from the if-let join path).
-use test
+use std.test
 
 class Animal {
     init() {}

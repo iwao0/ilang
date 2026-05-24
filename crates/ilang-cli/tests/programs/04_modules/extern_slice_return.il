@@ -5,7 +5,7 @@
 // `T[]`.
 //
 // jit: skip
-use test
+use std.test
 
 @extern(C) {
     struct ByteSlice {

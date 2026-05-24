@@ -9,7 +9,7 @@
 // the destructure-bind release.
 //
 
-use test
+use std.test
 
 let baseline = test.liveAllocBytes()
 

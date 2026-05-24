@@ -1,6 +1,6 @@
 /// psapi — process / module enumeration.
 
-use test
+use std.test
 use windows {
     OpenProcess, CloseHandle, GetCurrentProcess,
     HeapAlloc, HeapFree, GetProcessHeap,

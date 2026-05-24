@@ -7,7 +7,7 @@
 // per-arm cascade.
 //
 
-use test
+use std.test
 
 fn pick(n: i64): Result<i64, string> {
     if n % 2 == 0 { Result.ok(n) } else { Result.err("err") }

@@ -2,7 +2,7 @@
 // AND the enclosing function. A regression that only `break`s the
 // loop would leave the function falling through to the post-loop
 // expression — silent wrong-result case.
-use test
+use std.test
 
 fn find_first_even(xs: i64[]): i64? {
     for x in xs {

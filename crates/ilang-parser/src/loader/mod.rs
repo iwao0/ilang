@@ -393,6 +393,38 @@ fn resolve_module(
     // subdir. Falls through to single-segment resolution when subpath
     // is empty.
     if !subpath.is_empty() {
+        // `use std.X` — the stdlib lives inside the compiler as
+        // embedded source (see `builtin_module_source`). Route the
+        // path-style import here instead of through the disk so
+        // released binaries shipped without a checked-out source
+        // tree keep working. Only flat `std.<X>` is honoured; deeper
+        // paths (`std.X.Y`) have no built-in mapping.
+        if module == "std" && super_count == 0 {
+            if subpath.len() == 1 {
+                let leaf = subpath[0].as_str();
+                if builtin_module_source(leaf).is_some() {
+                    return Ok(builtin_path(leaf));
+                }
+            }
+            return Err(LoadError::ReadError {
+                path: PathBuf::from(format!(
+                    "<builtin>/std/{}.il",
+                    subpath
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join("/")
+                )),
+                message: format!(
+                    "`use std.{}`: no such built-in module under `std`",
+                    subpath
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(".")
+                ),
+            });
+        }
         let mut base = resolve_base_directory(
             module, dir, extra_paths, super_count, parents,
         )?;
@@ -489,11 +521,16 @@ fn resolve_module(
             return canonicalize(&candidate_mod);
         }
     }
-    // Stdlib builtins (`math` / `os` / `events` / `regex` / …).
-    // A sibling or dep with the same name shadows these — but
-    // that's the user's intent (they wrote a file by that name).
+    // Stdlib builtins (`math` / `os` / `events` / `regex` / …) are
+    // only reachable through the `std.X` namespace — a bare
+    // `use math` is deprecated, point the user at the new form.
     if builtin_module_source(module).is_some() {
-        return Ok(builtin_path(module));
+        return Err(LoadError::ReadError {
+            path: primary,
+            message: format!(
+                "`use {module}` is no longer supported — write `use std.{module}` instead",
+            ),
+        });
     }
     // Fall back to the primary path so the resulting "not found"
     // error mentions the importer-local location (most actionable).
@@ -775,7 +812,13 @@ fn pre_scan_use_modules(
                                 subpath.push(name.clone());
                                 break;
                             }
-                            _ => break,
+                            _ => {
+                                // `use a.b` bare — `b` is the
+                                // deepest file, mirroring
+                                // parse_use_decl's path-style import.
+                                subpath.push(name.clone());
+                                break;
+                            }
                         }
                     }
                     TokenKind::Star => break,
@@ -1040,9 +1083,18 @@ fn apply_use(
         .get(&canon)
         .cloned()
         .expect("loaded before via load_recursive");
+    // For path-style imports (`use a.b` → module="a", subpath=[b]),
+    // the merged module's items live under the leaf name (`b`), not
+    // the base (`a`). This keeps single-segment `use M` and dotted
+    // `use base.M` aliased the same way at the call site.
     let nominal_prefix: String = prefix_override
         .map(str::to_string)
-        .unwrap_or_else(|| u.module.as_str().to_string());
+        .unwrap_or_else(|| {
+            u.subpath
+                .last()
+                .map(|s| s.as_str().to_string())
+                .unwrap_or_else(|| u.module.as_str().to_string())
+        });
     // If this module's canon is already prefix-merged under some
     // other prefix (e.g. an umbrella's `pub use` ran first and
     // exposed the items under `sdl.X`), reuse that prefix for our

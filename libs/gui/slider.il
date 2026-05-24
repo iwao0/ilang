@@ -2,7 +2,7 @@
 /// `msctls_trackbar32`; Cocoa: `NSSlider` (continuous). `onChange`
 /// fires live while the thumb is being dragged.
 
-use events { Signal }
+use std.events { Signal }
 use event { SliderEvent }
 use window { Window, Control }
 use gui_impl {

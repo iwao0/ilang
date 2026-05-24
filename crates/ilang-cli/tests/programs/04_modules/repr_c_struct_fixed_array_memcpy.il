@@ -5,7 +5,7 @@
 // elements were initialised with. This is the shape used by the
 // dx12_triangle vertex-buffer upload after the writeF32 loop is
 // replaced with a single memcpy.
-use test
+use std.test
 use libc { memcpy }
 
 @extern(C) {

@@ -1,6 +1,6 @@
 // Enums with positional (tuple) payloads. The pattern binds names to
 // the payload fields by position.
-use test
+use std.test
 
 enum Shape {
     point

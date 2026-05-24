@@ -1,7 +1,7 @@
 // Generic classes — must be instantiated with explicit type args.
 // Each (Name, args) combo is monomorphized to a distinct concrete
 // class in the JIT.
-use test
+use std.test
 
 class Box<T> {
     x: T

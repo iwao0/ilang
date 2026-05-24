@@ -1,5 +1,5 @@
 // Read-only computed property (getter, no setter).
-use test
+use std.test
 
 class Counter {
     n: i64

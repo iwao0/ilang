@@ -570,13 +570,32 @@ impl<'a> Parser<'a> {
                                 break;
                             }
                             _ => {
-                                // Selective shorthand `use a.X` —
-                                // the trailing Ident is the imported
-                                // name from the deepest file.
+                                // `use a.b` (bare, no `{` / `*`
+                                // follows) — treat as a *path-style*
+                                // import: load the deepest file
+                                // (`b.il`) under `a` and bind it as
+                                // namespace `b`. Symmetric with
+                                // `use a.b.*` (wildcard) and
+                                // `use a.b { X }` (selective from
+                                // the same file). The pre-`std`-
+                                // namespace selective-shorthand
+                                // semantics (`use a.X` → `X` symbol
+                                // from `a`) is dropped because
+                                // nothing on disk uses it (only
+                                // `use super.M` styles existed,
+                                // which go through `super_count`).
+                                //
+                                // The namespace alias defaults to the
+                                // leaf file name (`b`), not the base
+                                // (`a`), so `use std.fs` lets the
+                                // caller write `fs.open(...)`. Match
+                                // how `use super.M` already binds the
+                                // module name (`M`) as the namespace.
+                                subpath.push(sym);
                                 return Ok(ilang_ast::UseDecl {
                                     module,
-                                    alias: ilang_ast::UseAlias::Discard,
-                                    selective: Some(Box::new([sym])),
+                                    alias: ilang_ast::UseAlias::Named(sym),
+                                    selective: None,
                                     wildcard: false,
                                     re_export: false,
                                     super_count,

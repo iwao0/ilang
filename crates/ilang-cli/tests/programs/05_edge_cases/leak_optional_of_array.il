@@ -7,7 +7,7 @@
 // fixture is the simple "fn returning T[]?, if-let extract" loop.
 //
 
-use test
+use std.test
 
 fn pick(n: i64): i64[]? {
     if n % 2 == 0 {

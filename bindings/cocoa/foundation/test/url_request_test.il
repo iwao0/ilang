@@ -1,7 +1,7 @@
 /// NSURLRequest / NSMutableURLRequest — construct + headers +
 /// body, no actual network traffic.
 
-use test
+use std.test
 use foundation { NSURL, NSURLRequest, NSMutableURLRequest, NSData,
                  NSURLRequestCachePolicy, nsstr, ilstr }
 

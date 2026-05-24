@@ -7,7 +7,7 @@
 // idiom of wrapping the whole class in `@extern(C)`.
 //
 // jit: skip
-use test
+use std.test
 
 @extern(C) {
     fn set_via_ptr(out: *i32, value: i32)

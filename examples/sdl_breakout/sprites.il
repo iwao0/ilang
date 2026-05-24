@@ -5,7 +5,7 @@
 //
 // All return `u8[]` buffers ready to feed into `Texture.update`.
 
-use math
+use std.math
 use consts
 
 // Render a 5-point white star into a 32×32 RGBA8 buffer suitable

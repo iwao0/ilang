@@ -1,6 +1,6 @@
 /// NSDate — construct from epoch, arithmetic, comparison.
 
-use test
+use std.test
 use foundation { NSDate }
 
 // Build a date from a fixed Unix timestamp.

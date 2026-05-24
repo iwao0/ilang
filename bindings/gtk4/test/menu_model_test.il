@@ -4,7 +4,7 @@
 /// model operations and don't open the display, so the fixture
 /// runs on any host that has libgtk-4 installed.
 
-use test
+use std.test
 use gtk {
     GMenu, GMenuModel, GObject, GVariantType,
     GSimpleAction, GSimpleActionGroup,

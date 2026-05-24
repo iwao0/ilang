@@ -1,5 +1,5 @@
 // Class-level mutable storage shared by all instances.
-use test
+use std.test
 
 class Counter {
     n: i64

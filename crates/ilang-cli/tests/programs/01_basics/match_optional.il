@@ -4,7 +4,7 @@
 //
 // expect: hi
 // expect: (none)
-use test
+use std.test
 
 fn fromInt(o: i64?): i64 {
     match o {

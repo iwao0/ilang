@@ -8,7 +8,7 @@
 // test runtime that writes its second arg through the first.
 //
 // jit: skip
-use test
+use std.test
 
 @extern(C) {
     fn set_via_ptr(out: *i32, value: i32)

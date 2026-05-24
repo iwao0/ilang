@@ -1,6 +1,6 @@
 /// dbghelp — symbol handler initialisation and option round-trip.
 
-use test
+use std.test
 use windows {
     GetCurrentProcess,
 }

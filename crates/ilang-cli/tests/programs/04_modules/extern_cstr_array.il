@@ -8,7 +8,7 @@
 //
 // JIT-only.
 // jit: skip
-use test
+use std.test
 
 @extern(C) {
     fn get_cstr_array(): *const *const char

@@ -2,7 +2,7 @@
 // the tree via `if let some(...)`. Combines: optional unwrap on
 // instance fields, recursive method dispatch (the same vtable slot
 // re-entered), and value-returning `if let` body.
-use test
+use std.test
 
 class Tree {
     v: i64

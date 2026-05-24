@@ -1,7 +1,7 @@
 /// d3dcompiler — compile a trivial HLSL vertex shader and inspect
 /// the resulting blob.
 
-use test
+use std.test
 use windows { HANDLE }
 use directx12 {
     D3DCompile, D3DCreateBlob,

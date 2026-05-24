@@ -4,7 +4,7 @@
 // interpreter's `cast_value` always allocated a fresh `Rc` for typed
 // array parameters, silently breaking this contract while the JIT
 // kept aliasing intact.
-use test
+use std.test
 
 fn mutate(xs: i64[]) {
     xs[0] = 999

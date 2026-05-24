@@ -9,7 +9,7 @@
 // reclaim using `liveAllocBytes`.
 //
 
-use test
+use std.test
 
 fn make_arr(): i64[] { [1, 2, 3, 4, 5] }
 

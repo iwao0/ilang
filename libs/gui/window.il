@@ -11,7 +11,7 @@
 /// and overrides `attachTo` to realise its native peer under
 /// `window`'s `handle`.
 
-use events { Signal }
+use std.events { Signal }
 use event {
     EventTarget,
     CloseEvent, SizeEvent, KeyEvent, MouseEvent,

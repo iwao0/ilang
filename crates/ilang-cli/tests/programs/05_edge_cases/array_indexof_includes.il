@@ -3,7 +3,7 @@
 // elements (must hit the FIRST one), heap-typed elements (string).
 // `empty_container_ops.il` partially covers the empty case but only
 // for indexOf — this fixture nails down both APIs across all corners.
-use test
+use std.test
 
 let xs: i64[] = [10, 20, 30, 20, 40]
 test.expect(xs.indexOf(20), 1)        // first occurrence

@@ -2,7 +2,7 @@
 // no built-in `reverse` method, so this is the canonical pattern;
 // we exercise it across primitive and heap-typed elements, and the
 // empty/single-element edges.
-use test
+use std.test
 
 fn reverse_i64(xs: i64[]): i64[] {
     let result: i64[] = []

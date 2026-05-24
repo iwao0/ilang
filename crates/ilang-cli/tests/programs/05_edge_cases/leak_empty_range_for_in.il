@@ -6,7 +6,7 @@
 // bytes per empty-range hit.
 //
 
-use test
+use std.test
 
 let baseline = test.liveAllocBytes()
 

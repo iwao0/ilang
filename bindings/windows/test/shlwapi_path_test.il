@@ -1,6 +1,6 @@
 /// shlwapi — path inspection / decomposition.
 
-use test
+use std.test
 use shlwapi {
     PathFileExistsA,
     PathIsRelativeA,

@@ -5,7 +5,7 @@
 // correctly — `sdl.Renderer.init` enables it by default.
 
 use sdl
-use math
+use std.math
 
 pub class NeonRenderer {
     pub renderer: sdl.Renderer

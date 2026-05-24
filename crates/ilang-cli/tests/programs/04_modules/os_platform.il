@@ -4,8 +4,8 @@
 // target Rust recognises but we don't have a name for. Used
 // to branch behaviour on the host without writing a parallel
 // `@cfg`-style attribute.
-use os
-use test
+use std.os
+use std.test
 
 let p = os.platform
 test.expectTrue(p == "macos" || p == "linux" || p == "windows" || p == "other")

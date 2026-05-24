@@ -3,7 +3,7 @@
 // predicate-accepts-all) and chaining. `closures.il` exercises
 // `.map` once with a captured variable; this fixture nails down
 // the result-shape and chain semantics across the empty-input edge.
-use test
+use std.test
 
 let xs: i64[] = [1, 2, 3, 4, 5]
 

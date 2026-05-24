@@ -1,6 +1,6 @@
 /// NSURLCache — shared / custom instances, capacity reads.
 
-use test
+use std.test
 use foundation { NSURLCache, NSURL, nsstr }
 
 let shared = NSURLCache.shared()

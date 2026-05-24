@@ -1,6 +1,6 @@
 /// user32 — window introspection on the desktop HWND.
 
-use test
+use std.test
 use windows {
     HWND, RECT, POINT,
     GetDesktopWindow, GetForegroundWindow,

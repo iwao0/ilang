@@ -3,7 +3,7 @@
 /// `NSScrollView`. `onSelect` fires whenever the highlighted row
 /// changes.
 
-use events { Signal }
+use std.events { Signal }
 use event { SelectEvent }
 use window { Window, Control }
 use gui_impl {

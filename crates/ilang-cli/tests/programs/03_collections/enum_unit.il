@@ -1,5 +1,5 @@
 // Unit-only enums (Phase 1 representation: bare i32 tag).
-use test
+use std.test
 
 enum Color { red, green, blue }
 

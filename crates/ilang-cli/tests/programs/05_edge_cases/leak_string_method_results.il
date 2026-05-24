@@ -5,7 +5,7 @@
 // (per-frame HUD-style code paths in long-running programs).
 //
 
-use test
+use std.test
 
 let s = "  Hello, World!  "
 

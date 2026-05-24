@@ -13,7 +13,7 @@
 /// iteration's autoreleased temporaries drain before the next
 /// reads bytes-in-use.
 
-use test
+use std.test
 use foundation { NSString, NSURL, NSDate, NSNumber, NSMutableArray,
                  NSMutableDictionary, autoreleasepool,
                  nsstr, ilstr }

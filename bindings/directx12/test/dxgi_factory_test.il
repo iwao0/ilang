@@ -10,7 +10,7 @@
 /// HRESULT-returning call exits the test on the first non-zero
 /// status so CI without a discrete GPU still runs to completion.
 
-use test
+use std.test
 use windows {
     HANDLE,
     NULL,

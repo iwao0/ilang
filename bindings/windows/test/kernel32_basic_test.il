@@ -1,6 +1,6 @@
 /// kernel32 — basic process / module / time queries.
 
-use test
+use std.test
 use windows {
     GetTickCount, GetTickCount64,
     GetCurrentProcessId, GetCurrentThreadId,

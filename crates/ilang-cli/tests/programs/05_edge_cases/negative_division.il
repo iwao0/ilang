@@ -1,6 +1,6 @@
 // Integer division truncates toward zero (Rust / C semantics);
 // modulo follows the same rule, so `(a/b)*b + a%b == a` always holds.
-use test
+use std.test
 
 test.expect(7 / 2, 3)
 test.expect(-7 / 2, -3)

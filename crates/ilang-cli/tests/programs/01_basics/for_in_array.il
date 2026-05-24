@@ -1,5 +1,5 @@
 // for-in over an array. Both primitive and string elements.
-use test
+use std.test
 
 let xs: i64[] = [10, 20, 30, 40]
 let total = 0

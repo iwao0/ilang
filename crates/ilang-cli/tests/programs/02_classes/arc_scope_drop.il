@@ -1,7 +1,7 @@
 // `deinit` must fire when an object's last strong reference goes out
 // of scope. Counted via a shared Counter the tracked objects bump in
 // their deinit.
-use test
+use std.test
 
 class Counter {
     n: i64

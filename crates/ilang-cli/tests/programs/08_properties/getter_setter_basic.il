@@ -1,5 +1,5 @@
 // Computed property: read goes through getter, write through setter.
-use test
+use std.test
 
 class Temp {
     celsius: f64

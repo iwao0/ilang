@@ -6,7 +6,7 @@
 // iteration.
 //
 
-use test
+use std.test
 
 fn lookup(n: i64): i64? {
     if n < 0 { return none }

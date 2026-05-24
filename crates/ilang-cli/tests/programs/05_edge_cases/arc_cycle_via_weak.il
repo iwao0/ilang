@@ -1,7 +1,7 @@
 // Parent ↔ Child where Child holds a `.weak` back-ref to Parent.
 // This is the canonical use of weak refs: prevents a cycle that would
 // otherwise leak (parent held by child held by parent).
-use test
+use std.test
 
 class DropCounter {
     n: i64

@@ -5,7 +5,7 @@
 // variant which exercises a different MapKey hashing path.
 //
 
-use test
+use std.test
 
 let baseline = test.liveAllocBytes()
 

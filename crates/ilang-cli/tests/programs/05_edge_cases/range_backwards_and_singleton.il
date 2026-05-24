@@ -2,7 +2,7 @@
 // "backwards" range (start > end) is empty, NOT iterating from
 // start downward; an inclusive single-element range hits exactly
 // once; the half-open singleton `n..n+1` also hits exactly once.
-use test
+use std.test
 
 let n = 0
 for i in 5..3 { n += 1 }

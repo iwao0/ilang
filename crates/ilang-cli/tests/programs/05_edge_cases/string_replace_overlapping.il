@@ -3,7 +3,7 @@
 // where the replacement length differs from the needle's. None of
 // these should re-scan the just-substituted bytes (otherwise
 // `"aaa".replace("a", "ab")` would diverge or hang).
-use test
+use std.test
 
 // Replacement contains the needle — scan must consume input only.
 test.expectStr("aaa".replace("a", "ab"), "ababab")

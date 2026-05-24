@@ -1,7 +1,7 @@
 /// NSFileManager — read-only filesystem checks against paths the
 /// macOS host is guaranteed to have. No writes / mutations.
 
-use test
+use std.test
 use foundation { NSFileManager, nsstr, ilstr }
 
 let fm = NSFileManager.defaultManager()

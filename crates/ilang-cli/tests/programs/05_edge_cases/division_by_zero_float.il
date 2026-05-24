@@ -1,6 +1,6 @@
 // Float division by zero does NOT panic — it follows IEEE 754:
 // finite / 0.0 → inf / -inf, 0.0 / 0.0 → NaN.
-use test
+use std.test
 
 let inf = 1.0 / 0.0
 let neg_inf = -1.0 / 0.0

@@ -8,7 +8,7 @@
 // fixture pins down the no-leak loop.
 //
 
-use test
+use std.test
 
 let baseline = test.liveAllocBytes()
 

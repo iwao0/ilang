@@ -8,7 +8,7 @@
 // through. Map producing strings then leaked all entries.
 //
 
-use test
+use std.test
 
 let xs: i64[] = [1, 2, 3, 4, 5]
 

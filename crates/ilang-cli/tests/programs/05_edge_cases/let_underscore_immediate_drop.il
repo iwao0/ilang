@@ -10,7 +10,7 @@
 //
 // The legacy --jit backend (ilang-codegen) doesn't yet honour
 // this discard semantics; skip there.
-use test
+use std.test
 
 class T {
     log: i64[]

@@ -3,7 +3,7 @@
 // inherits the SAME backing storage — bumps from a `Sub` instance
 // land in `Counter.total`, not a per-class shadow. Easy to regress
 // during vtable-layout changes.
-use test
+use std.test
 
 class Counter {
     n: i64

@@ -6,7 +6,7 @@
 // (field reads, value semantics) is identical in either case —
 // this fixture exists to make sure both paths produce the same
 // answers, not to assert which one was taken.
-use test
+use std.test
 
 struct Point {
     x: i32

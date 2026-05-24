@@ -1,6 +1,6 @@
 /// kernel32 — file create / write / read / delete round-trip.
 
-use test
+use std.test
 use windows {
     HANDLE,
     CreateFileA, ReadFile, WriteFile, CloseHandle,

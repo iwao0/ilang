@@ -1,7 +1,7 @@
 /// NSMeasurement + NSUnit{Length, Mass, Duration, Temperature, Area}
 /// conversions.
 
-use test
+use std.test
 use foundation { NSMeasurement, NSUnitLength, NSUnitMass,
                  NSUnitDuration, NSUnitTemperature, NSUnitArea,
                  ilstr }

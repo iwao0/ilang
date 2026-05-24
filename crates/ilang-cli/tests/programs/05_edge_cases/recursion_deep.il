@@ -1,6 +1,6 @@
 // Recursive function — classic fib. Verifies the call stack handles
 // depth ≥ 20 in both interp and JIT.
-use test
+use std.test
 
 fn fib(n: i64): i64 {
     if n < 2 { return n }

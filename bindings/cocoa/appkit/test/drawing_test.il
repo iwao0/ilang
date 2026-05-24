@@ -1,7 +1,7 @@
 /// NSBezierPath / NSAffineTransform / NSColor — pure construct +
 /// inspect; no NSGraphicsContext / drawing actually happens.
 
-use test
+use std.test
 use appkit { NSBezierPath, NSAffineTransform, NSColor,
              NSWindingRule, NSLineCapStyle, NSLineJoinStyle }
 use foundation { makePoint, makeRect, makeSize }

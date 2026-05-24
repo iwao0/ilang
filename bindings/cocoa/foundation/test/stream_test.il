@@ -1,6 +1,6 @@
 /// NSInputStream — read bytes back from an NSData-backed stream.
 
-use test
+use std.test
 use foundation { NSInputStream, NSData, NSStreamStatus }
 
 let nd = NSData.fromBytes([104 as u8, 105 as u8, 33 as u8])  // "hi!"

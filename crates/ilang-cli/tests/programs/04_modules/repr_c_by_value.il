@@ -9,7 +9,7 @@
 //
 // Interpreter has no native-extern marshalling, skip there.
 // jit: skip
-use test
+use std.test
 
 @extern(C) {
     struct point2 {

@@ -1,7 +1,7 @@
 /// NSAppleScript + NSAppleEventDescriptor — compile + execute a
 /// trivial script that returns a fixed integer.
 
-use test
+use std.test
 use foundation { NSAppleScript, NSAppleEventDescriptor,
                  nsstr, ilstr }
 

@@ -6,7 +6,7 @@
 // heap cascade either, but distinct kind tag on the cell).
 //
 
-use test
+use std.test
 
 enum Pt {
     origin

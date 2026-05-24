@@ -1,5 +1,5 @@
 // Method overloading by parameter type, dispatched at the call site.
-use test
+use std.test
 
 class Show {
     init() {}

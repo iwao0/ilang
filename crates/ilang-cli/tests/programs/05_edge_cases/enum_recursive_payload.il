@@ -2,7 +2,7 @@
 // so the payload is a heap-allocated boxed value. Match destructuring
 // must keep the bindings alive across the arm body and the recursion
 // has to terminate cleanly at `leaf`.
-use test
+use std.test
 
 enum Tree {
     leaf

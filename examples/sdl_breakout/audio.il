@@ -3,7 +3,7 @@
 // buffers. All audio buffers are i16 mono at `consts.sampleRate`.
 
 use sdl
-use math
+use std.math
 use consts
 
 // Short sine-wave beep with a 5ms attack/release ramp so the start

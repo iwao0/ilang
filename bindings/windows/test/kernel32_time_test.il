@@ -1,6 +1,6 @@
 /// kernel32 — SYSTEMTIME / FILETIME round-trips.
 
-use test
+use std.test
 use windows {
     SYSTEMTIME, FILETIME,
     GetSystemTime, GetLocalTime,

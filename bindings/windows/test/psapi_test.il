@@ -1,6 +1,6 @@
 /// psapi — process memory counters and image-file-name lookup.
 
-use test
+use std.test
 use windows {
     GetCurrentProcess,
     HeapAlloc, HeapFree, GetProcessHeap,

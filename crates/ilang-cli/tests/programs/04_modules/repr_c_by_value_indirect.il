@@ -5,7 +5,7 @@
 // hands over the user pointer; Cranelift does the rest.
 //
 // jit: skip
-use test
+use std.test
 
 @extern(C) {
     struct big32 {

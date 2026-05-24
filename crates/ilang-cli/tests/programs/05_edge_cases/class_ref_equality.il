@@ -2,7 +2,7 @@
 // `class_eq_ref.il` is the dedicated fixture but doesn't combine
 // with array membership / map membership / Optional unwrap, where
 // the lowering may be tempted to materialize a fresh instance.
-use test
+use std.test
 
 class P {
     x: i64

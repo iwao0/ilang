@@ -8,7 +8,7 @@
 // caller-side release.
 //
 
-use test
+use std.test
 
 fn make_temp(n: i64): i64[] {
     let xs: i64[] = []

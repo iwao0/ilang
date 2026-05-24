@@ -1,6 +1,6 @@
 /// ws2_32 — Winsock startup and byte-order conversions.
 
-use test
+use std.test
 use windows {
     WSAStartup, WSACleanup, WSAGetLastError,
     WSADATA,

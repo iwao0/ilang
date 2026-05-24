@@ -2,7 +2,7 @@
 // are embedded inline (no heap header) so the layout matches the
 // C `T arr[N];` declaration. Index access on the field reads /
 // writes the embedded slot directly.
-use test
+use std.test
 
 @extern(C) {
     struct sockaddr_in {

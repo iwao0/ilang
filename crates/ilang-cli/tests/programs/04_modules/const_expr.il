@@ -1,5 +1,5 @@
 // const can hold a compile-time-evaluable expression.
-use test
+use std.test
 
 const N: i64 = 1 + 2 * 3                    // 7
 const TWO_N: i64 = N * 2                     // 14 (refers to another const)

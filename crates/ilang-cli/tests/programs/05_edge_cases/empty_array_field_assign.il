@@ -4,7 +4,7 @@
 // AssignField fed the empty literal into the no-hint path; the
 // `let` path already routed empties through
 // `lower_array_literal` with the field's elem type.
-use test
+use std.test
 
 class Tree {
     children: Tree[]

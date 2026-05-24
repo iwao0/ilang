@@ -2,7 +2,7 @@
 // bitfields of the same underlying integer width pack into a single
 // shared storage unit (GCC-style packing); the JIT emits a
 // shift+mask read and a read-modify-write store.
-use test
+use std.test
 
 @extern(C) {
     struct flags {

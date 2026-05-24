@@ -1,6 +1,6 @@
 // Functions returning Result; both branches annotated by the fn's
 // declared return type so the typechecker can refine inferred Any.
-use test
+use std.test
 
 fn divide(a: i64, b: i64): Result<i64, string> {
     if b == 0 { Result.err("division by zero") } else { Result.ok(a / b) }

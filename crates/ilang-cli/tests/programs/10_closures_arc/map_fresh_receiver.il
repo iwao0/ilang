@@ -1,6 +1,6 @@
 // Map methods on a fresh receiver release the map after dispatch
 // (126f84c + 33e12d5 for the string-key release).
-use test
+use std.test
 
 fn make_map(): Map<i64, i64> {
     let m = new Map<i64, i64>()

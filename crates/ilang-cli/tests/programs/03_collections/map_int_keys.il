@@ -1,5 +1,5 @@
 // Map with non-string key types (i64 / bool).
-use test
+use std.test
 
 let m = new Map<i64, string>()
 m.set(1, "one")

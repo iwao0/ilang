@@ -3,7 +3,7 @@
 // via `enumValue as string`; `match` still dispatches on the
 // auto-assigned variant index. Useful for grouping SDL hint
 // names / driver names / other string-keyed constant sets.
-use test
+use std.test
 
 pub enum Hint: string {
     audio = "SDL_AUDIO_RESAMPLING_MODE"

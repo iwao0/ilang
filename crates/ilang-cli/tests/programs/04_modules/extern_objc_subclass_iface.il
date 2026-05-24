@@ -14,7 +14,7 @@
 // fixture pair for the actual dispatch verification.
 //
 // jit: skip
-use test
+use std.test
 
 @extern(ObjC) {
     @objc class NSObject {

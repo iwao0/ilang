@@ -6,7 +6,7 @@
 /// state. Bails cleanly on hosts where the audio service isn't
 /// running.
 
-use test
+use std.test
 use ole32 {
     CoInitializeEx, CoUninitialize, CoCreateInstance, CoTaskMemFree,
     CoInit, ClsCtx,

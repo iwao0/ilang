@@ -8,7 +8,7 @@
 /// Skips cleanly when any prerequisite (window class, GPU, factory
 /// 4+) is unavailable.
 
-use test
+use std.test
 use windows {
     HANDLE, NULL,
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU,

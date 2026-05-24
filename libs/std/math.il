@@ -1,6 +1,6 @@
 /// Built-in `math` module — trigonometry, logs, roots, and other
 /// f64 helpers. All extern fns are implemented in the host runtime;
-/// calling code goes through the standard `use math` form.
+/// calling code goes through the standard `use std.math` form.
 
 /// Returns the sine of `x` (radians).
 ///

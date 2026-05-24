@@ -1,6 +1,6 @@
 /// winsta — open server + enumerate sessions smoke test.
 
-use test
+use std.test
 use winsta {
     WinStationOpenServerW, WinStationCloseServer,
     WinStationEnumerateW, WinStationFreeMemory,

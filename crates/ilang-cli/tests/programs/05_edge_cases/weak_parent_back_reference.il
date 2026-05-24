@@ -4,7 +4,7 @@
 // strong owner drops, future `get()` calls return None instead.
 // `weak_basic.il` exercises the single-class case; this fixture
 // adds the realistic multi-child + reverse-walk shape.
-use test
+use std.test
 
 class Parent {
     children: Child[]

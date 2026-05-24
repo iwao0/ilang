@@ -1,6 +1,6 @@
 /// NSURLComponents — parse, mutate, rebuild.
 
-use test
+use std.test
 use foundation { NSURLComponents, NSURLQueryItem, NSMutableArray,
                  nsstr, ilstr }
 

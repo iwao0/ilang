@@ -2,8 +2,8 @@
 // DateTime breakdown / composition / ISO round-trip / strftime
 // formatting. Uses a fixed epoch (2026-05-21T15:30:45.123Z =
 // 1779377445123 ms) so the assertions are deterministic.
-use time
-use test
+use std.time
+use std.test
 
 let epoch: i64 = 1779377445123 as i64
 let dt = time.DateTime.fromUnixMs(epoch)

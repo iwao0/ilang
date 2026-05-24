@@ -13,7 +13,7 @@
 ///   b.onClick.add(fn(e: gui.MouseEvent) { console.log("clicked") })
 ///   window.addChild(b)
 
-use events { Signal }
+use std.events { Signal }
 use event { MouseEvent }
 use window { Window, Control }
 use gui_impl {

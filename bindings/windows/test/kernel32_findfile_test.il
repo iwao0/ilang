@@ -1,6 +1,6 @@
 /// kernel32 — file enumeration over the Windows system directory.
 
-use test
+use std.test
 use windows {
     WIN32_FIND_DATAA,
     FindFirstFileA, FindNextFileA, FindClose,

@@ -1,8 +1,8 @@
 // `os.libLoadError` surfaces the dlopen failure message when an
 // `@lib(...) @optional` library couldn't be loaded. Used for
 // diagnostics; the gating logic still goes through libLoaded.
-use os
-use test
+use std.os
+use std.test
 
 @extern(C) {
     @lib("definitely_not_real_xyz_abc123.so") @optional fn ghost(): i64

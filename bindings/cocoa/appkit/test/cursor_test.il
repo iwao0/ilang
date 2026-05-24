@@ -2,7 +2,7 @@
 /// cursor instances. We don't push / set them (would change
 /// the active cursor for the test host).
 
-use test
+use std.test
 use appkit { NSCursor, sharedApplication }
 
 // Force AppKit to load (NSApplicationLoad inside) before

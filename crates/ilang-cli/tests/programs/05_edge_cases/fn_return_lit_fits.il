@@ -6,7 +6,7 @@
 // In-range literals at the tail still work, and non-literal
 // narrowing (`fn f(x: i64): i8 { x }`) continues to truncate per
 // ilang's runtime-typed convention.
-use test
+use std.test
 
 fn ok_tail(): i8 { 100 }
 fn ok_neg_tail(): i8 { -100 }

@@ -8,7 +8,7 @@
 // the tag from the element MirTy via `kind_tag_of`.
 //
 
-use test
+use std.test
 
 let baseline = test.liveAllocBytes()
 

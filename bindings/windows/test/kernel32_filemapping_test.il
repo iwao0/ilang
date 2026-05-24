@@ -1,6 +1,6 @@
 /// kernel32 — anonymous file-mapping shared memory.
 
-use test
+use std.test
 use windows {
     HANDLE,
     CreateFileMappingA, MapViewOfFile, UnmapViewOfFile, CloseHandle,

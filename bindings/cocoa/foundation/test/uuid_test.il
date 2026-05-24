@@ -1,6 +1,6 @@
 /// NSUUID — generate + string round-trip + equality.
 
-use test
+use std.test
 use foundation { NSUUID, nsstr, ilstr }
 
 let u1 = NSUUID.UUID()

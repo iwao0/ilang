@@ -1,6 +1,6 @@
 // Class fields typed at parent receiving subclass instances and
 // subclass-typed composites at init time (cd61814).
-use test
+use std.test
 
 class Animal {
     init() {}

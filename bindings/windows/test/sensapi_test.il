@@ -1,6 +1,6 @@
 /// sensapi — IsNetworkAlive smoke test.
 
-use test
+use std.test
 use sensapi { IsNetworkAlive }
 
 @extern(C) {

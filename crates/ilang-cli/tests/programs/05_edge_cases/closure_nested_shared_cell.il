@@ -6,7 +6,7 @@
 // inner FnExpr had been rewritten to an opaque Closure node and its
 // `n = ...` was no longer detectable: the outer's capture stayed
 // inline, the inner snapshotted a fresh value, and writes vanished.
-use test
+use std.test
 
 fn make(): fn(): i64 {
     let n = 0

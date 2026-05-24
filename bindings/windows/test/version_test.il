@@ -1,6 +1,6 @@
 /// version — version-info resource size query for a system DLL.
 
-use test
+use std.test
 use windows {
     GetFileVersionInfoSizeA,
 }

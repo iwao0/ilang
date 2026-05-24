@@ -1,6 +1,6 @@
 // Explicit `as` upcast — `b as Parent` where `B extends Parent`
 // (475cd79).
-use test
+use std.test
 
 class Animal {
     init() {}

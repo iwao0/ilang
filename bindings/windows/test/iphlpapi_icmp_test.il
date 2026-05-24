@@ -1,6 +1,6 @@
 /// iphlpapi — ICMP echo (ping) to the localhost address.
 
-use test
+use std.test
 use windows {
     HeapAlloc, HeapFree, GetProcessHeap,
 }

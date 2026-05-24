@@ -1,5 +1,5 @@
 // Implicit widening / narrowing within same sign + explicit `as` casts.
-use test
+use std.test
 
 // Implicit: same-sign int widening + narrowing.
 let n8: i8 = 100

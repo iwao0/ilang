@@ -9,7 +9,7 @@
 // memory reclaim using `liveAllocBytes`.
 //
 
-use test
+use std.test
 
 let baseline = test.liveAllocBytes()
 

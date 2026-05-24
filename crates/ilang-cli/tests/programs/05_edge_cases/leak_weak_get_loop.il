@@ -7,7 +7,7 @@
 // fixture pins down the alloc-tracker reclaim across many upgrades.
 //
 
-use test
+use std.test
 
 class Counter {
     n: i64

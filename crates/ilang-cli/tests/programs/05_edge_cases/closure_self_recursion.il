@@ -6,7 +6,7 @@
 // top-level `let` slot. Pre-fix the JIT errored at lower-time with
 // "unknown function 'f'"; the interpreter happened to work because
 // `f` fell through to the global-let map.
-use test
+use std.test
 
 let fib: fn(i64): i64 = fn(n: i64): i64 {
     if n < 2 { n } else { fib(n - 1) + fib(n - 2) }

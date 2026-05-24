@@ -2,7 +2,7 @@
 /// the window or run the event loop, so this is safe in
 /// headless contexts.
 
-use test
+use std.test
 use appkit { NSWindow, NSWindowStyleMask, NSBackingStoreType,
              sharedApplication, makeWindow }
 use foundation { makeRect, nsstr, ilstr }

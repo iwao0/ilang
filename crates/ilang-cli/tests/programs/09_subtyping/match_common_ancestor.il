@@ -1,6 +1,6 @@
 // match arms returning multiple sibling subclasses join at the
 // nearest common ancestor (92a2185).
-use test
+use std.test
 
 class Shape {
     init() {}

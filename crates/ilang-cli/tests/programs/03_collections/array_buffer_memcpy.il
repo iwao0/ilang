@@ -2,7 +2,7 @@
 // `memcpy(dst, src, n)` is the canonical exercise: it writes
 // through the dst pointer and reads through the src pointer.
 // ARC keeps both arrays alive across the call.
-use test
+use std.test
 use libc { memcpy, memset }
 
 @extern(C) {

@@ -9,7 +9,7 @@
 /// Every step is robust to "no device installed" — count==0 just
 /// skips the corresponding caps probe.
 
-use test
+use std.test
 use windows {
     waveOutGetNumDevs, waveInGetNumDevs, midiOutGetNumDevs, mixerGetNumDevs,
     waveOutGetDevCapsA, waveInGetDevCapsA, midiOutGetDevCapsA,

@@ -6,7 +6,7 @@
 // `__errno_location` / `__error`).
 //
 // jit: skip
-use test
+use std.test
 
 @extern(C) {
     fn maybe_succeed(ok: i32): i32

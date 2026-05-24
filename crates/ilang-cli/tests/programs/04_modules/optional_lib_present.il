@@ -1,8 +1,8 @@
 // libc is present everywhere — declaring it `@optional` should
 // produce the same behaviour as a regular `@lib("c") fn`,
 // with `os.libLoaded("c")` reporting true.
-use os
-use test
+use std.os
+use std.test
 
 @extern(C) {
     @lib("c") @optional fn abs(x: i32): i32

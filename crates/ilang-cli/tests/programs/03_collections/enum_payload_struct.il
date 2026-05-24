@@ -1,6 +1,6 @@
 // Enums with named (struct-style) payloads. Patterns can bind by
 // the field name (shorthand) or rename via `field: bound_name`.
-use test
+use std.test
 
 enum Shape {
     circle: { radius: f64 }

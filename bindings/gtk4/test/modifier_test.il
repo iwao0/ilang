@@ -3,7 +3,7 @@
 /// is OR'd from these, so the meta bit in particular has to stay
 /// at 0x10000000 for libs/gui's `metaKey` flag to fire correctly.
 
-use test
+use std.test
 use gtk { GdkModifierType }
 
 test.expect(GdkModifierType.shift_mask    as i64, 0x00000001)

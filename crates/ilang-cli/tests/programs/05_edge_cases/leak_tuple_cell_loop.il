@@ -10,7 +10,7 @@
 // header word.
 //
 
-use test
+use std.test
 
 let baseline = test.liveAllocBytes()
 

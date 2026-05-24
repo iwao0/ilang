@@ -7,7 +7,7 @@
 // allocation would leak 24 bytes + array storage per iteration.
 //
 
-use test
+use std.test
 
 class Box {
     items: i64[]

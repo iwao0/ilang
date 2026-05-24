@@ -1,6 +1,6 @@
 // Operations on empty containers — should be defined behavior, NOT
 // panics, for the "absent" cases.
-use test
+use std.test
 
 // Empty array.
 let xs: i64[] = []

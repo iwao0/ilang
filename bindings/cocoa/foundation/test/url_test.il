@@ -1,6 +1,6 @@
 /// NSURL — construct, inspect components.
 
-use test
+use std.test
 use foundation { NSURL, nsstr, ilstr }
 
 let u = NSURL.fromString(nsstr("https://example.com:8080/path/to/x?q=1#frag"))

@@ -1,6 +1,6 @@
 /// NSSet / NSMutableSet / NSCountedSet / NSIndexSet.
 
-use test
+use std.test
 use foundation { NSMutableArray, NSMutableSet, NSCountedSet, NSIndexSet,
                  nsstr, makeRange }
 

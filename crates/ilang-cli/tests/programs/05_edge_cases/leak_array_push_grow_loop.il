@@ -4,7 +4,7 @@
 // `xs.push(...)` loop accumulated ~2*N*stride unreachable bytes.
 //
 
-use test
+use std.test
 
 let baseline = test.liveAllocBytes()
 

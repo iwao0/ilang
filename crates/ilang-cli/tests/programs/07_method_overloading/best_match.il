@@ -1,5 +1,5 @@
 // Best-match scoring picks the exact overload over the widening one.
-use test
+use std.test
 
 class M {
     init() {}

@@ -2,7 +2,7 @@
 /// synchronously (NotificationCenter delivers on the posting
 /// thread when queue is nil), assert side effects.
 
-use test
+use std.test
 use foundation { NSNotificationCenter, NSNumber, NSObject, nil,
                  nsstr, ilstr }
 

@@ -8,7 +8,7 @@
 // call.
 //
 
-use test
+use std.test
 
 class Base {
     n: i64

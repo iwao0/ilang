@@ -1,6 +1,6 @@
 /// msi — UI-mode setter + product-enum smoke test.
 
-use test
+use std.test
 use windows { GetProcessHeap, HeapAlloc, HeapFree }
 use msi { MsiSetInternalUI, MsiEnumProductsA, InstallUiLevel }
 

@@ -6,7 +6,7 @@
 // pins down the memory reclaim.
 //
 
-use test
+use std.test
 
 class Holder {
     f: fn(i64): i64

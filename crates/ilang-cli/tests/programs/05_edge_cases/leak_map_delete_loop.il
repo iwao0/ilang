@@ -9,7 +9,7 @@
 // separate fix.
 //
 
-use test
+use std.test
 
 class Counter {
     n: i64

@@ -1,6 +1,6 @@
 // Edge cases for the string built-ins: empty input, multibyte
 // characters, out-of-range indices.
-use test
+use std.test
 
 // Empty.
 test.expect("".length, 0)

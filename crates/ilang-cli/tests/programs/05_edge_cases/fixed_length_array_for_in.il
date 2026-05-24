@@ -4,7 +4,7 @@
 // pins down the iteration shape (the JIT lays out fixed-length
 // arrays differently — they share the dynamic header but skip the
 // realloc path).
-use test
+use std.test
 
 let xs: i64[3] = [10, 20, 30]
 test.expect(xs.length, 3)

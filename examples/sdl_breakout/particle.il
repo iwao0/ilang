@@ -5,7 +5,7 @@
 // Both live as their own arrays in the main loop and are stepped /
 // drawn every frame.
 
-use math
+use std.math
 use rng
 
 pub class Particle {

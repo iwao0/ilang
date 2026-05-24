@@ -6,7 +6,7 @@
 // this fixture pins down the no-leak loop.
 //
 
-use test
+use std.test
 
 let m = new Map<i64, i64>()
 m[1] = 10

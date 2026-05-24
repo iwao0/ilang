@@ -12,7 +12,7 @@
 // cleanly. Real runtime use is exercised by the cocoa bindings.
 //
 // jit: skip
-use test
+use std.test
 
 @extern(C) {
     struct objc_object {}

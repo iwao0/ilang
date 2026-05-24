@@ -1,5 +1,5 @@
 // Single inheritance with method override + super dispatch.
-use test
+use std.test
 
 class Animal {
     name: string

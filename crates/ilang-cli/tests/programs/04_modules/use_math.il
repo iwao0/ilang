@@ -7,8 +7,8 @@
 // without the `$` sigil for months before anyone noticed because no
 // fixture exercised it under `ILANG_TEST_AOT=1`. Keep coverage
 // exhaustive.
-use test
-use math
+use std.test
+use std.math
 
 // --- Powers / roots ---
 test.expectF64(math.sqrt(16.0), 4.0)

@@ -1,6 +1,6 @@
 // Array literal forms: dynamic, fixed-length, trailing comma, nested.
 // Plus index read/write, .length, and the empty-array annotation rule.
-use test
+use std.test
 
 // Dynamic vs fixed-length declaration syntax.
 let xs: i64[] = [10, 20, 30]

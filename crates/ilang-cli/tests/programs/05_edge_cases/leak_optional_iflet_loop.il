@@ -7,7 +7,7 @@
 // is dropped).
 //
 
-use test
+use std.test
 
 let baseline = test.liveAllocBytes()
 

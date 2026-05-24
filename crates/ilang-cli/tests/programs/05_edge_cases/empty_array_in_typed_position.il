@@ -3,7 +3,7 @@
 // inner. Pre-fix only the `let x: T[] = []` path threaded the elem
 // type into the JIT; the others errored with "JIT array literal
 // must have at least one element".
-use test
+use std.test
 
 fn count(xs: i64[]): i64 { xs.length }
 test.expect(count([]), 0)

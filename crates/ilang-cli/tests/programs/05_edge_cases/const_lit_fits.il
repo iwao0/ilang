@@ -3,7 +3,7 @@
 // `const X: i8 = 200` quietly substituted to `200 as i8` and
 // produced -56 at runtime (the parity test in the harness would
 // then accept either backend's wrapped value).
-use test
+use std.test
 
 const SMALL: i8 = 100
 const NEG_MIN: i8 = -128

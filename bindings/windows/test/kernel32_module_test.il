@@ -1,6 +1,6 @@
 /// kernel32 — module / executable path queries.
 
-use test
+use std.test
 use windows {
     HMODULE, HANDLE,
     GetModuleHandleA, GetModuleFileNameA, GetCommandLineA,

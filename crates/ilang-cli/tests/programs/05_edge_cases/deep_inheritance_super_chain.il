@@ -4,7 +4,7 @@
 // parent's vtable slot regardless of subclass count — a regression
 // that walks the whole chain or stops at the wrong level would
 // silently double-count or skip layers.
-use test
+use std.test
 
 class A { v(): i64 { 1 } }
 class B: A { override v(): i64 { 10 + super.v() } }

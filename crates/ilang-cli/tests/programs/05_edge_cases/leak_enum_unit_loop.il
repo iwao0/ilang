@@ -8,7 +8,7 @@
 // which leaked ~840 cells/sec into the host_mir_alloc tracker.
 //
 
-use test
+use std.test
 
 enum Color { red, green, blue }
 

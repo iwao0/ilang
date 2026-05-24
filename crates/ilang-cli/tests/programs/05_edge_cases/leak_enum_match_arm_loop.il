@@ -10,7 +10,7 @@
 // shape; this fixture adds the match-binding extraction shape.
 //
 
-use test
+use std.test
 
 enum E {
     a: (i64)

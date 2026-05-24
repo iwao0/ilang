@@ -13,7 +13,7 @@
 /// endpoint is available — every entry point that can fail
 /// short-circuits the test.
 
-use test
+use std.test
 use ole32 { CoInitializeEx, CoUninitialize, CoInit, IUnknown }
 use windows {
     NULL,

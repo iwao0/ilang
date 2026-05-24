@@ -8,7 +8,7 @@
 /// negative HRESULT and the test bails cleanly — same convention as
 /// the rest of the harness.
 
-use test
+use std.test
 use windows { HANDLE }
 use directx12 {
     D3DCompile, D3DCompile2,

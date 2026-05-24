@@ -3,7 +3,7 @@
 // tree; lowering must traverse it without exploding compile time
 // AND, more importantly, type-check the whole chain producing one
 // unified type (here, `string`).
-use test
+use std.test
 
 fn name(n: i64): string {
     if n == 0 { "zero" }

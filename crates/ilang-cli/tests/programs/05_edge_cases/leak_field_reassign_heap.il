@@ -6,7 +6,7 @@
 // separately) to closure-typed fields.
 //
 
-use test
+use std.test
 
 class Holder {
     arr: i64[]

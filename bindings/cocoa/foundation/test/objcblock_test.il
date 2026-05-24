@@ -2,7 +2,7 @@
 /// supported signature shape. Pure ilang round-trip; doesn't go
 /// out to any Cocoa selector.
 
-use test
+use std.test
 
 // void(^)(void).
 let nilCount = 0

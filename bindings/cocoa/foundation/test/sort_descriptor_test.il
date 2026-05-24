@@ -1,6 +1,6 @@
 /// NSSortDescriptor + NSArray.sortedArrayUsingDescriptors.
 
-use test
+use std.test
 use foundation { NSNumber, NSMutableArray, NSSortDescriptor,
                  nsstr, ilstr }
 

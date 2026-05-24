@@ -1,6 +1,6 @@
 /// NSLocale — construct by identifier and read back the parts.
 
-use test
+use std.test
 use foundation { NSLocale, nsstr, ilstr }
 
 let l = NSLocale.localeWithIdentifier(nsstr("en_US"))

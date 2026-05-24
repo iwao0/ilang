@@ -1,5 +1,5 @@
 // Bitwise operators: & | ^ ~ << >> on integers.
-use test
+use std.test
 
 test.expect(0xff & 0x0f, 0x0f)
 test.expect(0xf0 | 0x0f, 0xff)

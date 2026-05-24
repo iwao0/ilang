@@ -1,6 +1,6 @@
 // Fields of varied types — primitive, string, Object, Array, Optional.
 // Verifies that field load/store works for every JIT type kind.
-use test
+use std.test
 
 class Inner {
     n: i64

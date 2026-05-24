@@ -225,7 +225,7 @@ fn use_builtin_math_module() {
     // shipped stdlib version.
     let dir = std::env::temp_dir().join(format!("ilang_math_test_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let main = write_module(&dir, "main", "use math\nmath.sqrt(16.0)");
+    let main = write_module(&dir, "main", "use std.math\nmath.sqrt(16.0)");
     let out = Command::new(ilang_bin()).arg("run").arg(&main).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "4.0");
@@ -238,7 +238,7 @@ fn use_builtin_math_jit() {
     let main = write_module(
         &dir,
         "main",
-        "use math\nlet p = math.pi\nmath.sin(p / 2.0)",
+        "use std.math\nlet p = math.pi\nmath.sin(p / 2.0)",
     );
     let out = Command::new(ilang_bin())
         .arg("run")
@@ -267,7 +267,7 @@ fn const_module_qualified() {
     // is inlined at the use site — no parens needed.
     let dir = std::env::temp_dir().join(format!("ilang_const_pi_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let main = write_module(&dir, "main", "use math\nmath.pi");
+    let main = write_module(&dir, "main", "use std.math\nmath.pi");
     let out = Command::new(ilang_bin()).arg("run").arg(&main).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert!(String::from_utf8_lossy(&out.stdout).trim().starts_with("3.14"));

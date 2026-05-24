@@ -1,6 +1,6 @@
 // Every array method documented in §8 — exercised once each, then
 // chained where possible.
-use test
+use std.test
 
 fn double(n: i64): i64 { n * 2 }
 fn even(n: i64): bool { n % 2 == 0 }

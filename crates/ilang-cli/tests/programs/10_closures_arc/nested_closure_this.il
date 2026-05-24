@@ -1,7 +1,7 @@
 // Nested closure where only the innermost mentions `this` —
 // every wrapper along the chain still has to capture it
 // (9475956: `block_uses_this_directly` recurses into FnExpr).
-use test
+use std.test
 
 class Foo {
     x: i64

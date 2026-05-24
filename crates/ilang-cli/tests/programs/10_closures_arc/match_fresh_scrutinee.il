@@ -1,6 +1,6 @@
 // `match make()` on a fresh heap enum scrutinee releases the
 // scrutinee at the merge so we don't leak (e3bb440).
-use test
+use std.test
 
 enum Box {
     holds: (i64[])

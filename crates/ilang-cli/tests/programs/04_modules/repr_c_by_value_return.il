@@ -6,7 +6,7 @@
 // Object with rc=1.
 //
 // jit: skip
-use test
+use std.test
 
 @extern(C) {
     struct point2 {

@@ -3,7 +3,7 @@
 // the closure's own state — mutations inside the body persist across
 // repeated invocations of the same closure, and different closures
 // (even built in the same scope) get independent cells.
-use test
+use std.test
 
 fn makeCounter(): fn(): i64 {
     let n = 0

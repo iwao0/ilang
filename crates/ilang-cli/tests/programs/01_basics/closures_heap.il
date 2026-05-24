@@ -1,7 +1,7 @@
 // Closures capturing heap-typed values (string / array / object).
 // Stage C: ARC-managed closures retain captures on construct and
 // release them when the last reference drops.
-use test
+use std.test
 
 // String capture.
 let prefix = "Hi, "

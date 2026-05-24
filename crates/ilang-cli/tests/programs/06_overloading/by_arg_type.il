@@ -1,6 +1,6 @@
 // Function overloading by parameter type. Same name, different
 // implementations, dispatched at the call site by exact match.
-use test
+use std.test
 
 fn show(n: i64): string { "int" }
 fn show(s: string): string { "str" }

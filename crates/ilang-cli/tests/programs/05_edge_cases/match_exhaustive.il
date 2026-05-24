@@ -1,6 +1,6 @@
 // Match must cover every case. Wildcard `_` catches the rest;
 // explicit per-variant arms work too.
-use test
+use std.test
 
 enum Color { red, green, blue }
 

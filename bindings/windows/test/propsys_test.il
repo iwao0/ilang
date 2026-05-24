@@ -1,6 +1,6 @@
 /// propsys — PROPVARIANT manual construction + read smoke test.
 
-use test
+use std.test
 use wasapi { PROPVARIANT }
 use propsys { PropVariantClear, PropVariantToInt32, PropVariantToDouble }
 

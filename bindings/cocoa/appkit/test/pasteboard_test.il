@@ -2,7 +2,7 @@
 /// `pasteboardWithUniqueName` instance, so the user's actual
 /// system clipboard is left untouched.
 
-use test
+use std.test
 use appkit { NSPasteboard, PasteboardTypeString }
 use foundation { nsstr, ilstr }
 

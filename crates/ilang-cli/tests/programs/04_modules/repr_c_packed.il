@@ -9,7 +9,7 @@
 //     `alg_byte_at` host externs that read raw bytes)
 //
 // jit: skip
-use test
+use std.test
 
 @extern(C) {
     @packed struct packed_header {

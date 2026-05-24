@@ -1,7 +1,7 @@
 // A pattern binding inside a match arm introduces a fresh local
 // scoped to that arm. It must shadow any outer variable of the same
 // name without overwriting it.
-use test
+use std.test
 
 enum E {
     a: (i64)

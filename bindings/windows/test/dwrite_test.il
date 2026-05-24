@@ -1,6 +1,6 @@
 /// dwrite — factory creation smoke test.
 
-use test
+use std.test
 use winnt { GUID }
 use dwrite { DWriteCreateFactory, DWriteFactoryType }
 

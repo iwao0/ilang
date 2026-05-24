@@ -1,5 +1,5 @@
 // && / || / !  with short-circuit evaluation.
-use test
+use std.test
 
 // Truth tables.
 test.expectBool(true && true, true)

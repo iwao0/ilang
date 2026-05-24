@@ -3,7 +3,7 @@
 // allocation itself when the if-let expression finishes. Both sites
 // were previously skipped, leaking the +1 retain on `x` and the
 // fresh heap value produced by `expr`.
-use test
+use std.test
 
 class Counter {
     n: i64

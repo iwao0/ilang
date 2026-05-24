@@ -3,7 +3,7 @@
 // doesn't pin down the "set is upsert, not insert" semantics — easy
 // to regress (e.g. dual-storing the value during insertion-order
 // changes).
-use test
+use std.test
 
 let m = new Map<string, i64>()
 m.set("a", 1)

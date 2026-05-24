@@ -1,7 +1,7 @@
 /// NSStackView / NSScrollView / NSGridView — construct + child
 /// management, without showing them.
 
-use test
+use std.test
 use appkit { NSStackView, NSScrollView, NSSplitView, NSGridView,
              NSUserInterfaceLayoutOrientation, NSBorderType,
              NSTextField,

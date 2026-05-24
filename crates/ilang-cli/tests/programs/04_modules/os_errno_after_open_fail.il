@@ -2,8 +2,8 @@
 // trigger a deterministic failure by `fopen`-ing a path that can't
 // exist, then verify errno is non-zero (ENOENT = 2 on macOS /
 // Linux, but we just check positivity to avoid platform variance).
-use os
-use test
+use std.os
+use std.test
 
 @extern(C) {
     struct FILE {}

@@ -2,7 +2,7 @@
 // that the optional-discriminant survives storage and indexed
 // retrieval. `optional_*.il` covers single-binding optionals; this
 // is the heap-storage-of-optionals path.
-use test
+use std.test
 
 let xs: i64?[] = [some(1), none, some(3), none, some(5)]
 test.expect(xs.length, 5)

@@ -17,7 +17,7 @@
 //
 // (The C ABI keeps the platform-fixed 16 B threshold; this
 // fixture only exercises the ilang side.)
-use test
+use std.test
 
 // 8 B → single i64 chunk.
 struct Small {

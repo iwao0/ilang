@@ -12,7 +12,7 @@
 /// `RADIOS` registry — neither backend has to coordinate native
 /// group bits.
 
-use events { Signal }
+use std.events { Signal }
 use event { ToggleEvent }
 use window { Window, Control }
 use gui_impl {

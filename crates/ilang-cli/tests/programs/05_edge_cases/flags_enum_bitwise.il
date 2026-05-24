@@ -5,7 +5,7 @@
 //
 // Pattern lifted from breakout's `sdl.init(InitFlag.video |
 // InitFlag.audio | InitFlag.gameController)` startup call.
-use test
+use std.test
 
 @flags
 enum Perm: u32 {

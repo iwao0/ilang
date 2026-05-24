@@ -1,6 +1,6 @@
 /// kernel32 — lstr* C-string helpers.
 
-use test
+use std.test
 use windows {
     lstrlenA, lstrcmpA, lstrcmpiA,
 }

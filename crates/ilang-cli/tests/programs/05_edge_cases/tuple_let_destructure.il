@@ -2,7 +2,7 @@
 // and may include heap elements; each binding must end up at the
 // declared type. `tuple_basics.il` exercises tuple read via `t[N]`;
 // this is the destructure-bind side.
-use test
+use std.test
 
 let pair: (i64, string) = (1, "hi")
 let (a, b) = pair

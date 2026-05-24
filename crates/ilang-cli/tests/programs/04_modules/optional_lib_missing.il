@@ -5,8 +5,8 @@
 //
 // This fixture targets a definitely-missing library; the stub must
 // NOT execute, so we pick the else branch.
-use os
-use test
+use std.os
+use std.test
 
 @extern(C) {
     @lib("definitely_not_a_real_lib_xyz123.so") @optional fn never_called(): i64

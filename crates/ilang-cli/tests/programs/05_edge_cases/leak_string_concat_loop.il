@@ -10,7 +10,7 @@
 // ~30 leaks/sec even with the rest of the pipeline correct.
 //
 
-use test
+use std.test
 
 let baseline = test.liveStringCount()
 

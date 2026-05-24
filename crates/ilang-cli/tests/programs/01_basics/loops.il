@@ -1,5 +1,5 @@
 // while / loop with break / continue, including nested loops.
-use test
+use std.test
 
 // while: count to 10.
 let i = 0

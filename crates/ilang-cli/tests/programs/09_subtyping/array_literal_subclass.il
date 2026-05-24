@@ -1,6 +1,6 @@
 // Array literal with subclass elements flowing into Parent[]
 // (cd61814 + 32111f1: thread subclass through composite literals).
-use test
+use std.test
 
 class Animal {
     init() {}

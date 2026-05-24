@@ -8,7 +8,7 @@
 // (closure_capture_table didn't carry the size).
 //
 
-use test
+use std.test
 
 let baseline = test.liveAllocBytes()
 

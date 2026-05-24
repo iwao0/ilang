@@ -12,7 +12,7 @@
 ///   t.onChange.add(fn(e: gui.ChangeEvent) { console.log(e.value) })
 ///   window.addChild(t)
 
-use events { Signal }
+use std.events { Signal }
 use event { ChangeEvent }
 use window { Window, Control }
 use gui_impl {

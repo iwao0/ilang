@@ -18,7 +18,7 @@
 // concat in expression position, captured-string mutation, getter
 // returning a concat result, fresh string into a `Map<string,
 // string>`, and `let`-shadow rebinding a fresh string.
-use test
+use std.test
 
 // 1. Bare concat.
 let s = "hi" + " world"

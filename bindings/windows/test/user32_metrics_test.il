@@ -1,6 +1,6 @@
 /// user32 — system metrics and DPI queries.
 
-use test
+use std.test
 use windows {
     GetSystemMetrics, GetDpiForSystem,
     GetDesktopWindow, IsWindow, GetForegroundWindow,

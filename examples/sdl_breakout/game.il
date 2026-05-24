@@ -4,7 +4,7 @@
 // entry file is just the SDL bootstrap.
 
 use sdl
-use math
+use std.math
 use sprites
 use audio { AudioSession }
 use palette

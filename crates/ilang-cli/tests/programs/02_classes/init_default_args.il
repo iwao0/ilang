@@ -1,5 +1,5 @@
 // `init` and methods accept default-arg parameters too.
-use test
+use std.test
 
 class Box {
     value: i64

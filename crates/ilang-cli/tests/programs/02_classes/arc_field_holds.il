@@ -1,6 +1,6 @@
 // An Object-typed field keeps its target alive until the holder dies.
 // When the holder dies, the field is released, possibly cascading.
-use test
+use std.test
 
 class Counter {
     n: i64

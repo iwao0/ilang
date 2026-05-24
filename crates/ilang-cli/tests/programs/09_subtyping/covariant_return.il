@@ -1,5 +1,5 @@
 // Override with a covariant (subclass) return type (1c75465).
-use test
+use std.test
 
 class Animal {
     init() {}

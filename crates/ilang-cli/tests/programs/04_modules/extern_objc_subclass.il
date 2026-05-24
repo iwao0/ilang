@@ -5,7 +5,7 @@
 // dispatches those selectors back into the ilang implementation.
 //
 // jit: skip
-use test
+use std.test
 
 @extern(ObjC) {
     @objc class NSObject {

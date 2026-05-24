@@ -1,5 +1,5 @@
 // Integer arithmetic + precedence + parens + unary ops.
-use test
+use std.test
 
 // Basic four ops + modulo.
 test.expect(1 + 2, 3)

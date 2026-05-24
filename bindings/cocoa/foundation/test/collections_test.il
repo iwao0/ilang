@@ -1,6 +1,6 @@
 /// NSArray / NSMutableArray / NSDictionary / NSMutableDictionary.
 
-use test
+use std.test
 use foundation { NSObject, NSString, NSArray, NSMutableArray,
             NSDictionary, NSMutableDictionary, NSEnumerator,
             makeRange, nsstr, ilstr }

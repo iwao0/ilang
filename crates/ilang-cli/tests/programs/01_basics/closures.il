@@ -1,6 +1,6 @@
 // Closures capture outer variables by value at creation time
 // (interpreter + JIT — Stage C handles all capture types).
-use test
+use std.test
 
 let factor = 10
 let scale = fn(x: i64): i64 { x * factor }

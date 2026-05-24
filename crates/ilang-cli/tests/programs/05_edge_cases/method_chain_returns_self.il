@@ -2,7 +2,7 @@
 // and the side effect on `this.n` must accumulate exactly once per
 // hop. A regression that re-evaluates the receiver between chain
 // links (or boxes/unboxes it) would either lose state or undercount.
-use test
+use std.test
 
 class Counter {
     n: i64

@@ -2,7 +2,7 @@
 // Same value-type / C-layout semantics as `@extern(C) struct`, but
 // the field types are restricted: no `char`, `void`, `size_t`,
 // `ssize_t`, or raw pointers, transitively.
-use test
+use std.test
 
 struct Point {
     x: i32

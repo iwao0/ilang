@@ -1,7 +1,7 @@
 // Array of objects: when the array's last reference dies, every
 // element is released — cascading deinits if the elements held heap
 // resources.
-use test
+use std.test
 
 class Counter {
     n: i64

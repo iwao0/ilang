@@ -2,7 +2,7 @@
 /// runs on a host with at least one display (Macs in headless
 /// CI still have a virtual screen via WindowServer).
 
-use test
+use std.test
 use appkit { NSScreen }
 
 let main = NSScreen.mainScreen()

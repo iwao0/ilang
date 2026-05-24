@@ -2,7 +2,7 @@
 // Box<Option<...>>; the JIT's nullable-pointer Optional layout can't
 // distinguish Some(none) from none for the same inner pointer width,
 // so this fixture is interpreter-only for now.
-use test
+use std.test
 
 // Optional<Optional<string>> — both layers are heap (Str / Optional<Str>).
 let outer_some_inner_some: string?? = some(some("hi"))
