@@ -277,7 +277,7 @@ pub fn compile_with_builtins(
         ilang_runtime::__ilang_objc_imp_lookup as *const u8,
     );
     jit_builder.symbol(
-        "__ilang_make_void_block",
+        "$objc.make_void_block",
         ilang_runtime::make_void_block as *const u8,
     );
     jit_builder.symbol(
@@ -285,7 +285,7 @@ pub fn compile_with_builtins(
         ilang_runtime::invoke_void_block_via_runtime as *const u8,
     );
     jit_builder.symbol(
-        "__ilang_make_obj_block",
+        "$objc.make_obj_block",
         ilang_runtime::make_obj_block as *const u8,
     );
     jit_builder.symbol(
@@ -293,7 +293,7 @@ pub fn compile_with_builtins(
         ilang_runtime::invoke_obj_block_via_runtime as *const u8,
     );
     jit_builder.symbol(
-        "__ilang_make_obj_to_obj_block",
+        "$objc.make_obj_to_obj_block",
         ilang_runtime::make_obj_to_obj_block as *const u8,
     );
     jit_builder.symbol(
@@ -301,19 +301,19 @@ pub fn compile_with_builtins(
         ilang_runtime::invoke_obj_to_obj_block_via_runtime as *const u8,
     );
     jit_builder.symbol(
-        "__ilang_make_void_bytes_block",
+        "$objc.make_void_bytes_block",
         ilang_runtime::make_void_bytes_block as *const u8,
     );
     jit_builder.symbol(
-        "__ilang_make_void_three_obj_block",
+        "$objc.make_void_three_obj_block",
         ilang_runtime::make_void_three_obj_block as *const u8,
     );
     jit_builder.symbol(
-        "__ilang_objc_err_slot_ptr",
+        "$objc.err_slot_ptr",
         ilang_runtime::objc_err_slot_ptr as *const u8,
     );
     jit_builder.symbol(
-        "__ilang_objc_take_err",
+        "$objc.take_err",
         ilang_runtime::objc_take_err as *const u8,
     );
     // fs.* — `stdlib/fs.il`'s `@extern(C)` block.

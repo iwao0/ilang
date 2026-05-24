@@ -640,41 +640,22 @@ fn lib_kernel32_fn_called_inside_another_extern_block_ok() {
 }
 
 #[test]
-fn lib_c_with_ilang_runtime_symbol_called_outside_extern_ok() {
-    // Mirrors `bindings/cocoa/foundation/core.il`'s `withObjcError`:
-    // `@lib("c") @symbol("__ilang_objc_err_slot_ptr")` runtime hooks
-    // are also called from plain `pub fn` wrappers. The `__ilang_*`
-    // symbol-prefix exemption keeps them compiling.
+fn intrinsic_fn_called_outside_extern_ok() {
+    // `@intrinsic("ns.name")` desugars to an `@extern(C) { fn ... }`
+    // declaration with empty `libs` (the runtime symbol table
+    // resolves it via the `$ns.name` sigil), so it falls through
+    // the @lib gate and is callable anywhere — including from a
+    // plain `pub fn` wrapper outside any extern block. This is the
+    // pattern cocoa's `_objc_err_slot_ptr` etc. now use.
     let src = r#"
-        @extern(C) {
-            @lib("c") @symbol("__ilang_objc_err_slot_ptr")
-                fn _objc_err_slot_ptr(): i64
-        }
-        pub fn slot(): i64 { _objc_err_slot_ptr() }
+        @intrinsic("objc.err_slot_ptr") fn _slot(): i64
+        pub fn slot(): i64 { _slot() }
         let _ = slot()
     "#;
     let errs = errors(src);
     assert!(
         errs.is_empty(),
-        "@lib(\"c\") + @symbol(\"__ilang_*\") must be callable anywhere: {errs:?}"
-    );
-}
-
-#[test]
-fn lib_c_without_ilang_runtime_symbol_still_rejected() {
-    // Sanity: only the `__ilang_*` symbol prefix gets the exemption.
-    // A `@lib("c") @symbol("printf")` call from outside @extern stays
-    // an error so the gate doesn't silently waive every C library.
-    let src = r#"
-        @extern(C) {
-            @lib("c") @symbol("printf") fn _printf(s: i64): i32
-        }
-        _printf(0)
-    "#;
-    let errs = errors(src);
-    assert!(
-        errs.iter().any(|e| matches!(e, TypeError::Unsupported { what, .. } if what.contains("@lib"))),
-        "non-ilang @lib(\"c\") must still error: {errs:?}"
+        "@intrinsic must be callable anywhere: {errs:?}"
     );
 }
 

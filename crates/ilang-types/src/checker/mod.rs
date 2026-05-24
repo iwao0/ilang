@@ -258,21 +258,18 @@ pub(super) struct Signature {
     pub(super) deprecated: Option<String>,
     /// Library list for `@lib(...) pub fn ...` declarations inside
     /// an `@extern(C, "lib") { ... }` / `@extern(ObjC, ...) { ... }`
-    /// block. Empty for regular fns. The call-site gate rejects
-    /// dlsym'd `@lib` calls outside another `@extern(...) { ... }`
-    /// block (the symbol is only resolved through the extern
-    /// codegen path; calling from ordinary code would panic at
-    /// JIT time with `can't resolve symbol X`).
+    /// block. Empty for regular fns and for `@intrinsic` items
+    /// (which route through ilang's runtime symbol table, not the
+    /// dlsym path). The call-site gate rejects dlsym'd `@lib` calls
+    /// outside another `@extern(...) { ... }` block — the symbol is
+    /// only resolved through the extern codegen path, so calling
+    /// from ordinary code would panic at JIT time with
+    /// `can't resolve symbol X`.
     ///
-    /// Exceptions: `@lib("objc")` (the ObjC runtime's reference-
-    /// counting primitives) and any fn whose `@symbol("...")` starts
-    /// with `__ilang_` (ilang's own runtime hooks). Both are
-    /// surfaced through wrapper fns in the cocoa bindings that the
-    /// call-site can't move inside an extern block.
+    /// Exception: `@lib("objc")` (the ObjC runtime's reference-
+    /// counting primitives the cocoa bindings expose via plain
+    /// `pub fn` wrappers).
     pub(super) lib_names: Vec<Symbol>,
-    /// `@symbol("name")` override on the fn (when present). Used by
-    /// the call-site gate to whitelist `__ilang_*` runtime hooks.
-    pub(super) c_symbol: Option<Symbol>,
 }
 
 #[derive(Debug, Clone, Default)]

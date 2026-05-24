@@ -543,7 +543,7 @@ fn make_block(
 /// trampoline calls `closure_ptr` (an ilang `fn(): unit` value).
 /// Comes back autoreleased — pass straight to ObjC APIs that
 /// take a completion handler.
-#[unsafe(export_name = "__ilang_make_void_block")]
+#[unsafe(export_name = "$objc.make_void_block")]
 pub extern "C" fn make_void_block(closure_ptr: i64) -> i64 {
     if closure_ptr == 0 {
         return 0;
@@ -567,7 +567,7 @@ pub extern "C" fn make_void_block(closure_ptr: i64) -> i64 {
 /// `closure_ptr` with the raw `id` argument as `i64`. The ilang
 /// closure should be `fn(handle: i64): unit`; use `NSObject.wrap`
 /// (or a subclass equivalent) inside if you want a typed view.
-#[unsafe(export_name = "__ilang_make_obj_block")]
+#[unsafe(export_name = "$objc.make_obj_block")]
 pub extern "C" fn make_obj_block(closure_ptr: i64) -> i64 {
     if closure_ptr == 0 {
         return 0;
@@ -592,7 +592,7 @@ pub extern "C" fn make_obj_block(closure_ptr: i64) -> i64 {
 /// Used for monitoring APIs (`addLocalMonitorForEventsMatchingMask
 /// :handler:`) where the handler decides whether to forward,
 /// replace, or swallow the event.
-#[unsafe(export_name = "__ilang_make_obj_to_obj_block")]
+#[unsafe(export_name = "$objc.make_obj_to_obj_block")]
 pub extern "C" fn make_obj_to_obj_block(closure_ptr: i64) -> i64 {
     if closure_ptr == 0 {
         return 0;
@@ -616,7 +616,7 @@ pub extern "C" fn make_obj_to_obj_block(closure_ptr: i64) -> i64 {
 /// closure is `fn(ptr: i64, len: i64): unit` — receives a raw
 /// bytes pointer and length so the body can mutate the buffer
 /// in-place via `writeU8` etc.
-#[unsafe(export_name = "__ilang_make_void_bytes_block")]
+#[unsafe(export_name = "$objc.make_void_bytes_block")]
 pub extern "C" fn make_void_bytes_block(closure_ptr: i64) -> i64 {
     if closure_ptr == 0 {
         return 0;
@@ -690,7 +690,7 @@ pub extern "C" fn make_void_bool_block(closure_ptr: i64) -> i64 {
 /// raw `id` handles. Used by `NSURLSession`'s
 /// `dataTaskWithRequest:completionHandler:` family, where the
 /// trio is `(NSData *, NSURLResponse *, NSError *)`.
-#[unsafe(export_name = "__ilang_make_void_three_obj_block")]
+#[unsafe(export_name = "$objc.make_void_three_obj_block")]
 pub extern "C" fn make_void_three_obj_block(closure_ptr: i64) -> i64 {
     if closure_ptr == 0 {
         return 0;
@@ -785,12 +785,12 @@ thread_local! {
     static OBJC_ERR_SLOT: Cell<i64> = const { Cell::new(0) };
 }
 
-#[unsafe(export_name = "__ilang_objc_err_slot_ptr")]
+#[unsafe(export_name = "$objc.err_slot_ptr")]
 pub extern "C" fn objc_err_slot_ptr() -> i64 {
     OBJC_ERR_SLOT.with(|c| c.as_ptr() as i64)
 }
 
-#[unsafe(export_name = "__ilang_objc_take_err")]
+#[unsafe(export_name = "$objc.take_err")]
 pub extern "C" fn objc_take_err() -> i64 {
     OBJC_ERR_SLOT.with(|c| c.replace(0))
 }

@@ -1002,33 +1002,6 @@ pub enum NSBinarySearchingOptions: u64 {
     @lib("objc") @symbol("objc_release")
         fn _objc_release(obj: i64)
 
-    // Heap-allocates an ObjC block whose `invoke` trampoline calls
-    // the captured ilang closure. The block is autoreleased before
-    // return so callers can pass it straight to APIs that take a
-    // completion handler without manual `Block_release`.
-    // Implemented in `ilang-runtime/objc_blocks.rs`.
-    @lib("c") @symbol("__ilang_make_void_block")
-        fn _make_void_block(closure: fn()): i64
-    @lib("c") @symbol("__ilang_make_obj_block")
-        fn _make_obj_block(closure: fn(i64)): i64
-    @lib("c") @symbol("__ilang_make_obj_to_obj_block")
-        fn _make_obj_to_obj_block(closure: fn(i64): i64): i64
-    @lib("c") @symbol("__ilang_make_void_bytes_block")
-        fn _make_void_bytes_block(closure: fn(i64, i64)): i64
-    @lib("c") @symbol("__ilang_make_void_three_obj_block")
-        fn _make_void_three_obj_block(closure: fn(i64, i64, i64)): i64
-
-    // Per-thread `NSError *` slot used by the public
-    // `withObjcError` wrapper at module scope. The runtime hosts
-    // the slot so binding wrappers outside any @extern(C) block
-    // can hand its address to `NSError **` out-parameters without
-    // needing ilang's `&local` syntax (which only works inside
-    // @extern(C)).
-    @lib("c") @symbol("__ilang_objc_err_slot_ptr")
-        fn _objc_err_slot_ptr(): i64
-    @lib("c") @symbol("__ilang_objc_take_err")
-        fn _objc_take_err(): i64
-
     /// Intern an Objective-C selector by name and return its
     /// stable SEL pointer (as `i64`). Use it with
     /// `button.setAction(selectorPtr("clicked:"))`.
@@ -1097,61 +1070,6 @@ pub enum NSBinarySearchingOptions: u64 {
         r
     }
 
-    /// Build an ObjC `void(^)(void)` block from an ilang closure.
-    /// Returns the block as an opaque `i64` pointer suitable for
-    /// passing to any `@objc` method whose selector takes a
-    /// `void(^)(void)` (completion handlers etc.). The block is
-    /// autoreleased — let it die with the surrounding pool, or
-    /// retain it via `objc_retain` if you need a longer lifetime.
-    pub fn makeBlock(body: fn()): i64 {
-        _make_void_block(body)
-    }
-
-    /// Build an ObjC `void(^)(id)` block — the callback shape used
-    /// by AppKit / Foundation when handing a single object back
-    /// (e.g. `addLocalMonitorForEventsMatchingMask:handler:`'s
-    /// NSEvent argument). The ilang closure receives the object's
-    /// raw `id` as `i64`; wrap it with `NSObject.wrap(arg)` (or a
-    /// subclass equivalent) inside if you want a typed view.
-    pub fn makeObjectBlock(body: fn(i64)): i64 {
-        _make_obj_block(body)
-    }
-
-    /// Build an ObjC `id(^)(id)` block — the monitoring callback
-    /// shape used by `addLocalMonitorForEventsMatchingMask:handler:`
-    /// where the handler returns the event to forward (often the
-    /// same one), a replacement, or `0` to swallow. The ilang
-    /// closure is `fn(handle: i64): i64` — both sides traffic in
-    /// raw `id`s, so wrap them with `NSObject.__wrap_handle_unowned`
-    /// for AppKit-owned arguments to avoid double-release.
-    pub fn makeObjectToObjectBlock(body: fn(i64): i64): i64 {
-        _make_obj_to_obj_block(body)
-    }
-
-    /// Build an ObjC `void(^)(void *, size_t)` block — the
-    /// callback shape used by
-    /// `SKMutableTexture.modifyPixelDataWithBlock:` etc. The
-    /// ilang closure receives a raw bytes pointer (as `i64`) and
-    /// a length; mutate individual cells via the
-    /// `cocoa.writeU8` / `readU8` / `writeU32` / `readU32` etc.
-    /// helpers below. The buffer is owned by the caller — don't
-    /// keep the pointer past the block invocation.
-    pub fn makeBytesBlock(body: fn(i64, i64)): i64 {
-        _make_void_bytes_block(body)
-    }
-
-    /// Build an ObjC `void(^)(id, id, id)` block — the callback
-    /// shape every `NSURLSession.dataTaskWithRequest:completionHandler:`
-    /// (and its download/upload siblings) wants, where the three
-    /// arguments arrive as raw `id` handles for
-    /// `(NSData *, NSURLResponse *, NSError *)`. Wrap each handle
-    /// inside the body with `NSObject.__wrap_handle_unowned` —
-    /// these come pre-autoreleased so we MUST NOT take a `+1` to
-    /// avoid an over-release at scope exit.
-    pub fn makeThreeObjectBlock(body: fn(i64, i64, i64)): i64 {
-        _make_void_three_obj_block(body)
-    }
-
     // Raw-pointer helpers — call from inside a `makeBytesBlock`
     // body (or any code that has an `i64` pointer in hand) to
     // poke individual primitive cells. The underlying
@@ -1195,28 +1113,95 @@ pub enum NSBinarySearchingOptions: u64 {
         body()
         _autoreleasepool_pop(token)
     }
+
+    /// Apply `objc_retain` to a raw `id` (as `i64`) and return the
+    /// same handle. Use this inside an `OrError` closure to balance
+    /// the upcoming auto-release of the closure-local @objc wrapper
+    /// that owns the `+1` returned by a `new…` / `alloc` /  `copy…`
+    /// selector. See the implementation note next to `_objc_retain`
+    /// for the full rationale.
+    pub fn objcRetain(handle: i64): i64 {
+        if handle == 0 { 0 } else { _objc_retain(handle) }
+    }
+
+    /// Apply `objc_release` to a raw `id` (as `i64`). Symmetric to
+    /// `objcRetain`. Pass `0` safely — it's a no-op.
+    pub fn objcRelease(handle: i64) {
+        if handle != 0 { _objc_release(handle) }
+    }
 }
+
+// ObjC block trampolines + NSError out-parameter slot. These
+// route to ilang's runtime crate (not to the platform `libc` or
+// `libobjc`), so they're declared as `@intrinsic` rather than
+// `@lib`. The runtime exports `$objc.make_void_block` etc. (the
+// leading `$` is the @intrinsic loader's sigil). Implemented in
+// `ilang-runtime/objc_blocks.rs`.
+
+/// Build an ObjC `void(^)(void)` block from an ilang closure.
+/// Returns the block as an opaque `i64` pointer suitable for
+/// passing to any `@objc` method whose selector takes a
+/// `void(^)(void)` (completion handlers etc.). The block is
+/// autoreleased — let it die with the surrounding pool, or
+/// retain it via `objc_retain` if you need a longer lifetime.
+@intrinsic("objc.make_void_block")
+pub fn makeBlock(body: fn()): i64
+
+/// Build an ObjC `void(^)(id)` block — the callback shape used
+/// by AppKit / Foundation when handing a single object back
+/// (e.g. `addLocalMonitorForEventsMatchingMask:handler:`'s
+/// NSEvent argument). The ilang closure receives the object's
+/// raw `id` as `i64`; wrap it with `NSObject.wrap(arg)` (or a
+/// subclass equivalent) inside if you want a typed view.
+@intrinsic("objc.make_obj_block")
+pub fn makeObjectBlock(body: fn(i64)): i64
+
+/// Build an ObjC `id(^)(id)` block — the monitoring callback
+/// shape used by `addLocalMonitorForEventsMatchingMask:handler:`
+/// where the handler returns the event to forward (often the
+/// same one), a replacement, or `0` to swallow. The ilang
+/// closure is `fn(handle: i64): i64` — both sides traffic in
+/// raw `id`s, so wrap them with `NSObject.__wrap_handle_unowned`
+/// for AppKit-owned arguments to avoid double-release.
+@intrinsic("objc.make_obj_to_obj_block")
+pub fn makeObjectToObjectBlock(body: fn(i64): i64): i64
+
+/// Build an ObjC `void(^)(void *, size_t)` block — the
+/// callback shape used by
+/// `SKMutableTexture.modifyPixelDataWithBlock:` etc. The
+/// ilang closure receives a raw bytes pointer (as `i64`) and
+/// a length; mutate individual cells via the
+/// `cocoa.writeU8` / `readU8` / `writeU32` / `readU32` etc.
+/// helpers below. The buffer is owned by the caller — don't
+/// keep the pointer past the block invocation.
+@intrinsic("objc.make_void_bytes_block")
+pub fn makeBytesBlock(body: fn(i64, i64)): i64
+
+/// Build an ObjC `void(^)(id, id, id)` block — the callback
+/// shape every `NSURLSession.dataTaskWithRequest:completionHandler:`
+/// (and its download/upload siblings) wants, where the three
+/// arguments arrive as raw `id` handles for
+/// `(NSData *, NSURLResponse *, NSError *)`. Wrap each handle
+/// inside the body with `NSObject.__wrap_handle_unowned` —
+/// these come pre-autoreleased so we MUST NOT take a `+1` to
+/// avoid an over-release at scope exit.
+@intrinsic("objc.make_void_three_obj_block")
+pub fn makeThreeObjectBlock(body: fn(i64, i64, i64)): i64
+
+// Per-thread `NSError *` slot used by the public `withObjcError`
+// wrapper at module scope. The runtime hosts the slot so binding
+// wrappers outside any @extern(C) block can hand its address to
+// `NSError **` out-parameters without needing ilang's `&local`
+// syntax (which only works inside @extern(C)).
+@intrinsic("objc.err_slot_ptr")
+fn _objc_err_slot_ptr(): i64
+@intrinsic("objc.take_err")
+fn _objc_take_err(): i64
 
 /// `nil` sender — an NSObject wrapper around the zero pointer.
 /// Pass to AppKit calls that want an arbitrary "no sender"
 /// receiver (e.g. `win.makeKeyAndOrderFront(cocoa.nil)`).
 pub const nil = NSObject.wrap(0)
-
-/// Apply `objc_retain` to a raw `id` (as `i64`) and return the
-/// same handle. Use this inside an `OrError` closure to balance
-/// the upcoming auto-release of the closure-local @objc wrapper
-/// that owns the `+1` returned by a `new…` / `alloc` /  `copy…`
-/// selector. See the implementation note next to `_objc_retain`
-/// for the full rationale.
-pub fn objcRetain(handle: i64): i64 {
-    if handle == 0 { 0 } else { _objc_retain(handle) }
-}
-
-/// Apply `objc_release` to a raw `id` (as `i64`). Symmetric to
-/// `objcRetain`. Pass `0` safely — it's a no-op.
-pub fn objcRelease(handle: i64) {
-    if handle != 0 { _objc_release(handle) }
-}
 
 /// Run `body` with an `NSError **` slot address that the body
 /// passes into an error-bearing @objc call's `error:` argument.

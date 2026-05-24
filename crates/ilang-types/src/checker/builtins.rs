@@ -28,7 +28,7 @@ impl TypeChecker {
                 // arg flows through unchecked.
                 params: vec![],
                 ret: Type::Unit,
-                variadic: true, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new(), c_symbol: None }],
+                variadic: true, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
         );
         self.classes.insert(
             "Console".into(),
@@ -67,44 +67,44 @@ impl TypeChecker {
         let mut map_methods = HashMap::new();
         map_methods.insert(
             "init".into(),
-            vec![Signature { params: vec![], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new(), c_symbol: None }],
+            vec![Signature { params: vec![], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
         );
         map_methods.insert(
             "get".into(),
             vec![Signature {
                 params: vec![k()],
                 ret: Type::Optional(Box::new(v())),
-                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new(), c_symbol: None }],
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
         );
         map_methods.insert(
             "set".into(),
-            vec![Signature { params: vec![k(), v()], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new(), c_symbol: None }],
+            vec![Signature { params: vec![k(), v()], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
         );
         map_methods.insert(
             "has".into(),
-            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new(), c_symbol: None }],
+            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
         );
         map_methods.insert(
             "delete".into(),
-            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new(), c_symbol: None }],
+            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
         );
         map_methods.insert(
             "size".into(),
-            vec![Signature { params: vec![], ret: Type::I64, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new(), c_symbol: None }],
+            vec![Signature { params: vec![], ret: Type::I64, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
         );
         map_methods.insert(
             "keys".into(),
             vec![Signature {
                 params: vec![],
                 ret: Type::Array { elem: Box::new(k()), fixed: None },
-                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new(), c_symbol: None }],
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
         );
         map_methods.insert(
             "values".into(),
             vec![Signature {
                 params: vec![],
                 ret: Type::Array { elem: Box::new(v()), fixed: None },
-                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new(), c_symbol: None }],
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
         );
         self.classes.insert(
             "Map".into(),
@@ -166,7 +166,7 @@ impl TypeChecker {
                 defaults: Vec::new(),
                 is_pub: true,
             deprecated: None,
-                lib_names: Vec::new(), c_symbol: None,
+                lib_names: Vec::new(),
             }],
         );
         promise_methods.insert(
@@ -180,7 +180,7 @@ impl TypeChecker {
                 defaults: Vec::new(),
                 is_pub: true,
             deprecated: None,
-                lib_names: Vec::new(), c_symbol: None,
+                lib_names: Vec::new(),
             }],
         );
         promise_methods.insert(
@@ -194,7 +194,7 @@ impl TypeChecker {
                 defaults: Vec::new(),
                 is_pub: true,
             deprecated: None,
-                lib_names: Vec::new(), c_symbol: None,
+                lib_names: Vec::new(),
             }],
         );
         let mut promise_statics = HashMap::new();
@@ -209,7 +209,7 @@ impl TypeChecker {
                 defaults: Vec::new(),
                 is_pub: true,
             deprecated: None,
-                lib_names: Vec::new(), c_symbol: None,
+                lib_names: Vec::new(),
             }],
         );
         // `Promise.reject(msg)` returns `Promise<()>` since there's
@@ -238,7 +238,7 @@ impl TypeChecker {
                 defaults: Vec::new(),
                 is_pub: true,
             deprecated: None,
-                lib_names: Vec::new(), c_symbol: None,
+                lib_names: Vec::new(),
             }],
         );
         // `Promise.race<T>(ps: Promise<T>[]): Promise<T>` —
@@ -257,7 +257,7 @@ impl TypeChecker {
                 defaults: Vec::new(),
                 is_pub: true,
             deprecated: None,
-                lib_names: Vec::new(), c_symbol: None,
+                lib_names: Vec::new(),
             }],
         );
         promise_statics.insert(
@@ -271,7 +271,7 @@ impl TypeChecker {
                 defaults: Vec::new(),
                 is_pub: true,
             deprecated: None,
-                lib_names: Vec::new(), c_symbol: None,
+                lib_names: Vec::new(),
             }],
         );
         // Internal: `Promise.__pending<T>(): Promise<T>` — allocates
@@ -291,7 +291,7 @@ impl TypeChecker {
                 defaults: Vec::new(),
                 is_pub: true,
             deprecated: None,
-                lib_names: Vec::new(), c_symbol: None,
+                lib_names: Vec::new(),
             }],
         );
         // Internal: `Promise.__settleResolve<T>(p: Promise<T>, v: T)` —
@@ -308,7 +308,7 @@ impl TypeChecker {
                 defaults: Vec::new(),
                 is_pub: true,
             deprecated: None,
-                lib_names: Vec::new(), c_symbol: None,
+                lib_names: Vec::new(),
             }],
         );
         // Internal: `Promise.__settleReject(p: Promise<()>, msg: string)`.
@@ -330,7 +330,7 @@ impl TypeChecker {
                 defaults: Vec::new(),
                 is_pub: true,
             deprecated: None,
-                lib_names: Vec::new(), c_symbol: None,
+                lib_names: Vec::new(),
             }],
         );
         self.classes.insert(
@@ -381,7 +381,7 @@ impl TypeChecker {
                 defaults: Vec::new(),
                 is_pub: true,
                 deprecated: None,
-                lib_names: Vec::new(), c_symbol: None,
+                lib_names: Vec::new(),
             }],
         );
         self.classes.insert(
@@ -435,7 +435,7 @@ impl TypeChecker {
             defaults: Vec::new(),
             is_pub: true,
             deprecated: None,
-                lib_names: Vec::new(), c_symbol: None,
+                lib_names: Vec::new(),
         };
         // stringFromCstr(p: *const char): string
         self.fns.insert(
@@ -651,7 +651,7 @@ impl TypeChecker {
                 variadic: false,
                 decl_span: Span::dummy(),
                 type_params: Vec::new(),
-                defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new(), c_symbol: None }],
+                defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
         );
     }
 
