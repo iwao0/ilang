@@ -89,14 +89,11 @@ impl Span {
 
 impl std::fmt::Display for Span {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.is_point() {
-            write!(f, "[{}:{}]", self.line, self.col)
-        } else {
-            write!(
-                f,
-                "[{}:{}-{}:{}]",
-                self.line, self.col, self.end_line, self.end_col
-            )
-        }
+        // Always render just the start position. The end position is
+        // kept on the struct for editors that highlight ranges
+        // (`span_full_to_range` in the LSP), but in CLI diagnostics
+        // the `start-end` form was noisy without adding actionable
+        // information.
+        write!(f, "[{}:{}]", self.line, self.col)
     }
 }

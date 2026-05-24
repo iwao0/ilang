@@ -172,13 +172,13 @@ fn token_span_covers_full_extent() {
 }
 
 #[test]
-fn span_display_uses_range_for_multi_char() {
+fn span_display_shows_start_only() {
     use ilang_ast::Span;
-    // Single-point span keeps the old `[L:C]` format so existing error
-    // messages stay readable.
+    // Both point and range spans render as `[L:C]` (start only) in
+    // diagnostic output — the end position stays on the struct for
+    // editor range highlighting via `span_full_to_range`.
     assert_eq!(format!("{}", Span::new(3, 7)), "[3:7]");
-    // Multi-char span shows the range.
-    assert_eq!(format!("{}", Span::range(1, 1, 1, 5)), "[1:1-1:5]");
+    assert_eq!(format!("{}", Span::range(1, 1, 1, 5)), "[1:1]");
 }
 
 #[test]
