@@ -268,7 +268,7 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
             s
         };
         let panic_fn = module
-            .declare_function("__ilang_panic", Linkage::Import, &panic_sig)?;
+            .declare_function("$ilang.panic", Linkage::Import, &panic_sig)?;
         let msg_did = declare_ilang_string_data(
             &mut module,
             "@optional fn invoked but its lib failed to load",
@@ -571,7 +571,7 @@ fn emit_aot_init(
         let mut s = module.make_signature();
         s.params.push(AbiParam::new(types::I64));
         s.params.push(AbiParam::new(types::I64));
-        module.declare_function("__register_fn_name", Linkage::Import, &s)?
+        module.declare_function("$print.registerFnName", Linkage::Import, &s)?
     };
     let reg_enum_disc_str = {
         let mut s = module.make_signature();

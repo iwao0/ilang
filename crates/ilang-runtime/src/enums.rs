@@ -222,7 +222,7 @@ pub extern "C" fn __register_enum_print_variant_payload_pk(
     v.1[i] = pk;
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$print.enum")]
 pub extern "C" fn __print_enum(enum_id: i64, ptr: i64) {
     use std::fmt::Write;
     let mut out = String::new();

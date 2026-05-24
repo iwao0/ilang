@@ -414,16 +414,16 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             module.declare_function("$array.fixedToDyn", Linkage::Import, &sig)?
         },
     };
-    let panic_fn_id = declare_unit_i64(module, "__ilang_panic")?;
+    let panic_fn_id = declare_unit_i64(module, "$ilang.panic")?;
     let drop_dispatch_id = declare_unary_i64(module, "__drop_dispatch")?;
-    let print_object_id = declare_unit_i64(module, "__print_object")?;
+    let print_object_id = declare_unit_i64(module, "$print.object")?;
     let print_struct_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
-        module.declare_function("__print_struct", Linkage::Import, &sig)?
+        module.declare_function("$print.struct", Linkage::Import, &sig)?
     };
-    let print_fn_id = declare_unit_i64(module, "__print_fn")?;
+    let print_fn_id = declare_unit_i64(module, "$print.fn")?;
     let release_obj_id = declare_unit_i64(module, "__release_object")?;
     let retain_obj_id = declare_unit_i64(module, "__retain_object")?;
     let release_closure_id = declare_unit_i64(module, "__release_closure")?;
@@ -477,22 +477,22 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.params.push(AbiParam::new(types::I64));
         module.declare_function("$map.setPrintKinds", Linkage::Import, &sig)?
     };
-    let print_map_id = declare_unit_i64(module, "__print_map")?;
+    let print_map_id = declare_unit_i64(module, "$print.map")?;
     let class_name_id = declare_unary_i64(module, "__class_name")?;
-    let print_weak_id = declare_unit_i64(module, "__print_weak")?;
+    let print_weak_id = declare_unit_i64(module, "$print.weak")?;
     let print_enum_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
-        module.declare_function("__print_enum", Linkage::Import, &sig)?
+        module.declare_function("$print.enum", Linkage::Import, &sig)?
     };
     let print_ids = PrintIds {
-        int: declare_unit_i64(module, "__print_int")?,
-        bool_: declare_unit_i64(module, "__print_bool")?,
-        f64_: declare_unit_f64(module, "__print_f64")?,
-        str_: declare_unit_i64(module, "__print_str")?,
-        space: declare_unit_void(module, "__print_space")?,
-        newline: declare_unit_void(module, "__print_newline")?,
+        int: declare_unit_i64(module, "$print.int")?,
+        bool_: declare_unit_i64(module, "$print.bool")?,
+        f64_: declare_unit_f64(module, "$print.f64")?,
+        str_: declare_unit_i64(module, "$print.str")?,
+        space: declare_unit_void(module, "$print.space")?,
+        newline: declare_unit_void(module, "$print.newline")?,
         object: print_object_id,
         struct_: print_struct_id,
         fn_: print_fn_id,
@@ -550,7 +550,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                         // misaligned-pointer check at runtime.
                         desc.set_align(8);
                         desc.define(bytes.into_boxed_slice());
-                        let name = format!("__str_{}", next_str_id);
+                        let name = format!("$str.{}", next_str_id);
                         next_str_id += 1;
                         let did = module.declare_data(&name, Linkage::Local, false, false)?;
                         module.define_data(did, &desc).map_err(CompileError::Module)?;

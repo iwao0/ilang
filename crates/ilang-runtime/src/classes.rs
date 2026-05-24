@@ -203,7 +203,7 @@ pub extern "C" fn __class_name(class_id: i64) -> i64 {
     leak_cstring(base)
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$print.object")]
 pub extern "C" fn __print_object(obj_ptr: i64) {
     let mut out = std::io::stdout().lock();
     if obj_ptr == 0 {
@@ -308,7 +308,7 @@ pub extern "C" fn __register_struct_print_field(
     };
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$print.struct")]
 pub extern "C" fn __print_struct(class_id: i64, ptr: i64) {
     let mut out = std::io::stdout().lock();
     if ptr == 0 {

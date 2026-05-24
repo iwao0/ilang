@@ -226,12 +226,12 @@ pub fn compile_with_builtins(
     jit_builder.symbol("$string.split", ilang_runtime::__str_split as *const u8);
     jit_builder.symbol("__virt_dispatch", ilang_runtime::__virt_dispatch as *const u8);
     jit_builder.symbol("__drop_dispatch", ilang_runtime::__drop_dispatch as *const u8);
-    jit_builder.symbol("__print_object", ilang_runtime::__print_object as *const u8);
-    jit_builder.symbol("__print_struct", ilang_runtime::__print_struct as *const u8);
+    jit_builder.symbol("$print.object", ilang_runtime::__print_object as *const u8);
+    jit_builder.symbol("$print.struct", ilang_runtime::__print_struct as *const u8);
     jit_builder.symbol("__class_name", ilang_runtime::__class_name as *const u8);
-    jit_builder.symbol("__print_weak", ilang_runtime::__print_weak as *const u8);
-    jit_builder.symbol("__print_enum", ilang_runtime::__print_enum as *const u8);
-    jit_builder.symbol("__print_fn", ilang_runtime::__print_fn as *const u8);
+    jit_builder.symbol("$print.weak", ilang_runtime::__print_weak as *const u8);
+    jit_builder.symbol("$print.enum", ilang_runtime::__print_enum as *const u8);
+    jit_builder.symbol("$print.fn", ilang_runtime::__print_fn as *const u8);
     jit_builder.symbol("__release_object", ilang_runtime::__release_object as *const u8);
     jit_builder.symbol("__retain_object", ilang_runtime::__retain_object as *const u8);
     jit_builder.symbol("__release_closure", ilang_runtime::__release_closure as *const u8);
@@ -267,7 +267,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__enum_disc_str", ilang_runtime::__enum_disc_str as *const u8);
     jit_builder.symbol("$map.setValueKind", ilang_runtime::__map_set_value_kind as *const u8);
     jit_builder.symbol("$map.setPrintKinds", ilang_runtime::__map_set_print_kinds as *const u8);
-    jit_builder.symbol("__print_map", ilang_runtime::__print_map as *const u8);
+    jit_builder.symbol("$print.map", ilang_runtime::__print_map as *const u8);
     // FFI marshalling helpers — registered both with their bare names
     // (used inside `@extern(C)` blocks) and qualified names. Strings
     // are NUL-terminated `*const u8` already, so most "C-string"
@@ -420,16 +420,16 @@ pub fn compile_with_builtins(
     jit_builder.symbol("$math.abs", ilang_runtime::math_abs as *const u8);
     // `console.log` is variadic at the language surface, so the
     // codegen splits each argument into a per-type print call.
-    jit_builder.symbol("__ilang_panic", ilang_runtime::__ilang_panic as *const u8);
+    jit_builder.symbol("$ilang.panic", ilang_runtime::__ilang_panic as *const u8);
     // Print helpers and `__ilang_panic` live in `ilang-runtime` so JIT
     // and AOT share the same `extern "C"` bodies. We feed JIT the
     // pointer; AOT links against the `.a` facet at build time.
-    jit_builder.symbol("__print_int", ilang_runtime::__print_int as *const u8);
-    jit_builder.symbol("__print_bool", ilang_runtime::__print_bool as *const u8);
-    jit_builder.symbol("__print_f64", ilang_runtime::__print_f64 as *const u8);
-    jit_builder.symbol("__print_str", ilang_runtime::__print_str as *const u8);
-    jit_builder.symbol("__print_space", ilang_runtime::__print_space as *const u8);
-    jit_builder.symbol("__print_newline", ilang_runtime::__print_newline as *const u8);
+    jit_builder.symbol("$print.int", ilang_runtime::__print_int as *const u8);
+    jit_builder.symbol("$print.bool", ilang_runtime::__print_bool as *const u8);
+    jit_builder.symbol("$print.f64", ilang_runtime::__print_f64 as *const u8);
+    jit_builder.symbol("$print.str", ilang_runtime::__print_str as *const u8);
+    jit_builder.symbol("$print.space", ilang_runtime::__print_space as *const u8);
+    jit_builder.symbol("$print.newline", ilang_runtime::__print_newline as *const u8);
     for b in builtins {
         jit_builder.symbol(b.name, b.ptr);
     }

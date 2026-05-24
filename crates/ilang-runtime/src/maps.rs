@@ -228,7 +228,7 @@ pub extern "C" fn __map_values(map: i64) -> i64 {
     build_i64_array(&values, val_kind)
 }
 
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "$print.map")]
 pub extern "C" fn __print_map(map_ptr: i64) {
     let mut out = String::new();
     if map_ptr == 0 {
