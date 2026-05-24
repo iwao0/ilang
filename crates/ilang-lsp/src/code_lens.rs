@@ -202,68 +202,6 @@ fn push_lens(range: Range, data: LensData, out: &mut Vec<CodeLens>) {
     });
 }
 
-/// Count workspace-wide references whose decl-name span equals
-/// `decl_line` / `decl_col` / `decl_name_len`. Kept here for any
-/// future caller that wants just the count without the location
-/// list — the live resolve path uses the LocationS form via the
-/// handlers' helper.
-#[allow(dead_code)]
-pub(crate) fn count_references(
-    target_uri: &Url,
-    decl_line: u32,
-    decl_col: u32,
-    decl_name_len: u32,
-    open_docs: &std::collections::HashMap<Url, crate::types::Doc>,
-) -> usize {
-    use ilang_ast::Span;
-    use std::collections::HashSet;
-    let target_span = Span::new(decl_line, decl_col);
-    let mut count: usize = 0;
-    let mut seen_paths: HashSet<std::path::PathBuf> = HashSet::new();
-    for (doc_uri, d) in open_docs.iter() {
-        if let Ok(p) = doc_uri.to_file_path() {
-            if let Ok(c) = p.canonicalize() {
-                seen_paths.insert(c);
-            }
-        }
-        let is_owner = doc_uri == target_uri;
-        count += d
-            .refs
-            .iter()
-            .filter(|r| {
-                if r.signature.starts_with("this:") { return false; }
-                if r.target_name_len != decl_name_len { return false; }
-                if r.target_span != target_span { return false; }
-                if is_owner {
-                    r.target_uri.is_none()
-                } else {
-                    r.target_uri.as_ref() == Some(target_uri)
-                }
-            })
-            .count();
-    }
-    if let Ok(anchor_path) = target_uri.to_file_path() {
-        crate::analyse::for_each_closed_workspace_doc(&anchor_path, &seen_paths, |path_uri, doc| {
-            let is_owner = path_uri == *target_uri;
-            count += doc
-                .refs
-                .iter()
-                .filter(|r| {
-                    if r.signature.starts_with("this:") { return false; }
-                    if r.target_name_len != decl_name_len { return false; }
-                    if r.target_span != target_span { return false; }
-                    if is_owner {
-                        r.target_uri.is_none()
-                    } else {
-                        r.target_uri.as_ref() == Some(target_uri)
-                    }
-                })
-                .count();
-        });
-    }
-    count
-}
-
 /// Decode the JSON payload back into a [`LensData`]. Returns
 /// `None` when the payload doesn't match the expected shape (an
 /// older lens from a previous server version).

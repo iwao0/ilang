@@ -11,7 +11,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use ilang_ast::{ClassDecl, FnDecl, InterfaceDecl, Item, Program, Symbol as AstSymbol};
+use ilang_ast::{ClassDecl, FnDecl, Item, Program, Symbol as AstSymbol};
 use tower_lsp::lsp_types::*;
 
 use crate::types::Doc;
@@ -266,21 +266,6 @@ pub(crate) fn name_is_interface(doc: &Doc, name: &str) -> bool {
         || doc.local_interfaces.contains_key(&key)
 }
 
-/// Visit a parsed `Program` to surface interface declarations for
-/// debug — kept only as the caller-side reference; not used right
-/// now.
-#[allow(dead_code)]
-fn _interface_decls(prog: &Program) -> Vec<&InterfaceDecl> {
-    let mut out = Vec::new();
-    for item in &prog.items {
-        match item {
-            Item::Interface(i) => out.push(i),
-            Item::ExternC(b) => out.extend(b.interfaces.iter()),
-            _ => {}
-        }
-    }
-    out
-}
 
 #[cfg(test)]
 mod tests {

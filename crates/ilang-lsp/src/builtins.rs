@@ -12,16 +12,10 @@ use ilang_ast::Type;
 /// hovers as `let p: *char` instead of falling off the lookup. Mirrors
 /// the signature strings below; keep the two in sync.
 pub(crate) fn ffi_helper_return_type(name: &str) -> Option<Type> {
-    use ilang_ast::Symbol;
     let raw_char = || Type::RawPtr {
         is_const: false,
         inner: Box::new(Type::CChar),
     };
-    let raw_const_char = || Type::RawPtr {
-        is_const: true,
-        inner: Box::new(Type::CChar),
-    };
-    let _ = Symbol::intern; // imported for clarity, may be unused
     Some(match name {
         "stringFromCstr" => Type::Str,
         "cstrFromString" => raw_char(),
@@ -53,10 +47,7 @@ pub(crate) fn ffi_helper_return_type(name: &str) -> Option<Type> {
         // `arrayFromCArray<T>(p, n): T[]` — generic, no concrete
         // return without resolving T from the arg's pointer type.
         // Leave None for now; hover on this one stays untyped.
-        _ => {
-            let _ = raw_const_char;
-            return None;
-        }
+        _ => return None,
     })
 }
 

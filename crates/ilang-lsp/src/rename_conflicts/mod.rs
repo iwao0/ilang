@@ -14,10 +14,7 @@
 //!   - local `let` → same-block siblings
 //!   - function parameter → other params on the same fn
 
-use ilang_ast::{
-    ClassDecl, EnumDecl, InterfaceDecl, Item, Pattern, PatternBindings, PatternKind, Span,
-    Symbol as AstSymbol,
-};
+use ilang_ast::{Item, Span, Symbol as AstSymbol};
 
 use crate::types::Doc;
 
@@ -189,11 +186,6 @@ fn check_variant(text: &str, enum_name: &str, new_name: &str) -> Result<(), Stri
     }
     Ok(())
 }
-
-// Quieten dead-code warnings from struct fields that exist only
-// because we initialise them once and never read them again.
-#[allow(dead_code)]
-fn _silence(_: &ClassDecl, _: &EnumDecl, _: &InterfaceDecl, _: &Pattern, _: &PatternKind, _: &PatternBindings) {}
 
 #[cfg(test)]
 mod tests {
