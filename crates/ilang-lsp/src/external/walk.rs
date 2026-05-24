@@ -45,7 +45,7 @@ struct WalkOpts {
     /// path is invoked from a recursive `pub use` step where the
     /// outer call has already registered the umbrella.
     register_self: bool,
-    /// Prefer the real on-disk `stdlib/<name>.il` over the synthetic
+    /// Prefer the real on-disk `libs/std/<name>.il` over the synthetic
     /// `<builtin>/<name>.il` key when both exist. Primary uses this
     /// so F12 navigates to an actual file; the alias path preserves
     /// the synthetic key (matches the loader behaviour).
@@ -439,7 +439,7 @@ fn resolve_module_source(
 ) -> Option<(PathBuf, String)> {
     if let Some(s) = ilang_parser::loader::builtin_module_source(source_name) {
         let path = if opts.prefer_real_builtin_path {
-            // Prefer the real on-disk `stdlib/<name>.il` so F12 lands
+            // Prefer the real on-disk `libs/std/<name>.il` so F12 lands
             // in an actual file. Falls back to the synthetic
             // `<builtin>/<name>.il` key in release-only installs
             // where the source tree isn't present (the rest of the

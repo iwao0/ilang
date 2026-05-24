@@ -1,5 +1,5 @@
 //! Built-in `time` module — wall clock, monotonic clock, sleep,
-//! and the calendar conversions backing `stdlib/time.il`'s
+//! and the calendar conversions backing `libs/std/time.il`'s
 //! `DateTime` class.
 //!
 //! Calendar math is done with Howard Hinnant's `days_from_civil`

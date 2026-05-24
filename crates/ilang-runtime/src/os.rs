@@ -270,7 +270,7 @@ pub extern "C" fn os_lib_load_error(name: i64) -> i64 {
 ///
 /// Exported under `os.__platform`; user code reaches the value
 /// through the `pub let os.platform: string = __platform()`
-/// binding declared in `stdlib/os.il`, so the call happens once
+/// binding declared in `libs/std/os.il`, so the call happens once
 /// at program init and `os.platform` reads as a property.
 // --------------------------------------------------------------------
 // `@objc class : Parent` IMP lookup — bridges JIT-emitted methods to

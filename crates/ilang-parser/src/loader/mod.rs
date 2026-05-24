@@ -41,14 +41,14 @@ use spans::tag_program_spans;
 /// resolves here before consulting the filesystem.
 pub fn builtin_module_source(name: &str) -> Option<&'static str> {
     match name {
-        "math" => Some(include_str!("../../../../stdlib/math.il")),
-        "test" => Some(include_str!("../../../../stdlib/test.il")),
-        "os" => Some(include_str!("../../../../stdlib/os.il")),
-        "events" => Some(include_str!("../../../../stdlib/events.il")),
-        "fs" => Some(include_str!("../../../../stdlib/fs.il")),
-        "path" => Some(include_str!("../../../../stdlib/path.il")),
-        "regex" => Some(include_str!("../../../../stdlib/regex.il")),
-        "time" => Some(include_str!("../../../../stdlib/time.il")),
+        "math" => Some(include_str!("../../../../libs/std/math.il")),
+        "test" => Some(include_str!("../../../../libs/std/test.il")),
+        "os" => Some(include_str!("../../../../libs/std/os.il")),
+        "events" => Some(include_str!("../../../../libs/std/events.il")),
+        "fs" => Some(include_str!("../../../../libs/std/fs.il")),
+        "path" => Some(include_str!("../../../../libs/std/path.il")),
+        "regex" => Some(include_str!("../../../../libs/std/regex.il")),
+        "time" => Some(include_str!("../../../../libs/std/time.il")),
         _ => None,
     }
 }
@@ -65,7 +65,7 @@ fn builtin_path(name: &str) -> PathBuf {
 /// without the source tree fall back to `None` and the caller keeps
 /// the synthetic `<builtin>/M.il` key. F12 / hover-to-definition use
 /// this so cursoring on a `use events` / `Signal` jumps into
-/// `stdlib/events.il` instead of failing to open a fake path.
+/// `libs/std/events.il` instead of failing to open a fake path.
 pub fn builtin_module_path(name: &str) -> Option<PathBuf> {
     if builtin_module_source(name).is_none() {
         return None;
@@ -73,7 +73,8 @@ pub fn builtin_module_path(name: &str) -> Option<PathBuf> {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.pop(); // crates/
     p.pop(); // repo root
-    p.push("stdlib");
+    p.push("libs");
+    p.push("std");
     p.push(format!("{name}.il"));
     if p.exists() { Some(p) } else { None }
 }
@@ -460,7 +461,7 @@ fn resolve_module(
     // Resolution order: sibling file → sibling subfolder → each
     // explicit dep dir → stdlib builtin. Stdlib comes LAST so a
     // sibling file with the same name (e.g. `appkit/events.il`
-    // next to `stdlib/events.il`) wins — otherwise the loader
+    // next to `libs/std/events.il`) wins — otherwise the loader
     // would dlopen the stdlib file under that bare module name
     // and the visibility catalog would only see the stdlib's
     // pubs.

@@ -1,5 +1,5 @@
 //! Built-in `fs` module — sync filesystem helpers backing the
-//! `stdlib/fs.il` wrappers. Each exported symbol has a matching
+//! `libs/std/fs.il` wrappers. Each exported symbol has a matching
 //! `fn` declaration in `fs.il`; the user-facing API there wraps
 //! these in `Result<T, FsError>` after consulting the thread-local
 //! last-error slot this module maintains.

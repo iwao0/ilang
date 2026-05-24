@@ -1,5 +1,5 @@
 //! Runtime backing for the built-in `Regex` class declared in
-//! `stdlib/regex.il`. Compiled patterns live on the Rust heap and
+//! `libs/std/regex.il`. Compiled patterns live on the Rust heap and
 //! are reached through an opaque `i64` handle = `Box::into_raw` of a
 //! `Regex`. `__regex_destroy` drops the box; ilang's `deinit`
 //! invokes that when the wrapping `Regex` object's refcount drops

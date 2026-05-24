@@ -329,7 +329,7 @@ pub fn compile_with_builtins(
         "$objc.take_err",
         ilang_runtime::objc_take_err as *const u8,
     );
-    // fs.* — `stdlib/fs.il`'s `@extern(C)` block.
+    // fs.* — `libs/std/fs.il`'s `@extern(C)` block.
     jit_builder.symbol("$fs.hasError", ilang_runtime::fs::fs_has_error as *const u8);
     jit_builder.symbol("$fs.errorCode", ilang_runtime::fs::fs_error_code as *const u8);
     jit_builder.symbol("$fs.errorMessage", ilang_runtime::fs::fs_error_message as *const u8);
@@ -360,7 +360,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("$fs.readlink", ilang_runtime::fs::fs_readlink as *const u8);
     jit_builder.symbol("$fs.link", ilang_runtime::fs::fs_link as *const u8);
     jit_builder.symbol("$fs.mkdtemp", ilang_runtime::fs::fs_mkdtemp as *const u8);
-    // time.* — `stdlib/time.il`'s `@extern(C)` block.
+    // time.* — `libs/std/time.il`'s `@extern(C)` block.
     jit_builder.symbol("$time.now_ms", ilang_runtime::time::time_now_ms as *const u8);
     jit_builder.symbol("$time.now_ns", ilang_runtime::time::time_now_ns as *const u8);
     jit_builder.symbol("$time.monotonic_ns", ilang_runtime::time::time_monotonic_ns as *const u8);
@@ -371,7 +371,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("$time.parse_iso", ilang_runtime::time::time_parse_iso as *const u8);
     jit_builder.symbol("$time.to_iso", ilang_runtime::time::time_to_iso as *const u8);
     jit_builder.symbol("$time.format", ilang_runtime::time::time_format as *const u8);
-    // regex.* — `stdlib/regex.il` binds these via `@intrinsic("regex.X")`
+    // regex.* — `libs/std/regex.il` binds these via `@intrinsic("regex.X")`
     // declarations. The runtime exports each backing fn under the same
     // `regex.X` symbol name.
     jit_builder.symbol("$regex.compile", ilang_runtime::regex::__regex_compile as *const u8);
