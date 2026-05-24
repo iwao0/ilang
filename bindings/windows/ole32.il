@@ -53,25 +53,6 @@ pub enum ClsCtx: u32 {
     all              = 0x00000017
 }
 
-// ─── Common HRESULT values ────────────────────────────────────────
-pub enum HResult: u32 {
-    ok                = 0x00000000   // S_OK
-    false_            = 0x00000001   // S_FALSE
-    notImpl           = 0x80004001  // E_NOTIMPL
-    noInterface       = 0x80004002  // E_NOINTERFACE
-    pointer           = 0x80004003  // E_POINTER
-    abort             = 0x80004004  // E_ABORT
-    fail              = 0x80004005  // E_FAIL
-    unexpected        = 0x8000ffff  // E_UNEXPECTED
-    invalidArg        = 0x80070057  // E_INVALIDARG
-    outOfMemory       = 0x8007000e  // E_OUTOFMEMORY
-    accessDenied      = 0x80070005  // E_ACCESSDENIED
-    handle            = 0x80070006  // E_HANDLE
-    rpcChangedMode    = 0x80010106  // RPC_E_CHANGED_MODE
-    classNotReg       = 0x80040154  // REGDB_E_CLASSNOTREG
-    noCls             = 0x80040111  // CO_E_NOTINITIALIZED
-}
-
 // ─── REGCLS flags for CoRegisterClassObject ───────────────────────
 @flags
 pub enum RegCls: u32 {

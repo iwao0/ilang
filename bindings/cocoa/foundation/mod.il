@@ -3,13 +3,10 @@
 /// `use foundation { NSObject, NSString, NSSet, ... }` without
 /// having to remember which file each type lives in.
 ///
-/// `pub use measurement.*` is listed BEFORE `pub use formatters.*`
-/// because formatters.il pulls measurement in non-publicly via
-/// `use measurement { NSMeasurement, NSUnit }`. When the loader
-/// processes that non-pub import first, the subsequent
-/// `pub use measurement.*` short-circuits and never re-exports
-/// measurement's classes — known loader quirk. Keep measurement
-/// ahead of formatters until that's untangled.
+/// The loader topologically sorts these `pub use M.*` entries so
+/// declaration order here doesn't matter for cross-module
+/// non-pub `use` dependencies — keep them roughly grouped for
+/// readability.
 
 pub use core.*
 pub use measurement.*

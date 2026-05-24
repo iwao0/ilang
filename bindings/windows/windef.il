@@ -35,6 +35,15 @@ pub enum HResult: u32 {
     eOutOfMemory     = 0x8007000E
     /// E_INVALIDARG — at least one argument is invalid.
     eInvalidArg      = 0x80070057
+    /// RPC_E_CHANGED_MODE — concurrency model mismatch on
+    /// `CoInitializeEx` (caller asked for STA, thread is MTA,
+    /// or vice versa).
+    eRpcChangedMode  = 0x80010106
+    /// REGDB_E_CLASSNOTREG — the CLSID isn't registered.
+    eClassNotReg     = 0x80040154
+    /// CO_E_NOTINITIALIZED — `CoInitialize`/`CoInitializeEx`
+    /// hasn't been called on this thread.
+    eNotInitialized  = 0x80040111
 }
 
 @extern(C) {

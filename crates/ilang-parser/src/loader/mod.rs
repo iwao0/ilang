@@ -1127,6 +1127,23 @@ fn apply_use(
         // umbrella's `pub use M.*` silently no-ops, leaving the
         // umbrella-prefixed view (`gui.M.X`) unregistered.
         nested_uses.sort_by_key(|u| if u.re_export { 0 } else { 1 });
+        // Toposort the `pub use M.*` wildcard re-exports so that
+        // when one re-exported module X non-publicly uses another
+        // re-exported module Y (e.g. timers.il's
+        // `use concurrency { NSQualityOfService }`), the umbrella
+        // publishes Y FIRST. Otherwise X's nested non-pub use
+        // claims Y's canon under Y's bare prefix, and the
+        // subsequent `pub use Y.*` short-circuits — leaving Y's
+        // other exports unreachable through the umbrella. Stable
+        // tiebreaker preserves the original (already
+        // re_export-first) order.
+        toposort_pub_use_reexports(
+            &mut nested_uses,
+            &canon,
+            extra_paths,
+            parents,
+            loaded,
+        );
         for nu in nested_uses {
             // `pub use M as _ { * }` (wildcard): flatten M's items
             // into the umbrella's namespace — override = umbrella prefix.
@@ -1432,6 +1449,137 @@ fn item_name_of_ref(item: &Item) -> Option<&str> {
         Item::Const(c) => Some(c.name.as_str()),
         Item::ExternC(_) | Item::Use(_) => None,
         Item::Interface(i) => Some(i.name.as_str()),
+    }
+}
+
+/// Reorder a module's `nested_uses` so that every `pub use M.*`
+/// wildcard re-export appears before any other `pub use X.*`
+/// whose target module `X` non-publicly `use M { … }`s. Without
+/// this, X's processing claims M's canon under M's bare prefix
+/// (via `apply_use`'s `existing_prefix` shortcut) and the
+/// umbrella's later `pub use M.*` short-circuits, leaving M's
+/// other exports unreachable through the umbrella.
+///
+/// Stable: preserves original relative order between independent
+/// entries. Bails on cycles (cycle-participants stay in their
+/// original positions — the underlying prefix-claim bug then
+/// surfaces and is resolvable by ordering them by hand in the
+/// umbrella, which is the same workaround in place pre-fix).
+fn toposort_pub_use_reexports(
+    nested_uses: &mut Vec<UseDecl>,
+    importer_canon: &Path,
+    extra_paths: &[PathBuf],
+    parents: &HashMap<PathBuf, PathBuf>,
+    loaded: &HashMap<PathBuf, Program>,
+) {
+    let importer_dir = importer_canon
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    // Resolve each `pub use M.*` wildcard re-export to its canon.
+    // Map canon back to the (first) index in nested_uses so we
+    // can build edges keyed by index.
+    let mut canon_of: HashMap<usize, PathBuf> = HashMap::new();
+    let mut index_of_canon: HashMap<PathBuf, usize> = HashMap::new();
+    for (i, u) in nested_uses.iter().enumerate() {
+        if !(u.re_export && u.wildcard) {
+            continue;
+        }
+        let subpath: Vec<String> =
+            u.subpath.iter().map(|s| s.as_str().to_string()).collect();
+        let Ok(canon) = resolve_module(
+            u.module.as_str(),
+            &subpath,
+            &importer_dir,
+            extra_paths,
+            u.super_count,
+            parents,
+        ) else {
+            continue;
+        };
+        canon_of.insert(i, canon.clone());
+        index_of_canon.entry(canon).or_insert(i);
+    }
+    if canon_of.len() < 2 {
+        return;
+    }
+    // For each pub-use-wildcard entry, find which OTHER entries it
+    // depends on by scanning its target module's non-pub `use M { … }`
+    // items.
+    let mut depends_on: HashMap<usize, HashSet<usize>> = HashMap::new();
+    for (&i, canon_i) in &canon_of {
+        let Some(prog_i) = loaded.get(canon_i) else { continue };
+        let module_dir_i = canon_i
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        for it in &prog_i.items {
+            let Item::Use(nu) = it else { continue };
+            if nu.re_export {
+                continue;
+            }
+            let nu_subpath: Vec<String> = nu
+                .subpath
+                .iter()
+                .map(|s| s.as_str().to_string())
+                .collect();
+            let Ok(nu_canon) = resolve_module(
+                nu.module.as_str(),
+                &nu_subpath,
+                &module_dir_i,
+                extra_paths,
+                nu.super_count,
+                parents,
+            ) else {
+                continue;
+            };
+            if let Some(&j) = index_of_canon.get(&nu_canon) {
+                if j != i {
+                    depends_on.entry(i).or_default().insert(j);
+                }
+            }
+        }
+    }
+    if depends_on.is_empty() {
+        return;
+    }
+    // Stable toposort with original-index tiebreaker. Repeatedly
+    // pull the LOWEST-indexed entry whose dependencies have all
+    // been placed.
+    let n = nested_uses.len();
+    let mut placed: Vec<bool> = vec![false; n];
+    let mut order: Vec<usize> = Vec::with_capacity(n);
+    loop {
+        let mut next: Option<usize> = None;
+        for i in 0..n {
+            if placed[i] {
+                continue;
+            }
+            let ready = depends_on
+                .get(&i)
+                .map(|s| s.iter().all(|j| placed[*j]))
+                .unwrap_or(true);
+            if ready {
+                next = Some(i);
+                break;
+            }
+        }
+        match next {
+            Some(i) => {
+                placed[i] = true;
+                order.push(i);
+            }
+            None => break,
+        }
+    }
+    if order.len() != n {
+        // Cycle — bail and leave the existing order untouched.
+        return;
+    }
+    // Apply the new order.
+    let mut taken: Vec<Option<UseDecl>> = nested_uses.drain(..).map(Some).collect();
+    for i in order {
+        nested_uses.push(taken[i].take().expect("each index placed exactly once"));
     }
 }
 
