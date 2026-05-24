@@ -266,6 +266,13 @@ fn substitute_type_params(sig: &mut String, params: &[String], args: &[Type]) {
 /// Replace every whole-word occurrence of `needle` in `src` with
 /// `repl`. A "word" boundary is anything that isn't an ASCII letter,
 /// digit, or `_`. Avoids touching `Tuple` when `T` is the needle.
+///
+/// The needle is always an ASCII identifier (a type-parameter name
+/// like `T` or `K`), so byte-level scanning safely lines up with
+/// `char` boundaries — but the surrounding source can contain
+/// multi-byte UTF-8 (e.g. Japanese inside a doc comment), so we copy
+/// pass-through chunks via string slicing rather than reinterpreting
+/// each byte as a `char`.
 fn replace_whole_word(src: &str, needle: &str, repl: &str) -> String {
     let bytes = src.as_bytes();
     let needle_bytes = needle.as_bytes();
@@ -273,31 +280,63 @@ fn replace_whole_word(src: &str, needle: &str, repl: &str) -> String {
         return src.to_string();
     }
     let mut out = String::with_capacity(src.len());
+    let mut copied = 0;
     let mut i = 0;
-    while i <= bytes.len() {
-        if i + needle_bytes.len() <= bytes.len()
-            && &bytes[i..i + needle_bytes.len()] == needle_bytes
-        {
-            let before_ok = i == 0
-                || {
-                    let b = bytes[i - 1];
-                    !(b.is_ascii_alphanumeric() || b == b'_')
-                };
-            let after_ok = i + needle_bytes.len() == bytes.len()
-                || {
-                    let b = bytes[i + needle_bytes.len()];
-                    !(b.is_ascii_alphanumeric() || b == b'_')
-                };
+    while i + needle_bytes.len() <= bytes.len() {
+        if &bytes[i..i + needle_bytes.len()] == needle_bytes {
+            let before_ok = i == 0 || {
+                let b = bytes[i - 1];
+                !(b.is_ascii_alphanumeric() || b == b'_')
+            };
+            let after_ok = i + needle_bytes.len() == bytes.len() || {
+                let b = bytes[i + needle_bytes.len()];
+                !(b.is_ascii_alphanumeric() || b == b'_')
+            };
             if before_ok && after_ok {
+                out.push_str(&src[copied..i]);
                 out.push_str(repl);
                 i += needle_bytes.len();
+                copied = i;
                 continue;
             }
         }
-        if i < bytes.len() {
-            out.push(bytes[i] as char);
-        }
         i += 1;
     }
+    out.push_str(&src[copied..]);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::replace_whole_word;
+
+    #[test]
+    fn replace_whole_word_basic() {
+        assert_eq!(replace_whole_word("fn f(x: T): T", "T", "i64"), "fn f(x: i64): i64");
+    }
+
+    #[test]
+    fn replace_whole_word_respects_identifier_boundary() {
+        // `Tuple` must not be touched when `T` is the needle.
+        assert_eq!(
+            replace_whole_word("fn f(x: Tuple): T", "T", "i64"),
+            "fn f(x: Tuple): i64"
+        );
+    }
+
+    #[test]
+    fn replace_whole_word_preserves_non_ascii() {
+        // Doc-comment content with multi-byte characters must round-trip
+        // intact — the old byte-at-a-time `push(b as char)` corrupted
+        // these.
+        let src = "fn f(x: T) // 日本語コメント";
+        let got = replace_whole_word(src, "T", "i64");
+        assert_eq!(got, "fn f(x: i64) // 日本語コメント");
+    }
+
+    #[test]
+    fn replace_whole_word_no_match_returns_clone() {
+        let src = "abc 日本語 def";
+        assert_eq!(replace_whole_word(src, "X", "Y"), src);
+    }
 }
