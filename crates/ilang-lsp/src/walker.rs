@@ -710,6 +710,18 @@ impl<'a> Walker<'a> {
                 for p in params {
                     let sig = BindKind::Param.render(p.name.as_str(), Some(&p.ty));
                     self.push_decl(p.name.as_str(), p.span, sig);
+                    // Mirror what `let` does: register the param in the
+                    // document-wide var_classes / var_types maps so
+                    // completion's `resolve_receiver_class` (which only
+                    // sees those maps, not the per-walk `Binding`
+                    // scope) can dot-into a lambda param like
+                    // `fn(e: gui.MouseEvent) { e.| }`. Last-write-wins
+                    // when the same name recurs across sibling lambdas
+                    // — same trade-off the `let` path already accepts.
+                    if let Some(c) = type_to_class(&p.ty) {
+                        self.var_classes.insert(p.name.clone(), c);
+                    }
+                    self.var_types.insert(p.name.clone(), p.ty.clone());
                     inner.push(Binding {
                         name: p.name.as_str().to_string(),
                         span: p.span,

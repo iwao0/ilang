@@ -939,6 +939,52 @@ class MyApp : MyDel {
     }
 
     #[test]
+    pub(crate) fn lambda_param_dot_completion_surfaces_event_fields() {
+        // Real reproduction of the user-reported bug:
+        // `examples/libs/gui/window/main.il` has multiple
+        // `<emitter>.add(fn(e: gui.<EventType>) { ... })` lambdas.
+        // Pre-fix, `resolve_receiver_class` couldn't see `e` because
+        // the walker registered FnExpr params only in its transient
+        // `Binding` scope, never in `var_classes` / `var_types`, so
+        // `handle_completion` returned `None` at `e.|` inside the
+        // lambda body.
+        use std::path::PathBuf;
+        use crate::completion::handle_completion;
+        use tower_lsp::lsp_types::{CompletionResponse, Position};
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("examples/libs/gui/window/main.il");
+        let mut doc = analyse::analyse_path_to_doc(&path)
+            .expect("examples/libs/gui/window/main.il must load");
+        // Drop a probe `    e.` line inside the lambda the user
+        // pointed at (the one that logs "clicked at"). The column
+        // lands right after the dot.
+        let mut lines: Vec<String> = doc.text.lines().map(|s| s.to_string()).collect();
+        let probe_line_idx = lines
+            .iter()
+            .position(|l| l.contains("clicked at"))
+            .expect("expected `clicked at` line in fixture");
+        lines[probe_line_idx] = "    e.".to_string();
+        doc.text = lines.join("\n");
+        let pos = Position { line: probe_line_idx as u32, character: 6 };
+        let items = match handle_completion(&doc, pos)
+            .expect("completion at `e.` must return some response")
+        {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let labels: Vec<String> = items.into_iter().map(|it| it.label).collect();
+        for required in ["x", "y", "button"] {
+            assert!(
+                labels.iter().any(|l| l == required),
+                "expected MouseEvent field `{required}` after `e.` inside \
+                 Button.onClick lambda; got {labels:?}"
+            );
+        }
+    }
+
+    #[test]
     pub(crate) fn windows_actctxw_hidden_for_bare_top_level_prefix() {
         // Reproduce the user's actual scenario: target/test.il with
         // `use windows` and a regular top-level fn, cursor typing
