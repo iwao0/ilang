@@ -681,7 +681,7 @@ impl<'a> EmitCtx<'a> {
         let v = self.cloned_rewriting_this(value);
         let settle_call = mk_method_call(
             mk_var(Symbol::intern("Promise"), self.span),
-            Symbol::intern("__settleResolve"),
+            Symbol::intern("$promise.settleResolve"),
             vec![
                 mk_field(
                     mk_var(self.state_ref_param, self.span),
@@ -883,7 +883,7 @@ pub fn gen_wrapper_fn(
         Some(promise_ret.clone()),
         mk_method_call(
             mk_var(Symbol::intern("Promise"), span),
-            Symbol::intern("__pending"),
+            Symbol::intern("$promise.pending"),
             vec![],
             span,
         ),

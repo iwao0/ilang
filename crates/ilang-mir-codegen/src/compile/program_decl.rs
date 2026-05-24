@@ -671,7 +671,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             } else {
                 Linkage::Import
             }
-        } else if symbol_name.starts_with("ilang_objc_imp__") {
+        } else if symbol_name.starts_with("$objc.imp.") {
             // Parser-synthesised IMPs for `@objc class : Parent`
             // overrides need to be discoverable from the runtime
             // (`dlsym(RTLD_DEFAULT, ...)`) so the generated

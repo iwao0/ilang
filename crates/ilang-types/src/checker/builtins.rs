@@ -281,7 +281,7 @@ impl TypeChecker {
         // signals "compiler-internal", same convention as
         // `__mir_alloc` and friends).
         promise_statics.insert(
-            "__pending".into(),
+            "$promise.pending".into(),
             vec![Signature {
                 params: vec![],
                 ret: promise_t(),
@@ -298,7 +298,7 @@ impl TypeChecker {
         // transitions a Pending promise to Resolved. Used by the
         // generated poll fn at the end of an async body.
         promise_statics.insert(
-            "__settleResolve".into(),
+            "$promise.settleResolve".into(),
             vec![Signature {
                 params: vec![promise_t(), t()],
                 ret: Type::Unit,
@@ -317,7 +317,7 @@ impl TypeChecker {
         // emitted only for the trivial rejection paths inside the
         // desugar — exposed for completeness.
         promise_statics.insert(
-            "__settleReject".into(),
+            "$promise.settleReject".into(),
             vec![Signature {
                 params: vec![
                     Type::generic("Promise", vec![Type::Unit]),

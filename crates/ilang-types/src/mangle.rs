@@ -462,7 +462,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             let new_method = if new_method.as_str() == "invoke"
                 && ctx.objc_invoke_obj_to_obj_spans.contains(&span)
             {
-                Symbol::intern("__invokeIdToId")
+                Symbol::intern("$objc.invokeIdToId")
             } else {
                 new_method
             };

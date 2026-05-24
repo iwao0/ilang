@@ -159,7 +159,7 @@ impl TypeChecker {
                     let is_objc_wrapper = f
                         .attrs
                         .iter()
-                        .any(|a| a.name.as_str() == "__objc_wrapper");
+                        .any(|a| a.name.as_str() == "$objc.wrapper");
                     if !is_objc_wrapper {
                         self.reject_pointer_in_signature(
                             &format!("fn {:?}", f.name),
@@ -191,7 +191,7 @@ impl TypeChecker {
                         let is_objc_wrapper = m
                             .attrs
                             .iter()
-                            .any(|a| a.name.as_str() == "__objc_wrapper");
+                            .any(|a| a.name.as_str() == "$objc.wrapper");
                         if !is_objc_wrapper {
                             self.reject_pointer_in_signature(
                                 &format!("method {:?}.{:?}", c.name, m.name),
@@ -205,7 +205,7 @@ impl TypeChecker {
                         let is_objc_wrapper = m
                             .attrs
                             .iter()
-                            .any(|a| a.name.as_str() == "__objc_wrapper");
+                            .any(|a| a.name.as_str() == "$objc.wrapper");
                         if !is_objc_wrapper {
                             self.reject_pointer_in_signature(
                                 &format!("static {:?}.{:?}", c.name, m.name),

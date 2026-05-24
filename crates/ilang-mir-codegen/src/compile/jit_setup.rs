@@ -529,7 +529,7 @@ pub fn compile_with_builtins(
             .as_ref()
             .map(|s| s.as_str())
             .unwrap_or_else(|| f.name.as_str());
-        if !symbol_name.starts_with("ilang_objc_imp__") {
+        if !symbol_name.starts_with("$objc.imp.") {
             continue;
         }
         if let Some(cl_id) = fn_ids.get(&mid) {

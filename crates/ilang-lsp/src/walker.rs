@@ -397,7 +397,7 @@ impl<'a> Walker<'a> {
             // would shadow the (getter)/(setter) signature pushed
             // above.
             let is_synth_body =
-                |f: &FnDecl| f.attrs.iter().any(|a| a.name.as_str() == "__objc_wrapper");
+                |f: &FnDecl| f.attrs.iter().any(|a| a.name.as_str() == "$objc.wrapper");
             if let Some(g) = &prop.getter {
                 if is_synth_body(g) {
                     self.walk_fn_header_type_refs(g);

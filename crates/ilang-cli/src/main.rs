@@ -444,7 +444,7 @@ fn link_unix(
     let has_objc_imp = mir
         .functions
         .iter()
-        .any(|f| f.name.as_str().starts_with("ilang_objc_imp__"));
+        .any(|f| f.name.as_str().starts_with("$objc.imp."));
     if !has_objc_imp {
         #[cfg(target_os = "macos")]
         cmd.arg("-Wl,-dead_strip");

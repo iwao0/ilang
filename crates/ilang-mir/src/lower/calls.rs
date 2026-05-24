@@ -281,7 +281,7 @@ impl<'a> BodyCx<'a> {
             // pass treats as a no-op (every Promise is an i64 ptr).
             if self.lookup_var(*name).is_none()
                 && name.as_str() == "Promise"
-                && method.as_str() == "__pending"
+                && method.as_str() == "$promise.pending"
                 && args.is_empty()
             {
                 let prom_ty = MirTy::Promise(Box::new(MirTy::Unit));
@@ -298,7 +298,7 @@ impl<'a> BodyCx<'a> {
             // body. Takes ownership of v (kind read from v's MirTy).
             if self.lookup_var(*name).is_none()
                 && name.as_str() == "Promise"
-                && method.as_str() == "__settleResolve"
+                && method.as_str() == "$promise.settleResolve"
                 && args.len() == 2
             {
                 let p_is_fresh = self.is_fresh_object_expr(&args[0]);
@@ -325,7 +325,7 @@ impl<'a> BodyCx<'a> {
             // Internal `Promise.__settleReject(p, msg)`.
             if self.lookup_var(*name).is_none()
                 && name.as_str() == "Promise"
-                && method.as_str() == "__settleReject"
+                && method.as_str() == "$promise.settleReject"
                 && args.len() == 2
             {
                 let p_is_fresh = self.is_fresh_object_expr(&args[0]);
@@ -460,7 +460,7 @@ impl<'a> BodyCx<'a> {
         // signatures so the dispatch is purely a function of the
         // lowered arg shapes. New shapes append, matching the
         // `BlockKind` table in `ilang_runtime::objc_blocks`.
-        if (method.as_str() == "invoke" || method.as_str() == "__invokeIdToId")
+        if (method.as_str() == "invoke" || method.as_str() == "$objc.invokeIdToId")
             && matches!(oty, MirTy::I64)
         {
             // Suppress this fast-path for non-ObjCBlock i64 obj —
@@ -479,7 +479,7 @@ impl<'a> BodyCx<'a> {
             // runtime invoker (`__ilang_invoke_obj_to_obj_block`,
             // returns i64). The void-returning fast-paths keep the
             // original `invoke` name.
-            let returns_id = method.as_str() == "__invokeIdToId";
+            let returns_id = method.as_str() == "$objc.invokeIdToId";
             let builtin = if returns_id {
                 match arg_tys.as_slice() {
                     [MirTy::I64] => Some("invoke_obj_to_obj_block"),

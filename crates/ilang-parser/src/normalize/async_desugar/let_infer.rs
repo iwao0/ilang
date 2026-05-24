@@ -300,7 +300,7 @@ fn infer_let_rhs(
                         "reject" => {
                             return Some(Type::generic("Promise", vec![Type::Unit]));
                         }
-                        "__pending" => {
+                        "$promise.pending" => {
                             // Internal — returns `Promise<Any>` since
                             // the inner type can't be derived from
                             // args. Caller's binding annotation (if

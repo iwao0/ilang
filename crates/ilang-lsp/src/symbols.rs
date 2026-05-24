@@ -37,7 +37,7 @@ pub(crate) fn is_synthesized_objc_helper(name: &str) -> bool {
     if name.starts_with("__") {
         return true;
     }
-    name.starts_with("ilang_objc_imp__")
+    name.starts_with("$objc.imp.")
         || name.starts_with("_ilang_impl_")
 }
 

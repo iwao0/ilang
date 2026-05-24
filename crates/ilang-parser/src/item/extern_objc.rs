@@ -587,7 +587,7 @@ fn build_root_deinit(ctx: &ObjcCtx<'_>, span: Span) -> FnDecl {
     let this_owns = Expr::new(
         ExprKind::Field {
             obj: Box::new(Expr::new(ExprKind::This, span)),
-            name: Symbol::intern("__owns"),
+            name: Symbol::intern("$objc.owns"),
         },
         span,
     );
@@ -663,7 +663,7 @@ fn build_root_deinit(ctx: &ObjcCtx<'_>, span: Span) -> FnDecl {
         // the body doesn't trip the pointer-in-signature rule the
         // type checker applies to ilang-side helpers.
         attrs: Box::new([Attribute {
-            name: Symbol::intern("__objc_wrapper"),
+            name: Symbol::intern("$objc.wrapper"),
             args: Box::new([]),
         }]),
         name: Symbol::intern("deinit"),
@@ -790,7 +790,7 @@ fn build_freefn_dispatch(
     let wrapper = ilang_ast::ExternCItem::FnDef(FnDecl {
         is_pub: m.is_pub,
         attrs: Box::new([Attribute {
-            name: Symbol::intern("__objc_wrapper"),
+            name: Symbol::intern("$objc.wrapper"),
             args: Box::new([]),
         }]),
         name: m.name,
@@ -846,7 +846,7 @@ fn build_objc_class(
             },
             FieldDecl {
                 is_pub: true,
-                name: Symbol::intern("__owns"),
+                name: Symbol::intern("$objc.owns"),
                 ty: Type::I8,
                 span,
                 bits: None,
@@ -888,7 +888,7 @@ fn build_objc_class(
         Expr::new(
             ExprKind::AssignField {
                 obj: Box::new(Expr::new(ExprKind::This, span)),
-                field: Symbol::intern("__owns"),
+                field: Symbol::intern("$objc.owns"),
                 value: Box::new(Expr::new(ExprKind::Int(val), span)),
                 is_init: true,
             },
@@ -898,7 +898,7 @@ fn build_objc_class(
     let init_fn = FnDecl {
         is_pub: true,
         attrs: Box::new([]),
-        name: Symbol::intern("__bind_handle"),
+        name: Symbol::intern("$objc.bindHandle"),
         type_params: Box::new([]),
         params: Box::new([bind_h_param()]),
         ret: None,
@@ -916,7 +916,7 @@ fn build_objc_class(
     let unowned_init_fn = FnDecl {
         is_pub: true,
         attrs: Box::new([]),
-        name: Symbol::intern("__bind_handle_unowned"),
+        name: Symbol::intern("$objc.bindHandleUnowned"),
         type_params: Box::new([]),
         params: Box::new([bind_h_param()]),
         ret: None,
@@ -978,7 +978,7 @@ fn build_objc_class(
         ret: Some(Type::Object(class_name)),
         body: Block {
             stmts: Vec::new(),
-            tail: Some(Box::new(wrap_body_new("__bind_handle"))),
+            tail: Some(Box::new(wrap_body_new("$objc.bindHandle"))),
         },
         span,
         is_override: false,
@@ -997,7 +997,7 @@ fn build_objc_class(
         ret: Some(Type::Object(class_name)),
         body: Block {
             stmts: Vec::new(),
-            tail: Some(Box::new(wrap_body_new("__bind_handle_unowned"))),
+            tail: Some(Box::new(wrap_body_new("$objc.bindHandleUnowned"))),
         },
         span,
         is_override: false,
@@ -1170,7 +1170,7 @@ fn build_objc_class(
             }
 
             let imp_symbol: Symbol =
-                format!("ilang_objc_imp__{}__{}", class_name.as_str(), m.name.as_str()).into();
+                format!("$objc.imp.{}.{}", class_name.as_str(), m.name.as_str()).into();
             let imp_fn = build_imp_fn(class_name, m, imp_symbol, impl_name, ctx);
             // The IMP itself is a top-level @extern(C) FnDef that
             // we'll push into the block's items list. Return it
@@ -1551,7 +1551,7 @@ fn build_class_method(
                         class: ret_class_symbol(t),
                         type_args: Box::new([]),
                         args: Box::new([raw_for_wrap]),
-                        init_method: Some(Symbol::intern("__bind_handle")),
+                        init_method: Some(Symbol::intern("$objc.bindHandle")),
                     },
                     m.span,
                 );
@@ -1570,7 +1570,7 @@ fn build_class_method(
     // plus any user-supplied passthrough attrs (`@deprecated`, …).
     let mut wrapper_attrs: Vec<Attribute> = vec![
         Attribute {
-            name: Symbol::intern("__objc_wrapper"),
+            name: Symbol::intern("$objc.wrapper"),
             args: Box::new([]),
         },
         Attribute {
@@ -1617,7 +1617,7 @@ fn build_super_helper(
     m: &ObjcMethod,
     ctx: &ObjcCtx<'_>,
 ) -> (FnDecl, ilang_ast::ExternCItem) {
-    let helper_name: Symbol = format!("__super_{}", m.name.as_str()).into();
+    let helper_name: Symbol = format!("$objc.super.{}", m.name.as_str()).into();
     let alias_name: Symbol = format!(
         "{}_msg_super_{}_{}",
         ctx.tag,
@@ -1790,7 +1790,7 @@ fn build_super_helper(
                     class: ret_class_symbol(t),
                     type_args: Box::new([]),
                     args: Box::new([raw_as_i64]),
-                    init_method: Some(Symbol::intern("__bind_handle")),
+                    init_method: Some(Symbol::intern("$objc.bindHandle")),
                 },
                 span,
             );
@@ -1828,7 +1828,7 @@ fn rewrite_super_in_methods(methods: &mut [FnDecl]) {
         // we ourselves emitted — they don't contain user `super`
         // calls (and self-rewriting would infinite-loop).
         let name = m.name.as_str();
-        if name.starts_with("__super_") || name == "register" || name == "init" {
+        if name.starts_with("$objc.super.") || name == "register" || name == "init" {
             continue;
         }
         rewrite_super_in_block(&mut m.body);
@@ -1864,7 +1864,7 @@ fn rewrite_super_in_expr(expr: &mut Expr) {
         for a in args.iter_mut() {
             rewrite_super_in_expr(a);
         }
-        let helper_name: Symbol = format!("__super_{}", name.as_str()).into();
+        let helper_name: Symbol = format!("$objc.super.{}", name.as_str()).into();
         let new_expr = Expr::new(
             ExprKind::MethodCall {
                 obj: Box::new(Expr::new(ExprKind::This, expr.span)),
@@ -2017,7 +2017,7 @@ fn build_imp_fn(
             // AppKit gave us this `self`; it owns the reference.
             // The IMP-side wrapper is non-owning so its deinit
             // doesn't double-release when the IMP returns.
-            init_method: Some(Symbol::intern("__bind_handle_unowned")),
+            init_method: Some(Symbol::intern("$objc.bindHandleUnowned")),
         },
         m.span,
     );
@@ -2058,7 +2058,7 @@ fn build_imp_fn(
                     args: Box::new([arg_as_i64]),
                     // Same reasoning as `__me` above — the sender
                     // is owned by AppKit, not by us.
-                    init_method: Some(Symbol::intern("__bind_handle_unowned")),
+                    init_method: Some(Symbol::intern("$objc.bindHandleUnowned")),
                 },
                 p.span,
             );
@@ -2138,7 +2138,7 @@ fn build_imp_fn(
         // by ObjC's calling convention) so the raw-pointer
         // rejection isn't appropriate.
         attrs: Box::new([Attribute {
-            name: Symbol::intern("__objc_wrapper"),
+            name: Symbol::intern("$objc.wrapper"),
             args: Box::new([]),
         }]),
         name: imp_symbol,
@@ -3016,7 +3016,7 @@ fn finalize_objc_block(
                 ret: None,
                 libs: block_libs.into_boxed_slice(),
                 optional: true,
-                c_symbol: Some(Symbol::intern("__objc_block_load_phantom")),
+                c_symbol: Some(Symbol::intern("$objc.blockLoadPhantom")),
                 variadic: false,
                 span: block_span,
             });
