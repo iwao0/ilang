@@ -387,27 +387,32 @@ pub(crate) fn build_doc(
                 }
                 // Record the user-facing namespace name (skips
                 // `use M as _` which suppresses the namespace).
-                // Also build the alias → canonical-head mapping so
-                // dot-receiver completion on `m.` (after
-                // `use std.math as m`) can translate to the `math.X`
-                // keys the merged-program index uses. Bare
-                // path-style imports (`use std.math` with no `as`)
-                // expose the *full dotted path* as the namespace —
-                // the caller writes `std.math.X`, not `math.X`, so
-                // no alias mapping is needed and the entry would
-                // misleadingly point `std` → `math`.
+                // Also build the alias → canonical-dotted-path
+                // mapping so dot-receiver completion on `m.` (after
+                // `use std.math as m`) can translate to the
+                // `std.math.X` keys the merged-program index uses.
+                // Bare path-style imports (`use std.math` with no
+                // `as`) expose the *full dotted path* as the
+                // namespace — the caller writes `std.math.X` and
+                // there's no alias to rewrite, so no entry is
+                // needed.
+                let full_dotted: AstSymbol = if u.subpath.is_empty() {
+                    u.module
+                } else {
+                    let mut s = u.module.as_str().to_string();
+                    for seg in u.subpath.iter() {
+                        s.push('.');
+                        s.push_str(seg.as_str());
+                    }
+                    AstSymbol::intern(&s)
+                };
                 let is_bare_path_style = !u.subpath.is_empty()
                     && matches!(u.alias, ilang_ast::UseAlias::Default);
                 match u.alias {
                     ilang_ast::UseAlias::Discard => {}
                     ilang_ast::UseAlias::Named(name) => {
-                        let canonical: AstSymbol = u
-                            .subpath
-                            .last()
-                            .copied()
-                            .unwrap_or(u.module);
                         imported_modules.insert(name);
-                        module_aliases.insert(name, canonical);
+                        module_aliases.insert(name, full_dotted);
                     }
                     ilang_ast::UseAlias::Default => {
                         imported_modules.insert(u.module);

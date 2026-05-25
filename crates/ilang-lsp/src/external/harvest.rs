@@ -105,27 +105,25 @@ pub(crate) fn harvest_from_program(
             }
             (u.subpath[len - 1].as_str().to_string(), d)
         };
-        let is_bare_path_style = !u.subpath.is_empty()
-            && matches!(u.alias, ilang_ast::UseAlias::Default)
-            && u.selective.is_none()
-            && !u.wildcard;
-        let effective_module: String = if is_bare_path_style {
+        // For any `use a.b.c[...]` form the loader merges items under
+        // the full dotted path (`a.b.c.X`). Mirror that here so the
+        // external_signatures keys match the merged-program names —
+        // hovers and dotted-ref lookups in the walker resolve through
+        // the same dotted key the AST callee uses. Selective and
+        // wildcard forms have their own helpers below that key bare
+        // names directly, but the full-path is what gets passed to
+        // them as the source module so the recursion still finds the
+        // right files on disk.
+        let effective_module: String = if u.subpath.is_empty() {
+            module_for_walk.clone()
+        } else {
             let mut s = u.module.as_str().to_string();
             for seg in u.subpath.iter() {
                 s.push('.');
                 s.push_str(seg.as_str());
             }
             s
-        } else {
-            module_for_walk.clone()
         };
-        // Hand-off below uses the source-file name (the leaf) when
-        // resolving the on-disk module path; the harvest helpers
-        // accept a separate source argument for this. Aliased /
-        // selective / wildcard forms keep the legacy single-name
-        // behavior since `effective_module == module_for_walk` in
-        // those branches.
-        let _ = &module_for_walk; // silence unused-on-some-branches
         if u.wildcard && u.selective.is_none() {
             // `use M { * }` — walk M, then re-key every `M.<X>`
             // entry as bare `<X>` so completion / hover / F12 treat
@@ -133,8 +131,9 @@ pub(crate) fn harvest_from_program(
             // `use M { X }` selective list. Mirrors the loader's
             // rename-rule expansion that turns the bare reference
             // into `M.<X>` at call time.
-            harvest_wildcard_names(
+            harvest_wildcard_names_as(
                 &effective_module,
+                &module_for_walk,
                 &effective_dir,
                 &extra,
                 &mut visited,
@@ -150,8 +149,9 @@ pub(crate) fn harvest_from_program(
             // (or its `pub use` chain) and key them under their bare
             // name so the buffer-side walker can resolve a bare
             // `Var("X1")` reference.
-            harvest_selective_names(
+            harvest_selective_names_as(
                 &effective_module,
+                &module_for_walk,
                 names,
                 &effective_dir,
                 &extra,
@@ -227,8 +227,9 @@ fn strip_module_prefix_in_sig(sig: &str, module: &str, bare: &str) -> String {
     sig.replacen(&qualified, bare, 1)
 }
 
-pub(crate) fn harvest_wildcard_names(
+pub(crate) fn harvest_wildcard_names_as(
     module: &str,
+    source_name: &str,
     entry_dir: &Path,
     extra: &[PathBuf],
     visited: &mut HashSet<PathBuf>,
@@ -237,7 +238,21 @@ pub(crate) fn harvest_wildcard_names(
     docs: &mut HashMap<AstSymbol, String>,
     const_types: &mut HashMap<AstSymbol, Type>,
 ) {
-    walk_module(module, entry_dir, extra, visited, out, sources, docs, const_types);
+    if module == source_name {
+        walk_module(module, entry_dir, extra, visited, out, sources, docs, const_types);
+    } else {
+        walk_module_as(
+            module,
+            source_name,
+            entry_dir,
+            extra,
+            visited,
+            out,
+            sources,
+            docs,
+            const_types,
+        );
+    }
     let module_dot = format!("{module}.");
     let bare_entries: Vec<(AstSymbol, String)> = out
         .iter()
@@ -289,8 +304,9 @@ pub(crate) fn harvest_wildcard_names(
     }
 }
 
-pub(crate) fn harvest_selective_names(
+pub(crate) fn harvest_selective_names_as(
     module: &str,
+    source_name: &str,
     names: &[AstSymbol],
     entry_dir: &Path,
     extra: &[PathBuf],
@@ -300,7 +316,21 @@ pub(crate) fn harvest_selective_names(
     const_types: &mut HashMap<AstSymbol, Type>,
 ) {
     let mut visited: HashSet<PathBuf> = HashSet::new();
-    walk_module(module, entry_dir, extra, &mut visited, out, sources, docs, const_types);
+    if module == source_name {
+        walk_module(module, entry_dir, extra, &mut visited, out, sources, docs, const_types);
+    } else {
+        walk_module_as(
+            module,
+            source_name,
+            entry_dir,
+            extra,
+            &mut visited,
+            out,
+            sources,
+            docs,
+            const_types,
+        );
+    }
     for name in names {
         let prefixed = AstSymbol::intern(&format!("{module}.{name}"));
         if let Some(sig) = out.get(&prefixed).cloned() {
