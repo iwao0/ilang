@@ -300,6 +300,59 @@ impl TypeChecker {
                     }
                     return Ok(Type::Str);
                 }
+                "concat" => {
+                    arity_check(1)?;
+                    let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                    if !matches!(at, Type::Str) {
+                        return Err(TypeError::Mismatch {
+                            expected: Type::Str,
+                            got: at,
+                            span: args[0].span,
+                        });
+                    }
+                    return Ok(Type::Str);
+                }
+                "indexOf" | "lastIndexOf" => {
+                    if args.is_empty() || args.len() > 2 {
+                        return Err(TypeError::ArityMismatch {
+                            name: method.clone(),
+                            expected: 1,
+                            got: args.len(),
+                            span,
+                        });
+                    }
+                    let needle_ty =
+                        self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                    if !matches!(needle_ty, Type::Str) {
+                        return Err(TypeError::Mismatch {
+                            expected: Type::Str,
+                            got: needle_ty,
+                            span: args[0].span,
+                        });
+                    }
+                    if let Some(from) = args.get(1) {
+                        let from_ty =
+                            self.check_expr(from, env, ret_ty, in_class, loop_depth)?;
+                        if !matches!(
+                            from_ty,
+                            Type::I64
+                                | Type::I32
+                                | Type::I16
+                                | Type::I8
+                                | Type::U64
+                                | Type::U32
+                                | Type::U16
+                                | Type::U8
+                        ) {
+                            return Err(TypeError::Mismatch {
+                                expected: Type::I64,
+                                got: from_ty,
+                                span: from.span,
+                            });
+                        }
+                    }
+                    return Ok(Type::I64);
+                }
                 _ => {
                     return Err(TypeError::UnknownMethod {
                         class: "string".into(),

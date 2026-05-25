@@ -320,6 +320,77 @@ pub extern "C" fn __str_slice(p: i64, start: i64, end: i64) -> i64 {
     leak_cstring(chars[lo..hi].iter().collect::<String>())
 }
 
+/// `from_index == i64::MIN` is the "omitted" sentinel emitted by the
+/// MIR when the caller did not pass a `fromIndex` argument. JS-style
+/// clamp otherwise: negative values are treated as 0, values past the
+/// string length fall through to the not-found / empty-needle cases.
+#[unsafe(export_name = "$string.indexOf")]
+pub extern "C" fn __str_index_of(p: i64, needle: i64, from_index: i64) -> i64 {
+    let s = cstr_to_str(p);
+    let n = cstr_to_str(needle);
+    let chars: Vec<char> = s.chars().collect();
+    let total = chars.len();
+    let start = if from_index == i64::MIN || from_index < 0 {
+        0
+    } else if (from_index as usize) > total {
+        return if n.is_empty() { total as i64 } else { -1 };
+    } else {
+        from_index as usize
+    };
+    if n.is_empty() {
+        return start as i64;
+    }
+    let n_chars: Vec<char> = n.chars().collect();
+    if n_chars.len() > total - start {
+        return -1;
+    }
+    let last = total - n_chars.len();
+    for i in start..=last {
+        if chars[i..i + n_chars.len()] == n_chars[..] {
+            return i as i64;
+        }
+    }
+    -1
+}
+
+/// `from_index == i64::MIN` means "omitted" — search starts from the
+/// end. Otherwise JS-style clamp: negative becomes 0, values past the
+/// end clamp to the end.
+#[unsafe(export_name = "$string.lastIndexOf")]
+pub extern "C" fn __str_last_index_of(p: i64, needle: i64, from_index: i64) -> i64 {
+    let s = cstr_to_str(p);
+    let n = cstr_to_str(needle);
+    let chars: Vec<char> = s.chars().collect();
+    let total = chars.len();
+    let n_chars: Vec<char> = n.chars().collect();
+    let upper = if from_index == i64::MIN {
+        total
+    } else if from_index < 0 {
+        0
+    } else if (from_index as usize) > total {
+        total
+    } else {
+        from_index as usize
+    };
+    if n_chars.is_empty() {
+        return upper as i64;
+    }
+    if n_chars.len() > total {
+        return -1;
+    }
+    let max_start = total - n_chars.len();
+    let mut i = upper.min(max_start);
+    loop {
+        if chars[i..i + n_chars.len()] == n_chars[..] {
+            return i as i64;
+        }
+        if i == 0 {
+            return -1;
+        }
+        i -= 1;
+    }
+}
+
 #[unsafe(export_name = "$string.replace")]
 pub extern "C" fn __str_replace(p: i64, from: i64, to: i64) -> i64 {
     let s = cstr_to_str(p);

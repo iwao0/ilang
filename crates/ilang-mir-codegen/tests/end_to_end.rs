@@ -455,6 +455,42 @@ fn array_for_each_sum_via_capture() {
 }
 
 #[test]
+fn string_concat_method() {
+    let src = r#"
+        let a = "abc"
+        let b = a.concat("de")
+        b.length
+    "#;
+    assert_eq!(run(src), 5);
+}
+
+#[test]
+fn string_index_of_basic() {
+    let src = r#"
+        let s = "hello world"
+        let a = s.indexOf("world")
+        let b = s.indexOf("xyz")
+        let c = s.indexOf("o", 5)
+        a * 100 + (b + 1) * 10 + c
+    "#;
+    // a=6, b=-1 → (b+1)=0, c=7  →  6*100 + 0 + 7 = 607
+    assert_eq!(run(src), 607);
+}
+
+#[test]
+fn string_last_index_of_basic() {
+    let src = r#"
+        let s = "abcabc"
+        let a = s.lastIndexOf("b")
+        let b = s.lastIndexOf("b", 2)
+        let c = s.lastIndexOf("z")
+        a * 100 + b * 10 + (c + 1)
+    "#;
+    // a=4, b=1, c=-1 → (c+1)=0  →  4*100 + 1*10 + 0 = 410
+    assert_eq!(run(src), 410);
+}
+
+#[test]
 fn str_split_count() {
     let src = r#"
         let parts = "a,b,c,d".split(",")

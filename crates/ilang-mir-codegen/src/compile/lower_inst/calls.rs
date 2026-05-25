@@ -339,6 +339,8 @@ pub(super) fn lower_call<M: Module>(
                 "str_char_at" => Some(str_ids.char_at),
                 "str_slice" => Some(str_ids.slice),
                 "str_replace" => Some(str_ids.replace),
+                "str_index_of" => Some(str_ids.index_of),
+                "str_last_index_of" => Some(str_ids.last_index_of),
                 "array_index_of" => Some(str_ids.array_index_of),
                 "array_includes" => Some(str_ids.array_includes),
                 "array_push" => Some(str_ids.array_push),

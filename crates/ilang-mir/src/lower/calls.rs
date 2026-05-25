@@ -925,6 +925,9 @@ impl<'a> BodyCx<'a> {
                     ),
                     "replace" => ("str_replace", MirTy::Str),
                     "slice" => ("str_slice", MirTy::Str),
+                    "concat" => ("str_concat", MirTy::Str),
+                    "indexOf" => ("str_index_of", MirTy::I64),
+                    "lastIndexOf" => ("str_last_index_of", MirTy::I64),
                     other => {
                         return Err(LowerError::Other(format!(
                             "unknown string method `{other}`"
@@ -935,6 +938,13 @@ impl<'a> BodyCx<'a> {
                 for a in args {
                     let (v, _) = self.lower_expr(a)?;
                     arg_vals.push(v);
+                }
+                // Pad the optional `fromIndex` of indexOf/lastIndexOf
+                // with the i64::MIN "omitted" sentinel the runtime
+                // recognises (see __str_index_of / __str_last_index_of).
+                if matches!(m, "indexOf" | "lastIndexOf") && arg_vals.len() == 2 {
+                    let pad = self.const_int(MirTy::I64, i64::MIN);
+                    arg_vals.push(pad);
                 }
                 let dst = if matches!(ret_ty, MirTy::Unit) {
                     None

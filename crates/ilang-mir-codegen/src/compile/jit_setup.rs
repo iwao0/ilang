@@ -173,6 +173,11 @@ pub fn compile_with_builtins(
     jit_builder.symbol("$string.charAt", ilang_runtime::__str_char_at as *const u8);
     jit_builder.symbol("$string.slice", ilang_runtime::__str_slice as *const u8);
     jit_builder.symbol("$string.replace", ilang_runtime::__str_replace as *const u8);
+    jit_builder.symbol("$string.indexOf", ilang_runtime::__str_index_of as *const u8);
+    jit_builder.symbol(
+        "$string.lastIndexOf",
+        ilang_runtime::__str_last_index_of as *const u8,
+    );
     jit_builder.symbol("$array.indexOf", ilang_runtime::__array_index_of as *const u8);
     jit_builder.symbol("$array.includes", ilang_runtime::__array_includes as *const u8);
     jit_builder.symbol("$array.push", ilang_runtime::__array_push as *const u8);

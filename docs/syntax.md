@@ -200,6 +200,11 @@ distinct `let f = fn(...)` bindings always compare unequal).
 "a,b,c".split(",")          // string[]  ─ empty separator splits per character
 "abca".replace("a", "_")    // string    ─ replaces every match (Rust-style)
 "hello".slice(1, 4)         // string    ─ indices are Unicode code points; out-of-range clamps
+"abc".concat("de")          // string    ─ "abcde"
+"hello".indexOf("l")        // i64       ─ first match (code-point index), -1 if not found
+"hello".indexOf("l", 3)     // i64       ─ search from index 3; optional fromIndex defaults to 0
+"abcabc".lastIndexOf("b")   // i64       ─ last match, -1 if not found
+"abcabc".lastIndexOf("b", 2)// i64       ─ optional fromIndex defaults to end of string
 ```
 
 String interpolation isn't implemented yet. Every method above

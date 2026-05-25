@@ -92,6 +92,9 @@ pub(crate) fn string_method_names() -> &'static [&'static str] {
         "replace",
         "split",
         "slice",
+        "concat",
+        "indexOf",
+        "lastIndexOf",
     ]
 }
 
@@ -139,6 +142,9 @@ pub(crate) fn string_method_sig(method: &str) -> Option<String> {
         "replace" => "replace(from: string, to: string): string",
         "split" => "split(sep: string): string[]",
         "slice" => "slice(start: i64, end: i64): string",
+        "concat" => "concat(other: string): string",
+        "indexOf" => "indexOf(needle: string, fromIndex?: i64): i64",
+        "lastIndexOf" => "lastIndexOf(needle: string, fromIndex?: i64): i64",
         _ => return None,
     };
     Some(format!("(method) string.{body}"))
@@ -159,6 +165,9 @@ pub(crate) fn string_method_doc(method: &str) -> Option<&'static str> {
         "replace" => "Returns a new string with every occurrence of `from` replaced by `to`. Non-overlapping, left-to-right.",
         "split" => "Splits this string on every occurrence of `sep`. Empty `sep` yields each byte as a 1-char element.",
         "slice" => "Returns the substring covering byte offsets `[start, end)`. Indices are clamped to the string's length.",
+        "concat" => "Returns a new string formed by appending `other` to this string.",
+        "indexOf" => "Returns the code-point index of the first occurrence of `needle` at or after `fromIndex` (default 0). Returns `-1` if not found.",
+        "lastIndexOf" => "Returns the code-point index of the last occurrence of `needle` at or before `fromIndex` (default: end of string). Returns `-1` if not found.",
         _ => return None,
     })
 }

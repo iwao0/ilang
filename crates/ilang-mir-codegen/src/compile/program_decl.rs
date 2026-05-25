@@ -305,6 +305,8 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("$string.replace", Linkage::Import, &sig)?
         },
+        index_of: declare_ternary_i64(module, "$string.indexOf")?,
+        last_index_of: declare_ternary_i64(module, "$string.lastIndexOf")?,
         array_index_of: declare_binary_i64(module, "$array.indexOf")?,
         array_includes: declare_binary_i64(module, "$array.includes")?,
         array_push: {

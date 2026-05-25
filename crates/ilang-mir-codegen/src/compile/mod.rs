@@ -77,6 +77,8 @@ pub(super) struct StrIds {
     pub(super) char_at: cranelift_module::FuncId,
     pub(super) slice: cranelift_module::FuncId,
     pub(super) replace: cranelift_module::FuncId,
+    pub(super) index_of: cranelift_module::FuncId,
+    pub(super) last_index_of: cranelift_module::FuncId,
     pub(super) array_index_of: cranelift_module::FuncId,
     pub(super) array_includes: cranelift_module::FuncId,
     pub(super) array_push: cranelift_module::FuncId,

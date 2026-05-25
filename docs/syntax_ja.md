@@ -169,6 +169,11 @@ let Point { x, y } = p                  // x: f64, y: f64
 "a,b,c".split(",")          // string[]  ─ 空セパレータでは1文字ずつ
 "abca".replace("a", "_")    // string    ─ 全箇所置換 (Rust流)
 "hello".slice(1, 4)         // string    ─ 添字は Unicode コードポイント、範囲外はクランプ
+"abc".concat("de")          // string    ─ "abcde"
+"hello".indexOf("l")        // i64       ─ 最初の出現位置 (コードポイント単位)、見つからなければ -1
+"hello".indexOf("l", 3)     // i64       ─ 第2引数 fromIndex は省略可 (既定 0)
+"abcabc".lastIndexOf("b")   // i64       ─ 最後の出現位置、見つからなければ -1
+"abcabc".lastIndexOf("b", 2)// i64       ─ 省略時 fromIndex は文字列末尾
 ```
 
 文字列補間は未実装。上記のメソッドは interpreter / JIT とも対応。
