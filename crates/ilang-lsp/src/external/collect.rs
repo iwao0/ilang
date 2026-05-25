@@ -557,7 +557,7 @@ pub(crate) fn collect_external_signatures(
                     }
                     match inner {
                         ExternCItem::FnDecl {
-                            name, params, ret, libs, ..
+                            name, type_params, params, ret, libs, ..
                         } => {
                             let ps = params
                                 .iter()
@@ -578,9 +578,19 @@ pub(crate) fn collect_external_signatures(
                                     .join(", ");
                                 format!("@lib({names})\n")
                             };
+                            let tps = if type_params.is_empty() {
+                                String::new()
+                            } else {
+                                let names = type_params
+                                    .iter()
+                                    .map(|s| s.as_str().to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                format!("<{names}>")
+                            };
                             put_dotted(
                                 name.as_str(),
-                                format!("{libs_prefix}fn {}({}){}", name, ps, r),
+                                format!("{libs_prefix}fn {}{}({}){}", name, tps, ps, r),
                                 &mut out,
                             );
                             if let Some(t) = ret {

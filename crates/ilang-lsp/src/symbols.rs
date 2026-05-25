@@ -152,7 +152,7 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                 for inner in &b.items {
                     match inner {
                         ExternCItem::FnDecl {
-                            name, params, ret, span, libs, ..
+                            name, type_params, params, ret, span, libs, ..
                         } => {
                             if is_synthesized_objc_helper(name.as_str()) {
                                 continue;
@@ -176,12 +176,22 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                                     .join(", ");
                                 format!("@lib({names})\n")
                             };
+                            let tps = if type_params.is_empty() {
+                                String::new()
+                            } else {
+                                let names = type_params
+                                    .iter()
+                                    .map(|s| s.as_str().to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                format!("<{names}>")
+                            };
                             out.insert(
                                 name.clone(),
                                 Symbol {
                                     name: name.as_str().to_string(),
                                     span: *span,
-                                    signature: format!("{libs_prefix}fn {}({}){}", name, ps, r),
+                                    signature: format!("{libs_prefix}fn {}{}({}){}", name, tps, ps, r),
                                     doc: text::extract_doc_above(src, span.line),
                                 },
                             );

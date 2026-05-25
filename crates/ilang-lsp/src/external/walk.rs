@@ -220,7 +220,7 @@ fn walk_module_inner(
                     }
                     let (n, span, sig): (AstSymbol, Span, String) = match inner {
                         ilang_ast::ExternCItem::FnDecl {
-                            name, span, params, ret, libs, ..
+                            name, type_params, span, params, ret, libs, ..
                         } => {
                             let ps = params
                                 .iter()
@@ -241,10 +241,20 @@ fn walk_module_inner(
                                     .join(", ");
                                 format!("@lib({names})\n")
                             };
+                            let tps = if type_params.is_empty() {
+                                String::new()
+                            } else {
+                                let names = type_params
+                                    .iter()
+                                    .map(|s| s.as_str().to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                format!("<{names}>")
+                            };
                             (
                                 *name,
                                 *span,
-                                format!("{libs_prefix}fn {prefix}.{name}({ps}){r}"),
+                                format!("{libs_prefix}fn {prefix}.{name}{tps}({ps}){r}"),
                             )
                         }
                         ilang_ast::ExternCItem::FnDef(f) => {
