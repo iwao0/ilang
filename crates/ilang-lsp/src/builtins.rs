@@ -37,7 +37,6 @@ pub(crate) fn ffi_helper_return_type(name: &str) -> Option<Type> {
         "writeI8" | "writeI16" | "writeI32" | "writeI64"
         | "writeU8" | "writeU16" | "writeU32" | "writeU64"
         | "writeF32" | "writeF64" => Type::Unit,
-        "fnAddr" => Type::I64,
         "cstrArrayToStrings" => Type::Array {
             elem: Box::new(Type::Str),
             fixed: None,
@@ -77,7 +76,6 @@ pub(crate) fn ffi_helper_signature(name: &str) -> Option<&'static str> {
         "writeU64" => "fn writeU64(p: *void, offset: i64, value: u64)",
         "writeF32" => "fn writeF32(p: *void, offset: i64, value: f32)",
         "writeF64" => "fn writeF64(p: *void, offset: i64, value: f64)",
-        "fnAddr" => "fn fnAddr<F>(f: F): i64",
         "arrayFromCArray" => "fn arrayFromCArray<T>(p: *const T, n: size_t): T[]",
         "cstrArrayToStrings" => "fn cstrArrayToStrings(p: *const *const char): string[]",
         "errnoCheck" => "fn errnoCheck(rc: i32): i32?",

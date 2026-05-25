@@ -174,13 +174,15 @@ pub enum PeepAction: i32 {
     ///
     /// The callback signature on the C side is
     ///   `Uint32 (*)(Uint32 interval, void *param)`
-    /// — return the next interval in ms, or `0` to cancel. Caller
-    /// obtains the fn pointer via `fnAddr(myFn)` (must be invoked
-    /// inside the caller's own `@extern(C){}` block).
+    /// — return the next interval in ms, or `0` to cancel. The
+    /// callback's raw code address is the `callback` `i64`; passing
+    /// a bare ilang fn name to a `fn(...)`-typed `@extern(C)` param
+    /// auto-resolves to that address, so the typical call site casts
+    /// the fn through an `@extern(C)` wrapper before reaching here.
     ///
     /// **Args:**
     /// - `interval` — first-shot delay in ms.
-    /// - `callback` — fn pointer (use `fnAddr(myFn) as i64`).
+    /// - `callback` — fn pointer (`i64`).
     /// - `param` — raw `void*` shipped through to the callback;
     ///   pass `0` when unused.
     ///

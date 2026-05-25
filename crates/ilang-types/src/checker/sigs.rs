@@ -15,17 +15,15 @@ use crate::ops::{assignable, bin_result, int_literal_fits};
 
 use super::*;
 
-/// FFI marshalling helpers that remain as compiler-magic bare-name
+/// FFI marshalling helper that remains as compiler-magic bare-name
 /// dispatch — `arrayFromCArray<T>` peeks `T` off the pointer arg to
-/// compute the stride and `fnAddr` takes a fn-typed expression and
-/// returns its raw address, neither of which fits the `@intrinsic`
-/// AST shape. The cstr / errnoCheck / read* / write* / bytesFromBuffer
-/// family moved to `libs/std/ffi.il` as `@intrinsic(...) @extern(C)`
+/// compute the stride, which doesn't fit the `@intrinsic` AST shape.
+/// The cstr / errnoCheck / read* / write* / bytesFromBuffer family
+/// moved to `libs/std/ffi.il` as `@intrinsic(...) @extern(C)`
 /// declarations; their "must be inside @extern(C)" enforcement now
 /// rides on the C-only-type rule plus the new top-level intrinsic
 /// check in `checker/decls.rs::check_fn`.
 pub(super) const FFI_HELPERS: &[&str] = &[
-    "fnAddr",
     "arrayFromCArray",
 ];
 

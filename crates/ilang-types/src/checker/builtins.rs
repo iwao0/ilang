@@ -509,21 +509,6 @@ impl TypeChecker {
                 )],
             );
         }
-        // fnAddr(f): i64 — code-pointer of an ilang fn, suitable
-        // for passing into C as a callback (e.g. SDL_AddTimer).
-        // The callback's signature must already be C-ABI compatible
-        // (numeric primitives + raw pointers); the caller is
-        // responsible for that. Argument is type-checked as any
-        // type via a free `F`; the JIT lowering enforces that the
-        // expression is a bare fn name.
-        self.fns.insert(
-            "fnAddr".into(),
-            vec![mk_sig(
-                vec![Type::TypeVar("F".into())],
-                Type::I64,
-                vec!["F".into()],
-            )],
-        );
         // arrayFromCArray<T>(p: *const T, n: size_t): T[]
         // T is constrained to numeric primitive / bool at the call
         // site (the JIT lowering rejects other Ts since it would

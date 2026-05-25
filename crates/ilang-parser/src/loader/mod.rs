@@ -2914,7 +2914,6 @@ fn is_builtin_callee(name: &str) -> bool {
             | "writeU64"
             | "writeF32"
             | "writeF64"
-            | "fnAddr"
             | "arrayFromCArray"
             | "cstrArrayToStrings"
             | "errnoCheck"

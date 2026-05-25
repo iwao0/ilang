@@ -168,7 +168,6 @@ pub(crate) fn push_ffi_helper_completions(out: &mut Vec<CompletionItem>) {
         "writeU64",
         "writeF32",
         "writeF64",
-        "fnAddr",
         "arrayFromCArray",
         "cstrArrayToStrings",
         "errnoCheck",

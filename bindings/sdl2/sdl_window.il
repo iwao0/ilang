@@ -1230,7 +1230,8 @@ pub enum SubSystem: u32 {
         }
 
         /// Look up a GL function pointer by name. Caller invokes
-        /// the pointer through `fnAddr`-style FFI plumbing.
+        /// the returned address through an `@extern(C)` `fn`-typed
+        /// declaration plus a raw indirect call.
         ///
         /// **Returns:**
         ///   raw `void *` cast to i64. `0` if the GL driver
