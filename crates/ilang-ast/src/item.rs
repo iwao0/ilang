@@ -425,6 +425,13 @@ pub enum ExternCItem {
     FnDecl {
         is_pub: bool,
         name: Symbol,
+        /// `fn arrayFromCArray<T>(p: *const T, n: size_t): T[]` —
+        /// generic type parameters declared on the @extern(C) FnDecl.
+        /// Used today by `@intrinsic` declarations that need a
+        /// type-driven MIR lowering (the call-site lowering reads T
+        /// off the actual argument type rather than going through
+        /// full monomorphization). Empty for non-generic decls.
+        type_params: Box<[Symbol]>,
         params: Box<[Param]>,
         ret: Option<crate::types::Type>,
         libs: Box<[Symbol]>,

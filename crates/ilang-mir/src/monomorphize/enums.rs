@@ -755,10 +755,11 @@ fn rewrite_enum_refs_in_extern_c_item(
     use ilang_ast::ExternCItem;
     match item {
         ExternCItem::FnDecl {
-            is_pub, name, params, ret, libs, optional, variadic, c_symbol, intrinsic_name, span,
+            is_pub, name, type_params, params, ret, libs, optional, variadic, c_symbol, intrinsic_name, span,
         } => ExternCItem::FnDecl {
             is_pub: *is_pub,
             name: name.clone(),
+            type_params: type_params.clone(),
             params: params
                 .iter()
                 .map(|p| Param {

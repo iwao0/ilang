@@ -763,6 +763,7 @@ fn build_freefn_dispatch(
     let alias = ilang_ast::ExternCItem::FnDecl {
         is_pub: false,
         name: alias_name,
+        type_params: Box::new([]),
         params: alias_params.into(),
         ret: m.ret.clone(),
         libs: Box::new([Symbol::intern("objc")]),
@@ -1330,6 +1331,7 @@ fn build_class_method(
     let alias_decl = ilang_ast::ExternCItem::FnDecl {
         is_pub: false,
         name: alias_name,
+        type_params: Box::new([]),
         params: alias_params.into(),
         ret: alias_ret,
         libs: Box::new([Symbol::intern("objc")]),
@@ -1685,6 +1687,7 @@ fn build_super_helper(
     let alias_decl = ilang_ast::ExternCItem::FnDecl {
         is_pub: false,
         name: alias_name,
+        type_params: Box::new([]),
         params: alias_params.into(),
         ret: alias_ret,
         libs: Box::new([Symbol::intern("objc")]),
@@ -2676,6 +2679,7 @@ fn finalize_objc_block(
                 ilang_ast::ExternCItem::FnDecl {
                     is_pub: false,
                     name: sel_register_name,
+                    type_params: Box::new([]),
                     params: Box::new([Param {
                         name: Symbol::intern("name"),
                         ty: Type::RawPtr {
@@ -2724,6 +2728,7 @@ fn finalize_objc_block(
                 items.push(ilang_ast::ExternCItem::FnDecl {
                     is_pub: false,
                     name: retain_name,
+                    type_params: Box::new([]),
                     params: Box::new([Param {
                         name: Symbol::intern("obj"),
                         ty: Type::RawPtr {
@@ -2747,6 +2752,7 @@ fn finalize_objc_block(
                 items.push(ilang_ast::ExternCItem::FnDecl {
                     is_pub: false,
                     name: release_name,
+                    type_params: Box::new([]),
                     params: Box::new([Param {
                         name: Symbol::intern("obj"),
                         ty: Type::RawPtr {
@@ -2788,6 +2794,7 @@ fn finalize_objc_block(
                     ilang_ast::ExternCItem::FnDecl {
                         is_pub: false,
                         name: get_class_name,
+                        type_params: Box::new([]),
                         params: Box::new([Param {
                             name: Symbol::intern("name"),
                             ty: Type::RawPtr {
@@ -2817,6 +2824,7 @@ fn finalize_objc_block(
                 items.push(ilang_ast::ExternCItem::FnDecl {
                     is_pub: false,
                     name: allocate_pair_name,
+                    type_params: Box::new([]),
                     params: Box::new([
                         Param {
                             name: Symbol::intern("parent"),
@@ -2857,6 +2865,7 @@ fn finalize_objc_block(
                 items.push(ilang_ast::ExternCItem::FnDecl {
                     is_pub: false,
                     name: register_pair_name,
+                    type_params: Box::new([]),
                     params: Box::new([Param {
                         name: Symbol::intern("cls"),
                         ty: Type::RawPtr {
@@ -2878,6 +2887,7 @@ fn finalize_objc_block(
                 items.push(ilang_ast::ExternCItem::FnDecl {
                     is_pub: false,
                     name: class_add_method_name,
+                    type_params: Box::new([]),
                     params: Box::new([
                         Param {
                             name: Symbol::intern("cls"),
@@ -2936,6 +2946,7 @@ fn finalize_objc_block(
                 items.push(ilang_ast::ExternCItem::FnDecl {
                     is_pub: false,
                     name: dlsym_name,
+                    type_params: Box::new([]),
                     params: Box::new([
                         Param {
                             name: Symbol::intern("handle"),
@@ -3047,6 +3058,7 @@ fn finalize_objc_block(
             items.push(ilang_ast::ExternCItem::FnDecl {
                 is_pub: false,
                 name: loader_name,
+                type_params: Box::new([]),
                 params: Box::new([]),
                 ret: None,
                 libs: block_libs.into_boxed_slice(),

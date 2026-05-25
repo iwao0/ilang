@@ -50,12 +50,17 @@ impl<'a> BodyCx<'a> {
             self.fb.push_inst(Inst::TypeOf { dst, value: v });
             return Ok((dst, MirTy::I64));
         }
-        // arrayFromCArray<T>(p: *const T, n: size_t) — special-case
-        // before the generic FFI helper table because we need to
-        // peek the actual T off the first arg's MirTy (`*const T`)
-        // and pass an explicit elem stride to the host helper. Type
-        // monomorphisation already substituted T at the source level.
-        if callee.as_str() == "arrayFromCArray" && args.len() == 2 {
+        // `ffi.arrayFromCArray<T>(p: *const T, n: size_t)` —
+        // declared as `@intrinsic("ffi.arrayFromCArray")` inside
+        // `libs/std/ffi.il`; the loader-level rename rewrites the
+        // bare `arrayFromCArray` callee to `ffi.arrayFromCArray`
+        // after `use std.ffi { arrayFromCArray }`. The MIR-side
+        // special case stays because we need to peek the actual `T`
+        // off the first arg's MirTy (`*const T`) and synthesise the
+        // stride / kind_tag arguments the runtime helper takes;
+        // full monomorphisation isn't required since `T` is known
+        // at the call site from the pointer's element type.
+        if callee.as_str() == "ffi.arrayFromCArray" && args.len() == 2 {
             let (pv, pty) = self.lower_expr(&args[0])?;
             let (nv, nty) = self.lower_expr(&args[1])?;
             let elem_ty = match &pty {

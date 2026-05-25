@@ -509,25 +509,6 @@ impl TypeChecker {
                 )],
             );
         }
-        // arrayFromCArray<T>(p: *const T, n: size_t): T[]
-        // T is constrained to numeric primitive / bool at the call
-        // site (the JIT lowering rejects other Ts since it would
-        // need element-wise marshalling we don't ship).
-        let t_var = Type::TypeVar("T".into());
-        self.fns.insert(
-            "arrayFromCArray".into(),
-            vec![mk_sig(
-                vec![
-                    Type::RawPtr {
-                        is_const: true,
-                        inner: Box::new(t_var.clone()),
-                    },
-                    Type::Size,
-                ],
-                Type::Array { elem: Box::new(t_var), fixed: None },
-                vec!["T".into()],
-            )],
-        );
         // cstrArrayToStrings(p: *const *const char): string[]
         self.fns.insert(
             "cstrArrayToStrings".into(),

@@ -44,6 +44,16 @@
     @intrinsic("ffi.bytesFromBuffer")
     pub fn bytesFromBuffer(p: *const void, n: size_t): u8[]
 
+    /// `arrayFromCArray<T>(p, n)` — copy `n` elements of `T` from
+    /// the C-side buffer `p` into a fresh `T[]`. The element size
+    /// (stride) is inferred from `T` at the call site; MIR lowering
+    /// reads `T` off the pointer arg and synthesises stride / kind
+    /// arguments for the underlying `$array.fromCArray` runtime call.
+    /// `T` must be a numeric primitive / bool — heap element types
+    /// (string / class) aren't supported.
+    @intrinsic("array.fromCArray")
+    pub fn arrayFromCArray<T>(p: *const T, n: size_t): T[]
+
     /// Wrap a syscall return into `Optional<i32>`: `some(rc)` when
     /// `rc >= 0`, `none` otherwise. After `none`, read `os.errno()`
     /// for the failure reason.

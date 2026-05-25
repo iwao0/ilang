@@ -15,17 +15,13 @@ use crate::ops::{assignable, bin_result, int_literal_fits};
 
 use super::*;
 
-/// FFI marshalling helper that remains as compiler-magic bare-name
-/// dispatch — `arrayFromCArray<T>` peeks `T` off the pointer arg to
-/// compute the stride, which doesn't fit the `@intrinsic` AST shape.
-/// The cstr / errnoCheck / read* / write* / bytesFromBuffer family
-/// moved to `libs/std/ffi.il` as `@intrinsic(...) @extern(C)`
-/// declarations; their "must be inside @extern(C)" enforcement now
-/// rides on the C-only-type rule plus the new top-level intrinsic
-/// check in `checker/decls.rs::check_fn`.
-pub(super) const FFI_HELPERS: &[&str] = &[
-    "arrayFromCArray",
-];
+/// Every FFI marshalling helper now lives in `libs/std/ffi.il` as an
+/// `@intrinsic(...) @extern(C)` declaration; the "must be inside
+/// @extern(C)" enforcement rides on the C-only-type rule plus the
+/// top-level intrinsic check in `checker/decls.rs::check_fn`. This
+/// list is kept (empty) so call sites that still reach for it (e.g.
+/// out-of-block usage diagnostics) stay structurally consistent.
+pub(super) const FFI_HELPERS: &[&str] = &[];
 
 /// Return the first C-only type encountered in `t` (raw pointer,
 /// `char`, `void`, `size_t`, `ssize_t`), recursing through composite

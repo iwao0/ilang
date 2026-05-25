@@ -274,6 +274,15 @@ impl<'a> Parser<'a> {
         let span = self.peek().span;
         self.expect(&TokenKind::Fn, "'fn'")?;
         let name = self.expect_ident("function name")?;
+        // Optional `<T, U, ...>` — used by `@intrinsic` declarations
+        // whose MIR lowering peeks the actual type at the call site
+        // (e.g. `arrayFromCArray<T>(*const T, size_t): T[]`). Most
+        // @extern(C) fns aren't generic; the list stays empty.
+        let type_params: Vec<Symbol> = if matches!(self.peek().kind, TokenKind::Lt) {
+            self.parse_type_param_list()?
+        } else {
+            Vec::new()
+        };
         self.expect(&TokenKind::LParen, "'('")?;
         let params = self.parse_param_list()?;
         // Trailing `...` after the last fixed param marks a C
@@ -306,7 +315,7 @@ impl<'a> Parser<'a> {
                 is_pub: false,
                 attrs: Box::new([]),
                 name,
-                type_params: Box::new([]),
+                type_params: type_params.into(),
                 params: params.into(),
                 ret,
                 body,
@@ -322,6 +331,7 @@ impl<'a> Parser<'a> {
             Ok(ilang_ast::ExternCItem::FnDecl {
                 is_pub: false,
                 name,
+                type_params: type_params.into(),
                 params: params.into(),
                 ret,
                 libs: libs.into(),

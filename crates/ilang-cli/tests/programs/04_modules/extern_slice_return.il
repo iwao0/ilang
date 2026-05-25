@@ -6,6 +6,7 @@
 //
 // jit: skip
 use std.test
+use std.ffi { arrayFromCArray }
 
 @extern(C) {
     struct ByteSlice {

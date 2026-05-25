@@ -79,7 +79,7 @@ impl TypeChecker {
                     let sig = class_signature(&synth, None, &|_, _| false)?;
                     self.classes.insert(name.clone(), sig);
                 }
-                ilang_ast::ExternCItem::FnDecl { name, params, ret, variadic, libs, span, .. } => {
+                ilang_ast::ExternCItem::FnDecl { name, type_params, params, ret, variadic, libs, span, .. } => {
                     // Build a synthetic FnDecl with @extern attribute
                     // so downstream pipeline (loader, JIT) treats it
                     // like an existing top-level extern fn.
@@ -95,7 +95,7 @@ impl TypeChecker {
                         is_pub: false,
                         attrs: attrs.into(),
                         name: name.clone(),
-                        type_params: Box::new([]),
+                        type_params: type_params.clone(),
                         params: params.clone(),
                         ret: ret.clone(),
                         body: ilang_ast::Block { stmts: Vec::new(), tail: None },

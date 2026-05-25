@@ -2501,17 +2501,24 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
                         }
                     }
                     ilang_ast::ExternCItem::FnDecl {
-                        name, libs, c_symbol, params, ret, ..
+                        name, libs, c_symbol, params, ret, type_params, ..
                     } => {
                         if !libs.is_empty() && c_symbol.is_none() {
                             *c_symbol = Some(name.clone());
                         }
                         *name = Symbol::intern(&format!("{prefix}.{name}")).into();
+                        // Generic params: rewrite `Object("T")` →
+                        // `TypeVar("T")` before `prefix_type` runs, so
+                        // the prefixer doesn't qualify `T` to
+                        // `<prefix>.T`. `prefix_type` already passes
+                        // TypeVar through unchanged.
                         for p in params.iter_mut() {
-                            p.ty = prefix_type(&p.ty, prefix);
+                            let lifted = lift_type_vars(&p.ty, type_params);
+                            p.ty = prefix_type(&lifted, prefix);
                         }
                         if let Some(rt) = ret.as_mut() {
-                            *rt = prefix_type(rt, prefix);
+                            let lifted = lift_type_vars(rt, type_params);
+                            *rt = prefix_type(&lifted, prefix);
                         }
                     }
                     ilang_ast::ExternCItem::FnDef(f) => {
@@ -2850,6 +2857,56 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
     Expr { kind, span }
 }
 
+/// Convert `Type::Object(name)` to `Type::TypeVar(name)` for every
+/// `name` listed in `type_params`. The parser produces `Object` for
+/// any bare uppercase identifier; the type-checker would normally do
+/// this rewrite later (via `sigs::rewrite_type_params`), but
+/// `prefix_item` in the loader would already have qualified `T` to
+/// `<prefix>.T` by then. Running the lift here keeps the FnDecl
+/// signature intact across module merging.
+fn lift_type_vars(t: &Type, type_params: &[Symbol]) -> Type {
+    match t {
+        Type::Object(name) if type_params.iter().any(|p| p == name) => {
+            Type::TypeVar(name.clone())
+        }
+        Type::Array { elem, fixed } => Type::Array {
+            elem: Box::new(lift_type_vars(elem, type_params)),
+            fixed: *fixed,
+        },
+        Type::Optional(inner) => {
+            Type::Optional(Box::new(lift_type_vars(inner, type_params)))
+        }
+        Type::Weak(inner) => {
+            Type::Weak(Box::new(lift_type_vars(inner, type_params)))
+        }
+        Type::Generic(g) => Type::generic(
+            g.base.clone(),
+            g.args
+                .iter()
+                .map(|a| lift_type_vars(a, type_params))
+                .collect(),
+        ),
+        Type::Tuple(elems) => Type::Tuple(
+            elems
+                .iter()
+                .map(|e| lift_type_vars(e, type_params))
+                .collect(),
+        ),
+        Type::Fn(ft) => Type::func(
+            ft.params
+                .iter()
+                .map(|p| lift_type_vars(p, type_params))
+                .collect(),
+            lift_type_vars(&ft.ret, type_params),
+        ),
+        Type::RawPtr { is_const, inner } => Type::RawPtr {
+            is_const: *is_const,
+            inner: Box::new(lift_type_vars(inner, type_params)),
+        },
+        _ => t.clone(),
+    }
+}
+
 fn prefix_type(t: &Type, prefix: &str) -> Type {
     match t {
         Type::Object(name) if !name.as_str().contains('.') && !is_builtin_type(&name.as_str()) => {
@@ -2914,7 +2971,6 @@ fn is_builtin_callee(name: &str) -> bool {
             | "writeU64"
             | "writeF32"
             | "writeF64"
-            | "arrayFromCArray"
             | "cstrArrayToStrings"
             | "errnoCheck"
             | "errnoCheckI64"

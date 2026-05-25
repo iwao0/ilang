@@ -581,6 +581,38 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     // ilang declarations with a different signature can alias it
     // (the call sites dispatch through `func_addr + call_indirect`).
     let mut c_sym_canonical: HashMap<String, cranelift_module::FuncId> = HashMap::new();
+    // Pre-populate with the runtime symbols already declared above
+    // (`$alloc.alloc`, `$array.fromCArray`, …). A user-facing
+    // `@intrinsic("...")` FnDecl whose c_symbol resolves to one of
+    // those names — e.g. `arrayFromCArray<T>(p, n): T[]` whose runtime
+    // helper takes `(p, n, stride, kind)` — must alias the existing
+    // declaration instead of trying to re-declare with a conflicting
+    // signature; the alias path keeps the type-checker's user-facing
+    // signature while the MIR special case dispatches through
+    // `FuncRef::Builtin` directly.
+    for pre in [
+        "$alloc.alloc",
+        "$alloc.free",
+        "$map.new",
+        "$map.get",
+        "$map.getOptional",
+        "$map.set",
+        "$map.has",
+        "$promise.drain",
+        "$promise.pending",
+        "$promise.settleResolve",
+        "$promise.settleReject",
+        "$array.fromCArray",
+        "$ffi.cstrFromString",
+        "$repl.loadSlot",
+        "$repl.storeSlot",
+    ] {
+        if let Some(cranelift_module::FuncOrDataId::Func(cid)) =
+            module.declarations().get_name(pre)
+        {
+            c_sym_canonical.insert(pre.to_string(), cid);
+        }
+    }
     for (idx, func) in prog.functions.iter().enumerate() {
         let mid = FuncId(idx as u32);
         let sig = clif_signature_for(&*module, func, prog)?;

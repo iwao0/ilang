@@ -43,9 +43,6 @@ pub(crate) fn ffi_helper_return_type(name: &str) -> Option<Type> {
         },
         "errnoCheck" => Type::Optional(Box::new(Type::I32)),
         "errnoCheckI64" => Type::Optional(Box::new(Type::I64)),
-        // `arrayFromCArray<T>(p, n): T[]` — generic, no concrete
-        // return without resolving T from the arg's pointer type.
-        // Leave None for now; hover on this one stays untyped.
         _ => return None,
     })
 }
@@ -76,7 +73,6 @@ pub(crate) fn ffi_helper_signature(name: &str) -> Option<&'static str> {
         "writeU64" => "fn writeU64(p: *void, offset: i64, value: u64)",
         "writeF32" => "fn writeF32(p: *void, offset: i64, value: f32)",
         "writeF64" => "fn writeF64(p: *void, offset: i64, value: f64)",
-        "arrayFromCArray" => "fn arrayFromCArray<T>(p: *const T, n: size_t): T[]",
         "cstrArrayToStrings" => "fn cstrArrayToStrings(p: *const *const char): string[]",
         "errnoCheck" => "fn errnoCheck(rc: i32): i32?",
         "errnoCheckI64" => "fn errnoCheckI64(rc: i64): i64?",
