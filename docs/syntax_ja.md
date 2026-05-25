@@ -1560,22 +1560,6 @@ if let some(n) = safeRead(fd, buf) {
 }
 ```
 
-#### 不透明ハンドル
-
-旧 `@extern("lib") class Foo {}` の置き換え。**空 struct** が opaque handle になる:
-
-```rust
-@extern(C) {
-    struct FILE {}
-    @lib("c") fn fopen(path: *const char, mode: *const char): *FILE
-    @lib("c") fn fclose(stream: *FILE): i32
-}
-```
-
-- `*FILE` は ABI 上は raw C ポインタ (i64)
-- `new FILE()` は **書けない** (raw ポインタ型は ilang 側で構築できない)
-- 解放は呼び出し側責任で `fclose(...)` を明示的に呼ぶ。RAII / ARC は付かない (旧 `deinit` 付き opaque class は非対応)
-
 #### out-pointer (sqlite3_open 形式)
 
 ```rust
