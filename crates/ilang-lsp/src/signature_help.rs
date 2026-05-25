@@ -98,6 +98,20 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                 doc: None,
                 source_path: None,
             });
+        } else if let Some(s) = aliased_external_signature(doc, &call.callee) {
+            // `use std.math as math` + `math.abs(` — the buffer says
+            // `math.abs` but external_signatures keys the item under
+            // its canonical dotted path (`std.math.abs`). Translate
+            // the receiver via `module_aliases` and retry.
+            out.push(MemberInfo {
+                span: Span::dummy(),
+                signature: s,
+                ret_ty: None,
+                is_static: false,
+                is_pub: true,
+                doc: None,
+                source_path: None,
+            });
         } else if let Some(s) = doc.lookup_selective_bare(&call.callee) {
             // `use cocoa { makeWindow }` registers `makeWindow` only
             // in `selective_use_names`; the signature lives under
@@ -231,6 +245,22 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
     })
 }
 
+
+/// Resolve a dotted callee whose head is a `use ... as <alias>`
+/// alias to its canonical external-signatures key. `math.abs` after
+/// `use std.math as math` becomes `std.math.abs`; the head is
+/// matched against `doc.module_aliases`. Returns `None` when the
+/// head isn't an alias.
+fn aliased_external_signature(doc: &Doc, callee: &str) -> Option<String> {
+    let (head, rest) = callee.split_once('.')?;
+    let canonical = doc
+        .module_aliases
+        .get(&AstSymbol::intern(head))?
+        .as_str()
+        .to_string();
+    let key = AstSymbol::intern(&format!("{canonical}.{rest}"));
+    doc.external.signatures.get(&key).cloned()
+}
 
 /// Pull the generic-argument list out of a receiver type if it
 /// happens to be a `Type::Generic` instantiation. Anything else
