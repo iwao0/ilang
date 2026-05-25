@@ -243,8 +243,12 @@ fn lower_to_mir(
     };
     let extra_paths = dep_tree.dirs;
     let t0 = std::time::Instant::now();
-    let prog = match ilang_parser::loader::load_program_with_overlay_and_parents(
-        path, &extra_paths, &dep_tree.parents, &std::collections::HashMap::new(),
+    let prog = match ilang_parser::loader::load_program_full(
+        path,
+        &extra_paths,
+        &dep_tree.parents,
+        &dep_tree.names_to_dirs,
+        &std::collections::HashMap::new(),
     ) {
         Ok(p) => p,
         Err(e) => {

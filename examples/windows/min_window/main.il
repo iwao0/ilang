@@ -18,8 +18,8 @@
 // a `pub fn` inside the same block so the WNDCLASSEXA literal
 // can reference it by name.
 
-use windows {
 use std.ffi { cstrFromString }
+use windows {
     GetModuleHandleA,
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU,
     WNDCLASSEXA, MSG, POINT,

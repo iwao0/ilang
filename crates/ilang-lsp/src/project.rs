@@ -78,11 +78,14 @@ const fn current_os() -> &'static str {
 /// Aggregated dep info — mirror of `ilang-cli::project::DepTree`.
 /// `dirs` is the flat search-path list; `parents` maps each
 /// child package's directory to its parent's directory in the
-/// dep DAG and backs `use super.X` resolution.
+/// dep DAG and backs `use super.X` resolution. `names_to_dirs`
+/// records each `[deps]` entry's user-chosen name → resolved
+/// directory so `use <dep_name>` can route to the dep's `mod.il`.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct DepTree {
     pub dirs:    Vec<PathBuf>,
     pub parents: std::collections::HashMap<PathBuf, PathBuf>,
+    pub names_to_dirs: std::collections::HashMap<String, PathBuf>,
 }
 
 /// Mirror of the CLI's `ilang.toml` discovery. Walks up from the entry
@@ -205,6 +208,9 @@ fn walk_project(
         out.parents
             .entry(canon.clone())
             .or_insert_with(|| parent_pkg_dir.to_path_buf());
+        out.names_to_dirs
+            .entry(name.clone())
+            .or_insert_with(|| canon.clone());
         let nested = canon.join("ilang.toml");
         if nested.exists() {
             walk_project(&nested, &canon, host, visited, out)?;

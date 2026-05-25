@@ -211,8 +211,31 @@ fn expand(
 pub fn validate_visibility(
     loaded: &HashMap<PathBuf, Program>,
     entry: &Path,
+    dep_names_to_dirs: &HashMap<String, PathBuf>,
 ) -> Result<(), LoadError> {
-    let catalog = build_catalog(loaded);
+    let mut catalog = build_catalog(loaded);
+    // For each `[deps] <name> = "<dir>"` whose `<dir>/mod.il` is
+    // loaded, mirror that file's pub set under `<name>` so `use
+    // <name>` references resolve in the dotted-ref check. Without
+    // this, a dep whose directory basename differs from its dep
+    // name (`gtk = ".../gtk4"`) would fail every `gtk.X` lookup
+    // because `module_name_of` keys the catalog by the directory
+    // stem (`gtk4`) not by the user-chosen alias.
+    for (name, dir) in dep_names_to_dirs {
+        let mod_il = dir.join("mod.il");
+        let Ok(canon) = mod_il.canonicalize() else { continue };
+        let Some(file_name) = module_name_of(&canon) else { continue };
+        // Union — the dep name's catalog entry takes the umbrella's
+        // full export view (which `module_name_of` keyed under the
+        // dep directory's basename). If the dep name happens to
+        // already exist in the catalog (e.g. a same-named module
+        // file lives elsewhere), merge instead of overwriting.
+        if name != &file_name {
+            if let Some(pubs) = catalog.get(&file_name).cloned() {
+                catalog.entry(name.clone()).or_default().extend(pubs);
+            }
+        }
+    }
     // Validate every loaded file (including the entry).
     for (path, prog) in loaded {
         let self_module = module_name_of(path);

@@ -1,10 +1,10 @@
 /// d3dcompiler — compile a trivial HLSL vertex shader and inspect
 /// the resulting blob.
 
+use std.ffi { cstrFromString, freeCstr }
 use std.test as test
 use windows { HANDLE }
 use directx12 {
-use std.ffi { cstrFromString, freeCstr }
     D3DCompile, D3DCreateBlob,
     D3D_SHADER_MACRO, ID3DBlob,
     D3DCompileFlags,

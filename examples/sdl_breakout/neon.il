@@ -2,13 +2,13 @@
 // halo passes (large + faint, medium, sharp + opaque) to fake the
 // glow of a saturated primary on a dark background. The renderer's
 // blend mode must already be BLEND for the haloes to compose
-// correctly — `sdl.Renderer.init` enables it by default.
+// correctly — `sdl2.Renderer.init` enables it by default.
 
-use sdl
+use sdl2
 use std.math as math
 pub class NeonRenderer {
-    pub renderer: sdl.Renderer
-    pub init(ren: sdl.Renderer) {
+    pub renderer: sdl2.Renderer
+    pub init(ren: sdl2.Renderer) {
         this.renderer = ren
     }
 

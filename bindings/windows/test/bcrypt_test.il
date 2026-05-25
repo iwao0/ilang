@@ -1,8 +1,8 @@
 /// bcrypt — random bytes, SHA-256 hash of a known input.
 
+use std.ffi { cstrFromString, freeCstr }
 use std.test as test
 use windows {
-use std.ffi { cstrFromString, freeCstr }
     HeapAlloc, HeapFree, GetProcessHeap,
 }
 use bcrypt {

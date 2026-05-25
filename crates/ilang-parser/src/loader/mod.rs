@@ -246,6 +246,23 @@ pub fn load_program_with_overlay_and_parents(
     parents: &HashMap<PathBuf, PathBuf>,
     overlay: &HashMap<PathBuf, String>,
 ) -> Result<Program, LoadError> {
+    load_program_full(entry, extra_paths, parents, &HashMap::new(), overlay)
+}
+
+/// Full-featured entry: also accepts the `dep_name → dep_directory`
+/// map from `ilang.toml [deps]`. Bare `use <dep_name>` resolves to
+/// `<dep_directory>/mod.il` first, before falling back to the
+/// sibling / extra_paths file-name search. Lets `[deps]
+/// winapi = "../bindings/windows"` carry through as `use winapi`
+/// regardless of what the umbrella file under `bindings/windows/`
+/// is named.
+pub fn load_program_full(
+    entry: &Path,
+    extra_paths: &[PathBuf],
+    parents: &HashMap<PathBuf, PathBuf>,
+    dep_names_to_dirs: &HashMap<String, PathBuf>,
+    overlay: &HashMap<PathBuf, String>,
+) -> Result<Program, LoadError> {
     let mut visiting: HashSet<PathBuf> = HashSet::new();
     let mut chain: Vec<Symbol> = Vec::new();
     let mut loaded: HashMap<PathBuf, Program> = HashMap::new();
@@ -262,7 +279,7 @@ pub fn load_program_with_overlay_and_parents(
     let extra_paths: Vec<PathBuf> = extra_paths.to_vec();
 
     load_recursive(
-        &entry_canon, &entry_dir, &extra_paths, parents,
+        &entry_canon, &entry_dir, &extra_paths, parents, dep_names_to_dirs,
         &mut visiting, &mut chain, &mut loaded, overlay, &mut objc_registry,
         &mut objc_class_modules, &mut sibling_class_maps,
     )?;
@@ -271,7 +288,7 @@ pub fn load_program_with_overlay_and_parents(
     // qualified reference and every selective `use M { X }` must
     // target a `pub` item in M. Walks every loaded file (entry
     // included) using the catalog of `pub` items per module.
-    crate::visibility::validate_visibility(&loaded, &entry_canon)?;
+    crate::visibility::validate_visibility(&loaded, &entry_canon, dep_names_to_dirs)?;
 
     let entry_prog = loaded.remove(&entry_canon).expect("entry just loaded");
     // Process the entry's use items into actual merged content.
@@ -301,6 +318,7 @@ pub fn load_program_with_overlay_and_parents(
                 &entry_canon,
                 &extra_paths,
                 parents,
+                dep_names_to_dirs,
                 &mut loaded,
                 &mut merged,
                 &mut whole_imports,
@@ -387,6 +405,7 @@ fn resolve_module(
     extra_paths: &[PathBuf],
     super_count: u32,
     parents: &HashMap<PathBuf, PathBuf>,
+    dep_names_to_dirs: &HashMap<String, PathBuf>,
 ) -> Result<PathBuf, LoadError> {
     // Multi-segment imports (`use a.b.c.*` or `use a.b.X`): resolve
     // `a` to a directory first, walk subpath[..-1] as subdirectories,
@@ -427,7 +446,7 @@ fn resolve_module(
             });
         }
         let mut base = resolve_base_directory(
-            module, dir, extra_paths, super_count, parents,
+            module, dir, extra_paths, super_count, parents, dep_names_to_dirs,
         )?;
         // The last subpath entry names the actual `.il` file (or
         // folder-module umbrella). Everything before it is a chain
@@ -491,13 +510,17 @@ fn resolve_module(
         }
         return canonicalize(&primary);
     }
-    // Resolution order: sibling file → sibling subfolder → each
-    // explicit dep dir → stdlib builtin. Stdlib comes LAST so a
-    // sibling file with the same name (e.g. `appkit/events.il`
-    // next to `libs/std/events.il`) wins — otherwise the loader
-    // would dlopen the stdlib file under that bare module name
-    // and the visibility catalog would only see the stdlib's
-    // pubs.
+    // Resolution order: sibling file → sibling subfolder →
+    // `ilang.toml [deps]` name-keyed mod.il → each explicit dep dir
+    // (file-name fallback) → stdlib builtin. The dep-name lookup
+    // sits between sibling and extra_paths so the user-chosen name
+    // from `[deps] X = "/path"` resolves `use X` to `/path/mod.il`
+    // regardless of how the directory or umbrella file is spelled.
+    // Stdlib comes LAST so a sibling file with the same name (e.g.
+    // `appkit/events.il` next to `libs/std/events.il`) wins —
+    // otherwise the loader would dlopen the stdlib file under that
+    // bare module name and the visibility catalog would only see
+    // the stdlib's pubs.
     let filename = format!("{module}.il");
     // `<dir>/<module>.il` — sibling file. Highest priority.
     let primary = dir.join(&filename);
@@ -511,6 +534,16 @@ fn resolve_module(
     let mod_il = dir.join(module).join("mod.il");
     if mod_il.exists() {
         return canonicalize(&mod_il);
+    }
+    // `[deps] <module> = "<dir>"` — load `<dir>/mod.il`. The dep
+    // name is decoupled from the on-disk file structure: the
+    // consumer writes `use <name>` and the loader picks the dep
+    // directory by name, then loads its `mod.il` umbrella.
+    if let Some(dep_dir) = dep_names_to_dirs.get(module) {
+        let candidate_mod = dep_dir.join("mod.il");
+        if candidate_mod.exists() {
+            return canonicalize(&candidate_mod);
+        }
     }
     for extra in extra_paths {
         let candidate = extra.join(&filename);
@@ -548,6 +581,7 @@ fn resolve_base_directory(
     extra_paths: &[PathBuf],
     super_count: u32,
     parents: &HashMap<PathBuf, PathBuf>,
+    dep_names_to_dirs: &HashMap<String, PathBuf>,
 ) -> Result<PathBuf, LoadError> {
     if super_count > 0 {
         let pkg = find_owning_package(dir, extra_paths)
@@ -578,6 +612,13 @@ fn resolve_base_directory(
     let local = dir.join(module);
     if local.is_dir() {
         return Ok(local);
+    }
+    // `[deps] <module> = "<dir>"` — use the dep's resolved
+    // directory as the base for the subpath walk.
+    if let Some(dep_dir) = dep_names_to_dirs.get(module) {
+        if dep_dir.is_dir() {
+            return Ok(dep_dir.clone());
+        }
     }
     for extra in extra_paths {
         let candidate = extra.join(module);
@@ -618,6 +659,7 @@ fn load_recursive(
     base_dir: &Path,
     extra_paths: &[PathBuf],
     parents: &HashMap<PathBuf, PathBuf>,
+    dep_names_to_dirs: &HashMap<String, PathBuf>,
     visiting: &mut HashSet<PathBuf>,
     chain: &mut Vec<Symbol>,
     loaded: &mut HashMap<PathBuf, Program>,
@@ -644,11 +686,11 @@ fn load_recursive(
     let dir = file.parent().unwrap_or(base_dir).to_path_buf();
     for (super_count, dep_name, subpath) in pre_scan_use_modules(&toks) {
         let canon = resolve_module(
-            &dep_name, &subpath, &dir, extra_paths, super_count, parents,
+            &dep_name, &subpath, &dir, extra_paths, super_count, parents, dep_names_to_dirs,
         )?;
         load_recursive(
-            &canon, &dir, extra_paths, parents, visiting, chain, loaded, overlay, objc_registry,
-            objc_class_modules, sibling_class_maps,
+            &canon, &dir, extra_paths, parents, dep_names_to_dirs, visiting, chain, loaded, overlay,
+            objc_registry, objc_class_modules, sibling_class_maps,
         )?;
     }
     // Folder-module sibling pre-scan: when `<dir>/mod.il` exists, peek
@@ -1040,6 +1082,7 @@ fn apply_use(
     importer_canon: &Path,
     extra_paths: &[PathBuf],
     parents: &HashMap<PathBuf, PathBuf>,
+    dep_names_to_dirs: &HashMap<String, PathBuf>,
     loaded: &mut HashMap<PathBuf, Program>,
     merged: &mut Program,
     _whole_imports: &mut HashSet<Symbol>,
@@ -1073,6 +1116,7 @@ fn apply_use(
         extra_paths,
         u.super_count,
         parents,
+        dep_names_to_dirs,
     )?;
     // Clone instead of remove — the same module may legitimately be
     // applied multiple times (e.g. once via pub use to publish under
@@ -1203,6 +1247,7 @@ fn apply_use(
             &canon,
             extra_paths,
             parents,
+            dep_names_to_dirs,
             loaded,
         );
         for nu in nested_uses {
@@ -1227,6 +1272,7 @@ fn apply_use(
                 &canon,
                 extra_paths,
                 parents,
+                dep_names_to_dirs,
                 loaded,
                 merged,
                 _whole_imports,
@@ -1385,6 +1431,7 @@ fn apply_use(
             &module_dir,
             extra_paths,
             parents,
+            dep_names_to_dirs,
             loaded,
             &mut visited,
             &mut names,
@@ -1477,6 +1524,7 @@ fn apply_use(
                         &module_dir,
                         extra_paths,
                         parents,
+                        dep_names_to_dirs,
                         loaded,
                         &mut visited,
                         &subpath_strs,
@@ -1531,6 +1579,7 @@ fn toposort_pub_use_reexports(
     importer_canon: &Path,
     extra_paths: &[PathBuf],
     parents: &HashMap<PathBuf, PathBuf>,
+    dep_names_to_dirs: &HashMap<String, PathBuf>,
     loaded: &HashMap<PathBuf, Program>,
 ) {
     let importer_dir = importer_canon
@@ -1555,6 +1604,7 @@ fn toposort_pub_use_reexports(
             extra_paths,
             u.super_count,
             parents,
+            dep_names_to_dirs,
         ) else {
             continue;
         };
@@ -1591,6 +1641,7 @@ fn toposort_pub_use_reexports(
                 extra_paths,
                 nu.super_count,
                 parents,
+                dep_names_to_dirs,
             ) else {
                 continue;
             };
@@ -1910,13 +1961,14 @@ fn collect_export_names(
     importer_dir: &Path,
     extra_paths: &[PathBuf],
     parents: &HashMap<PathBuf, PathBuf>,
+    dep_names_to_dirs: &HashMap<String, PathBuf>,
     loaded: &HashMap<PathBuf, Program>,
     visited: &mut HashSet<PathBuf>,
     out: &mut HashSet<Symbol>,
     subpath: &[String],
 ) -> Result<(), LoadError> {
     let canon = resolve_module(
-        module, subpath, importer_dir, extra_paths, super_count, parents,
+        module, subpath, importer_dir, extra_paths, super_count, parents, dep_names_to_dirs,
     )?;
     if !visited.insert(canon.clone()) {
         return Ok(());
@@ -1997,6 +2049,7 @@ fn collect_export_names(
                 &module_dir,
                 extra_paths,
                 parents,
+                dep_names_to_dirs,
                 loaded,
                 visited,
                 out,
@@ -2014,12 +2067,13 @@ fn find_in_export_chain(
     importer_dir: &Path,
     extra_paths: &[PathBuf],
     parents: &HashMap<PathBuf, PathBuf>,
+    dep_names_to_dirs: &HashMap<String, PathBuf>,
     loaded: &HashMap<PathBuf, Program>,
     visited: &mut HashSet<PathBuf>,
     subpath: &[String],
 ) -> Result<bool, LoadError> {
     let canon = resolve_module(
-        module, subpath, importer_dir, extra_paths, super_count, parents,
+        module, subpath, importer_dir, extra_paths, super_count, parents, dep_names_to_dirs,
     )?;
     if !visited.insert(canon.clone()) {
         return Ok(false);
@@ -2083,6 +2137,7 @@ fn find_in_export_chain(
                 &module_dir,
                 extra_paths,
                 parents,
+                dep_names_to_dirs,
                 loaded,
                 visited,
                 &subpath_strs,

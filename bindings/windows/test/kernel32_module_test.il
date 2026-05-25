@@ -1,8 +1,8 @@
 /// kernel32 — module / executable path queries.
 
+use std.ffi { cstrFromString, freeCstr }
 use std.test as test
 use windows {
-use std.ffi { cstrFromString, freeCstr }
     HMODULE, HANDLE,
     GetModuleHandleA, GetModuleFileNameA, GetCommandLineA,
     GetWindowsDirectoryA, GetSystemDirectoryA, GetSystemWindowsDirectoryA,

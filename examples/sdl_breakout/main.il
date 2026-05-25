@@ -13,22 +13,22 @@
 // The SDL2 bindings live under bindings/sdl2/; the `ilang.toml` in
 // this directory points at them so `use sdl` resolves automatically.
 
-use sdl
-use sdl { InitFlag }
+use sdl2
+use sdl2 { InitFlag }
 use game { Game }
 
-pub let rc = sdl.init(InitFlag.video | InitFlag.audio | InitFlag.gameController)
+pub let rc = sdl2.init(InitFlag.video | InitFlag.audio | InitFlag.gameController)
 if rc < 0 {
-    console.log("SDL_Init failed: " + sdl.getError())
+    console.log("SDL_Init failed: " + sdl2.getError())
     return
 }
 // All ARC-managed resources (Window / Renderer / Audio / etc.) are
 // owned by the `Game` instance, so they drop the moment this `let`
 // goes out of scope at the end of the if-block — strictly before
-// `sdl.quit()`. Without that order SDL would tear down its
+// `sdl2.quit()`. Without that order SDL would tear down its
 // subsystems first and the destructor calls would crash.
 {
     let g = new Game()
     g.run()
 }
-sdl.quit()
+sdl2.quit()

@@ -1,9 +1,9 @@
 // Tiny bitmap text renderer used by the breakout HUD. Sits on top
-// of the public `sdl.Texture` / `sdl.Renderer` API — no raw FFI —
+// of the public `sdl2.Texture` / `sdl2.Renderer` API — no raw FFI —
 // so the SDL2 bindings stay focused on wrapping the C surface.
 //
 // Builds a 5×7 pixel font atlas on construction (one streaming
-// `sdl.Texture` sized `5*N × 7`) and exposes a single
+// `sdl2.Texture` sized `5*N × 7`) and exposes a single
 // `drawText(renderer, text, x, y, scale, r, g, b, a)` method. The
 // atlas is white-on-transparent so colour-mod + alpha-mod tinting
 // at draw time picks the per-call colour.
@@ -12,12 +12,12 @@
 // `.`, `:`, `,`, `-`, `!`, `?`. Lowercase / Unicode characters
 // are skipped silently.
 
-use sdl
+use sdl2
 
 pub class Font {
     /// Atlas texture. Owned by this Font — its `deinit` frees the
     /// underlying SDL_Texture when the Font drops.
-    pub atlas: sdl.Texture
+    pub atlas: sdl2.Texture
     /// Glyph cell width in source pixels (`5`).
     pub cellW: i32
     /// Glyph cell height in source pixels (`7`).
@@ -26,7 +26,7 @@ pub class Font {
     pub cellCount: i32
 
     /// Build the atlas texture against `renderer`.
-    pub init(renderer: sdl.Renderer) {
+    pub init(renderer: sdl2.Renderer) {
         let glyphs = font_glyphs()
         this.cellW = 5
         this.cellH = 7
@@ -62,7 +62,7 @@ pub class Font {
             y += 1
         }
         // STREAMING access — uploads pixel data via update().
-        this.atlas = new sdl.Texture(renderer, atlas_w, this.cellH, sdl.TextureAccess.streaming)
+        this.atlas = new sdl2.Texture(renderer, atlas_w, this.cellH, sdl2.TextureAccess.streaming)
         let _ = this.atlas.update(pixels)
     }
 
@@ -75,7 +75,7 @@ pub class Font {
     ///   scale      — integer scale factor (`1` = native 5×7).
     ///   r, g, b, a — RGBA tint applied to the white atlas.
     pub drawText(
-        ren: sdl.Renderer, text: string, x: i32, y: i32, scale: i32,
+        ren: sdl2.Renderer, text: string, x: i32, y: i32, scale: i32,
         r: u8, g: u8, b: u8, a: u8
     ) {
         this.atlas.setColorMod(r, g, b)
@@ -87,12 +87,12 @@ pub class Font {
             let ch = text.charAt(i)
             let idx = font_char_index(ch)
             if idx >= 0 {
-                let src = new sdl.Rect()
+                let src = new sdl2.Rect()
                 src.x = idx * this.cellW
                 src.y = 0
                 src.w = this.cellW
                 src.h = this.cellH
-                let dst = new sdl.Rect()
+                let dst = new sdl2.Rect()
                 dst.x = cursor
                 dst.y = y
                 dst.w = this.cellW * scale

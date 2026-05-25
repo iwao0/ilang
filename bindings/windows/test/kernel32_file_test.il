@@ -1,8 +1,8 @@
 /// kernel32 — file create / write / read / delete round-trip.
 
+use std.ffi { cstrFromString, freeCstr, stringFromCstr }
 use std.test as test
 use windows {
-use std.ffi { cstrFromString, freeCstr, stringFromCstr }
     HANDLE,
     CreateFileA, ReadFile, WriteFile, CloseHandle,
     DeleteFileA, GetFileSizeEx, SetFilePointerEx,

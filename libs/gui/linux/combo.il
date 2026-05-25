@@ -3,8 +3,8 @@
 /// matches the dynamic `addItem` / `clearItems` model gui-core
 /// expects without forcing us to also bind GtkStringList.
 
-use gtk {
 use std.ffi { cstrFromString }
+use gtk {
     GtkWidget, GtkComboBoxText, GtkFixed, GObject,
     gtk_combo_box_text_new, gtk_combo_box_text_append_text,
     gtk_combo_box_text_remove_all,

@@ -2,8 +2,8 @@
 /// radio case (mutually-exclusive group) lives in radio.il, also
 /// backed by GtkCheckButton via `gtk_check_button_set_group`.
 
-use gtk {
 use std.ffi { cstrFromString }
+use gtk {
     GtkWidget, GtkCheckButton, GtkFixed, GObject,
     gtk_check_button_new_with_label, gtk_check_button_set_label,
     gtk_check_button_set_active, gtk_check_button_get_active,

@@ -1,8 +1,8 @@
 /// kernel32 — lstr* C-string helpers.
 
+use std.ffi { cstrFromString, freeCstr }
 use std.test as test
 use windows {
-use std.ffi { cstrFromString, freeCstr }
     lstrlenA, lstrcmpA, lstrcmpiA,
 }
 

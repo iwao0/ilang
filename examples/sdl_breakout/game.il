@@ -3,7 +3,7 @@
 // is what `play()` in main.il used to be — moved here so the
 // entry file is just the SDL bootstrap.
 
-use sdl
+use sdl2
 use std.math as math
 use sprites
 use audio { AudioSession }
@@ -52,8 +52,8 @@ pub fn intToStr(n: i32): string {
 }
 
 pub class Game {
-    pub window: sdl.Window
-    pub renderer: sdl.Renderer
+    pub window: sdl2.Window
+    pub renderer: sdl2.Renderer
     pub neonRenderer: NeonRenderer
     pub font: Font
     /// SFX + BGM device pair plus the pre-rendered beep buffers.
@@ -92,18 +92,18 @@ pub class Game {
     /// caller checks `this.renderer.handle != 0` style on individual
     /// fields if it cares.
     pub init() {
-        this.window = new sdl.Window("ilang × SDL2 — NEON BREAKOUT", consts.winW, consts.winH)
+        this.window = new sdl2.Window("ilang × SDL2 — NEON BREAKOUT", consts.winW, consts.winH)
         if this.window.handle == 0 {
-            console.log("SDL_CreateWindow failed: " + sdl.getError())
+            console.log("SDL_CreateWindow failed: " + sdl2.getError())
             return
         }
 
         // VSync ties `present()` to the display refresh, smoothing
-        // frame delivery. Without it the manual `sdl.delay` pacing
+        // frame delivery. Without it the manual `sdl2.delay` pacing
         // below visibly stutters even at a steady 60fps.
-        this.renderer = new sdl.Renderer(this.window, -1, sdl.RendererFlags.presentVsync as u32)
+        this.renderer = new sdl2.Renderer(this.window, -1, sdl2.RendererFlags.presentVsync as u32)
         if this.renderer.handle == 0 {
-            console.log("SDL_CreateRenderer failed: " + sdl.getError())
+            console.log("SDL_CreateRenderer failed: " + sdl2.getError())
             return
         }
 
@@ -121,7 +121,7 @@ pub class Game {
 
         this.audioSession = new AudioSession()
         if !this.audioSession.sfxOk() {
-            console.log("SDL_OpenAudioDevice failed: " + sdl.getError())
+            console.log("SDL_OpenAudioDevice failed: " + sdl2.getError())
             return
         }
         this.input = new Input()
@@ -189,12 +189,12 @@ pub class Game {
         // FPS counter.
         this.fps = 0
         this.fpsFrames = 0
-        this.fpsLastMs = sdl.getTicks()
+        this.fpsLastMs = sdl2.getTicks()
 
         // Frame pacing: 1000/60 ≈ 16.667ms target. Track the next-frame
         // deadline as f64 so the rounding error doesn't drift the
         // average down to 58fps.
-        this.nextFrameMs = sdl.getTicks() as f64
+        this.nextFrameMs = sdl2.getTicks() as f64
         this.framePeriodMs = 1000.0 / 60.0
 
         // Trails live on each `Ball` (see the `trail` / `trailHead`
@@ -213,13 +213,13 @@ pub class Game {
             // `Input.poll()` (called below) drains the event queue
             // and pumps the keyboard. We just need the quit-request
             // peek here, which itself runs `pumpEvents` internally.
-            if sdl.quitRequested() {
+            if sdl2.quitRequested() {
                 running = false
             }
 
             // FPS: count frames over a 1-second window.
             this.fpsFrames += 1
-            let nowMs = sdl.getTicks()
+            let nowMs = sdl2.getTicks()
             if nowMs - this.fpsLastMs >= 1000 {
                 this.fps = this.fpsFrames
                 this.fpsFrames = 0
@@ -903,7 +903,7 @@ pub class Game {
             // channel and offset slightly. Pixel overlap reproduces the
             // original colour; high-contrast edges (including text)
             // show RGB fringing.
-            this.assets.sceneTex.blendMode = sdl.BlendMode.add
+            this.assets.sceneTex.blendMode = sdl2.BlendMode.add
             let chroma: i32 = 3
             this.assets.sceneTex.setColorMod(255 as u8, 0 as u8, 0 as u8)
             this.renderer.drawTexture(this.assets.sceneTex, -chroma, 0, consts.winW, consts.winH)
@@ -912,7 +912,7 @@ pub class Game {
             this.assets.sceneTex.setColorMod(0 as u8, 0 as u8, 255 as u8)
             this.renderer.drawTexture(this.assets.sceneTex, chroma, 0, consts.winW, consts.winH)
             // Restore for next frame's setTarget pass.
-            this.assets.sceneTex.blendMode = sdl.BlendMode.blend
+            this.assets.sceneTex.blendMode = sdl2.BlendMode.blend
             this.assets.sceneTex.setColorMod(255 as u8, 255 as u8, 255 as u8)
 
             // ─── bloom: additively overlay the upscaled blurred
@@ -921,11 +921,11 @@ pub class Game {
             // whole bloom contribution via colour-mod so mid-brightness
             // pixels don't push the composite to white. The result is
             // a soft glow only on the hottest parts of the scene.
-            this.assets.bloomTex.blendMode = sdl.BlendMode.add
+            this.assets.bloomTex.blendMode = sdl2.BlendMode.add
             this.assets.bloomTex.setColorMod(60 as u8, 60 as u8, 60 as u8)
             this.assets.bloomTex.alphaMod = 255 as u8
             this.renderer.drawTexture(this.assets.bloomTex, 0, 0, consts.winW, consts.winH)
-            this.assets.bloomTex.blendMode = sdl.BlendMode.blend
+            this.assets.bloomTex.blendMode = sdl2.BlendMode.blend
             this.assets.bloomTex.setColorMod(255 as u8, 255 as u8, 255 as u8)
 
             // CRT overlay (scanlines + vignette).
@@ -937,10 +937,10 @@ pub class Game {
             // If the previous frame ran long, skip the wait but advance
             // the deadline so we don't accumulate a huge backlog.
             this.nextFrameMs = this.nextFrameMs + this.framePeriodMs
-            let nowPace = sdl.getTicks() as f64
+            let nowPace = sdl2.getTicks() as f64
             let waitMs = this.nextFrameMs - nowPace
             if waitMs > 0.0 {
-                sdl.delay(waitMs as u32)
+                sdl2.delay(waitMs as u32)
             } else {
                 if waitMs < -100.0 {
                     this.nextFrameMs = nowPace

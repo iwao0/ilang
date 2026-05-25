@@ -1,8 +1,8 @@
 /// user32 — clipboard format registration and Open/Close round-trip.
 
+use std.ffi { cstrFromString, freeCstr, stringFromCstr }
 use std.test as test
 use windows {
-use std.ffi { cstrFromString, freeCstr, stringFromCstr }
     OpenClipboard, CloseClipboard, EmptyClipboard,
     RegisterClipboardFormatA, GetClipboardFormatNameA,
     CountClipboardFormats, IsClipboardFormatAvailable,

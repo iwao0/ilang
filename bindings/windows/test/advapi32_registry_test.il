@@ -1,9 +1,9 @@
 /// advapi32 — registry create / write / read / delete round-trip
 /// under HKEY_CURRENT_USER\Software\IlangTest.
 
+use std.ffi { cstrFromString, freeCstr }
 use std.test as test
 use windows {
-use std.ffi { cstrFromString, freeCstr }
     HKEY, PredefinedKey, KeyAccess, RegValueType, RegOptions,
     RegCreateKeyExA, RegOpenKeyExA, RegCloseKey,
     RegSetValueExA, RegQueryValueExA,

@@ -1,8 +1,8 @@
 /// dnsapi — DnsFlushResolverCache + DnsValidateName_A smoke test.
 
+use std.ffi { cstrFromString, freeCstr }
 use std.test as test
 use dnsapi {
-use std.ffi { cstrFromString, freeCstr }
     DnsFlushResolverCache,
     DnsValidateName_A,
     DnsQuery_A,

@@ -1,8 +1,8 @@
 /// GtkListBox + GtkScrolledWindow wrapper. Each ilang `addListItem`
 /// creates a GtkLabel and appends it as a row.
 
-use gtk {
 use std.ffi { cstrFromString }
+use gtk {
     GtkWidget, GtkLabel, GtkListBox, GtkListBoxRow, GtkScrolledWindow,
     GtkFixed, GObject,
     gtk_label_new,

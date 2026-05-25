@@ -98,7 +98,8 @@ pub(crate) async fn refresh_impl(
             .filter(|p| p.exists())
             .and_then(|p| {
                 let dep_tree = crate::project::collect_dep_tree(p).unwrap_or_default();
-                let extra = dep_tree.dirs;
+                let extra = dep_tree.dirs.clone();
+                let names_to_dirs = dep_tree.names_to_dirs.clone();
                 // Use the buffer's text for the entry file so
                 // diagnostics reflect unsaved edits immediately.
                 // Also seed the overlay with every other open
@@ -122,8 +123,8 @@ pub(crate) async fn refresh_impl(
                         }
                     }
                 }
-                ilang_parser::loader::load_program_with_overlay_and_parents(
-                    p, &extra, &dep_tree.parents, &overlay,
+                ilang_parser::loader::load_program_full(
+                    p, &extra, &dep_tree.parents, &names_to_dirs, &overlay,
                 ).ok()
             })
     };

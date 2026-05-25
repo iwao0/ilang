@@ -6,8 +6,8 @@
 /// that windows be built inside an `activate` signal handler. The
 /// manual path lets the same eager creation pattern work.
 
-use gtk {
 use std.ffi { cstrFromString }
+use gtk {
     GtkWidget, GtkWindow, GObject, GtkFixed, GMainLoop,
     GtkEventController, GtkEventControllerKey, GtkEventControllerMotion,
     GtkGestureClick, GtkGestureSingle, Keyval,

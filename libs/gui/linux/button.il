@@ -8,8 +8,8 @@
 ///   GtkButton pointer back to a ButtonSlot through `BUTTONS`.
 /// - g_signal_connect_data takes the handler via `...`.
 
-use gtk {
 use std.ffi { cstrFromString }
+use gtk {
     GtkWidget, GtkButton, GtkFixed, GObject,
     gtk_button_new_with_label, gtk_button_set_label,
     gtk_fixed_put, gtk_fixed_move, gtk_fixed_remove,

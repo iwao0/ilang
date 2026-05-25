@@ -1,8 +1,8 @@
 /// GtkScale (horizontal) wrapper. Cross-platform `Slider` always
 /// runs horizontally.
 
-use gtk {
 use std.ffi { cstrFromString }
+use gtk {
     GtkWidget, GtkScale, GtkRange, GtkFixed, GObject, GtkOrientation,
     gtk_scale_new_with_range, gtk_range_set_value, gtk_range_get_value,
     gtk_range_set_range,

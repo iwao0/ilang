@@ -11,9 +11,9 @@
 /// call fails (no d3dcompiler_47, no write access, etc.) so CI
 /// without the SDK still runs to the end.
 
+use std.ffi { cstrFromString, freeCstr }
 use std.test as test
 use windows {
-use std.ffi { cstrFromString, freeCstr }
     HANDLE, NULL,
     GetProcessHeap, HeapAlloc, HeapFree,
     MultiByteToWideChar,

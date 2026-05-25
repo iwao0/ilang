@@ -15,8 +15,8 @@
 /// letter like `"N"`; we expand it to `"<Primary>n"` so the same
 /// accelerator means Cmd+N on macOS-hosted GTK and Ctrl+N on Linux.
 
-use gtk {
 use std.ffi { cstrFromString }
+use gtk {
     GMenu, GMenuModel, GAction, GSimpleAction, GActionMap, GActionGroup,
     GSimpleActionGroup, GVariantType, GObject, GtkWidget, GtkBox,
     GtkPopoverMenuBar, GtkWindow, GtkFixed, GtkOrientation,

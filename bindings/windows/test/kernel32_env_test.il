@@ -1,8 +1,8 @@
 /// kernel32 — environment variables and computer / user name.
 
+use std.ffi { cstrFromString, freeCstr, stringFromCstr }
 use std.test as test
 use windows {
-use std.ffi { cstrFromString, freeCstr, stringFromCstr }
     GetEnvironmentVariableA, SetEnvironmentVariableA,
     ExpandEnvironmentStringsA,
     GetCurrentDirectoryA,

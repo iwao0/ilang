@@ -4,8 +4,8 @@
 /// `set_child` here; user code adds widgets to the window's main
 /// GtkFixed and lets the Frame sit behind them.
 
-use gtk {
 use std.ffi { cstrFromString }
+use gtk {
     GtkWidget, GtkFrame, GtkFixed,
     gtk_frame_new, gtk_frame_set_label,
     gtk_fixed_put, gtk_fixed_move,

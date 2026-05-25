@@ -112,13 +112,14 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
     let entry: &Path = umbrella.as_deref().unwrap_or(path);
     let merged = {
         let dep_tree = crate::project::collect_dep_tree(entry).unwrap_or_default();
-        let extra = dep_tree.dirs;
+        let extra = dep_tree.dirs.clone();
+        let names_to_dirs = dep_tree.names_to_dirs.clone();
         let mut overlay: HashMap<PathBuf, String> = HashMap::new();
         if let Ok(canon) = path.canonicalize() {
             overlay.insert(canon, text.clone());
         }
-        ilang_parser::loader::load_program_with_overlay_and_parents(
-            entry, &extra, &dep_tree.parents, &overlay,
+        ilang_parser::loader::load_program_full(
+            entry, &extra, &dep_tree.parents, &names_to_dirs, &overlay,
         ).ok()
     };
     let (mut external_sigs, mut external_rets) = merged

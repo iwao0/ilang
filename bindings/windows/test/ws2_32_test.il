@@ -1,8 +1,8 @@
 /// ws2_32 — Winsock startup and byte-order conversions.
 
+use std.ffi { cstrFromString, freeCstr }
 use std.test as test
 use windows {
-use std.ffi { cstrFromString, freeCstr }
     WSAStartup, WSACleanup, WSAGetLastError,
     WSADATA,
     htons, htonl, ntohs, ntohl,

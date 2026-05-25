@@ -23,8 +23,8 @@
 // Close the window to exit. All COM handles + the class name C
 // string are released after the message pump returns.
 
-use windows {
 use std.ffi { cstrFromString, freeCstr, readU64, stringFromCstr }
+use windows {
     NULL,
     GetModuleHandleA,
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU, HANDLE,

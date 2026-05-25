@@ -93,11 +93,16 @@ const fn current_os() -> &'static str {
 /// `ilang.toml`; `parents` maps each child package's directory to
 /// the directory of the package that listed it as a dep. The
 /// loader uses `parents` to resolve `use super.M`-style imports
-/// without falling back to filesystem `../` lookups.
+/// without falling back to filesystem `../` lookups. `names_to_dirs`
+/// records each `[deps]` entry's user-chosen name pointing at the
+/// resolved directory so `use <dep_name>` can route to the dep's
+/// `mod.il` regardless of how the directory or umbrella file is
+/// spelled on disk.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct DepTree {
     pub dirs:    Vec<PathBuf>,
     pub parents: std::collections::HashMap<PathBuf, PathBuf>,
+    pub names_to_dirs: std::collections::HashMap<String, PathBuf>,
 }
 
 pub(crate) fn collect_dep_tree(entry: &PathBuf) -> Result<DepTree, String> {
@@ -172,6 +177,11 @@ fn walk_project(
         out.parents
             .entry(canon.clone())
             .or_insert_with(|| parent_pkg_dir.to_path_buf());
+        // First entry wins on duplicate names — the outermost
+        // manifest's choice is what the user actually wrote.
+        out.names_to_dirs
+            .entry(name.clone())
+            .or_insert_with(|| canon.clone());
         // Recurse: if the dep is itself an ilang package (has its
         // own `ilang.toml`), pull its deps into the search path
         // too.

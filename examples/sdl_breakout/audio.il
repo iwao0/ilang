@@ -2,7 +2,7 @@
 // `AudioSession` class that owns the SDL devices + pre-rendered
 // buffers. All audio buffers are i16 mono at `consts.sampleRate`.
 
-use sdl
+use sdl2
 use std.math as math
 use consts
 
@@ -95,8 +95,8 @@ pub fn makeBgmLoop(): i16[] {
 /// on `sfx`. The session also owns the pre-rendered beep buffers
 /// so callers don't have to thread them around.
 pub class AudioSession {
-    pub sfx: sdl.AudioDevice
-    pub bgm: sdl.AudioDevice
+    pub sfx: sdl2.AudioDevice
+    pub bgm: sdl2.AudioDevice
     /// Pre-rendered BGM loop (one full Am→F→C→G arpeggio).
     pub bgmLoop: i16[]
     /// Cached byte length of `bgmLoop` (samples × 2). Used by
@@ -109,12 +109,12 @@ pub class AudioSession {
     pub beepBrick: i16[]
 
     pub init() {
-        this.sfx = new sdl.AudioDevice(consts.sampleRate, sdl.AudioFormat.s16Lsb, 1 as u8, 4096 as u16)
+        this.sfx = new sdl2.AudioDevice(consts.sampleRate, sdl2.AudioFormat.s16Lsb, 1 as u8, 4096 as u16)
         if this.sfx.id != 0 {
             this.sfx.play()
         }
 
-        this.bgm = new sdl.AudioDevice(consts.sampleRate, sdl.AudioFormat.s16Lsb, 1 as u8, 4096 as u16)
+        this.bgm = new sdl2.AudioDevice(consts.sampleRate, sdl2.AudioFormat.s16Lsb, 1 as u8, 4096 as u16)
         let bgmBuf = makeBgmLoop()
         this.bgmLoop = bgmBuf
         this.bgmBytes = (bgmBuf.length * 2) as u32

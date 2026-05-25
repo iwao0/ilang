@@ -1,8 +1,8 @@
 /// kernel32 — assorted utility coverage.
 
+use std.ffi { cstrFromString, freeCstr }
 use std.test as test
 use windows {
-use std.ffi { cstrFromString, freeCstr }
     GetLogicalDrives, GetDriveTypeA,
     GetDiskFreeSpaceExA,
     Sleep, GetTickCount64,

@@ -492,10 +492,10 @@ fn resolve_module_source(
         return Some((path, s.to_string()));
     }
     // Mirror `loader::resolve_module`: try `<dir>/M.il` first, then
-    // fall back to `<dir>/M/mod.il` (Rust-style subfolder umbrella).
-    // Without the second arm F12 / hover go blank on every name that
-    // lives behind a `pub use mod.*` umbrella, because the harvest
-    // never finds the parsed declarations.
+    // `<dir>/M/mod.il` (Rust-style subfolder umbrella), then
+    // `<extra>/mod.il` when the extra dir's basename equals
+    // `source_name` (the new `ilang.toml [deps]` lookup where the
+    // dep umbrella is the dep directory's own `mod.il`).
     let mut candidates = vec![entry_dir.to_path_buf()];
     candidates.extend(extra.iter().cloned());
     candidates.into_iter().find_map(|d| {
@@ -504,6 +504,20 @@ fn resolve_module_source(
             return Some((direct, src));
         }
         let nested = d.join(source_name).join("mod.il");
-        std::fs::read_to_string(&nested).ok().map(|src| (nested, src))
+        if let Ok(src) = std::fs::read_to_string(&nested) {
+            return Some((nested, src));
+        }
+        // `<extra>/mod.il` — the dep was registered as
+        // `[deps] <source_name> = "<extra>"` and the umbrella lives
+        // at the dep dir's root. Only fire when the extra dir's
+        // basename matches `source_name` so unrelated deps' mod.il
+        // files don't bleed into the lookup.
+        if d.file_name().and_then(|n| n.to_str()) == Some(source_name) {
+            let umbrella = d.join("mod.il");
+            if let Ok(src) = std::fs::read_to_string(&umbrella) {
+                return Some((umbrella, src));
+            }
+        }
+        None
     })
 }

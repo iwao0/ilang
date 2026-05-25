@@ -15,8 +15,8 @@
 ///   `enableComctl32V6` has populated it (slot is `0` before
 ///   then, which the call sites skip).
 
-use windows {
 use std.ffi { cstrFromString, stringFromCstr }
+use windows {
     HWND, HINSTANCE, HMODULE, ACTCTXW,
     CreateActCtxW, ActivateActCtx, GetTempPathA,
     CreateFileA, WriteFile, CloseHandle, HANDLE,

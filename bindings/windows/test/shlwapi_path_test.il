@@ -1,8 +1,8 @@
 /// shlwapi — path inspection / decomposition.
 
+use std.ffi { cstrFromString, freeCstr, stringFromCstr }
 use std.test as test
 use shlwapi {
-use std.ffi { cstrFromString, freeCstr, stringFromCstr }
     PathFileExistsA,
     PathIsRelativeA,
     PathIsRootA,

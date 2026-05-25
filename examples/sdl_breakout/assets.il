@@ -9,23 +9,23 @@
 // first failed `SDL_CreateTexture`; the caller can detect that by
 // checking `<this>.starTex.handle == 0`.
 
-use sdl
+use sdl2
 use sprites
 use consts
 
 pub class Assets {
-    pub starTex: sdl.Texture
-    pub glowTex: sdl.Texture
-    pub crtTex: sdl.Texture
-    pub sceneTex: sdl.Texture
-    pub bloomTex: sdl.Texture
+    pub starTex: sdl2.Texture
+    pub glowTex: sdl2.Texture
+    pub crtTex: sdl2.Texture
+    pub sceneTex: sdl2.Texture
+    pub bloomTex: sdl2.Texture
 
-    pub init(ren: sdl.Renderer) {
+    pub init(ren: sdl2.Renderer) {
         // White star sprite for particle bursts. Tinted at draw
         // time via `setColorMod`, rotated via `drawTextureRot`.
-        this.starTex = new sdl.Texture(ren, consts.starTexSize, consts.starTexSize, sdl.TextureAccess.streaming)
+        this.starTex = new sdl2.Texture(ren, consts.starTexSize, consts.starTexSize, sdl2.TextureAccess.streaming)
         if this.starTex.handle == 0 {
-            console.log("SDL_CreateTexture failed: " + sdl.getError())
+            console.log("SDL_CreateTexture failed: " + sdl2.getError())
             return
         }
         this.starTex.update(sprites.makeStarSprite())
@@ -33,9 +33,9 @@ pub class Assets {
         // Soft radial-gradient sprite, tinted per-brick at draw
         // time so the wave highlight blooms as a blurry circle
         // rather than a rectangle.
-        this.glowTex = new sdl.Texture(ren, consts.glowTexSize, consts.glowTexSize, sdl.TextureAccess.streaming)
+        this.glowTex = new sdl2.Texture(ren, consts.glowTexSize, consts.glowTexSize, sdl2.TextureAccess.streaming)
         if this.glowTex.handle == 0 {
-            console.log("SDL_CreateTexture failed: " + sdl.getError())
+            console.log("SDL_CreateTexture failed: " + sdl2.getError())
             return
         }
         this.glowTex.update(sprites.makeGlowSprite())
@@ -44,9 +44,9 @@ pub class Assets {
         // channel encodes scanlines + vignette, the colour is
         // black, so blending it on top darkens each pixel by the
         // right amount.
-        this.crtTex = new sdl.Texture(ren, consts.winW, consts.winH, sdl.TextureAccess.streaming)
+        this.crtTex = new sdl2.Texture(ren, consts.winW, consts.winH, sdl2.TextureAccess.streaming)
         if this.crtTex.handle == 0 {
-            console.log("SDL_CreateTexture failed: " + sdl.getError())
+            console.log("SDL_CreateTexture failed: " + sdl2.getError())
             return
         }
         this.crtTex.update(sprites.makeCrtOverlay(consts.winW, consts.winH))
@@ -55,15 +55,15 @@ pub class Assets {
         // frame (with a small per-frame fade applied first) and
         // then composited back to the window with chromatic-
         // aberration channel offsets.
-        this.sceneTex = new sdl.Texture(ren, consts.winW, consts.winH, sdl.TextureAccess.target)
+        this.sceneTex = new sdl2.Texture(ren, consts.winW, consts.winH, sdl2.TextureAccess.target)
         if this.sceneTex.handle == 0 {
-            console.log("SDL_CreateTexture(TARGET) failed: " + sdl.getError())
+            console.log("SDL_CreateTexture(TARGET) failed: " + sdl2.getError())
             return
         }
         // Linear filtering on the scene texture so that the bloom
         // pass's downscale + upscale produces a smooth blur
         // instead of a chunky pixel grid.
-        this.sceneTex.scaleMode = sdl.ScaleMode.linear
+        this.sceneTex.scaleMode = sdl2.ScaleMode.linear
 
         // Tiny target used to "blur" the scene. We draw `sceneTex`
         // shrunk into `bloomTex` (each downsample averages a 4×4
@@ -72,12 +72,12 @@ pub class Assets {
         // the upscale spreads each averaged pixel across many
         // output pixels, giving a soft glow around the bright
         // stuff in the scene.
-        this.bloomTex = new sdl.Texture(ren, consts.bloomW, consts.bloomH, sdl.TextureAccess.target)
+        this.bloomTex = new sdl2.Texture(ren, consts.bloomW, consts.bloomH, sdl2.TextureAccess.target)
         if this.bloomTex.handle == 0 {
-            console.log("SDL_CreateTexture(bloom) failed: " + sdl.getError())
+            console.log("SDL_CreateTexture(bloom) failed: " + sdl2.getError())
             return
         }
-        this.bloomTex.scaleMode = sdl.ScaleMode.linear
+        this.bloomTex.scaleMode = sdl2.ScaleMode.linear
         return
     }
 }

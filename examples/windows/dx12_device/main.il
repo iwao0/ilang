@@ -19,8 +19,8 @@
 // follow the C++ COM ABI through `: Parent` chains, and method
 // calls compile to `(*recv)[slot](recv, args...)`.
 
-use windows {
 use std.ffi { cstrFromString, freeCstr }
+use windows {
     NULL,
     GetModuleHandleA,
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU,
