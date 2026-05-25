@@ -259,8 +259,8 @@ pub enum DxgiResult: u32 {
     accessLost       = 0x887a0018  //
 }
 
-use user32 { HWND }
-use kernel32 { HANDLE }
+use windef { HWND }
+use winnt { HANDLE }
 use ole32 { IUnknown }
 
 @extern(C, "dxgi") {
