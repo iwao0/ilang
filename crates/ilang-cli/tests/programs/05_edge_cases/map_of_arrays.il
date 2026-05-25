@@ -2,8 +2,7 @@
 // shared array reference (mutations through it visible through the
 // map); index-write replaces the slot's array, leaving any prior
 // outside references alone.
-use std.test
-
+use std.test as test
 let m = new Map<string, i64[]>()
 m["a"] = [1, 2, 3]
 m["b"] = [10, 20]

@@ -3,8 +3,7 @@
 // concrete code, and the `T?` return type has to round-trip the
 // type parameter into the Optional layout per instantiation. Both
 // the primitive and heap-typed instantiations are covered.
-use std.test
-
+use std.test as test
 class Stack<T> {
     xs: T[]
     init() { this.xs = [] }

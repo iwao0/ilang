@@ -1,6 +1,6 @@
 /// d2d1 — factory creation + matrix helpers smoke test.
 
-use std.test
+use std.test as test
 use winnt { GUID }
 use d2d1 {
     D2D1CreateFactory,

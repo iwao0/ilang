@@ -9,8 +9,7 @@
 // case; this fixture is the tuple-field variant.
 //
 
-use std.test
-
+use std.test as test
 class Pos {
     pt: (i64, i64)
     init() { this.pt = (0, 0) }

@@ -4,8 +4,7 @@
 // closure remembers its own `this` (the instance the method was
 // called on), not whichever instance is current when the closure
 // is later invoked.
-use std.test
-
+use std.test as test
 class Counter {
     n: i64
     init() { this.n = 0 }

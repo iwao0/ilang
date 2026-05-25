@@ -13,7 +13,7 @@
 ///
 /// Bails cleanly on hosts without D3D12.
 
-use std.test
+use std.test as test
 use windows {
     HANDLE, NULL,
 }

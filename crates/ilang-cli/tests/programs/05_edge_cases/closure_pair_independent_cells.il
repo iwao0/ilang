@@ -4,8 +4,7 @@
 // when one closure is built INSIDE another that already has a
 // mutable capture of the same name (covered separately by
 // closure_nested_shared_cell.il).
-use std.test
-
+use std.test as test
 fn makePair(): (fn(): i64, fn()) {
     let n = 0
     let read = fn(): i64 { n }

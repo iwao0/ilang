@@ -1,7 +1,6 @@
 // User-defined generic enum, instantiated with several type args.
 // JIT monomorphizes per (Name, args) pair.
-use std.test
-
+use std.test as test
 enum Either<L, R> {
     left: (L)
     right: (R)

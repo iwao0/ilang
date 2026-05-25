@@ -9,8 +9,7 @@ use cocoa {
     NSObject, NSApplication, NSWindow, NSView, NSNotification, NSEvent,
     NSEventModifierFlags, KeyCode, nil,
 }
-use super.event
-
+use super.event as event
 // ─── per-window state ─────────────────────────────────────────
 
 /// One row per top-level window. Stored in `WINDOWS` keyed by

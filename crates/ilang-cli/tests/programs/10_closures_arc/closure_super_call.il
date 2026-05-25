@@ -1,8 +1,7 @@
 // `super.method(...)` inside a closure built in a child method
 // (9475956). Both interp and JIT restore the lexical class so
 // the parent's method is reachable.
-use std.test
-
+use std.test as test
 class Base {
     init() {}
     label(): string { "base" }

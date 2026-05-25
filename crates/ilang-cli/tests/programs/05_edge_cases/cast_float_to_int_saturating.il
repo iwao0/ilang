@@ -12,8 +12,7 @@
 // in `examples/sdl_breakout` once `consts.sampleRate as f64 / …`
 // produced an out-of-range temporary. (37d3dd3 switched to the
 // saturating form and added matching unsigned int handling.)
-use std.test
-
+use std.test as test
 let nan = 0.0 / 0.0
 let pinf = 1.0 / 0.0
 let ninf = -1.0 / 0.0

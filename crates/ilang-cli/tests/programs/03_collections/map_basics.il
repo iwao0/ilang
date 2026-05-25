@@ -1,7 +1,6 @@
 // Map<K, V> — explicit constructor + set / has / size / delete plus
 // the indexing forms.
-use std.test
-
+use std.test as test
 let m = new Map<string, i64>()
 test.expect(m.size(), 0)
 

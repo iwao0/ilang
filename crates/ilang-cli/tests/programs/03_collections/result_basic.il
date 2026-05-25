@@ -1,6 +1,5 @@
 // Built-in Result<T, E>. Variants `ok` / `err`.
-use std.test
-
+use std.test as test
 let r1: Result<i64, string> = Result.ok(42)
 let r2: Result<i64, string> = Result.err("boom")
 

@@ -2,9 +2,8 @@
 // Generic over a single payload type; listeners run in
 // registration order. `off` removes by reference equality on
 // the `fn` value (pass back the exact closure you gave to `on`).
-use std.events
-use std.test
-
+use std.events as events
+use std.test as test
 // Counter class — closures capture this instance and mutate
 // `.n`. Working around the closure-captures-array bug
 // (where `let count = [0 as i32]` followed by a closure that

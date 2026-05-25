@@ -1,6 +1,5 @@
 // `if let some(v) = ...` — pattern match on Optional outside `match`.
-use std.test
-
+use std.test as test
 let a: i64? = some(42)
 let b: i64? = none
 

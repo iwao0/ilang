@@ -3,8 +3,7 @@
 // predicate-accepts-all) and chaining. `closures.il` exercises
 // `.map` once with a captured variable; this fixture nails down
 // the result-shape and chain semantics across the empty-input edge.
-use std.test
-
+use std.test as test
 let xs: i64[] = [1, 2, 3, 4, 5]
 
 let squared = xs.map(fn(x: i64): i64 { x * x })

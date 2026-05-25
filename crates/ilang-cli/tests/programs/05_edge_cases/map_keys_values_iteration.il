@@ -2,8 +2,7 @@
 // returned array must be sized to `m.size()` and contain (in some
 // order) the live keys / values. The order is unspecified — sums and
 // existence checks are the safe assertions.
-use std.test
-
+use std.test as test
 let m = new Map<string, i64>()
 m["a"] = 1
 m["b"] = 2

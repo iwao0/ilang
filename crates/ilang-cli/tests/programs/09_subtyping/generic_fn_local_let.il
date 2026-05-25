@@ -1,8 +1,7 @@
 // Body-local `let y: T[]` referencing the generic fn's own type
 // param (fba3d1b — `current_type_params` fallback in
 // validate_type and rewrite of let annotations).
-use std.test
-
+use std.test as test
 fn singleton<T>(x: T): T[] {
     let arr: T[] = [x]
     arr

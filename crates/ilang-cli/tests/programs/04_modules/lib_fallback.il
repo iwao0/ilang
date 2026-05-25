@@ -2,9 +2,8 @@
 // additional names. Useful for soname differences (libssl.so.3 vs
 // libssl.so.1.1) and OS variants. We give a deliberately-missing
 // primary plus a real fallback (libc) and verify the call works.
-use std.os
-use std.test
-
+use std.os as os
+use std.test as test
 @extern(C) {
     @lib("definitely_not_a_real_lib_xyz999.so", "c") fn abs(x: i32): i32
 

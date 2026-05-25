@@ -2,8 +2,7 @@
 // Two's-complement wrap on `MAX + 1`. Cast-then-wrap at narrower
 // widths — including the i8 and u8 boundaries that aren't otherwise
 // exercised by `const_lit_fits.il` (which only checks accepted forms).
-use std.test
-
+use std.test as test
 let max64: i64 = 9223372036854775807
 let min64: i64 = -9223372036854775808
 

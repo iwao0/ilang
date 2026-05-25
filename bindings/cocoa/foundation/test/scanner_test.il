@@ -1,6 +1,6 @@
 /// NSScanner — Optional-returning scan helpers.
 
-use std.test
+use std.test as test
 use foundation { NSScanner, nsstr }
 
 let sc = NSScanner.scannerWithString(nsstr("42 -17 3.14"))

@@ -1,6 +1,5 @@
 // Method overloading by parameter type, dispatched at the call site.
-use std.test
-
+use std.test as test
 class Show {
     init() {}
     show(n: i64): string { "int" }

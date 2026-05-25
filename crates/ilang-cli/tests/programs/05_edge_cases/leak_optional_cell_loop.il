@@ -8,8 +8,7 @@
 // was resolved by the Some-retain change in 192b91d.
 //
 
-use std.test
-
+use std.test as test
 let baseline = test.liveAllocBytes()
 
 let i: i64 = 0

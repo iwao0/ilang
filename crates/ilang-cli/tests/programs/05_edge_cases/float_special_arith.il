@@ -1,8 +1,7 @@
 // Float special-value arithmetic. IEEE 754 says inf-inf, inf*0,
 // inf+(-inf) all produce NaN; inf+inf stays inf; finite/inf is +0.
 // Negative zero compares equal to positive zero.
-use std.test
-
+use std.test as test
 let inf = 1.0 / 0.0
 let neg_inf = -1.0 / 0.0
 

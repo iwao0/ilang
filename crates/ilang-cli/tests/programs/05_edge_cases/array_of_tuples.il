@@ -2,8 +2,7 @@
 // heterogeneous fields accessed via `t[N]` constant index. Tuple-
 // element arrays are useful as records, and the iteration shape
 // has to keep tuple identity through `for-in`.
-use std.test
-
+use std.test as test
 let pairs = [(1, "one"), (2, "two"), (3, "three")]
 test.expect(pairs.length, 3)
 test.expect(pairs[1][0], 2)

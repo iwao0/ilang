@@ -7,8 +7,7 @@
 // ordinary code is rejected at type-check time.
 //
 // expect-error: only allowed inside an @extern(C)
-use std.test
-
+use std.test as test
 @extern(C) {
     struct objc_class {}
     struct objc_object {}

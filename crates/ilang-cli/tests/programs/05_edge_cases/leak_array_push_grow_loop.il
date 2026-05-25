@@ -4,8 +4,7 @@
 // `xs.push(...)` loop accumulated ~2*N*stride unreachable bytes.
 //
 
-use std.test
-
+use std.test as test
 let baseline = test.liveAllocBytes()
 
 let xs: i64[] = []

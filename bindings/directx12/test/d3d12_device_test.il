@@ -4,7 +4,7 @@
 /// call returns DXGI_ERROR_UNSUPPORTED. We accept any non-positive
 /// HRESULT so the test is robust on CI without a discrete GPU.
 
-use std.test
+use std.test as test
 use windows { HANDLE }
 use directx12 {
     D3D12CreateDevice,

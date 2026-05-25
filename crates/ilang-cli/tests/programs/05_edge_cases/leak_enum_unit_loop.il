@@ -8,8 +8,7 @@
 // which leaked ~840 cells/sec into the host_mir_alloc tracker.
 //
 
-use std.test
-
+use std.test as test
 enum Color { red, green, blue }
 
 let baseline = test.liveAllocCount()

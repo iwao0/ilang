@@ -8,8 +8,7 @@
 // call.
 //
 
-use std.test
-
+use std.test as test
 class Base {
     n: i64
     init() { this.n = 0 }

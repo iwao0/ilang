@@ -1,6 +1,5 @@
 // `let` binding, plain reassignment, compound assignments, shadowing.
-use std.test
-
+use std.test as test
 // Type inference vs explicit annotation.
 let a = 42
 test.expect(a, 42)

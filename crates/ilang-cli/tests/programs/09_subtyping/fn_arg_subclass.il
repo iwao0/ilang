@@ -1,7 +1,6 @@
 // Subclass values flowing into fn args of parent / parent-composite
 // types (cd61814).
-use std.test
-
+use std.test as test
 class Animal {
     init() {}
     label(): string { "animal" }

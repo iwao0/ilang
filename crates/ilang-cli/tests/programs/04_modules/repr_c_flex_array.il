@@ -4,8 +4,7 @@
 // field returns a base pointer at `instance + sizeof(fixed area)`.
 // Bounds checks are skipped — like in C, the user maintains the
 // element count themselves (typically in a sibling field).
-use std.test
-
+use std.test as test
 @extern(C) {
     struct packet {
         kind: u8

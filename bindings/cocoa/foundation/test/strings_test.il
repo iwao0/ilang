@@ -1,6 +1,6 @@
 /// NSString — broad surface coverage.
 
-use std.test
+use std.test as test
 use foundation { NSString, NSCharacterSet, NSComparisonResult, NSStringEncoding,
                  nsstr, ilstr, makeRange }
 

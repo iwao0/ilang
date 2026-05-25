@@ -8,7 +8,7 @@
 /// silent drift between the source-of-truth header and the
 /// hand-written `IID_*` constants.
 
-use std.test
+use std.test as test
 use windows { HANDLE }
 use directx12 {
     IID_ID3D12Device,

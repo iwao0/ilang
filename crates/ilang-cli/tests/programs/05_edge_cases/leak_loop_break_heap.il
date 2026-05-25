@@ -7,8 +7,7 @@
 // fixture pins down the memory reclaim.
 //
 
-use std.test
-
+use std.test as test
 let baseline = test.liveAllocBytes()
 
 let i: i64 = 0

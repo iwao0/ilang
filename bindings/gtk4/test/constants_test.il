@@ -1,7 +1,7 @@
 /// gtk — assorted enum / bitfield discriminants. Pure-value checks
 /// only; no DLL calls so this fixture runs everywhere.
 
-use std.test
+use std.test as test
 use gtk { GApplicationFlags, GtkOrientation, GtkAlign }
 
 // `GApplicationFlags.flags_none` is the new spelling of the C

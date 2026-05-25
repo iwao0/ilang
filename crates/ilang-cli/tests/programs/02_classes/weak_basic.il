@@ -1,7 +1,6 @@
 // Weak references: don't bump strong rc; `.get()` returns T? (Some
 // while target is alive, None after target is freed).
-use std.test
-
+use std.test as test
 class Node {
     label: i64
     init(v: i64) { this.label = v }

@@ -2,9 +2,8 @@
 // (separator is always `/`). Covers the public API:
 //   sep / delimiter / isAbsolute / basename / dirname / extname /
 //   join / normalize / relative / parse / format.
-use std.path
-use std.test
-
+use std.path as path
+use std.test as test
 test.expectStr(path.basename("/foo/bar/baz.txt"), "baz.txt")
 test.expectStr(path.basename("/foo/bar/"), "bar")
 test.expectStr(path.basename(""), "")

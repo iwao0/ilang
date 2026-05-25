@@ -1,6 +1,5 @@
 // Build a 100-element array via push, then sum it.
-use std.test
-
+use std.test as test
 let xs: i64[] = []
 let i = 1
 while i <= 100 {

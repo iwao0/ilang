@@ -1,7 +1,6 @@
 // `Parent? ← some(new Child())` and the `some(complex_literal)`
 // recursion case (29363ed).
-use std.test
-
+use std.test as test
 class Animal {
     init() {}
     label(): string { "animal" }

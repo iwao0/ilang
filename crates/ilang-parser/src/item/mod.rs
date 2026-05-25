@@ -581,17 +581,21 @@ impl<'a> Parser<'a> {
                             _ => {
                                 // Bare `use a.b.c` path-style import:
                                 // load the deepest file (`c.il`) and
-                                // bind it as namespace `c`. Symmetric
-                                // with `use a.b.c.*` (wildcard) and
-                                // `use a.b.c { X }` (selective). The
-                                // namespace alias defaults to the
-                                // leaf file name (`c`), not the base
-                                // (`a`), so `use std.fs` lets the
-                                // caller write `fs.open(...)`.
+                                // bind the user-facing namespace to
+                                // the full dotted path (`a.b.c`).
+                                // Callers reach the items as
+                                // `a.b.c.X`, mirroring what they
+                                // wrote in the `use` declaration —
+                                // the loader merges items under that
+                                // same dotted prefix so the leaf-only
+                                // form (`c.X`) no longer accidentally
+                                // works. Aliasing (`use a.b.c as m`)
+                                // is the only way to expose a
+                                // shorter namespace.
                                 subpath.push(sym);
                                 return Ok(ilang_ast::UseDecl {
                                     module,
-                                    alias: ilang_ast::UseAlias::Named(sym),
+                                    alias: ilang_ast::UseAlias::Default,
                                     selective: None,
                                     wildcard: false,
                                     re_export: false,

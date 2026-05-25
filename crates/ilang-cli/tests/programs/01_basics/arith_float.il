@@ -1,6 +1,5 @@
 // Float arithmetic. `%` is intentionally not supported on floats.
-use std.test
-
+use std.test as test
 test.expectF64(1.5 + 2.5, 4.0)
 test.expectF64(10.0 - 0.25, 9.75)
 test.expectF64(2.0 * 3.5, 7.0)

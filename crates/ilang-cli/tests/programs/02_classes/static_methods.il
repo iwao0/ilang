@@ -1,6 +1,5 @@
 // Static methods on a class — callable without an instance.
-use std.test
-
+use std.test as test
 class Vec2 {
     x: f64
     y: f64
@@ -12,8 +11,7 @@ class Vec2 {
     static of(x: f64, y: f64): Vec2 { new Vec2(x, y) }
     static dot(a: Vec2, b: Vec2): f64 { a.x * b.x + a.y * b.y }
 }
-use std.math
-
+use std.math as math
 let z = Vec2.zero()
 test.expectF64(z.x, 0.0)
 test.expectF64(z.y, 0.0)

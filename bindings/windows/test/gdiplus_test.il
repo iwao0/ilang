@@ -1,6 +1,6 @@
 /// gdiplus — startup / shutdown lifecycle.
 
-use std.test
+use std.test as test
 use gdiplus { GdiplusStartup, GdiplusShutdown, GdiplusStartupInput }
 
 @extern(C) {

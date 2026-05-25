@@ -1,6 +1,6 @@
 /// NSRegularExpression — compile + match count + replace.
 
-use std.test
+use std.test as test
 use foundation { NSDataDetector, regex, NSRegularExpressionOptions, NSMatchingOptions,
                  fullRange, nsstr, ilstr }
 

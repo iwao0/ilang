@@ -9,8 +9,7 @@
 // directly will not see expected `char *` layout. For C ABI you
 // pass strings as separate `string` arguments (existing
 // marshalling) or use `u8[N]` for a fixed inline buffer.
-use std.test
-
+use std.test as test
 @extern(C) {
     struct person {
         age: i32

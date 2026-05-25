@@ -10,7 +10,7 @@
 /// None of these touch the GPU — the work is data-only — so the
 /// test runs everywhere, including CI without a discrete adapter.
 
-use std.test
+use std.test as test
 use windows { HANDLE }
 use directx12 {
     D3D12SerializeRootSignature,

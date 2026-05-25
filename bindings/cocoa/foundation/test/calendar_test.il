@@ -1,6 +1,6 @@
 /// NSCalendar / NSDateComponents — build a date, read fields back.
 
-use std.test
+use std.test as test
 use foundation { NSCalendar, NSDateComponents, NSTimeZone, NSDate,
                  NSCalendarUnit, NSCalendarOptions, nsstr }
 

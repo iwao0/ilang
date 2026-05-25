@@ -2,8 +2,7 @@
 // `A.bump` delegates to `B.dec`, which recursively decrements until
 // it reaches 1. Exercises method-dispatch through a heap field plus
 // the inner class's self-recursion in the same trace.
-use std.test
-
+use std.test as test
 class A {
     counter: B
     init(b: B) { this.counter = b }

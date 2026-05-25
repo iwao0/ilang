@@ -2,7 +2,7 @@
 /// We don't call openURL / openFile — those would launch external
 /// apps.
 
-use std.test
+use std.test as test
 use appkit { NSWorkspace }
 
 let ws = NSWorkspace.sharedWorkspace()

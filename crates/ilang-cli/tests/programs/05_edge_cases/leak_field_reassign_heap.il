@@ -6,8 +6,7 @@
 // separately) to closure-typed fields.
 //
 
-use std.test
-
+use std.test as test
 class Holder {
     arr: i64[]
     init() { this.arr = [] }

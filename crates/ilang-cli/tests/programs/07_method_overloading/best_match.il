@@ -1,6 +1,5 @@
 // Best-match scoring picks the exact overload over the widening one.
-use std.test
-
+use std.test as test
 class M {
     init() {}
     f(x: i64): string { "i64" }

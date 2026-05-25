@@ -1,7 +1,6 @@
 // `==` / `!=` on objects = reference (identity) equality, NOT
 // structural. Mirrors Java's `==`.
-use std.test
-
+use std.test as test
 class Box {
     n: i64
     init(v: i64) { this.n = v }

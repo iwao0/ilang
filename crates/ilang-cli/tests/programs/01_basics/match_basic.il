@@ -1,6 +1,5 @@
 // match on enum — unit variants, payload variants, short variant form.
-use std.test
-
+use std.test as test
 // Unit variants only.
 enum Color { red, green, blue }
 

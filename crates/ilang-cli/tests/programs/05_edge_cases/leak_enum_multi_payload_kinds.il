@@ -6,8 +6,7 @@
 // heap cascade either, but distinct kind tag on the cell).
 //
 
-use std.test
-
+use std.test as test
 enum Pt {
     origin
     cart: (i64, i64)

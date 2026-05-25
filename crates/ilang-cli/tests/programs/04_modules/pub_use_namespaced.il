@@ -5,7 +5,7 @@
 // Reaches a fn / const / class declared in a re-exported submodule
 // via the namespaced path: `outer.inner.foo()`, `outer.inner.VAL`,
 // `new outer.inner.Box(...)`.
-use std.test
+use std.test as test
 use outer
 
 test.expectStr(outer.inner.greeting(), "hello from inner")

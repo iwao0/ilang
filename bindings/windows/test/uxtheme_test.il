@@ -1,6 +1,6 @@
 /// uxtheme — visual styles availability and theme open/close.
 
-use std.test
+use std.test as test
 use uxtheme {
     IsThemeActive,
     IsAppThemed,

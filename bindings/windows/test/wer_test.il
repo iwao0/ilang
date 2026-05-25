@@ -1,6 +1,6 @@
 /// wer — flag get / set + handle lifecycle smoke test.
 
-use std.test
+use std.test as test
 use windows { GetCurrentProcess }
 use wer { WerSetFlags, WerGetFlags, WerFaultReporting }
 

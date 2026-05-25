@@ -1,6 +1,6 @@
 // Smoke fixture for the .il-file test harness. Now exercises the
 // `test` built-in too — if these break, every other fixture is suspect.
-use std.test
+use std.test as test
 test.expect(3 + 4, 7)
 test.expectStr("ab" + "c", "abc")
 test.expectBool(false, false)

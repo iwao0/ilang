@@ -9,8 +9,7 @@
 // return shapes.
 //
 
-use std.test
-
+use std.test as test
 fn maybeLong(n: i64): i64[] {
     if n < 0 { return [] }
     let xs: i64[] = []

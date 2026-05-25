@@ -3,8 +3,7 @@
 // must resolve to the subclass override (the receiver's runtime
 // class). This is a vtable-correctness check distinct from regular
 // method overrides outside init.
-use std.test
-
+use std.test as test
 class Counter {
     n: i64
     init() {

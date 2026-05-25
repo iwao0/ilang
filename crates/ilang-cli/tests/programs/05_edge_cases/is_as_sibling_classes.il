@@ -3,8 +3,7 @@
 // `some(...)` when the dynamic class is a subtype, `none` otherwise.
 // `09_subtyping/match_common_ancestor.il` covers the static
 // upcast direction; this fixture is the dynamic-test direction.
-use std.test
-
+use std.test as test
 class A {}
 class B: A {}
 class C: A {}

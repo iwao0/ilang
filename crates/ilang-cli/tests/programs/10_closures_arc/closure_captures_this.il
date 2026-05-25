@@ -2,8 +2,7 @@
 // (e416943 + 9475956: interpreter and JIT both restore it; the
 // codegen path also retains/releases the captured pointer to
 // avoid premature drop on explicit return — 0f5fdc4).
-use std.test
-
+use std.test as test
 class Foo {
     x: i64
     init() { this.x = 0 }

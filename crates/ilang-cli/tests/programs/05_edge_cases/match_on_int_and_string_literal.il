@@ -2,8 +2,7 @@
 // value, not an enum tag. Wildcard `_` is mandatory since the value
 // space is open. The basics fixtures only exercise enum-pattern
 // matches; this fixture is the literal-pattern variant.
-use std.test
-
+use std.test as test
 fn category(n: i64): string {
     match n {
         0 { "zero" }

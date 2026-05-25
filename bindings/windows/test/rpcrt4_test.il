@@ -1,6 +1,6 @@
 /// rpcrt4 — UUID generation, comparison, string round-trip.
 
-use std.test
+use std.test as test
 use windows {
     UUID,
     UuidCreate, UuidCreateNil, UuidIsNil, UuidEqual, UuidCompare, UuidHash,

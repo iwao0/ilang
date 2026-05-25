@@ -9,8 +9,7 @@
 /// the user's callback in O(1).
 
 use gtk { GtkWidget, GtkWindow, GtkApplication, GtkFixed, GMainLoop }
-use super.event
-
+use super.event as event
 // ─── per-window state ─────────────────────────────────────────
 
 /// One row per top-level window. `WINDOWS` keys off the GtkWindow

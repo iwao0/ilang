@@ -4,8 +4,7 @@
 // `array_basics.il` checks slice contents but not the buffer-
 // independence property, which is easy to regress (a slice that
 // shares the underlying buffer would fail this fixture loudly).
-use std.test
-
+use std.test as test
 let a: i64[] = [1, 2, 3, 4, 5]
 let b = a.slice(1, 4)            // [2, 3, 4]
 test.expect(b.length, 3)

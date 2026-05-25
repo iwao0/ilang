@@ -1,7 +1,6 @@
 // Map literal `{k: v, ...}`. K is inferred from the first entry's key
 // type; V from its value type.
-use std.test
-
+use std.test as test
 let scores = {"alice": 30, "bob": 25, "carol": 40}
 test.expect(scores.size(), 3)
 test.expect(scores["alice"], 30)

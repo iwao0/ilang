@@ -211,20 +211,19 @@ fn build_ctx(prog: &Program) -> Ctx {
             }
             Item::Use(u) => match &u.alias {
                 UseAlias::Default => {
-                    ctx.modules.insert(u.module.clone(), u.module.clone());
+                    // Bare path-style `use a.b.c` — the user-facing
+                    // namespace is the full dotted path (`a.b.c`),
+                    // which also matches the loader's merge prefix.
+                    // Map identity so dealias is a no-op.
+                    let canonical = full_use_path(u);
+                    ctx.modules.insert(canonical.clone(), canonical);
                 }
                 UseAlias::Named(name) => {
-                    // Path-style `use a.b` (the parser sets
-                    // alias = Named(b), subpath = [b]): the merged
-                    // module's symbols live under `b`, NOT `a`. Map
-                    // identity so dealias doesn't rewrite `b.X` →
-                    // `a.X`. For plain `use a as b` (subpath empty),
-                    // the canonical name still is `a`.
-                    let canonical = u
-                        .subpath
-                        .last()
-                        .cloned()
-                        .unwrap_or_else(|| u.module.clone());
+                    // `use a.b.c as m` — `m.X` in user code should
+                    // rewrite to the canonical merge prefix
+                    // (`a.b.c.X`). For plain `use a as b` (subpath
+                    // empty), the canonical name is just `a`.
+                    let canonical = full_use_path(u);
                     ctx.modules.insert(name.clone(), canonical);
                 }
                 UseAlias::Discard => {}
@@ -233,6 +232,23 @@ fn build_ctx(prog: &Program) -> Ctx {
         }
     }
     ctx
+}
+
+/// Concatenate a UseDecl's module + subpath into the canonical dotted
+/// namespace string that the loader merges items under (and that the
+/// user writes in their code for bare path-style imports). Single-
+/// segment imports return just `module`.
+fn full_use_path(u: &ilang_ast::UseDecl) -> ilang_ast::Symbol {
+    if u.subpath.is_empty() {
+        u.module
+    } else {
+        let mut s = u.module.as_str().to_string();
+        for seg in u.subpath.iter() {
+            s.push('.');
+            s.push_str(seg.as_str());
+        }
+        ilang_ast::Symbol::intern(&s)
+    }
 }
 
 fn rewrite_program(prog: Program, ctx: &Ctx) -> Program {
@@ -542,7 +558,48 @@ fn rewrite_field(obj: Box<Expr>, name: Symbol, span: Span, ctx: &Ctx) -> Expr {
             DottedResolution::None => {}
         }
     }
+    // Multi-segment path-style access: `use std.math` (no alias)
+    // lets the caller reach items as `std.math.X`. Flatten the
+    // `Var("std").Field("math")` chain into the dotted string and
+    // check if that names a registered module — only the bare-path
+    // import registers itself under the full dotted key (aliased
+    // imports register under the alias name instead, so this branch
+    // doesn't fire for `use std.math as math` and the alias is the
+    // only way in for those). Skip the collapse when the head of the
+    // chain shadows a local binding (param / `let`) — `predicate` in
+    // a method param shouldn't pick up the sibling-folder `predicate`
+    // module.
+    if let Some(flat) = flatten_var_dot_chain_expr(&obj) {
+        let head = flat.split('.').next().unwrap_or(&flat);
+        if !ctx.is_local_shadow(&Symbol::intern(head)) {
+            if let Some(canonical) = ctx.modules.get(&Symbol::intern(&flat)) {
+                return Expr::new(
+                    ExprKind::Var(Symbol::intern(&format!(
+                        "{}.{}",
+                        canonical.as_str(),
+                        name.as_str()
+                    ))),
+                    span,
+                );
+            }
+        }
+    }
     Expr::new(ExprKind::Field { obj: Box::new(obj), name }, span)
+}
+
+/// Flatten a `Var` / `Field` chain into a dotted string, matching the
+/// `expr::flatten_var_dot_chain` semantics. Used to recognise the
+/// multi-segment path-style access (`std.math.X`) introduced by bare
+/// `use std.math` imports.
+fn flatten_var_dot_chain_expr(e: &Expr) -> Option<String> {
+    match &e.kind {
+        ExprKind::Var(n) => Some(n.as_str().to_string()),
+        ExprKind::Field { obj, name } => {
+            let base = flatten_var_dot_chain_expr(obj)?;
+            Some(format!("{base}.{name}"))
+        }
+        _ => None,
+    }
 }
 
 fn rewrite_method_call(
@@ -577,6 +634,29 @@ fn rewrite_method_call(
                 );
             }
             DottedResolution::None => {}
+        }
+    }
+    // Multi-segment path-style call: `std.math.sqrt(2.0)` after bare
+    // `use std.math`. Mirror the `rewrite_field` lookup — only the
+    // bare-path import registers under the full dotted key, so the
+    // collapse fires only when no alias was given. Skip when the
+    // head of the chain shadows a local binding.
+    if let Some(flat) = flatten_var_dot_chain_expr(&obj) {
+        let head = flat.split('.').next().unwrap_or(&flat);
+        if !ctx.is_local_shadow(&Symbol::intern(head)) {
+            if let Some(canonical) = ctx.modules.get(&Symbol::intern(&flat)) {
+                return Expr::new(
+                    ExprKind::Call {
+                        callee: Symbol::intern(&format!(
+                            "{}.{}",
+                            canonical.as_str(),
+                            method.as_str()
+                        )),
+                        args: new_args.into(),
+                    },
+                    span,
+                );
+            }
         }
     }
     Expr::new(

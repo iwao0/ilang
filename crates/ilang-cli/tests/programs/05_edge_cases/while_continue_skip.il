@@ -4,8 +4,7 @@
 // programmer-written `i += 1` is the increment, not implicit) has
 // a classic pitfall — increment after the continue is missed,
 // causing infinite loop. This fixture pins down the correct shape.
-use std.test
-
+use std.test as test
 let i = 0
 let total = 0
 while i < 10 {

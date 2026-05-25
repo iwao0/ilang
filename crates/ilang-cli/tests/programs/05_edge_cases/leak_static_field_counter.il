@@ -10,8 +10,7 @@
 // (`let _ = new Counter()` -- well, `new Counter()` as expr-
 // statement).
 
-use std.test
-
+use std.test as test
 class Counter {
     n: i64
     init() {

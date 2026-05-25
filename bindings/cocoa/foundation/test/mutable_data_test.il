@@ -1,6 +1,6 @@
 /// NSMutableData — append + setLength + increaseLengthBy.
 
-use std.test
+use std.test as test
 use foundation { NSMutableData }
 
 let m = NSMutableData.data()

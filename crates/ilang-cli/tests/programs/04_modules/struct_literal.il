@@ -4,8 +4,7 @@
 // silent zero-init can't slip through. Wrong field name, wrong
 // value type, and duplicate field name are all caught at type
 // check.
-use std.test
-
+use std.test as test
 struct Point {
     x: i32
     y: i32

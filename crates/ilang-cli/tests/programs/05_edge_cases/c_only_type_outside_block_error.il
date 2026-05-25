@@ -5,8 +5,7 @@
 // into user code.
 //
 // expect-error: only callable inside an @extern
-use std.test
-
+use std.test as test
 @extern(C) {
     @lib("c") fn ghost_returning_cstr(): *const char
 }

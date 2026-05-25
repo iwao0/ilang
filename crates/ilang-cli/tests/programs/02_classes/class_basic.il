@@ -1,6 +1,5 @@
 // Class fundamentals: fields, init, methods, implicit and explicit `this`.
-use std.test
-
+use std.test as test
 class Counter {
     count: i64
     init(start: i64) { this.count = start }

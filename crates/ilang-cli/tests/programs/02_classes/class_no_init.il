@@ -1,7 +1,6 @@
 // `init` is optional. A class with no init can still be `new`'d
 // without args; fields just start at zero / "" / etc.
-use std.test
-
+use std.test as test
 class Empty {
     n: i64
     s: string

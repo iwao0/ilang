@@ -1,6 +1,6 @@
 /// shlwapi — path inspection / decomposition.
 
-use std.test
+use std.test as test
 use shlwapi {
 use std.ffi { cstrFromString, freeCstr, stringFromCstr }
     PathFileExistsA,

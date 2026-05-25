@@ -1,8 +1,7 @@
 // When multiple overloads are viable via implicit conversions, the
 // scoring rule picks the one with the closest match. Exact type wins
 // over implicit-widening, which wins over int→float.
-use std.test
-
+use std.test as test
 fn pick(x: i64): string { "i64" }
 fn pick(x: f64): string { "f64" }
 

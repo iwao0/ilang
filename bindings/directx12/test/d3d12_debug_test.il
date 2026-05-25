@@ -5,7 +5,7 @@
 /// feature; absence of it returns DXGI_ERROR_NOT_AVAILABLE
 /// (0x887A0022 → -2005270494 as i32) — we treat that as OK.
 
-use std.test
+use std.test as test
 use windows { HANDLE }
 use directx12 {
     D3D12GetDebugInterface

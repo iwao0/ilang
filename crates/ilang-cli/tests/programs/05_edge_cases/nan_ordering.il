@@ -1,8 +1,7 @@
 // NaN ordering: every comparison involving NaN — including the
 // reflexive `<=` / `>=` — must return false. `division_by_zero_float.il`
 // covers `==`/`!=` reflexivity; this one covers the four order operators.
-use std.test
-
+use std.test as test
 let nan = 0.0 / 0.0
 let one = 1.0
 

@@ -6,8 +6,7 @@
 // counts that prevent eventual deallocation.
 //
 
-use std.test
-
+use std.test as test
 class Node {
     parent: Node.weak?
     init() { this.parent = none }

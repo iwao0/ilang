@@ -1,6 +1,6 @@
 /// cabinet — XPRESS_HUFF compress / decompress round-trip.
 
-use std.test
+use std.test as test
 use windows {
     GetProcessHeap, HeapAlloc, HeapFree,
 }

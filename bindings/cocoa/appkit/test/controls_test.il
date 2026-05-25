@@ -2,7 +2,7 @@
 /// construct and round-trip their typed setters / getters
 /// without showing them on screen.
 
-use std.test
+use std.test as test
 use appkit { NSButton, NSTextField, NSSlider, NSStepper,
              NSPopUpButton, NSBezelStyle, sharedApplication,
              makeButton, makeLabel, makeTextField, makeSlider }

@@ -1,8 +1,7 @@
 // Overloads can coexist with default arguments. The exact-arity
 // match always wins over a default-filled one — `f(x)` picks the
 // one-param overload, not the two-param one with a default for `y`.
-use std.test
-
+use std.test as test
 // One-param overload — picked for arity-1 calls.
 fn label(a: i64): string { "one" }
 

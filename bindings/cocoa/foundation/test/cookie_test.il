@@ -2,7 +2,7 @@
 /// Read-only / construct + accessor tests, no real network state
 /// changes.
 
-use std.test
+use std.test as test
 use foundation { NSHTTPCookieStorage, NSURLCredential,
                  NSURLProtectionSpace, NSURLCredentialPersistence,
                  nsstr, ilstr }

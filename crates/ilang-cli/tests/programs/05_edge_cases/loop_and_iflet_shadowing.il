@@ -1,8 +1,7 @@
 // A for-loop variable, an inner block's `let`, and `if let some(v)`
 // each introduce a fresh binding scoped to the loop / block / arm
 // that shadows but never overwrites a same-named outer binding.
-use std.test
-
+use std.test as test
 // for-in loop variable doesn't leak out (even with the same name).
 let i = 100
 for i in 0..5 { }

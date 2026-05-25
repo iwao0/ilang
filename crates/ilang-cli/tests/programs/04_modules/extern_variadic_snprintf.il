@@ -9,7 +9,7 @@
 //
 // Raw `char *` / `*const char` stay inside the `@extern(C)` block;
 // callers see ordinary ilang types via per-shape wrappers.
-use std.test
+use std.test as test
 use std.ffi { cstrFromString }
 
 @extern(C) {

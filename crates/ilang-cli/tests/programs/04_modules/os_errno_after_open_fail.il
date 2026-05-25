@@ -2,8 +2,8 @@
 // trigger a deterministic failure by `fopen`-ing a path that can't
 // exist, then verify errno is non-zero (ENOENT = 2 on macOS /
 // Linux, but we just check positivity to avoid platform variance).
-use std.os
-use std.test
+use std.os as os
+use std.test as test
 use std.ffi { cstrFromString }
 
 @extern(C) {

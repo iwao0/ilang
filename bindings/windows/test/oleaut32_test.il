@@ -1,6 +1,6 @@
 /// oleaut32 — BSTR allocation, VARIANT init/clear.
 
-use std.test
+use std.test as test
 use windows {
     SysAllocStringLen, SysFreeString, SysStringLen, SysStringByteLen,
     VARIANT, VariantInit, VariantClear,

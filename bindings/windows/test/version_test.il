@@ -1,6 +1,6 @@
 /// version — version-info resource size query for a system DLL.
 
-use std.test
+use std.test as test
 use windows {
 use std.ffi { cstrFromString, freeCstr }
     GetFileVersionInfoSizeA,

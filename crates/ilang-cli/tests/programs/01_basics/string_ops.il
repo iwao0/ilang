@@ -1,6 +1,5 @@
 // String concat, equality, and every built-in method documented in §4.
-use std.test
-
+use std.test as test
 // + concatenation, ==/!= content equality.
 test.expectStr("ab" + "c", "abc")
 test.expectStr("hello, " + "world", "hello, world")

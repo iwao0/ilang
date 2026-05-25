@@ -1,6 +1,5 @@
 // Line comments are ignored.
-use std.test
-
+use std.test as test
 /*
  * Block comments span lines.
  */

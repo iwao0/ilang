@@ -2,8 +2,7 @@
 // they can be passed as arguments, bound to locals, and reassigned.
 // Pre-fix the JIT generated a per-name trampoline lazily; this
 // fixture exercises the round-trip through both backends.
-use std.test
-
+use std.test as test
 fn double(x: i64): i64 { x * 2 }
 fn triple(x: i64): i64 { x * 3 }
 fn negate(x: i64): i64 { -x }

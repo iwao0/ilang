@@ -4,9 +4,8 @@
 // the function is reachable and returns an i32. Non-zero values
 // can come from the test harness's prior std calls; either way
 // the call must succeed.
-use std.os
-use std.test
-
+use std.os as os
+use std.test as test
 // Just touching errno() should always work; reading the value
 // is a no-op on errno itself, so a second call returns the same
 // thing modulo unrelated process activity.

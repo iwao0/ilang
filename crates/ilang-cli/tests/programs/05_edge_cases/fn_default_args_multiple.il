@@ -2,8 +2,7 @@
 // in 01_basics covers a single default param; this fixture pins down
 // behavior with three defaults — partial-supply, full-supply, and
 // the all-defaulted case — across primitive + heap arg types.
-use std.test
-
+use std.test as test
 fn config(host: string = "localhost", port: i64 = 8080, secure: bool = false): string {
     let scheme = if secure { "https" } else { "http" }
     let portStr = if port == 80 || port == 443 { "" } else { ":x" }

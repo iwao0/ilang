@@ -1,7 +1,7 @@
 /// NSFont — pull a few system fonts at known sizes and verify
 /// pointSize / familyName round-trip.
 
-use std.test
+use std.test as test
 use appkit { NSFont }
 use foundation { nsstr, ilstr }
 

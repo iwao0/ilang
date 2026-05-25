@@ -1,6 +1,6 @@
 /// iphlpapi — buffer-size query for GetNetworkParams.
 
-use std.test
+use std.test as test
 use iphlpapi { GetNetworkParams }
 
 @extern(C) {

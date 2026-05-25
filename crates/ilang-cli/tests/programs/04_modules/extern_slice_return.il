@@ -5,7 +5,7 @@
 // `T[]`.
 //
 // jit: skip
-use std.test
+use std.test as test
 use std.ffi { arrayFromCArray }
 
 @extern(C) {

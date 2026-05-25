@@ -1,6 +1,6 @@
 /// kernel32 — runtime DLL loading and symbol lookup.
 
-use std.test
+use std.test as test
 use windows {
 use std.ffi { cstrFromString, freeCstr }
     LoadLibraryA, FreeLibrary, GetProcAddress, GetModuleHandleA,

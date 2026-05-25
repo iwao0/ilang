@@ -3,8 +3,7 @@
 // is captured inline (immutable binding — the body never reassigns
 // `c`), but the underlying object is shared, so the closure's calls
 // mutate the caller's instance.
-use std.test
-
+use std.test as test
 class Counter {
     n: i64
     init() { this.n = 0 }

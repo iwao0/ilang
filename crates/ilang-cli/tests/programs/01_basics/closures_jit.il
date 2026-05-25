@@ -2,8 +2,7 @@
 // interpreter and JIT (Stage A). Heap-typed captures (string,
 // objects, arrays) are tested separately in `closures.il` with
 // `// jit: skip`.
-use std.test
-
+use std.test as test
 let factor = 10
 let scale = fn(x: i64): i64 { x * factor }
 test.expect(scale(3), 30)

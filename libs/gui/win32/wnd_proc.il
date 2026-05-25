@@ -37,8 +37,7 @@ use combo    { tryComboSelect }
 use list     { tryListSelect }
 use slider   { trySliderChange }
 use menu     { tryMenuClick }
-use super.event
-
+use super.event as event
 // ─── VirtualKey → W3C KeyboardEvent.code ──────────────────────
 
 fn vkToString(vk: VirtualKey): string {

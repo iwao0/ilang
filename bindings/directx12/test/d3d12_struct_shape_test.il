@@ -5,7 +5,7 @@
 /// No DLL calls. Catches accidental field-name / field-type drift
 /// between the binding and the SDK without needing a real GPU.
 
-use std.test
+use std.test as test
 use windows { HANDLE }
 use directx12 {
     D3D12_RECT, D3D12_BOX, D3D12_RANGE,

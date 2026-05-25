@@ -6,8 +6,7 @@
 // _receiver.il` (array reclaim) with the string-element cascade.
 //
 
-use std.test
-
+use std.test as test
 fn makeStrs(n: i64): string[] {
     let xs: string[] = []
     let i: i64 = 0

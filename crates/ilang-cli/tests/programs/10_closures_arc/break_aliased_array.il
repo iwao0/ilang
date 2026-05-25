@@ -2,8 +2,7 @@
 // surrounding scope's release (98cd0db). Without the fix the JIT
 // hands the loop's slot a borrowed pointer the binding is about
 // to drop and `r[0]` reads freed memory.
-use std.test
-
+use std.test as test
 fn run(): i64[] {
     let arr: i64[] = [1, 2, 3]
     loop { break arr }

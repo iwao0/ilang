@@ -20,8 +20,7 @@
 //      produce the same C-side result.
 //
 // jit: skip
-use std.test
-
+use std.test as test
 @extern(C) {
     // Canonical: matches the C function's real signature.
     fn test_alias_inc(x: i64): i64

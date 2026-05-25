@@ -1,6 +1,6 @@
 // `use lib_helpers` brings the whole module in under its name; access
 // each member via `lib_helpers.member`.
-use std.test
+use std.test as test
 use lib_helpers
 
 test.expect(lib_helpers.double(21), 42)

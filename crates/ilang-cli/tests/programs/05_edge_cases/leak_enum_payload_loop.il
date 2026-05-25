@@ -10,8 +10,7 @@
 // yet — see TODO in `host_release_enum`.
 //
 
-use std.test
-
+use std.test as test
 enum Box {
     holds: (i64)
     empty

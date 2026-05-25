@@ -6,7 +6,7 @@
 // `__errno_location` / `__error`).
 //
 // jit: skip
-use std.test
+use std.test as test
 use std.ffi { errnoCheck, errnoCheckI64 }
 
 @extern(C) {

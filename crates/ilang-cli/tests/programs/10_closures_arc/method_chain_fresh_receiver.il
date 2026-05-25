@@ -1,8 +1,7 @@
 // `(new Foo()).method()` and similar transient-receiver patterns
 // don't leak (03bb407 + beee631 + 46ae19a). Bound-loop check —
 // running this 1k times stays steady on RC.
-use std.test
-
+use std.test as test
 class Foo {
     arr: i64[]
     init() { this.arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }

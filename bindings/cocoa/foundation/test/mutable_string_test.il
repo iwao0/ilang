@@ -1,6 +1,6 @@
 /// NSMutableString — appendString / insert / replace / setString.
 
-use std.test
+use std.test as test
 use foundation { NSMutableString, nsstr, ilstr, makeRange }
 
 let ms = NSMutableString.string()

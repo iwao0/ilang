@@ -1,6 +1,6 @@
 /// NSPredicate — constant predicates + filter an NSArray.
 
-use std.test
+use std.test as test
 use foundation { NSPredicate, NSCompoundPredicate,
                  NSArray, NSMutableArray, NSNumber, nsstr }
 

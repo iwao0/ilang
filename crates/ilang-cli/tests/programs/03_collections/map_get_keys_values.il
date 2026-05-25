@@ -1,6 +1,5 @@
 // Map.get returns V?, Map.keys / values return arrays.
-use std.test
-
+use std.test as test
 let m = new Map<string, i64>()
 m.set("alice", 30)
 m.set("bob", 25)

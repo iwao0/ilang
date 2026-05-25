@@ -5,8 +5,7 @@
 //
 // interp: skip
 
-use std.test
-
+use std.test as test
 @extern(C) {
     pub struct Foo {
         n: i32

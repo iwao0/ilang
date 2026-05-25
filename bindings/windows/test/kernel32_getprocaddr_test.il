@@ -6,7 +6,7 @@
 /// call site uses `Inst::CallRawIndirect` (no closure dispatch, no env
 /// arg) instead of the normal closure path.
 
-use std.test
+use std.test as test
 use windows {
 use std.ffi { cstrFromString, freeCstr }
     LoadLibraryA, GetProcAddress, FreeLibrary,

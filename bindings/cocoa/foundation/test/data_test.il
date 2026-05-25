@@ -1,6 +1,6 @@
 /// NSData — bytes round-trip + length + base64.
 
-use std.test
+use std.test as test
 use foundation { NSData, NSDataBase64EncodingOptions, NSDataBase64DecodingOptions,
             makeRange, nsstr, ilstr }
 

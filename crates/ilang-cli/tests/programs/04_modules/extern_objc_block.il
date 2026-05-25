@@ -12,7 +12,7 @@
 // cleanly. Real runtime use is exercised by the cocoa bindings.
 //
 // jit: skip
-use std.test
+use std.test as test
 use std.ffi { cstrFromString }
 
 @extern(C) {

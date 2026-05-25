@@ -4,8 +4,7 @@
 // into either `f(A)` or `f(B)` reported "no matching overload"
 // — and even after a coarse "any subclass = score 5" tweak the
 // two overloads tied. Inheritance-distance scoring picks `f(B)`.
-use std.test
-
+use std.test as test
 class A {
     init() {}
     label(): string { "A" }

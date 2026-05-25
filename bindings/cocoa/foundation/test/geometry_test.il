@@ -1,6 +1,6 @@
 /// NSPoint / NSSize / NSRect / NSRange struct helpers + accessors.
 
-use std.test
+use std.test as test
 use foundation { makePoint, makeSize, makeRect, makeRange }
 
 let p = makePoint(1.5, 2.5)

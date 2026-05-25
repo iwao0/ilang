@@ -2,8 +2,7 @@
 /// supported signature shape. Pure ilang round-trip; doesn't go
 /// out to any Cocoa selector.
 
-use std.test
-
+use std.test as test
 // void(^)(void).
 let nilCount = 0
 let voidBlock = new ObjCBlock(fn() { })

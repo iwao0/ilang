@@ -1,6 +1,5 @@
 // Unit-only enums (Phase 1 representation: bare i32 tag).
-use std.test
-
+use std.test as test
 enum Color { red, green, blue }
 
 let c = Color.green

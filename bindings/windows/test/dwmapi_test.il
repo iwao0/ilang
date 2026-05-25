@@ -1,6 +1,6 @@
 /// dwmapi — composition status and window attribute query.
 
-use std.test
+use std.test as test
 use dwmapi { DwmIsCompositionEnabled, DwmFlush }
 
 @extern(C) {

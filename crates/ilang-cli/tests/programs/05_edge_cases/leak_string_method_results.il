@@ -5,8 +5,7 @@
 // (per-frame HUD-style code paths in long-running programs).
 //
 
-use std.test
-
+use std.test as test
 let s = "  Hello, World!  "
 
 let baseline = test.liveStringCount()

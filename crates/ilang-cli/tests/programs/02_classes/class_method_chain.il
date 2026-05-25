@@ -1,6 +1,5 @@
 // Methods returning the receiver enable chaining (fluent style).
-use std.test
-
+use std.test as test
 class Builder {
     n: i64
     init() { this.n = 0 }

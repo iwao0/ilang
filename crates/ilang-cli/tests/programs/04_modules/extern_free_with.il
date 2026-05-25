@@ -8,7 +8,7 @@
 // We simulate the pattern with `test.countedFree`, a host-side
 // stub that calls libc::free *and* bumps a counter; the test
 // asserts the counter advances exactly once per `dupCounted`.
-use std.test
+use std.test as test
 use std.ffi { cstrFromString, stringFromCstr }
 
 @extern(C) {

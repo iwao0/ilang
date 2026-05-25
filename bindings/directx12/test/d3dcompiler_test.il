@@ -1,7 +1,7 @@
 /// d3dcompiler — compile a trivial HLSL vertex shader and inspect
 /// the resulting blob.
 
-use std.test
+use std.test as test
 use windows { HANDLE }
 use directx12 {
 use std.ffi { cstrFromString, freeCstr }

@@ -12,8 +12,7 @@
 // brings the leak back.
 //
 
-use std.test
-
+use std.test as test
 class T {
     n: i64
     init(n: i64) { this.n = n }

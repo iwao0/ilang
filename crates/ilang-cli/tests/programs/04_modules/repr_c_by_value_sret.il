@@ -7,8 +7,7 @@
 // pointer as the call's result (rc=1, ready to bind).
 //
 // jit: skip
-use std.test
-
+use std.test as test
 @extern(C) {
     struct big32 {
         a: i64

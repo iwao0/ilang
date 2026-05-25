@@ -2,9 +2,8 @@
 // `Result<T, fs.FsError>`. Exercises the happy path for read /
 // write / append / size / rm and the ENOENT error path for a
 // missing file.
-use std.fs
-use std.test
-
+use std.fs as fs
+use std.test as test
 let p = "/tmp/ilang_fs_fixture.txt"
 
 // Clean any leftover from a previous failed run so the test is

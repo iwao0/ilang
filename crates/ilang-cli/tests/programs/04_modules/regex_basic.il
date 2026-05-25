@@ -1,9 +1,8 @@
 // Built-in `regex` module — wraps Rust's `regex` crate. Smoke-tests
 // the public API: test / find / findAll / replace / split, with the
 // `i` flag for case-insensitive matching.
-use std.regex
-use std.test
-
+use std.regex as regex
+use std.test as test
 let r = new regex.Regex("foo+", "i")
 test.expectTrue(r.test("Hello FOOO"))
 test.expectTrue(!r.test("bar"))

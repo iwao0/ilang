@@ -348,6 +348,34 @@ impl<'a> Checker<'a> {
             if Some(prefix) == self.self_module {
                 return Ok(());
             }
+            // Multi-segment path-style reference: `std.math.sqrt`
+            // after bare `use std.math`. The catalog is keyed by the
+            // module's leaf file name (`math`), not the full dotted
+            // path, so peel segments from the head until a matching
+            // catalog entry is found and validate the remainder
+            // against that. Falls back to the regular single-segment
+            // lookup below when no deeper prefix matches.
+            if rest.contains('.') {
+                let segments: Vec<&str> = s.split('.').collect();
+                for i in (1..segments.len()).rev() {
+                    let module_candidate = segments[i - 1];
+                    if let Some(pubs) = self.catalog.get(module_candidate) {
+                        let tail = segments[i..].join(".");
+                        if pubs.contains(&Symbol::intern(&tail)) {
+                            return Ok(());
+                        }
+                        if let Some((head, _)) = tail.split_once('.') {
+                            if pubs.contains(&Symbol::intern(head)) {
+                                return Ok(());
+                            }
+                        }
+                        let tail_dot = format!("{tail}.");
+                        if pubs.iter().any(|n| n.as_str().starts_with(&tail_dot)) {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
             let Some(pubs) = self.catalog.get(prefix) else {
                 return Err(LoadError::PrivateItemRef {
                     module: Symbol::intern(prefix),

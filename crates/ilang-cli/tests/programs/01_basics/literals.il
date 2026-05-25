@@ -1,6 +1,5 @@
 // All literal forms documented in syntax.md §1.
-use std.test
-
+use std.test as test
 // Decimal / hex / binary / digit-underscore int literals.
 test.expect(42, 42)
 test.expect(0xff, 255)

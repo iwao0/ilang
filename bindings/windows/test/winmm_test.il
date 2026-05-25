@@ -1,6 +1,6 @@
 /// winmm — high-resolution timer + joystick count.
 
-use std.test
+use std.test as test
 use windows {
     timeGetTime, timeBeginPeriod, timeEndPeriod,
     joyGetNumDevs,

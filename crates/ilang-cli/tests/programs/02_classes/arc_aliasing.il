@@ -1,7 +1,6 @@
 // `let y = x` creates a new binding that retains `x`'s allocation.
 // The object only dies when ALL strong refs are gone.
-use std.test
-
+use std.test as test
 class Counter {
     n: i64
     init() { this.n = 0 }

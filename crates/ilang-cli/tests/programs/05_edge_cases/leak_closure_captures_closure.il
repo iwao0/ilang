@@ -7,8 +7,7 @@
 // capture; this fixture adds the Closure-as-capture case.
 //
 
-use std.test
-
+use std.test as test
 let baseline_b = test.liveAllocBytes()
 let baseline_s = test.liveStringCount()
 

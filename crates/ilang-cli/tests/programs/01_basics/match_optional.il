@@ -4,8 +4,7 @@
 //
 // expect: hi
 // expect: (none)
-use std.test
-
+use std.test as test
 fn fromInt(o: i64?): i64 {
     match o {
         some(v) { v + 1 }

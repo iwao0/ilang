@@ -5,8 +5,7 @@
 // header, no per-element heap box) — otherwise downstream code
 // that passes the array as a base pointer into a C-side `void*`
 // would see header bytes instead of the first element.
-use std.test
-
+use std.test as test
 @extern(C) {
     struct Vertex {
         pos:   f32[3]

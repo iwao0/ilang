@@ -2,9 +2,8 @@
 // the values agree with the syscall layer on this platform —
 // values that differ across Linux/macOS are intentionally omitted
 // from the stdlib.
-use std.os
-use std.test
-
+use std.os as os
+use std.test as test
 // Standard fds.
 test.expect(os.STDIN_FILENO as i64, 0)
 test.expect(os.STDOUT_FILENO as i64, 1)

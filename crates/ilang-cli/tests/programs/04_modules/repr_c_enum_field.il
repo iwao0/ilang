@@ -13,8 +13,7 @@
 // rewritten version exercises the same layout invariant through
 // direct field assignment and round-trip reads, which is a
 // faithful end-to-end check of where each field lives.
-use std.test
-
+use std.test as test
 pub enum Tag16: u16 {
     a = 0x1234
     b = 0x5678

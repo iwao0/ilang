@@ -1,6 +1,5 @@
 // Method overloading by arity (different number of params).
-use std.test
-
+use std.test as test
 class Greeter {
     init() {}
     greet(): string { "hi" }

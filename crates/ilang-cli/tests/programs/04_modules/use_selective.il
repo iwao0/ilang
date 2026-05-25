@@ -1,6 +1,6 @@
 // Selective import: `use module { name1, name2 }` brings only the
 // listed names into the local scope, accessed without the module prefix.
-use std.test
+use std.test as test
 use lib_helpers { double, triple }
 
 test.expect(double(5), 10)

@@ -1,6 +1,6 @@
 /// NSCharacterSet — predefined sets + characterIsMember.
 
-use std.test
+use std.test as test
 use foundation { NSCharacterSet, nsstr }
 
 let digits = NSCharacterSet.decimalDigit()

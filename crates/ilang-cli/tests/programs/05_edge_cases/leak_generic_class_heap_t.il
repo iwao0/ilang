@@ -8,8 +8,7 @@
 // this fixture is the heap-T memory-reclaim variant.
 //
 
-use std.test
-
+use std.test as test
 class Box<T> {
     v: T
     init(x: T) { this.v = x }

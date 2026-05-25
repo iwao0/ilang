@@ -8,7 +8,7 @@
 /// Skips cleanly when any prerequisite (window class, GPU, factory
 /// 4+) is unavailable.
 
-use std.test
+use std.test as test
 use windows {
 use std.ffi { cstrFromString, freeCstr }
     HANDLE, NULL,

@@ -6,8 +6,7 @@
 // pins down the memory reclaim.
 //
 
-use std.test
-
+use std.test as test
 class Holder {
     f: fn(i64): i64
     init(g: fn(i64): i64) { this.f = g }

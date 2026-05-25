@@ -3,8 +3,7 @@
 // detaches the rest of the chain (the original tail's nodes drop iff
 // no other binding holds them). Tests both walk semantics and the
 // retain/release of the Optional<Object> field at reassignment time.
-use std.test
-
+use std.test as test
 class Linked {
     v: i64
     next: Linked?

@@ -14,8 +14,7 @@
 // fixture pair for the actual dispatch verification.
 //
 // jit: skip
-use std.test
-
+use std.test as test
 @extern(ObjC) {
     @objc class NSObject {
         @objc("release") release()

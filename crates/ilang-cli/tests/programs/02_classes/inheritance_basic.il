@@ -1,6 +1,5 @@
 // Single inheritance with method override + super dispatch.
-use std.test
-
+use std.test as test
 class Animal {
     name: string
     init(n: string) { this.name = n }

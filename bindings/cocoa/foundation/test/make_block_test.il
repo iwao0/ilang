@@ -10,7 +10,7 @@
 /// `NSObject.__wrap_handle` and call `description` / hash etc.
 /// on it without crashing).
 
-use std.test
+use std.test as test
 use foundation { NSObject, makeBlock, makeObjectBlock, autoreleasepool }
 
 autoreleasepool(fn() {

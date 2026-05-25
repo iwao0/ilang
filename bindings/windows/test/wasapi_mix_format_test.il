@@ -11,7 +11,7 @@
 /// Bails cleanly on hosts without an active render endpoint or
 /// where the audio service isn't running.
 
-use std.test
+use std.test as test
 use ole32 {
     CoInitializeEx, CoUninitialize, CoCreateInstance, CoTaskMemFree,
     CoInit, ClsCtx,

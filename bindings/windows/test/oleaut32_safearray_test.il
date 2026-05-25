@@ -1,6 +1,6 @@
 /// oleaut32 — SAFEARRAY lifecycle (1-D array of i32).
 
-use std.test
+use std.test as test
 use windows {
     SAFEARRAY, SAFEARRAYBOUND,
     SafeArrayCreate, SafeArrayDestroy,

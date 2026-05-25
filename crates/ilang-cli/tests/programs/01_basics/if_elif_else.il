@@ -1,6 +1,5 @@
 // `if` is an expression. Forms: bare if, if/else, if/elif/.../else.
-use std.test
-
+use std.test as test
 // As a statement (Unit-typed if): no else needed.
 let mut_log = 0
 if true { mut_log = 1 }

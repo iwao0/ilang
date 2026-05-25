@@ -1,6 +1,6 @@
 /// ole32 — COM bootstrap and task-memory allocator.
 
-use std.test
+use std.test as test
 use ole32 {
     CoInitializeEx, CoUninitialize,
     CoTaskMemAlloc, CoTaskMemFree, CoTaskMemRealloc,

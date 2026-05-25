@@ -2,8 +2,7 @@
 // innermost loop only. A regression that hoists either to the outer
 // loop is easy to write and silent — the program just runs fewer
 // iterations than expected.
-use std.test
-
+use std.test as test
 let outer_iters = 0
 let inner_iters = 0
 for i in 0..3 {

@@ -1,6 +1,6 @@
 /// crypt32 — Base64 / hex string encoding round-trips.
 
-use std.test
+use std.test as test
 use windows {
 use std.ffi { cstrFromString, freeCstr, stringFromCstr }
     HeapAlloc, HeapFree, GetProcessHeap,

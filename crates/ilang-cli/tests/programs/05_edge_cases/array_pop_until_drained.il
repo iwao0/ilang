@@ -2,8 +2,7 @@
 // never wraps the length below zero. `empty_container_ops.il` shows
 // pop-once on empty; this fixture nails down the post-drain steady
 // state.
-use std.test
-
+use std.test as test
 let xs: i64[] = [1, 2, 3]
 test.expect(xs.pop().unwrap(), 3)
 test.expect(xs.pop().unwrap(), 2)

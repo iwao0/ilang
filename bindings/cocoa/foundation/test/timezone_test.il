@@ -1,6 +1,6 @@
 /// NSTimeZone — construct + read offset / name / abbreviation.
 
-use std.test
+use std.test as test
 use foundation { NSTimeZone, NSDate, nsstr, ilstr }
 
 let utc = NSTimeZone.withName(nsstr("UTC"))

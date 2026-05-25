@@ -6,8 +6,7 @@
 // Restricted to the enum's declared repr — a `u32`-repr enum
 // stays distinct from `i64` etc., to avoid surprising widening.
 
-use std.test
-
+use std.test as test
 pub enum Code: u32 {
     ok      = 0
     notFound = 1

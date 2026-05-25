@@ -1,6 +1,5 @@
 // init() can be overloaded; `new C(...)` picks the best match.
-use std.test
-
+use std.test as test
 class Point {
     x: i64
     y: i64

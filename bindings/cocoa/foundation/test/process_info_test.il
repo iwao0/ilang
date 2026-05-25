@@ -1,6 +1,6 @@
 /// NSProcessInfo — read-only properties on the running process.
 
-use std.test
+use std.test as test
 use foundation { NSProcessInfo, ilstr }
 
 let pi = NSProcessInfo.processInfo()

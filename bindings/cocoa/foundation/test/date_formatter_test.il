@@ -2,7 +2,7 @@
 /// round-trip. Pins en_US_POSIX + UTC so the test isn't affected
 /// by the host's region settings.
 
-use std.test
+use std.test as test
 use foundation { NSDate, NSDateFormatter, NSTimeZone, NSLocale, nsstr, ilstr }
 
 let df = NSDateFormatter.alloc().init()

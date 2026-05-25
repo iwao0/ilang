@@ -4,7 +4,7 @@
 /// unmaps it, and checks that GetGPUVirtualAddress returns
 /// something non-zero. Bails cleanly when no D3D12 GPU.
 
-use std.test
+use std.test as test
 use windows {
     HANDLE,
     NULL,

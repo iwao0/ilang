@@ -9,8 +9,7 @@
 // separate fix.
 //
 
-use std.test
-
+use std.test as test
 class Counter {
     n: i64
     init() { this.n = 0 }

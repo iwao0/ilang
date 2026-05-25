@@ -6,8 +6,7 @@
 // Object with rc=1.
 //
 // jit: skip
-use std.test
-
+use std.test as test
 @extern(C) {
     struct point2 {
         x: i32

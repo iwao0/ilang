@@ -9,8 +9,7 @@
 // reclaim using `liveAllocBytes`.
 //
 
-use std.test
-
+use std.test as test
 fn make_arr(): i64[] { [1, 2, 3, 4, 5] }
 
 let baseline = test.liveAllocBytes()

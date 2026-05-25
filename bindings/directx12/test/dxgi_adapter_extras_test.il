@@ -8,7 +8,7 @@
 /// GPU → adapter3 unavailable). The test treats every negative
 /// HRESULT as "skip the corresponding step" and keeps going.
 
-use std.test
+use std.test as test
 use windows {
     HANDLE, NULL,
 }

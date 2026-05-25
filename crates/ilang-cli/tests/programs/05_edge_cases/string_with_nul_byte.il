@@ -6,8 +6,7 @@
 // Pre-fix the JIT computed `length` via `strlen`, so a string
 // containing `\0` would report a smaller length than the
 // declared content and `+` would lose the post-NUL bytes.
-use std.test
-
+use std.test as test
 // Literal with embedded NUL — length counts every char.
 let s = "hello\0world"
 test.expect(s.length, 11)

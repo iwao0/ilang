@@ -3,8 +3,7 @@
 // general `assignable` int-narrowing rule fired before
 // `int_literal_fits`, so `let a: i8 = 999` was silently accepted
 // and wrapped at runtime.
-use std.test
-
+use std.test as test
 let a: i8 = 100
 let b: i8 = -50
 let c: u8 = 200

@@ -2,8 +2,7 @@
 // `@extern(C) struct` inline (no pointer, no separate allocation).
 // Field offsets follow C struct layout, so the bytes are exactly
 // where a C compiler would place them.
-use std.test
-
+use std.test as test
 @extern(C) {
     struct point {
         x: i32

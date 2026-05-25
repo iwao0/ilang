@@ -1,6 +1,6 @@
 /// NSNumber / NSDecimalNumber / NSValue.
 
-use std.test
+use std.test as test
 use foundation { NSNumber, NSDecimalNumber, NSValue, NSRange,
             nsstr, ilstr, makeRange, makePoint, makeSize, makeRect }
 

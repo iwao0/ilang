@@ -9,8 +9,7 @@
 // guarantee for the common recursive shape.
 //
 
-use std.test
-
+use std.test as test
 let fib: fn(i64): i64 = fn(n: i64): i64 {
     if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
 }

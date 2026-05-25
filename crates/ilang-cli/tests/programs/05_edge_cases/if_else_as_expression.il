@@ -2,8 +2,7 @@
 // types must unify, and it can nest arbitrarily deep. The basics
 // fixtures only use `if` for control flow; this one pins down the
 // expression-position usage.
-use std.test
-
+use std.test as test
 let x = if true { 10 } else { 20 }
 test.expect(x, 10)
 

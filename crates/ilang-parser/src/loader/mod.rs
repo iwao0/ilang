@@ -1084,17 +1084,24 @@ fn apply_use(
         .get(&canon)
         .cloned()
         .expect("loaded before via load_recursive");
-    // For path-style imports (`use a.b` → module="a", subpath=[b]),
-    // the merged module's items live under the leaf name (`b`), not
-    // the base (`a`). This keeps single-segment `use M` and dotted
-    // `use base.M` aliased the same way at the call site.
+    // For path-style imports (`use a.b.c` → module="a",
+    // subpath=["b", "c"]), the merged module's items live under the
+    // full dotted path (`a.b.c`) so callers reach them exactly as
+    // they were written in the `use` declaration. Single-segment
+    // `use M` keeps the bare-`M` prefix.
     let nominal_prefix: String = prefix_override
         .map(str::to_string)
         .unwrap_or_else(|| {
-            u.subpath
-                .last()
-                .map(|s| s.as_str().to_string())
-                .unwrap_or_else(|| u.module.as_str().to_string())
+            if u.subpath.is_empty() {
+                u.module.as_str().to_string()
+            } else {
+                let mut s = u.module.as_str().to_string();
+                for seg in u.subpath.iter() {
+                    s.push('.');
+                    s.push_str(seg.as_str());
+                }
+                s
+            }
         });
     // If this module's canon is already prefix-merged under some
     // other prefix (e.g. an umbrella's `pub use` ran first and

@@ -4,8 +4,7 @@
 //   - You want a more descriptive ilang name without renaming
 //     the C source
 //   - Two fns wrap the same C symbol with different ilang shapes
-use std.test
-
+use std.test as test
 @extern(C) {
     // The C symbol is `abs` but the ilang-callable name is `myAbs`.
     @lib("c") @symbol("abs") fn myAbs(x: i32): i32

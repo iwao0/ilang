@@ -1,6 +1,6 @@
 /// shell32 — special folder lookup.
 
-use std.test
+use std.test as test
 use windows {
     SHGetFolderPathA,
     CSIDL,

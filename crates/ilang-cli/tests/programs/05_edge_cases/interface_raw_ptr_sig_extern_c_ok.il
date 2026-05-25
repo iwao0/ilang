@@ -5,8 +5,7 @@
 // on so they can name `*const GUID` / `**void` in vtable
 // signatures.
 
-use std.test
-
+use std.test as test
 @extern(C) {
     @com pub interface IFoo {
         ping(p: *const u8): i32

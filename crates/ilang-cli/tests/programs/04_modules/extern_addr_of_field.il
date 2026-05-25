@@ -7,8 +7,7 @@
 // `c_field_offsets[idx]`).
 //
 // jit: skip
-use std.test
-
+use std.test as test
 class Pt {
     pub x: i32
     pub y: i32

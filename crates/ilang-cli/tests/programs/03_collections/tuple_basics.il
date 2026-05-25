@@ -2,8 +2,7 @@
 // N is a constant integer literal). Heterogeneous element types and
 // nested tuples should both work; ARC keeps heap elements alive
 // across reads.
-use std.test
-
+use std.test as test
 // Heterogeneous primitive elements with explicit type annotation.
 let p: (i64, string) = (1, "hello")
 test.expect(p[0], 1)

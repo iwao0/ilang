@@ -1,6 +1,6 @@
 /// user32 — window introspection on the desktop HWND.
 
-use std.test
+use std.test as test
 use windows {
 use std.ffi { cstrFromString, freeCstr }
     HWND, RECT, POINT,

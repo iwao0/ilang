@@ -10,7 +10,7 @@
 /// Submits via `ID3D12CommandQueue.ExecuteCommandLists`, then waits
 /// on a fence to make sure the GPU made it through the list.
 
-use std.test
+use std.test as test
 use windows {
     HANDLE, NULL,
     CreateEventA, WaitForSingleObject, CloseHandle,

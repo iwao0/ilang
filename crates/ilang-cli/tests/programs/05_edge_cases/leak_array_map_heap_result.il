@@ -8,8 +8,7 @@
 // through. Map producing strings then leaked all entries.
 //
 
-use std.test
-
+use std.test as test
 let xs: i64[] = [1, 2, 3, 4, 5]
 
 let baseline = test.liveStringCount()

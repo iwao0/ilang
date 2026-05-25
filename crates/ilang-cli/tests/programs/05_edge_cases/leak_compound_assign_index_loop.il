@@ -8,8 +8,7 @@
 // fixture pins down the no-leak loop.
 //
 
-use std.test
-
+use std.test as test
 let baseline = test.liveAllocBytes()
 
 let xs: i64[] = [1, 2, 3]

@@ -1,6 +1,6 @@
 /// mfplat — startup / shutdown + buffer creation smoke test.
 
-use std.test
+use std.test as test
 use mfplat {
     MFStartup, MFShutdown, MfStartupFlags,
     MFCreateMemoryBuffer, MFCreateSample, MFCreateMediaType,

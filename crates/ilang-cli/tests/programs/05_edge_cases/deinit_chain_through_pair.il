@@ -3,8 +3,7 @@
 // are released — each releasing reference brings the Tracker rc to
 // zero, firing each Tracker's deinit. Pre-fix release ordering or a
 // missed field-release pass would lose one or both pushes.
-use std.test
-
+use std.test as test
 class Tracker {
     log: i64[]
     id: i64

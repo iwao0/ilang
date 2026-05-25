@@ -1,6 +1,5 @@
 // Computed property: read goes through getter, write through setter.
-use std.test
-
+use std.test as test
 class Temp {
     celsius: f64
     init(c: f64) { this.celsius = c }

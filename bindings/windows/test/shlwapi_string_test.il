@@ -1,6 +1,6 @@
 /// shlwapi — string search / convert helpers.
 
-use std.test
+use std.test as test
 use shlwapi { StrStrA, StrStrIA, StrCmpNA, StrCmpNIA, StrToIntA }
 use std.ffi { cstrFromString, freeCstr }
 

@@ -2,8 +2,7 @@
 // same heap allocation. Mutations through one are visible through the
 // other. (The class-aliasing case is in 02_classes/arc_aliasing.il;
 // this is the array variant, which the existing fixtures don't cover.)
-use std.test
-
+use std.test as test
 let arr: i64[] = [1, 2, 3]
 let alias = arr
 

@@ -1,6 +1,6 @@
 /// kernel32 — file enumeration over the Windows system directory.
 
-use std.test
+use std.test as test
 use windows {
 use std.ffi { cstrFromString, freeCstr }
     WIN32_FIND_DATAA,

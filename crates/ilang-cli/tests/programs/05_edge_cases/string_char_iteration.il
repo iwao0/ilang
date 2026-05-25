@@ -2,8 +2,7 @@
 // `0..length`. `length` is in code points (not bytes), so multibyte
 // strings round-trip cleanly. `string_edge.il` covers `charAt` slicing
 // edge cases; this fixture covers the iteration shape.
-use std.test
-
+use std.test as test
 let s = "hello"
 let chars: string[] = []
 let i = 0

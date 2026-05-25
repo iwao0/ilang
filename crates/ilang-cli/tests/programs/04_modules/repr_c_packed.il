@@ -9,8 +9,7 @@
 //     `alg_byte_at` host externs that read raw bytes)
 //
 // jit: skip
-use std.test
-
+use std.test as test
 @extern(C) {
     @packed struct packed_header {
         magic: u8

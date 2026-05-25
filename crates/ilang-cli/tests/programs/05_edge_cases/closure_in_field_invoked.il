@@ -4,8 +4,7 @@
 // canonical shape. Verifies that the closure's captured environment
 // survives storage in a class field and round-trips back out
 // without being snapshotted.
-use std.test
-
+use std.test as test
 class Holder {
     f: fn(i64): i64
     init(g: fn(i64): i64) { this.f = g }

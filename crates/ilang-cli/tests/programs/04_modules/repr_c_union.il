@@ -2,8 +2,7 @@
 // writing one overwrites the others. Useful for C union interop
 // (`siginfo_t`, `union sigval`, etc.) and for type punning between
 // integer and float bit patterns.
-use std.test
-
+use std.test as test
 @extern(C) {
     union word_view {
         as_u32: u32

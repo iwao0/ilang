@@ -1,6 +1,6 @@
 /// shlwapi — URL canonicalisation and combine helpers.
 
-use std.test
+use std.test as test
 use windows {
 use std.ffi { cstrFromString, freeCstr, stringFromCstr }
     HeapAlloc, HeapFree, GetProcessHeap,

@@ -1,8 +1,7 @@
 // `@extern(C) struct` layout no longer depends on declaration order.
 // Here `rect` is declared **before** the `point` it embeds; the JIT
 // topologically sorts struct layouts so this still resolves cleanly.
-use std.test
-
+use std.test as test
 @extern(C) {
     struct rect {
         origin: point   // forward reference — point declared later

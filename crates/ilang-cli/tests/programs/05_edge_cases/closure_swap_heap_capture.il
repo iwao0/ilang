@@ -4,8 +4,7 @@
 // a regression that drops either side leaks the previous instance
 // or double-frees the new one, both of which would manifest as a
 // later use-after-free or wrong field reads.
-use std.test
-
+use std.test as test
 class Box {
     v: i64
     init(x: i64) { this.v = x }

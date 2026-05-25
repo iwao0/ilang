@@ -8,8 +8,7 @@
 // test runtime that writes its second arg through the first.
 //
 // jit: skip
-use std.test
-
+use std.test as test
 @extern(C) {
     fn set_via_ptr(out: *i32, value: i32)
     fn set_via_ptr_f64(out: *f64, value: f64)

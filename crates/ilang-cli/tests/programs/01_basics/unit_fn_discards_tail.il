@@ -2,8 +2,7 @@
 // silently discards its trailing expression value. Same ergonomics
 // as a top-level expression statement: the body is evaluated for
 // its side effects and the tail value is dropped.
-use std.test
-
+use std.test as test
 fn returnsUnitWithI64Tail() {
     let a: i64 = 12
     a

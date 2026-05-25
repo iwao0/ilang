@@ -8,8 +8,7 @@
 // `as i64` widening uses sextend correctly today (verified by
 // `cast_float_to_int_saturating.il`); only the `.toString()`
 // path mishandled the sign.
-use std.test
-
+use std.test as test
 let a: i8 = -1
 test.expectStr(a.toString(), "-1")
 

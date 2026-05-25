@@ -1,6 +1,6 @@
 /// NSNumberFormatter — style + locale-pinned format / parse.
 
-use std.test
+use std.test as test
 use foundation { NSNumber, NSNumberFormatter, NSNumberFormatterStyle,
                  NSLocale, nsstr, ilstr }
 

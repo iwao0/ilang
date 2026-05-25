@@ -8,8 +8,7 @@
 // element into the tuple header (bits 16-63 of the packed word).
 //
 
-use std.test
-
+use std.test as test
 let baseline = test.liveAllocBytes()
 
 let i: i64 = 0

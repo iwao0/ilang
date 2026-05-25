@@ -1,7 +1,6 @@
 // Static method overloading: same name, different signatures,
 // dispatched at the call site like instance / top-level overloads.
-use std.test
-
+use std.test as test
 class Greeter {
     static say(n: i64): string { "int" }
     static say(s: string): string { "str" }

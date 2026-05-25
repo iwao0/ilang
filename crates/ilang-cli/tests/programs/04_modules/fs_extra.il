@@ -2,9 +2,8 @@
 // access, copyFile / cp / realpath, chmod / truncate / utimes,
 // symlink / readlink / link, and mkdtemp. Each block leaves the
 // filesystem clean so the test can be rerun.
-use std.fs
-use std.test
-
+use std.fs as fs
+use std.test as test
 // ─── mkdtemp + cleanup helper ───────────────────────────────────
 let root = match fs.mkdtemp("/tmp/ilang_fs_extra_") {
     ok(p) { p }

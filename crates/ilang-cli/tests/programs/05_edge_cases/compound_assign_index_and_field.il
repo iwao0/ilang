@@ -3,8 +3,7 @@
 // existing fixtures only exercise compound assignments on simple
 // `let` bindings, so a regression in lvalue-aware lowering here
 // would slip through.
-use std.test
-
+use std.test as test
 // Array index lvalue.
 let xs: i64[] = [10, 20, 30]
 xs[0] += 5

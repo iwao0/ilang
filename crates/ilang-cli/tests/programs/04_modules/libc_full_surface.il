@@ -1,7 +1,7 @@
 // Smoke test that the expanded libc umbrella parses + links. Picks
 // one symbol from each new sub-module so a regression in any of
 // them surfaces here before it bites a downstream binding.
-use std.test
+use std.test as test
 use libc {
     // string.il additions
     strtok,

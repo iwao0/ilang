@@ -1,7 +1,6 @@
 // Operations on empty containers — should be defined behavior, NOT
 // panics, for the "absent" cases.
-use std.test
-
+use std.test as test
 // Empty array.
 let xs: i64[] = []
 test.expect(xs.length, 0)

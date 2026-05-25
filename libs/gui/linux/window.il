@@ -27,8 +27,7 @@ use std.ffi { cstrFromString }
     g_signal_connect_motion, g_signal_connect_click,
 }
 use core { WINDOWS, WindowSlot, GTK_INITED, LOOP_HOLDER }
-use super.event
-
+use super.event as event
 // GdkModifierType bits we need. Pulled out as locals so each
 // dispatch can `& MOD_*` without going through the flags enum.
 const MOD_SHIFT: u32 = 0x00000001 as u32

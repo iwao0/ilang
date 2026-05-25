@@ -1,6 +1,6 @@
 /// NSJSONSerialization + NSPropertyListSerialization.
 
-use std.test
+use std.test as test
 use foundation { NSJSONSerialization, NSPropertyListSerialization,
                  NSMutableDictionary, NSData,
                  NSJSONWritingOptions, NSJSONReadingOptions,

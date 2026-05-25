@@ -4,8 +4,7 @@
 // on the Rust side. It calls the callback directly, so this test
 // actually exercises the cross-ABI invocation rather than just the
 // pointer marshalling.
-use std.test
-
+use std.test as test
 fn cmp(a: i64, b: i64): i32 {
     if a < b { -1 as i32 }
     elif a > b { 1 as i32 }

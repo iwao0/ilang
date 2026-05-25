@@ -9,8 +9,7 @@
 // param through `build_array`, set KIND_STR for split's output.
 //
 
-use std.test
-
+use std.test as test
 let s = "a,b,c,d,e,f,g,h,i,j"
 
 let baseline = test.liveStringCount()

@@ -6,8 +6,7 @@
 // `posix_memalign(memptr, alignment, size)` — POSIX equivalent of
 // aligned malloc. Writes the allocation pointer into *memptr and
 // returns 0 on success or an errno code on failure.
-use std.test
-
+use std.test as test
 @extern(C) {
     struct Buf {}
     @lib("c") fn posix_memalign(memptr: *i64, alignment: size_t, size: size_t): i32

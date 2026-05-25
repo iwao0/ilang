@@ -1,7 +1,6 @@
 // Early `return`, value `return`, value-less Unit `return`, and the
 // implicit "block tail = return value" path.
-use std.test
-
+use std.test as test
 // Early return with a value.
 fn abs(n: i64): i64 {
     if n < 0 { return -n }

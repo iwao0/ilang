@@ -1,6 +1,6 @@
 /// NSColor — predefined system colours + RGBA factory.
 
-use std.test
+use std.test as test
 use appkit { NSColor, sharedApplication }
 
 let _ = sharedApplication()

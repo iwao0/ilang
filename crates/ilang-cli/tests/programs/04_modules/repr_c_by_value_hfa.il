@@ -6,8 +6,7 @@
 // register slot.
 //
 // jit: skip
-use std.test
-
+use std.test as test
 @extern(C) {
     struct vec3f {
         x: f32

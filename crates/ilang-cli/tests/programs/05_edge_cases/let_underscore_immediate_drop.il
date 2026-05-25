@@ -10,8 +10,7 @@
 //
 // The legacy --jit backend (ilang-codegen) doesn't yet honour
 // this discard semantics; skip there.
-use std.test
-
+use std.test as test
 class T {
     log: i64[]
     init(l: i64[]) { this.log = l }

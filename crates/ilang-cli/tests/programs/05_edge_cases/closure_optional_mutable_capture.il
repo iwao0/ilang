@@ -4,8 +4,7 @@
 // Stresses both the cell-write of an Optional (heap-shaped for
 // boxed payloads, two-state for primitives) and the discriminant
 // preservation across writes.
-use std.test
-
+use std.test as test
 fn makeCounter(): fn(): i64 {
     let cur: i64? = none
     fn(): i64 {

@@ -7,8 +7,7 @@
 // double-free or leak.
 //
 
-use std.test
-
+use std.test as test
 fn makeArrFn(): fn(): i64 {
     let xs: i64[] = [1, 2, 3, 4, 5]
     fn(): i64 { xs.length }

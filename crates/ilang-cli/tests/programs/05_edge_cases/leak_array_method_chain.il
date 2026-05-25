@@ -7,8 +7,7 @@
 // covers the heap-element cascade for a single map call.
 //
 
-use std.test
-
+use std.test as test
 let baseline_b = test.liveAllocBytes()
 let baseline_s = test.liveStringCount()
 

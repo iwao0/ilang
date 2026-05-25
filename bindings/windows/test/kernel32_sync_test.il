@@ -1,6 +1,6 @@
 /// kernel32 — synchronization primitives lifecycle.
 
-use std.test
+use std.test as test
 use windows {
     CRITICAL_SECTION,
     InitializeCriticalSection, EnterCriticalSection,

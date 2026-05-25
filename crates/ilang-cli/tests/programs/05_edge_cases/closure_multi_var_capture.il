@@ -3,8 +3,7 @@
 // must share the lifetime of the closure value: their cells live
 // until the closure drops, and the closure-drop path has to release
 // the heap value before freeing the cell.
-use std.test
-
+use std.test as test
 fn make(): fn(i64): string {
     let count = 0
     let log = ""

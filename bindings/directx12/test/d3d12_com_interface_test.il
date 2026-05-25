@@ -6,8 +6,7 @@
 /// struct fixture, but the call site reads as `device.Method(args)`
 /// without manual offset / cast boilerplate.
 
-use std.test
-// HANDLE is referenced deep in the binding (ID3D12Fence::SetEventOnCompletion);
+use std.test as test// HANDLE is referenced deep in the binding (ID3D12Fence::SetEventOnCompletion);
 // ilang's import resolver wants it in scope here too.
 use windows { HANDLE }
 use directx12 {

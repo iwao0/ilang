@@ -1,6 +1,6 @@
 /// kernel32 — file create / write / read / delete round-trip.
 
-use std.test
+use std.test as test
 use windows {
 use std.ffi { cstrFromString, freeCstr, stringFromCstr }
     HANDLE,

@@ -1,6 +1,6 @@
 /// winspool — GetDefaultPrinter + EnumPrinters smoke test.
 
-use std.test
+use std.test as test
 use windows {
     GetDefaultPrinterA, EnumPrintersA, PrinterEnumFlags,
     GetProcessHeap, HeapAlloc, HeapFree,

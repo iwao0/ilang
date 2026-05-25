@@ -1,8 +1,7 @@
 // Default-value parameters: trailing parameters can supply a default
 // value that's substituted at call sites where the caller omits the
 // argument.
-use std.test
-
+use std.test as test
 fn open(path: string, mode: string = "r"): string {
     path + ":" + mode
 }

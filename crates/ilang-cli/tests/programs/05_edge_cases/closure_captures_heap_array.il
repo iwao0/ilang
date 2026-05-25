@@ -3,8 +3,7 @@
 // binding is visible inside the closure (and vice-versa). The
 // `closures.il` fixture only covers immutable primitive captures
 // (`factor: i64`), so the array-capture path here is fresh.
-use std.test
-
+use std.test as test
 let xs: i64[] = [1, 2, 3]
 let read_first = fn(): i64 { xs[0] }
 let read_len = fn(): i64 { xs.length }

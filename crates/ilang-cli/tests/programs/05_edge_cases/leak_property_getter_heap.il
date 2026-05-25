@@ -9,8 +9,7 @@
 // calls.
 //
 
-use std.test
-
+use std.test as test
 class Vec {
     coords: i64[]
     init() { this.coords = [10, 20, 30] }

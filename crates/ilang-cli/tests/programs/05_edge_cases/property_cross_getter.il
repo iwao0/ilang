@@ -3,8 +3,7 @@
 // without confusing `this` or recursing into the setter side.
 // `08_properties/getter_setter_basic.il` covers a single getter-setter
 // pair; this fixture adds the cross-getter call.
-use std.test
-
+use std.test as test
 class Temp {
     celsius: f64
     init(c: f64) { this.celsius = c }

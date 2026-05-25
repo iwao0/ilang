@@ -1,6 +1,6 @@
 /// shcore — process DPI awareness query (Win 8.1+).
 
-use std.test
+use std.test as test
 use shcore { GetProcessDpiAwareness }
 
 @extern(C) {

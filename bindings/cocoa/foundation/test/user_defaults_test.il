@@ -1,7 +1,7 @@
 /// NSUserDefaults — set / get / remove on a custom suite name so
 /// we don't pollute the host user's defaults database.
 
-use std.test
+use std.test as test
 use foundation { NSUserDefaults, nsstr, ilstr }
 
 let ud = NSUserDefaults.alloc().initWithSuiteName(nsstr("ilang.test.defaults"))

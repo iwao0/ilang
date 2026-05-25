@@ -7,8 +7,7 @@
 //
 // interp: skip
 
-use std.test
-
+use std.test as test
 @extern(C) {
     pub const NULL: *void = 0 as *void
 

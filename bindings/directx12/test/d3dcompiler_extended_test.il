@@ -8,7 +8,7 @@
 /// negative HRESULT and the test bails cleanly — same convention as
 /// the rest of the harness.
 
-use std.test
+use std.test as test
 use windows { HANDLE }
 use directx12 {
 use std.ffi { cstrFromString, freeCstr }

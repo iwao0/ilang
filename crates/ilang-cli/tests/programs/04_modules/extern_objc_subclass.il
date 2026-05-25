@@ -5,7 +5,7 @@
 // dispatches those selectors back into the ilang implementation.
 //
 // jit: skip
-use std.test
+use std.test as test
 use std.ffi { cstrFromString }
 
 @extern(ObjC) {
