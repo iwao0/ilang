@@ -569,28 +569,25 @@ impl<'a> Parser<'a> {
                                 subpath.push(sym);
                                 break;
                             }
+                            TokenKind::As => {
+                                // `use a.b.c as alias` — push `c` onto
+                                // subpath and fall through to the
+                                // common `as <ident>` parsing below
+                                // so the user-supplied alias wins
+                                // over the implicit leaf-name default.
+                                subpath.push(sym);
+                                break;
+                            }
                             _ => {
-                                // `use a.b` (bare, no `{` / `*`
-                                // follows) — treat as a *path-style*
-                                // import: load the deepest file
-                                // (`b.il`) under `a` and bind it as
-                                // namespace `b`. Symmetric with
-                                // `use a.b.*` (wildcard) and
-                                // `use a.b { X }` (selective from
-                                // the same file). The pre-`std`-
-                                // namespace selective-shorthand
-                                // semantics (`use a.X` → `X` symbol
-                                // from `a`) is dropped because
-                                // nothing on disk uses it (only
-                                // `use super.M` styles existed,
-                                // which go through `super_count`).
-                                //
-                                // The namespace alias defaults to the
-                                // leaf file name (`b`), not the base
+                                // Bare `use a.b.c` path-style import:
+                                // load the deepest file (`c.il`) and
+                                // bind it as namespace `c`. Symmetric
+                                // with `use a.b.c.*` (wildcard) and
+                                // `use a.b.c { X }` (selective). The
+                                // namespace alias defaults to the
+                                // leaf file name (`c`), not the base
                                 // (`a`), so `use std.fs` lets the
-                                // caller write `fs.open(...)`. Match
-                                // how `use super.M` already binds the
-                                // module name (`M`) as the namespace.
+                                // caller write `fs.open(...)`.
                                 subpath.push(sym);
                                 return Ok(ilang_ast::UseDecl {
                                     module,

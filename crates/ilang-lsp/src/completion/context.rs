@@ -516,6 +516,75 @@ fn is_in_class_base_list(bytes: &[u8], from: usize) -> bool {
     false
 }
 
+/// When the cursor sits inside the dotted module path of a `use`
+/// declaration, returns the already-typed prefix (every segment
+/// before the in-progress identifier, joined by `.`). Returns
+/// `Some(String::new())` when the cursor is on the very first
+/// segment (e.g. `use std|`), `Some("std".into())` for `use std.|`,
+/// `Some("a.b".into())` for `use a.b.c|`, and `None` when the
+/// cursor isn't in a use-path position.
+pub(crate) fn use_path_prefix_at(text: &str, offset: usize) -> Option<String> {
+    let bytes = text.as_bytes();
+    let end = offset.min(bytes.len());
+    // Skip the in-progress identifier under the cursor.
+    let mut i = end;
+    while i > 0 {
+        let b = bytes[i - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            i -= 1;
+        } else {
+            break;
+        }
+    }
+    // Walk backwards across zero or more `.<ident>` segments,
+    // collecting them into `prefix_segments` (reversed at the end).
+    let mut prefix_segments: Vec<&str> = Vec::new();
+    loop {
+        let cursor_after_segments = i;
+        if i == 0 {
+            break;
+        }
+        if bytes[i - 1] == b'.' {
+            // One segment back.
+            i -= 1;
+            let seg_end = i;
+            while i > 0 && (bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_') {
+                i -= 1;
+            }
+            if i == seg_end {
+                // Dot with no preceding ident — bail.
+                return None;
+            }
+            let seg = std::str::from_utf8(&bytes[i..seg_end]).ok()?;
+            prefix_segments.push(seg);
+            continue;
+        }
+        i = cursor_after_segments;
+        break;
+    }
+    // The character before the path must be whitespace, and the
+    // preceding token must be `use`.
+    if i == 0 || !matches!(bytes[i - 1], b' ' | b'\t') {
+        return None;
+    }
+    let mut k = i;
+    while k > 0 && matches!(bytes[k - 1], b' ' | b'\t') {
+        k -= 1;
+    }
+    if k < 3 || &bytes[k - 3..k] != b"use" {
+        return None;
+    }
+    let before_use = k - 3;
+    if before_use > 0
+        && (bytes[before_use - 1].is_ascii_alphanumeric()
+            || bytes[before_use - 1] == b'_')
+    {
+        return None;
+    }
+    prefix_segments.reverse();
+    Some(prefix_segments.join("."))
+}
+
 /// (with optional whitespace and possibly a partial ident underway).
 /// Used to suppress completion at the binder position — anything we
 /// suggest there would shadow / overwrite the new name.

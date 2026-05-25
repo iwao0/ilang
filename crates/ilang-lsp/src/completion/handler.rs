@@ -17,6 +17,7 @@ use super::{
     global_completions, in_extern_c_block, in_extern_objc_block,
     preceding_kw_introduces_binder, push_extern_c_keywords,
     push_ffi_helper_completions, trigger_sig_help_command, type_completions,
+    use_path_prefix_at,
 };
 use crate::builtins::{
     array_method_doc, array_method_names, array_method_sig, map_method_doc,
@@ -141,6 +142,63 @@ pub(crate) fn resolve_receiver_class(
 /// `handlers.rs` converts to `Ok(...)`. Pure function over `doc` /
 /// `pos`; the impl method handles state lookup.
 pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionResponse> {
+    // `use <ident>` or `use a.b.<ident>` — the cursor is on a
+    // segment of the module path. This branch fires before the
+    // ordinary dot-receiver dispatch because `use std.<cursor>`
+    // would otherwise route through "receiver = std" and try to
+    // resolve it as a class / variable.
+    {
+        let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
+            .unwrap_or(doc.text.len());
+        if let Some(prefix) = use_path_prefix_at(&doc.text, off) {
+            let mut heads: std::collections::BTreeSet<String> =
+                std::collections::BTreeSet::new();
+            if prefix.is_empty() {
+                // Top-level path heads. Always offer the bundled
+                // `std` package head, plus every module the LSP has
+                // indexed (the part of the dotted key before the
+                // first `.`).
+                heads.insert("std".to_string());
+                for k in doc.external.signatures.keys() {
+                    if let Some((head, _rest)) = k.as_str().split_once('.') {
+                        heads.insert(head.to_string());
+                    }
+                }
+            } else if prefix == "std" {
+                // Bundled standard library — list every `libs/std/*.il`
+                // module by name. The LSP doesn't index these by their
+                // dotted `std.X` path (the loader merges items under
+                // the leaf prefix like `math.X` etc.), so enumerate
+                // the canonical list directly.
+                for name in [
+                    "events", "ffi", "fs", "math", "os", "path",
+                    "regex", "test", "time",
+                ] {
+                    heads.insert(name.to_string());
+                }
+            } else {
+                // Multi-segment dotted prefix — list the children
+                // of `prefix.` from the indexed external signatures
+                // (e.g. `cocoa.foundation.|`).
+                let dot_prefix = format!("{prefix}.");
+                for k in doc.external.signatures.keys() {
+                    if let Some(rest) = k.as_str().strip_prefix(&dot_prefix) {
+                        let head = rest.split_once('.').map(|(h, _)| h).unwrap_or(rest);
+                        heads.insert(head.to_string());
+                    }
+                }
+            }
+            let items: Vec<CompletionItem> = heads
+                .into_iter()
+                .map(|h| CompletionItem {
+                    label: h,
+                    kind: Some(CompletionItemKind::MODULE),
+                    ..CompletionItem::default()
+                })
+                .collect();
+            return Some(CompletionResponse::Array(items));
+        }
+    }
     // No `.` immediately before the cursor → list visible
     // identifiers from this file + imported decls. Returning
     // something from the LSP keeps VSCode's word-based fallback
@@ -522,7 +580,15 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         }
         // Receiver may be a `use module` namespace — list its
         // re-exported items (e.g. `math.` -> `sqrt`, `pi`, ...).
-        let prefix = format!("{receiver}.");
+        // If the receiver is a user-chosen alias (`use std.math as m`),
+        // translate it to the canonical module-head name first so the
+        // `external_signatures` lookup (keyed by `math.X`) succeeds.
+        let canonical = doc
+            .module_aliases
+            .get(&AstSymbol::intern(&receiver))
+            .map(|s| s.as_str().to_string())
+            .unwrap_or_else(|| receiver.clone());
+        let prefix = format!("{canonical}.");
         let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
             .unwrap_or(doc.text.len());
         let in_extern_c = in_extern_c_block(&doc.text, off);

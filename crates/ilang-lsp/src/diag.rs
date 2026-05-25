@@ -365,6 +365,7 @@ pub(crate) fn build_doc(
         std::collections::HashSet::new();
     let mut imported_modules: std::collections::HashSet<AstSymbol> =
         std::collections::HashSet::new();
+    let mut module_aliases: HashMap<AstSymbol, AstSymbol> = HashMap::new();
     for item in &prog.items {
         match item {
             ilang_ast::Item::Interface(i) => {
@@ -386,13 +387,24 @@ pub(crate) fn build_doc(
                 }
                 // Record the user-facing namespace name (skips
                 // `use M as _` which suppresses the namespace).
+                // Also build the alias → canonical-head mapping so
+                // dot-receiver completion on `m.` (after
+                // `use std.math as m`) can translate to the `math.X`
+                // keys the merged-program index uses.
+                let canonical: AstSymbol = u
+                    .subpath
+                    .last()
+                    .copied()
+                    .unwrap_or(u.module);
                 match u.alias {
                     ilang_ast::UseAlias::Discard => {}
                     ilang_ast::UseAlias::Named(name) => {
                         imported_modules.insert(name);
+                        module_aliases.insert(name, canonical);
                     }
                     ilang_ast::UseAlias::Default => {
                         imported_modules.insert(u.module);
+                        module_aliases.insert(u.module, canonical);
                     }
                 }
             }
@@ -418,6 +430,7 @@ pub(crate) fn build_doc(
         local_enums,
         selective_use_names,
         imported_modules,
+        module_aliases,
     }
 }
 

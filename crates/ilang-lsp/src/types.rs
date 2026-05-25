@@ -222,6 +222,12 @@ pub(crate) struct Doc {
     /// filters against this so a transitive dep (e.g. `cocoa` reached
     /// through `gui`) doesn't bleed into a file that only `use gui`s.
     pub(crate) imported_modules: HashSet<AstSymbol>,
+    /// Alias → canonical module-head mapping. `use std.math as m`
+    /// records `m → math` so dot-receiver completion on `m.` can
+    /// translate to the `math.X` keys the merged-program index
+    /// actually uses. `use std.math` (no `as`) records the implicit
+    /// `math → math` identity to keep the lookup unified.
+    pub(crate) module_aliases: HashMap<AstSymbol, AstSymbol>,
 }
 
 impl Doc {
