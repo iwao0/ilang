@@ -12,9 +12,9 @@ use tower_lsp::lsp_types::{
 };
 
 use super::{
-    at_attribute_position, at_type_position, attribute_completions, brace_depth_at,
-    call_snippet, classify_signature_kind, enclosing_class, enclosing_use_module,
-    global_completions, in_extern_c_block, in_extern_objc_block,
+    at_attribute_position, at_type_position, at_use_alias_position, attribute_completions,
+    brace_depth_at, call_snippet, classify_signature_kind, enclosing_class,
+    enclosing_use_module, global_completions, in_extern_c_block, in_extern_objc_block,
     preceding_kw_introduces_binder, push_extern_c_keywords,
     push_ffi_helper_completions, trigger_sig_help_command, type_completions,
     use_path_prefix_at,
@@ -142,6 +142,16 @@ pub(crate) fn resolve_receiver_class(
 /// `handlers.rs` converts to `Ok(...)`. Pure function over `doc` /
 /// `pos`; the impl method handles state lookup.
 pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionResponse> {
+    // `use M as |` — the alias name is a fresh binder; offering any
+    // visible identifier just invites shadowing. Return an empty
+    // list so VSCode's word-based fallback doesn't fill in.
+    {
+        let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
+            .unwrap_or(doc.text.len());
+        if at_use_alias_position(&doc.text, off) {
+            return Some(CompletionResponse::Array(Vec::new()));
+        }
+    }
     // `use <ident>` or `use a.b.<ident>` — the cursor is on a
     // segment of the module path. This branch fires before the
     // ordinary dot-receiver dispatch because `use std.<cursor>`

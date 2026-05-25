@@ -585,6 +585,80 @@ pub(crate) fn use_path_prefix_at(text: &str, offset: usize) -> Option<String> {
     Some(prefix_segments.join("."))
 }
 
+/// `true` when the cursor sits on the alias-name position of a
+/// `use` declaration (`use M as |`, possibly with a partial ident
+/// underway). The alias is a fresh binder; suggesting visible
+/// identifiers there only invites the user to shadow them. Detection:
+/// walk back across the in-progress ident + whitespace, expect the
+/// `as` keyword, then keep walking back through the use path
+/// (`<ident>` and optional `.<ident>` segments) and confirm the
+/// statement opens with `use`.
+pub(crate) fn at_use_alias_position(text: &str, offset: usize) -> bool {
+    let bytes = text.as_bytes();
+    let end = offset.min(bytes.len());
+    // Skip the in-progress ident the user may be typing.
+    let mut i = end;
+    while i > 0 {
+        let b = bytes[i - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            i -= 1;
+        } else {
+            break;
+        }
+    }
+    if i == 0 || !matches!(bytes[i - 1], b' ' | b'\t') {
+        return false;
+    }
+    let mut k = i;
+    while k > 0 && matches!(bytes[k - 1], b' ' | b'\t') {
+        k -= 1;
+    }
+    // Expect `as` as the preceding token.
+    if k < 2 || &bytes[k - 2..k] != b"as" {
+        return false;
+    }
+    let before_as = k - 2;
+    if before_as > 0
+        && (bytes[before_as - 1].is_ascii_alphanumeric()
+            || bytes[before_as - 1] == b'_')
+    {
+        return false;
+    }
+    // Walk back across the use path (`<ident>(.<ident>)*`).
+    let mut j = before_as;
+    while j > 0 && matches!(bytes[j - 1], b' ' | b'\t') {
+        j -= 1;
+    }
+    loop {
+        let seg_end = j;
+        while j > 0 && (bytes[j - 1].is_ascii_alphanumeric() || bytes[j - 1] == b'_') {
+            j -= 1;
+        }
+        if j == seg_end {
+            return false;
+        }
+        if j > 0 && bytes[j - 1] == b'.' {
+            j -= 1;
+            continue;
+        }
+        break;
+    }
+    while j > 0 && matches!(bytes[j - 1], b' ' | b'\t') {
+        j -= 1;
+    }
+    if j < 3 || &bytes[j - 3..j] != b"use" {
+        return false;
+    }
+    let before_use = j - 3;
+    if before_use > 0
+        && (bytes[before_use - 1].is_ascii_alphanumeric()
+            || bytes[before_use - 1] == b'_')
+    {
+        return false;
+    }
+    true
+}
+
 /// (with optional whitespace and possibly a partial ident underway).
 /// Used to suppress completion at the binder position — anything we
 /// suggest there would shadow / overwrite the new name.
