@@ -48,10 +48,10 @@
     /// the C-side buffer `p` into a fresh `T[]`. The element size
     /// (stride) is inferred from `T` at the call site; MIR lowering
     /// reads `T` off the pointer arg and synthesises stride / kind
-    /// arguments for the underlying `$array.fromCArray` runtime call.
+    /// arguments for the underlying `$ffi.arrayFromCArray` runtime call.
     /// `T` must be a numeric primitive / bool — heap element types
     /// (string / class) aren't supported.
-    @intrinsic("array.fromCArray")
+    @intrinsic("ffi.arrayFromCArray")
     pub fn arrayFromCArray<T>(p: *const T, n: size_t): T[]
 
     /// Wrap a syscall return into `Optional<i32>`: `some(rc)` when

@@ -100,7 +100,7 @@ impl<'a> BodyCx<'a> {
             let dst = self.fb.new_value(arr_ty.clone());
             self.fb.push_inst(Inst::Call {
                 dst: Some(dst),
-                callee: FuncRef::Builtin(Symbol::intern("$array.fromCArray")),
+                callee: FuncRef::Builtin(Symbol::intern("$ffi.arrayFromCArray")),
                 args: Box::new([p_i64, n_i64, stride_v, kind_v]),
             });
             return Ok((dst, arr_ty));

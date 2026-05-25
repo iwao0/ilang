@@ -236,7 +236,7 @@ pub extern "C" fn bytes_from_buffer(p: i64, n: i64) -> i64 {
 
 /// `arrayFromCArray<T>(src, n, stride, kind_tag)` — copy `n × stride`
 /// bytes from a C-side array into a fresh ilang dyn-array.
-#[unsafe(export_name = "$array.fromCArray")]
+#[unsafe(export_name = "$ffi.arrayFromCArray")]
 pub extern "C" fn __c_array_to_array(src: i64, n: i64, stride: i64, kind_tag: i64) -> i64 {
     let n_safe = if n < 0 { 0 } else { n };
     let bytes = n_safe * stride;

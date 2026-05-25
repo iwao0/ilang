@@ -235,17 +235,19 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         decl_unary("$enum.box", false)?;
     }
     {
-        // `arrayFromCArray<T>` stays a compiler-magic helper — it's
-        // generic over the element type and the MIR dispatch peeks
-        // `T` off the pointer arg to compute the stride, which
-        // doesn't fit the @intrinsic shape.
+        // `arrayFromCArray<T>` — user-facing surface lives in
+        // `libs/std/ffi.il` as `@intrinsic("ffi.arrayFromCArray")` with
+        // a 2-arg generic signature; the runtime helper takes the
+        // 4-arg `(src, n, stride, kind_tag)` form and the MIR special
+        // case (call_fn.rs) synthesises stride / kind_tag from the
+        // call-site pointer type before dispatching here.
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("$array.fromCArray", Linkage::Import, &sig)?;
+        module.declare_function("$ffi.arrayFromCArray", Linkage::Import, &sig)?;
     }
     // `$ffi.cstrFromString` — parser-synthesised by the @objc desugar
     // (see ilang-parser `extern_objc::build_cstr`). Declared as an
@@ -582,7 +584,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     // (the call sites dispatch through `func_addr + call_indirect`).
     let mut c_sym_canonical: HashMap<String, cranelift_module::FuncId> = HashMap::new();
     // Pre-populate with the runtime symbols already declared above
-    // (`$alloc.alloc`, `$array.fromCArray`, …). A user-facing
+    // (`$alloc.alloc`, `$ffi.arrayFromCArray`, …). A user-facing
     // `@intrinsic("...")` FnDecl whose c_symbol resolves to one of
     // those names — e.g. `arrayFromCArray<T>(p, n): T[]` whose runtime
     // helper takes `(p, n, stride, kind)` — must alias the existing
@@ -602,7 +604,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         "$promise.pending",
         "$promise.settleResolve",
         "$promise.settleReject",
-        "$array.fromCArray",
+        "$ffi.arrayFromCArray",
         "$ffi.cstrFromString",
         "$repl.loadSlot",
         "$repl.storeSlot",

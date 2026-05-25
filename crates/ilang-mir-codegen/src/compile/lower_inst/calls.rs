@@ -301,7 +301,7 @@ pub(super) fn lower_call<M: Module>(
                 sym.as_str(),
                 "$array.dataPtr"
                     | "$enum.box"
-                    | "$array.fromCArray"
+                    | "$ffi.arrayFromCArray"
                     | "$repl.loadSlot"
                     | "$repl.storeSlot"
                     | "os.errno"

@@ -192,7 +192,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("$array.sort", ilang_runtime::__array_sort as *const u8);
     jit_builder.symbol("$array.fixedToDyn", ilang_runtime::__fixed_to_dyn as *const u8);
     jit_builder.symbol("$enum.box", ilang_runtime::__enum_box as *const u8);
-    jit_builder.symbol("$array.fromCArray", ilang_runtime::__c_array_to_array as *const u8);
+    jit_builder.symbol("$ffi.arrayFromCArray", ilang_runtime::__c_array_to_array as *const u8);
     jit_builder.symbol("$repl.loadSlot", ilang_runtime::__repl_load_slot as *const u8);
     jit_builder.symbol("$repl.storeSlot", ilang_runtime::__repl_store_slot as *const u8);
     // Raw-memory FFI marshalling: `readT(p, off): T` / `writeT(p,
