@@ -1978,22 +1978,36 @@ functions described below.
 - **`*T` ↔ `*U`** (block-only): explicit `as` cast for C-style
   type punning (e.g. `*const u8 → *const void`).
 
-#### Marshalling helpers (block-only)
+#### Marshalling helpers (`use std.ffi { ... }`)
+
+The marshalling helpers below live in `libs/std/ffi.il` as
+`@intrinsic("ffi.X")` declarations wrapped in an `@extern(C) { ... }`
+block. Pull them into a callsite with `use std.ffi { ... }`:
+
+```rust
+use std.ffi { cstrFromString, stringFromCstr, readU32, writeU32 }
+```
+
+The helpers whose signatures mention raw pointers / `char` / `void`
+/ `size_t` (every one below except `errnoCheck` / `errnoCheckI64`)
+keep the C-only-type rule: they can only be **called** from inside
+an `@extern(C) { ... }` block. `errnoCheck` / `errnoCheckI64` take
+and return plain `i32` / `i64`, so they're callable anywhere.
 
 | Helper | Signature | Purpose |
 | --- | --- | --- |
-| `cstrFromString` | `(s: string): *const char` | Returns a temporary malloc'd NUL-terminated UTF-8 buffer. The C side is expected to copy it during the call. |
-| `stringFromCstr` | `(p: *const char): string` | Copies a C pointer into a fresh `StringRc` (length detected via NUL). |
-| `freeCstr` | `(p: *const char): unit` | Frees a buffer obtained from `cstrFromString`. |
-| `bytesFromBuffer` | `(p: *const void, n: size_t): u8[]` | Copies `n` bytes into a fresh `u8[]`. |
-| `readI8`/`readI16`/`readI32`/`readI64` | `(p: *const void, offset: i64): iN` | Alloc-free signed primitive load at `p + offset` (offset in **bytes**). Caller is responsible for alignment. |
-| `readU8`/`readU16`/`readU32`/`readU64` | `(p: *const void, offset: i64): uN` | Same shape, unsigned. |
-| `readF32`/`readF64` | `(p: *const void, offset: i64): fN` | Float variant. |
-| `writeI8`/`writeI16`/`writeI32`/`writeI64` | `(p: *void, offset: i64, value: iN)` | Companion store at `p + offset`. |
-| `writeU8`/`writeU16`/`writeU32`/`writeU64` | `(p: *void, offset: i64, value: uN)` | Same shape, unsigned. |
-| `writeF32`/`writeF64` | `(p: *void, offset: i64, value: fN)` | Float variant. |
-| `arrayFromCArray<T>` | `(p: *const T, n: size_t): T[]` | Copies a primitive array (T = numeric / bool). |
-| `cstrArrayToStrings` | `(p: *const *const char): string[]` | Walks a NULL-terminated `char**` and copies each element (`environ` / argv style). |
+| `cstrFromString` | `(s: string): *const char` | Wrap an ilang `string`'s inline NUL-terminated UTF-8 buffer as a C pointer. |
+| `stringFromCstr` | `(p: *const char): string` | Copy a C pointer into a fresh ilang `string` (length detected via NUL). |
+| `freeCstr` | `(p: *const char): unit` | No-op symmetry counterpart to `cstrFromString` (ilang owns the buffer; nothing to free). |
+| `bytesFromBuffer` | `(p: *const void, n: size_t): u8[]` | Copy `n` bytes into a fresh `u8[]`. |
+| `readI8`/`readI16`/`readI32`/`readI64` | `(p: *const void, off: i64): iN` | Alloc-free signed primitive load at `p + off` (`off` in **bytes**). Caller is responsible for alignment. |
+| `readU8`/`readU16`/`readU32`/`readU64` | `(p: *const void, off: i64): uN` | Same shape, unsigned. |
+| `readF32`/`readF64` | `(p: *const void, off: i64): fN` | Float variant. |
+| `writeI8`/`writeI16`/`writeI32`/`writeI64` | `(p: *void, off: i64, v: iN)` | Companion store at `p + off`. |
+| `writeU8`/`writeU16`/`writeU32`/`writeU64` | `(p: *void, off: i64, v: uN)` | Same shape, unsigned. |
+| `writeF32`/`writeF64` | `(p: *void, off: i64, v: fN)` | Float variant. |
+| `arrayFromCArray<T>` | `(p: *const T, n: size_t): T[]` | Copy a primitive array (T = numeric / bool); stride is inferred from `T`. |
+| `cstrArrayToStrings` | `(p: *const *const char): string[]` | Walk a NULL-terminated `char**` and copy each entry (`environ` / argv style). |
 | `errnoCheck` | `(rc: i32): i32?` | POSIX "negative return = failure". `rc < 0` → `none`, else `some(rc)`. |
 | `errnoCheckI64` | `(rc: i64): i64?` | Same shape for `ssize_t`-style return values. |
 
@@ -2029,8 +2043,13 @@ outside the block at the type level:
    ```rust
    let raw = strdup(cstrFromString("x"))   // ERROR: *const char outside @extern(C)
    ```
-3. **Marshalling helpers** (`cstrFromString` …) cannot be called
-   outside the block.
+3. **Marshalling helpers** (`cstrFromString` …) imported via
+   `use std.ffi { ... }` still inherit the C-only-type rule on
+   their callsites — the helpers whose signatures mention raw
+   pointers / `char` / `void` / `size_t` can only be called from
+   inside an `@extern(C) { ... }` block. `errnoCheck` and
+   `errnoCheckI64` are the exceptions: their signatures stay
+   within `i32?` / `i64?`, so they're callable anywhere.
 4. **ilang-side fns inside the block (no `@lib`) cannot expose raw
    pointers in their parameter or return types**, directly *or*
    through a `@extern(C) struct` field that contains one. The check
@@ -2045,6 +2064,8 @@ strdup's return value". FFI wrapping always stays inside an
 (`string`, `i32`, `T[]`, …).
 
 ```rust
+use std.ffi { cstrFromString, stringFromCstr }
+
 @extern(C) {
     @lib("c") fn strdup(s: *const char): *const char
 
@@ -2064,6 +2085,8 @@ let copy = dupCounted("hello")
 #### Wrapping POSIX errno conventions (`errnoCheck`)
 
 ```rust
+use std.ffi { errnoCheckI64 }
+
 @extern(C) {
     @lib("c") fn read_raw(fd: i32, buf: *u8, n: size_t): ssize_t
 
@@ -2376,6 +2399,7 @@ POSIX-standard error-code constants.
 
 ```rust
 use os
+use std.ffi { cstrFromString }
 
 @extern(C) {
     struct FILE {}
