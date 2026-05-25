@@ -22,7 +22,7 @@
 //! Living in `ilang-ast` (instead of in any single consumer crate)
 //! lets parser, cli, and lsp share the same skeleton.
 
-use crate::{Block, CtorArgs, Expr, ExprKind, MatchArm, Param, StmtKind};
+use crate::{Block, CtorArgs, Expr, ExprKind, MatchArm, Param, StmtKind, TemplatePart};
 
 /// Recurse into every value-bearing `Expr` / `Block` child of `e`,
 /// passing each to the appropriate callback. Types and bare symbols
@@ -148,6 +148,13 @@ pub fn walk_expr_children_ref<E>(
             }
             if let Some(e2) = end {
                 visit_child(e2)?;
+            }
+        }
+        ExprKind::Template { parts } => {
+            for p in parts.iter() {
+                if let TemplatePart::Expr(e) = p {
+                    visit_child(e)?;
+                }
             }
         }
         ExprKind::Block(b) => visit_block(b)?,
@@ -300,6 +307,13 @@ pub fn walk_expr_descendants_ref<E>(
             }
             if let Some(e2) = end {
                 visit_child(e2)?;
+            }
+        }
+        ExprKind::Template { parts } => {
+            for p in parts.iter() {
+                if let TemplatePart::Expr(e) = p {
+                    visit_child(e)?;
+                }
             }
         }
         ExprKind::Block(b) => descend_block_ref(b, visit_child)?,
@@ -458,6 +472,13 @@ pub fn walk_expr_children_mut(
             }
             if let Some(e2) = end {
                 visit_child(e2);
+            }
+        }
+        ExprKind::Template { parts } => {
+            for p in parts.iter_mut() {
+                if let TemplatePart::Expr(e) = p {
+                    visit_child(e);
+                }
             }
         }
         ExprKind::Block(b) => visit_block(b),
@@ -633,6 +654,15 @@ pub fn fold_expr_default(
             start: start.map(|s| Box::new(fold_child(*s))),
             end: end.map(|e| Box::new(fold_child(*e))),
             inclusive,
+        },
+        ExprKind::Template { parts } => ExprKind::Template {
+            parts: Vec::from(parts)
+                .into_iter()
+                .map(|p| match p {
+                    TemplatePart::Str(s) => TemplatePart::Str(s),
+                    TemplatePart::Expr(e) => TemplatePart::Expr(fold_child(e)),
+                })
+                .collect(),
         },
         ExprKind::Block(b) => ExprKind::Block(fold_block(b)),
         ExprKind::FnExpr { params, ret, body } => ExprKind::FnExpr {

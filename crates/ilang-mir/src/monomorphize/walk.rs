@@ -152,6 +152,13 @@ pub(super) fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
                 f(&arm.body);
             }
         }
+        ExprKind::Template { parts } => {
+            for p in parts.iter() {
+                if let ilang_ast::TemplatePart::Expr(e) = p {
+                    f(e);
+                }
+            }
+        }
     }
 }
 
@@ -333,6 +340,17 @@ pub(super) fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> E
                     pattern: arm.pattern.clone(),
                     body: f(&arm.body),
                     span: arm.span,
+                })
+                .collect(),
+        },
+        ExprKind::Template { parts } => ExprKind::Template {
+            parts: parts
+                .iter()
+                .map(|p| match p {
+                    ilang_ast::TemplatePart::Str(s) => ilang_ast::TemplatePart::Str(s.clone()),
+                    ilang_ast::TemplatePart::Expr(e2) => {
+                        ilang_ast::TemplatePart::Expr(f(e2))
+                    }
                 })
                 .collect(),
         },

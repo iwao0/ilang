@@ -117,6 +117,26 @@ struct Lexer<'a> {
     /// Becomes `true` whenever whitespace contains at least one `\n`; the
     /// next token consumes this flag so it knows a newline preceded it.
     pending_newline: bool,
+    /// Stack of active template literals. Each frame tracks whether we
+    /// are currently inside an interpolation (`${ ... }`) and, if so,
+    /// how deep the `{`/`}` nesting goes — the outer `}` that closes
+    /// the interpolation has `brace_depth == 0` after the bump and
+    /// returns us to literal-text mode. Nesting (template inside an
+    /// interpolation inside another template) just pushes another
+    /// frame on top.
+    template_stack: Vec<TmplFrame>,
+}
+
+#[derive(Clone, Copy)]
+struct TmplFrame {
+    /// `true` while the lexer is producing regular expression tokens
+    /// inside a `${...}` interpolation; `false` while it's producing
+    /// `TmplLit` chunks of literal text between interpolations.
+    in_expr: bool,
+    /// Count of unmatched `{` opened *inside* the interpolation
+    /// expression. The opening `${` itself doesn't count; only `{`
+    /// tokens emitted while `in_expr` is true do.
+    brace_depth: u32,
 }
 
 /// Snapshot of all mutable lexer state — used to roll back when a
@@ -130,6 +150,7 @@ struct LexerSnapshot<'a> {
     last_line: u32,
     last_col: u32,
     pending_newline: bool,
+    template_stack: Vec<TmplFrame>,
 }
 
 impl<'a> Lexer<'a> {
@@ -147,6 +168,7 @@ impl<'a> Lexer<'a> {
             last_line: 1,
             last_col: 1,
             pending_newline: false,
+            template_stack: Vec::new(),
         }
     }
 
@@ -273,6 +295,32 @@ impl<'a> Lexer<'a> {
     }
 
     fn next_token(&mut self) -> Result<Token, LexError> {
+        // When the topmost active template literal is between
+        // interpolations (i.e. we just emitted `TmplStart` or
+        // `TmplExprEnd`), the next token must come from the literal
+        // text run — including any closing backtick or `${`. Skip
+        // straight to the template reader; whitespace and comments
+        // are NOT processed there (they're literal text).
+        if let Some(frame) = self.template_stack.last() {
+            if !frame.in_expr {
+                let leading_newline = std::mem::take(&mut self.pending_newline);
+                let line = self.line;
+                let col = self.col;
+                let span = Span::new(line, col);
+                let kind = self.read_template_lit(span)?;
+                let end_line = self.last_line;
+                let end_col = self.last_col;
+                let mut full_span = span;
+                full_span.end_line = end_line;
+                full_span.end_col = end_col;
+                return Ok(Token {
+                    kind,
+                    span: full_span,
+                    leading_newline,
+                    numeric_suffix: None,
+                });
+            }
+        }
         self.skip_whitespace()?;
         let leading_newline = std::mem::take(&mut self.pending_newline);
         let line = self.line;
@@ -307,11 +355,46 @@ impl<'a> Lexer<'a> {
             }
             '{' => {
                 self.bump();
+                if let Some(frame) = self.template_stack.last_mut() {
+                    if frame.in_expr {
+                        frame.brace_depth += 1;
+                    }
+                }
                 TokenKind::LBrace
             }
             '}' => {
+                // Snapshot the template state first, then bump, then
+                // update the frame — keeps the mutable borrow of
+                // `template_stack` from overlapping with the `self.bump()`
+                // call (which itself touches `self`).
+                let frame_action = self
+                    .template_stack
+                    .last()
+                    .copied()
+                    .filter(|f| f.in_expr);
                 self.bump();
-                TokenKind::RBrace
+                match frame_action {
+                    Some(frame) if frame.brace_depth == 0 => {
+                        // Closes the `${...}` opened earlier; back to
+                        // literal-text mode for the remainder of this
+                        // template.
+                        let top = self.template_stack.last_mut().unwrap();
+                        top.in_expr = false;
+                        top.brace_depth = 0;
+                        TokenKind::TmplExprEnd
+                    }
+                    Some(_) => {
+                        let top = self.template_stack.last_mut().unwrap();
+                        top.brace_depth -= 1;
+                        TokenKind::RBrace
+                    }
+                    None => TokenKind::RBrace,
+                }
+            }
+            '`' => {
+                self.bump();
+                self.template_stack.push(TmplFrame { in_expr: false, brace_depth: 0 });
+                TokenKind::TmplStart
             }
             '[' => {
                 self.bump();
@@ -516,6 +599,7 @@ impl<'a> Lexer<'a> {
             last_line: self.last_line,
             last_col: self.last_col,
             pending_newline: self.pending_newline,
+            template_stack: self.template_stack.clone(),
         };
         let suffix_span = Span::new(self.line, self.col);
         // Numeric type suffixes are short, fixed-vocabulary tokens
@@ -572,6 +656,7 @@ impl<'a> Lexer<'a> {
             self.last_line = snap.last_line;
             self.last_col = snap.last_col;
             self.pending_newline = snap.pending_newline;
+            self.template_stack = snap.template_stack;
             return Ok(None);
         }
         // Unknown suffix that wasn't underscore-prefixed: error out. We
@@ -642,6 +727,88 @@ impl<'a> Lexer<'a> {
                             });
                         }
                         None => return Err(LexError::UnterminatedString { span }),
+                    }
+                }
+                Some(c) => {
+                    self.bump();
+                    buf.push(c);
+                }
+            }
+        }
+    }
+
+    /// Read the next chunk inside an active template literal. Returns
+    /// one of `TmplLit(text)`, `TmplExprStart` (at `${`), or
+    /// `TmplEnd` (at the closing backtick). Empty literal chunks
+    /// (when a `${` follows immediately after the opening backtick or
+    /// another `${...}`) are still returned as `TmplLit("")` so the
+    /// parser's part-stitching loop can stay uniform.
+    fn read_template_lit(&mut self, span: Span) -> Result<TokenKind, LexError> {
+        // Special-case the boundary tokens first so an empty buffer
+        // doesn't get emitted right before them — the parser sees
+        // exactly one `TmplLit` per text run, never a stray empty one
+        // adjacent to a marker.
+        match self.peek() {
+            None => return Err(LexError::UnterminatedTemplate { span }),
+            Some('`') => {
+                self.bump();
+                self.template_stack
+                    .pop()
+                    .expect("template stack underflow on closing backtick");
+                return Ok(TokenKind::TmplEnd);
+            }
+            Some('$') if self.peek_second() == Some('{') => {
+                self.bump(); // $
+                self.bump(); // {
+                let frame = self
+                    .template_stack
+                    .last_mut()
+                    .expect("template stack empty inside read_template_lit");
+                frame.in_expr = true;
+                frame.brace_depth = 0;
+                return Ok(TokenKind::TmplExprStart);
+            }
+            _ => {}
+        }
+        let mut buf = String::new();
+        loop {
+            match self.peek() {
+                None => return Err(LexError::UnterminatedTemplate { span }),
+                Some('`') => return Ok(TokenKind::TmplLit(buf)),
+                Some('$') if self.peek_second() == Some('{') => {
+                    return Ok(TokenKind::TmplLit(buf));
+                }
+                Some('\\') => {
+                    let esc_span = Span::new(self.line, self.col);
+                    self.bump();
+                    match self.peek() {
+                        Some('n') => { self.bump(); buf.push('\n'); }
+                        Some('t') => { self.bump(); buf.push('\t'); }
+                        Some('r') => { self.bump(); buf.push('\r'); }
+                        Some('\\') => { self.bump(); buf.push('\\'); }
+                        Some('`') => { self.bump(); buf.push('`'); }
+                        Some('$') => { self.bump(); buf.push('$'); }
+                        Some('"') => { self.bump(); buf.push('"'); }
+                        Some('0') => { self.bump(); buf.push('\0'); }
+                        Some('a') => { self.bump(); buf.push('\x07'); }
+                        Some('b') => { self.bump(); buf.push('\x08'); }
+                        Some('f') => { self.bump(); buf.push('\x0c'); }
+                        Some('v') => { self.bump(); buf.push('\x0b'); }
+                        Some('x') => {
+                            self.bump();
+                            self.read_hex_byte_escape(esc_span, &mut buf)?;
+                        }
+                        Some('u') => {
+                            self.bump();
+                            self.read_unicode_escape(esc_span, &mut buf)?;
+                        }
+                        Some(c) => {
+                            return Err(LexError::BadEscape {
+                                seq: format!("\\{c}"),
+                                span: esc_span,
+                            });
+                        }
+                        None => return Err(LexError::UnterminatedTemplate { span }),
                     }
                 }
                 Some(c) => {

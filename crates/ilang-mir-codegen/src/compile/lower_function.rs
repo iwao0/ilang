@@ -20,7 +20,7 @@ use crate::ty::mir_to_clif;
 
 use super::lower_inst::lower_inst;
 use super::lower_term_const::{lower_term, ReturnAbi};
-use super::{CompileError, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds};
+use super::{CompileError, FmtIds, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds};
 
 pub(super) fn lower_function<M: Module>(
     fb: &mut ClifFnBuilder,
@@ -36,6 +36,7 @@ pub(super) fn lower_function<M: Module>(
     promise_ids: PromiseIds,
     str_ids: StrIds,
     print_ids: PrintIds,
+    fmt_ids: FmtIds,
     panic_aux: PanicAux,
     print_lits: PrintLits,
     module: &mut M,
@@ -310,6 +311,7 @@ pub(super) fn lower_function<M: Module>(
                 promise_ids,
                 str_ids,
                 print_ids,
+                fmt_ids,
                 panic_aux,
                 print_lits,
                 module,

@@ -727,6 +727,20 @@ impl TypeChecker {
             ExprKind::Match { scrutinee, arms } => {
                 self.check_match_expr(scrutinee, arms, env, ret_ty, in_class, loop_depth, span)
             }
+            ExprKind::Template { parts } => {
+                // Backtick-quoted template literal. Each interpolated
+                // expression is type-checked but its concrete type is
+                // free — the lowering stage emits the appropriate
+                // `$fmt.*` conversion per type. Result type is always
+                // `string`. Literal chunks contribute nothing to type
+                // checking.
+                for part in parts.iter() {
+                    if let ilang_ast::TemplatePart::Expr(e) = part {
+                        self.check_expr(e, env, ret_ty, in_class, loop_depth)?;
+                    }
+                }
+                Ok(Type::Str)
+            }
         }
     }
 

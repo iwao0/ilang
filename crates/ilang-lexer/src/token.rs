@@ -87,6 +87,26 @@ pub enum TokenKind {
     DotDotDot,
     At,
     Question,
+    /// `` ` `` opening a template literal. The parser sees this once,
+    /// then alternates between `TmplLit(text)` and embedded
+    /// `TmplExprStart ... TmplExprEnd` sequences, and finishes on
+    /// `TmplEnd`.
+    TmplStart,
+    /// A literal text run inside a template literal. May be empty
+    /// (`` `${x}${y}` `` round-trips through three empty runs).
+    /// String escapes (`\``, `\${`, `\\`, `\n`, `\t`, `\r`, `\0`,
+    /// `\u{...}`) have already been decoded by the lexer.
+    TmplLit(String),
+    /// `${` opening an interpolation; the tokens that follow are
+    /// regular expression tokens until the matching `}` becomes
+    /// `TmplExprEnd`.
+    TmplExprStart,
+    /// `}` closing the interpolation opened by `TmplExprStart` (only
+    /// the outer one — `{`/`}` nested inside the interpolated
+    /// expression are normal `LBrace`/`RBrace`).
+    TmplExprEnd,
+    /// `` ` `` closing a template literal.
+    TmplEnd,
     Eof,
 }
 

@@ -176,7 +176,30 @@ let Point { x, y } = p                  // x: f64, y: f64
 "abcabc".lastIndexOf("b", 2)// i64       ─ 省略時 fromIndex は文字列末尾
 ```
 
-文字列補間は未実装。上記のメソッドは interpreter / JIT とも対応。
+上記のメソッドは interpreter / JIT とも対応。
+
+### テンプレートリテラル (文字列補間)
+
+バッククォートで囲んだリテラルは `${expr}` で値を埋め込めます。
+式の型は任意 — プリミティブ・文字列・配列・タプル・Optional・enum・
+クラスインスタンス・Map・弱参照・クロージャまで `console.log` と
+同じ書式で文字列化されます。`"..."` リテラルは従来通り補間しません。
+
+```rust
+let name = "world"
+let n = 42
+`hello ${name}!`              // "hello world!"
+`n=${n} half=${n / 2}`        // "n=42 half=21"
+`tuple=${(1, "two", true)}`   // "tuple=(1, two, true)"
+`arr=${[1, 2, 3]}`            // "arr=[1, 2, 3]"
+`opt=${some(7)}`              // "opt=some(7)"
+`multi
+line ok`                      // 改行はそのまま
+```
+
+バッククォート内のエスケープは `` \` ``, `\${`, `\\`, `\n`, `\t`,
+`\r`, `\0`, `\xNN`, `\u{NNNN}` — `"..."` と同じ集合。タグ付き
+テンプレート (`` tag`...` ``) は未サポート。
 
 ### 数値・bool の組み込み `.toString()`
 
@@ -2192,7 +2215,6 @@ target = "windows"
 
 ## 17. 未実装 (今後の TODO)
 
-- **文字列補間** (バッククォート + `${expr}` などのテンプレート構文)
 - **Iterator プロトコル** (ユーザ型に `next()` を実装させて `for-in` に乗せる)
 - **名前付き引数** (`open(path: "x", mode: "w")`) — デフォルト引数は実装済み、名前付き呼び出しは未実装
 - **演算子オーバーロード** (`class Vec2 { + (other: Vec2): Vec2 { ... } }`)

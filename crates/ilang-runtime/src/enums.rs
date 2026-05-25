@@ -224,8 +224,14 @@ pub extern "C" fn __register_enum_print_variant_payload_pk(
 
 #[unsafe(export_name = "$print.enum")]
 pub extern "C" fn __print_enum(enum_id: i64, ptr: i64) {
-    use std::fmt::Write;
     let mut out = String::new();
+    format_enum_into(&mut out, enum_id, ptr);
+    let mut o = std::io::stdout().lock();
+    let _ = o.write_all(out.as_bytes());
+}
+
+pub fn format_enum_into(out: &mut String, enum_id: i64, ptr: i64) {
+    use std::fmt::Write;
     let info = {
         let t = enum_print_info().lock().expect("enum print info poisoned");
         t.get(&(enum_id as u32))
@@ -235,15 +241,11 @@ pub extern "C" fn __print_enum(enum_id: i64, ptr: i64) {
         Some(x) => x,
         None => {
             let _ = write!(out, "<enum#{enum_id}>");
-            let mut o = std::io::stdout().lock();
-            let _ = o.write_all(out.as_bytes());
             return;
         }
     };
     if ptr == 0 {
         let _ = write!(out, "{name}::<null>");
-        let mut o = std::io::stdout().lock();
-        let _ = o.write_all(out.as_bytes());
         return;
     }
     let tag = unsafe { *(ptr as *const i64) };
@@ -251,8 +253,6 @@ pub extern "C" fn __print_enum(enum_id: i64, ptr: i64) {
         Some(v) => v.clone(),
         None => {
             let _ = write!(out, "{name}::<tag#{tag}>");
-            let mut o = std::io::stdout().lock();
-            let _ = o.write_all(out.as_bytes());
             return;
         }
     };
@@ -267,12 +267,10 @@ pub extern "C" fn __print_enum(enum_id: i64, ptr: i64) {
                 out.push_str(", ");
             }
             let raw = unsafe { *((ptr + 8 + (i as i64) * 8) as *const i64) };
-            format_kind_id(&mut out, *pk, raw);
+            format_kind_id(out, *pk, raw);
         }
         out.push(')');
     }
-    let mut o = std::io::stdout().lock();
-    let _ = o.write_all(out.as_bytes());
 }
 
 // `(global_eid, disc) → discriminant string` for `: string`-repr

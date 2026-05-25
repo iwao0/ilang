@@ -207,8 +207,31 @@ distinct `let f = fn(...)` bindings always compare unequal).
 "abcabc".lastIndexOf("b", 2)// i64       ─ optional fromIndex defaults to end of string
 ```
 
-String interpolation isn't implemented yet. Every method above
-works in both interpreter and JIT.
+Every method above works in both interpreter and JIT.
+
+### Template literals (string interpolation)
+
+Backtick-quoted literals splice values into a string via `${expr}`.
+The expression can be any type — primitives, strings, arrays,
+tuples, optionals, enums, class instances, maps, weak refs, closures
+— and is rendered with the same formatter `console.log` uses for
+that type. Plain `"..."` literals never interpolate.
+
+```rust
+let name = "world"
+let n = 42
+`hello ${name}!`              // "hello world!"
+`n=${n} half=${n / 2}`        // "n=42 half=21"
+`tuple=${(1, "two", true)}`   // "tuple=(1, two, true)"
+`arr=${[1, 2, 3]}`            // "arr=[1, 2, 3]"
+`opt=${some(7)}`              // "opt=some(7)"
+`multi
+line ok`                      // newline kept literally
+```
+
+Escapes inside backticks: `` \` ``, `\${`, `\\`, `\n`, `\t`, `\r`,
+`\0`, `\xNN`, `\u{NNNN}` — same set as `"..."`. Tagged templates
+(`` tag`...` ``) are not supported.
 
 ### Built-in `.toString()` on numerics and `bool`
 
@@ -2933,7 +2956,6 @@ the project-file section for the array-of-tables form.
 
 ## 17. Not implemented yet (TODO)
 
-- **String interpolation** (backtick + `${expr}` style).
 - **Iterator protocol** — let user types implement `next()` and
   participate in `for-in`. Foundation for generators.
 - **Named arguments** (`open(path: "x", mode: "w")`) — default

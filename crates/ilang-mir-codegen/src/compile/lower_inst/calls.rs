@@ -24,9 +24,10 @@ use super::super::abi::{
     extend_to_i64, struct_byval_size_with_max, struct_chunks_with_max,
     struct_hfa, struct_indirect_with_max,
 };
+use super::super::fmt_emit::emit_format_value;
 use super::super::print_emit::emit_print_value;
 use super::super::{
-    CompileError, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds,
+    CompileError, FmtIds, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds,
 };
 
 
@@ -45,6 +46,7 @@ pub(super) fn lower_call<M: Module>(
     promise_ids: PromiseIds,
     str_ids: StrIds,
     print_ids: PrintIds,
+    fmt_ids: FmtIds,
     panic_aux: PanicAux,
     print_lits: PrintLits,
     module: &mut M,
@@ -60,6 +62,25 @@ pub(super) fn lower_call<M: Module>(
     // argument prints with a per-type host helper, separated
     // by spaces and terminated by a newline.
     if let FuncRef::Builtin(sym) = callee {
+        if sym.as_str() == "fmt_value" {
+            // Template-literal interpolation: convert the single
+            // argument (any MIR type) to a newly-allocated string,
+            // following the same per-type dispatch as `console.log`'s
+            // value printer but returning the rendered text instead
+            // of writing it.
+            debug_assert_eq!(args.len(), 1);
+            let a = args[0];
+            let aty = func.ty_of(a).clone();
+            let av = vmap[&a];
+            let result = emit_format_value(
+                fb, module, str_ids, fmt_ids, print_lits, &aty, av,
+                enum_global, class_struct_global,
+            );
+            if let Some(d) = dst {
+                vmap.insert(*d, result);
+            }
+            return Ok(());
+        }
         if sym.as_str() == "console_log" {
             // Skip Unit-typed args entirely. The CLI's
             // `wrap_trailing_print` may pass them when a

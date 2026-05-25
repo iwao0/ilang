@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use ilang_ast::{Block, ClassDecl, Expr, ExprKind, Item, Program, Stmt, StmtKind, Symbol, Type};
+use ilang_ast::{Block, ClassDecl, Expr, ExprKind, Item, Program, Stmt, StmtKind, Symbol, TemplatePart, Type};
 
 fn rename_sym(name: &Symbol, rules: &HashMap<Symbol, Symbol>) -> Option<Symbol> {
     rules.get(name).cloned()
@@ -400,6 +400,13 @@ fn rename_in_expr(e: &mut Expr, rules: &HashMap<Symbol, Symbol>) {
             for arm in arms.iter_mut() {
                 rename_in_pattern(&mut arm.pattern, rules);
                 rename_in_expr(&mut arm.body, rules);
+            }
+        }
+        ExprKind::Template { parts } => {
+            for p in parts.iter_mut() {
+                if let TemplatePart::Expr(e) = p {
+                    rename_in_expr(e, rules);
+                }
             }
         }
         ExprKind::Closure { .. }

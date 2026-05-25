@@ -607,6 +607,7 @@ impl<'a> Parser<'a> {
                 Ok(wrap_numeric_suffix(Expr::new(ExprKind::Float(f), span), suffix, span))
             }
             TokenKind::Str(s) => { self.bump(); Ok(Expr::new(ExprKind::Str(s), span)) }
+            TokenKind::TmplStart => self.parse_template_literal(span),
             TokenKind::True => { self.bump(); Ok(Expr::new(ExprKind::Bool(true), span)) }
             TokenKind::False => { self.bump(); Ok(Expr::new(ExprKind::Bool(false), span)) }
             TokenKind::None_ => { self.bump(); Ok(Expr::new(ExprKind::None, span)) }
@@ -761,6 +762,59 @@ impl<'a> Parser<'a> {
         let inner = self.parse_expr(0)?;
         self.expect(&TokenKind::RParen, "')'")?;
         Ok(Expr::new(ExprKind::Some(Box::new(inner)), span))
+    }
+
+    /// Backtick-quoted template literal. The lexer emits an
+    /// alternating stream of `TmplLit(text)` chunks and
+    /// `TmplExprStart expr ... TmplExprEnd` runs between the opening
+    /// `TmplStart` (already at `peek()` when this is called) and the
+    /// closing `TmplEnd`. We stitch them into the `Template { parts }`
+    /// shape the rest of the pipeline expects.
+    fn parse_template_literal(&mut self, span: Span) -> Result<Expr, ParseError> {
+        self.bump(); // TmplStart
+        let mut parts: Vec<ilang_ast::TemplatePart> = Vec::new();
+        loop {
+            let tok = self.peek().clone();
+            match tok.kind {
+                TokenKind::TmplLit(s) => {
+                    self.bump();
+                    parts.push(ilang_ast::TemplatePart::Str(s));
+                }
+                TokenKind::TmplExprStart => {
+                    self.bump();
+                    let inner = self.parse_expr(0)?;
+                    let end_tok = self.peek().clone();
+                    match end_tok.kind {
+                        TokenKind::TmplExprEnd => {
+                            self.bump();
+                        }
+                        _ => {
+                            return Err(ParseError::Unexpected {
+                                found: end_tok.kind,
+                                expected: "'}' closing template interpolation".into(),
+                                span: end_tok.span,
+                            });
+                        }
+                    }
+                    parts.push(ilang_ast::TemplatePart::Expr(inner));
+                }
+                TokenKind::TmplEnd => {
+                    self.bump();
+                    let full_span = span.to(tok.span);
+                    return Ok(Expr::new(
+                        ExprKind::Template { parts: parts.into() },
+                        full_span,
+                    ));
+                }
+                _ => {
+                    return Err(ParseError::Unexpected {
+                        found: tok.kind,
+                        expected: "template literal chunk or '${' / '`'".into(),
+                        span: tok.span,
+                    });
+                }
+            }
+        }
     }
 
     /// `match scrutinee { pattern { body } [,|newline] ... }`.

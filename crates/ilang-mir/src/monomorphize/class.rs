@@ -351,6 +351,13 @@ pub(super) fn scan_expr(e: &Expr, needed: &mut HashSet<Symbol>, work: &mut Vec<I
                 scan_expr(&arm.body, needed, work);
             }
         }
+        ExprKind::Template { parts } => {
+            for p in parts.iter() {
+                if let ilang_ast::TemplatePart::Expr(e) = p {
+                    scan_expr(e, needed, work);
+                }
+            }
+        }
     }
 }
 
@@ -734,6 +741,17 @@ pub(super) fn subst_expr(e: &Expr, params: &[Symbol], args: &[Type]) -> Expr {
                 })
                 .collect(),
         },
+        ExprKind::Template { parts } => ExprKind::Template {
+            parts: parts
+                .iter()
+                .map(|p| match p {
+                    ilang_ast::TemplatePart::Str(s) => ilang_ast::TemplatePart::Str(s.clone()),
+                    ilang_ast::TemplatePart::Expr(e2) => {
+                        ilang_ast::TemplatePart::Expr(subst_expr(e2, params, args))
+                    }
+                })
+                .collect(),
+        },
     };
     Expr {
         kind,
@@ -1112,6 +1130,17 @@ pub(super) fn rewrite_expr(e: &Expr) -> Expr {
                     pattern: arm.pattern.clone(),
                     body: rewrite_expr(&arm.body),
                     span: arm.span,
+                })
+                .collect(),
+        },
+        ExprKind::Template { parts } => ExprKind::Template {
+            parts: parts
+                .iter()
+                .map(|p| match p {
+                    ilang_ast::TemplatePart::Str(s) => ilang_ast::TemplatePart::Str(s.clone()),
+                    ilang_ast::TemplatePart::Expr(e) => {
+                        ilang_ast::TemplatePart::Expr(rewrite_expr(e))
+                    }
                 })
                 .collect(),
         },

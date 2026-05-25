@@ -322,6 +322,13 @@ fn walk_expr_children_for_match(
                 visit!(&arm.body);
             }
         }
+        ExprKind::Template { parts } => {
+            for p in parts.iter() {
+                if let ilang_ast::TemplatePart::Expr(e2) = p {
+                    visit!(e2);
+                }
+            }
+        }
         ExprKind::Closure { .. } => {}
     }
 }

@@ -13,6 +13,8 @@ pub enum LexError {
     },
     #[error("{span}: unterminated string literal")]
     UnterminatedString { span: Span },
+    #[error("{span}: unterminated template literal (missing closing backtick)")]
+    UnterminatedTemplate { span: Span },
     #[error("{span}: invalid escape {seq:?} in string literal")]
     BadEscape { seq: String, span: Span },
     #[error("{span}: unterminated block comment")]
@@ -37,6 +39,7 @@ impl LexError {
             LexError::UnexpectedChar { span, .. }
             | LexError::InvalidNumber { span, .. }
             | LexError::UnterminatedString { span }
+            | LexError::UnterminatedTemplate { span }
             | LexError::BadEscape { span, .. }
             | LexError::UnterminatedBlockComment { span }
             | LexError::InvalidNumericSuffix { span, .. }

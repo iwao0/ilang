@@ -231,10 +231,14 @@ pub extern "C" fn __map_values(map: i64) -> i64 {
 #[unsafe(export_name = "$print.map")]
 pub extern "C" fn __print_map(map_ptr: i64) {
     let mut out = String::new();
+    format_map_into(&mut out, map_ptr);
+    let mut o = std::io::stdout().lock();
+    let _ = o.write_all(out.as_bytes());
+}
+
+pub fn format_map_into(out: &mut String, map_ptr: i64) {
     if map_ptr == 0 {
         out.push_str("{}");
-        let mut o = std::io::stdout().lock();
-        let _ = o.write_all(out.as_bytes());
         return;
     }
     let m = unsafe { &*(map_ptr as *const ManagedMap) };
@@ -254,13 +258,11 @@ pub extern "C" fn __print_map(map_ptr: i64) {
         if i > 0 {
             out.push_str(", ");
         }
-        format_kind_id(&mut out, kk, *k);
+        format_kind_id(out, kk, *k);
         out.push_str(": ");
-        format_kind_id(&mut out, vk, *v);
+        format_kind_id(out, vk, *v);
     }
     out.push('}');
-    let mut o = std::io::stdout().lock();
-    let _ = o.write_all(out.as_bytes());
 }
 
 #[unsafe(export_name = "$map.retain")]

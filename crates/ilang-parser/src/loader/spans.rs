@@ -252,6 +252,13 @@ fn tag_expr(e: &mut Expr, file: Symbol) {
                 tag_expr(&mut arm.body, file);
             }
         }
+        ExprKind::Template { parts } => {
+            for p in parts.iter_mut() {
+                if let ilang_ast::TemplatePart::Expr(e) = p {
+                    tag_expr(e, file);
+                }
+            }
+        }
         ExprKind::New { args, .. } => {
             for a in args.iter_mut() {
                 tag_expr(a, file);

@@ -9,7 +9,7 @@ pub mod walk;
 
 pub use expr::{
     BinOp, CtorArgs, Expr, ExprKind, LogicalOp, MatchArm, Pattern, PatternBindings,
-    PatternKind, UnOp,
+    PatternKind, TemplatePart, UnOp,
 };
 pub use item::{
     AttrArg, Attribute, ClassDecl, ConstDecl, DiscriminantLit, EnumDecl, ExternCBlock, ExternCItem,

@@ -178,6 +178,19 @@ pub fn compile_with_builtins(
         "$string.lastIndexOf",
         ilang_runtime::__str_last_index_of as *const u8,
     );
+    // Template-literal `$fmt.*` formatters. Mirror the per-type host
+    // dispatch in `fmt_emit::emit_format_value`; each one returns a
+    // newly-allocated ilang string.
+    jit_builder.symbol("$fmt.int", ilang_runtime::__fmt_int as *const u8);
+    jit_builder.symbol("$fmt.bool", ilang_runtime::__fmt_bool as *const u8);
+    jit_builder.symbol("$fmt.f64", ilang_runtime::__fmt_f64 as *const u8);
+    jit_builder.symbol("$fmt.str", ilang_runtime::__fmt_str as *const u8);
+    jit_builder.symbol("$fmt.weak", ilang_runtime::__fmt_weak as *const u8);
+    jit_builder.symbol("$fmt.fn", ilang_runtime::__fmt_fn as *const u8);
+    jit_builder.symbol("$fmt.object", ilang_runtime::__fmt_object as *const u8);
+    jit_builder.symbol("$fmt.struct", ilang_runtime::__fmt_struct as *const u8);
+    jit_builder.symbol("$fmt.map", ilang_runtime::__fmt_map as *const u8);
+    jit_builder.symbol("$fmt.enum", ilang_runtime::__fmt_enum as *const u8);
     jit_builder.symbol("$array.indexOf", ilang_runtime::__array_index_of as *const u8);
     jit_builder.symbol("$array.includes", ilang_runtime::__array_includes as *const u8);
     jit_builder.symbol("$array.push", ilang_runtime::__array_push as *const u8);

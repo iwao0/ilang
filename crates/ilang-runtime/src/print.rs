@@ -115,13 +115,16 @@ pub extern "C" fn __print_fn(closure_ptr: i64) {
         return;
     }
     let fn_addr = unsafe { *(closure_ptr as *const i64) };
-    let t = fn_name_table().lock().expect("fn name table poisoned");
-    match t.get(&fn_addr) {
-        Some(name) => {
-            let _ = write!(out, "<fn {name}>");
-        }
-        None => {
-            let _ = out.write_all(b"<fn>");
-        }
+    match fn_name_for_addr(fn_addr) {
+        Some(s) => { let _ = write!(out, "<fn {s}>"); }
+        None => { let _ = out.write_all(b"<fn>"); }
     }
+}
+
+/// Read the registered display name for `fn_addr`, if any. Lets
+/// `$fmt.fn` share the same table without re-implementing the
+/// "<fn name>" formatting branch.
+pub fn fn_name_for_addr(fn_addr: i64) -> Option<String> {
+    let t = fn_name_table().lock().expect("fn name table poisoned");
+    t.get(&fn_addr).cloned()
 }

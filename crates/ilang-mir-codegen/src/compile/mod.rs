@@ -14,6 +14,7 @@ mod jit_setup;
 mod lower_function;
 mod lower_inst;
 mod lower_term_const;
+mod fmt_emit;
 mod print_emit;
 mod print_kind;
 mod program_decl;
@@ -177,6 +178,24 @@ pub(super) struct PrintIds {
     pub(super) fn_: cranelift_module::FuncId,
     pub(super) map: cranelift_module::FuncId,
     pub(super) weak: cranelift_module::FuncId,
+    pub(super) enum_: cranelift_module::FuncId,
+}
+
+/// Terminal value-to-string formatters used by backtick template
+/// literals. Composite types (Optional / Tuple / Array) are unrolled
+/// in codegen and bottom out in one of these; the variants below
+/// match the `$fmt.*` exports in `crates/ilang-runtime/src/fmt.rs`.
+#[derive(Clone, Copy)]
+pub(super) struct FmtIds {
+    pub(super) int: cranelift_module::FuncId,
+    pub(super) bool_: cranelift_module::FuncId,
+    pub(super) f64_: cranelift_module::FuncId,
+    pub(super) str_: cranelift_module::FuncId,
+    pub(super) weak: cranelift_module::FuncId,
+    pub(super) fn_: cranelift_module::FuncId,
+    pub(super) object: cranelift_module::FuncId,
+    pub(super) struct_: cranelift_module::FuncId,
+    pub(super) map: cranelift_module::FuncId,
     pub(super) enum_: cranelift_module::FuncId,
 }
 

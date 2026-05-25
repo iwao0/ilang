@@ -308,6 +308,13 @@ fn walk_expr(
             walk_block(body, top_lets, locals, out);
             locals.truncate(saved);
         }
+        E::Template { parts } => {
+            for p in parts.iter() {
+                if let ilang_ast::TemplatePart::Expr(e2) = p {
+                    walk_expr(e2, top_lets, locals, out);
+                }
+            }
+        }
         E::Closure { .. } | E::This | E::None | E::Continue
         | E::Int(_) | E::Float(_) | E::Bool(_) | E::Str(_) => {}
     }

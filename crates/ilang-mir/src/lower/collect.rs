@@ -318,6 +318,13 @@ pub(super) fn collect_mut_assigned_expr(expr: &Expr, out: &mut std::collections:
         }
         E::FnExpr { body, .. } => collect_mut_assigned_block(body, out),
         E::Closure { .. } => {}
+        E::Template { parts } => {
+            for p in parts.iter() {
+                if let ast::TemplatePart::Expr(e) = p {
+                    collect_mut_assigned_expr(e, out);
+                }
+            }
+        }
     }
 }
 
@@ -552,6 +559,13 @@ pub(super) fn collect_free_vars_expr(
                 }
                 collect_free_vars_expr(&arm.body, bound, frees);
                 *bound = saved;
+            }
+        }
+        E::Template { parts } => {
+            for p in parts.iter() {
+                if let ast::TemplatePart::Expr(e) = p {
+                    collect_free_vars_expr(e, bound, frees);
+                }
             }
         }
     }

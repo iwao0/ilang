@@ -654,6 +654,13 @@ impl<'a> Checker<'a> {
                 }
                 self.check_block(body)?;
             }
+            ExprKind::Template { parts } => {
+                for p in parts.iter() {
+                    if let ilang_ast::TemplatePart::Expr(e) = p {
+                        self.check_expr(e)?;
+                    }
+                }
+            }
             // Leaves: no sub-expressions.
             ExprKind::Var(_)
             | ExprKind::Int(_)

@@ -4,6 +4,7 @@
   "scopeName": "source.ilang",
   "patterns": [
     { "include": "#comments" },
+    { "include": "#template-strings" },
     { "include": "#strings" },
     { "include": "#attributes" },
     { "include": "#enum-variant-keyword" },
@@ -44,6 +45,31 @@
         {
           "name": "constant.character.escape.ilang",
           "match": "\\\\."
+        }
+      ]
+    },
+    "template-strings": {
+      "name": "string.template.ilang",
+      "begin": "`",
+      "end": "`",
+      "patterns": [
+        {
+          "name": "constant.character.escape.ilang",
+          "match": "\\\\(`|\\$|\\\\|n|t|r|0|a|b|f|v|x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f]{1,6}\\})"
+        },
+        {
+          "name": "meta.interpolation.ilang",
+          "begin": "\\$\\{",
+          "beginCaptures": {
+            "0": { "name": "punctuation.section.interpolation.begin.ilang" }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.interpolation.end.ilang" }
+          },
+          "patterns": [
+            { "include": "$self" }
+          ]
         }
       ]
     },

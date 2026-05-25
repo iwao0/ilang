@@ -37,7 +37,7 @@ use super::print_kind::{
     KIND_OBJECT, KIND_OPTIONAL, KIND_PROMISE, KIND_STR, KIND_TUPLE,
 };
 use super::{
-    emit_is_subclass, CompileError, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds,
+    emit_is_subclass, CompileError, FmtIds, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds,
     OBJECT_HEADER_BYTES,
 };
 
@@ -84,6 +84,7 @@ pub(super) fn lower_inst<M: Module>(
     promise_ids: PromiseIds,
     str_ids: StrIds,
     print_ids: PrintIds,
+    fmt_ids: FmtIds,
     panic_aux: PanicAux,
     print_lits: PrintLits,
     module: &mut M,
@@ -192,7 +193,7 @@ pub(super) fn lower_inst<M: Module>(
                 fb, dst, callee, args, vmap, func, fn_ids, extern_alias_fn_ids,
                 builtin_ids,
                 static_data, string_data, alloc_id, map_ids, promise_ids, str_ids,
-                print_ids, panic_aux, print_lits, module, locals, prog,
+                print_ids, fmt_ids, panic_aux, print_lits, module, locals, prog,
                 env_value, class_global, enum_global,
                 class_struct_global, stack_local,
             )?;

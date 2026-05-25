@@ -455,6 +455,61 @@ fn array_for_each_sum_via_capture() {
 }
 
 #[test]
+fn template_literal_plain_text() {
+    let src = r#"
+        let s = `hello world`
+        s.length
+    "#;
+    assert_eq!(run(src), 11);
+}
+
+#[test]
+fn template_literal_string_interp() {
+    let src = r#"
+        let name = "world"
+        let s = `hello ${name}!`
+        s.length
+    "#;
+    // "hello world!" → 12
+    assert_eq!(run(src), 12);
+}
+
+#[test]
+fn template_literal_int_interp() {
+    let src = r#"
+        let n = 42
+        let s = `n=${n}`
+        s.length
+    "#;
+    // "n=42" → 4
+    assert_eq!(run(src), 4);
+}
+
+#[test]
+fn template_literal_multi_interp_expr() {
+    let src = r#"
+        let a = 3
+        let b = 4
+        let s = `${a}+${b}=${a + b}`
+        s.length
+    "#;
+    // "3+4=7" → 5
+    assert_eq!(run(src), 5);
+}
+
+#[test]
+fn template_literal_bool_and_escape() {
+    let src = r#"
+        let s = `flag=${true}\n${false}`
+        s.length
+    "#;
+    // "flag=true\nfalse" — chars: 16 (true=4, false=5, "flag="=5, "\n"=1, total 5+4+1+5=15… let me recount)
+    // f l a g = t r u e \n f a l s e
+    // 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+    assert_eq!(run(src), 15);
+}
+
+#[test]
 fn string_concat_method() {
     let src = r#"
         let a = "abc"

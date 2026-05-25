@@ -132,6 +132,10 @@ fn body_writes_to(body: &Block, name: &Symbol) -> bool {
             }
             Closure { .. } => false,        // emitted only after this pass
             SuperCall { args, .. } => args.iter().any(|a| in_expr(a, name)),
+            Template { parts } => parts.iter().any(|p| match p {
+                ilang_ast::TemplatePart::Str(_) => false,
+                ilang_ast::TemplatePart::Expr(e) => in_expr(e, name),
+            }),
             // Leaves: no sub-expressions to recurse into.
             Int(_) | Float(_) | Bool(_) | Str(_) | Var(_) | This
             | Continue | None => false,
@@ -634,6 +638,17 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
                     pattern: arm.pattern.clone(),
                     body: hoist_in_expr(&arm.body, ctx),
                     span: arm.span,
+                })
+                .collect(),
+        },
+        ExprKind::Template { parts } => ExprKind::Template {
+            parts: parts
+                .iter()
+                .map(|p| match p {
+                    ilang_ast::TemplatePart::Str(s) => ilang_ast::TemplatePart::Str(s.clone()),
+                    ilang_ast::TemplatePart::Expr(e2) => {
+                        ilang_ast::TemplatePart::Expr(hoist_in_expr(e2, ctx))
+                    }
                 })
                 .collect(),
         },

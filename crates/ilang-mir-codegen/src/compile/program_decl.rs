@@ -21,7 +21,7 @@ use super::abi::clif_signature_for;
 use super::{
     declare_binary_i64, declare_ternary_i64, declare_unary_i64, declare_unit_f64,
     declare_unit_i64, declare_unit_void, lower_function, BuiltinDecl, CompileError, MapIds, PromiseIds,
-    PanicAux, PrintIds, PrintLits, StrIds,
+    FmtIds, PanicAux, PrintIds, PrintLits, StrIds,
 };
 
 pub(crate) struct LoweringOutputs {
@@ -453,6 +453,24 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         weak: print_weak_id,
         enum_: print_enum_id,
     };
+    let fmt_ids = FmtIds {
+        int: declare_unary_i64(module, "$fmt.int")?,
+        bool_: declare_unary_i64(module, "$fmt.bool")?,
+        f64_: {
+            // f64 → string. Signature differs from the unary-i64 helper.
+            let mut sig = module.make_signature();
+            sig.params.push(AbiParam::new(types::F64));
+            sig.returns.push(AbiParam::new(types::I64));
+            module.declare_function("$fmt.f64", Linkage::Import, &sig)?
+        },
+        str_: declare_unary_i64(module, "$fmt.str")?,
+        weak: declare_unary_i64(module, "$fmt.weak")?,
+        fn_: declare_unary_i64(module, "$fmt.fn")?,
+        object: declare_unary_i64(module, "$fmt.object")?,
+        struct_: declare_binary_i64(module, "$fmt.struct")?,
+        map: declare_unary_i64(module, "$fmt.map")?,
+        enum_: declare_binary_i64(module, "$fmt.enum")?,
+    };
 
     // Declare builtin imports. Each gets a Cranelift FuncId so call
     // sites can resolve via `module.declare_func_in_func`.
@@ -796,6 +814,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 promise_ids,
                 str_ids,
                 print_ids,
+                fmt_ids,
                 panic_aux,
                 print_lits,
                 module,

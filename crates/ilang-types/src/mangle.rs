@@ -612,6 +612,17 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                 })
                 .collect(),
         },
+        ExprKind::Template { parts } => ExprKind::Template {
+            parts: Vec::from(parts)
+                .into_iter()
+                .map(|p| match p {
+                    ilang_ast::TemplatePart::Str(s) => ilang_ast::TemplatePart::Str(s),
+                    ilang_ast::TemplatePart::Expr(e) => {
+                        ilang_ast::TemplatePart::Expr(rewrite_expr(e, ctx))
+                    }
+                })
+                .collect(),
+        },
     };
     Expr { kind, span }
 }

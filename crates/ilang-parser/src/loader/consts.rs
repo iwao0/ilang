@@ -739,6 +739,17 @@ fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
                 })
                 .collect(),
         },
+        ExprKind::Template { parts } => ExprKind::Template {
+            parts: Vec::from(parts)
+                .into_iter()
+                .map(|p| match p {
+                    ilang_ast::TemplatePart::Str(s) => ilang_ast::TemplatePart::Str(s),
+                    ilang_ast::TemplatePart::Expr(e) => {
+                        ilang_ast::TemplatePart::Expr(subst_const_expr(e, ctx))
+                    }
+                })
+                .collect(),
+        },
         // Trivial nodes pass through.
         other @ (ExprKind::Int(_)
         | ExprKind::Float(_)

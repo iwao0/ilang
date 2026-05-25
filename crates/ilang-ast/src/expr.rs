@@ -257,6 +257,24 @@ pub enum ExprKind {
         scrutinee: Box<Expr>,
         arms: Box<[MatchArm]>,
     },
+    /// Backtick-quoted template literal: `` `lit ${e1} lit ${e2} lit` ``.
+    /// `parts` is the alternating sequence of literal chunks and
+    /// interpolation expressions in source order. Empty literal chunks
+    /// are preserved so that adjacent `${...}${...}` round-trips back to
+    /// the same shape; the parser always starts and ends with a `Str`
+    /// chunk (possibly empty), so a `parts` of length `2k+1` carries
+    /// exactly `k` interpolations.
+    Template {
+        parts: Box<[TemplatePart]>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TemplatePart {
+    /// A literal text run between interpolations.
+    Str(String),
+    /// An interpolated expression: the `${...}` body.
+    Expr(Expr),
 }
 
 #[derive(Debug, Clone, PartialEq)]

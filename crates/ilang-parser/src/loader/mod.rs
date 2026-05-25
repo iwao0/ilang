@@ -1925,6 +1925,13 @@ fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<Symbol>
                 qualify_var_refs_in_expr(e, prefix, consts);
             }
         }
+        ExprKind::Template { parts } => {
+            for p in parts.iter_mut() {
+                if let ilang_ast::TemplatePart::Expr(e) = p {
+                    qualify_var_refs_in_expr(e, prefix, consts);
+                }
+            }
+        }
         // Leaf nodes — nothing to walk into.
         ExprKind::Int(_)
         | ExprKind::Float(_)
@@ -2892,6 +2899,17 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
                     pattern: arm.pattern,
                     body: prefix_expr(arm.body, prefix),
                     span: arm.span,
+                })
+                .collect(),
+        },
+        ExprKind::Template { parts } => ExprKind::Template {
+            parts: Vec::from(parts)
+                .into_iter()
+                .map(|p| match p {
+                    ilang_ast::TemplatePart::Str(s) => ilang_ast::TemplatePart::Str(s),
+                    ilang_ast::TemplatePart::Expr(e) => {
+                        ilang_ast::TemplatePart::Expr(prefix_expr(e, prefix))
+                    }
                 })
                 .collect(),
         },

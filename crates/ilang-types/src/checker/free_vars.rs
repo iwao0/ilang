@@ -190,6 +190,13 @@ pub(super) fn cfev_expr(
             *bound = snap;
         }
         ExprKind::Closure { .. } => {} // hoist hasn't run yet
+        ExprKind::Template { parts } => {
+            for p in parts.iter() {
+                if let ilang_ast::TemplatePart::Expr(e) = p {
+                    cfev_expr(e, bound, frees, seen);
+                }
+            }
+        }
     }
 }
 

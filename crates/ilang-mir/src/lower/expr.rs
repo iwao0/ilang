@@ -36,6 +36,7 @@ impl<'a> BodyCx<'a> {
                 });
                 Ok((v, MirTy::Str))
             }
+            ExprKind::Template { parts } => self.lower_template(parts),
             ExprKind::Var(name) => self.lower_var_expr(*name),
             ExprKind::This => {
                 let this_sym = Symbol::intern("this");
@@ -852,6 +853,53 @@ impl<'a> BodyCx<'a> {
             // is handled above. Removed the legacy catch-all because
             // the compiler now flags it as `unreachable_pattern`.
         }
+    }
+
+    pub(super) fn lower_template(
+        &mut self,
+        parts: &[ilang_ast::TemplatePart],
+    ) -> Result<(ValueId, MirTy), LowerError> {
+        // Emit each part as a string-typed value, then fold them all
+        // together via `str_concat`. For interpolated expressions we
+        // route through the `fmt_value` builtin; the codegen layer
+        // looks at the MIR type of the value to pick the right host
+        // conversion (mirroring `console.log`'s emit_print_value).
+        let empty = self.fb.new_value(MirTy::Str);
+        self.fb.push_inst(Inst::Const {
+            dst: empty,
+            value: MirConst::Str(Symbol::intern("")),
+        });
+        let mut acc = empty;
+        for part in parts {
+            let piece = match part {
+                ilang_ast::TemplatePart::Str(s) => {
+                    let v = self.fb.new_value(MirTy::Str);
+                    self.fb.push_inst(Inst::Const {
+                        dst: v,
+                        value: MirConst::Str(Symbol::intern(s)),
+                    });
+                    v
+                }
+                ilang_ast::TemplatePart::Expr(e) => {
+                    let (val, _) = self.lower_expr(e)?;
+                    let s = self.fb.new_value(MirTy::Str);
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(s),
+                        callee: FuncRef::Builtin(Symbol::intern("fmt_value")),
+                        args: Box::new([val]),
+                    });
+                    s
+                }
+            };
+            let next = self.fb.new_value(MirTy::Str);
+            self.fb.push_inst(Inst::Call {
+                dst: Some(next),
+                callee: FuncRef::Builtin(Symbol::intern("str_concat")),
+                args: Box::new([acc, piece]),
+            });
+            acc = next;
+        }
+        Ok((acc, MirTy::Str))
     }
 
     fn lower_var_expr(&mut self, name: Symbol) -> Result<(ValueId, MirTy), LowerError> {
