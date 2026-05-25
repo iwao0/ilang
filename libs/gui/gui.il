@@ -29,7 +29,7 @@
 
 use gui_impl { runEventLoop }
 
-pub use event.*
+pub use events.*
 pub use menubar.*
 pub use window.*
 pub use button.*

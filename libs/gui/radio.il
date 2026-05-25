@@ -13,7 +13,7 @@
 /// group bits.
 
 use std.events { Signal }
-use event { ToggleEvent }
+use events { ToggleEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeRadio, readRadioChecked,

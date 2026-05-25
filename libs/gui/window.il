@@ -12,7 +12,7 @@
 /// `window`'s `handle`.
 
 use std.events { Signal }
-use event {
+use events {
     EventTarget,
     CloseEvent, SizeEvent, KeyEvent, MouseEvent,
 }

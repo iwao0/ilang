@@ -4,7 +4,7 @@
 /// changes.
 
 use std.events { Signal }
-use event { SelectEvent }
+use events { SelectEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeList, readListSelectedIndex,

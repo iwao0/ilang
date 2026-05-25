@@ -9,7 +9,7 @@ use cocoa {
     NSObject, NSApplication, NSWindow, NSView, NSNotification, NSEvent,
     NSEventModifierFlags, KeyCode, nil,
 }
-use super.event as event
+use super.events
 // ─── per-window state ─────────────────────────────────────────
 
 /// One row per top-level window. Stored in `WINDOWS` keyed by
@@ -89,58 +89,58 @@ pub fn keyCodeToString(k: KeyCode): string {
 
 /// Cocoa virtual key codes (`cocoa.KeyCode` from
 /// `<HIToolbox/Events.h>`) → the parent package's
-/// `event.KeyCode` (W3C `KeyboardEvent.code`). Unmapped keys
-/// fall through to `event.KeyCode.unknown`; the caller then
+/// `events.KeyCode` (W3C `KeyboardEvent.code`). Unmapped keys
+/// fall through to `events.KeyCode.unknown`; the caller then
 /// serialises that into the discriminant string for the
 /// cross-package callback ABI.
-pub fn keyCodeToEnum(k: KeyCode): event.KeyCode {
+pub fn keyCodeToEnum(k: KeyCode): events.KeyCode {
     match k {
-        KeyCode.keyA       { event.KeyCode.keyA }
-        KeyCode.keyS       { event.KeyCode.keyS }
-        KeyCode.keyD       { event.KeyCode.keyD }
-        KeyCode.keyF       { event.KeyCode.keyF }
-        KeyCode.keyH       { event.KeyCode.keyH }
-        KeyCode.keyG       { event.KeyCode.keyG }
-        KeyCode.keyZ       { event.KeyCode.keyZ }
-        KeyCode.keyX       { event.KeyCode.keyX }
-        KeyCode.keyC       { event.KeyCode.keyC }
-        KeyCode.keyV       { event.KeyCode.keyV }
-        KeyCode.keyB       { event.KeyCode.keyB }
-        KeyCode.keyQ       { event.KeyCode.keyQ }
-        KeyCode.keyW       { event.KeyCode.keyW }
-        KeyCode.keyE       { event.KeyCode.keyE }
-        KeyCode.keyR       { event.KeyCode.keyR }
-        KeyCode.keyY       { event.KeyCode.keyY }
-        KeyCode.keyT       { event.KeyCode.keyT }
-        KeyCode.keyO       { event.KeyCode.keyO }
-        KeyCode.keyU       { event.KeyCode.keyU }
-        KeyCode.keyI       { event.KeyCode.keyI }
-        KeyCode.keyP       { event.KeyCode.keyP }
-        KeyCode.keyL       { event.KeyCode.keyL }
-        KeyCode.keyJ       { event.KeyCode.keyJ }
-        KeyCode.keyK       { event.KeyCode.keyK }
-        KeyCode.keyN       { event.KeyCode.keyN }
-        KeyCode.keyM       { event.KeyCode.keyM }
-        KeyCode.key0       { event.KeyCode.digit0 }
-        KeyCode.key1       { event.KeyCode.digit1 }
-        KeyCode.key2       { event.KeyCode.digit2 }
-        KeyCode.key3       { event.KeyCode.digit3 }
-        KeyCode.key4       { event.KeyCode.digit4 }
-        KeyCode.key5       { event.KeyCode.digit5 }
-        KeyCode.key6       { event.KeyCode.digit6 }
-        KeyCode.key7       { event.KeyCode.digit7 }
-        KeyCode.key8       { event.KeyCode.digit8 }
-        KeyCode.key9       { event.KeyCode.digit9 }
-        KeyCode.returnKey  { event.KeyCode.enter }
-        KeyCode.escape     { event.KeyCode.escape }
-        KeyCode.delete     { event.KeyCode.backspace }
-        KeyCode.tab        { event.KeyCode.tab }
-        KeyCode.space      { event.KeyCode.space }
-        KeyCode.leftArrow  { event.KeyCode.arrowLeft }
-        KeyCode.rightArrow { event.KeyCode.arrowRight }
-        KeyCode.downArrow  { event.KeyCode.arrowDown }
-        KeyCode.upArrow    { event.KeyCode.arrowUp }
-        _                  { event.KeyCode.unknown }
+        KeyCode.keyA       { events.KeyCode.keyA }
+        KeyCode.keyS       { events.KeyCode.keyS }
+        KeyCode.keyD       { events.KeyCode.keyD }
+        KeyCode.keyF       { events.KeyCode.keyF }
+        KeyCode.keyH       { events.KeyCode.keyH }
+        KeyCode.keyG       { events.KeyCode.keyG }
+        KeyCode.keyZ       { events.KeyCode.keyZ }
+        KeyCode.keyX       { events.KeyCode.keyX }
+        KeyCode.keyC       { events.KeyCode.keyC }
+        KeyCode.keyV       { events.KeyCode.keyV }
+        KeyCode.keyB       { events.KeyCode.keyB }
+        KeyCode.keyQ       { events.KeyCode.keyQ }
+        KeyCode.keyW       { events.KeyCode.keyW }
+        KeyCode.keyE       { events.KeyCode.keyE }
+        KeyCode.keyR       { events.KeyCode.keyR }
+        KeyCode.keyY       { events.KeyCode.keyY }
+        KeyCode.keyT       { events.KeyCode.keyT }
+        KeyCode.keyO       { events.KeyCode.keyO }
+        KeyCode.keyU       { events.KeyCode.keyU }
+        KeyCode.keyI       { events.KeyCode.keyI }
+        KeyCode.keyP       { events.KeyCode.keyP }
+        KeyCode.keyL       { events.KeyCode.keyL }
+        KeyCode.keyJ       { events.KeyCode.keyJ }
+        KeyCode.keyK       { events.KeyCode.keyK }
+        KeyCode.keyN       { events.KeyCode.keyN }
+        KeyCode.keyM       { events.KeyCode.keyM }
+        KeyCode.key0       { events.KeyCode.digit0 }
+        KeyCode.key1       { events.KeyCode.digit1 }
+        KeyCode.key2       { events.KeyCode.digit2 }
+        KeyCode.key3       { events.KeyCode.digit3 }
+        KeyCode.key4       { events.KeyCode.digit4 }
+        KeyCode.key5       { events.KeyCode.digit5 }
+        KeyCode.key6       { events.KeyCode.digit6 }
+        KeyCode.key7       { events.KeyCode.digit7 }
+        KeyCode.key8       { events.KeyCode.digit8 }
+        KeyCode.key9       { events.KeyCode.digit9 }
+        KeyCode.returnKey  { events.KeyCode.enter }
+        KeyCode.escape     { events.KeyCode.escape }
+        KeyCode.delete     { events.KeyCode.backspace }
+        KeyCode.tab        { events.KeyCode.tab }
+        KeyCode.space      { events.KeyCode.space }
+        KeyCode.leftArrow  { events.KeyCode.arrowLeft }
+        KeyCode.rightArrow { events.KeyCode.arrowRight }
+        KeyCode.downArrow  { events.KeyCode.arrowDown }
+        KeyCode.upArrow    { events.KeyCode.arrowUp }
+        _                  { events.KeyCode.unknown }
     }
 }
 

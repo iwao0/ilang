@@ -27,7 +27,7 @@ use std.ffi { cstrFromString }
     g_signal_connect_motion, g_signal_connect_click,
 }
 use core { WINDOWS, WindowSlot, GTK_INITED, LOOP_HOLDER }
-use super.event as event
+use super.events
 // GdkModifierType bits we need. Pulled out as locals so each
 // dispatch can `& MOD_*` without going through the flags enum.
 const MOD_SHIFT: u32 = 0x00000001 as u32
@@ -41,58 +41,58 @@ pub fn keyvalToCode(k: u32): string {
     keyvalToEnum(k as Keyval) as string
 }
 
-/// GDK keyval (`gtk.Keyval`) → the parent package's `event.KeyCode`
+/// GDK keyval (`gtk.Keyval`) → the parent package's `events.KeyCode`
 /// (W3C `KeyboardEvent.code`). Unmapped keys fall through to
-/// `event.KeyCode.unknown`; the caller then serialises that into
+/// `events.KeyCode.unknown`; the caller then serialises that into
 /// the discriminant string for the cross-package callback ABI.
-fn keyvalToEnum(k: Keyval): event.KeyCode {
+fn keyvalToEnum(k: Keyval): events.KeyCode {
     match k {
-        Keyval.keyA       { event.KeyCode.keyA }
-        Keyval.keyB       { event.KeyCode.keyB }
-        Keyval.keyC       { event.KeyCode.keyC }
-        Keyval.keyD       { event.KeyCode.keyD }
-        Keyval.keyE       { event.KeyCode.keyE }
-        Keyval.keyF       { event.KeyCode.keyF }
-        Keyval.keyG       { event.KeyCode.keyG }
-        Keyval.keyH       { event.KeyCode.keyH }
-        Keyval.keyI       { event.KeyCode.keyI }
-        Keyval.keyJ       { event.KeyCode.keyJ }
-        Keyval.keyK       { event.KeyCode.keyK }
-        Keyval.keyL       { event.KeyCode.keyL }
-        Keyval.keyM       { event.KeyCode.keyM }
-        Keyval.keyN       { event.KeyCode.keyN }
-        Keyval.keyO       { event.KeyCode.keyO }
-        Keyval.keyP       { event.KeyCode.keyP }
-        Keyval.keyQ       { event.KeyCode.keyQ }
-        Keyval.keyR       { event.KeyCode.keyR }
-        Keyval.keyS       { event.KeyCode.keyS }
-        Keyval.keyT       { event.KeyCode.keyT }
-        Keyval.keyU       { event.KeyCode.keyU }
-        Keyval.keyV       { event.KeyCode.keyV }
-        Keyval.keyW       { event.KeyCode.keyW }
-        Keyval.keyX       { event.KeyCode.keyX }
-        Keyval.keyY       { event.KeyCode.keyY }
-        Keyval.keyZ       { event.KeyCode.keyZ }
-        Keyval.digit0     { event.KeyCode.digit0 }
-        Keyval.digit1     { event.KeyCode.digit1 }
-        Keyval.digit2     { event.KeyCode.digit2 }
-        Keyval.digit3     { event.KeyCode.digit3 }
-        Keyval.digit4     { event.KeyCode.digit4 }
-        Keyval.digit5     { event.KeyCode.digit5 }
-        Keyval.digit6     { event.KeyCode.digit6 }
-        Keyval.digit7     { event.KeyCode.digit7 }
-        Keyval.digit8     { event.KeyCode.digit8 }
-        Keyval.digit9     { event.KeyCode.digit9 }
-        Keyval.enter      { event.KeyCode.enter }
-        Keyval.escape     { event.KeyCode.escape }
-        Keyval.backspace  { event.KeyCode.backspace }
-        Keyval.tab        { event.KeyCode.tab }
-        Keyval.space      { event.KeyCode.space }
-        Keyval.arrowLeft  { event.KeyCode.arrowLeft }
-        Keyval.arrowRight { event.KeyCode.arrowRight }
-        Keyval.arrowDown  { event.KeyCode.arrowDown }
-        Keyval.arrowUp    { event.KeyCode.arrowUp }
-        _                 { event.KeyCode.unknown }
+        Keyval.keyA       { events.KeyCode.keyA }
+        Keyval.keyB       { events.KeyCode.keyB }
+        Keyval.keyC       { events.KeyCode.keyC }
+        Keyval.keyD       { events.KeyCode.keyD }
+        Keyval.keyE       { events.KeyCode.keyE }
+        Keyval.keyF       { events.KeyCode.keyF }
+        Keyval.keyG       { events.KeyCode.keyG }
+        Keyval.keyH       { events.KeyCode.keyH }
+        Keyval.keyI       { events.KeyCode.keyI }
+        Keyval.keyJ       { events.KeyCode.keyJ }
+        Keyval.keyK       { events.KeyCode.keyK }
+        Keyval.keyL       { events.KeyCode.keyL }
+        Keyval.keyM       { events.KeyCode.keyM }
+        Keyval.keyN       { events.KeyCode.keyN }
+        Keyval.keyO       { events.KeyCode.keyO }
+        Keyval.keyP       { events.KeyCode.keyP }
+        Keyval.keyQ       { events.KeyCode.keyQ }
+        Keyval.keyR       { events.KeyCode.keyR }
+        Keyval.keyS       { events.KeyCode.keyS }
+        Keyval.keyT       { events.KeyCode.keyT }
+        Keyval.keyU       { events.KeyCode.keyU }
+        Keyval.keyV       { events.KeyCode.keyV }
+        Keyval.keyW       { events.KeyCode.keyW }
+        Keyval.keyX       { events.KeyCode.keyX }
+        Keyval.keyY       { events.KeyCode.keyY }
+        Keyval.keyZ       { events.KeyCode.keyZ }
+        Keyval.digit0     { events.KeyCode.digit0 }
+        Keyval.digit1     { events.KeyCode.digit1 }
+        Keyval.digit2     { events.KeyCode.digit2 }
+        Keyval.digit3     { events.KeyCode.digit3 }
+        Keyval.digit4     { events.KeyCode.digit4 }
+        Keyval.digit5     { events.KeyCode.digit5 }
+        Keyval.digit6     { events.KeyCode.digit6 }
+        Keyval.digit7     { events.KeyCode.digit7 }
+        Keyval.digit8     { events.KeyCode.digit8 }
+        Keyval.digit9     { events.KeyCode.digit9 }
+        Keyval.enter      { events.KeyCode.enter }
+        Keyval.escape     { events.KeyCode.escape }
+        Keyval.backspace  { events.KeyCode.backspace }
+        Keyval.tab        { events.KeyCode.tab }
+        Keyval.space      { events.KeyCode.space }
+        Keyval.arrowLeft  { events.KeyCode.arrowLeft }
+        Keyval.arrowRight { events.KeyCode.arrowRight }
+        Keyval.arrowDown  { events.KeyCode.arrowDown }
+        Keyval.arrowUp    { events.KeyCode.arrowUp }
+        _                 { events.KeyCode.unknown }
     }
 }
 

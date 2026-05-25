@@ -14,7 +14,7 @@
 ///   window.addChild(b)
 
 use std.events { Signal }
-use event { MouseEvent }
+use events { MouseEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeButton,

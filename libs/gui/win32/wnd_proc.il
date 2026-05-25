@@ -37,7 +37,7 @@ use combo    { tryComboSelect }
 use list     { tryListSelect }
 use slider   { trySliderChange }
 use menu     { tryMenuClick }
-use super.event as event
+use super.events
 // ─── VirtualKey → W3C KeyboardEvent.code ──────────────────────
 
 fn vkToString(vk: VirtualKey): string {
@@ -45,58 +45,58 @@ fn vkToString(vk: VirtualKey): string {
 }
 
 /// Win32 virtual key codes (`windows.VirtualKey`) → the parent
-/// package's `event.KeyCode` (W3C `KeyboardEvent.code`). Unmapped
-/// keys fall through to `event.KeyCode.unknown`; the caller then
+/// package's `events.KeyCode` (W3C `KeyboardEvent.code`). Unmapped
+/// keys fall through to `events.KeyCode.unknown`; the caller then
 /// serialises that into the discriminant string for the
 /// cross-package callback ABI.
-fn vkToEnum(vk: VirtualKey): event.KeyCode {
+fn vkToEnum(vk: VirtualKey): events.KeyCode {
     match vk {
-        VirtualKey.a       { event.KeyCode.keyA }
-        VirtualKey.b       { event.KeyCode.keyB }
-        VirtualKey.c       { event.KeyCode.keyC }
-        VirtualKey.d       { event.KeyCode.keyD }
-        VirtualKey.e       { event.KeyCode.keyE }
-        VirtualKey.f       { event.KeyCode.keyF }
-        VirtualKey.g       { event.KeyCode.keyG }
-        VirtualKey.h       { event.KeyCode.keyH }
-        VirtualKey.i       { event.KeyCode.keyI }
-        VirtualKey.j       { event.KeyCode.keyJ }
-        VirtualKey.k       { event.KeyCode.keyK }
-        VirtualKey.l       { event.KeyCode.keyL }
-        VirtualKey.m       { event.KeyCode.keyM }
-        VirtualKey.n       { event.KeyCode.keyN }
-        VirtualKey.o       { event.KeyCode.keyO }
-        VirtualKey.p       { event.KeyCode.keyP }
-        VirtualKey.q       { event.KeyCode.keyQ }
-        VirtualKey.r       { event.KeyCode.keyR }
-        VirtualKey.s       { event.KeyCode.keyS }
-        VirtualKey.t       { event.KeyCode.keyT }
-        VirtualKey.u       { event.KeyCode.keyU }
-        VirtualKey.v       { event.KeyCode.keyV }
-        VirtualKey.w       { event.KeyCode.keyW }
-        VirtualKey.x       { event.KeyCode.keyX }
-        VirtualKey.y       { event.KeyCode.keyY }
-        VirtualKey.z       { event.KeyCode.keyZ }
-        VirtualKey.d0      { event.KeyCode.digit0 }
-        VirtualKey.d1      { event.KeyCode.digit1 }
-        VirtualKey.d2      { event.KeyCode.digit2 }
-        VirtualKey.d3      { event.KeyCode.digit3 }
-        VirtualKey.d4      { event.KeyCode.digit4 }
-        VirtualKey.d5      { event.KeyCode.digit5 }
-        VirtualKey.d6      { event.KeyCode.digit6 }
-        VirtualKey.d7      { event.KeyCode.digit7 }
-        VirtualKey.d8      { event.KeyCode.digit8 }
-        VirtualKey.d9      { event.KeyCode.digit9 }
-        VirtualKey.enter   { event.KeyCode.enter }
-        VirtualKey.escape  { event.KeyCode.escape }
-        VirtualKey.back    { event.KeyCode.backspace }
-        VirtualKey.tab     { event.KeyCode.tab }
-        VirtualKey.space   { event.KeyCode.space }
-        VirtualKey.left    { event.KeyCode.arrowLeft }
-        VirtualKey.right   { event.KeyCode.arrowRight }
-        VirtualKey.down    { event.KeyCode.arrowDown }
-        VirtualKey.up      { event.KeyCode.arrowUp }
-        _                  { event.KeyCode.unknown }
+        VirtualKey.a       { events.KeyCode.keyA }
+        VirtualKey.b       { events.KeyCode.keyB }
+        VirtualKey.c       { events.KeyCode.keyC }
+        VirtualKey.d       { events.KeyCode.keyD }
+        VirtualKey.e       { events.KeyCode.keyE }
+        VirtualKey.f       { events.KeyCode.keyF }
+        VirtualKey.g       { events.KeyCode.keyG }
+        VirtualKey.h       { events.KeyCode.keyH }
+        VirtualKey.i       { events.KeyCode.keyI }
+        VirtualKey.j       { events.KeyCode.keyJ }
+        VirtualKey.k       { events.KeyCode.keyK }
+        VirtualKey.l       { events.KeyCode.keyL }
+        VirtualKey.m       { events.KeyCode.keyM }
+        VirtualKey.n       { events.KeyCode.keyN }
+        VirtualKey.o       { events.KeyCode.keyO }
+        VirtualKey.p       { events.KeyCode.keyP }
+        VirtualKey.q       { events.KeyCode.keyQ }
+        VirtualKey.r       { events.KeyCode.keyR }
+        VirtualKey.s       { events.KeyCode.keyS }
+        VirtualKey.t       { events.KeyCode.keyT }
+        VirtualKey.u       { events.KeyCode.keyU }
+        VirtualKey.v       { events.KeyCode.keyV }
+        VirtualKey.w       { events.KeyCode.keyW }
+        VirtualKey.x       { events.KeyCode.keyX }
+        VirtualKey.y       { events.KeyCode.keyY }
+        VirtualKey.z       { events.KeyCode.keyZ }
+        VirtualKey.d0      { events.KeyCode.digit0 }
+        VirtualKey.d1      { events.KeyCode.digit1 }
+        VirtualKey.d2      { events.KeyCode.digit2 }
+        VirtualKey.d3      { events.KeyCode.digit3 }
+        VirtualKey.d4      { events.KeyCode.digit4 }
+        VirtualKey.d5      { events.KeyCode.digit5 }
+        VirtualKey.d6      { events.KeyCode.digit6 }
+        VirtualKey.d7      { events.KeyCode.digit7 }
+        VirtualKey.d8      { events.KeyCode.digit8 }
+        VirtualKey.d9      { events.KeyCode.digit9 }
+        VirtualKey.enter   { events.KeyCode.enter }
+        VirtualKey.escape  { events.KeyCode.escape }
+        VirtualKey.back    { events.KeyCode.backspace }
+        VirtualKey.tab     { events.KeyCode.tab }
+        VirtualKey.space   { events.KeyCode.space }
+        VirtualKey.left    { events.KeyCode.arrowLeft }
+        VirtualKey.right   { events.KeyCode.arrowRight }
+        VirtualKey.down    { events.KeyCode.arrowDown }
+        VirtualKey.up      { events.KeyCode.arrowUp }
+        _                  { events.KeyCode.unknown }
     }
 }
 

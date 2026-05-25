@@ -3,7 +3,7 @@
 /// fires live while the thumb is being dragged.
 
 use std.events { Signal }
-use event { SliderEvent }
+use events { SliderEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeSlider, readSliderValue,

@@ -13,7 +13,7 @@
 ///   window.addChild(t)
 
 use std.events { Signal }
-use event { ChangeEvent }
+use events { ChangeEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeEdit, readEditText,
