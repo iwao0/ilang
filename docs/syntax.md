@@ -2107,26 +2107,6 @@ if let some(n) = safeRead(fd, buf) {
 }
 ```
 
-#### Opaque handles
-
-The successor to `@extern("lib") class Foo {}`. An **empty struct**
-acts as the opaque handle:
-
-```rust
-@extern(C) {
-    struct FILE {}
-    @lib("c") fn fopen(path: *const char, mode: *const char): *FILE
-    @lib("c") fn fclose(stream: *FILE): i32
-}
-```
-
-- `*FILE` is a raw C pointer (i64) at the ABI level.
-- `new FILE()` is **forbidden** (raw pointer types can't be
-  constructed from ilang).
-- Cleanup is the caller's responsibility — call `fclose(...)`
-  explicitly. There's no automatic RAII / ARC (the old
-  `deinit`-on-opaque-class behaviour is gone).
-
 #### Out-pointer (sqlite3_open style)
 
 ```rust
