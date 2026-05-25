@@ -153,6 +153,7 @@ pub fn gen_state_ref_class(
         span,
         is_override: false,
         is_async: false,
+        intrinsic_name: None,
     };
     ClassDecl {
         extern_lib: None,
@@ -292,6 +293,7 @@ pub fn gen_poll_fn(
         span,
         is_override: false,
         is_async: false,
+        intrinsic_name: None,
     }
 }
 
@@ -952,5 +954,6 @@ pub fn gen_wrapper_fn(
         span: orig.span,
         is_override: orig.is_override,
         is_async: false,
+        intrinsic_name: None,
     }
 }

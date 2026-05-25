@@ -677,6 +677,7 @@ fn build_root_deinit(ctx: &ObjcCtx<'_>, span: Span) -> FnDecl {
         span,
         is_override: false,
         is_async: false,
+        intrinsic_name: None,
     }
 }
 
@@ -767,6 +768,7 @@ fn build_freefn_dispatch(
         libs: Box::new([Symbol::intern("objc")]),
         optional: false,
         c_symbol: Some(Symbol::intern("objc_msgSend")),
+        intrinsic_name: None,
         variadic: false,
         span: m.span,
     };
@@ -804,6 +806,7 @@ fn build_freefn_dispatch(
         span: m.span,
         is_override: false,
         is_async: false,
+        intrinsic_name: None,
     });
     (alias, wrapper)
 }
@@ -912,6 +915,7 @@ fn build_objc_class(
         span,
         is_override: false,
         is_async: false,
+        intrinsic_name: None,
     };
     let unowned_init_fn = FnDecl {
         is_pub: true,
@@ -930,6 +934,7 @@ fn build_objc_class(
         span,
         is_override: false,
         is_async: false,
+        intrinsic_name: None,
     };
 
     // Auto-deinit on the root @objc class: release the underlying
@@ -983,6 +988,7 @@ fn build_objc_class(
         span,
         is_override: false,
         is_async: false,
+        intrinsic_name: None,
     };
     // Mirror of `__wrap_handle` for the non-owning case — wraps a
     // handle whose retain count we don't manage. Block callback
@@ -1002,6 +1008,7 @@ fn build_objc_class(
         span,
         is_override: false,
         is_async: false,
+        intrinsic_name: None,
     };
     let mut static_methods: Vec<FnDecl> = vec![wrap_fn, wrap_unowned_fn];
     let mut aliases: Vec<ilang_ast::ExternCItem> = Vec::new();
@@ -1054,6 +1061,7 @@ fn build_objc_class(
                 span: m.span,
                 is_override: false,
                 is_async: false,
+                intrinsic_name: None,
             };
             if m.is_static {
                 static_methods.push(plain_fn);
@@ -1162,6 +1170,7 @@ fn build_objc_class(
                 span: m.span,
                 is_override: false,
                 is_async: false,
+                intrinsic_name: None,
             };
             if m.is_static {
                 static_methods.push(impl_fn);
@@ -1326,6 +1335,7 @@ fn build_class_method(
         libs: Box::new([Symbol::intern("objc")]),
         optional: false,
         c_symbol: Some(Symbol::intern("objc_msgSend")),
+        intrinsic_name: None,
         variadic: false,
         span: m.span,
     };
@@ -1600,6 +1610,7 @@ fn build_class_method(
         // selector's implementation at registration time).
         is_override: m.is_override,
         is_async: false,
+        intrinsic_name: None,
     };
     (alias_decl, method_fn)
 }
@@ -1679,6 +1690,7 @@ fn build_super_helper(
         libs: Box::new([Symbol::intern("objc")]),
         optional: false,
         c_symbol: Some(Symbol::intern("objc_msgSendSuper")),
+        intrinsic_name: None,
         variadic: false,
         span,
     };
@@ -1814,6 +1826,7 @@ fn build_super_helper(
         span,
         is_override: false,
         is_async: false,
+        intrinsic_name: None,
     };
     (helper_fn, alias_decl)
 }
@@ -2149,6 +2162,7 @@ fn build_imp_fn(
         span: m.span,
         is_override: false,
         is_async: false,
+        intrinsic_name: None,
     };
     ilang_ast::ExternCItem::FnDef(fndecl)
 }
@@ -2347,6 +2361,7 @@ fn build_register_class_fn(
         span,
         is_override: false,
         is_async: false,
+        intrinsic_name: None,
     }
 }
 
@@ -2665,6 +2680,7 @@ fn finalize_objc_block(
                     libs: Box::new([Symbol::intern("objc")]),
                     optional: false,
                     c_symbol: Some(Symbol::intern("sel_registerName")),
+                    intrinsic_name: None,
                     variadic: false,
                     span: block_span,
                 },
@@ -2712,6 +2728,7 @@ fn finalize_objc_block(
                     libs: Box::new([Symbol::intern("objc")]),
                     optional: false,
                     c_symbol: Some(Symbol::intern("objc_retain")),
+                    intrinsic_name: None,
                     variadic: false,
                     span: block_span,
                 });
@@ -2731,6 +2748,7 @@ fn finalize_objc_block(
                     libs: Box::new([Symbol::intern("objc")]),
                     optional: false,
                     c_symbol: Some(Symbol::intern("objc_release")),
+                    intrinsic_name: None,
                     variadic: false,
                     span: block_span,
                 });
@@ -2774,6 +2792,7 @@ fn finalize_objc_block(
                         libs: Box::new([Symbol::intern("objc")]),
                         optional: false,
                         c_symbol: Some(Symbol::intern("objc_getClass")),
+                        intrinsic_name: None,
                         variadic: false,
                         span: block_span,
                     },
@@ -2819,6 +2838,7 @@ fn finalize_objc_block(
                     libs: Box::new([Symbol::intern("objc")]),
                     optional: false,
                     c_symbol: Some(Symbol::intern("objc_allocateClassPair")),
+                    intrinsic_name: None,
                     variadic: false,
                     span: block_span,
                 });
@@ -2838,6 +2858,7 @@ fn finalize_objc_block(
                     libs: Box::new([Symbol::intern("objc")]),
                     optional: false,
                     c_symbol: Some(Symbol::intern("objc_registerClassPair")),
+                    intrinsic_name: None,
                     variadic: false,
                     span: block_span,
                 });
@@ -2887,6 +2908,7 @@ fn finalize_objc_block(
                     libs: Box::new([Symbol::intern("objc")]),
                     optional: false,
                     c_symbol: Some(Symbol::intern("class_addMethod")),
+                    intrinsic_name: None,
                     variadic: false,
                     span: block_span,
                 });
@@ -2929,6 +2951,7 @@ fn finalize_objc_block(
                     libs: Box::new([Symbol::intern("c")]),
                     optional: false,
                     c_symbol: Some(Symbol::intern("$ilang.objcImpLookup")),
+                    intrinsic_name: None,
                     variadic: false,
                     span: block_span,
                 });
@@ -3017,6 +3040,7 @@ fn finalize_objc_block(
                 libs: block_libs.into_boxed_slice(),
                 optional: true,
                 c_symbol: Some(Symbol::intern("$objc.blockLoadPhantom")),
+                intrinsic_name: None,
                 variadic: false,
                 span: block_span,
             });

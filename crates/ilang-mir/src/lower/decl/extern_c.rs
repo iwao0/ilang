@@ -368,12 +368,19 @@ impl Lower {
         for item in blk.items.iter() {
             match item {
                 ast::ExternCItem::FnDecl {
-                    name, params, ret, libs, optional, variadic, c_symbol, ..
+                    name, params, ret, libs, optional, variadic, c_symbol, intrinsic_name, ..
                 } => {
                     if self.fn_ids.contains_key(name) {
                         continue;
                     }
                     let mangled = *name;
+                    // `@intrinsic("X")` carries `$X` in
+                    // `intrinsic_name`; route it through the lowered
+                    // Function's `c_symbol` slot so the cranelift
+                    // import resolves the runtime name. Stays
+                    // independent of `@lib` / `@symbol` (libs stays
+                    // empty, no `@optional` semantics).
+                    let effective_c_symbol = intrinsic_name.or(*c_symbol);
                     let id = FuncId(self.funcs.len() as u32);
                     let kind = FunctionKind::Extern { sig_only: true };
                     let mir_params: Vec<MirTy> = params
@@ -415,7 +422,7 @@ impl Lower {
                         closure_env: None,
                         span: None,
                         local_tys: Vec::new(),
-                        c_symbol: *c_symbol,
+                        c_symbol: effective_c_symbol,
                         is_optional: *optional,
                         libs: libs.iter().copied().collect(),
                         is_variadic: *variadic,
@@ -434,7 +441,7 @@ impl Lower {
                             libs: libs.iter().copied().collect(),
                             optional: *optional,
                             variadic: *variadic,
-                            c_symbol: c_symbol.unwrap_or(mangled),
+                            c_symbol: effective_c_symbol.unwrap_or(mangled),
                         },
                     );
                 }
@@ -454,12 +461,19 @@ impl Lower {
         for item in blk.items.iter() {
             match item {
                 ast::ExternCItem::FnDecl {
-                    name, params, ret, libs, optional, variadic, c_symbol, ..
+                    name, params, ret, libs, optional, variadic, c_symbol, intrinsic_name, ..
                 } => {
                     if self.fn_ids.contains_key(name) {
                         continue;
                     }
                     let mangled = *name;
+                    // `@intrinsic("X")` carries `$X` in
+                    // `intrinsic_name`; route it through the lowered
+                    // Function's `c_symbol` slot so the cranelift
+                    // import resolves the runtime name. Stays
+                    // independent of `@lib` / `@symbol` (libs stays
+                    // empty, no `@optional` semantics).
+                    let effective_c_symbol = intrinsic_name.or(*c_symbol);
                     let id = FuncId(self.funcs.len() as u32);
                     let kind = FunctionKind::Extern { sig_only: true };
                     let mir_params: Vec<MirTy> = params
@@ -505,7 +519,7 @@ impl Lower {
                         closure_env: None,
                         span: None,
                         local_tys: Vec::new(),
-                        c_symbol: *c_symbol,
+                        c_symbol: effective_c_symbol,
                         is_optional: *optional,
                         libs: libs.iter().copied().collect(),
                         is_variadic: *variadic,
@@ -526,7 +540,7 @@ impl Lower {
                             libs: libs.iter().copied().collect(),
                             optional: *optional,
                             variadic: *variadic,
-                            c_symbol: c_symbol.unwrap_or(mangled),
+                            c_symbol: effective_c_symbol.unwrap_or(mangled),
                         },
                     );
                 }

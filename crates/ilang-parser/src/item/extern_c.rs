@@ -188,6 +188,7 @@ impl<'a> Parser<'a> {
         let mut libs: Vec<Symbol> = Vec::new();
         let mut optional = false;
         let mut c_symbol: Option<Symbol> = None;
+        let mut intrinsic_name: Option<Symbol> = None;
         for a in &attrs {
             match a.name.as_str() {
                 "lib" => {
@@ -235,11 +236,33 @@ impl<'a> Parser<'a> {
                         _ => return Err(bad),
                     }
                 }
+                "intrinsic" => {
+                    // `@intrinsic("ffi.readI8")` inside `@extern(C)`
+                    // binds the fn to the runtime symbol `$ffi.readI8`.
+                    // Stored in a dedicated field so codegen can route
+                    // through the intrinsic-only import path without
+                    // sharing the `@lib`/`@symbol` c_symbol machinery.
+                    let t = self.peek();
+                    let bad = ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "@intrinsic(\"name\") takes exactly one non-empty string argument".into(),
+                        span: t.span,
+                    };
+                    if a.args.len() != 1 {
+                        return Err(bad);
+                    }
+                    match &a.args[0] {
+                        ilang_ast::AttrArg::Str(s) if !s.is_empty() => {
+                            intrinsic_name = Some(format!("${}", s.as_str()).into());
+                        }
+                        _ => return Err(bad),
+                    }
+                }
                 _ => {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
                         found: t.kind.clone(),
-                        expected: "@lib(\"libname\", ...), @optional, or @symbol(\"c_name\") (no other attributes accepted on extern(C) fn)".into(),
+                        expected: "@lib(\"libname\", ...), @optional, @symbol(\"c_name\"), or @intrinsic(\"name\") (no other attributes accepted on extern(C) fn)".into(),
                         span: t.span,
                     });
                 }
@@ -290,6 +313,7 @@ impl<'a> Parser<'a> {
                 span,
                 is_override: false,
             is_async: false,
+            intrinsic_name: None,
             };
             Ok(ilang_ast::ExternCItem::FnDef(fn_decl))
         } else {
@@ -304,6 +328,7 @@ impl<'a> Parser<'a> {
                 optional,
                 variadic,
                 c_symbol,
+                intrinsic_name,
                 span,
             })
         }

@@ -69,6 +69,13 @@ pub struct FnDecl {
     /// body `await expr` is allowed (suspends the fn until the
     /// awaited promise settles, evaluating to its inner value).
     pub is_async: bool,
+    /// `@intrinsic("ffi.X")` — the fn has no user body and binds
+    /// directly to the runtime symbol `$ffi.X` (the `$`-prefixed
+    /// form lives here). `body` is an empty `Block` in this case;
+    /// codegen declares a cranelift import and skips body lowering.
+    /// Independent of the `@lib(...)` / `@symbol(...)` C-side
+    /// resolution path used by `ExternCItem::FnDecl::c_symbol`.
+    pub intrinsic_name: Option<Symbol>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -431,6 +438,13 @@ pub enum ExternCItem {
         /// (e.g. `fn my_sprintf` calling `sprintf`). `None` means use
         /// `name` as both the ilang name and the C symbol.
         c_symbol: Option<Symbol>,
+        /// `@intrinsic("ffi.X")` — same runtime-symbol binding as on
+        /// top-level `FnDecl`, but expressed inside an `@extern(C)`
+        /// block so the signature can mention raw pointers / `size_t`
+        /// without breaking the top-level "no C-only types" rule.
+        /// `c_symbol` and `libs` stay empty for intrinsics — the
+        /// dispatch goes through the intrinsic-only path in codegen.
+        intrinsic_name: Option<Symbol>,
         span: Span,
     },
     /// `fn name(...): T { body }` — ilang-side definition with C ABI.

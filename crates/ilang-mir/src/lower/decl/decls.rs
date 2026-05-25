@@ -145,6 +145,17 @@ impl Lower {
         if !fd.type_params.is_empty() {
             return Err(LowerError::Unsupported("generic functions"));
         }
+        // `@intrinsic` fns are body-less. Route the MIR registration
+        // through the extern-style helper so the function lowers as
+        // `Extern { sig_only: true }` with the runtime symbol on the
+        // import side — independent of the `@lib` / `@symbol` paths
+        // (no libs, no @optional). The `intrinsic_name` field on the
+        // AST already carries the final `$X` symbol the runtime
+        // exports.
+        if let Some(sym) = fd.intrinsic_name {
+            self.declare_intrinsic_fn(fd, sym)?;
+            return Ok(());
+        }
         let params: Vec<MirTy> = fd
             .params
             .iter()
@@ -172,6 +183,80 @@ impl Lower {
         entries.push(mangled);
         // Stash the source-name → primary-mangled mapping in fnDecl
         // bookkeeping so that `lower_fn` can find the right slot.
+        Ok(())
+    }
+
+    /// Register an `@intrinsic` fn as a sig-only extern function with
+    /// the runtime symbol baked in. The `c_symbol` field is the
+    /// cranelift import name; populating it via the dedicated
+    /// `intrinsic_name` source field keeps the runtime-intrinsic path
+    /// off the `@lib` / `@symbol` resolution flow.
+    fn declare_intrinsic_fn(&mut self, fd: &FnDecl, sym: Symbol) -> Result<(), LowerError> {
+        use crate::inst::{BlockId, ValueId};
+        use crate::program::{Block, FuncParam, Function};
+        if self.fn_ids.contains_key(&fd.name) {
+            return Ok(());
+        }
+        let params: Vec<MirTy> = fd
+            .params
+            .iter()
+            .map(|p| self.resolve_ty(&p.ty))
+            .collect::<Result<Vec<_>, _>>()?;
+        let ret = match &fd.ret {
+            Some(t) => self.resolve_ty(t)?,
+            None => MirTy::Unit,
+        };
+        let id = FuncId(self.funcs.len() as u32);
+        let mut value_tys: Vec<MirTy> = Vec::with_capacity(params.len());
+        let mut params_box: Vec<FuncParam> = Vec::with_capacity(params.len());
+        for (i, p) in fd.params.iter().enumerate() {
+            let v = ValueId(value_tys.len() as u32);
+            value_tys.push(params[i].clone());
+            params_box.push(FuncParam {
+                name: p.name,
+                ty: params[i].clone(),
+                value: v,
+            });
+        }
+        self.funcs.push(Function {
+            name: fd.name,
+            display_name: fd.name,
+            params: params_box.into_boxed_slice(),
+            ret: ret.clone(),
+            value_tys,
+            value_spans: vec![None; params.len()],
+            blocks: vec![Block {
+                params: Vec::new(),
+                insts: Vec::new(),
+                term: Terminator::Unreachable,
+            }],
+            entry: BlockId(0),
+            kind: FunctionKind::Extern { sig_only: true },
+            closure_env: None,
+            span: Some(fd.span),
+            local_tys: Vec::new(),
+            c_symbol: Some(sym),
+            is_optional: false,
+            libs: Vec::new(),
+            is_variadic: false,
+        });
+        self.fn_ids.insert(fd.name, id);
+        self.fn_sigs.insert(
+            fd.name,
+            FnSig {
+                params: params.clone(),
+                ret,
+            },
+        );
+        self.extern_meta.insert(
+            fd.name,
+            crate::lower::ExternMeta {
+                libs: Vec::new(),
+                optional: false,
+                variadic: false,
+                c_symbol: sym,
+            },
+        );
         Ok(())
     }
 
@@ -1006,6 +1091,12 @@ impl Lower {
     }
 
     pub(in crate::lower) fn lower_fn(&mut self, fd: &FnDecl) -> Result<(), LowerError> {
+        // `@intrinsic` fns have no user body — `declare_intrinsic_fn`
+        // already populated the MIR Function as a sig-only extern.
+        // Nothing to lower here.
+        if fd.intrinsic_name.is_some() {
+            return Ok(());
+        }
         // Resolve the right mangled name by matching this FnDecl's
         // param types against the candidates registered for `fd.name`.
         let target_params: Vec<MirTy> = fd

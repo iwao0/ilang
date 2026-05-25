@@ -235,6 +235,7 @@ fn lower_class(
                     span: Span::dummy(),
                     is_override: false,
                     is_async: false,
+                    intrinsic_name: None,
                 }
             }
         })
@@ -295,6 +296,7 @@ fn lower_async_fn(
             span: f.span,
             is_override: f.is_override,
             is_async: false,
+            intrinsic_name: None,
         }));
     }
 

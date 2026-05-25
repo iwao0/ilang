@@ -412,11 +412,37 @@ impl TypeChecker {
     }
 
     pub(super) fn check_fn(&self, f: &FnDecl, in_class: Option<Symbol>) -> Result<(), TypeError> {
-        // The async desugar pass (in the loader, before the type
-        // checker runs) clears `is_async` for every body it
-        // successfully lowered. Anything still flagged here got
-        // through with an unsupported shape — surface it at the
-        // class / nested-fn boundary too.
+        // `@intrinsic("...")` fns are runtime-provided — they carry
+        // an empty body and bind to a `$<runtime>` symbol. The body
+        // has nothing to check, but the signature still needs to
+        // pass the "no C-only types at top level" rule (forces
+        // `@intrinsic` on ptr / size_t signatures to live inside an
+        // `@extern(C) { ... }` block instead).
+        if f.intrinsic_name.is_some() {
+            for p in f.params.iter() {
+                if let Some(bad) = super::sigs::first_c_only_type(&p.ty) {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "`@intrinsic` fn `{}` parameter has C-only type `{}` — wrap the declaration in an `@extern(C) {{ ... }}` block",
+                            f.name, bad,
+                        ),
+                        span: p.span,
+                    });
+                }
+            }
+            if let Some(ret) = &f.ret {
+                if let Some(bad) = super::sigs::first_c_only_type(ret) {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "`@intrinsic` fn `{}` return type `{}` is C-only — wrap the declaration in an `@extern(C) {{ ... }}` block",
+                            f.name, bad,
+                        ),
+                        span: f.span,
+                    });
+                }
+            }
+            return Ok(());
+        }
         if f.is_async {
             return Err(TypeError::Unsupported {
                 what: format!(

@@ -223,6 +223,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
             span: f.span,
         is_override: f.is_override,
             is_async: false,
+            intrinsic_name: f.intrinsic_name,
         }),
         Item::Class(c) => Item::Class(ClassDecl {
             is_pub: false,
@@ -251,6 +252,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
                     span: m.span,
                 is_override: m.is_override,
             is_async: false,
+            intrinsic_name: None,
                 })
                 .collect(),
             static_methods: c
@@ -268,6 +270,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
                     span: m.span,
                 is_override: m.is_override,
             is_async: false,
+            intrinsic_name: None,
                 })
                 .collect(),
             static_fields: c.static_fields.clone(),
@@ -290,6 +293,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
                         span: g.span,
                     is_override: g.is_override,
             is_async: false,
+            intrinsic_name: None,
                     }),
                     setter: p.setter.as_ref().map(|s| FnDecl {
                         is_pub: false,
@@ -303,6 +307,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
                         span: s.span,
                     is_override: s.is_override,
             is_async: false,
+            intrinsic_name: None,
                     }),
                     span: p.span,
                 })
@@ -438,6 +443,7 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
                 span: e.span,
                 is_override: false,
             is_async: false,
+            intrinsic_name: None,
             }));
             ctx.closure_meta.insert(
                 name.clone(),

@@ -550,6 +550,7 @@ pub(super) fn rewrite_enum_refs_in_item(
             span: f.span,
         is_override: f.is_override,
             is_async: false,
+            intrinsic_name: f.intrinsic_name,
         }),
         Item::Class(c) => Item::Class(ClassDecl {
             is_pub: false,
@@ -598,6 +599,7 @@ pub(super) fn rewrite_enum_refs_in_item(
                     span: m.span,
                 is_override: m.is_override,
             is_async: false,
+            intrinsic_name: None,
                 })
                 .collect(),
             static_methods: c
@@ -622,6 +624,7 @@ pub(super) fn rewrite_enum_refs_in_item(
                     span: m.span,
                 is_override: m.is_override,
             is_async: false,
+            intrinsic_name: None,
                 })
                 .collect(),
             static_fields: c.static_fields.clone(),
@@ -649,6 +652,7 @@ pub(super) fn rewrite_enum_refs_in_item(
                         span: g.span,
                     is_override: g.is_override,
             is_async: false,
+            intrinsic_name: None,
                     }),
                     setter: p.setter.as_ref().map(|s| FnDecl {
                         is_pub: false,
@@ -667,6 +671,7 @@ pub(super) fn rewrite_enum_refs_in_item(
                         span: s.span,
                     is_override: s.is_override,
             is_async: false,
+            intrinsic_name: None,
                     }),
                     span: p.span,
                 })
@@ -750,7 +755,7 @@ fn rewrite_enum_refs_in_extern_c_item(
     use ilang_ast::ExternCItem;
     match item {
         ExternCItem::FnDecl {
-            is_pub, name, params, ret, libs, optional, variadic, c_symbol, span,
+            is_pub, name, params, ret, libs, optional, variadic, c_symbol, intrinsic_name, span,
         } => ExternCItem::FnDecl {
             is_pub: *is_pub,
             name: name.clone(),
@@ -768,6 +773,7 @@ fn rewrite_enum_refs_in_extern_c_item(
             optional: *optional,
             variadic: *variadic,
             c_symbol: *c_symbol,
+            intrinsic_name: *intrinsic_name,
             span: *span,
         },
         ExternCItem::FnDef(f) => ExternCItem::FnDef(FnDecl {
@@ -792,6 +798,7 @@ fn rewrite_enum_refs_in_extern_c_item(
             span: f.span,
             is_override: f.is_override,
             is_async: false,
+            intrinsic_name: None,
         }),
         ExternCItem::Class(c) => {
             // Reuse the regular class path — wrapping classes

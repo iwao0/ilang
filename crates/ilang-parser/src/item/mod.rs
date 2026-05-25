@@ -1335,6 +1335,7 @@ impl<'a> Parser<'a> {
             span,
             is_override: false,
             is_async: false,
+            intrinsic_name: None,
         })
     }
 
@@ -1423,18 +1424,18 @@ impl<'a> Parser<'a> {
         Ok(Symbol::intern(&name))
     }
 
-    /// Parse the signature half of `@intrinsic("...") [pub] fn name(...): T`
-    /// (no body) and wrap the result in an `@extern(C) { fn ... }`
-    /// block carrying the intrinsic's runtime symbol in `c_symbol`.
+    /// Parse `@intrinsic("...") [pub] fn name(...): T` (declaration
+    /// only, no body) at top level. Produces `Item::Fn` with
+    /// `intrinsic_name` set to the `$`-prefixed runtime symbol and an
+    /// empty body — codegen recognises the marker and lowers the call
+    /// site as a cranelift import without going through the
+    /// `@lib` / `@symbol` c_symbol path.
     fn parse_intrinsic_fn(
         &mut self,
         is_pub: bool,
         runtime_symbol: Symbol,
         attrs: &[Attribute],
     ) -> Result<Item, ParseError> {
-        // Other attributes mixed in alongside `@intrinsic` aren't
-        // supported — the desugar discards them and silently letting
-        // them through would surprise the author later.
         for a in attrs {
             if a.name.as_str() != "intrinsic" {
                 let t = self.peek();
@@ -1476,29 +1477,26 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        // Stamp a leading `$` onto the runtime symbol so it cannot
-        // collide with any loader-prefixed ilang fn name (`$` isn't a
-        // legal identifier character). The .il source still spells the
-        // argument cleanly (`@intrinsic("fs.readFile")`) — the sigil
-        // lives only in the runtime / host-symbol table.
-        let sigil_symbol =
-            Symbol::intern(&format!("${}", runtime_symbol.as_str()));
-        let item = ilang_ast::ExternCItem::FnDecl {
+        // `$`-prefixed runtime symbol. The `$` isn't a legal ilang
+        // identifier character so it can't collide with any user fn
+        // name; the .il source stays clean.
+        let sigil = Symbol::intern(&format!("${}", runtime_symbol.as_str()));
+        let empty_body = ilang_ast::Block {
+            stmts: Vec::new(),
+            tail: None,
+        };
+        Ok(Item::Fn(ilang_ast::FnDecl {
+            attrs: Box::new([]),
             is_pub,
             name,
+            type_params: Box::new([]),
             params: params.into(),
             ret,
-            libs: Box::new([]),
-            optional: false,
-            variadic: false,
-            c_symbol: Some(sigil_symbol),
+            body: empty_body,
             span,
-        };
-        Ok(Item::ExternC(ilang_ast::ExternCBlock {
-            items: Box::new([item]),
-            interfaces: Box::new([]),
-            consts: Box::new([]),
-            span,
+            is_override: false,
+            is_async: false,
+            intrinsic_name: Some(sigil),
         }))
     }
 
@@ -1533,6 +1531,7 @@ impl<'a> Parser<'a> {
             span,
             is_override: false,
             is_async: false,
+            intrinsic_name: None,
         })
     }
 }

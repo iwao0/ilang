@@ -102,6 +102,7 @@ impl TypeChecker {
                         span: *span,
                         is_override: false,
             is_async: false,
+            intrinsic_name: None,
                     };
                     let mut sig = signature_of(&synth);
                     // Mark dlsym'd `@lib` fns so the call-site gate

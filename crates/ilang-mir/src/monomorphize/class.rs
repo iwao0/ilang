@@ -500,6 +500,7 @@ pub(super) fn specialize_fn(f: &FnDecl, params: &[Symbol], args: &[Type]) -> FnD
         span: f.span,
         is_override: f.is_override,
             is_async: false,
+            intrinsic_name: f.intrinsic_name,
     }
 }
 
@@ -880,6 +881,7 @@ pub(super) fn rewrite_fn(f: &FnDecl) -> FnDecl {
         span: f.span,
         is_override: f.is_override,
             is_async: false,
+            intrinsic_name: f.intrinsic_name,
     }
 }
 

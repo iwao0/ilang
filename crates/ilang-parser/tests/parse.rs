@@ -262,30 +262,22 @@ fn class_base_accepts_dotted_name() {
 fn _stmt_marker(_s: Stmt) {}
 
 #[test]
-fn intrinsic_attr_desugars_to_extern_block() {
-    use ilang_ast::ExternCItem;
+fn intrinsic_attr_sets_intrinsic_name_on_fn_decl() {
     let p = parse_str(
         "@intrinsic(\"rt.do_thing\") pub fn do_thing(x: i64): i64",
     );
     assert_eq!(p.items.len(), 1, "expected one item");
-    let Item::ExternC(blk) = &p.items[0] else {
-        panic!("expected ExternC block, got {:?}", p.items[0]);
+    let Item::Fn(f) = &p.items[0] else {
+        panic!("expected Item::Fn, got {:?}", p.items[0]);
     };
-    assert_eq!(blk.items.len(), 1);
-    let ExternCItem::FnDecl {
-        name, c_symbol, is_pub, libs, ..
-    } = &blk.items[0]
-    else {
-        panic!("expected FnDecl");
-    };
-    assert_eq!(name.as_str(), "do_thing");
-    assert!(*is_pub, "pub flag should propagate");
+    assert_eq!(f.name.as_str(), "do_thing");
+    assert!(f.is_pub, "pub flag should propagate");
     assert_eq!(
-        c_symbol.as_ref().map(|s| s.as_str()),
+        f.intrinsic_name.as_ref().map(|s| s.as_str()),
         Some("$rt.do_thing"),
-        "c_symbol should hold the intrinsic argument with a `$` sigil prepended to keep it out of the ilang identifier namespace"
+        "intrinsic_name should hold the runtime symbol with a `$` sigil — independent of the c_symbol field used by `@lib` / `@symbol`",
     );
-    assert!(libs.is_empty(), "intrinsic fns carry no @lib list");
+    assert!(f.body.stmts.is_empty(), "intrinsic fn body is empty");
 }
 
 #[test]
