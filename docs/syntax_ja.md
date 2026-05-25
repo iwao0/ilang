@@ -1180,10 +1180,10 @@ pub class Counter {
 }
 
 // main.il
-use utils                       // 名前空間越しに使う
-use math { sqrt, pi }           // 選択取り込み + 名前空間
-use math as m { e }             // 別名 + 選択取り込み
-use math as _ { ln }            // 選択取り込みのみ（名前空間抑止）
+use utils                            // 名前空間越しに使う
+use std.math { sqrt, pi }            // 選択取り込み + 名前空間
+use std.math as m { e }              // 別名 + 選択取り込み
+use std.math as _ { ln }             // 選択取り込みのみ（名前空間抑止）
 
 let c = new utils.Counter(10)
 c.bump()
@@ -1203,7 +1203,7 @@ ln(2.0)                          // bare のみ。`as _` を付けたので `mat
 - 同じモジュールを複数回 `use` しても一度しかロードされない (ファイルパスで dedupe)
 - 全モジュールが 1 つの Program にマージされる (ファイル境界は型チェッカ以降は意識されない)
 - 名前空間越し import の中身は `module.X` プレフィクスで内部識別されるため、`use module` した時に親プログラムの bare 名と衝突しない
-- **同梱モジュール**: 一部のモジュールはコンパイラに埋め込まれており、ディスクの探索より優先される。現状は `math` のみ。
+- **同梱 `std` パッケージ**: 標準ライブラリは `libs/std/*.il` に置かれており、コンパイラバイナリに `include_str!` で同梱される。`use std.<module>` で参照する。現時点で提供しているのは `std.math` / `std.test` / `std.os` / `std.fs` / `std.path` / `std.regex` / `std.time` / `std.events` / `std.ffi`。`std.` プレフィクス無しの bare `use math` などは受け付けられず、`use std.math と書いてください` という診断が出る
 
 #### `use ... as` (別名 / 名前空間抑止)
 
@@ -1744,10 +1744,10 @@ fn make(): simd.f32x4 {
 - **`simd.fNxM[]` 配列**は利用可能で、レーン幅に応じて連続レイアウト (16バイト / 8バイト アライン) される。`simd.f32x2[]` を `const vector_float2 *` を取る ObjC メソッドに渡すと、生成されたブリッジ内で暗黙の `arr as *const simd.f32x2` キャストが入る
 - **`.x` / `.y` / `[i]` といったレーンアクセスは無い** — ObjC API を経由するか、計算が必要なら通常のスカラー配列で行い、境界部分でのみ SIMD に coerce する
 
-### 組み込み `math` モジュール
+### 組み込み `std.math` モジュール
 
 ```rust
-use math
+use std.math
 math.sqrt(16.0)              // 4.0
 math.sin(math.pi / 2.0)      // 1.0  ← `math.pi` は const、parens 不要
 math.pow(2.0, 10.0)          // 1024.0
@@ -1756,12 +1756,12 @@ math.atan2(1.0, 1.0)         // π/4
 
 提供関数 (すべて f64): `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sqrt`, `pow`, `exp`, `ln`, `log10`, `log2`, `floor`, `ceil`, `round`, `abs`。定数: `pi`, `e` (`const` 宣言で同梱)。interpreter / JIT 両対応。
 
-### 組み込み `test` モジュール
+### 組み込み `std.test` モジュール
 
 自己アサーションのスクリプト + 結合テストフィクスチャ用。失敗時は stderr にメッセージを出して **exit code 2** で終了する。
 
 ```rust
-use test
+use std.test
 test.expect(1 + 2 * 3, 7)              // i64 同士
 test.expectStr("ab" + "c", "abc")      // string 同士
 test.expectBool(false, false)
@@ -1773,12 +1773,12 @@ test.fail("should not reach here")    // 強制失敗
 
 interpreter / JIT 両対応。`crates/ilang-cli/tests/programs/*.il` に置いた `.il` ファイルは、ハーネス (`programs.rs`) が両方で実行 + 終了コードを比較してくれる。
 
-### 組み込み `os` モジュール
+### 組み込み `std.os` モジュール
 
 OS レベルの状態にアクセスするための薄いヘルパー。errno の読み書きと、POSIX 標準のエラーコード定数を提供。
 
 ```rust
-use os
+use std.os
 use std.ffi { cstrFromString }
 
 @extern(C) {
@@ -1826,12 +1826,12 @@ if tryOpen("/missing", "r") == 0 as i32 {
 
 interpreter / JIT 両対応 (Rust の C runtime の errno を直接読み書きする実装で共通)
 
-### 組み込み `regex` モジュール
+### 組み込み `std.regex` モジュール
 
 正規表現エンジン。クラスとして提供される。ランタイムは Rust の [`regex`](https://docs.rs/regex) crate を薄くラップしているため、パターンは真の正規言語に限られる — 線形時間で高速にマッチするかわりに、**後方参照 (backreference) と先読み / 後読み (lookaround) は使えない**。
 
 ```rust
-use regex
+use std.regex
 
 let r = new regex.Regex("foo+", "i")
 
@@ -1862,12 +1862,12 @@ r.split("a foo b Foo c")        // ["a ", " b ", " c"]
 
 コンパイル済みパターンは不透明なハンドル経由で Rust ヒープ上に保持され、ラッパーの `deinit` で `Regex` オブジェクトの refcount が 0 になったタイミングで解放される。interpreter / JIT 両対応
 
-### 組み込み `path` モジュール
+### 組み込み `std.path` モジュール
 
 Node.js 風のパス操作。**セパレータは常に `/` 固定** (ホスト OS によらない) — Windows 形式の `\\` パスを扱いたい場合は事前に `replace` で `/` に変換しておく。Pure ilang 実装、FFI なし、どこからでも安全に呼べる。
 
 ```rust
-use path
+use std.path
 
 path.basename("/foo/bar/baz.txt")        // "baz.txt"
 path.basename("/foo/bar/baz.txt", ".txt") // "baz"
@@ -1901,12 +1901,12 @@ path.format(p)                            // "/foo/bar/baz.txt"
 
 `PathParts` は public class。`format` に渡す独自の値を作りたい場合は `new PathParts(...)` で組み立てればよい。
 
-### 組み込み `events` モジュール
+### 組み込み `std.events` モジュール
 
 Node.js 風の最小 EventEmitter。ペイロード型ひとつで generic、リスナーは登録順に同期実行。Pure ilang 実装、FFI なし。
 
 ```rust
-use events
+use std.events
 
 let bus = new events.EventEmitter<i32>()
 

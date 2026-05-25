@@ -1485,10 +1485,10 @@ pub class Counter {
 }
 
 // main.il
-use utils                       // namespaced
-use math { sqrt, pi }           // selective + namespace
-use math as m { e }             // alias + selective
-use math as _ { ln }            // selective only (no namespace)
+use utils                            // namespaced
+use std.math { sqrt, pi }            // selective + namespace
+use std.math as m { e }              // alias + selective
+use std.math as _ { ln }             // selective only (no namespace)
 
 let c = new utils.Counter(10)
 c.bump()
@@ -1529,9 +1529,13 @@ ln(2.0)                          // bare only — `math.ln` rejected after `as _
 - Items imported namespaced are internally tagged with
   `module.X`, so they don't collide with parent-program bare
   names.
-- **Built-in modules**: a few modules ship inside the compiler
-  and are preferred over disk lookup. Today these are `math`,
-  `os`, `test`.
+- **Built-in `std` package**: the standard library lives at
+  `libs/std/*.il` and is bundled into the compiler binary (via
+  `include_str!`). Reach them with `use std.<module>` — today the
+  set is `std.math`, `std.test`, `std.os`, `std.fs`, `std.path`,
+  `std.regex`, `std.time`, `std.events`, and `std.ffi`. Bare
+  `use math` (without the `std.` prefix) is no longer accepted —
+  the loader emits a diagnostic pointing to `use std.math`.
 
 ### `use ... as` (alias, namespace suppression)
 
@@ -2356,10 +2360,10 @@ fn make(): simd.f32x4 {
   through ObjC APIs or, when you need arithmetic, do it on plain
   scalar arrays and only coerce to SIMD at the boundary.
 
-### Built-in `math` module
+### Built-in `std.math` module
 
 ```rust
-use math
+use std.math
 math.sqrt(16.0)              // 4.0
 math.sin(math.pi / 2.0)      // 1.0  ← `math.pi` is a const, no parens
 math.pow(2.0, 10.0)          // 1024.0
@@ -2371,13 +2375,13 @@ Functions (all f64): `sin`, `cos`, `tan`, `asin`, `acos`, `atan`,
 `ceil`, `round`, `abs`. Constants: `pi`, `e` (declared as `const`
 in the bundled module). Both interpreter and JIT.
 
-### Built-in `test` module
+### Built-in `std.test` module
 
 For self-asserting scripts and integration-test fixtures. On
 failure, prints to stderr and exits with **exit code 2**.
 
 ```rust
-use test
+use std.test
 test.expect(1 + 2 * 3, 7)              // i64 vs i64
 test.expectStr("ab" + "c", "abc")      // string vs string
 test.expectBool(false, false)
@@ -2392,13 +2396,13 @@ Both interpreter and JIT. `.il` files in
 harness (`programs.rs`), which runs them in both modes and
 compares exit codes.
 
-### Built-in `os` module
+### Built-in `std.os` module
 
 A thin wrapper over OS-level state — errno read/write plus
 POSIX-standard error-code constants.
 
 ```rust
-use os
+use std.os
 use std.ffi { cstrFromString }
 
 @extern(C) {
@@ -2478,7 +2482,7 @@ checking your platform's headers, or call libc directly through
 Both interpreter and JIT (the implementation reads / writes
 Rust's C-runtime errno directly).
 
-### Built-in `regex` module
+### Built-in `std.regex` module
 
 A regular-expression engine, exposed as a class. The runtime
 wraps Rust's [`regex`](https://docs.rs/regex) crate, so patterns
@@ -2486,7 +2490,7 @@ are real regular languages — fast linear-time matching, **no
 backreferences, no lookaround**.
 
 ```rust
-use regex
+use std.regex
 
 let r = new regex.Regex("foo+", "i")
 
@@ -2526,7 +2530,7 @@ The compiled pattern lives on the Rust heap behind an opaque
 handle; the wrapper's `deinit` frees it when the `Regex`
 object's refcount drops to zero. Both interpreter and JIT.
 
-### Built-in `path` module
+### Built-in `std.path` module
 
 Node.js-style path manipulation. **Always uses `/` as the
 separator**, regardless of host OS — convert Windows `\\` paths
@@ -2534,7 +2538,7 @@ yourself before feeding them in. Pure ilang implementation, no
 FFI, safe to call from anywhere.
 
 ```rust
-use path
+use std.path
 
 path.basename("/foo/bar/baz.txt")        // "baz.txt"
 path.basename("/foo/bar/baz.txt", ".txt") // "baz"
@@ -2574,14 +2578,14 @@ path.format(p)                            // "/foo/bar/baz.txt"
 `PathParts` is a public class — instantiate it directly to feed
 custom shapes into `format`.
 
-### Built-in `events` module
+### Built-in `std.events` module
 
 Minimal Node.js-style EventEmitter, generic over a single
 payload type. Listeners run synchronously in registration order.
 Pure ilang implementation, no FFI.
 
 ```rust
-use events
+use std.events
 
 let bus = new events.EventEmitter<i32>()
 
