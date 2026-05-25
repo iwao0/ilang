@@ -222,32 +222,63 @@ pub(crate) fn build_doc(
                         "use",
                         u.module.as_str(),
                     ) {
-                        let loc = walker.external_sources.get(&u.module);
-                        let target_uri = loc
-                            .and_then(|l| Url::from_file_path(&l.path).ok());
-                        let (target_span, target_name_len, no_def) = match &loc {
-                            Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
-                            _ => (name_span, u.module.as_str().len() as u32, target_uri.is_none()),
-                        };
-                        // Module-level doc — top-of-file `///` block
-                        // harvested into `external_docs[u.module]` by
-                        // `walk_module`. Surfaces on hover over the
-                        // module name in `use foundation` etc.
-                        let mod_doc = walker
-                            .external_docs
-                            .get(&u.module)
-                            .cloned();
-                        walker.refs.push(RefEntry {
-                            line: name_span.line,
-                            start_col: name_span.col,
-                            end_col: name_span.col + u.module.as_str().len() as u32,
-                            target_span,
-                            target_name_len,
-                            signature: format!("(module) {}", u.module),
-                            no_definition: no_def,
-                            target_uri,
-                            doc: mod_doc,
-                        });
+                        // For `use a.b.c` produce one hover entry per
+                        // path segment so each `a` / `b` / `c` in the
+                        // import line lands on `(module) a`,
+                        // `(module) a.b`, `(module) a.b.c`. Single-
+                        // segment imports (`use foundation`) keep the
+                        // previous one-entry behavior since the loop
+                        // runs once with `cumulative == u.module`.
+                        let mut segments: Vec<&str> =
+                            Vec::with_capacity(1 + u.subpath.len());
+                        segments.push(u.module.as_str());
+                        for seg in u.subpath.iter() {
+                            segments.push(seg.as_str());
+                        }
+                        let mut seg_line = name_span.line;
+                        let mut seg_col = name_span.col;
+                        for (i, seg) in segments.iter().enumerate() {
+                            let cumulative: String = segments[..=i].join(".");
+                            let key = AstSymbol::intern(&cumulative);
+                            let loc = walker.external_sources.get(&key);
+                            let target_uri = loc
+                                .and_then(|l| Url::from_file_path(&l.path).ok());
+                            let (target_span, target_name_len, no_def) = match &loc {
+                                Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
+                                _ => (
+                                    Span::new(seg_line, seg_col),
+                                    seg.len() as u32,
+                                    target_uri.is_none(),
+                                ),
+                            };
+                            let mod_doc = walker.external_docs.get(&key).cloned();
+                            walker.refs.push(RefEntry {
+                                line: seg_line,
+                                start_col: seg_col,
+                                end_col: seg_col + seg.len() as u32,
+                                target_span,
+                                target_name_len,
+                                signature: format!("(module) {cumulative}"),
+                                no_definition: no_def,
+                                target_uri,
+                                doc: mod_doc,
+                            });
+                            // Advance past `seg` and the following dot
+                            // (if any) to the next segment's start column.
+                            // The loop's last iteration writes past the
+                            // last segment, which is fine since we don't
+                            // read those values again.
+                            if i + 1 < segments.len() {
+                                if let Some((l, c)) = crate::text::locate_dot_name(
+                                    &text,
+                                    Span::new(seg_line, seg_col),
+                                    segments[i + 1],
+                                ) {
+                                    seg_line = l;
+                                    seg_col = c;
+                                }
+                            }
+                        }
                     }
                     // `use module { name1, name2 }` — push a hover /
                     // F12 entry on each selectively-imported name so
