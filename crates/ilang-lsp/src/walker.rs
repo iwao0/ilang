@@ -1502,62 +1502,66 @@ impl<'a> Walker<'a> {
         let Some(sig) = self.external_signatures.get(&AstSymbol::intern(dotted)) else {
             return;
         };
-        let Some(dot) = dotted.find('.') else {
+        let segments: Vec<&str> = dotted.split('.').collect();
+        if segments.len() < 2 {
             return;
-        };
-        let prefix = &dotted[..dot];
-        let suffix = &dotted[dot + 1..];
-        // Hover at the receiver name itself (e.g. `math` in `math.sqrt`).
-        // The Call/Var AST span points at the start of the dotted form.
-        // F12 on the prefix navigates to the start of the module file.
-        let prefix_loc = self.external_sources.get(&AstSymbol::intern(prefix));
-        let prefix_uri = prefix_loc
-            .and_then(|l| Url::from_file_path(&l.path).ok());
-        let (prefix_target_span, prefix_target_name_len, prefix_no_def) = match prefix_loc {
-            Some(l) if prefix_uri.is_some() => (l.span, l.name_len, false),
-            _ => (receiver_span, prefix.len() as u32, true),
-        };
-        // Module-level doc — top-of-file `///` block surfaced via
-        // `external_docs[prefix]`, set by `walk_module`. Lets the
-        // dotted `sdl.Window` form's hover on `sdl` show the same
-        // module description as the `use sdl` import line.
-        let prefix_doc = self
-            .external_docs
-            .get(&AstSymbol::intern(prefix))
-            .cloned();
-        self.refs.push(RefEntry {
-            line: receiver_span.line,
-            start_col: receiver_span.col,
-            end_col: receiver_span.col + prefix.len() as u32,
-            target_span: prefix_target_span,
-            target_name_len: prefix_target_name_len,
-            signature: format!("(module) {prefix}"),
-            no_definition: prefix_no_def,
-            target_uri: prefix_uri,
-            doc: prefix_doc,
-        });
-        if let Some((line, col)) = locate_dot_name(self.text, receiver_span, suffix) {
-            // F12 on the suffix (e.g. `.sqrt` in `math.sqrt`) navigates
-            // to the actual decl line in the source file when we know
-            // it; otherwise hover-only.
-            let loc = self.external_sources.get(&AstSymbol::intern(dotted));
-            let target_uri = loc
-                .and_then(|l| Url::from_file_path(&l.path).ok());
-            let (target_span, target_name_len) = match loc {
-                Some(l) if target_uri.is_some() => (l.span, l.name_len),
-                _ => (receiver_span, suffix.len() as u32),
+        }
+        // Every dotted ref produces one RefEntry per segment so hover
+        // on each segment shows the right level of detail:
+        //   * intermediate segments → `(module) <prefix>` with doc
+        //     pulled from the matching top-of-file `///` block
+        //   * the last segment → the item's own signature + doc
+        //
+        // For 2-segment refs (`math.sqrt`) this reproduces the old
+        // two-entry behavior; for deeper paths (`std.math.sqrt`) the
+        // middle segment now hovers as `(module) std.math` instead of
+        // borrowing the leaf item's signature.
+        let mut col_cursor = receiver_span.col;
+        for i in 0..segments.len() {
+            let seg = segments[i];
+            let is_last = i + 1 == segments.len();
+            let cumulative: String = segments[..=i].join(".");
+            // For an intermediate segment we synthesise a module
+            // hover; for the leaf we look up the actual item.
+            let (signature, doc, loc, name_len_hint) = if is_last {
+                let item_loc = self.external_sources.get(&AstSymbol::intern(dotted));
+                let item_doc = self.external_docs.get(&AstSymbol::intern(dotted)).cloned();
+                (sig.clone(), item_doc, item_loc, seg.len() as u32)
+            } else {
+                let mod_loc = self.external_sources.get(&AstSymbol::intern(&cumulative));
+                let mod_doc = self.external_docs.get(&AstSymbol::intern(&cumulative)).cloned();
+                (format!("(module) {cumulative}"), mod_doc, mod_loc, seg.len() as u32)
+            };
+            let target_uri = loc.and_then(|l| Url::from_file_path(&l.path).ok());
+            let (target_span, target_name_len, no_def) = match loc {
+                Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
+                _ => (receiver_span, name_len_hint, true),
+            };
+            // First segment sits at the receiver-span column; later
+            // segments are placed by walking the source for each
+            // dotted suffix so their start_col matches the literal
+            // position in the buffer.
+            let (line, start_col) = if i == 0 {
+                (receiver_span.line, col_cursor)
+            } else {
+                let tail: String = segments[i..].join(".");
+                let Some((l, c)) = locate_dot_name(self.text, receiver_span, &tail) else {
+                    continue;
+                };
+                (l, c)
             };
             self.refs.push(RefEntry {
                 line,
-                start_col: col,
-                end_col: col + suffix.len() as u32,
+                start_col,
+                end_col: start_col + seg.len() as u32,
                 target_span,
                 target_name_len,
-                signature: sig.clone(),
-                no_definition: target_uri.is_none(),
+                signature,
+                no_definition: no_def,
                 target_uri,
-                doc: self.external_docs.get(&AstSymbol::intern(dotted)).cloned(),
+                doc,
             });
+            col_cursor = start_col + seg.len() as u32 + 1;
         }
     }
 
