@@ -276,6 +276,13 @@ pub(crate) fn global_completions(
             modules.insert(m.to_string());
         }
     }
+    // Aliased dotted imports (`use std.math as math`) register items
+    // under the full dotted prefix (`std.math.X`), so the split above
+    // only ever collects `std`. Surface the user-chosen alias name as
+    // a MODULE candidate as well so typing `m` offers `math`.
+    for name in doc.imported_modules.iter() {
+        modules.insert(name.as_str().to_string());
+    }
     for m in modules {
         // `NSWindowStyleMask.titled` etc. live in `external_signatures`
         // as dotted keys (variant accesses), so the split above would
