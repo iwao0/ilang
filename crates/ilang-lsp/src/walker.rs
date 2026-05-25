@@ -1506,18 +1506,24 @@ impl<'a> Walker<'a> {
         if segments.len() < 2 {
             return;
         }
-        // Every dotted ref produces one RefEntry per segment so hover
-        // on each segment shows the right level of detail:
-        //   * intermediate segments → `(module) <prefix>` with doc
-        //     pulled from the matching top-of-file `///` block
+        // The AST may carry more segments than the source literally
+        // wrote — `use std.math as math` aliases `math.abs(...)` to
+        // the canonical `std.math.abs` callee, but only `math.abs`
+        // shows in the buffer. Find which segment of the dotted
+        // chain the buffer starts at by matching the identifier at
+        // `receiver_span` against the segments; treat everything
+        // before that as a logical prefix (skipped for refs).
+        let source_head = crate::text::read_identifier_at(self.text, receiver_span);
+        let start_idx = match source_head {
+            Some(head) => segments.iter().position(|s| *s == head).unwrap_or(0),
+            None => 0,
+        };
+        // Each ref produces one RefEntry per segment so hover on
+        // each segment shows the right level of detail:
+        //   * intermediate segments → `(module) <cumulative>` with
+        //     doc pulled from the matching top-of-file `///` block
         //   * the last segment → the item's own signature + doc
-        //
-        // For 2-segment refs (`math.sqrt`) this reproduces the old
-        // two-entry behavior; for deeper paths (`std.math.sqrt`) the
-        // middle segment now hovers as `(module) std.math` instead of
-        // borrowing the leaf item's signature.
-        let mut col_cursor = receiver_span.col;
-        for i in 0..segments.len() {
+        for i in start_idx..segments.len() {
             let seg = segments[i];
             let is_last = i + 1 == segments.len();
             let cumulative: String = segments[..=i].join(".");
@@ -1537,12 +1543,12 @@ impl<'a> Walker<'a> {
                 Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
                 _ => (receiver_span, name_len_hint, true),
             };
-            // First segment sits at the receiver-span column; later
-            // segments are placed by walking the source for each
-            // dotted suffix so their start_col matches the literal
-            // position in the buffer.
-            let (line, start_col) = if i == 0 {
-                (receiver_span.line, col_cursor)
+            // First *visible* segment sits at receiver_span.col;
+            // later segments are placed by walking the source for
+            // each remaining dotted suffix so their column matches
+            // the literal buffer position.
+            let (line, start_col) = if i == start_idx {
+                (receiver_span.line, receiver_span.col)
             } else {
                 let tail: String = segments[i..].join(".");
                 let Some((l, c)) = locate_dot_name(self.text, receiver_span, &tail) else {
@@ -1561,7 +1567,6 @@ impl<'a> Walker<'a> {
                 target_uri,
                 doc,
             });
-            col_cursor = start_col + seg.len() as u32 + 1;
         }
     }
 

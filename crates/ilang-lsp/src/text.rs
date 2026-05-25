@@ -341,6 +341,31 @@ pub(crate) fn locate_if_let_some_name(
     None
 }
 
+/// Read the identifier starting at `span.line` / `span.col` in `text`.
+/// Returns `None` if the position isn't on an identifier character.
+/// Used by the dotted-ref walker to learn which segment of a logical
+/// dotted name the buffer literally starts with (e.g. `math` in
+/// `math.abs()` even though the AST resolved the callee to
+/// `std.math.abs` via an alias rewrite).
+pub(crate) fn read_identifier_at(text: &str, span: Span) -> Option<String> {
+    let offset = line_col_to_offset(text, span.line, span.col)?;
+    let bytes = text.as_bytes();
+    if offset >= bytes.len() {
+        return None;
+    }
+    let first = bytes[offset];
+    if !first.is_ascii_alphabetic() && first != b'_' {
+        return None;
+    }
+    let mut end = offset;
+    while end < bytes.len()
+        && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_')
+    {
+        end += 1;
+    }
+    std::str::from_utf8(&bytes[offset..end]).ok().map(|s| s.to_string())
+}
+
 /// Find the `name` identifier that follows the next `.` after `obj_span`.
 /// Returns its (line, col). Used to attach a precise span to `Field` and
 /// `MethodCall` references whose AST nodes only carry the receiver's
