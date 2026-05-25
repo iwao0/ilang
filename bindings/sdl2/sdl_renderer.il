@@ -13,6 +13,7 @@
 use sdl_core { Rect, Point, FPoint, Size, Color }
 use sdl_surface { BlendMode }
 use sdl_window { Window }
+use std.ffi { stringFromCstr }
 
 // ─── enums (mirror the SDL_render.h typedefs) ─────────────────────
 

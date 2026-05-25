@@ -1,6 +1,7 @@
 /// GtkEntry — single-line text input.
 
 use gtk {
+use std.ffi { cstrFromString, stringFromCstr }
     GtkWidget, GtkEntry, GtkFixed, GObject,
     gtk_entry_new, gtk_editable_set_text, gtk_editable_get_text,
     gtk_fixed_put, gtk_fixed_move,

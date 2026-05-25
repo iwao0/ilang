@@ -6,6 +6,7 @@
 use sdl_core { SDL_free }
 use sdl_joystick { Joystick }
 use sdl_time { EventState }
+use std.ffi { cstrFromString, stringFromCstr }
 
 /// `SDL_GameControllerButton` — face / shoulder / d-pad / stick-press
 /// buttons that follow the standard layout.

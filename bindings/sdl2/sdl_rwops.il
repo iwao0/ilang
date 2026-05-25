@@ -1,3 +1,4 @@
+use std.ffi { cstrFromString }
 /// SDL2 RWops — abstract IO stream used by `SDL_LoadBMP_RW`,
 /// `SDL_LoadWAV_RW`, etc. We expose just enough to construct one
 /// from a file path / memory buffer and dispose of it. The

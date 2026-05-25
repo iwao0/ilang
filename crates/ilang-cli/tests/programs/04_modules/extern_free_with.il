@@ -9,6 +9,7 @@
 // stub that calls libc::free *and* bumps a counter; the test
 // asserts the counter advances exactly once per `dupCounted`.
 use std.test
+use std.ffi { cstrFromString, stringFromCstr }
 
 @extern(C) {
     @lib("c") fn strdup(s: *const char): *const char

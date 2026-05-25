@@ -7,6 +7,7 @@
 /// manual path lets the same eager creation pattern work.
 
 use gtk {
+use std.ffi { cstrFromString }
     GtkWidget, GtkWindow, GObject, GtkFixed, GMainLoop,
     GtkEventController, GtkEventControllerKey, GtkEventControllerMotion,
     GtkGestureClick, GtkGestureSingle, Keyval,

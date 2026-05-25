@@ -1,3 +1,4 @@
+use std.ffi { bytesFromBuffer, cstrFromString, readF32, readU16, readU32, readU8, stringFromCstr, writeF32, writeU16, writeU32, writeU8 }
 /// Foundation bindings — the ObjC base layer (NSObject / NSString /
 /// collections / dates / URLs) plus the ilang ↔ ObjC plumbing that
 /// every higher-level binding leans on. Doesn't touch AppKit; safe

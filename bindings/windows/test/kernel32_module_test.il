@@ -2,6 +2,7 @@
 
 use std.test
 use windows {
+use std.ffi { cstrFromString, freeCstr }
     HMODULE, HANDLE,
     GetModuleHandleA, GetModuleFileNameA, GetCommandLineA,
     GetWindowsDirectoryA, GetSystemDirectoryA, GetSystemWindowsDirectoryA,

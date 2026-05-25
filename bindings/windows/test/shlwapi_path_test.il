@@ -2,6 +2,7 @@
 
 use std.test
 use shlwapi {
+use std.ffi { cstrFromString, freeCstr, stringFromCstr }
     PathFileExistsA,
     PathIsRelativeA,
     PathIsRootA,

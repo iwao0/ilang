@@ -2,6 +2,7 @@
 /// creates a GtkLabel and appends it as a row.
 
 use gtk {
+use std.ffi { cstrFromString }
     GtkWidget, GtkLabel, GtkListBox, GtkListBoxRow, GtkScrolledWindow,
     GtkFixed, GObject,
     gtk_label_new,

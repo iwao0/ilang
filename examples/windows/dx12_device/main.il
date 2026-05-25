@@ -20,6 +20,7 @@
 // calls compile to `(*recv)[slot](recv, args...)`.
 
 use windows {
+use std.ffi { cstrFromString, freeCstr }
     NULL,
     GetModuleHandleA,
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU,

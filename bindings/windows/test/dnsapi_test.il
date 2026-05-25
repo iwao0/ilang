@@ -2,6 +2,7 @@
 
 use std.test
 use dnsapi {
+use std.ffi { cstrFromString, freeCstr }
     DnsFlushResolverCache,
     DnsValidateName_A,
     DnsQuery_A,

@@ -19,6 +19,7 @@
 // can reference it by name.
 
 use windows {
+use std.ffi { cstrFromString }
     GetModuleHandleA,
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU,
     WNDCLASSEXA, MSG, POINT,

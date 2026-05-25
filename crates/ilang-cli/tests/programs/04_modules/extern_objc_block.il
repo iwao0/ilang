@@ -13,6 +13,7 @@
 //
 // jit: skip
 use std.test
+use std.ffi { cstrFromString }
 
 @extern(C) {
     struct objc_object {}

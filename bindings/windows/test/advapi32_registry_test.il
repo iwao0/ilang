@@ -3,6 +3,7 @@
 
 use std.test
 use windows {
+use std.ffi { cstrFromString, freeCstr }
     HKEY, PredefinedKey, KeyAccess, RegValueType, RegOptions,
     RegCreateKeyExA, RegOpenKeyExA, RegCloseKey,
     RegSetValueExA, RegQueryValueExA,

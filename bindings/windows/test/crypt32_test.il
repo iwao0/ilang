@@ -2,6 +2,7 @@
 
 use std.test
 use windows {
+use std.ffi { cstrFromString, freeCstr, stringFromCstr }
     HeapAlloc, HeapFree, GetProcessHeap,
 }
 use crypt32 { CryptBinaryToStringA, CryptStringToBinaryA }

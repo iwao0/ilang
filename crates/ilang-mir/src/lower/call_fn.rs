@@ -16,6 +16,33 @@ use super::{BodyCx, LowerError};
 
 impl<'a> BodyCx<'a> {
     pub(super) fn lower_call(&mut self, callee: Symbol, args: &[Expr]) -> Result<(ValueId, MirTy), LowerError> {
+        // `$ffi.cstrFromString(s)` — parser-synthesised by the @objc
+        // desugar (see ilang-parser `extern_objc::build_cstr`). The
+        // `$` prefix is unreachable from user code (lex rejects it),
+        // so this branch only fires for compiler-generated calls.
+        // The runtime helper is a pass-through that returns the ilang
+        // string's inline NUL-terminated buffer as an i64 pointer.
+        if callee.as_str() == "$ffi.cstrFromString" && args.len() == 1 {
+            let (v, vty) = self.lower_expr(&args[0])?;
+            let s_i64 = if matches!(vty, MirTy::I64) {
+                v
+            } else {
+                self.coerce(v, &vty, &MirTy::I64, args[0].span)?
+            };
+            let dst = self.fb.new_value(MirTy::RawPtr {
+                is_const: true,
+                inner: Box::new(MirTy::CChar),
+            });
+            self.fb.push_inst(Inst::Call {
+                dst: Some(dst),
+                callee: FuncRef::Builtin(Symbol::intern("$ffi.cstrFromString")),
+                args: Box::new([s_i64]),
+            });
+            return Ok((dst, MirTy::RawPtr {
+                is_const: true,
+                inner: Box::new(MirTy::CChar),
+            }));
+        }
         // Built-in pseudo-functions handled before generic resolution.
         if callee.as_str() == "typeof" && args.len() == 1 {
             let (v, _) = self.lower_expr(&args[0])?;
@@ -73,116 +100,12 @@ impl<'a> BodyCx<'a> {
             });
             return Ok((dst, arr_ty));
         }
-        // `readT(p, off): T` / `writeT(p, off, v)` raw-memory FFI
-        // marshalling helpers. Each maps the source name (e.g.
-        // `readU64`) to the host symbol (`__read_u64`) and the MIR
-        // return type the lowerer should use. The args go through
-        // unchanged — the host helper does the offset arithmetic
-        // and the right-width primitive load/store.
-        let mem_io = match callee.as_str() {
-            "readI8" => Some(("$ffi.readI8", MirTy::I8)),
-            "readI16" => Some(("$ffi.readI16", MirTy::I16)),
-            "readI32" => Some(("$ffi.readI32", MirTy::I32)),
-            "readI64" => Some(("$ffi.readI64", MirTy::I64)),
-            "readU8" => Some(("$ffi.readU8", MirTy::U8)),
-            "readU16" => Some(("$ffi.readU16", MirTy::U16)),
-            "readU32" => Some(("$ffi.readU32", MirTy::U32)),
-            "readU64" => Some(("$ffi.readU64", MirTy::U64)),
-            "readF32" => Some(("$ffi.readF32", MirTy::F32)),
-            "readF64" => Some(("$ffi.readF64", MirTy::F64)),
-            "writeI8" => Some(("$ffi.writeI8", MirTy::Unit)),
-            "writeI16" => Some(("$ffi.writeI16", MirTy::Unit)),
-            "writeI32" => Some(("$ffi.writeI32", MirTy::Unit)),
-            "writeI64" => Some(("$ffi.writeI64", MirTy::Unit)),
-            "writeU8" => Some(("$ffi.writeU8", MirTy::Unit)),
-            "writeU16" => Some(("$ffi.writeU16", MirTy::Unit)),
-            "writeU32" => Some(("$ffi.writeU32", MirTy::Unit)),
-            "writeU64" => Some(("$ffi.writeU64", MirTy::Unit)),
-            "writeF32" => Some(("$ffi.writeF32", MirTy::Unit)),
-            "writeF64" => Some(("$ffi.writeF64", MirTy::Unit)),
-            _ => None,
-        };
-        if let Some((host_sym, ret_ty)) = mem_io {
-            let mut arg_vals = Vec::with_capacity(args.len());
-            for (i, a) in args.iter().enumerate() {
-                let (mut v, vty) = self.lower_expr(a)?;
-                // First arg is the pointer (raw or *const T) — coerce
-                // to i64 so the host helper sees a uniform address.
-                if i == 0 {
-                    if matches!(vty, MirTy::RawPtr { .. }) {
-                        let dst = self.fb.new_value(MirTy::I64);
-                        self.fb.push_inst(Inst::Cast {
-                            dst,
-                            kind: crate::inst::CastKind::PtrIntCast,
-                            src: v,
-                        });
-                        v = dst;
-                    }
-                }
-                arg_vals.push(v);
-            }
-            let dst = if matches!(ret_ty, MirTy::Unit) {
-                None
-            } else {
-                Some(self.fb.new_value(ret_ty.clone()))
-            };
-            self.fb.push_inst(Inst::Call {
-                dst,
-                callee: FuncRef::Builtin(Symbol::intern(host_sym)),
-                args: arg_vals.into_boxed_slice(),
-            });
-            return Ok((dst.unwrap_or_else(|| self.const_unit()), ret_ty));
-        }
-        // FFI marshalling helpers (auto-routed to host symbols). The
-        // user types the bare name (`cstrFromString(...)`); the host
-        // symbol lives under the `$ffi.<name>` namespace so it can't
-        // collide with a user-defined fn of the same name.
-        let ffi_helper = match callee.as_str() {
-            "cstrFromString" => Some(("$ffi.cstrFromString", MirTy::I64)),
-            "stringFromCstr" => Some(("$ffi.stringFromCstr", MirTy::Str)),
-            "cstrArrayToStrings" => Some((
-                "$ffi.cstrArrayToStrings",
-                MirTy::Array {
-                    elem: Box::new(MirTy::Str),
-                    len: None,
-                },
-            )),
-            "freeCstr" => Some(("$ffi.freeCstr", MirTy::Unit)),
-            "errnoCheck" => Some((
-                "$ffi.errnoCheck",
-                MirTy::Optional(Box::new(MirTy::I32)),
-            )),
-            "errnoCheckI64" => Some((
-                "$ffi.errnoCheckI64",
-                MirTy::Optional(Box::new(MirTy::I64)),
-            )),
-            "bytesFromBuffer" => Some((
-                "$ffi.bytesFromBuffer",
-                MirTy::Array {
-                    elem: Box::new(MirTy::U8),
-                    len: None,
-                },
-            )),
-            _ => None,
-        };
-        if let Some((host_sym, ret_ty)) = ffi_helper {
-            let mut arg_vals = Vec::with_capacity(args.len());
-            for a in args {
-                let (v, _vty) = self.lower_expr(a)?;
-                arg_vals.push(v);
-            }
-            let dst = if matches!(ret_ty, MirTy::Unit) {
-                None
-            } else {
-                Some(self.fb.new_value(ret_ty.clone()))
-            };
-            self.fb.push_inst(Inst::Call {
-                dst,
-                callee: FuncRef::Builtin(Symbol::intern(host_sym)),
-                args: arg_vals.into_boxed_slice(),
-            });
-            return Ok((dst.unwrap_or_else(|| self.const_unit()), ret_ty));
-        }
+        // The raw-memory `readT` / `writeT` helpers and the
+        // cstr / errnoCheck / bytesFromBuffer family used to live
+        // here as compiler-magic bare-name dispatch. They're now
+        // ordinary `@intrinsic` declarations in `libs/std/ffi.il`;
+        // user code reaches them via `use std.ffi { readU64, ... }`
+        // and the regular call-resolution path takes over from here.
         // Local fn-typed binding → call_indirect. Also picks up
         // closure captures (the body's `f(...)` where `f` was
         // captured from the outer scope) and REPL persistent slots

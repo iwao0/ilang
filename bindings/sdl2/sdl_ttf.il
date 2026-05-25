@@ -12,6 +12,7 @@
 /// ARC-managed lifetime.
 
 use sdl_core { Color, Size }
+use std.ffi { cstrFromString, stringFromCstr }
 
 /// `TTF_STYLE_*` — text-decoration bitflags. AND-combine with `|`
 /// when passing to `Font.setStyle`.

@@ -49,6 +49,7 @@ pub fn builtin_module_source(name: &str) -> Option<&'static str> {
         "path" => Some(include_str!("../../../../libs/std/path.il")),
         "regex" => Some(include_str!("../../../../libs/std/regex.il")),
         "time" => Some(include_str!("../../../../libs/std/time.il")),
+        "ffi" => Some(include_str!("../../../../libs/std/ffi.il")),
         _ => None,
     }
 }

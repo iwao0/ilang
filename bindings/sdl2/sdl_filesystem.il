@@ -4,6 +4,7 @@
 /// callers see plain ilang strings.
 
 use sdl_core { SDL_free }
+use std.ffi { cstrFromString, stringFromCstr }
 
 @extern(C, "SDL2") {
     @lib pub fn SDL_GetBasePath(): *const char

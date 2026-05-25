@@ -2,6 +2,7 @@
 
 use std.test
 use windows {
+use std.ffi { cstrFromString, freeCstr }
     LocalFree,
 }
 use crypt32 { CRYPT_DATA_BLOB, CryptProtectData, CryptUnprotectData }

@@ -4,6 +4,7 @@
 // Linux, but we just check positivity to avoid platform variance).
 use std.os
 use std.test
+use std.ffi { cstrFromString }
 
 @extern(C) {
     struct FILE {}

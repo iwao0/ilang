@@ -15,41 +15,18 @@ use crate::ops::{assignable, bin_result, int_literal_fits};
 
 use super::*;
 
-/// FFI marshalling helpers — only callable inside an `@extern(C) {}`
-/// block. Listed here so the call-site check can fire even on the
-/// helpers whose signatures don't reference any C-only type
-/// (`errnoCheck` / `errnoCheckI64`), which would otherwise sneak
-/// past the C-only-types rule.
+/// FFI marshalling helpers that remain as compiler-magic bare-name
+/// dispatch — `arrayFromCArray<T>` peeks `T` off the pointer arg to
+/// compute the stride and `fnAddr` takes a fn-typed expression and
+/// returns its raw address, neither of which fits the `@intrinsic`
+/// AST shape. The cstr / errnoCheck / read* / write* / bytesFromBuffer
+/// family moved to `libs/std/ffi.il` as `@intrinsic(...) @extern(C)`
+/// declarations; their "must be inside @extern(C)" enforcement now
+/// rides on the C-only-type rule plus the new top-level intrinsic
+/// check in `checker/decls.rs::check_fn`.
 pub(super) const FFI_HELPERS: &[&str] = &[
-    "stringFromCstr",
-    "cstrFromString",
-    "freeCstr",
-    "bytesFromBuffer",
-    "readI8",
-    "readI16",
-    "readI32",
-    "readI64",
-    "readU8",
-    "readU16",
-    "readU32",
-    "readU64",
-    "readF32",
-    "readF64",
-    "writeI8",
-    "writeI16",
-    "writeI32",
-    "writeI64",
-    "writeU8",
-    "writeU16",
-    "writeU32",
-    "writeU64",
-    "writeF32",
-    "writeF64",
     "fnAddr",
     "arrayFromCArray",
-    "cstrArrayToStrings",
-    "errnoCheck",
-    "errnoCheckI64",
 ];
 
 /// Return the first C-only type encountered in `t` (raw pointer,

@@ -934,6 +934,26 @@ impl TypeChecker {
             self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
             return Ok(Type::Object("Type".into()));
         }
+        // `$ffi.cstrFromString(s: string): *const char` — parser-
+        // synthesised by the @objc desugar. The `$` prefix is
+        // unreachable from user code (lex rejects it), so this only
+        // matches compiler-generated calls; no `pub` / module
+        // bookkeeping needed.
+        if callee.as_str() == "$ffi.cstrFromString" {
+            if args.len() != 1 {
+                return Err(TypeError::ArityMismatch {
+                    name: callee.clone(),
+                    expected: 1,
+                    got: args.len(),
+                    span,
+                });
+            }
+            self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+            return Ok(Type::RawPtr {
+                is_const: true,
+                inner: Box::new(Type::CChar),
+            });
+        }
         // FFI marshalling helpers are only callable inside an
         // `@extern(C) {}` block — they exist to bridge raw C
         // values to ilang-native ones, which only matters at

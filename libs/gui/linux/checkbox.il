@@ -3,6 +3,7 @@
 /// backed by GtkCheckButton via `gtk_check_button_set_group`.
 
 use gtk {
+use std.ffi { cstrFromString }
     GtkWidget, GtkCheckButton, GtkFixed, GObject,
     gtk_check_button_new_with_label, gtk_check_button_set_label,
     gtk_check_button_set_active, gtk_check_button_get_active,

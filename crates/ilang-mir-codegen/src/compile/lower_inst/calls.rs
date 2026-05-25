@@ -290,28 +290,23 @@ pub(super) fn lower_call<M: Module>(
             // FFI marshalling helpers are declared by name —
             // route them via `module.declarations` lookup so we
             // don't need a separate id table.
+            // FFI helpers used to land here via bare-name dispatch
+            // (the compiler intercepting `cstrFromString(...)` etc.).
+            // They're now ordinary `@intrinsic` declarations from
+            // `libs/std/ffi.il` and route through the regular
+            // FuncRef::Local path; this list only carries the
+            // compiler-internal helpers that still need direct
+            // symbol lookup.
             if matches!(
                 sym.as_str(),
-                "$ffi.cstrFromString"
-                    | "$ffi.stringFromCstr"
-                    | "$ffi.cstrArrayToStrings"
-                    | "$array.dataPtr"
+                "$array.dataPtr"
                     | "$enum.box"
                     | "$array.fromCArray"
                     | "$repl.loadSlot"
                     | "$repl.storeSlot"
-                    | "$ffi.readI8" | "$ffi.readI16" | "$ffi.readI32" | "$ffi.readI64"
-                    | "$ffi.readU8" | "$ffi.readU16" | "$ffi.readU32" | "$ffi.readU64"
-                    | "$ffi.readF32" | "$ffi.readF64"
-                    | "$ffi.writeI8" | "$ffi.writeI16" | "$ffi.writeI32" | "$ffi.writeI64"
-                    | "$ffi.writeU8" | "$ffi.writeU16" | "$ffi.writeU32" | "$ffi.writeU64"
-                    | "$ffi.writeF32" | "$ffi.writeF64"
-                    | "$ffi.freeCstr"
-                    | "$ffi.errnoCheck"
-                    | "$ffi.errnoCheckI64"
-                    | "$ffi.bytesFromBuffer"
                     | "os.errno"
                     | "os.setErrno"
+                    | "$ffi.cstrFromString"
             ) {
                 let cid = module
                     .declarations()

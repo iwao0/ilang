@@ -7,6 +7,7 @@
 
 use sdl_renderer { Renderer, Texture, SDL_Renderer, SDL_Texture }
 use sdl_surface { Surface }
+use std.ffi { cstrFromString, stringFromCstr }
 
 /// `IMG_INIT_*` — bitwise OR of the formats whose decoder support
 /// to initialise. JPG / PNG / TIFF are the common trio; jxl / avif

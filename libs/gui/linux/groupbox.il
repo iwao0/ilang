@@ -5,6 +5,7 @@
 /// GtkFixed and lets the Frame sit behind them.
 
 use gtk {
+use std.ffi { cstrFromString }
     GtkWidget, GtkFrame, GtkFixed,
     gtk_frame_new, gtk_frame_set_label,
     gtk_fixed_put, gtk_fixed_move,

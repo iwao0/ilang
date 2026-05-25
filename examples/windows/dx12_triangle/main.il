@@ -24,6 +24,7 @@
 // string are released after the message pump returns.
 
 use windows {
+use std.ffi { cstrFromString, freeCstr, readU64, stringFromCstr }
     NULL,
     GetModuleHandleA,
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU, HANDLE,

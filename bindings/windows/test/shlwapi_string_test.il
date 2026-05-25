@@ -2,6 +2,7 @@
 
 use std.test
 use shlwapi { StrStrA, StrStrIA, StrCmpNA, StrCmpNIA, StrToIntA }
+use std.ffi { cstrFromString, freeCstr }
 
 @extern(C) {
     pub fn run() {

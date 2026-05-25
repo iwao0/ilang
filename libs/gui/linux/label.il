@@ -1,6 +1,7 @@
 /// GtkLabel wrapper.
 
 use gtk {
+use std.ffi { cstrFromString }
     GtkWidget, GtkLabel, GtkFixed,
     gtk_label_new, gtk_label_set_text,
     gtk_fixed_put, gtk_fixed_move,

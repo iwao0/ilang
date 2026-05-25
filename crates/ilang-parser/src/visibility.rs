@@ -332,6 +332,14 @@ impl<'a> Checker<'a> {
 
     fn check_dotted(&self, name: &Symbol, span: Span) -> Result<(), LoadError> {
         let s = name.as_str();
+        // `$ns.name` — parser-synthesised runtime calls (e.g.
+        // `$ffi.cstrFromString` from the @objc desugar). The `$` is
+        // unreachable from user code (lex rejects it), so these names
+        // never originate from a user-visible `use`/qualified ref
+        // and don't have a `pub`/module concept to validate.
+        if s.starts_with('$') {
+            return Ok(());
+        }
         if let Some((prefix, rest)) = s.split_once('.') {
             // Intra-module qualified ref (own file referencing its own
             // item via the canonical prefix). The per-file AST shouldn't

@@ -2,6 +2,7 @@
 
 use std.test
 use windows {
+use std.ffi { cstrFromString, freeCstr }
     GetLogicalDrives, GetDriveTypeA,
     GetDiskFreeSpaceExA,
     Sleep, GetTickCount64,

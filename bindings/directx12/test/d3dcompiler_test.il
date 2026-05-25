@@ -4,6 +4,7 @@
 use std.test
 use windows { HANDLE }
 use directx12 {
+use std.ffi { cstrFromString, freeCstr }
     D3DCompile, D3DCreateBlob,
     D3D_SHADER_MACRO, ID3DBlob,
     D3DCompileFlags,

@@ -5,6 +5,7 @@
 /// runs on any host that has libgtk-4 installed.
 
 use std.test
+use std.ffi { cstrFromString }
 use gtk {
     GMenu, GMenuModel, GObject, GVariantType,
     GSimpleAction, GSimpleActionGroup,

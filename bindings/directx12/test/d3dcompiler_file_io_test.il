@@ -13,6 +13,7 @@
 
 use std.test
 use windows {
+use std.ffi { cstrFromString, freeCstr }
     HANDLE, NULL,
     GetProcessHeap, HeapAlloc, HeapFree,
     MultiByteToWideChar,

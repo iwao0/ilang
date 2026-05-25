@@ -15,6 +15,7 @@
 
 use sdl_core { Rect, Point, Size, Color }
 use sdl_surface { Surface, SDL_Surface }
+use std.ffi { cstrFromString, stringFromCstr }
 
 /// `SDL_WindowFlags` — bitflags passed to `SDL_CreateWindow` / read
 /// back via `Window.flags`.

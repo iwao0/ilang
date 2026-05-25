@@ -2,6 +2,7 @@
 
 use std.test
 use windows {
+use std.ffi { cstrFromString, freeCstr }
     WSAStartup, WSACleanup, WSAGetLastError,
     WSADATA,
     htons, htonl, ntohs, ntohl,

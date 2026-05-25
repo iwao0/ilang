@@ -6,6 +6,7 @@
 /// `SDL_MessageBoxData` structure is fiddly so we don't wrap it.
 
 use sdl_window { Window }
+use std.ffi { cstrFromString }
 
 /// `SDL_MessageBoxFlags` — visual style of the dialog. Use these
 /// with `showSimpleMessageBox`. SDL ignores the flag on platforms

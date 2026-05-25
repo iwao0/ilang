@@ -15,6 +15,7 @@
 ///   sdl.quit()
 
 use sdl_audio { AudioFormat }
+use std.ffi { cstrFromString, stringFromCstr }
 
 /// `MIX_INIT_*` — decoder modules to initialise. Returned bitmask
 /// from `mixInit` reports which actually loaded; missing bits

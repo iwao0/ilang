@@ -11,6 +11,7 @@
 use std.test
 use windows { HANDLE }
 use directx12 {
+use std.ffi { cstrFromString, freeCstr }
     D3DCompile, D3DCompile2,
     D3DDisassemble, D3DStripShader, D3DGetBlobPart, D3DReflect,
     D3D_SHADER_MACRO, ID3DBlob,

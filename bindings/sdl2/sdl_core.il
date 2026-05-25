@@ -1,3 +1,4 @@
+use std.ffi { cstrFromString, readU64, stringFromCstr }
 /// SDL2 core: subsystem init / quit, error reporting, hints, log,
 /// version, platform. Mirrors the headers SDL_init.h, SDL_error.h,
 /// SDL_hints.h, SDL_log.h, SDL_version.h, SDL_platform.h.

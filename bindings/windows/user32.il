@@ -1,3 +1,4 @@
+use std.ffi { cstrFromString }
 /// user32.dll — window classes, window management, painting,
 /// input, messaging, timers, dialogs, and resources.
 ///

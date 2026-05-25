@@ -1,3 +1,4 @@
+use std.ffi { cstrFromString, stringFromCstr }
 /// SDL2 raw joystick API — for devices SDL doesn't recognise as a
 /// game controller (steering wheels, flight sticks, custom HID
 /// devices). Use `sdl_gamecontroller.il` instead for standard

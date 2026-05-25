@@ -2394,9 +2394,21 @@ fn ret_class_symbol(t: &Type) -> Symbol {
 }
 
 fn build_cstr(s: &str, span: Span) -> Expr {
+    // Synthesised @objc desugar needs to convert ilang `string`s into
+    // NUL-terminated C-string pointers (for selector / class lookups
+    // and class-pair registration). User code reaches this via
+    // `use std.ffi { cstrFromString }`, but the desugar runs at parse
+    // time before any `use` resolution and can't rely on the importer
+    // having pulled the helper in. Calling the runtime symbol
+    // directly with the `$ffi.` prefix sidesteps the use-import
+    // machinery — the `$` character isn't a legal ilang identifier
+    // start (lex rejects it), so this name can only originate from
+    // parser-synthesised code and the bare-name collision risk that
+    // motivated the migration off compiler-magic dispatch doesn't
+    // apply.
     Expr::new(
         ExprKind::Call {
-            callee: Symbol::intern("cstrFromString"),
+            callee: Symbol::intern("$ffi.cstrFromString"),
             args: Box::new([Expr::new(ExprKind::Str(s.to_string()), span)]),
         },
         span,

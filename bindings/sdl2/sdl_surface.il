@@ -5,6 +5,7 @@
 /// Mirrors SDL_surface.h + SDL_pixels.h.
 
 use sdl_core { Rect, Color }
+use std.ffi { cstrFromString, readU32, stringFromCstr }
 
 /// `SDL_PIXELFORMAT_*` — common pixel formats. The numeric values
 /// are SDL's macro encodings (type / order / layout / bits / bytes

@@ -1,3 +1,4 @@
+use std.ffi { stringFromCstr }
 /// SDL2 audio: queue-based playback. Open a device, queue raw PCM
 /// samples, hit `play()`. The device class wraps the lifecycle so
 /// `deinit` closes the device automatically.

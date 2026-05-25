@@ -7,6 +7,7 @@
 //
 // jit: skip
 use std.test
+use std.ffi { errnoCheck, errnoCheckI64 }
 
 @extern(C) {
     fn maybe_succeed(ok: i32): i32

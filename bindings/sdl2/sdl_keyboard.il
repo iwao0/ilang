@@ -8,6 +8,7 @@
 
 use sdl_core { Rect }
 use sdl_window { Window }
+use std.ffi { cstrFromString, readU8, stringFromCstr }
 
 /// `SDL_Scancode` — physical key, layout-independent.
 /// Number-row keys use the `digit0..digit9` form (idents can't

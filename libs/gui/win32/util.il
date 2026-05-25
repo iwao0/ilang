@@ -16,6 +16,7 @@
 ///   then, which the call sites skip).
 
 use windows {
+use std.ffi { cstrFromString, stringFromCstr }
     HWND, HINSTANCE, HMODULE, ACTCTXW,
     CreateActCtxW, ActivateActCtx, GetTempPathA,
     CreateFileA, WriteFile, CloseHandle, HANDLE,

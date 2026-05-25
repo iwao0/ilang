@@ -217,7 +217,10 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.params.push(AbiParam::new(types::I8));
         module.declare_function("$objc.invoke_void_bool_block", Linkage::Import, &sig)?
     };
-    // FFI marshalling helpers as imports.
+    // Non-FFI internal helpers that still ride the imports path
+    // (the FFI helpers themselves moved to `libs/std/ffi.il`, where
+    // the user's `@intrinsic(...) @extern(C)` declarations carry
+    // their own cranelift declarations).
     {
         let mut decl_unary = |name: &str, ret_unit: bool| -> Result<(), CompileError> {
             let mut sig = module.make_signature();
@@ -230,16 +233,12 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         };
         decl_unary("$array.dataPtr", false)?;
         decl_unary("$enum.box", false)?;
-        decl_unary("$ffi.cstrFromString", false)?;
-        decl_unary("$ffi.stringFromCstr", false)?;
-        decl_unary("$ffi.cstrArrayToStrings", false)?;
-        decl_unary("$ffi.freeCstr", true)?;
-        decl_unary("$ffi.errnoCheck", false)?;
-        decl_unary("$ffi.errnoCheckI64", false)?;
-        // os.errno / os.setErrno are declared by the user's @extern(C)
-        // block (the `os` stdlib); we just register the host symbols.
     }
     {
+        // `arrayFromCArray<T>` stays a compiler-magic helper — it's
+        // generic over the element type and the MIR dispatch peeks
+        // `T` off the pointer arg to compute the stride, which
+        // doesn't fit the @intrinsic shape.
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
@@ -248,66 +247,16 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.returns.push(AbiParam::new(types::I64));
         module.declare_function("$array.fromCArray", Linkage::Import, &sig)?;
     }
+    // `$ffi.cstrFromString` — parser-synthesised by the @objc desugar
+    // (see ilang-parser `extern_objc::build_cstr`). Declared as an
+    // Import here so the bare-name lookup path in MIR codegen
+    // (`lower_inst/calls.rs`) resolves it without depending on whether
+    // any user module imported `std.ffi { cstrFromString }`.
     {
-        // bytesFromBuffer(p: *const void, n: size_t) -> u8[] — thin
-        // 2-arg wrapper over __c_array_to_array; user-facing FFI
-        // helper for `@extern(C)` bindings that turn a
-        // `(const char *, size_t)` pair into an owned `u8[]`.
         let mut sig = module.make_signature();
-        sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("$ffi.bytesFromBuffer", Linkage::Import, &sig)?;
-    }
-    // `read*(p: i64, off: i64) -> {i64|f32|f64}` declarations.
-    for name in &[
-        "$ffi.readI8", "$ffi.readI16", "$ffi.readI32", "$ffi.readI64",
-        "$ffi.readU8", "$ffi.readU16", "$ffi.readU32", "$ffi.readU64",
-    ] {
-        let mut sig = module.make_signature();
-        sig.params.push(AbiParam::new(types::I64));
-        sig.params.push(AbiParam::new(types::I64));
-        sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function(name, Linkage::Import, &sig)?;
-    }
-    {
-        let mut sig = module.make_signature();
-        sig.params.push(AbiParam::new(types::I64));
-        sig.params.push(AbiParam::new(types::I64));
-        sig.returns.push(AbiParam::new(types::F32));
-        module.declare_function("$ffi.readF32", Linkage::Import, &sig)?;
-    }
-    {
-        let mut sig = module.make_signature();
-        sig.params.push(AbiParam::new(types::I64));
-        sig.params.push(AbiParam::new(types::I64));
-        sig.returns.push(AbiParam::new(types::F64));
-        module.declare_function("$ffi.readF64", Linkage::Import, &sig)?;
-    }
-    // `write*(p: i64, off: i64, v: {i64|f32|f64})` declarations.
-    for name in &[
-        "$ffi.writeI8", "$ffi.writeI16", "$ffi.writeI32", "$ffi.writeI64",
-        "$ffi.writeU8", "$ffi.writeU16", "$ffi.writeU32", "$ffi.writeU64",
-    ] {
-        let mut sig = module.make_signature();
-        sig.params.push(AbiParam::new(types::I64));
-        sig.params.push(AbiParam::new(types::I64));
-        sig.params.push(AbiParam::new(types::I64));
-        module.declare_function(name, Linkage::Import, &sig)?;
-    }
-    {
-        let mut sig = module.make_signature();
-        sig.params.push(AbiParam::new(types::I64));
-        sig.params.push(AbiParam::new(types::I64));
-        sig.params.push(AbiParam::new(types::F32));
-        module.declare_function("$ffi.writeF32", Linkage::Import, &sig)?;
-    }
-    {
-        let mut sig = module.make_signature();
-        sig.params.push(AbiParam::new(types::I64));
-        sig.params.push(AbiParam::new(types::I64));
-        sig.params.push(AbiParam::new(types::F64));
-        module.declare_function("$ffi.writeF64", Linkage::Import, &sig)?;
+        module.declare_function("$ffi.cstrFromString", Linkage::Import, &sig)?;
     }
     // REPL slot accessors. Loaded as imports so chunk-level
     // compilations don't need a fresh declaration; the host symbol

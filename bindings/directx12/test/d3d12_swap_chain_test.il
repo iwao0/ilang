@@ -10,6 +10,7 @@
 
 use std.test
 use windows {
+use std.ffi { cstrFromString, freeCstr }
     HANDLE, NULL,
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU,
     WNDCLASSEXA, ClassStyle, WindowStyle,
