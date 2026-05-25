@@ -674,6 +674,32 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                 })
             })
             .collect();
+        // Sub-module candidates: when the receiver names a path
+        // head (e.g. `std.` after `use std.math`), every key under
+        // `std.` produces a `math.X` suffix containing `.`, so the
+        // direct filter above drops them. Collect the unique head
+        // segments of those dotted suffixes as MODULE entries so
+        // `std.` offers `math` (and any sibling sub-modules).
+        let mut sub_modules: std::collections::BTreeSet<String> =
+            std::collections::BTreeSet::new();
+        for k in doc.external.signatures.keys() {
+            if let Some(rest) = k.as_str().strip_prefix(&prefix) {
+                if let Some((head, _)) = rest.split_once('.') {
+                    sub_modules.insert(head.to_string());
+                }
+            }
+        }
+        for h in sub_modules {
+            // Skip if already produced as a non-module candidate.
+            if items.iter().any(|it| it.label == h) {
+                continue;
+            }
+            items.push(CompletionItem {
+                label: h,
+                kind: Some(CompletionItemKind::MODULE),
+                ..CompletionItem::default()
+            });
+        }
         items.sort_by(|a, b| a.label.cmp(&b.label));
         if !items.is_empty() {
             return Some(CompletionResponse::Array(items));

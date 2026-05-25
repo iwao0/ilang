@@ -33,7 +33,7 @@ pub(crate) use enums::{
     register_enum_variants_with_sources,
 };
 pub(crate) use harvest::{harvest_from_program, harvest_imported_consts};
-pub(crate) use walk::walk_module;
+pub(crate) use walk::{walk_module, walk_module_as};
 
 /// `true` if `inner` is exposed via `pub` and should appear in
 /// another module's `use M.` completion. Used by `walk_module` /

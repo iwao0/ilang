@@ -14,7 +14,7 @@ use ilang_ast::{Item, Program, Symbol as AstSymbol, Type};
 use ilang_lexer::tokenize;
 use ilang_parser::parse;
 
-use super::walk::walk_module;
+use super::walk::{walk_module, walk_module_as};
 use super::{augment_with_sibling_module_roots, ExternalLoc};
 use crate::project::{collect_dep_paths, collect_dep_tree, DepTree};
 use crate::ExternalSources;
@@ -87,9 +87,15 @@ pub(crate) fn harvest_from_program(
         // Multi-segment paths (`use a.b.c.*` / `use a.b.c { X }`):
         // collapse the subpath chain into an effective (module, dir)
         // pair so the existing single-segment helpers below stay
-        // intact. The deepest segment becomes the effective module
-        // name; earlier segments map into nested subdirectories.
-        let (effective_module, effective_dir): (String, PathBuf) = if u.subpath.is_empty() {
+        // intact. `module_for_walk` is what the walker uses to
+        // FIND the file (always the leaf), while `key_prefix` is
+        // what the resulting external-signatures map is keyed under
+        // — bare path-style imports (`use std.math` with no `as`)
+        // use the full dotted path (`std.math`) so callers can
+        // address items as `std.math.X` in their code, while
+        // aliased / selective / wildcard forms stay on the leaf so
+        // the alias / selective-bare lookups still resolve.
+        let (module_for_walk, effective_dir): (String, PathBuf) = if u.subpath.is_empty() {
             (u.module.as_str().to_string(), base_dir.clone())
         } else {
             let mut d = base_dir.join(u.module.as_str());
@@ -99,6 +105,27 @@ pub(crate) fn harvest_from_program(
             }
             (u.subpath[len - 1].as_str().to_string(), d)
         };
+        let is_bare_path_style = !u.subpath.is_empty()
+            && matches!(u.alias, ilang_ast::UseAlias::Default)
+            && u.selective.is_none()
+            && !u.wildcard;
+        let effective_module: String = if is_bare_path_style {
+            let mut s = u.module.as_str().to_string();
+            for seg in u.subpath.iter() {
+                s.push('.');
+                s.push_str(seg.as_str());
+            }
+            s
+        } else {
+            module_for_walk.clone()
+        };
+        // Hand-off below uses the source-file name (the leaf) when
+        // resolving the on-disk module path; the harvest helpers
+        // accept a separate source argument for this. Aliased /
+        // selective / wildcard forms keep the legacy single-name
+        // behavior since `effective_module == module_for_walk` in
+        // those branches.
+        let _ = &module_for_walk; // silence unused-on-some-branches
         if u.wildcard && u.selective.is_none() {
             // `use M { * }` — walk M, then re-key every `M.<X>`
             // entry as bare `<X>` so completion / hover / F12 treat
@@ -135,16 +162,30 @@ pub(crate) fn harvest_from_program(
             );
             continue;
         }
-        walk_module(
-            &effective_module,
-            &effective_dir,
-            &extra,
-            &mut visited,
-            out,
-            sources,
-            docs,
-            const_types,
-        );
+        if effective_module == module_for_walk {
+            walk_module(
+                &effective_module,
+                &effective_dir,
+                &extra,
+                &mut visited,
+                out,
+                sources,
+                docs,
+                const_types,
+            );
+        } else {
+            walk_module_as(
+                &effective_module,
+                &module_for_walk,
+                &effective_dir,
+                &extra,
+                &mut visited,
+                out,
+                sources,
+                docs,
+                const_types,
+            );
+        }
     }
 }
 

@@ -93,6 +93,35 @@ pub(crate) fn walk_module(
     );
 }
 
+/// Same as `walk_module`, but lets the caller use a different
+/// on-disk source name than the registry key prefix. `use std.math`
+/// (bare path-style) keys items under `std.math` while still
+/// resolving the file via the leaf `math`.
+pub(crate) fn walk_module_as(
+    prefix: &str,
+    source_name: &str,
+    entry_dir: &Path,
+    extra: &[PathBuf],
+    visited: &mut HashSet<PathBuf>,
+    out: &mut HashMap<AstSymbol, String>,
+    sources: &mut ExternalSources,
+    docs: &mut HashMap<AstSymbol, String>,
+    const_types: &mut HashMap<AstSymbol, Type>,
+) {
+    walk_module_inner(
+        prefix,
+        source_name,
+        entry_dir,
+        extra,
+        visited,
+        out,
+        sources,
+        docs,
+        const_types,
+        WalkOpts::primary(),
+    );
+}
+
 #[allow(clippy::too_many_arguments)]
 fn walk_module_inner(
     prefix: &str,
