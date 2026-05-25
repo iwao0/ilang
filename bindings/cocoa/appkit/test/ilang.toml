@@ -2,4 +2,4 @@
 name = "cocoa_appkit_test"
 
 [deps]
-cocoa = "../.."
+appkit = ".."
