@@ -40,6 +40,50 @@ impl TypeChecker {
         if let ExprKind::Var(name) = &obj.kind {
             let is_local_shadow = env.contains_key(name) || self.vars.contains_key(name);
             if !is_local_shadow {
+                // Built-in `string.*` static factories. Match the
+                // primitive-type receiver before the class lookup
+                // since `string` isn't registered as a class —
+                // without this the receiver would fall through to
+                // `check_expr` and error as "undefined variable".
+                if name.as_str() == "string" {
+                    match method.as_str() {
+                        "fromUtf16" => {
+                            if args.len() != 1 {
+                                return Err(TypeError::ArityMismatch {
+                                    name: method.clone(),
+                                    expected: 1,
+                                    got: args.len(),
+                                    span,
+                                });
+                            }
+                            let at = self.check_expr(
+                                &args[0], env, ret_ty, in_class, loop_depth,
+                            )?;
+                            let ok = matches!(
+                                &at,
+                                Type::Array { elem, .. } if matches!(**elem, Type::U16),
+                            );
+                            if !ok {
+                                return Err(TypeError::Mismatch {
+                                    expected: Type::Array {
+                                        elem: Box::new(Type::U16),
+                                        fixed: None,
+                                    },
+                                    got: at,
+                                    span: args[0].span,
+                                });
+                            }
+                            return Ok(Type::Str);
+                        }
+                        _ => {
+                            return Err(TypeError::UnknownMethod {
+                                class: "string".into(),
+                                method: method.clone(),
+                                span,
+                            });
+                        }
+                    }
+                }
                 // Walk the parent chain so an inherited static
                 // (`SKScene.alloc()`, where `alloc` lives on
                 // SKNode → NSObject) resolves through the

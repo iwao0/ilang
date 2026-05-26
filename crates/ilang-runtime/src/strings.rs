@@ -411,6 +411,35 @@ pub extern "C" fn __str_split(p: i64, sep: i64) -> i64 {
     build_i64_array(&parts, KIND_STR)
 }
 
+/// `string.fromUtf16(units)` — interpret `units: u16[]` as a
+/// UTF-16 code-unit sequence and return a fresh UTF-8 string. The
+/// whole buffer is consumed: a trailing `0x0000` (if present) is
+/// included as a literal NUL character in the result, so callers
+/// that want strict round-trip with `encodeUtf16()` (which
+/// defaults to NUL-terminated) should pass `encodeUtf16(false)`.
+/// Invalid UTF-16 (unpaired surrogates) is replaced with U+FFFD —
+/// `from_utf16_lossy` matches what Win32 / WTF-16 sources can
+/// legitimately produce.
+#[unsafe(export_name = "$string.fromUtf16")]
+pub extern "C" fn __str_from_utf16(arr: i64) -> i64 {
+    if arr == 0 {
+        return leak_cstring(String::new());
+    }
+    // u16[] layout: [ len | cap | data_ptr | rc | kind ] — same
+    // header shape used by `fs_write_file_bytes` (see arrays.rs).
+    let s = unsafe {
+        let len = *(arr as *const i64) as usize;
+        let data_ptr = *((arr + 16) as *const i64) as *const u16;
+        if len == 0 || data_ptr.is_null() {
+            String::new()
+        } else {
+            let slice = std::slice::from_raw_parts(data_ptr, len);
+            String::from_utf16_lossy(slice)
+        }
+    };
+    leak_cstring(s)
+}
+
 /// `s.encodeUtf16(nulTerminated = true)` — encode the UTF-8 string
 /// as UTF-16 code units and return a fresh `u16[]`. When
 /// `nul_terminated != 0` the buffer ends with an extra `0x0000`

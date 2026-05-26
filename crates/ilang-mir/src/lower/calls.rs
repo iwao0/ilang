@@ -397,6 +397,23 @@ impl<'a> BodyCx<'a> {
                 });
                 return Ok((dst, prom_ty));
             }
+            // Built-in `string.fromUtf16(units)` static factory.
+            // The type checker has already validated `units` as
+            // `u16[]`; we lower it and dispatch to the runtime.
+            if self.lookup_var(*name).is_none()
+                && name.as_str() == "string"
+                && method.as_str() == "fromUtf16"
+                && args.len() == 1
+            {
+                let (av, _) = self.lower_expr(&args[0])?;
+                let dst = self.fb.new_value(MirTy::Str);
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(dst),
+                    callee: FuncRef::Builtin(Symbol::intern("str_from_utf16")),
+                    args: Box::new([av]),
+                });
+                return Ok((dst, MirTy::Str));
+            }
             // `ClassName.staticMethod(args)` when the ident names a
             // class with no local shadow.
             if self.lookup_var(*name).is_none() {

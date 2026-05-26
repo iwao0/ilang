@@ -228,6 +228,10 @@ pub fn compile_with_builtins(
         "$string.encodeUtf16",
         ilang_runtime::__str_encode_utf16 as *const u8,
     );
+    jit_builder.symbol(
+        "$string.fromUtf16",
+        ilang_runtime::__str_from_utf16 as *const u8,
+    );
     // Template-literal `$fmt.*` formatters. Mirror the per-type host
     // dispatch in `fmt_emit::emit_format_value`; each one returns a
     // newly-allocated ilang string.

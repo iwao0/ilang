@@ -207,6 +207,7 @@ distinct `let f = fn(...)` bindings always compare unequal).
 "abcabc".lastIndexOf("b", 2)// i64       ─ optional fromIndex defaults to end of string
 "hi".encodeUtf16()          // u16[]     ─ UTF-16 code units, NUL-terminated (default)
 "hi".encodeUtf16(false)     // u16[]     ─ code units only, no trailing 0x0000
+string.fromUtf16([104, 105])// string    ─ "hi" (UTF-16 code units → UTF-8 string)
 ```
 
 `encodeUtf16(nulTerminated?)` is the canonical bridge to Win32
@@ -215,6 +216,13 @@ can be handed straight to `SetWindowTextW` / `CreateWindowExW` /
 … through the implicit `u16[] → *const u16` coercion described
 in §22. Pass `false` for the JS-faithful "code-units only"
 form.
+
+`string.fromUtf16(units)` is the inverse static factory.
+The whole `u16[]` is decoded — a trailing `0x0000` (if present)
+becomes a literal U+0000 in the result, so callers that want
+strict round-trip with the default `encodeUtf16()` should pass
+`encodeUtf16(false)` instead. Unpaired surrogates are replaced
+with U+FFFD (matches Rust's `String::from_utf16_lossy`).
 
 
 ### Template literals (string interpolation)

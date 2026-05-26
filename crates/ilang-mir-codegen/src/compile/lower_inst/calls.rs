@@ -364,6 +364,7 @@ pub(super) fn lower_call<M: Module>(
                 "str_index_of" => Some(str_ids.index_of),
                 "str_last_index_of" => Some(str_ids.last_index_of),
                 "str_encode_utf16" => Some(str_ids.encode_utf16),
+                "str_from_utf16" => Some(str_ids.from_utf16),
                 "array_index_of" => Some(str_ids.array_index_of),
                 "array_includes" => Some(str_ids.array_includes),
                 "array_push" => Some(str_ids.array_push),

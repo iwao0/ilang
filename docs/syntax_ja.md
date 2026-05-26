@@ -176,6 +176,7 @@ let Point { x, y } = p                  // x: f64, y: f64
 "abcabc".lastIndexOf("b", 2)// i64       ─ 省略時 fromIndex は文字列末尾
 "hi".encodeUtf16()          // u16[]     ─ UTF-16 コードユニット、末尾に 0x0000 を含む (既定)
 "hi".encodeUtf16(false)     // u16[]     ─ 終端 0x0000 を含まない、コードユニットのみ
+string.fromUtf16([104, 105])// string    ─ "hi" (UTF-16 コードユニット → UTF-8 文字列)
 ```
 
 `encodeUtf16(nulTerminated?)` は Win32 W系 API への橋渡し用。
@@ -183,6 +184,13 @@ let Point { x, y } = p                  // x: f64, y: f64
 `u16[] → *const u16` 暗黙コアースと合わせて `SetWindowTextW` /
 `CreateWindowExW` 等にそのまま渡せる。JS の `encodeUtf16` 相当
 (終端なし) が要るときは `false` を渡す。
+
+`string.fromUtf16(units)` は逆方向の静的ファクトリ。`u16[]` を
+そのまま全部デコードするため、末尾の `0x0000` も U+0000 として
+文字列に残る。`encodeUtf16()` (既定で終端あり) と厳密に round-trip
+させたいときは `encodeUtf16(false)` を渡しておく。サロゲートの
+片割れなど無効な UTF-16 は U+FFFD に置換される (Rust の
+`String::from_utf16_lossy` 相当)。
 
 
 ### テンプレートリテラル (文字列補間)
