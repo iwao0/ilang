@@ -7,9 +7,7 @@ use windows {
     GetModuleHandleA,
     CreateWindowExW, MoveWindow, ShowWindow,
     SendMessageA,
-    HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8 }
 use core { windowHwnd }
 
 class ProgressSlot {
@@ -35,8 +33,8 @@ pub fn createNativeProgress(
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
-    let classW = toWideUtf8("msctls_progress32") as *u16
-    let emptyW = toWideUtf8("") as *u16
+    let classW = "msctls_progress32".encodeUtf16()
+    let emptyW = "".encodeUtf16()
     let visibleBits: u32 = if visible { WindowStyle.visible as u32 } else { 0 as u32 }
     let style: u32 = (WindowStyle.child as u32) | visibleBits
     let hInstance = GetModuleHandleA(0 as *const char)
@@ -51,9 +49,6 @@ pub fn createNativeProgress(
         hInstance as HINSTANCE,
         0 as *void
     )
-    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
-    HeapFree(GetProcessHeap(), 0 as u32, emptyW as *void)
-
     let handle = hwnd as i64
     PROGRESS[handle] = new ProgressSlot(hwnd, min, max)
     // PBM_SETRANGE32 = 0x0406 (wParam = min, lParam = max).

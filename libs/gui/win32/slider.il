@@ -13,9 +13,8 @@ use windows {
     GetModuleHandleA,
     CreateWindowExW, EnableWindow, MoveWindow, ShowWindow,
     SendMessageA,
-    HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8, noOpF64 }
+use util { noOpF64 }
 use core { windowHwnd }
 
 class SliderSlot {
@@ -58,8 +57,8 @@ pub fn createNativeSlider(
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
-    let classW = toWideUtf8("msctls_trackbar32") as *u16
-    let emptyW = toWideUtf8("") as *u16
+    let classW = "msctls_trackbar32".encodeUtf16()
+    let emptyW = "".encodeUtf16()
     let visibleBits: u32 = if visible { WindowStyle.visible as u32 } else { 0 as u32 }
     // TBS_AUTOTICKS = 0x0001 — automatic tick marks.
     let style: u32 = (WindowStyle.child as u32) | visibleBits | (0x0001 as u32)
@@ -75,8 +74,6 @@ pub fn createNativeSlider(
         hInstance as HINSTANCE,
         0 as *void
     )
-    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
-    HeapFree(GetProcessHeap(), 0 as u32, emptyW as *void)
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
 

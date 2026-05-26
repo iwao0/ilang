@@ -5,9 +5,8 @@ use windows {
     WindowStyle, ShowCmd,
     GetModuleHandleA,
     CreateWindowExW, SetWindowTextW, MoveWindow, ShowWindow,
-    HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8, applyGuiFont }
+use util { applyGuiFont }
 use core { windowHwnd }
 
 class LabelSlot {
@@ -26,8 +25,8 @@ pub fn createNativeLabel(
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
-    let classW = toWideUtf8("STATIC") as *u16
-    let textW  = toWideUtf8(text) as *u16
+    let classW = "STATIC".encodeUtf16()
+    let textW  = text.encodeUtf16()
     let visibleBits: u32 = if visible {
         WindowStyle.visible as u32
     } else {
@@ -46,8 +45,6 @@ pub fn createNativeLabel(
         hInstance as HINSTANCE,
         0 as *void
     )
-    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
-    HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
     applyGuiFont(hwnd)
     let handle = hwnd as i64
     LABELS[handle] = new LabelSlot(hwnd)
@@ -56,9 +53,7 @@ pub fn createNativeLabel(
 
 pub fn setLabelText(handle: i64, text: string) {
     if let some(slot) = LABELS.get(handle) {
-        let w = toWideUtf8(text) as *u16
-        SetWindowTextW(slot.hwnd, w)
-        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        SetWindowTextW(slot.hwnd, text.encodeUtf16())
     }
 }
 pub fn setLabelFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {

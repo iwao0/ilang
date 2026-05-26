@@ -10,9 +10,8 @@ use windows {
     GetModuleHandleA,
     CreateWindowExW, SetWindowTextW, EnableWindow, MoveWindow, ShowWindow,
     SendMessageA,
-    HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8, applyExplorerTheme, applyGuiFont, noOpBool }
+use util { applyExplorerTheme, applyGuiFont, noOpBool }
 use core { windowHwnd }
 
 class RadioSlot {
@@ -45,8 +44,8 @@ pub fn createNativeRadio(
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
-    let classW = toWideUtf8("BUTTON") as *u16
-    let textW  = toWideUtf8(text) as *u16
+    let classW = "BUTTON".encodeUtf16()
+    let textW  = text.encodeUtf16()
     let visibleBits: u32 = if visible {
         WindowStyle.visible as u32
     } else {
@@ -66,8 +65,6 @@ pub fn createNativeRadio(
         hInstance as HINSTANCE,
         0 as *void
     )
-    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
-    HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
     applyExplorerTheme(hwnd)
@@ -84,9 +81,7 @@ pub fn setOnRadioToggle(handle: i64, cb: fn(bool)) {
 }
 pub fn setRadioText(handle: i64, text: string) {
     if let some(slot) = RADIOS.get(handle) {
-        let w = toWideUtf8(text) as *u16
-        SetWindowTextW(slot.hwnd, w)
-        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        SetWindowTextW(slot.hwnd, text.encodeUtf16())
     }
 }
 pub fn setRadioChecked(handle: i64, checked: bool) {

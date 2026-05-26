@@ -8,9 +8,8 @@ use windows {
     GetModuleHandleA,
     CreateWindowExW, EnableWindow, MoveWindow, ShowWindow,
     SendMessageA, SendMessageW,
-    HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8, applyGuiFont, noOpI32 }
+use util { applyGuiFont, noOpI32 }
 use core { windowHwnd }
 
 class ListSlot {
@@ -42,8 +41,8 @@ pub fn createNativeList(
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
-    let classW = toWideUtf8("LISTBOX") as *u16
-    let emptyW = toWideUtf8("") as *u16
+    let classW = "LISTBOX".encodeUtf16()
+    let emptyW = "".encodeUtf16()
     let visibleBits: u32 = if visible { WindowStyle.visible as u32 } else { 0 as u32 }
     // LBS_NOTIFY = 0x0001 — required for LBN_SELCHANGE callbacks.
     let style: u32 = (WindowStyle.child as u32) | visibleBits
@@ -62,8 +61,6 @@ pub fn createNativeList(
         hInstance as HINSTANCE,
         0 as *void
     )
-    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
-    HeapFree(GetProcessHeap(), 0 as u32, emptyW as *void)
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
     applyGuiFont(hwnd)
@@ -78,10 +75,13 @@ pub fn setOnListSelect(handle: i64, cb: fn(i32)) {
 /// LB_ADDSTRING = 0x0180.
 pub fn addListItem(handle: i64, item: string) {
     if let some(slot) = LISTS.get(handle) {
-        let w = toWideUtf8(item) as *u16
-        SendMessageW(slot.hwnd, 0x0180 as u32,
-                             0 as u64, w as i64)
-        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        // lParam is an `i64` channel — bind through a typed
+        // `*const u16` so the implicit array→pointer coercion
+        // fires, then convert to `i64`. `arr` keeps the buffer
+        // alive across the call via ARC.
+        let arr = item.encodeUtf16()
+        let p: *const u16 = arr
+        SendMessageW(slot.hwnd, 0x0180 as u32, 0 as u64, p as i64)
     }
 }
 /// LB_RESETCONTENT = 0x0184.

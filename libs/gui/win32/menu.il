@@ -13,9 +13,7 @@ use windows {
     HWND, HMENU,
     MenuFlags,
     CreatePopupMenu, CreateMenu, AppendMenuW, SetMenu, DrawMenuBar,
-    HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8 }
 use core { windowHwnd }
 
 class MenuSlot {
@@ -66,9 +64,10 @@ pub fn menuAddItemWithShortcut(
         } else {
             text
         }
-        let w = toWideUtf8(label) as *u16
-        AppendMenuW(slot.handle, MenuFlags.string as u32, id as u64, w)
-        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        AppendMenuW(
+            slot.handle, MenuFlags.string as u32, id as u64,
+            label.encodeUtf16()
+        )
         ITEM_ACTIONS[id] = onClick
     }
 }
@@ -82,10 +81,11 @@ pub fn menuAddSeparator(menuHandle: i64) {
 pub fn menuAddSubmenu(parentHandle: i64, childHandle: i64) {
     if let some(parent) = MENUS.get(parentHandle) {
         if let some(child) = MENUS.get(childHandle) {
-            let w = toWideUtf8(child.title) as *u16
             let flags = (MenuFlags.popup as u32) | (MenuFlags.string as u32)
-            AppendMenuW(parent.handle, flags, child.handle as u64, w)
-            HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+            AppendMenuW(
+                parent.handle, flags, child.handle as u64,
+                child.title.encodeUtf16()
+            )
         }
     }
 }
@@ -98,10 +98,8 @@ pub fn setWindowMenuBar(windowHandle: i64, menuHandles: i64[]) {
     let i = 0
     while i < n {
         if let some(slot) = MENUS.get(menuHandles[i]) {
-            let w = toWideUtf8(slot.title) as *u16
             let flags = (MenuFlags.popup as u32) | (MenuFlags.string as u32)
-            AppendMenuW(bar, flags, slot.handle as u64, w)
-            HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+            AppendMenuW(bar, flags, slot.handle as u64, slot.title.encodeUtf16())
         }
         i = i + 1
     }

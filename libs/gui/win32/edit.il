@@ -12,7 +12,8 @@ use windows {
     GetWindowTextW, GetWindowTextLengthW,
     HeapAlloc, HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8, fromWideUtf8, applyGuiFont, noOpText }
+use std.ffi { arrayFromCArray }
+use util { applyGuiFont, noOpText }
 use core { windowHwnd }
 
 class EditSlot {
@@ -45,8 +46,8 @@ pub fn createNativeEdit(
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
-    let classW = toWideUtf8("EDIT") as *u16
-    let textW  = toWideUtf8(text) as *u16
+    let classW = "EDIT".encodeUtf16()
+    let textW  = text.encodeUtf16()
     let visibleBits: u32 = if visible {
         WindowStyle.visible as u32
     } else {
@@ -70,8 +71,6 @@ pub fn createNativeEdit(
         hInstance as HINSTANCE,
         0 as *void
     )
-    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
-    HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
     applyGuiFont(hwnd)
@@ -88,12 +87,17 @@ pub fn readEditText(handle: i64): string {
         if lenW <= 0 {
             ""
         } else {
+            // GetWindowTextW writes into a sized C buffer, so we
+            // still need `HeapAlloc` for the write target. Convert
+            // the result into a `u16[]` (just `lenW` units, no
+            // trailing NUL) via `arrayFromCArray`, then decode via
+            // `string.fromUtf16`.
             let heap = GetProcessHeap()
             let wideBuf = HeapAlloc(heap, 8 as u32, (lenW as u64 + 1 as u64) * 2 as u64) as *u16
             GetWindowTextW(hwnd, wideBuf, lenW + 1)
-            let s = fromWideUtf8(wideBuf as i64, lenW)
+            let units = arrayFromCArray<u16>(wideBuf as *const u16, lenW as u64)
             HeapFree(heap, 0 as u32, wideBuf as *void)
-            s
+            string.fromUtf16(units)
         }
     } else {
         ""
@@ -105,9 +109,7 @@ pub fn setOnEditChange(handle: i64, cb: fn(string)) {
 }
 pub fn setEditText(handle: i64, text: string) {
     if let some(slot) = EDITS.get(handle) {
-        let w = toWideUtf8(text) as *u16
-        SetWindowTextW(slot.hwnd, w)
-        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        SetWindowTextW(slot.hwnd, text.encodeUtf16())
     }
 }
 pub fn setEditFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {

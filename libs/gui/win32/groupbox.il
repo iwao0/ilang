@@ -6,9 +6,8 @@ use windows {
     WindowStyle, ShowCmd,
     GetModuleHandleA,
     CreateWindowExW, SetWindowTextW, MoveWindow, ShowWindow,
-    HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8, applyGuiFont }
+use util { applyGuiFont }
 use core { windowHwnd }
 
 class GroupBoxSlot {
@@ -27,8 +26,8 @@ pub fn createNativeGroupBox(
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
-    let classW = toWideUtf8("BUTTON") as *u16
-    let textW  = toWideUtf8(text) as *u16
+    let classW = "BUTTON".encodeUtf16()
+    let textW  = text.encodeUtf16()
     let visibleBits: u32 = if visible {
         WindowStyle.visible as u32
     } else {
@@ -48,8 +47,6 @@ pub fn createNativeGroupBox(
         hInstance as HINSTANCE,
         0 as *void
     )
-    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
-    HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
     applyGuiFont(hwnd)
     let handle = hwnd as i64
     GROUPBOXES[handle] = new GroupBoxSlot(hwnd)
@@ -58,9 +55,7 @@ pub fn createNativeGroupBox(
 
 pub fn setGroupBoxText(handle: i64, text: string) {
     if let some(slot) = GROUPBOXES.get(handle) {
-        let w = toWideUtf8(text) as *u16
-        SetWindowTextW(slot.hwnd, w)
-        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        SetWindowTextW(slot.hwnd, text.encodeUtf16())
     }
 }
 pub fn setGroupBoxFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {

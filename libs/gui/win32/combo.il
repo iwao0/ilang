@@ -8,9 +8,8 @@ use windows {
     GetModuleHandleA,
     CreateWindowExW, EnableWindow, MoveWindow, ShowWindow,
     SendMessageA, SendMessageW,
-    HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8, applyGuiFont, noOpI32 }
+use util { applyGuiFont, noOpI32 }
 use core { windowHwnd }
 
 class ComboSlot {
@@ -42,8 +41,8 @@ pub fn createNativeCombo(
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
-    let classW = toWideUtf8("COMBOBOX") as *u16
-    let emptyW = toWideUtf8("") as *u16
+    let classW = "COMBOBOX".encodeUtf16()
+    let emptyW = "".encodeUtf16()
     let visibleBits: u32 = if visible { WindowStyle.visible as u32 } else { 0 as u32 }
     // CBS_DROPDOWNLIST = 0x0003, WS_VSCROLL for tall lists.
     let style: u32 = (WindowStyle.child as u32) | visibleBits
@@ -64,8 +63,6 @@ pub fn createNativeCombo(
         hInstance as HINSTANCE,
         0 as *void
     )
-    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
-    HeapFree(GetProcessHeap(), 0 as u32, emptyW as *void)
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
     applyGuiFont(hwnd)
@@ -80,10 +77,13 @@ pub fn setOnComboSelect(handle: i64, cb: fn(i32)) {
 /// CB_ADDSTRING = 0x143 (wide variant for non-ASCII items).
 pub fn addComboItem(handle: i64, item: string) {
     if let some(slot) = COMBOS.get(handle) {
-        let w = toWideUtf8(item) as *u16
-        SendMessageW(slot.hwnd, 0x0143 as u32,
-                             0 as u64, w as i64)
-        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        // The lParam is an `i64` channel; bind through a typed
+        // pointer so the implicit `u16[] → *const u16` coercion
+        // fires, then cast that to `i64`. `arr` stays in scope so
+        // ARC keeps the buffer alive for the duration of the call.
+        let arr = item.encodeUtf16()
+        let p: *const u16 = arr
+        SendMessageW(slot.hwnd, 0x0143 as u32, 0 as u64, p as i64)
     }
 }
 /// CB_RESETCONTENT = 0x14B.

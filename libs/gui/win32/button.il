@@ -9,9 +9,8 @@ use windows {
     WindowStyle, ShowCmd,
     GetModuleHandleA,
     CreateWindowExW, SetWindowTextW, EnableWindow, MoveWindow, ShowWindow,
-    HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8, applyExplorerTheme, applyGuiFont, noOpClick }
+use util { applyExplorerTheme, applyGuiFont, noOpClick }
 use core { windowHwnd }
 
 /// Per-button state. Stored in `BUTTONS` keyed by the button's
@@ -50,8 +49,8 @@ pub fn createNativeButton(
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
-    let classW = toWideUtf8("BUTTON") as *u16
-    let textW  = toWideUtf8(text) as *u16
+    let classW = "BUTTON".encodeUtf16()
+    let textW  = text.encodeUtf16()
     let visibleBits: u32 = if visible {
         WindowStyle.visible as u32
     } else {
@@ -70,8 +69,6 @@ pub fn createNativeButton(
         hInstance as HINSTANCE,
         0 as *void
     )
-    HeapFree(GetProcessHeap(), 0 as u32, classW as *void)
-    HeapFree(GetProcessHeap(), 0 as u32, textW as *void)
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
     applyExplorerTheme(hwnd)
@@ -86,9 +83,7 @@ pub fn setOnButtonClick(handle: i64, cb: fn(f64, f64, i32)) {
 }
 pub fn setButtonText(handle: i64, text: string) {
     if let some(slot) = BUTTONS.get(handle) {
-        let w = toWideUtf8(text) as *u16
-        SetWindowTextW(slot.hwnd, w)
-        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        SetWindowTextW(slot.hwnd, text.encodeUtf16())
     }
 }
 pub fn setButtonFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {

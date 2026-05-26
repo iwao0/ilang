@@ -16,9 +16,8 @@ use windows {
     SetWindowPosFlags,
     GetMessageW, DispatchMessageW, TranslateMessage,
     ShowWindow, UpdateWindow,
-    HeapFree, GetProcessHeap,
 }
-use util { toWideUtf8, enableComctl32V6 }
+use util { enableComctl32V6 }
 use core { WindowSlot, WINDOWS }
 use wnd_proc { guiWndProc }
 
@@ -29,11 +28,16 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
 
     let hInstance = GetModuleHandleA(0 as *const char)
     // Class name + title go through UTF-16 so non-ASCII chars
-    // round-trip intact. The class-name buffer must outlive
-    // `RegisterClassExW`; intentionally leaked (single 32-byte
-    // allocation per process).
-    let classNameW = toWideUtf8("IlangGuiWindow") as *u16
-    let titleW     = toWideUtf8(title) as *u16
+    // round-trip intact. ARC keeps both arrays alive across the
+    // RegisterClassExW / CreateWindowExW pair; the kernel copies
+    // the class name internally, so the buffer can drop after
+    // this fn returns.
+    let classNameW = "IlangGuiWindow".encodeUtf16()
+    let titleW     = title.encodeUtf16()
+    // WNDCLASSEXA.lpszClassName is typed `*const char`, but
+    // `RegisterClassExW` reinterprets it as `*const u16`. Pun via
+    // the typed pointer slot the snprintf example documents.
+    let classNamePtr: *const u16 = classNameW
 
     let wc = WNDCLASSEXA {
         cbSize:        80,
@@ -47,7 +51,7 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         // COLOR_BTNFACE (15) + 1 = 16 — the default dialog grey.
         hbrBackground: 16 as HBRUSH,
         lpszMenuName:  0 as *const char,
-        lpszClassName: classNameW as *const char,
+        lpszClassName: (classNamePtr as i64) as *const char,
         hIconSm:       0 as HICON,
     }
     RegisterClassExW(&wc)
@@ -64,7 +68,6 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         hInstance as HINSTANCE,
         0 as *void
     )
-    HeapFree(GetProcessHeap(), 0 as u32, titleW as *void)
 
     let handle = hwnd as i64
     WINDOWS[handle] = new WindowSlot(hwnd)
@@ -76,9 +79,7 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
 
 pub fn setWindowTitle(handle: i64, title: string) {
     if let some(slot) = WINDOWS.get(handle) {
-        let w = toWideUtf8(title) as *u16
-        SetWindowTextW(slot.hwnd, w)
-        HeapFree(GetProcessHeap(), 0 as u32, w as *void)
+        SetWindowTextW(slot.hwnd, title.encodeUtf16())
     }
 }
 
