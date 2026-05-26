@@ -98,9 +98,16 @@ fn lib_search_dirs() -> Vec<std::path::PathBuf> {
 
 fn lib_loadable(name: &str) -> bool {
     // `name` already names a file or carries a path separator: take it
-    // verbatim and just check the filesystem.
+    // verbatim. `symlink_metadata` (not `exists`) — macOS system
+    // frameworks ship as broken symlinks pointing into the dyld
+    // shared cache (e.g. `/System/Library/Frameworks/AppKit.framework/
+    // AppKit -> Versions/Current/AppKit`, where the target file
+    // doesn't exist on disk). `exists()` follows the symlink and
+    // returns false; `symlink_metadata` reports the entry itself
+    // and accepts it, which matches what `dlopen` / the linker
+    // actually do at runtime.
     if name.contains('/') || name.contains('\\') {
-        return std::path::Path::new(name).exists();
+        return std::fs::symlink_metadata(name).is_ok();
     }
     let candidates: Vec<String> = if name.contains('.') {
         vec![name.to_string()]
