@@ -501,6 +501,24 @@ fn set_subset_superset_disjoint() {
 }
 
 #[test]
+fn float_primitive_constants() {
+    // `f32.NaN != f32.NaN` (IEEE), `f32.Infinity > 0.0`,
+    // `f64.Min < 0.0`. Result encodes each bit flag in a power of 2
+    // so a failed assertion points at the responsible check.
+    let src = r#"
+        let nan_self = if f32.NaN == f32.NaN { 0 } else { 1 }
+        let inf_pos = if f32.Infinity > 0.0 { 1 } else { 0 }
+        let inf_neg = if f32.NegInfinity < 0.0 { 1 } else { 0 }
+        let min_neg = if f64.Min < 0.0 { 1 } else { 0 }
+        let max_pos = if f64.Max > 0.0 { 1 } else { 0 }
+        let mp_pos = if f64.MinPositive > 0.0 { 1 } else { 0 }
+        nan_self + inf_pos * 2 + inf_neg * 4 + min_neg * 8 + max_pos * 16 + mp_pos * 32
+    "#;
+    // All six checks should be true → 1+2+4+8+16+32 = 63
+    assert_eq!(run(src), 63);
+}
+
+#[test]
 fn string_length_const() {
     let src = r#"
         let s = "hello"

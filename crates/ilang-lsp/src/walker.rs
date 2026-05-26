@@ -1363,6 +1363,14 @@ impl<'a> Walker<'a> {
                 info.methods.get(&AstSymbol::intern(method.as_str()))?.ret_ty.clone()
             }
             ExprKind::Field { obj, name } => {
+                // Float primitive associated constants —
+                // `f32.NaN` / `f64.MinPositive` etc. Same set the
+                // type checker recognises in `check_field`.
+                if let ExprKind::Var(recv) = &obj.kind {
+                    if let Some(t) = float_prim_const_ty(recv.as_str(), name.as_str()) {
+                        return Some(t);
+                    }
+                }
                 // `EnumName.Variant` parses as Field too. Try the
                 // class path first; if that misses, check whether
                 // `obj` names an enum we know about (variant entries
@@ -1751,6 +1759,26 @@ fn infer_map_method_type(g: &GenericTy, method: &str) -> Option<Type> {
         "size" => Some(Type::I64),
         "keys" => Some(Type::Array { elem: Box::new(k), fixed: None }),
         "values" => Some(Type::Array { elem: Box::new(v), fixed: None }),
+        _ => None,
+    }
+}
+
+/// `f32.NaN` / `f64.MinPositive` and friends. Receivers limited
+/// to `f32` / `f64`; names mirror Rust's `f32::*` constants in
+/// CamelCase. Returns the constant's static type, which is the
+/// receiver type itself.
+fn float_prim_const_ty(receiver: &str, name: &str) -> Option<Type> {
+    let is_const = matches!(
+        name,
+        "NaN" | "Infinity" | "NegInfinity"
+            | "Min" | "Max" | "MinPositive" | "Epsilon"
+    );
+    if !is_const {
+        return None;
+    }
+    match receiver {
+        "f32" => Some(Type::F32),
+        "f64" => Some(Type::F64),
         _ => None,
     }
 }

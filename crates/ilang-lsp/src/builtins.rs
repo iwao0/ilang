@@ -226,6 +226,43 @@ pub(crate) fn map_method_sig(method: &str, k: &Type, v: &Type) -> Option<String>
     Some(format!("(method) Map<{k}, {v}>.{body}"))
 }
 
+/// Associated-constant names exposed on `f32` / `f64`. Matches the
+/// set the type checker accepts in `check_field`'s float-prim arm.
+pub(crate) fn float_prim_const_names() -> &'static [&'static str] {
+    &[
+        "NaN", "Infinity", "NegInfinity",
+        "Min", "Max", "MinPositive", "Epsilon",
+    ]
+}
+
+pub(crate) fn float_prim_const_sig(receiver: &str, name: &str) -> Option<String> {
+    if !matches!(receiver, "f32" | "f64") {
+        return None;
+    }
+    let recognised = matches!(
+        name,
+        "NaN" | "Infinity" | "NegInfinity"
+            | "Min" | "Max" | "MinPositive" | "Epsilon"
+    );
+    if !recognised {
+        return None;
+    }
+    Some(format!("(constant) {receiver}.{name}: {receiver}"))
+}
+
+pub(crate) fn float_prim_const_doc(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "NaN" => "IEEE-754 NaN. `NaN == NaN` is `false`.",
+        "Infinity" => "Positive infinity (e.g. `1.0 / 0.0`).",
+        "NegInfinity" => "Negative infinity (e.g. `-1.0 / 0.0`).",
+        "Min" => "Most negative finite value (Rust-style — `MIN`, not the smallest positive).",
+        "Max" => "Largest finite value.",
+        "MinPositive" => "Smallest positive normal value.",
+        "Epsilon" => "Gap between `1.0` and the next representable value.",
+        _ => return None,
+    })
+}
+
 pub(crate) fn set_method_names() -> &'static [&'static str] {
     &[
         "add", "has", "delete", "size", "clear",

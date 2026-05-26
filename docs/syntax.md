@@ -249,6 +249,24 @@ Available on every numeric primitive (`i8`..`u64`, `f32`, `f64`)
 plus `bool`. Float formatting matches `console.log` (integral
 values print as `N.0`).
 
+### Float associated constants
+
+```rust
+f32.NaN                    // f32 — NaN literal (NaN != NaN)
+f32.Infinity               // f32 —  ∞
+f32.NegInfinity            // f32 — -∞
+f32.Min                    // f32 — most negative finite value (≈ -3.4e38)
+f32.Max                    // f32 — largest finite value (≈ 3.4e38)
+f32.MinPositive            // f32 — smallest positive normal (≈ 1.17e-38)
+f32.Epsilon                // f32 — gap between 1.0 and next f32 (≈ 1.19e-7)
+```
+
+`f64` exposes the same seven names with the wider type. Numeric
+values come straight from Rust's `f32::NAN` / `f64::NAN` / etc., so
+behaviour follows IEEE-754. `Min` is Rust-style (the most negative
+finite, not JS's "minimum positive normal" — see `MinPositive` for
+that).
+
 ---
 
 ## 5. Control flow

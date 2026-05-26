@@ -17,6 +17,28 @@ use crate::ops::{assignable, bin_result, int_literal_fits};
 
 use super::super::*;
 
+/// Returns `Some(Type::F32)` / `Some(Type::F64)` when `receiver.name`
+/// names one of the built-in float associated constants
+/// (`f32.NaN`, `f64.MinPositive`, ...). The set mirrors Rust's
+/// `f32::NAN` / `f32::INFINITY` / `f32::NEG_INFINITY` / `f32::MIN`
+/// / `f32::MAX` / `f32::MIN_POSITIVE` / `f32::EPSILON` (and the f64
+/// twins). Names are CamelCase to match ilang's identifier style.
+pub(crate) fn float_prim_const_type(receiver: &str, name: &str) -> Option<Type> {
+    let is_const = matches!(
+        name,
+        "NaN" | "Infinity" | "NegInfinity"
+            | "Min" | "Max" | "MinPositive" | "Epsilon"
+    );
+    if !is_const {
+        return None;
+    }
+    match receiver {
+        "f32" => Some(Type::F32),
+        "f64" => Some(Type::F64),
+        _ => None,
+    }
+}
+
 impl TypeChecker {
     pub(super) fn check_field(
         &self,
@@ -35,6 +57,12 @@ impl TypeChecker {
         if let ExprKind::Var(rname) = &obj.kind {
             let is_local_shadow = env.contains_key(rname) || self.vars.contains_key(rname);
             if !is_local_shadow {
+                // Float primitives expose a small set of associated
+                // constants (`f32.NaN`, `f32.Infinity`, ...). Names
+                // mirror Rust's `f32::*` constants in CamelCase.
+                if let Some(prim_ty) = float_prim_const_type(rname.as_str(), name.as_str()) {
+                    return Ok(prim_ty);
+                }
                 if let Some(cls) = self.classes.get(&rname) {
                     if let Some(p) = cls.properties.get(name) {
                         if p.is_static {

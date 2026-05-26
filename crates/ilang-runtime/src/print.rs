@@ -27,7 +27,11 @@ pub extern "C" fn __print_bool(b: i64) {
 #[unsafe(export_name = "$print.f64")]
 pub extern "C" fn __print_f64(x: f64) {
     let mut out = std::io::stdout().lock();
-    if x.fract() == 0.0 && x.is_finite() {
+    if x.is_nan() {
+        let _ = write!(out, "NaN");
+    } else if x.is_infinite() {
+        let _ = write!(out, "{}", if x > 0.0 { "Infinity" } else { "-Infinity" });
+    } else if x.fract() == 0.0 {
         let _ = write!(out, "{x:.1}");
     } else {
         let _ = write!(out, "{x}");

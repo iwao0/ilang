@@ -15,11 +15,37 @@
 
 use ilang_ast::{Expr, ExprKind, Span, Symbol};
 
-use crate::inst::{FuncRef, Inst, UnOp, ValueId};
+use crate::inst::{FuncRef, Inst, MirConst, UnOp, ValueId};
 use crate::types::{MirTy, SimdElem};
 
 use super::utils::retain_if_heap;
 use super::{BodyCx, LowerError};
+
+/// Resolve `f32.<name>` / `f64.<name>` to the appropriate
+/// `(MirTy, MirConst)` pair. Names mirror the type checker side in
+/// `checker::expr::access::float_prim_const_type`; the values are
+/// taken straight from Rust's `f32::*` / `f64::*` associated
+/// constants so behaviour matches the host's IEEE-754 implementation
+/// exactly.
+fn lower_float_prim_const(receiver: &str, name: &str) -> Option<(MirTy, MirConst)> {
+    match (receiver, name) {
+        ("f32", "NaN") => Some((MirTy::F32, MirConst::F32(f32::NAN.to_bits()))),
+        ("f32", "Infinity") => Some((MirTy::F32, MirConst::F32(f32::INFINITY.to_bits()))),
+        ("f32", "NegInfinity") => Some((MirTy::F32, MirConst::F32(f32::NEG_INFINITY.to_bits()))),
+        ("f32", "Min") => Some((MirTy::F32, MirConst::F32(f32::MIN.to_bits()))),
+        ("f32", "Max") => Some((MirTy::F32, MirConst::F32(f32::MAX.to_bits()))),
+        ("f32", "MinPositive") => Some((MirTy::F32, MirConst::F32(f32::MIN_POSITIVE.to_bits()))),
+        ("f32", "Epsilon") => Some((MirTy::F32, MirConst::F32(f32::EPSILON.to_bits()))),
+        ("f64", "NaN") => Some((MirTy::F64, MirConst::F64(f64::NAN.to_bits()))),
+        ("f64", "Infinity") => Some((MirTy::F64, MirConst::F64(f64::INFINITY.to_bits()))),
+        ("f64", "NegInfinity") => Some((MirTy::F64, MirConst::F64(f64::NEG_INFINITY.to_bits()))),
+        ("f64", "Min") => Some((MirTy::F64, MirConst::F64(f64::MIN.to_bits()))),
+        ("f64", "Max") => Some((MirTy::F64, MirConst::F64(f64::MAX.to_bits()))),
+        ("f64", "MinPositive") => Some((MirTy::F64, MirConst::F64(f64::MIN_POSITIVE.to_bits()))),
+        ("f64", "Epsilon") => Some((MirTy::F64, MirConst::F64(f64::EPSILON.to_bits()))),
+        _ => None,
+    }
+}
 
 impl<'a> BodyCx<'a> {
     pub(super) fn lower_map_literal(
@@ -399,6 +425,17 @@ impl<'a> BodyCx<'a> {
         // takes no arguments since there's no `this`.
         if let ExprKind::Var(maybe_class) = &obj.kind {
             if self.lookup_var(*maybe_class).is_none() {
+                // Float primitive associated constants — type checker
+                // validated the (receiver, name) pair already; here we
+                // just materialise the right MirConst.
+                if let Some(c) = lower_float_prim_const(
+                    maybe_class.as_str(), name.as_str(),
+                ) {
+                    let (ty, mc) = c;
+                    let v = self.fb.new_value(ty.clone());
+                    self.fb.push_inst(Inst::Const { dst: v, value: mc });
+                    return Ok((v, ty));
+                }
                 if let Some(cid) = super::class_id_by_name(self.classes, self.class_meta, *maybe_class) {
                     let meta = self.class_meta.get(&cid).unwrap();
                     if let Some((fid, prop_ty)) = meta.static_property_getter.get(&name).cloned() {

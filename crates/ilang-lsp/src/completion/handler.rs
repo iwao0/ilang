@@ -20,9 +20,11 @@ use super::{
     use_path_prefix_at,
 };
 use crate::builtins::{
-    array_method_doc, array_method_names, array_method_sig, map_method_doc,
-    map_method_names, map_method_sig, primitive_method_doc, primitive_method_names,
-    primitive_method_sig, set_method_doc, set_method_names, set_method_sig,
+    array_method_doc, array_method_names, array_method_sig,
+    float_prim_const_doc, float_prim_const_names, float_prim_const_sig,
+    map_method_doc, map_method_names, map_method_sig,
+    primitive_method_doc, primitive_method_names, primitive_method_sig,
+    set_method_doc, set_method_names, set_method_sig,
     string_method_doc, string_method_names, string_method_sig,
 };
 use crate::code_actions::interface_method_stub_completions_textual;
@@ -462,6 +464,35 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         resolve_receiver_class(doc, &receiver, off).unwrap_or_default()
     };
     if doc.classes.get(&AstSymbol::intern(&class_name)).is_none() {
+        // `f32.` / `f64.` — primitive-type associated constants live
+        // outside the regular `var_types` path because the receiver
+        // is a type name, not a value. Emit the constant list before
+        // the inferred-type fallthrough so the user gets `NaN` /
+        // `Infinity` / ... immediately after the dot.
+        if receiver == "f32" || receiver == "f64" {
+            let items: Vec<CompletionItem> = float_prim_const_names()
+                .iter()
+                .filter_map(|n| {
+                    let sig = float_prim_const_sig(receiver.as_str(), n)?;
+                    let doc_text = float_prim_const_doc(n);
+                    let mut item = CompletionItem {
+                        label: n.to_string(),
+                        kind: Some(CompletionItemKind::CONSTANT),
+                        detail: Some(sig),
+                        documentation: doc_text.map(|d| {
+                            Documentation::MarkupContent(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: d.to_string(),
+                            })
+                        }),
+                        ..Default::default()
+                    };
+                    item.insert_text = Some(n.to_string());
+                    Some(item)
+                })
+                .collect();
+            return Some(CompletionResponse::Array(items));
+        }
         // Built-in receiver: string / array. Their member sets are
         // hardcoded — list them from the same helpers used by hover.
         // String literal (`"abc".`) flows in via a sentinel

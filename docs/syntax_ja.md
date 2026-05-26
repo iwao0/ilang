@@ -215,6 +215,20 @@ n.toString()                // "255"
 
 すべての数値プリミティブ (`i8`〜`u64` / `f32` / `f64`) と `bool` で利用可。浮動小数のフォーマットは `console.log` と同じ。
 
+### 浮動小数の associated 定数
+
+```rust
+f32.NaN                    // f32 — NaN リテラル (NaN != NaN)
+f32.Infinity               // f32 —  ∞
+f32.NegInfinity            // f32 — -∞
+f32.Min                    // f32 — 最も負の有限値 (≈ -3.4e38)
+f32.Max                    // f32 — 最大の有限値 (≈ 3.4e38)
+f32.MinPositive            // f32 — 最小の正の normal 値 (≈ 1.17e-38)
+f32.Epsilon                // f32 — 1.0 と次に表現可能な値との差 (≈ 1.19e-7)
+```
+
+`f64` も同名 7 個を持ち、型がより広い。値は Rust の `f32::NAN` / `f64::NAN` などをそのまま採用するため IEEE-754 準拠。`Min` は Rust 流で「最も負の有限値」(JS の "最小の正値" ではなく `MinPositive` がその意味になる)。
+
 ---
 
 ## 5. 制御フロー
