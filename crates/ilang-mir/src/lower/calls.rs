@@ -1087,10 +1087,24 @@ impl<'a> BodyCx<'a> {
                 }
                 Ok((dst.unwrap_or_else(|| self.const_unit()), ret_ty))
             }
-            (MirTy::Set { .. }, m) => {
+            (MirTy::Set { elem }, m) => {
+                // Float receivers go through dedicated `$set.*F{32,64}`
+                // entry points so cranelift's float-register ABI
+                // delivers the raw value; the i64-shaped builtins
+                // can't represent f32 / f64 args without an
+                // explicit bit-cast Inst we don't have yet.
+                let elem_is_f32 = matches!(**elem, MirTy::F32);
+                let elem_is_f64 = matches!(**elem, MirTy::F64);
+                let elem_is_float = elem_is_f32 || elem_is_f64;
                 let (builtin_name, ret_ty) = match m {
+                    "add" if elem_is_f32 => ("set_add_f32", MirTy::Unit),
+                    "add" if elem_is_f64 => ("set_add_f64", MirTy::Unit),
                     "add" => ("set_add", MirTy::Unit),
+                    "has" if elem_is_f32 => ("set_has_f32", MirTy::Bool),
+                    "has" if elem_is_f64 => ("set_has_f64", MirTy::Bool),
                     "has" => ("set_has", MirTy::Bool),
+                    "delete" if elem_is_f32 => ("set_delete_f32", MirTy::Bool),
+                    "delete" if elem_is_f64 => ("set_delete_f64", MirTy::Bool),
                     "delete" => ("set_delete", MirTy::Bool),
                     "size" => ("set_size", MirTy::I64),
                     "clear" => ("set_clear", MirTy::Unit),
@@ -1101,13 +1115,20 @@ impl<'a> BodyCx<'a> {
                 let mut arg_vals = vec![ov];
                 for a in args {
                     let (v, vty) = self.lower_expr(a)?;
-                    // Host fns are uniformly `(set, i64)` — widen
-                    // narrow integer / bool args the same way the Map
-                    // path does so the cell carries the user's bits
-                    // intact.
-                    let v_ext = if matches!(vty, MirTy::I64 | MirTy::U64)
+                    // For the float-specialised variants the callee
+                    // expects f32 / f64; the value might still be an
+                    // i64 (integer literal) if the type checker
+                    // didn't fold it. Coerce explicitly to the
+                    // declared element type so cranelift's verifier
+                    // sees matching arg types.
+                    let v_ext = if elem_is_float {
+                        if &vty == &**elem {
+                            v
+                        } else {
+                            self.coerce(v, &vty, elem, a.span)?
+                        }
+                    } else if matches!(vty, MirTy::I64 | MirTy::U64)
                         || vty.is_heap()
-                        || vty.is_float()
                     {
                         v
                     } else if vty.is_int() || matches!(vty, MirTy::Bool) {

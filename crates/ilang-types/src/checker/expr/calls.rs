@@ -1241,6 +1241,29 @@ impl TypeChecker {
                 span,
             });
         }
+        // `Set<T>` accepts the same primitives as Map's key plus
+        // floats — the host runtime stores by bit pattern, so f32 /
+        // f64 round-trip cleanly (NaN compares unequal to itself,
+        // matching the IEEE rule but with the consequence that a
+        // NaN inserted twice keeps two entries).
+        if class.as_str() == "Set" && type_args.len() == 1 {
+            let t = &type_args[0];
+            let ok = matches!(
+                t,
+                Type::Str | Type::Bool
+                    | Type::I8 | Type::I16 | Type::I32 | Type::I64
+                    | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                    | Type::F32 | Type::F64
+            );
+            if !ok {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "set element type {t} (only primitive / string elements are supported)"
+                    ),
+                    span,
+                });
+            }
+        }
         // Rewrite the user-supplied type args so any reference to
         // an enclosing type parameter (a class param like `new
         // Map<string, T[]>()` inside `class Bag<T>`, OR a fn-level

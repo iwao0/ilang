@@ -119,6 +119,78 @@ pub extern "C" fn __set_delete(set: i64, raw: i64) -> i64 {
     }
 }
 
+// --------------------------------------------------------------------
+// Float-specialised add / has / delete
+//
+// f32 / f64 values can't ride the generic `(set, i64)` ABI of
+// `$set.add` etc. without first being bit-cast; cranelift's calling
+// convention treats them as float-register args. Routing through
+// `$set.addF*` lets the JIT pass the raw float value and the
+// runtime perform the bit-cast in Rust where it's cheap and
+// well-defined. The stored cell is the raw bit pattern (zero-
+// extended for f32), so `format_kind_id` (PK_F32 / PK_F64) recovers
+// the original value via the matching `from_bits` call.
+//
+// NaN follows IEEE semantics — `NaN != NaN`, so inserting two
+// distinct NaN bit patterns keeps both entries; inserting the same
+// NaN bit pattern twice keeps one. The runtime tracks identity by
+// HashSet on the bit pattern, mirroring how Rust's own collections
+// would behave if they accepted floats.
+
+#[unsafe(export_name = "$set.addF32")]
+pub extern "C" fn __set_add_f32(set: i64, v: f32) {
+    if set == 0 {
+        return;
+    }
+    let s = unsafe { &mut *(set as *mut ManagedSet) };
+    s.inner.insert(SetElem::Int(v.to_bits() as i64));
+}
+
+#[unsafe(export_name = "$set.addF64")]
+pub extern "C" fn __set_add_f64(set: i64, v: f64) {
+    if set == 0 {
+        return;
+    }
+    let s = unsafe { &mut *(set as *mut ManagedSet) };
+    s.inner.insert(SetElem::Int(v.to_bits() as i64));
+}
+
+#[unsafe(export_name = "$set.hasF32")]
+pub extern "C" fn __set_has_f32(set: i64, v: f32) -> i64 {
+    if set == 0 {
+        return 0;
+    }
+    let s = unsafe { &*(set as *const ManagedSet) };
+    if s.inner.contains(&SetElem::Int(v.to_bits() as i64)) { 1 } else { 0 }
+}
+
+#[unsafe(export_name = "$set.hasF64")]
+pub extern "C" fn __set_has_f64(set: i64, v: f64) -> i64 {
+    if set == 0 {
+        return 0;
+    }
+    let s = unsafe { &*(set as *const ManagedSet) };
+    if s.inner.contains(&SetElem::Int(v.to_bits() as i64)) { 1 } else { 0 }
+}
+
+#[unsafe(export_name = "$set.deleteF32")]
+pub extern "C" fn __set_delete_f32(set: i64, v: f32) -> i64 {
+    if set == 0 {
+        return 0;
+    }
+    let s = unsafe { &mut *(set as *mut ManagedSet) };
+    if s.inner.remove(&SetElem::Int(v.to_bits() as i64)) { 1 } else { 0 }
+}
+
+#[unsafe(export_name = "$set.deleteF64")]
+pub extern "C" fn __set_delete_f64(set: i64, v: f64) -> i64 {
+    if set == 0 {
+        return 0;
+    }
+    let s = unsafe { &mut *(set as *mut ManagedSet) };
+    if s.inner.remove(&SetElem::Int(v.to_bits() as i64)) { 1 } else { 0 }
+}
+
 #[unsafe(export_name = "$set.size")]
 pub extern "C" fn __set_size(set: i64) -> i64 {
     if set == 0 {

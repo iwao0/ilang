@@ -61,6 +61,15 @@ pub(super) struct SetIds {
     pub(super) size: cranelift_module::FuncId,
     pub(super) clear: cranelift_module::FuncId,
     pub(super) set_elem_print_kind: cranelift_module::FuncId,
+    /// Float-specialised entry points. Needed so f32 / f64 values
+    /// flow through cranelift's float-register ABI instead of being
+    /// bit-cast inline before the call.
+    pub(super) add_f32: cranelift_module::FuncId,
+    pub(super) add_f64: cranelift_module::FuncId,
+    pub(super) has_f32: cranelift_module::FuncId,
+    pub(super) has_f64: cranelift_module::FuncId,
+    pub(super) delete_f32: cranelift_module::FuncId,
+    pub(super) delete_f64: cranelift_module::FuncId,
 }
 
 #[derive(Clone, Copy)]

@@ -182,6 +182,46 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.params.push(AbiParam::new(types::I64));
         module.declare_function("$set.setElemPrintKind", Linkage::Import, &sig)?
     };
+    let set_add_f32_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::F32));
+        module.declare_function("$set.addF32", Linkage::Import, &sig)?
+    };
+    let set_add_f64_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::F64));
+        module.declare_function("$set.addF64", Linkage::Import, &sig)?
+    };
+    let set_has_f32_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::F32));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("$set.hasF32", Linkage::Import, &sig)?
+    };
+    let set_has_f64_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::F64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("$set.hasF64", Linkage::Import, &sig)?
+    };
+    let set_delete_f32_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::F32));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("$set.deleteF32", Linkage::Import, &sig)?
+    };
+    let set_delete_f64_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::F64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("$set.deleteF64", Linkage::Import, &sig)?
+    };
     // Promise runtime imports.
     let promise_resolve_id = declare_binary_i64(module, "$promise.resolve")?;
     let promise_reject_id = declare_unary_i64(module, "$promise.reject")?;
@@ -777,6 +817,12 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 size: set_size_id,
                 clear: set_clear_id,
                 set_elem_print_kind: set_set_elem_print_kind_id,
+                add_f32: set_add_f32_id,
+                add_f64: set_add_f64_id,
+                has_f32: set_has_f32_id,
+                has_f64: set_has_f64_id,
+                delete_f32: set_delete_f32_id,
+                delete_f64: set_delete_f64_id,
             };
             let promise_ids = PromiseIds {
                 resolve: promise_resolve_id,

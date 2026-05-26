@@ -108,6 +108,12 @@ pub fn compile_with_builtins(
         "$set.setElemPrintKind",
         ilang_runtime::__set_set_elem_print_kind as *const u8,
     );
+    jit_builder.symbol("$set.addF32", ilang_runtime::__set_add_f32 as *const u8);
+    jit_builder.symbol("$set.addF64", ilang_runtime::__set_add_f64 as *const u8);
+    jit_builder.symbol("$set.hasF32", ilang_runtime::__set_has_f32 as *const u8);
+    jit_builder.symbol("$set.hasF64", ilang_runtime::__set_has_f64 as *const u8);
+    jit_builder.symbol("$set.deleteF32", ilang_runtime::__set_delete_f32 as *const u8);
+    jit_builder.symbol("$set.deleteF64", ilang_runtime::__set_delete_f64 as *const u8);
     jit_builder.symbol("$print.set", ilang_runtime::__print_set as *const u8);
     jit_builder.symbol("$fmt.set", ilang_runtime::__fmt_set as *const u8);
     // Promise + thread pool runtime.
