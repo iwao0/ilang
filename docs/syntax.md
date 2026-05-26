@@ -1535,7 +1535,7 @@ pub class Counter {
 
 // main.il
 use utils                            // namespaced
-use std.math { sqrt, pi }            // selective + namespace
+use std.math as math { sqrt, pi }    // selective + alias namespace
 use std.math as m { e }              // alias + selective
 use std.math as _ { ln }             // selective only (no namespace)
 
@@ -2392,7 +2392,7 @@ fn make(): simd.f32x4 {
 ### Built-in `std.math` module
 
 ```rust
-use std.math
+use std.math as math
 math.sqrt(16.0)              // 4.0
 math.sin(math.pi / 2.0)      // 1.0  ← `math.pi` is a const, no parens
 math.pow(2.0, 10.0)          // 1024.0
@@ -2410,7 +2410,7 @@ For self-asserting scripts and integration-test fixtures. On
 failure, prints to stderr and exits with **exit code 2**.
 
 ```rust
-use std.test
+use std.test as test
 test.expect(1 + 2 * 3, 7)              // i64 vs i64
 test.expectStr("ab" + "c", "abc")      // string vs string
 test.expectBool(false, false)
@@ -2431,7 +2431,7 @@ A thin wrapper over OS-level state — errno read/write plus
 POSIX-standard error-code constants.
 
 ```rust
-use std.os
+use std.os as os
 use std.ffi { cstrFromString }
 
 @extern(C) {
@@ -2519,7 +2519,7 @@ are real regular languages — fast linear-time matching, **no
 backreferences, no lookaround**.
 
 ```rust
-use std.regex
+use std.regex as regex
 
 let r = new regex.Regex("foo+", "i")
 
@@ -2567,7 +2567,7 @@ yourself before feeding them in. Pure ilang implementation, no
 FFI, safe to call from anywhere.
 
 ```rust
-use std.path
+use std.path as path
 
 path.basename("/foo/bar/baz.txt")        // "baz.txt"
 path.basename("/foo/bar/baz.txt", ".txt") // "baz"
@@ -2614,7 +2614,7 @@ payload type. Listeners run synchronously in registration order.
 Pure ilang implementation, no FFI.
 
 ```rust
-use std.events
+use std.events as events
 
 let bus = new events.EventEmitter<i32>()
 
