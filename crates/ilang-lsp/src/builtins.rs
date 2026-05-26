@@ -227,7 +227,12 @@ pub(crate) fn map_method_sig(method: &str, k: &Type, v: &Type) -> Option<String>
 }
 
 pub(crate) fn set_method_names() -> &'static [&'static str] {
-    &["add", "has", "delete", "size", "clear"]
+    &[
+        "add", "has", "delete", "size", "clear",
+        "values", "forEach",
+        "union", "intersection", "difference",
+        "isSubsetOf", "isSupersetOf", "isDisjointFrom",
+    ]
 }
 
 pub(crate) fn set_method_sig(method: &str, t: &Type) -> Option<String> {
@@ -237,6 +242,14 @@ pub(crate) fn set_method_sig(method: &str, t: &Type) -> Option<String> {
         "delete" => format!("delete(v: {t}): bool"),
         "size" => "size(): i64".to_string(),
         "clear" => "clear(): ()".to_string(),
+        "values" => format!("values(): {t}[]"),
+        "forEach" => format!("forEach(cb: fn({t}): ()): ()"),
+        "union" => format!("union(other: Set<{t}>): Set<{t}>"),
+        "intersection" => format!("intersection(other: Set<{t}>): Set<{t}>"),
+        "difference" => format!("difference(other: Set<{t}>): Set<{t}>"),
+        "isSubsetOf" => format!("isSubsetOf(other: Set<{t}>): bool"),
+        "isSupersetOf" => format!("isSupersetOf(other: Set<{t}>): bool"),
+        "isDisjointFrom" => format!("isDisjointFrom(other: Set<{t}>): bool"),
         _ => return None,
     };
     Some(format!("(method) Set<{t}>.{body}"))
@@ -249,6 +262,14 @@ pub(crate) fn set_method_doc(method: &str) -> Option<&'static str> {
         "delete" => "Removes `v`. Returns `true` when an entry existed, `false` otherwise.",
         "size" => "Returns the number of elements currently stored.",
         "clear" => "Removes every element.",
+        "values" => "Returns a new array of every element, in arbitrary order.",
+        "forEach" => "Calls `cb(element)` once per entry. Callback returns `()`; the set's contents must not be mutated during the call.",
+        "union" => "Returns a new set containing every element present in either `self` or `other`.",
+        "intersection" => "Returns a new set containing only the elements present in both `self` and `other`.",
+        "difference" => "Returns a new set containing elements of `self` that are not in `other`.",
+        "isSubsetOf" => "Returns `true` when every element of `self` is also in `other`.",
+        "isSupersetOf" => "Returns `true` when every element of `other` is also in `self`.",
+        "isDisjointFrom" => "Returns `true` when `self` and `other` share no elements.",
         _ => return None,
     })
 }

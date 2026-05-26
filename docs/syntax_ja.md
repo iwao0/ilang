@@ -843,9 +843,17 @@ s.has(1)                            // bool
 s.delete(1)                         // bool (要素が存在したか)
 s.size()                            // i64
 s.clear()                           // 全要素削除
+s.values()                          // T[]
+s.forEach(fn(v: T) { … })           // 全要素に cb を適用、戻り値は ()
+s.union(other)                      // Set<T> — 和集合
+s.intersection(other)               // Set<T> — 積集合
+s.difference(other)                 // Set<T> — `self` − `other`
+s.isSubsetOf(other)                 // bool
+s.isSupersetOf(other)               // bool
+s.isDisjointFrom(other)             // bool
 ```
 
-- 要素型は `string` / `i*` / `u*` / `bool` — `Map<K, V>` のキーと同じ制約
+- 要素型は `string` / `i*` / `u*` / `bool` / `f32` / `f64`。浮動小数はビットパターン比較なので、別ビットパターンの NaN は別エントリとして残る
 - リテラル構文は未提供 (`{1, 2, 3}` は将来の拡張用として予約)。空 / 初期値付きの Set は `new Set<T>()` + `add` で作る
 
 - キー型は `string` / `i*` / `u*` / `bool` のみ (float / オブジェクト不可 — `Eq`/`Hash` の整合性確保のため)

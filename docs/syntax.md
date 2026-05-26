@@ -1051,10 +1051,19 @@ s.has(1)                            // bool
 s.delete(1)                         // bool (whether the element existed)
 s.size()                            // i64
 s.clear()                           // remove every element
+s.values()                          // T[]
+s.forEach(fn(v: T) { … })           // visit every element; cb returns ()
+s.union(other)                      // Set<T> — union with `other`
+s.intersection(other)               // Set<T> — common elements
+s.difference(other)                 // Set<T> — `self` minus `other`
+s.isSubsetOf(other)                 // bool
+s.isSupersetOf(other)               // bool
+s.isDisjointFrom(other)             // bool
 ```
 
-- Element types: `string` / `i*` / `u*` / `bool` — same constraints
-  as `Map<K, V>`'s key.
+- Element types: `string` / `i*` / `u*` / `bool` / `f32` / `f64`.
+  Floats compare by bit pattern, so distinct NaN payloads stay as
+  separate entries.
 - No literal syntax yet (`{1, 2, 3}` is reserved for a future
   extension). Empty / pre-populated sets always use `new Set<T>()`
   followed by `add` calls.

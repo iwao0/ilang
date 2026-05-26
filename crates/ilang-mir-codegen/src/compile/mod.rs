@@ -70,6 +70,16 @@ pub(super) struct SetIds {
     pub(super) has_f64: cranelift_module::FuncId,
     pub(super) delete_f32: cranelift_module::FuncId,
     pub(super) delete_f64: cranelift_module::FuncId,
+    pub(super) values: cranelift_module::FuncId,
+    pub(super) for_each: cranelift_module::FuncId,
+    pub(super) for_each_f32: cranelift_module::FuncId,
+    pub(super) for_each_f64: cranelift_module::FuncId,
+    pub(super) union: cranelift_module::FuncId,
+    pub(super) intersection: cranelift_module::FuncId,
+    pub(super) difference: cranelift_module::FuncId,
+    pub(super) is_subset_of: cranelift_module::FuncId,
+    pub(super) is_superset_of: cranelift_module::FuncId,
+    pub(super) is_disjoint_from: cranelift_module::FuncId,
 }
 
 #[derive(Clone, Copy)]

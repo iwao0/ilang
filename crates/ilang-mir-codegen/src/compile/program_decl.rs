@@ -222,6 +222,31 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.returns.push(AbiParam::new(types::I64));
         module.declare_function("$set.deleteF64", Linkage::Import, &sig)?
     };
+    let set_values_id = declare_unary_i64(module, "$set.values")?;
+    let set_for_each_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("$set.forEach", Linkage::Import, &sig)?
+    };
+    let set_for_each_f32_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("$set.forEachF32", Linkage::Import, &sig)?
+    };
+    let set_for_each_f64_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("$set.forEachF64", Linkage::Import, &sig)?
+    };
+    let set_union_id = declare_binary_i64(module, "$set.union")?;
+    let set_intersection_id = declare_binary_i64(module, "$set.intersection")?;
+    let set_difference_id = declare_binary_i64(module, "$set.difference")?;
+    let set_is_subset_of_id = declare_binary_i64(module, "$set.isSubsetOf")?;
+    let set_is_superset_of_id = declare_binary_i64(module, "$set.isSupersetOf")?;
+    let set_is_disjoint_from_id = declare_binary_i64(module, "$set.isDisjointFrom")?;
     // Promise runtime imports.
     let promise_resolve_id = declare_binary_i64(module, "$promise.resolve")?;
     let promise_reject_id = declare_unary_i64(module, "$promise.reject")?;
@@ -823,6 +848,16 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 has_f64: set_has_f64_id,
                 delete_f32: set_delete_f32_id,
                 delete_f64: set_delete_f64_id,
+                values: set_values_id,
+                for_each: set_for_each_id,
+                for_each_f32: set_for_each_f32_id,
+                for_each_f64: set_for_each_f64_id,
+                union: set_union_id,
+                intersection: set_intersection_id,
+                difference: set_difference_id,
+                is_subset_of: set_is_subset_of_id,
+                is_superset_of: set_is_superset_of_id,
+                is_disjoint_from: set_is_disjoint_from_id,
             };
             let promise_ids = PromiseIds {
                 resolve: promise_resolve_id,

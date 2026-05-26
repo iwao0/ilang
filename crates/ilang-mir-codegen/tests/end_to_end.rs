@@ -418,6 +418,89 @@ fn set_string_keys() {
 }
 
 #[test]
+fn set_values_round_trip() {
+    let src = r#"
+        let s = new Set<i64>()
+        s.add(10)
+        s.add(20)
+        s.add(30)
+        let vs = s.values()
+        let acc: i64[] = [0]
+        for v in vs {
+            acc[0] = acc[0] + v
+        }
+        acc[0]
+    "#;
+    assert_eq!(run(src), 60);
+}
+
+#[test]
+fn set_for_each_int() {
+    let src = r#"
+        let s = new Set<i64>()
+        s.add(1)
+        s.add(2)
+        s.add(3)
+        let acc: i64[] = [0]
+        s.forEach(fn(v: i64) {
+            acc[0] = acc[0] + v
+        })
+        acc[0]
+    "#;
+    assert_eq!(run(src), 6);
+}
+
+#[test]
+fn set_for_each_f32() {
+    let src = r#"
+        let s = new Set<f32>()
+        s.add(1.5)
+        s.add(2.5)
+        let acc: f32[] = [0.0]
+        s.forEach(fn(v: f32) {
+            acc[0] = acc[0] + v
+        })
+        (acc[0] * 10.0) as i64
+    "#;
+    // 1.5 + 2.5 = 4.0 → 40
+    assert_eq!(run(src), 40);
+}
+
+#[test]
+fn set_union_intersection_difference() {
+    let src = r#"
+        let a = new Set<i64>()
+        a.add(1); a.add(2); a.add(3)
+        let b = new Set<i64>()
+        b.add(2); b.add(3); b.add(4)
+        let u = a.union(b)         // {1,2,3,4} size=4
+        let i = a.intersection(b)  // {2,3}     size=2
+        let d = a.difference(b)    // {1}       size=1
+        u.size() * 100 + i.size() * 10 + d.size()
+    "#;
+    assert_eq!(run(src), 421);
+}
+
+#[test]
+fn set_subset_superset_disjoint() {
+    let src = r#"
+        let a = new Set<i64>()
+        a.add(1); a.add(2)
+        let b = new Set<i64>()
+        b.add(1); b.add(2); b.add(3)
+        let c = new Set<i64>()
+        c.add(9); c.add(10)
+        let sub = if a.isSubsetOf(b) { 1 } else { 0 }
+        let sup = if b.isSupersetOf(a) { 1 } else { 0 }
+        let dis = if a.isDisjointFrom(c) { 1 } else { 0 }
+        let not_sub = if b.isSubsetOf(a) { 0 } else { 1 }
+        sub + sup * 2 + dis * 4 + not_sub * 8
+    "#;
+    // sub=1, sup=1, dis=1, not_sub=1 → 1+2+4+8 = 15
+    assert_eq!(run(src), 15);
+}
+
+#[test]
 fn string_length_const() {
     let src = r#"
         let s = "hello"

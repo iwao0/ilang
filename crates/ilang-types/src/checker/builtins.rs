@@ -189,6 +189,65 @@ impl TypeChecker {
             "clear".into(),
             vec![Signature { params: vec![], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
         );
+        set_methods.insert(
+            "values".into(),
+            vec![Signature {
+                params: vec![],
+                ret: Type::Array { elem: Box::new(t_set()), fixed: None },
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        set_methods.insert(
+            "forEach".into(),
+            vec![Signature {
+                params: vec![Type::func(vec![t_set()], Type::Unit)],
+                ret: Type::Unit,
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        // `set ∪ other` — returns a freshly-allocated set containing
+        // every element present in either side. Element type must
+        // match.
+        set_methods.insert(
+            "union".into(),
+            vec![Signature {
+                params: vec![Type::generic("Set", vec![t_set()])],
+                ret: Type::generic("Set", vec![t_set()]),
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        set_methods.insert(
+            "intersection".into(),
+            vec![Signature {
+                params: vec![Type::generic("Set", vec![t_set()])],
+                ret: Type::generic("Set", vec![t_set()]),
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        set_methods.insert(
+            "difference".into(),
+            vec![Signature {
+                params: vec![Type::generic("Set", vec![t_set()])],
+                ret: Type::generic("Set", vec![t_set()]),
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        set_methods.insert(
+            "isSubsetOf".into(),
+            vec![Signature {
+                params: vec![Type::generic("Set", vec![t_set()])],
+                ret: Type::Bool,
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        set_methods.insert(
+            "isSupersetOf".into(),
+            vec![Signature {
+                params: vec![Type::generic("Set", vec![t_set()])],
+                ret: Type::Bool,
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        set_methods.insert(
+            "isDisjointFrom".into(),
+            vec![Signature {
+                params: vec![Type::generic("Set", vec![t_set()])],
+                ret: Type::Bool,
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
         self.classes.insert(
             "Set".into(),
             ClassSig {

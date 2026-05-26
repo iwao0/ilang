@@ -114,6 +114,28 @@ pub fn compile_with_builtins(
     jit_builder.symbol("$set.hasF64", ilang_runtime::__set_has_f64 as *const u8);
     jit_builder.symbol("$set.deleteF32", ilang_runtime::__set_delete_f32 as *const u8);
     jit_builder.symbol("$set.deleteF64", ilang_runtime::__set_delete_f64 as *const u8);
+    jit_builder.symbol("$set.values", ilang_runtime::__set_values as *const u8);
+    jit_builder.symbol("$set.forEach", ilang_runtime::__set_for_each as *const u8);
+    jit_builder.symbol("$set.forEachF32", ilang_runtime::__set_for_each_f32 as *const u8);
+    jit_builder.symbol("$set.forEachF64", ilang_runtime::__set_for_each_f64 as *const u8);
+    jit_builder.symbol("$set.union", ilang_runtime::__set_union as *const u8);
+    jit_builder.symbol(
+        "$set.intersection",
+        ilang_runtime::__set_intersection as *const u8,
+    );
+    jit_builder.symbol("$set.difference", ilang_runtime::__set_difference as *const u8);
+    jit_builder.symbol(
+        "$set.isSubsetOf",
+        ilang_runtime::__set_is_subset_of as *const u8,
+    );
+    jit_builder.symbol(
+        "$set.isSupersetOf",
+        ilang_runtime::__set_is_superset_of as *const u8,
+    );
+    jit_builder.symbol(
+        "$set.isDisjointFrom",
+        ilang_runtime::__set_is_disjoint_from as *const u8,
+    );
     jit_builder.symbol("$print.set", ilang_runtime::__print_set as *const u8);
     jit_builder.symbol("$fmt.set", ilang_runtime::__fmt_set as *const u8);
     // Promise + thread pool runtime.

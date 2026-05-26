@@ -1763,10 +1763,15 @@ fn infer_set_method_type(g: &GenericTy, method: &str) -> Option<Type> {
     if g.base.as_str() != "Set" || g.args.len() != 1 {
         return None;
     }
+    let t = g.args[0].clone();
     match method {
-        "add" | "clear" => Some(Type::Unit),
-        "has" | "delete" => Some(Type::Bool),
+        "add" | "clear" | "forEach" => Some(Type::Unit),
+        "has" | "delete" | "isSubsetOf" | "isSupersetOf" | "isDisjointFrom" => Some(Type::Bool),
         "size" => Some(Type::I64),
+        "values" => Some(Type::Array { elem: Box::new(t), fixed: None }),
+        "union" | "intersection" | "difference" => {
+            Some(Type::generic("Set", vec![t]))
+        }
         _ => None,
     }
 }

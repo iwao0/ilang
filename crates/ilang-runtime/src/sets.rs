@@ -7,7 +7,8 @@
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicI64, Ordering, fence};
 
-use crate::kind::PK_STR;
+use crate::arrays::build_i64_array;
+use crate::kind::{KIND_NONE, KIND_STR, PK_STR};
 use crate::strings::{__release_string, __retain_string, cstr_bytes, leak_cstring};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -213,6 +214,274 @@ pub extern "C" fn __set_clear(set: i64) {
         s.str_origs.clear();
     }
     s.inner.clear();
+}
+
+/// `set.values() -> T[]` — snapshot of every element in arbitrary
+/// order. String elements take a fresh `__retain_string` so the
+/// returned array owns its own +1 share alongside the set's; other
+/// element kinds (int / float / bool stored as bit patterns) pass
+/// through untouched.
+#[unsafe(export_name = "$set.values")]
+pub extern "C" fn __set_values(set: i64) -> i64 {
+    if set == 0 {
+        return build_i64_array(&[], KIND_NONE);
+    }
+    let s = unsafe { &*(set as *const ManagedSet) };
+    let elem_kind = if s.elem_print_kind == PK_STR { KIND_STR } else { KIND_NONE };
+    let mut values: Vec<i64> = Vec::with_capacity(s.inner.len());
+    if s.elem_print_kind == PK_STR {
+        for e in s.inner.iter() {
+            let orig = s.str_origs.get(e).copied().unwrap_or_else(|| set_elem_to_raw(e));
+            __retain_string(orig);
+            values.push(orig);
+        }
+    } else {
+        for e in s.inner.iter() {
+            values.push(set_elem_to_raw(e));
+        }
+    }
+    build_i64_array(&values, elem_kind)
+}
+
+// Closure-call helpers — closures are `[fn_ptr | rc | captures...]`
+// blocks, called as `f(arg, env_ptr)`. Float receivers go through
+// dedicated ABI-matched variants so cranelift's float-arg passing
+// matches the closure's declared parameter type.
+
+unsafe fn call_closure_1_i64(closure: i64, arg: i64) {
+    unsafe {
+        let fn_ptr = *(closure as *const i64);
+        let f: extern "C" fn(i64, i64) -> i64 = std::mem::transmute(fn_ptr);
+        let _ = f(arg, closure);
+    }
+}
+
+unsafe fn call_closure_1_f32(closure: i64, arg: f32) {
+    unsafe {
+        let fn_ptr = *(closure as *const i64);
+        let f: extern "C" fn(f32, i64) -> i64 = std::mem::transmute(fn_ptr);
+        let _ = f(arg, closure);
+    }
+}
+
+unsafe fn call_closure_1_f64(closure: i64, arg: f64) {
+    unsafe {
+        let fn_ptr = *(closure as *const i64);
+        let f: extern "C" fn(f64, i64) -> i64 = std::mem::transmute(fn_ptr);
+        let _ = f(arg, closure);
+    }
+}
+
+/// `set.forEach(cb)` — invoke `cb(elem)` once per element. String
+/// elements get a fresh registry rc for the call and release after.
+#[unsafe(export_name = "$set.forEach")]
+pub extern "C" fn __set_for_each(set: i64, closure: i64) {
+    if set == 0 || closure == 0 {
+        return;
+    }
+    let s = unsafe { &*(set as *const ManagedSet) };
+    let is_str = s.elem_print_kind == PK_STR;
+    let elems: Vec<SetElem> = s.inner.iter().cloned().collect();
+    for e in elems {
+        let arg = if is_str {
+            let orig = s.str_origs.get(&e).copied().unwrap_or_else(|| set_elem_to_raw(&e));
+            __retain_string(orig);
+            orig
+        } else {
+            set_elem_to_raw(&e)
+        };
+        unsafe { call_closure_1_i64(closure, arg) };
+        if is_str {
+            __release_string(arg);
+        }
+    }
+}
+
+#[unsafe(export_name = "$set.forEachF32")]
+pub extern "C" fn __set_for_each_f32(set: i64, closure: i64) {
+    if set == 0 || closure == 0 {
+        return;
+    }
+    let s = unsafe { &*(set as *const ManagedSet) };
+    let elems: Vec<SetElem> = s.inner.iter().cloned().collect();
+    for e in elems {
+        if let SetElem::Int(bits) = e {
+            let v = f32::from_bits(bits as u32);
+            unsafe { call_closure_1_f32(closure, v) };
+        }
+    }
+}
+
+#[unsafe(export_name = "$set.forEachF64")]
+pub extern "C" fn __set_for_each_f64(set: i64, closure: i64) {
+    if set == 0 || closure == 0 {
+        return;
+    }
+    let s = unsafe { &*(set as *const ManagedSet) };
+    let elems: Vec<SetElem> = s.inner.iter().cloned().collect();
+    for e in elems {
+        if let SetElem::Int(bits) = e {
+            let v = f64::from_bits(bits as u64);
+            unsafe { call_closure_1_f64(closure, v) };
+        }
+    }
+}
+
+/// Helper: insert `e` into `target`'s inner set, taking ownership of
+/// the matching string registry rc when the element is a PK_STR
+/// pointer. Caller arranges the retain on the original side and we
+/// transfer that share into `str_origs` here.
+fn set_insert_transferred(target: &mut ManagedSet, e: SetElem, orig_str: Option<i64>) {
+    if target.inner.contains(&e) {
+        // Caller already retained — drop the share we'd otherwise
+        // duplicate.
+        if let Some(orig) = orig_str {
+            __release_string(orig);
+        }
+        return;
+    }
+    if let Some(orig) = orig_str {
+        target.str_origs.insert(e.clone(), orig);
+    }
+    target.inner.insert(e);
+}
+
+#[unsafe(export_name = "$set.union")]
+pub extern "C" fn __set_union(a: i64, b: i64) -> i64 {
+    let out = __set_new();
+    let pk = if a != 0 {
+        unsafe { &*(a as *const ManagedSet) }.elem_print_kind
+    } else if b != 0 {
+        unsafe { &*(b as *const ManagedSet) }.elem_print_kind
+    } else {
+        crate::kind::PK_OTHER
+    };
+    __set_set_elem_print_kind(out, pk);
+    let is_str = pk == PK_STR;
+    let out_s = unsafe { &mut *(out as *mut ManagedSet) };
+    if a != 0 {
+        let sa = unsafe { &*(a as *const ManagedSet) };
+        for e in sa.inner.iter() {
+            let orig = if is_str {
+                let p = sa.str_origs.get(e).copied().unwrap_or_else(|| set_elem_to_raw(e));
+                __retain_string(p);
+                Some(p)
+            } else {
+                None
+            };
+            set_insert_transferred(out_s, e.clone(), orig);
+        }
+    }
+    if b != 0 {
+        let sb = unsafe { &*(b as *const ManagedSet) };
+        for e in sb.inner.iter() {
+            let orig = if is_str {
+                let p = sb.str_origs.get(e).copied().unwrap_or_else(|| set_elem_to_raw(e));
+                __retain_string(p);
+                Some(p)
+            } else {
+                None
+            };
+            set_insert_transferred(out_s, e.clone(), orig);
+        }
+    }
+    out
+}
+
+#[unsafe(export_name = "$set.intersection")]
+pub extern "C" fn __set_intersection(a: i64, b: i64) -> i64 {
+    let out = __set_new();
+    if a == 0 || b == 0 {
+        return out;
+    }
+    let sa = unsafe { &*(a as *const ManagedSet) };
+    let sb = unsafe { &*(b as *const ManagedSet) };
+    let pk = sa.elem_print_kind;
+    __set_set_elem_print_kind(out, pk);
+    let is_str = pk == PK_STR;
+    let out_s = unsafe { &mut *(out as *mut ManagedSet) };
+    for e in sa.inner.iter() {
+        if sb.inner.contains(e) {
+            let orig = if is_str {
+                let p = sa.str_origs.get(e).copied().unwrap_or_else(|| set_elem_to_raw(e));
+                __retain_string(p);
+                Some(p)
+            } else {
+                None
+            };
+            set_insert_transferred(out_s, e.clone(), orig);
+        }
+    }
+    out
+}
+
+#[unsafe(export_name = "$set.difference")]
+pub extern "C" fn __set_difference(a: i64, b: i64) -> i64 {
+    let out = __set_new();
+    if a == 0 {
+        return out;
+    }
+    let sa = unsafe { &*(a as *const ManagedSet) };
+    let pk = sa.elem_print_kind;
+    __set_set_elem_print_kind(out, pk);
+    let is_str = pk == PK_STR;
+    let out_s = unsafe { &mut *(out as *mut ManagedSet) };
+    let empty_set;
+    let sb_ref: &ManagedSet = if b == 0 {
+        empty_set = ManagedSet {
+            rc: AtomicI64::new(1),
+            elem_print_kind: pk,
+            inner: HashSet::new(),
+            str_origs: std::collections::HashMap::new(),
+        };
+        &empty_set
+    } else {
+        unsafe { &*(b as *const ManagedSet) }
+    };
+    for e in sa.inner.iter() {
+        if !sb_ref.inner.contains(e) {
+            let orig = if is_str {
+                let p = sa.str_origs.get(e).copied().unwrap_or_else(|| set_elem_to_raw(e));
+                __retain_string(p);
+                Some(p)
+            } else {
+                None
+            };
+            set_insert_transferred(out_s, e.clone(), orig);
+        }
+    }
+    out
+}
+
+#[unsafe(export_name = "$set.isSubsetOf")]
+pub extern "C" fn __set_is_subset_of(a: i64, b: i64) -> i64 {
+    if a == 0 {
+        return 1;
+    }
+    let sa = unsafe { &*(a as *const ManagedSet) };
+    if sa.inner.is_empty() {
+        return 1;
+    }
+    if b == 0 {
+        return 0;
+    }
+    let sb = unsafe { &*(b as *const ManagedSet) };
+    if sa.inner.iter().all(|e| sb.inner.contains(e)) { 1 } else { 0 }
+}
+
+#[unsafe(export_name = "$set.isSupersetOf")]
+pub extern "C" fn __set_is_superset_of(a: i64, b: i64) -> i64 {
+    __set_is_subset_of(b, a)
+}
+
+#[unsafe(export_name = "$set.isDisjointFrom")]
+pub extern "C" fn __set_is_disjoint_from(a: i64, b: i64) -> i64 {
+    if a == 0 || b == 0 {
+        return 1;
+    }
+    let sa = unsafe { &*(a as *const ManagedSet) };
+    let sb = unsafe { &*(b as *const ManagedSet) };
+    if sa.inner.iter().all(|e| !sb.inner.contains(e)) { 1 } else { 0 }
 }
 
 #[unsafe(export_name = "$set.retain")]

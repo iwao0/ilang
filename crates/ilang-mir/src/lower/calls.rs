@@ -1096,6 +1096,8 @@ impl<'a> BodyCx<'a> {
                 let elem_is_f32 = matches!(**elem, MirTy::F32);
                 let elem_is_f64 = matches!(**elem, MirTy::F64);
                 let elem_is_float = elem_is_f32 || elem_is_f64;
+                let set_ty = MirTy::Set { elem: elem.clone() };
+                let arr_ty = MirTy::Array { elem: elem.clone(), len: None };
                 let (builtin_name, ret_ty) = match m {
                     "add" if elem_is_f32 => ("set_add_f32", MirTy::Unit),
                     "add" if elem_is_f64 => ("set_add_f64", MirTy::Unit),
@@ -1108,25 +1110,39 @@ impl<'a> BodyCx<'a> {
                     "delete" => ("set_delete", MirTy::Bool),
                     "size" => ("set_size", MirTy::I64),
                     "clear" => ("set_clear", MirTy::Unit),
+                    "values" => ("set_values", arr_ty),
+                    "forEach" if elem_is_f32 => ("set_for_each_f32", MirTy::Unit),
+                    "forEach" if elem_is_f64 => ("set_for_each_f64", MirTy::Unit),
+                    "forEach" => ("set_for_each", MirTy::Unit),
+                    "union" => ("set_union", set_ty),
+                    "intersection" => ("set_intersection", set_ty),
+                    "difference" => ("set_difference", set_ty),
+                    "isSubsetOf" => ("set_is_subset_of", MirTy::Bool),
+                    "isSupersetOf" => ("set_is_superset_of", MirTy::Bool),
+                    "isDisjointFrom" => ("set_is_disjoint_from", MirTy::Bool),
                     other => {
                         return Err(LowerError::Other(format!("unknown set method `{other}`")))
                     }
                 };
+                // `add` / `has` / `delete` take an element-typed arg
+                // and need the float coerce / i64 widen below.
+                // `forEach` / `union` / `intersection` / `difference` /
+                // `isSubsetOf` / `isSupersetOf` / `isDisjointFrom`
+                // take a closure or another set — the value is
+                // already in its native ABI shape, so it passes
+                // through unmodified.
+                let arg_is_elem = matches!(m, "add" | "has" | "delete");
                 let mut arg_vals = vec![ov];
                 for a in args {
                     let (v, vty) = self.lower_expr(a)?;
-                    // For the float-specialised variants the callee
-                    // expects f32 / f64; the value might still be an
-                    // i64 (integer literal) if the type checker
-                    // didn't fold it. Coerce explicitly to the
-                    // declared element type so cranelift's verifier
-                    // sees matching arg types.
-                    let v_ext = if elem_is_float {
+                    let v_ext = if arg_is_elem && elem_is_float {
                         if &vty == &**elem {
                             v
                         } else {
                             self.coerce(v, &vty, elem, a.span)?
                         }
+                    } else if !arg_is_elem {
+                        v
                     } else if matches!(vty, MirTy::I64 | MirTy::U64)
                         || vty.is_heap()
                     {
