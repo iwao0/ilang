@@ -80,6 +80,30 @@ pub(crate) fn ffi_helper_signature(name: &str) -> Option<&'static str> {
     })
 }
 
+/// Static factories on the `string` primitive type (used by the
+/// type-checker's `name == "string"` static-call arm). Driven into
+/// completion when the user types `string.` outside any shadowing
+/// local — same shape as the `f32.` / `i64.` associated-constant
+/// completion paths.
+pub(crate) fn string_static_method_names() -> &'static [&'static str] {
+    &["fromUtf16"]
+}
+
+pub(crate) fn string_static_method_sig(method: &str) -> Option<String> {
+    let body = match method {
+        "fromUtf16" => "fromUtf16(units: u16[]): string",
+        _ => return None,
+    };
+    Some(format!("(static) string.{body}"))
+}
+
+pub(crate) fn string_static_method_doc(method: &str) -> Option<&'static str> {
+    Some(match method {
+        "fromUtf16" => "Decodes a UTF-16 code-unit buffer into a fresh UTF-8 `string`. The whole `u16[]` is consumed — a trailing `0x0000` is kept as a literal U+0000, so pair with `encodeUtf16(false)` for strict round-trip. Unpaired surrogates are replaced with U+FFFD.",
+        _ => return None,
+    })
+}
+
 pub(crate) fn string_method_names() -> &'static [&'static str] {
     &[
         "charAt",

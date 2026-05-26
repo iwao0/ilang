@@ -27,6 +27,7 @@ use crate::builtins::{
     primitive_method_doc, primitive_method_names, primitive_method_sig,
     set_method_doc, set_method_names, set_method_sig,
     string_method_doc, string_method_names, string_method_sig,
+    string_static_method_doc, string_static_method_names, string_static_method_sig,
 };
 use crate::code_actions::interface_method_stub_completions_textual;
 use crate::helpers::{self, sig_body_skip_attrs};
@@ -490,6 +491,47 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                     };
                     item.insert_text = Some(n.to_string());
                     Some(item)
+                })
+                .collect();
+            return Some(CompletionResponse::Array(items));
+        }
+        // `string.` — list the static factories registered against
+        // the primitive `string` type. Mirrors the type-checker's
+        // `name == "string"` static-dispatch arm in
+        // `crates/ilang-types/src/checker/expr/calls.rs`. Skip the
+        // static branch when a local `string` shadows the type
+        // name; the inferred-type path below will take over and
+        // emit the instance-method list for that local.
+        let string_shadowed = doc
+            .var_types
+            .contains_key(&AstSymbol::intern("string"));
+        if receiver == "string" && !string_shadowed {
+            let items: Vec<CompletionItem> = string_static_method_names()
+                .iter()
+                .filter_map(|n| {
+                    let sig = string_static_method_sig(n)?;
+                    let doc_text = string_static_method_doc(n);
+                    let (insert_text, fmt) = call_snippet(n, CompletionItemKind::METHOD);
+                    let command = Some(tower_lsp::lsp_types::Command {
+                        title: String::new(),
+                        command: "editor.action.triggerParameterHints".to_string(),
+                        arguments: None,
+                    });
+                    Some(CompletionItem {
+                        label: n.to_string(),
+                        kind: Some(CompletionItemKind::METHOD),
+                        detail: Some(sig),
+                        documentation: doc_text.map(|d| {
+                            Documentation::MarkupContent(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: d.to_string(),
+                            })
+                        }),
+                        insert_text,
+                        insert_text_format: fmt,
+                        command,
+                        ..Default::default()
+                    })
                 })
                 .collect();
             return Some(CompletionResponse::Array(items));

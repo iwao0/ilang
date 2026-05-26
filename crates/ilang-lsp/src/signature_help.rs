@@ -12,6 +12,7 @@ use tower_lsp::lsp_types::{
 use crate::builtins::{
     array_method_doc, array_method_sig, ffi_helper_signature, primitive_method_doc,
     primitive_method_sig, string_method_doc, string_method_sig,
+    string_static_method_doc, string_static_method_sig,
 };
 use crate::completion;
 use crate::text::{self, call_context_at, generic_args_context_at, parameter_offsets};
@@ -166,6 +167,27 @@ pub(crate) fn handle_signature_help(doc: &Doc, pos: Position) -> Option<Signatur
                         }
                         out.push(m);
                     }
+                }
+            }
+            // `string.fromUtf16(` — primitive-type static factory.
+            // Lives outside `var_types` (no value-side receiver),
+            // so the inferred-type fallthrough below would miss it.
+            // Mirrors the completion handler's `receiver == "string"`
+            // branch; skip when a local shadows the type name.
+            if out.is_empty()
+                && recv == "string"
+                && !doc.var_types.contains_key(&AstSymbol::intern("string"))
+            {
+                if let Some(sig) = string_static_method_sig(method) {
+                    out.push(MemberInfo {
+                        span: Span::dummy(),
+                        signature: sig,
+                        ret_ty: None,
+                        is_static: true,
+                        is_pub: true,
+                        doc: string_static_method_doc(method).map(|s| s.to_string()),
+                        source_path: None,
+                    });
                 }
             }
             if out.is_empty() {
