@@ -10,3 +10,4 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode"] }
 crossbeam-deque = "0.8"
+rand = "0.9"

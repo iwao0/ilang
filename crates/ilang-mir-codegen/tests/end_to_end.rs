@@ -501,6 +501,45 @@ fn set_subset_superset_disjoint() {
 }
 
 #[test]
+fn math_random_uniform_range() {
+    // `math.random()` must return f64 in [0.0, 1.0) — same contract
+    // as JS's `Math.random()`. Sample a few hundred times and verify
+    // the range; the test would have a 1-in-2^53 chance of seeing
+    // exactly 0.0 from a buggy impl that returned constants, so the
+    // distinct-value check catches "always returns the same value"
+    // regressions as well.
+    // The end_to_end harness skips the loader, so a `use std.math`
+    // import wouldn't resolve. Declare the `@intrinsic` directly —
+    // the resulting MIR call is identical to what the loader-emitted
+    // path produces from `math.random()`.
+    let src = r#"
+        @intrinsic("math.random")
+        fn rand_(): f64
+
+        let bad: i64[] = [0]
+        let distinct: i64[] = [0]
+        let prev: f64[] = [-1.0]
+        for _ in 0..256 {
+            let x = rand_()
+            if x < 0.0 {
+                bad[0] = bad[0] + 1
+            }
+            if x >= 1.0 {
+                bad[0] = bad[0] + 1
+            }
+            if x != prev[0] {
+                distinct[0] = distinct[0] + 1
+            }
+            prev[0] = x
+        }
+        let in_range = if bad[0] == 0 { 1 } else { 0 }
+        let varied = if distinct[0] >= 200 { 1 } else { 0 }
+        in_range * 10 + varied
+    "#;
+    assert_eq!(run(src), 11);
+}
+
+#[test]
 fn int_primitive_min_max() {
     let src = r#"
         let a = if i8.Min == -128 { 1 } else { 0 }

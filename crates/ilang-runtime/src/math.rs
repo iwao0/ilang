@@ -39,3 +39,17 @@ pub extern "C" fn math_atan2(y: f64, x: f64) -> f64 { y.atan2(x) }
 
 #[unsafe(export_name = "$math.pow")]
 pub extern "C" fn math_pow(x: f64, y: f64) -> f64 { x.powf(y) }
+
+/// `math.random()` — uniform `f64` in `[0.0, 1.0)`, matching JS's
+/// `Math.random()`. Delegates to `rand`'s thread-local generator
+/// (`ThreadRng`), which auto-seeds from the OS RNG on first use
+/// and keeps its state per thread. Same `Math.random()` quality
+/// bar: good enough for scripting / games / Monte Carlo, not for
+/// cryptography (`ThreadRng` itself is cryptographically secure,
+/// but callers who need that contract should use the OS APIs
+/// directly rather than relying on this one staying that way).
+#[unsafe(export_name = "$math.random")]
+pub extern "C" fn math_random() -> f64 {
+    use rand::Rng;
+    rand::rng().random_range(0.0..1.0)
+}

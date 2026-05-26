@@ -106,6 +106,14 @@ pub fn round(x: f64): f64
 @intrinsic("math.abs")
 pub fn abs(x: f64): f64
 
+/// Pseudo-random `f64` in `[0.0, 1.0)`. Mirrors JavaScript's
+/// `Math.random()`: same uniform half-open interval, same "good
+/// enough for scripting, not for cryptography" quality bar. Each
+/// thread keeps its own stream, lazily seeded from the wall clock
+/// on first call.
+@intrinsic("math.random")
+pub fn random(): f64
+
 // Compile-time folded constants — inlined at every reference.
 
 /// Ratio of a circle's circumference to its diameter (π).
