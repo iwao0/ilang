@@ -249,6 +249,21 @@ Available on every numeric primitive (`i8`..`u64`, `f32`, `f64`)
 plus `bool`. Float formatting matches `console.log` (integral
 values print as `N.0`).
 
+### Integer associated constants
+
+```rust
+i8.Min                     // i8  — -128
+i8.Max                     // i8  — 127
+i32.Min                    // i32 — -2_147_483_648
+i32.Max                    // i32 — 2_147_483_647
+u8.Max                     // u8  — 255
+u64.Max                    // u64 — 18_446_744_073_709_551_615
+```
+
+Every signed / unsigned integer (`i8` … `u64`) exposes `Min` and
+`Max`. Unsigned `Min` is `0`. `i64.Min` / `i64.Max` are the same
+values Rust would print for `i64::MIN` / `i64::MAX`.
+
 ### Float associated constants
 
 ```rust

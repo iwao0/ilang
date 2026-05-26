@@ -235,6 +235,35 @@ pub(crate) fn float_prim_const_names() -> &'static [&'static str] {
     ]
 }
 
+/// Associated-constant names exposed on every signed / unsigned
+/// integer (`i8` … `u64`). Just `Min` / `Max` — Rust-style bounds,
+/// not JS's "minimum positive" sense of `MIN`.
+pub(crate) fn int_prim_const_names() -> &'static [&'static str] {
+    &["Min", "Max"]
+}
+
+pub(crate) fn int_prim_const_sig(receiver: &str, name: &str) -> Option<String> {
+    let recognised_recv = matches!(
+        receiver,
+        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
+    );
+    if !recognised_recv {
+        return None;
+    }
+    if !matches!(name, "Min" | "Max") {
+        return None;
+    }
+    Some(format!("(constant) {receiver}.{name}: {receiver}"))
+}
+
+pub(crate) fn int_prim_const_doc(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "Min" => "Smallest representable value (0 for unsigned types, most-negative for signed).",
+        "Max" => "Largest representable value.",
+        _ => return None,
+    })
+}
+
 pub(crate) fn float_prim_const_sig(receiver: &str, name: &str) -> Option<String> {
     if !matches!(receiver, "f32" | "f64") {
         return None;

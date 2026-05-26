@@ -39,6 +39,27 @@ pub(crate) fn float_prim_const_type(receiver: &str, name: &str) -> Option<Type> 
     }
 }
 
+/// Returns `Some(Type::I8)` / etc. when `receiver.name` names a
+/// signed / unsigned integer's `Min` / `Max` associated constant
+/// (`i32.Min`, `u8.Max`, ...). Values come from Rust's `i*::MIN`
+/// / `i*::MAX`; signedness picks the natural bounds.
+pub(crate) fn int_prim_const_type(receiver: &str, name: &str) -> Option<Type> {
+    if !matches!(name, "Min" | "Max") {
+        return None;
+    }
+    match receiver {
+        "i8" => Some(Type::I8),
+        "i16" => Some(Type::I16),
+        "i32" => Some(Type::I32),
+        "i64" => Some(Type::I64),
+        "u8" => Some(Type::U8),
+        "u16" => Some(Type::U16),
+        "u32" => Some(Type::U32),
+        "u64" => Some(Type::U64),
+        _ => None,
+    }
+}
+
 impl TypeChecker {
     pub(super) fn check_field(
         &self,
@@ -61,6 +82,9 @@ impl TypeChecker {
                 // constants (`f32.NaN`, `f32.Infinity`, ...). Names
                 // mirror Rust's `f32::*` constants in CamelCase.
                 if let Some(prim_ty) = float_prim_const_type(rname.as_str(), name.as_str()) {
+                    return Ok(prim_ty);
+                }
+                if let Some(prim_ty) = int_prim_const_type(rname.as_str(), name.as_str()) {
                     return Ok(prim_ty);
                 }
                 if let Some(cls) = self.classes.get(&rname) {

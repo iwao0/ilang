@@ -1370,6 +1370,9 @@ impl<'a> Walker<'a> {
                     if let Some(t) = float_prim_const_ty(recv.as_str(), name.as_str()) {
                         return Some(t);
                     }
+                    if let Some(t) = int_prim_const_ty(recv.as_str(), name.as_str()) {
+                        return Some(t);
+                    }
                 }
                 // `EnumName.Variant` parses as Field too. Try the
                 // class path first; if that misses, check whether
@@ -1781,6 +1784,25 @@ fn float_prim_const_ty(receiver: &str, name: &str) -> Option<Type> {
         "f64" => Some(Type::F64),
         _ => None,
     }
+}
+
+/// `i32.Min` / `u8.Max` etc. — the per-integer bounds. Hover
+/// renders as the receiver's own type.
+fn int_prim_const_ty(receiver: &str, name: &str) -> Option<Type> {
+    if !matches!(name, "Min" | "Max") {
+        return None;
+    }
+    Some(match receiver {
+        "i8" => Type::I8,
+        "i16" => Type::I16,
+        "i32" => Type::I32,
+        "i64" => Type::I64,
+        "u8" => Type::U8,
+        "u16" => Type::U16,
+        "u32" => Type::U32,
+        "u64" => Type::U64,
+        _ => return None,
+    })
 }
 
 /// Built-in `Set<T>` method-type inference. Symmetric with

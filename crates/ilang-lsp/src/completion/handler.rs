@@ -22,6 +22,7 @@ use super::{
 use crate::builtins::{
     array_method_doc, array_method_names, array_method_sig,
     float_prim_const_doc, float_prim_const_names, float_prim_const_sig,
+    int_prim_const_doc, int_prim_const_names, int_prim_const_sig,
     map_method_doc, map_method_names, map_method_sig,
     primitive_method_doc, primitive_method_names, primitive_method_sig,
     set_method_doc, set_method_names, set_method_sig,
@@ -475,6 +476,33 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                 .filter_map(|n| {
                     let sig = float_prim_const_sig(receiver.as_str(), n)?;
                     let doc_text = float_prim_const_doc(n);
+                    let mut item = CompletionItem {
+                        label: n.to_string(),
+                        kind: Some(CompletionItemKind::CONSTANT),
+                        detail: Some(sig),
+                        documentation: doc_text.map(|d| {
+                            Documentation::MarkupContent(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: d.to_string(),
+                            })
+                        }),
+                        ..Default::default()
+                    };
+                    item.insert_text = Some(n.to_string());
+                    Some(item)
+                })
+                .collect();
+            return Some(CompletionResponse::Array(items));
+        }
+        if matches!(
+            receiver.as_str(),
+            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
+        ) {
+            let items: Vec<CompletionItem> = int_prim_const_names()
+                .iter()
+                .filter_map(|n| {
+                    let sig = int_prim_const_sig(receiver.as_str(), n)?;
+                    let doc_text = int_prim_const_doc(n);
                     let mut item = CompletionItem {
                         label: n.to_string(),
                         kind: Some(CompletionItemKind::CONSTANT),

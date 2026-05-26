@@ -21,6 +21,32 @@ use crate::types::{MirTy, SimdElem};
 use super::utils::retain_if_heap;
 use super::{BodyCx, LowerError};
 
+/// Resolve `i8.<Min|Max>` / `u8.<Min|Max>` / ... to the matching
+/// `(MirTy, MirConst)` pair. Values are pulled from Rust's
+/// `i*::MIN` / `i*::MAX` / `u*::MIN` / `u*::MAX`. The MirConst stays
+/// `Int(i64)` even for the unsigned 64-bit `MAX` — its raw bit
+/// pattern (`-1 as i64` for `u64::MAX`) matches what cranelift would
+/// produce for an `u64` literal of the same value.
+fn lower_int_prim_const(receiver: &str, name: &str) -> Option<(MirTy, MirConst)> {
+    let is_min = match name {
+        "Min" => true,
+        "Max" => false,
+        _ => return None,
+    };
+    let (ty, value): (MirTy, i64) = match receiver {
+        "i8" => (MirTy::I8, if is_min { i8::MIN as i64 } else { i8::MAX as i64 }),
+        "i16" => (MirTy::I16, if is_min { i16::MIN as i64 } else { i16::MAX as i64 }),
+        "i32" => (MirTy::I32, if is_min { i32::MIN as i64 } else { i32::MAX as i64 }),
+        "i64" => (MirTy::I64, if is_min { i64::MIN } else { i64::MAX }),
+        "u8" => (MirTy::U8, if is_min { 0 } else { u8::MAX as i64 }),
+        "u16" => (MirTy::U16, if is_min { 0 } else { u16::MAX as i64 }),
+        "u32" => (MirTy::U32, if is_min { 0 } else { u32::MAX as i64 }),
+        "u64" => (MirTy::U64, if is_min { 0 } else { u64::MAX as i64 }),
+        _ => return None,
+    };
+    Some((ty, MirConst::Int(value)))
+}
+
 /// Resolve `f32.<name>` / `f64.<name>` to the appropriate
 /// `(MirTy, MirConst)` pair. Names mirror the type checker side in
 /// `checker::expr::access::float_prim_const_type`; the values are
@@ -429,6 +455,14 @@ impl<'a> BodyCx<'a> {
                 // validated the (receiver, name) pair already; here we
                 // just materialise the right MirConst.
                 if let Some(c) = lower_float_prim_const(
+                    maybe_class.as_str(), name.as_str(),
+                ) {
+                    let (ty, mc) = c;
+                    let v = self.fb.new_value(ty.clone());
+                    self.fb.push_inst(Inst::Const { dst: v, value: mc });
+                    return Ok((v, ty));
+                }
+                if let Some(c) = lower_int_prim_const(
                     maybe_class.as_str(), name.as_str(),
                 ) {
                     let (ty, mc) = c;

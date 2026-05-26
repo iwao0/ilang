@@ -501,6 +501,33 @@ fn set_subset_superset_disjoint() {
 }
 
 #[test]
+fn int_primitive_min_max() {
+    let src = r#"
+        let a = if i8.Min == -128 { 1 } else { 0 }
+        let b = if i8.Max == 127 { 1 } else { 0 }
+        let c = if i16.Max == 32767 { 1 } else { 0 }
+        let d = if i32.Min == -2147483648 { 1 } else { 0 }
+        let e = if u8.Max == 255 { 1 } else { 0 }
+        let f = if u16.Min == 0 { 1 } else { 0 }
+        a + b * 2 + c * 4 + d * 8 + e * 16 + f * 32
+    "#;
+    assert_eq!(run(src), 63);
+}
+
+#[test]
+fn int_primitive_min_max_64bit() {
+    // i64 / u64 bounds. The u64 max check uses cast to compare
+    // against the bit-equal i64 sentinel (-1) since the literal
+    // is too large for the i64 path.
+    let src = r#"
+        let a = if i64.Min == -9223372036854775808 { 1 } else { 0 }
+        let b = if i64.Max == 9223372036854775807 { 1 } else { 0 }
+        a * 10 + b
+    "#;
+    assert_eq!(run(src), 11);
+}
+
+#[test]
 fn float_primitive_constants() {
     // `f32.NaN != f32.NaN` (IEEE), `f32.Infinity > 0.0`,
     // `f64.Min < 0.0`. Result encodes each bit flag in a power of 2
