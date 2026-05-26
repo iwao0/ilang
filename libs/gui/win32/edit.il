@@ -95,7 +95,7 @@ pub fn readEditText(handle: i64): string {
             let heap = GetProcessHeap()
             let wideBuf = HeapAlloc(heap, 8 as u32, (lenW as u64 + 1 as u64) * 2 as u64) as *u16
             GetWindowTextW(hwnd, wideBuf, lenW + 1)
-            let units = arrayFromCArray<u16>(wideBuf as *const u16, lenW as u64)
+            let units = arrayFromCArray(wideBuf as *const u16, lenW as u64)
             HeapFree(heap, 0 as u32, wideBuf as *void)
             string.fromUtf16(units)
         }
