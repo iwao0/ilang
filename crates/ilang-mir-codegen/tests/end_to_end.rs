@@ -360,6 +360,64 @@ fn map_for_each_visits_all() {
 }
 
 #[test]
+fn set_int_add_has_size() {
+    let src = r#"
+        let s = new Set<i64>()
+        s.add(1)
+        s.add(2)
+        s.add(2)
+        s.add(3)
+        let here = if s.has(2) { 1 } else { 0 }
+        let absent = if s.has(99) { 1 } else { 0 }
+        s.size() * 100 + here - absent
+    "#;
+    // dedup: 3 entries, has(2) → 1, has(99) → 0 → 3*100 + 1 - 0 = 301
+    assert_eq!(run(src), 301);
+}
+
+#[test]
+fn set_delete_and_clear() {
+    let src = r#"
+        let s = new Set<i64>()
+        s.add(1)
+        s.add(2)
+        s.add(3)
+        let removed = if s.delete(2) { 1 } else { 0 }
+        let missing = if s.delete(99) { 1 } else { 0 }
+        s.size() * 100 + removed * 10 + missing
+    "#;
+    // 2 entries after delete, removed=1, missing=0 → 210
+    assert_eq!(run(src), 210);
+}
+
+#[test]
+fn set_clear_empties() {
+    let src = r#"
+        let s = new Set<i64>()
+        s.add(1)
+        s.add(2)
+        s.add(3)
+        s.clear()
+        s.size()
+    "#;
+    assert_eq!(run(src), 0);
+}
+
+#[test]
+fn set_string_keys() {
+    let src = r#"
+        let s = new Set<string>()
+        s.add("a")
+        s.add("b")
+        s.add("a")
+        let here = if s.has("b") { 1 } else { 0 }
+        s.size() * 10 + here
+    "#;
+    // 2 unique entries, has("b") → 1 → 2*10 + 1 = 21
+    assert_eq!(run(src), 21);
+}
+
+#[test]
 fn string_length_const() {
     let src = r#"
         let s = "hello"

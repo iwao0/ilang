@@ -188,6 +188,10 @@ pub(super) fn emit_print_value<M: Module>(
             let r = module.declare_func_in_func(print_ids.map, fb.func);
             fb.ins().call(r, &[av]);
         }
+        MirTy::Set { .. } => {
+            let r = module.declare_func_in_func(print_ids.set, fb.func);
+            fb.ins().call(r, &[av]);
+        }
         MirTy::Weak(_) => {
             let r = module.declare_func_in_func(print_ids.weak, fb.func);
             fb.ins().call(r, &[av]);

@@ -21,7 +21,7 @@ use super::abi::clif_signature_for;
 use super::{
     declare_binary_i64, declare_ternary_i64, declare_unary_i64, declare_unit_f64,
     declare_unit_i64, declare_unit_void, lower_function, BuiltinDecl, CompileError, MapIds, PromiseIds,
-    FmtIds, PanicAux, PrintIds, PrintLits, StrIds,
+    FmtIds, PanicAux, PrintIds, PrintLits, SetIds, StrIds,
 };
 
 pub(crate) struct LoweringOutputs {
@@ -154,6 +154,33 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         module.declare_function("$map.forEach", Linkage::Import, &sig)?
+    };
+    // Set runtime imports — mirror Map's shape but every entry-side
+    // op is a 2-arg `(set, raw_elem)` instead of `(set, key, value)`.
+    let set_new_id = {
+        let mut sig = module.make_signature();
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("$set.new", Linkage::Import, &sig)?
+    };
+    let set_add_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("$set.add", Linkage::Import, &sig)?
+    };
+    let set_has_id = declare_binary_i64(module, "$set.has")?;
+    let set_delete_id = declare_binary_i64(module, "$set.delete")?;
+    let set_size_id = declare_unary_i64(module, "$set.size")?;
+    let set_clear_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("$set.clear", Linkage::Import, &sig)?
+    };
+    let set_set_elem_print_kind_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("$set.setElemPrintKind", Linkage::Import, &sig)?
     };
     // Promise runtime imports.
     let promise_resolve_id = declare_binary_i64(module, "$promise.resolve")?;
@@ -401,6 +428,8 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let retain_tuple_id = declare_unit_i64(module, "$tuple.retain")?;
     let release_map_id = declare_unit_i64(module, "$map.release")?;
     let retain_map_id = declare_unit_i64(module, "$map.retain")?;
+    let release_set_id = declare_unit_i64(module, "$set.release")?;
+    let retain_set_id = declare_unit_i64(module, "$set.retain")?;
     let release_string_id = declare_unit_i64(module, "$string.release")?;
     let retain_string_id = declare_unit_i64(module, "$string.retain")?;
     let enum_unit_get_id = {
@@ -443,6 +472,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         module.declare_function("$map.setPrintKinds", Linkage::Import, &sig)?
     };
     let print_map_id = declare_unit_i64(module, "$print.map")?;
+    let print_set_id = declare_unit_i64(module, "$print.set")?;
     let class_name_id = declare_unary_i64(module, "$class.name")?;
     let print_weak_id = declare_unit_i64(module, "$print.weak")?;
     let print_enum_id = {
@@ -462,6 +492,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         struct_: print_struct_id,
         fn_: print_fn_id,
         map: print_map_id,
+        set: print_set_id,
         weak: print_weak_id,
         enum_: print_enum_id,
     };
@@ -481,6 +512,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         object: declare_unary_i64(module, "$fmt.object")?,
         struct_: declare_binary_i64(module, "$fmt.struct")?,
         map: declare_unary_i64(module, "$fmt.map")?,
+        set: declare_unary_i64(module, "$fmt.set")?,
         enum_: declare_binary_i64(module, "$fmt.enum")?,
     };
 
@@ -737,6 +769,15 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 entries: map_entries_id,
                 for_each: map_for_each_id,
             };
+            let set_ids = SetIds {
+                new: set_new_id,
+                add: set_add_id,
+                has: set_has_id,
+                delete: set_delete_id,
+                size: set_size_id,
+                clear: set_clear_id,
+                set_elem_print_kind: set_set_elem_print_kind_id,
+            };
             let promise_ids = PromiseIds {
                 resolve: promise_resolve_id,
                 reject: promise_reject_id,
@@ -765,6 +806,8 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 retain_tuple: retain_tuple_id,
                 release_map: release_map_id,
                 retain_map: retain_map_id,
+                release_set: release_set_id,
+                retain_set: retain_set_id,
                 map_set_val_kind: map_set_val_kind_id,
                 map_set_print_kinds: map_set_print_kinds_id,
                 print_map: print_map_id,
@@ -826,6 +869,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 &string_data,
                 alloc_id,
                 map_ids,
+                set_ids,
                 promise_ids,
                 str_ids,
                 print_ids,

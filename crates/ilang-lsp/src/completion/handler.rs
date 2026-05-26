@@ -22,7 +22,8 @@ use super::{
 use crate::builtins::{
     array_method_doc, array_method_names, array_method_sig, map_method_doc,
     map_method_names, map_method_sig, primitive_method_doc, primitive_method_names,
-    primitive_method_sig, string_method_doc, string_method_names, string_method_sig,
+    primitive_method_sig, set_method_doc, set_method_names, set_method_sig,
+    string_method_doc, string_method_names, string_method_sig,
 };
 use crate::code_actions::interface_method_stub_completions_textual;
 use crate::helpers::{self, sig_body_skip_attrs};
@@ -503,6 +504,17 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
                         .filter_map(|n| {
                             map_method_sig(n, &g.args[0], &g.args[1])
                                 .map(|s| (n.to_string(), s, map_method_doc(n)))
+                        })
+                        .collect()
+                }
+                Type::Generic(g)
+                    if g.base.as_str() == "Set" && g.args.len() == 1 =>
+                {
+                    set_method_names()
+                        .into_iter()
+                        .filter_map(|n| {
+                            set_method_sig(n, &g.args[0])
+                                .map(|s| (n.to_string(), s, set_method_doc(n)))
                         })
                         .collect()
                 }

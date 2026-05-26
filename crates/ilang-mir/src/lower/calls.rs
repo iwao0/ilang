@@ -44,6 +44,7 @@ fn kind_tag_of_mir(ty: &MirTy, classes: &[ClassLayout]) -> i64 {
         MirTy::Str => 7,
         MirTy::Enum(_) => 8,
         MirTy::Promise(_) => 9,
+        MirTy::Set { .. } => 10,
         _ => 0,
     }
 }
@@ -1082,6 +1083,57 @@ impl<'a> BodyCx<'a> {
                     && m != "get"
                     && m != "set"
                 {
+                    self.fb.push_inst(Inst::Release { value: ov });
+                }
+                Ok((dst.unwrap_or_else(|| self.const_unit()), ret_ty))
+            }
+            (MirTy::Set { .. }, m) => {
+                let (builtin_name, ret_ty) = match m {
+                    "add" => ("set_add", MirTy::Unit),
+                    "has" => ("set_has", MirTy::Bool),
+                    "delete" => ("set_delete", MirTy::Bool),
+                    "size" => ("set_size", MirTy::I64),
+                    "clear" => ("set_clear", MirTy::Unit),
+                    other => {
+                        return Err(LowerError::Other(format!("unknown set method `{other}`")))
+                    }
+                };
+                let mut arg_vals = vec![ov];
+                for a in args {
+                    let (v, vty) = self.lower_expr(a)?;
+                    // Host fns are uniformly `(set, i64)` — widen
+                    // narrow integer / bool args the same way the Map
+                    // path does so the cell carries the user's bits
+                    // intact.
+                    let v_ext = if matches!(vty, MirTy::I64 | MirTy::U64)
+                        || vty.is_heap()
+                        || vty.is_float()
+                    {
+                        v
+                    } else if vty.is_int() || matches!(vty, MirTy::Bool) {
+                        let dst_v = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::Cast {
+                            dst: dst_v,
+                            kind: crate::inst::CastKind::IntResize,
+                            src: v,
+                        });
+                        dst_v
+                    } else {
+                        v
+                    };
+                    arg_vals.push(v_ext);
+                }
+                let dst = if matches!(ret_ty, MirTy::Unit) {
+                    None
+                } else {
+                    Some(self.fb.new_value(ret_ty.clone()))
+                };
+                self.fb.push_inst(Inst::Call {
+                    dst,
+                    callee: FuncRef::Builtin(Symbol::intern(builtin_name)),
+                    args: arg_vals.into_boxed_slice(),
+                });
+                if obj_is_fresh && !matches!(ret_ty, MirTy::Object(_)) {
                     self.fb.push_inst(Inst::Release { value: ov });
                 }
                 Ok((dst.unwrap_or_else(|| self.const_unit()), ret_ty))

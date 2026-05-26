@@ -226,6 +226,33 @@ pub(crate) fn map_method_sig(method: &str, k: &Type, v: &Type) -> Option<String>
     Some(format!("(method) Map<{k}, {v}>.{body}"))
 }
 
+pub(crate) fn set_method_names() -> &'static [&'static str] {
+    &["add", "has", "delete", "size", "clear"]
+}
+
+pub(crate) fn set_method_sig(method: &str, t: &Type) -> Option<String> {
+    let body = match method {
+        "add" => format!("add(v: {t}): ()"),
+        "has" => format!("has(v: {t}): bool"),
+        "delete" => format!("delete(v: {t}): bool"),
+        "size" => "size(): i64".to_string(),
+        "clear" => "clear(): ()".to_string(),
+        _ => return None,
+    };
+    Some(format!("(method) Set<{t}>.{body}"))
+}
+
+pub(crate) fn set_method_doc(method: &str) -> Option<&'static str> {
+    Some(match method {
+        "add" => "Inserts `v`. Duplicates (equal under the element's `==`) are ignored.",
+        "has" => "Returns `true` when `v` is already in the set.",
+        "delete" => "Removes `v`. Returns `true` when an entry existed, `false` otherwise.",
+        "size" => "Returns the number of elements currently stored.",
+        "clear" => "Removes every element.",
+        _ => return None,
+    })
+}
+
 pub(crate) fn map_method_doc(method: &str) -> Option<&'static str> {
     Some(match method {
         "get" => "Returns `some(value)` for `key`, or `none` when the key is absent.",

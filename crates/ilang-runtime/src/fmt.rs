@@ -91,6 +91,13 @@ pub extern "C" fn __fmt_map(map_ptr: i64) -> i64 {
     leak_cstring(s)
 }
 
+#[unsafe(export_name = "$fmt.set")]
+pub extern "C" fn __fmt_set(set_ptr: i64) -> i64 {
+    let mut s = String::new();
+    crate::sets::format_set_into(&mut s, set_ptr);
+    leak_cstring(s)
+}
+
 #[unsafe(export_name = "$fmt.enum")]
 pub extern "C" fn __fmt_enum(enum_id: i64, ptr: i64) -> i64 {
     let mut s = String::new();

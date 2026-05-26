@@ -261,6 +261,11 @@ pub(super) fn emit_format_value<M: Module>(
             let call = fb.ins().call(r, &[av]);
             fb.inst_results(call)[0]
         }
+        MirTy::Set { .. } => {
+            let r = module.declare_func_in_func(fmt_ids.set, fb.func);
+            let call = fb.ins().call(r, &[av]);
+            fb.inst_results(call)[0]
+        }
         MirTy::Weak(_) => {
             let r = module.declare_func_in_func(fmt_ids.weak, fb.func);
             let call = fb.ins().call(r, &[av]);

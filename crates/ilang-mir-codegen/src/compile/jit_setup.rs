@@ -95,6 +95,21 @@ pub fn compile_with_builtins(
     jit_builder.symbol("$map.clear", ilang_runtime::__map_clear as *const u8);
     jit_builder.symbol("$map.entries", ilang_runtime::__map_entries as *const u8);
     jit_builder.symbol("$map.forEach", ilang_runtime::__map_for_each as *const u8);
+    // Set runtime.
+    jit_builder.symbol("$set.new", ilang_runtime::__set_new as *const u8);
+    jit_builder.symbol("$set.add", ilang_runtime::__set_add as *const u8);
+    jit_builder.symbol("$set.has", ilang_runtime::__set_has as *const u8);
+    jit_builder.symbol("$set.delete", ilang_runtime::__set_delete as *const u8);
+    jit_builder.symbol("$set.size", ilang_runtime::__set_size as *const u8);
+    jit_builder.symbol("$set.clear", ilang_runtime::__set_clear as *const u8);
+    jit_builder.symbol("$set.retain", ilang_runtime::__retain_set as *const u8);
+    jit_builder.symbol("$set.release", ilang_runtime::__release_set as *const u8);
+    jit_builder.symbol(
+        "$set.setElemPrintKind",
+        ilang_runtime::__set_set_elem_print_kind as *const u8,
+    );
+    jit_builder.symbol("$print.set", ilang_runtime::__print_set as *const u8);
+    jit_builder.symbol("$fmt.set", ilang_runtime::__fmt_set as *const u8);
     // Promise + thread pool runtime.
     jit_builder.symbol("$promise.resolve", ilang_runtime::__promise_resolve as *const u8);
     jit_builder.symbol("$promise.reject", ilang_runtime::__promise_reject as *const u8);

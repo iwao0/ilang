@@ -8,6 +8,29 @@ use ilang_ast::{Expr, ExprKind, Symbol};
 use crate::inst::{FuncId, FuncRef, Inst, MirConst, ValueId};
 use crate::types::MirTy;
 
+/// MIR-side mirror of `print_kind.rs::print_kind_id` (codegen).
+/// Kept here so the lowering of `new Set<T>()` can embed the PK_*
+/// tag without pulling in the codegen crate. Numeric values must
+/// match `crates/ilang-runtime/src/kind.rs` byte-for-byte.
+fn print_kind_id_for(ty: &MirTy) -> i64 {
+    match ty {
+        MirTy::I64 | MirTy::Size | MirTy::SSize => 0,
+        MirTy::U64 => 1,
+        MirTy::I32 => 2,
+        MirTy::U32 => 3,
+        MirTy::I16 => 4,
+        MirTy::U16 => 5,
+        MirTy::I8 | MirTy::CChar => 6,
+        MirTy::U8 => 7,
+        MirTy::Bool => 8,
+        MirTy::F64 => 9,
+        MirTy::F32 => 10,
+        MirTy::Str => 11,
+        MirTy::Object(_) => 12,
+        _ => -1,
+    }
+}
+
 use super::{Binding, BodyCx, LowerError};
 
 impl<'a> BodyCx<'a> {
@@ -159,6 +182,30 @@ impl<'a> BodyCx<'a> {
                         entries: Box::new([]),
                     });
                     return Ok((dst, ty));
+                }
+                // `new Set<T>()` — allocate via `$set.new` and tag the
+                // element's print kind so `$print.set` can format
+                // entries correctly. No bespoke `Inst::NewSet`: the
+                // builder leans on the regular Call lowering path so
+                // adding the type doesn't ripple into every MIR pass
+                // that pattern-matches `Inst`.
+                if class.as_str() == "Set" && type_args.len() == 1 && args.is_empty() {
+                    let elem = self.resolve_ty(&type_args[0])?;
+                    let ty = MirTy::Set { elem: Box::new(elem.clone()) };
+                    let set_ptr = self.fb.new_value(ty.clone());
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(set_ptr),
+                        callee: FuncRef::Builtin(Symbol::intern("set_new")),
+                        args: Box::new([]),
+                    });
+                    let pk = print_kind_id_for(&elem);
+                    let pk_v = self.const_int(MirTy::I64, pk);
+                    self.fb.push_inst(Inst::Call {
+                        dst: None,
+                        callee: FuncRef::Builtin(Symbol::intern("set_set_elem_print_kind")),
+                        args: Box::new([set_ptr, pk_v]),
+                    });
+                    return Ok((set_ptr, ty));
                 }
                 if !type_args.is_empty() {
                     return Err(LowerError::Unsupported("generic class instantiation"));

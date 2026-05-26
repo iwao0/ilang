@@ -37,7 +37,7 @@ use super::print_kind::{
     KIND_OBJECT, KIND_OPTIONAL, KIND_PROMISE, KIND_STR, KIND_TUPLE,
 };
 use super::{
-    emit_is_subclass, CompileError, FmtIds, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds,
+    emit_is_subclass, CompileError, FmtIds, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, SetIds, StrIds,
     OBJECT_HEADER_BYTES,
 };
 
@@ -81,6 +81,7 @@ pub(super) fn lower_inst<M: Module>(
     string_data: &HashMap<Symbol, DataId>,
     alloc_id: cranelift_module::FuncId,
     map_ids: MapIds,
+    set_ids: SetIds,
     promise_ids: PromiseIds,
     str_ids: StrIds,
     print_ids: PrintIds,
@@ -192,7 +193,7 @@ pub(super) fn lower_inst<M: Module>(
             calls::lower_call(
                 fb, dst, callee, args, vmap, func, fn_ids, extern_alias_fn_ids,
                 builtin_ids,
-                static_data, string_data, alloc_id, map_ids, promise_ids, str_ids,
+                static_data, string_data, alloc_id, map_ids, set_ids, promise_ids, str_ids,
                 print_ids, fmt_ids, panic_aux, print_lits, module, locals, prog,
                 env_value, class_global, enum_global,
                 class_struct_global, stack_local,
@@ -596,6 +597,11 @@ pub(super) fn lower_inst<M: Module>(
                     let r = module.declare_func_in_func(panic_aux.release_map, fb.func);
                     fb.ins().call(r, &[av]);
                 }
+                MirTy::Set { .. } => {
+                    let av = vmap[value];
+                    let r = module.declare_func_in_func(panic_aux.release_set, fb.func);
+                    fb.ins().call(r, &[av]);
+                }
                 MirTy::Promise(_) => {
                     let av = vmap[value];
                     let r = module.declare_func_in_func(panic_aux.release_promise, fb.func);
@@ -673,6 +679,11 @@ pub(super) fn lower_inst<M: Module>(
                 MirTy::Map { .. } => {
                     let av = vmap[value];
                     let r = module.declare_func_in_func(panic_aux.retain_map, fb.func);
+                    fb.ins().call(r, &[av]);
+                }
+                MirTy::Set { .. } => {
+                    let av = vmap[value];
+                    let r = module.declare_func_in_func(panic_aux.retain_set, fb.func);
                     fb.ins().call(r, &[av]);
                 }
                 MirTy::Promise(_) => {

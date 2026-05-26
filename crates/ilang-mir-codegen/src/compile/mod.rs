@@ -49,6 +49,20 @@ pub(super) struct MapIds {
     pub(super) for_each: cranelift_module::FuncId,
 }
 
+/// Funcs for the built-in `Set<T>` runtime. Mirrors `MapIds`'s shape;
+/// element-side print-kind registration replaces the per-key /
+/// per-value pair Map uses.
+#[derive(Clone, Copy)]
+pub(super) struct SetIds {
+    pub(super) new: cranelift_module::FuncId,
+    pub(super) add: cranelift_module::FuncId,
+    pub(super) has: cranelift_module::FuncId,
+    pub(super) delete: cranelift_module::FuncId,
+    pub(super) size: cranelift_module::FuncId,
+    pub(super) clear: cranelift_module::FuncId,
+    pub(super) set_elem_print_kind: cranelift_module::FuncId,
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct PromiseIds {
     pub(super) resolve: cranelift_module::FuncId,
@@ -180,6 +194,7 @@ pub(super) struct PrintIds {
     pub(super) struct_: cranelift_module::FuncId,
     pub(super) fn_: cranelift_module::FuncId,
     pub(super) map: cranelift_module::FuncId,
+    pub(super) set: cranelift_module::FuncId,
     pub(super) weak: cranelift_module::FuncId,
     pub(super) enum_: cranelift_module::FuncId,
 }
@@ -199,6 +214,7 @@ pub(super) struct FmtIds {
     pub(super) object: cranelift_module::FuncId,
     pub(super) struct_: cranelift_module::FuncId,
     pub(super) map: cranelift_module::FuncId,
+    pub(super) set: cranelift_module::FuncId,
     pub(super) enum_: cranelift_module::FuncId,
 }
 
@@ -219,6 +235,8 @@ pub(super) struct PanicAux {
     pub(super) retain_tuple: cranelift_module::FuncId,
     pub(super) release_map: cranelift_module::FuncId,
     pub(super) retain_map: cranelift_module::FuncId,
+    pub(super) release_set: cranelift_module::FuncId,
+    pub(super) retain_set: cranelift_module::FuncId,
     pub(super) map_set_val_kind: cranelift_module::FuncId,
     pub(super) map_set_print_kinds: cranelift_module::FuncId,
     pub(super) print_map: cranelift_module::FuncId,

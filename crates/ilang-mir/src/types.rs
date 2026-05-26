@@ -34,6 +34,10 @@ pub enum MirTy {
     Tuple(Box<[MirTy]>),
     Optional(Box<MirTy>),
     Map { key: Box<MirTy>, val: Box<MirTy> },
+    /// `Set<T>` — built-in hash set. Element kind constraints match
+    /// `Map`'s keys (string / integer / bool); element insertion /
+    /// lookup / deletion live behind the `$set.*` runtime helpers.
+    Set { elem: Box<MirTy> },
     /// `Promise<T>` — built-in async value. Heap-allocated, atomic
     /// refcount, settled exactly once.
     Promise(Box<MirTy>),
@@ -175,6 +179,7 @@ impl MirTy {
                 | MirTy::Tuple(_)
                 | MirTy::Optional(_)
                 | MirTy::Map { .. }
+                | MirTy::Set { .. }
                 | MirTy::Promise(_)
                 | MirTy::Fn(_)
         )
@@ -214,6 +219,7 @@ impl std::fmt::Display for MirTy {
             }
             MirTy::Optional(inner) => write!(f, "{inner}?"),
             MirTy::Map { key, val } => write!(f, "Map<{key}, {val}>"),
+            MirTy::Set { elem } => write!(f, "Set<{elem}>"),
             MirTy::Promise(inner) => write!(f, "Promise<{inner}>"),
             MirTy::Fn(ft) => {
                 write!(f, "fn(")?;

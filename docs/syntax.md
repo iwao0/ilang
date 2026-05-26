@@ -1041,6 +1041,24 @@ m.forEach(fn(k, v) { … })        // visit every entry; cb returns ()
 m.clear()                        // remove every entry
 ```
 
+### Sets
+
+```rust
+let s: Set<i64> = new Set<i64>()    // construct (no literal syntax yet)
+s.add(1)                            // insert (duplicates are ignored)
+s.add(1)
+s.has(1)                            // bool
+s.delete(1)                         // bool (whether the element existed)
+s.size()                            // i64
+s.clear()                           // remove every element
+```
+
+- Element types: `string` / `i*` / `u*` / `bool` — same constraints
+  as `Map<K, V>`'s key.
+- No literal syntax yet (`{1, 2, 3}` is reserved for a future
+  extension). Empty / pre-populated sets always use `new Set<T>()`
+  followed by `add` calls.
+
 - Key types: `string` / `i*` / `u*` / `bool`. Floats and objects
   are rejected (Eq / Hash consistency).
 - `K` is inferred from the first key, `V` from the first value in

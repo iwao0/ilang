@@ -730,6 +730,13 @@ impl Lower {
                     let val = self.resolve_ty(&g.args[1])?;
                     return Ok(MirTy::Map { key: Box::new(key), val: Box::new(val) });
                 }
+                // Built-in `Set<T>` — element kind matches `Map`'s key
+                // (string / integer / bool); enforced by the type
+                // checker, not here.
+                if g.base.as_str() == "Set" && g.args.len() == 1 {
+                    let elem = self.resolve_ty(&g.args[0])?;
+                    return Ok(MirTy::Set { elem: Box::new(elem) });
+                }
                 // Built-in `Promise<T>`.
                 if g.base.as_str() == "Promise" && g.args.len() == 1 {
                     return Ok(MirTy::Promise(Box::new(self.resolve_ty(&g.args[0])?)));
@@ -867,6 +874,7 @@ impl<'a> BodyCx<'a> {
             | MirTy::Array { .. }
             | MirTy::Tuple(_)
             | MirTy::Map { .. }
+            | MirTy::Set { .. }
             | MirTy::Promise(_)
             | MirTy::Optional(_)
             | MirTy::Fn(_)
@@ -920,6 +928,7 @@ impl<'a> BodyCx<'a> {
             | MirTy::Array { .. }
             | MirTy::Tuple(_)
             | MirTy::Map { .. }
+            | MirTy::Set { .. }
             | MirTy::Promise(_)
             | MirTy::Optional(_)
             | MirTy::Fn(_)
@@ -1463,6 +1472,9 @@ impl<'a> BodyCx<'a> {
                 key: Box::new(self.resolve_ty(&g.args[0])?),
                 val: Box::new(self.resolve_ty(&g.args[1])?),
             }),
+            Type::Generic(g) if g.base.as_str() == "Set" && g.args.len() == 1 => {
+                Ok(MirTy::Set { elem: Box::new(self.resolve_ty(&g.args[0])?) })
+            }
             Type::Generic(g) if g.base.as_str() == "Promise" && g.args.len() == 1 => {
                 Ok(MirTy::Promise(Box::new(self.resolve_ty(&g.args[0])?)))
             }

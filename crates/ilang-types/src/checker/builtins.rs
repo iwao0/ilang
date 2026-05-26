@@ -160,6 +160,60 @@ impl TypeChecker {
             },
         );
 
+        // Built-in `Set<T>` — generic class with no fields. Element
+        // type constraints (string / integer / bool) are checked at
+        // `new Set<T>()` use sites the same way Map's key type is.
+        let t_set = || Type::TypeVar("T".into());
+        let mut set_methods = HashMap::new();
+        set_methods.insert(
+            "init".into(),
+            vec![Signature { params: vec![], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        set_methods.insert(
+            "add".into(),
+            vec![Signature { params: vec![t_set()], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        set_methods.insert(
+            "has".into(),
+            vec![Signature { params: vec![t_set()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        set_methods.insert(
+            "delete".into(),
+            vec![Signature { params: vec![t_set()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        set_methods.insert(
+            "size".into(),
+            vec![Signature { params: vec![], ret: Type::I64, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        set_methods.insert(
+            "clear".into(),
+            vec![Signature { params: vec![], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        self.classes.insert(
+            "Set".into(),
+            ClassSig {
+                type_params: vec!["T".into()],
+                fields: HashMap::new(),
+                methods: set_methods,
+                properties: HashMap::new(),
+                static_methods: HashMap::new(),
+                static_fields: HashMap::new(),
+                static_const_fields: HashSet::new(),
+                parent: None,
+                implements: Vec::new(),
+                method_slots: HashMap::new(),
+                vtable_len: 0,
+                extern_lib: None,
+                is_repr_c: false,
+                is_handle: false,
+                is_union: false,
+                has_fam: false,
+                field_pub: HashMap::new(),
+                static_field_pub: HashMap::new(),
+                module: String::new(),
+            },
+        );
+
         // Built-in `Promise<T>` — generic class with no fields.
         // Methods/static methods are intercepted in MIR lowering;
         // the signatures here are what the type checker enforces.

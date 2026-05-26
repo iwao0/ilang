@@ -1003,6 +1003,10 @@ impl<'a> Walker<'a> {
                 map_method_sig(method.as_str(), &g.args[0], &g.args[1])
                     .map(|s| (s, map_method_doc(method.as_str())))
             }
+            Some(Type::Generic(g)) if g.base.as_str() == "Set" && g.args.len() == 1 => {
+                set_method_sig(method.as_str(), &g.args[0])
+                    .map(|s| (s, set_method_doc(method.as_str())))
+            }
             // Numeric primitives + bool: `toString` etc. So `i64`
             // values hover with the same kind of popup that `string`
             // / array receivers get.
@@ -1347,6 +1351,9 @@ impl<'a> Walker<'a> {
             ExprKind::MethodCall { obj, method, .. } => {
                 if let Some(Type::Generic(g)) = self.infer_expr(obj, scope) {
                     if let Some(t) = infer_map_method_type(&g, method.as_str()) {
+                        return Some(t);
+                    }
+                    if let Some(t) = infer_set_method_type(&g, method.as_str()) {
                         return Some(t);
                     }
                 }
@@ -1744,6 +1751,22 @@ fn infer_map_method_type(g: &GenericTy, method: &str) -> Option<Type> {
         "size" => Some(Type::I64),
         "keys" => Some(Type::Array { elem: Box::new(k), fixed: None }),
         "values" => Some(Type::Array { elem: Box::new(v), fixed: None }),
+        _ => None,
+    }
+}
+
+/// Built-in `Set<T>` method-type inference. Symmetric with
+/// `infer_map_method_type` — the LSP keeps Set's signatures here
+/// rather than in `ClassInfo` so module imports don't have to do a
+/// generic-class lookup just to hover `s.add(x)`.
+fn infer_set_method_type(g: &GenericTy, method: &str) -> Option<Type> {
+    if g.base.as_str() != "Set" || g.args.len() != 1 {
+        return None;
+    }
+    match method {
+        "add" | "clear" => Some(Type::Unit),
+        "has" | "delete" => Some(Type::Bool),
+        "size" => Some(Type::I64),
         _ => None,
     }
 }

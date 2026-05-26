@@ -20,7 +20,7 @@ use crate::ty::mir_to_clif;
 
 use super::lower_inst::lower_inst;
 use super::lower_term_const::{lower_term, ReturnAbi};
-use super::{CompileError, FmtIds, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds};
+use super::{CompileError, FmtIds, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, SetIds, StrIds};
 
 pub(super) fn lower_function<M: Module>(
     fb: &mut ClifFnBuilder,
@@ -33,6 +33,7 @@ pub(super) fn lower_function<M: Module>(
     string_data: &HashMap<Symbol, DataId>,
     alloc_id: cranelift_module::FuncId,
     map_ids: MapIds,
+    set_ids: SetIds,
     promise_ids: PromiseIds,
     str_ids: StrIds,
     print_ids: PrintIds,
@@ -308,6 +309,7 @@ pub(super) fn lower_function<M: Module>(
                 string_data,
                 alloc_id,
                 map_ids,
+                set_ids,
                 promise_ids,
                 str_ids,
                 print_ids,
