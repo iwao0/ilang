@@ -6,8 +6,8 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use crate::arrays::build_i64_array;
-use crate::kind::KIND_STR;
+use crate::arrays::{build_i64_array, __c_array_to_array};
+use crate::kind::{KIND_NONE, KIND_STR};
 
 // --------------------------------------------------------------------
 // String layout helpers
@@ -409,6 +409,28 @@ pub extern "C" fn __str_split(p: i64, sep: i64) -> i64 {
         s.split(sp).map(|t| leak_cstring(t.to_string())).collect()
     };
     build_i64_array(&parts, KIND_STR)
+}
+
+/// `s.encodeUtf16(nulTerminated = true)` — encode the UTF-8 string
+/// as UTF-16 code units and return a fresh `u16[]`. When
+/// `nul_terminated != 0` the buffer ends with an extra `0x0000`
+/// so it can be passed straight to Win32 W-suffix APIs (or any
+/// other API that wants an LPCWSTR). The pad is what makes the
+/// common Win32 path one-liner:
+///
+///   SetWindowTextW(hwnd, text.encodeUtf16())   // *const u16 coerce
+///
+/// `__c_array_to_array` *copies* `v.as_ptr()` into a fresh ilang
+/// array body, so `v` going out of scope at function return is
+/// fine — the returned array owns its own storage.
+#[unsafe(export_name = "$string.encodeUtf16")]
+pub extern "C" fn __str_encode_utf16(p: i64, nul_terminated: i64) -> i64 {
+    let s = cstr_to_str(p);
+    let mut v: Vec<u16> = s.encode_utf16().collect();
+    if nul_terminated != 0 {
+        v.push(0);
+    }
+    __c_array_to_array(v.as_ptr() as i64, v.len() as i64, 2, KIND_NONE)
 }
 
 // --------------------------------------------------------------------

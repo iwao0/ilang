@@ -174,7 +174,15 @@ let Point { x, y } = p                  // x: f64, y: f64
 "hello".indexOf("l", 3)     // i64       ─ 第2引数 fromIndex は省略可 (既定 0)
 "abcabc".lastIndexOf("b")   // i64       ─ 最後の出現位置、見つからなければ -1
 "abcabc".lastIndexOf("b", 2)// i64       ─ 省略時 fromIndex は文字列末尾
+"hi".encodeUtf16()          // u16[]     ─ UTF-16 コードユニット、末尾に 0x0000 を含む (既定)
+"hi".encodeUtf16(false)     // u16[]     ─ 終端 0x0000 を含まない、コードユニットのみ
 ```
+
+`encodeUtf16(nulTerminated?)` は Win32 W系 API への橋渡し用。
+既定の `true` で末尾に `0x0000` が付くので、§22 で説明する
+`u16[] → *const u16` 暗黙コアースと合わせて `SetWindowTextW` /
+`CreateWindowExW` 等にそのまま渡せる。JS の `encodeUtf16` 相当
+(終端なし) が要るときは `false` を渡す。
 
 
 ### テンプレートリテラル (文字列補間)

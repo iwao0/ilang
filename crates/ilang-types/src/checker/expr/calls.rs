@@ -369,6 +369,35 @@ impl TypeChecker {
                     }
                     return Ok(Type::I64);
                 }
+                "encodeUtf16" => {
+                    // 0 or 1 args. The optional 1st arg is the
+                    // NUL-terminator flag and must be a bool. The
+                    // default (when omitted) is `true`, matching
+                    // Win32 W-suffix API expectations — see the
+                    // MIR lowering for the actual padding.
+                    if args.len() > 1 {
+                        return Err(TypeError::ArityMismatch {
+                            name: method.clone(),
+                            expected: 0,
+                            got: args.len(),
+                            span,
+                        });
+                    }
+                    if let Some(flag) = args.first() {
+                        let ft = self.check_expr(flag, env, ret_ty, in_class, loop_depth)?;
+                        if !matches!(ft, Type::Bool) {
+                            return Err(TypeError::Mismatch {
+                                expected: Type::Bool,
+                                got: ft,
+                                span: flag.span,
+                            });
+                        }
+                    }
+                    return Ok(Type::Array {
+                        elem: Box::new(Type::U16),
+                        fixed: None,
+                    });
+                }
                 _ => {
                     return Err(TypeError::UnknownMethod {
                         class: "string".into(),

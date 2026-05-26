@@ -95,6 +95,7 @@ pub(crate) fn string_method_names() -> &'static [&'static str] {
         "concat",
         "indexOf",
         "lastIndexOf",
+        "encodeUtf16",
     ]
 }
 
@@ -150,6 +151,7 @@ pub(crate) fn string_method_sig(method: &str) -> Option<String> {
         "concat" => "concat(other: string): string",
         "indexOf" => "indexOf(needle: string, fromIndex?: i64): i64",
         "lastIndexOf" => "lastIndexOf(needle: string, fromIndex?: i64): i64",
+        "encodeUtf16" => "encodeUtf16(nulTerminated: bool = true): u16[]",
         _ => return None,
     };
     Some(format!("(method) string.{body}"))
@@ -173,6 +175,7 @@ pub(crate) fn string_method_doc(method: &str) -> Option<&'static str> {
         "concat" => "Returns a new string formed by appending `other` to this string.",
         "indexOf" => "Returns the code-point index of the first occurrence of `needle` at or after `fromIndex` (default 0). Returns `-1` if not found.",
         "lastIndexOf" => "Returns the code-point index of the last occurrence of `needle` at or before `fromIndex` (default: end of string). Returns `-1` if not found.",
+        "encodeUtf16" => "Encodes this string as UTF-16 code units and returns a fresh `u16[]`. With `nulTerminated = true` (the default) the buffer ends with `0x0000` so it can be passed straight to Win32 W-suffix APIs via the implicit `u16[] → *const u16` coercion.",
         _ => return None,
     })
 }

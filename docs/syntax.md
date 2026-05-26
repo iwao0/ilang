@@ -205,7 +205,16 @@ distinct `let f = fn(...)` bindings always compare unequal).
 "hello".indexOf("l", 3)     // i64       ─ search from index 3; optional fromIndex defaults to 0
 "abcabc".lastIndexOf("b")   // i64       ─ last match, -1 if not found
 "abcabc".lastIndexOf("b", 2)// i64       ─ optional fromIndex defaults to end of string
+"hi".encodeUtf16()          // u16[]     ─ UTF-16 code units, NUL-terminated (default)
+"hi".encodeUtf16(false)     // u16[]     ─ code units only, no trailing 0x0000
 ```
+
+`encodeUtf16(nulTerminated?)` is the canonical bridge to Win32
+W-suffix APIs: the default `true` appends `0x0000` so the result
+can be handed straight to `SetWindowTextW` / `CreateWindowExW` /
+… through the implicit `u16[] → *const u16` coercion described
+in §22. Pass `false` for the JS-faithful "code-units only"
+form.
 
 
 ### Template literals (string interpolation)

@@ -958,6 +958,10 @@ impl<'a> BodyCx<'a> {
                     "concat" => ("str_concat", MirTy::Str),
                     "indexOf" => ("str_index_of", MirTy::I64),
                     "lastIndexOf" => ("str_last_index_of", MirTy::I64),
+                    "encodeUtf16" => (
+                        "str_encode_utf16",
+                        MirTy::Array { elem: Box::new(MirTy::U16), len: None },
+                    ),
                     other => {
                         return Err(LowerError::Other(format!(
                             "unknown string method `{other}`"
@@ -974,6 +978,14 @@ impl<'a> BodyCx<'a> {
                 // recognises (see __str_index_of / __str_last_index_of).
                 if matches!(m, "indexOf" | "lastIndexOf") && arg_vals.len() == 2 {
                     let pad = self.const_int(MirTy::I64, i64::MIN);
+                    arg_vals.push(pad);
+                }
+                // `encodeUtf16` defaults to NUL-terminated. When the
+                // user omits the bool arg, inject `true` (1) so the
+                // runtime — declared with a fixed binary signature —
+                // gets a defined value.
+                if m == "encodeUtf16" && arg_vals.len() == 1 {
+                    let pad = self.const_int(MirTy::I64, 1);
                     arg_vals.push(pad);
                 }
                 let dst = if matches!(ret_ty, MirTy::Unit) {
