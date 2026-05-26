@@ -98,17 +98,20 @@ pub(crate) fn string_method_names() -> &'static [&'static str] {
     ]
 }
 
-/// Built-in methods shared by every numeric primitive and `bool`.
-/// Currently just `toString` — the type checker accepts `.toString()`
-/// on any value where `is_numeric()` returns `true` or that is
-/// `Type::Bool` (see `checker::expr::calls`).
+/// Built-in methods shared by every numeric primitive and `bool`,
+/// plus the float-only `isFinite` / `isNaN`. `primitive_method_sig`
+/// gates the float-only entries on the receiver type so the
+/// completion list filters them out for ints / bools.
 pub(crate) fn primitive_method_names() -> &'static [&'static str] {
-    &["toString"]
+    &["toString", "isFinite", "isNaN"]
 }
 
 pub(crate) fn primitive_method_sig(method: &str, ty: &Type) -> Option<String> {
+    let is_float = matches!(ty, Type::F32 | Type::F64);
     let body = match method {
-        "toString" => "toString(): string",
+        "toString" => "toString(): string".to_string(),
+        "isFinite" if is_float => "isFinite(): bool".to_string(),
+        "isNaN" if is_float => "isNaN(): bool".to_string(),
         _ => return None,
     };
     Some(format!("(method) {ty}.{body}"))
@@ -117,6 +120,8 @@ pub(crate) fn primitive_method_sig(method: &str, ty: &Type) -> Option<String> {
 pub(crate) fn primitive_method_doc(method: &str) -> Option<&'static str> {
     Some(match method {
         "toString" => "Returns the value's decimal (`123`) or JS-style float (`1.5`) string. `true` / `false` for `bool`.",
+        "isFinite" => "Returns `true` when the value is a finite real number (not NaN, not ±Infinity).",
+        "isNaN" => "Returns `true` when the value is IEEE-754 NaN. By definition `NaN != NaN`, so `==` can't be used for this check.",
         _ => return None,
     })
 }

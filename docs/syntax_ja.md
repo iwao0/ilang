@@ -228,6 +228,18 @@ u64.Max                    // u64 — 18_446_744_073_709_551_615
 
 `i8`〜`u64` のすべてに `Min` / `Max` を提供。符号なし整数の `Min` は `0`。`i64.Min` / `i64.Max` は Rust の `i64::MIN` / `i64::MAX` と同値。
 
+### 浮動小数の述語メソッド
+
+```rust
+let f: f64 = 1.0
+f.isFinite()              // bool — 有限の実数のとき true
+f.isNaN()                 // bool — NaN のときのみ true (NaN == NaN は常に false)
+(f32.NaN).isNaN()         // true
+(f64.Infinity).isFinite() // false
+```
+
+`.isFinite()` と `.isNaN()` は `f32` / `f64` のみ提供。整数は構造上 NaN や無限大にならないため、メソッドを公開していません。
+
 ### 浮動小数の associated 定数
 
 ```rust

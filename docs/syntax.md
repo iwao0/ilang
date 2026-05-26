@@ -264,6 +264,20 @@ Every signed / unsigned integer (`i8` … `u64`) exposes `Min` and
 `Max`. Unsigned `Min` is `0`. `i64.Min` / `i64.Max` are the same
 values Rust would print for `i64::MIN` / `i64::MAX`.
 
+### Float predicates
+
+```rust
+let f: f64 = 1.0
+f.isFinite()              // bool — true for finite reals
+f.isNaN()                 // bool — true only for NaN (NaN == NaN is false)
+(f32.NaN).isNaN()         // true
+(f64.Infinity).isFinite() // false
+```
+
+`.isFinite()` and `.isNaN()` are available on `f32` and `f64`.
+Integers can't be NaN / infinite by construction, so the methods
+aren't exposed there.
+
 ### Float associated constants
 
 ```rust

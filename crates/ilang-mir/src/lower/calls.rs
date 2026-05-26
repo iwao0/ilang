@@ -543,6 +543,35 @@ impl<'a> BodyCx<'a> {
                 return Ok((v, MirTy::Str));
             }
         }
+        // `.isFinite()` / `.isNaN()` on f32 / f64. Per-width entry
+        // points because cranelift's float-arg ABI distinguishes the
+        // two; result is an i64 (0/1) which we reduce to the
+        // language-level Bool (i8).
+        if args.is_empty()
+            && matches!(method.as_str(), "isFinite" | "isNaN")
+            && oty.is_float()
+        {
+            let builtin = match (&oty, method.as_str()) {
+                (MirTy::F32, "isFinite") => "math_is_finite_f32",
+                (MirTy::F64, "isFinite") => "math_is_finite_f64",
+                (MirTy::F32, "isNaN") => "math_is_nan_f32",
+                (MirTy::F64, "isNaN") => "math_is_nan_f64",
+                _ => unreachable!(),
+            };
+            let raw = self.fb.new_value(MirTy::I64);
+            self.fb.push_inst(Inst::Call {
+                dst: Some(raw),
+                callee: FuncRef::Builtin(Symbol::intern(builtin)),
+                args: Box::new([ov]),
+            });
+            let b = self.fb.new_value(MirTy::Bool);
+            self.fb.push_inst(Inst::Cast {
+                dst: b,
+                kind: crate::inst::CastKind::IntResize,
+                src: raw,
+            });
+            return Ok((b, MirTy::Bool));
+        }
         // Limited builtin dispatch for arrays / Optional / strings.
         // User-class method dispatch arrives with classes (later step).
         match (&oty, method.as_str()) {

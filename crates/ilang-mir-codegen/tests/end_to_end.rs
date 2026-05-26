@@ -567,6 +567,29 @@ fn int_primitive_min_max_64bit() {
 }
 
 #[test]
+fn float_is_finite_is_nan() {
+    // Each predicate result occupies one bit in the encoded answer
+    // so a failure points at the responsible check.
+    let src = r#"
+        let f: f64 = 1.0
+        let n = f64.NaN
+        let i = f64.Infinity
+        let g: f32 = 2.5
+        let gn = f32.NaN
+        let a = if f.isFinite() { 1 } else { 0 }      // 1
+        let b = if f.isNaN() { 0 } else { 1 }         // 1
+        let c = if n.isFinite() { 0 } else { 1 }      // 1
+        let d = if n.isNaN() { 1 } else { 0 }         // 1
+        let e = if i.isFinite() { 0 } else { 1 }      // 1
+        let f2 = if i.isNaN() { 0 } else { 1 }        // 1
+        let h = if g.isFinite() { 1 } else { 0 }      // 1
+        let j = if gn.isNaN() { 1 } else { 0 }        // 1
+        a + b * 2 + c * 4 + d * 8 + e * 16 + f2 * 32 + h * 64 + j * 128
+    "#;
+    assert_eq!(run(src), 255);
+}
+
+#[test]
 fn float_primitive_constants() {
     // `f32.NaN != f32.NaN` (IEEE), `f32.Infinity > 0.0`,
     // `f64.Min < 0.0`. Result encodes each bit flag in a power of 2

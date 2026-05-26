@@ -483,6 +483,16 @@ pub fn compile_with_builtins(
     jit_builder.symbol("$math.round", ilang_runtime::math_round as *const u8);
     jit_builder.symbol("$math.abs", ilang_runtime::math_abs as *const u8);
     jit_builder.symbol("$math.random", ilang_runtime::math_random as *const u8);
+    jit_builder.symbol(
+        "$math.isFinite_f32",
+        ilang_runtime::math_is_finite_f32 as *const u8,
+    );
+    jit_builder.symbol(
+        "$math.isFinite_f64",
+        ilang_runtime::math_is_finite_f64 as *const u8,
+    );
+    jit_builder.symbol("$math.isNaN_f32", ilang_runtime::math_is_nan_f32 as *const u8);
+    jit_builder.symbol("$math.isNaN_f64", ilang_runtime::math_is_nan_f64 as *const u8);
     // `console.log` is variadic at the language surface, so the
     // codegen splits each argument into a per-type print call.
     jit_builder.symbol("$ilang.panic", ilang_runtime::__ilang_panic as *const u8);

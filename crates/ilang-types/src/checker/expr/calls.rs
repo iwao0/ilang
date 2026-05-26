@@ -217,6 +217,22 @@ impl TypeChecker {
             }
             return Ok(Type::Str);
         }
+        // `.isFinite()` / `.isNaN()` on f32 / f64. Integers can't
+        // be NaN / infinite by construction, so these methods are
+        // gated to floats only.
+        if matches!(ot, Type::F32 | Type::F64)
+            && matches!(method.as_str(), "isFinite" | "isNaN")
+        {
+            if !args.is_empty() {
+                return Err(TypeError::ArityMismatch {
+                    name: method.clone(),
+                    expected: 0,
+                    got: args.len(),
+                    span,
+                });
+            }
+            return Ok(Type::Bool);
+        }
         // Built-in string methods (JS-style camelCase).
         if matches!(ot, Type::Str) {
             let arity_check = |expected: usize| -> Result<(), TypeError> {

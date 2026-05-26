@@ -600,6 +600,27 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         let cid = module.declare_function(b.name, Linkage::Import, &sig)?;
         builtin_ids.insert(b.name.to_string(), (cid, sig));
     }
+    // `(f32).isFinite()` / `(f64).isFinite()` / matching isNaN — the
+    // MIR side emits these as `FuncRef::Builtin` calls so they fall
+    // through the host_id table into `builtin_ids`. Per-width entries
+    // because cranelift's float-arg ABI distinguishes f32 from f64.
+    {
+        let mut s_f32 = module.make_signature();
+        s_f32.params.push(AbiParam::new(types::F32));
+        s_f32.returns.push(AbiParam::new(types::I64));
+        let cid = module.declare_function("$math.isFinite_f32", Linkage::Import, &s_f32)?;
+        builtin_ids.insert("math_is_finite_f32".to_string(), (cid, s_f32.clone()));
+        let cid = module.declare_function("$math.isNaN_f32", Linkage::Import, &s_f32)?;
+        builtin_ids.insert("math_is_nan_f32".to_string(), (cid, s_f32));
+
+        let mut s_f64 = module.make_signature();
+        s_f64.params.push(AbiParam::new(types::F64));
+        s_f64.returns.push(AbiParam::new(types::I64));
+        let cid = module.declare_function("$math.isFinite_f64", Linkage::Import, &s_f64)?;
+        builtin_ids.insert("math_is_finite_f64".to_string(), (cid, s_f64.clone()));
+        let cid = module.declare_function("$math.isNaN_f64", Linkage::Import, &s_f64)?;
+        builtin_ids.insert("math_is_nan_f64".to_string(), (cid, s_f64));
+    }
 
     // Pre-collect every string literal in the program; each gets a
     // Cranelift data symbol laid out as

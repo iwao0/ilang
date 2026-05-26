@@ -40,6 +40,36 @@ pub extern "C" fn math_atan2(y: f64, x: f64) -> f64 { y.atan2(x) }
 #[unsafe(export_name = "$math.pow")]
 pub extern "C" fn math_pow(x: f64, y: f64) -> f64 { x.powf(y) }
 
+// --------------------------------------------------------------------
+// IEEE-754 predicates (`.isFinite()` / `.isNaN()` on f32 / f64)
+// --------------------------------------------------------------------
+//
+// Cranelift's calling convention treats f32 / f64 args as float-
+// register passes, so the host needs a per-width entry point — a
+// single i64-shaped helper would mis-receive the float. Returning
+// `i64` (0 / 1) keeps the result on the integer-register ABI so
+// downstream MIR can `ireduce` to `i8` for `Bool`.
+
+#[unsafe(export_name = "$math.isFinite_f32")]
+pub extern "C" fn math_is_finite_f32(x: f32) -> i64 {
+    if x.is_finite() { 1 } else { 0 }
+}
+
+#[unsafe(export_name = "$math.isFinite_f64")]
+pub extern "C" fn math_is_finite_f64(x: f64) -> i64 {
+    if x.is_finite() { 1 } else { 0 }
+}
+
+#[unsafe(export_name = "$math.isNaN_f32")]
+pub extern "C" fn math_is_nan_f32(x: f32) -> i64 {
+    if x.is_nan() { 1 } else { 0 }
+}
+
+#[unsafe(export_name = "$math.isNaN_f64")]
+pub extern "C" fn math_is_nan_f64(x: f64) -> i64 {
+    if x.is_nan() { 1 } else { 0 }
+}
+
 /// `math.random()` — uniform `f64` in `[0.0, 1.0)`, matching JS's
 /// `Math.random()`. Delegates to `rand`'s thread-local generator
 /// (`ThreadRng`), which auto-seeds from the OS RNG on first use
