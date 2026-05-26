@@ -207,7 +207,6 @@ distinct `let f = fn(...)` bindings always compare unequal).
 "abcabc".lastIndexOf("b", 2)// i64       ─ optional fromIndex defaults to end of string
 ```
 
-Every method above works in both interpreter and JIT.
 
 ### Template literals (string interpolation)
 
@@ -370,7 +369,6 @@ loop { break }                          // value-less break — loop type is Uni
 - All `break v` sites in the same `loop` must agree on the type
   (the type checker rejects mismatches).
 - `break` (no value) is always allowed; `break v` is `loop`-only.
-- Both interpreter and JIT support the above.
 
 ```rust
 // return — early exit. Allowed at top level too (no value at top
@@ -446,8 +444,7 @@ first([1, 2, 3])  // T = i64
   constructors).
 - Type variables in the return type are substituted with the
   inferred bindings.
-- Both interpreter and JIT support generics. The JIT
-  monomorphises each `(function, type-args)` pair into a
+- Each `(function, type-args)` pair is monomorphised into a
   separate concrete function.
 
 ### Function overloading
@@ -497,16 +494,14 @@ as **ambiguous**. Exact matches always win, matching the usual
 arguments, or use the post-mangled name like `fn name__i64`
 (internal-implementation, not recommended).
 
-Both interpreter and JIT support overloading. After type
-checking, overloaded names are mangled to `name__<param_types>`
-and call sites are rewritten to match.
+After type checking, overloaded names are mangled to
+`name__<param_types>` and call sites are rewritten to match.
 
 ### First-class functions
 
 Functions are values: assignable to variables, passable as
 arguments, returnable. Anonymous-function bodies can **capture
-outer locals by value** (interpreter / JIT both support every
-capture type).
+outer locals by value** (every capture type is supported).
 
 ```rust
 fn add(a: i64, b: i64): i64 { a + b }
@@ -546,9 +541,9 @@ apply(double, 7)                     // 14
 - Parameters with the same name as a capture shadow the capture.
 - Top-level functions/classes with the same name are *not*
   captured — they resolve as globals.
-- **Both interpreter and JIT** support every capture type
+- Every capture type is supported
   (i64 / f64 / bool / string / object / array / optional / map).
-  The JIT lays a closure out as a heap struct
+  A closure lays out as a heap struct
   `[fn_ptr | env_field0 | ...]` managed by ARC (heap captures get
   retained, the env releases its captures when the closure is
   dropped).
@@ -758,7 +753,6 @@ b.greet(3)                                      // → "hi x3"
 - **Methods on generic classes cannot be overloaded** — mixing
   monomorphisation with overload resolution is disallowed
   (`class Box<T> { f(x: i64): ...  f(x: string): ... }` errors).
-- Both interpreter and JIT support method/init overloading.
   Overloaded names are mangled to `name__<param_types>` after
   type checking, and `new C(...)` AST nodes record the chosen
   `init_method`.
@@ -794,7 +788,6 @@ t.celsius                 // 37.77...
 - Property names can't collide with field or method names.
 - `get` / `set` are contextual keywords — only special inside a
   class body, regular identifiers everywhere else.
-- Both interpreter and JIT support properties.
 
 ### `static` methods
 
@@ -824,7 +817,6 @@ let d = Vec2.dot(z, p)
 - `static` is a contextual keyword (only inside a class body).
 - A local `let Vec2 = ...` shadows the class name (so `static`
   dispatch resolves to the binding, not the class).
-- Both interpreter and JIT support static methods.
 
 #### `static` fields and `const` constants
 
@@ -904,7 +896,7 @@ Palette.label               // "palette"
 ### Inheritance (`: Parent`)
 
 `class Child: Parent { ... }` for single inheritance with virtual
-dispatch + `override` + `super`. Both interpreter and JIT support it.
+dispatch + `override` + `super`.
 
 ```rust
 class Animal {
@@ -1057,14 +1049,13 @@ ss.join(", ")                                // string — concat cells with sep
 ```
 
 Callbacks may be **first-class functions** or **closures**
-(anonymous `fn` capturing outer locals by value — see §6). Every
-built-in method works in **both interpreter and JIT** with no
-element-type restrictions. The mutating ops (`push` / `pop` /
-`shift` / `unshift` / `remove` / `removeAt` / `fill`) require a
-dynamic-length receiver — fixed-length arrays surface a type
-error. The new-array ops (`slice` / `concat` / `reverse` / `map` /
-`filter` / `sort`) leave the receiver alone and hand back a fresh
-buffer with the right cells retained.
+(anonymous `fn` capturing outer locals by value — see §6). All
+element types are allowed without restriction. The mutating ops
+(`push` / `pop` / `shift` / `unshift` / `remove` / `removeAt` /
+`fill`) require a dynamic-length receiver — fixed-length arrays
+surface a type error. The new-array ops (`slice` / `concat` /
+`reverse` / `map` / `filter` / `sort`) leave the receiver alone
+and hand back a fresh buffer with the right cells retained.
 
 ---
 
@@ -1124,8 +1115,8 @@ s.isDisjointFrom(other)             // bool
 - The parser distinguishes map literals from blocks by looking
   two tokens ahead: `{<key-token> :` (Ident/Str/Int/Bool followed
   by `:`) is a map.
-- Both interpreter and JIT support maps (literals, basic ops,
-  `get` / `keys` / `values`).
+- Literals, basic ops, and the `get` / `keys` / `values` family
+  are all supported.
 
 ---
 
@@ -1145,9 +1136,8 @@ a.isNone                       // bool
 a.unwrap()                       // T (panics at runtime if none)
 ```
 
-- Any type works as `T`. Both interpreter and JIT handle
-  Optionals (the JIT represents `T?` of a primitive as a heap box
-  `[rc:i64 | payload:T]`).
+- Any type works as `T`. `T?` of a primitive is represented as a
+  heap box `[rc:i64 | payload:T]`.
 - `T?` is valid for parameters / return types / fields.
 - `none` on its own has no type — it's inferred from the
   surrounding Optional context.
@@ -1355,9 +1345,8 @@ match e {
   function return types.
 - Match-side bindings recover their concrete type from the
   scrutinee.
-- Both interpreter and JIT support generic enums (the JIT
-  generates per-instantiation EnumDecls and per-instantiation
-  layouts).
+- Generic enums emit a per-instantiation `EnumDecl` with a
+  per-instantiation layout.
 
 ### Built-in `Result<T, E>`
 
@@ -1395,8 +1384,7 @@ r.isErr                    // bool — true when the variant is `err`
   return types or annotations.
 - Match exhaustiveness still applies (cover `ok` and `err`, or
   use `_`).
-- Both interpreter and JIT support `Result` (monomorphised per
-  `(T, E)`).
+- `Result` is monomorphised per `(T, E)`.
 
 #### `?` operator (short-circuit on `err`)
 
@@ -1566,7 +1554,7 @@ let label = match typeof(x).kind {
 - `Type` and `TypeKind` are reserved names — user code can't
   redefine them.
 - Dynamic class dispatch goes through the vtable header, so RTTI
-  works under inheritance for both interpreter and JIT.
+  works correctly under inheritance.
 - `.fields` / `.methods` currently expose only **declared**
   members (no inherited names). For per-member type info use
   `fieldType(name)` / `methodReturn(name)` / `methodParams(name)`.
@@ -1839,9 +1827,7 @@ their values from leaking outside.
 ```
 
 Top-level only. The only attribute the block accepts is
-`@extern(C)` itself. **JIT-only** — the interpreter can't call
-@lib functions inside the block (host-form bare functions are an
-exception).
+`@extern(C)` itself.
 
 ##### `@extern(C, "libname", ...)` — block-level default library
 
@@ -2469,8 +2455,7 @@ Functions (all f64):
 - **Random**: `random()` — uniform `f64` in `[0.0, 1.0)`
 
 Constants (all `f64` `const`): `pi`, `e`, `ln2`, `ln10`, `log2e`,
-`log10e`, `sqrt2`, `sqrt1_2`. All available in both interpreter and
-JIT.
+`log10e`, `sqrt2`, `sqrt1_2`.
 
 ### Built-in `std.test` module
 
@@ -2488,10 +2473,9 @@ test.expectFalse(1 > 2)
 test.fail("should not reach here")    // forced failure
 ```
 
-Both interpreter and JIT. `.il` files in
-`crates/ilang-cli/tests/programs/*.il` are picked up by the
-harness (`programs.rs`), which runs them in both modes and
-compares exit codes.
+`.il` files in `crates/ilang-cli/tests/programs/*.il` are picked
+up by the harness (`programs.rs`), which runs them and checks
+exit codes.
 
 ### Built-in `std.os` module
 
@@ -2576,8 +2560,8 @@ are included. Platform-divergent ones (`EAGAIN`, `O_CREAT`,
 checking your platform's headers, or call libc directly through
 `@extern(C) { @lib("c") fn ... }`.
 
-Both interpreter and JIT (the implementation reads / writes
-Rust's C-runtime errno directly).
+The implementation reads / writes Rust's C-runtime errno
+directly.
 
 ### Built-in `std.regex` module
 
@@ -2625,7 +2609,7 @@ Unknown flag characters abort with a diagnostic.
 
 The compiled pattern lives on the Rust heap behind an opaque
 handle; the wrapper's `deinit` frees it when the `Regex`
-object's refcount drops to zero. Both interpreter and JIT.
+object's refcount drops to zero.
 
 ### Built-in `std.path` module
 
@@ -3029,9 +3013,7 @@ Both `run` and `build` go through the same lowering chain
 (`ilang_parser::loader` → `ilang_types::TypeChecker` →
 `ilang_mir::lower_program` → `ilang_mir_codegen::compile_program`)
 — the only difference is whether Cranelift emits in-memory code
-(JIT) or an object file (AOT). The legacy tree-walking
-interpreter and the pre-MIR `ilang-codegen` JIT have both been
-removed; the MIR pipeline is the only execution path.
+(JIT) or an object file (AOT).
 
 The CLI walks upward from the entry file looking for an
 `ilang.toml`. If present, each `[deps]` value adds an extra
