@@ -320,6 +320,46 @@ fn map_int_keyed_get_set() {
 }
 
 #[test]
+fn map_clear_drops_entries() {
+    let src = r#"
+        let m: Map<i64, i64> = {1: 100, 2: 200, 3: 300}
+        m.clear()
+        m.size()
+    "#;
+    assert_eq!(run(src), 0);
+}
+
+#[test]
+fn map_entries_round_trips() {
+    let src = r#"
+        let m: Map<i64, i64> = {1: 10, 2: 20, 3: 30}
+        let es = m.entries()
+        let totals: i64[] = [0]
+        for e in es {
+            totals[0] = totals[0] + e[0] + e[1]
+        }
+        totals[0]
+    "#;
+    // sum of keys (1+2+3=6) + sum of values (10+20+30=60) = 66
+    assert_eq!(run(src), 66);
+}
+
+#[test]
+fn map_for_each_visits_all() {
+    let src = r#"
+        let m: Map<i64, i64> = {1: 10, 2: 20, 3: 30}
+        let totals: i64[] = [0, 0]
+        m.forEach(fn(k: i64, v: i64) {
+            totals[0] = totals[0] + k
+            totals[1] = totals[1] + v
+        })
+        totals[0] * 100 + totals[1]
+    "#;
+    // keys: 1+2+3=6, values: 10+20+30=60 → 6*100+60 = 660
+    assert_eq!(run(src), 660);
+}
+
+#[test]
 fn string_length_const() {
     let src = r#"
         let s = "hello"

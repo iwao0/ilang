@@ -106,6 +106,35 @@ impl TypeChecker {
                 ret: Type::Array { elem: Box::new(v()), fixed: None },
                 variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
         );
+        map_methods.insert(
+            "clear".into(),
+            vec![Signature {
+                params: vec![],
+                ret: Type::Unit,
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        // `entries(): (K, V)[]` — list of key/value tuples, in
+        // arbitrary order (matches `keys` / `values`).
+        map_methods.insert(
+            "entries".into(),
+            vec![Signature {
+                params: vec![],
+                ret: Type::Array {
+                    elem: Box::new(Type::Tuple(vec![k(), v()].into())),
+                    fixed: None,
+                },
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
+        // `forEach(cb: fn(K, V): ())` — invoke `cb` once per entry.
+        // Callback args are `(key, value)` to match `entries()`'s
+        // tuple order.
+        map_methods.insert(
+            "forEach".into(),
+            vec![Signature {
+                params: vec![Type::func(vec![k(), v()], Type::Unit)],
+                ret: Type::Unit,
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true, deprecated: None, lib_names: Vec::new() }],
+        );
         self.classes.insert(
             "Map".into(),
             ClassSig {

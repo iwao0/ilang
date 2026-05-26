@@ -143,6 +143,18 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let map_delete_id = declare_binary_i64(module, "$map.delete")?;
     let map_keys_id = declare_unary_i64(module, "$map.keys")?;
     let map_values_id = declare_unary_i64(module, "$map.values")?;
+    let map_clear_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("$map.clear", Linkage::Import, &sig)?
+    };
+    let map_entries_id = declare_unary_i64(module, "$map.entries")?;
+    let map_for_each_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("$map.forEach", Linkage::Import, &sig)?
+    };
     // Promise runtime imports.
     let promise_resolve_id = declare_binary_i64(module, "$promise.resolve")?;
     let promise_reject_id = declare_unary_i64(module, "$promise.reject")?;
@@ -721,6 +733,9 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 delete: map_delete_id,
                 keys: map_keys_id,
                 values: map_values_id,
+                clear: map_clear_id,
+                entries: map_entries_id,
+                for_each: map_for_each_id,
             };
             let promise_ids = PromiseIds {
                 resolve: promise_resolve_id,

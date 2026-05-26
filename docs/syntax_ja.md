@@ -828,6 +828,9 @@ m.set("d", 4)                    // m["d"] = 4 と同等
 m.size()                         // i64
 m.keys()                         // K[]
 m.values()                       // V[]
+m.entries()                      // (K, V)[] — キー/値のタプル
+m.forEach(fn(k, v) { … })        // 全エントリに cb を適用、戻り値は ()
+m.clear()                        // 全エントリ削除
 ```
 
 - キー型は `string` / `i*` / `u*` / `bool` のみ (float / オブジェクト不可 — `Eq`/`Hash` の整合性確保のため)

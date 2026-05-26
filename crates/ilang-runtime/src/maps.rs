@@ -228,6 +228,122 @@ pub extern "C" fn __map_values(map: i64) -> i64 {
     build_i64_array(&values, val_kind)
 }
 
+/// `map.clear()` — drop every entry. Value-side `release_field_by_kind`
+/// fires the usual cascade for string / object / nested-collection
+/// values; primitive (`KIND_NONE`) values just disappear. String keys
+/// are stored as Rust `String` inside the `MapKey`, so dropping the
+/// `inner` HashMap is enough — they don't carry registry rc to bump.
+#[unsafe(export_name = "$map.clear")]
+pub extern "C" fn __map_clear(map: i64) {
+    if map == 0 {
+        return;
+    }
+    let m = unsafe { &mut *(map as *mut ManagedMap) };
+    let val_kind = m.val_kind;
+    if val_kind != KIND_NONE {
+        for &v in m.inner.values() {
+            release_field_by_kind(v, val_kind);
+        }
+    }
+    if m.key_print_kind == PK_STR {
+        // Release the canonical key pointers we handed out via
+        // `keys()` / `entries()` originals (these live in the
+        // string registry).
+        for v in m.str_key_origs.values() {
+            crate::strings::__release_string(*v);
+        }
+        m.str_key_origs.clear();
+    }
+    m.inner.clear();
+}
+
+/// `map.entries()` — list of `(K, V)` tuples in arbitrary
+/// (insertion-independent) order. Each tuple is freshly allocated
+/// with rc=1 and owns its own +1 share of the key and value: string
+/// keys go through `leak_cstring` (or the `str_key_origs` map's
+/// retained pointer) and heap-kind values are `retain`ed before
+/// being written into the tuple slot. The returned array is
+/// `KIND_TUPLE`, so releasing it cascades into every tuple.
+#[unsafe(export_name = "$map.entries")]
+pub extern "C" fn __map_entries(map: i64) -> i64 {
+    if map == 0 {
+        return build_i64_array(&[], crate::kind::KIND_TUPLE);
+    }
+    let m = unsafe { &*(map as *const ManagedMap) };
+    let key_kind = if m.key_print_kind == PK_STR { KIND_STR } else { KIND_NONE };
+    let val_kind = m.val_kind;
+    let mut tuples: Vec<i64> = Vec::with_capacity(m.inner.len());
+    for (k, &v) in m.inner.iter() {
+        let key_raw = if m.key_print_kind == PK_STR {
+            let orig = m.str_key_origs.get(k).copied().unwrap_or_else(|| map_key_to_raw(k));
+            __retain_string(orig);
+            orig
+        } else {
+            map_key_to_raw(k)
+        };
+        if val_kind != KIND_NONE {
+            retain_field_by_kind(v, val_kind);
+        }
+        // [ rc | packed | k | v ] — 32 bytes total. `tup_ptr` points
+        // at the first element (offset 16 from base) per the layout
+        // documented in `tuples.rs`.
+        let base = __mir_alloc(32);
+        let packed: u64 = 2u64
+            | ((key_kind as u64) & 0xF) << 16
+            | ((val_kind as u64) & 0xF) << 20;
+        unsafe {
+            *(base as *mut i64) = 1; // rc
+            *((base + 8) as *mut i64) = packed as i64;
+            *((base + 16) as *mut i64) = key_raw;
+            *((base + 24) as *mut i64) = v;
+        }
+        tuples.push(base + 16);
+    }
+    build_i64_array(&tuples, crate::kind::KIND_TUPLE)
+}
+
+/// Invoke an ilang closure with two args (key, value) and the
+/// trailing env pointer. The closure body's return value is
+/// discarded — `forEach` callbacks return Unit by signature.
+unsafe fn call_closure_kv(closure: i64, k: i64, v: i64) {
+    unsafe {
+        let fn_ptr = *(closure as *const i64);
+        let f: extern "C" fn(i64, i64, i64) -> i64 = std::mem::transmute(fn_ptr);
+        let _ = f(k, v, closure);
+    }
+}
+
+/// `map.forEach(cb)` — call `cb(key, value)` once per entry. String
+/// keys are handed to the callback as a fresh registry pointer (with
+/// a +1 rc owned by this call); the rc is dropped after the callback
+/// returns. If the callback wants to keep the key alive past its own
+/// return, it must `retain` like any other ilang heap arg.
+#[unsafe(export_name = "$map.forEach")]
+pub extern "C" fn __map_for_each(map: i64, closure: i64) {
+    if map == 0 || closure == 0 {
+        return;
+    }
+    let m = unsafe { &*(map as *const ManagedMap) };
+    let key_is_str = m.key_print_kind == PK_STR;
+    // Snapshot entries before invoking the closure so concurrent
+    // mutations from the callback can't invalidate iterator state.
+    let entries: Vec<(MapKey, i64)> =
+        m.inner.iter().map(|(k, &v)| (k.clone(), v)).collect();
+    for (k, v) in entries {
+        let key_raw = if key_is_str {
+            let orig = m.str_key_origs.get(&k).copied().unwrap_or_else(|| map_key_to_raw(&k));
+            __retain_string(orig);
+            orig
+        } else {
+            map_key_to_raw(&k)
+        };
+        unsafe { call_closure_kv(closure, key_raw, v) };
+        if key_is_str {
+            crate::strings::__release_string(key_raw);
+        }
+    }
+}
+
 #[unsafe(export_name = "$print.map")]
 pub extern "C" fn __print_map(map_ptr: i64) {
     let mut out = String::new();

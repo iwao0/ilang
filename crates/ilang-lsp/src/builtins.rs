@@ -203,7 +203,10 @@ pub(crate) fn array_method_sig(method: &str, elem: &Type) -> Option<String> {
 }
 
 pub(crate) fn map_method_names() -> &'static [&'static str] {
-    &["get", "set", "has", "delete", "size", "keys", "values"]
+    &[
+        "get", "set", "has", "delete", "size", "keys", "values",
+        "clear", "entries", "forEach",
+    ]
 }
 
 pub(crate) fn map_method_sig(method: &str, k: &Type, v: &Type) -> Option<String> {
@@ -215,6 +218,9 @@ pub(crate) fn map_method_sig(method: &str, k: &Type, v: &Type) -> Option<String>
         "size" => "size(): i64".to_string(),
         "keys" => format!("keys(): {k}[]"),
         "values" => format!("values(): {v}[]"),
+        "clear" => "clear(): ()".to_string(),
+        "entries" => format!("entries(): ({k}, {v})[]"),
+        "forEach" => format!("forEach(cb: fn({k}, {v}): ()): ()"),
         _ => return None,
     };
     Some(format!("(method) Map<{k}, {v}>.{body}"))
@@ -229,6 +235,9 @@ pub(crate) fn map_method_doc(method: &str) -> Option<&'static str> {
         "size" => "Returns the number of entries currently stored.",
         "keys" => "Returns a new array of every key, in insertion order.",
         "values" => "Returns a new array of every value, in insertion order.",
+        "clear" => "Removes every entry. Equivalent to calling `delete` on each key.",
+        "entries" => "Returns a new array of `(key, value)` tuples, in arbitrary order.",
+        "forEach" => "Calls `cb(key, value)` once per entry. Callback returns `()`; the map's contents must not be mutated during the call.",
         _ => return None,
     })
 }

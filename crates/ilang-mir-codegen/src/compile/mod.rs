@@ -44,6 +44,9 @@ pub(super) struct MapIds {
     pub(super) delete: cranelift_module::FuncId,
     pub(super) keys: cranelift_module::FuncId,
     pub(super) values: cranelift_module::FuncId,
+    pub(super) clear: cranelift_module::FuncId,
+    pub(super) entries: cranelift_module::FuncId,
+    pub(super) for_each: cranelift_module::FuncId,
 }
 
 #[derive(Clone, Copy)]

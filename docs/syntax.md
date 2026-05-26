@@ -1036,6 +1036,9 @@ m.set("d", 4)                    // same as m["d"] = 4
 m.size()                         // i64
 m.keys()                         // K[]
 m.values()                       // V[]
+m.entries()                      // (K, V)[] — key/value tuples
+m.forEach(fn(k, v) { … })        // visit every entry; cb returns ()
+m.clear()                        // remove every entry
 ```
 
 - Key types: `string` / `i*` / `u*` / `bool`. Floats and objects

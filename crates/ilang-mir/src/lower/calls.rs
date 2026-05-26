@@ -1009,6 +1009,18 @@ impl<'a> BodyCx<'a> {
                         "map_values",
                         MirTy::Array { elem: Box::new((**val).clone()), len: None },
                     ),
+                    "clear" => ("map_clear", MirTy::Unit),
+                    "entries" => (
+                        "map_entries",
+                        MirTy::Array {
+                            elem: Box::new(MirTy::Tuple(Box::new([
+                                (**key).clone(),
+                                (**val).clone(),
+                            ]))),
+                            len: None,
+                        },
+                    ),
+                    "forEach" => ("map_for_each", MirTy::Unit),
                     other => {
                         return Err(LowerError::Other(format!("unknown map method `{other}`")))
                     }

@@ -92,6 +92,9 @@ pub fn compile_with_builtins(
     jit_builder.symbol("$map.delete", ilang_runtime::__map_delete as *const u8);
     jit_builder.symbol("$map.keys", ilang_runtime::__map_keys as *const u8);
     jit_builder.symbol("$map.values", ilang_runtime::__map_values as *const u8);
+    jit_builder.symbol("$map.clear", ilang_runtime::__map_clear as *const u8);
+    jit_builder.symbol("$map.entries", ilang_runtime::__map_entries as *const u8);
+    jit_builder.symbol("$map.forEach", ilang_runtime::__map_for_each as *const u8);
     // Promise + thread pool runtime.
     jit_builder.symbol("$promise.resolve", ilang_runtime::__promise_resolve as *const u8);
     jit_builder.symbol("$promise.reject", ilang_runtime::__promise_reject as *const u8);
