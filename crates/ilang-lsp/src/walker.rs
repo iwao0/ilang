@@ -1489,6 +1489,17 @@ impl<'a> Walker<'a> {
             ExprKind::EnumCtor { enum_name, .. } => {
                 Some(Type::Object(enum_name.clone()))
             }
+            // `{k: v, ...}` map literal — read K from the first key
+            // and V from the first value, mirroring the type checker's
+            // first-entry adoption rule. An empty literal can't be
+            // typed here (it needs an annotation on the `let` binding
+            // to resolve K / V), so fall through to the generic path.
+            ExprKind::MapLit(entries) if !entries.is_empty() => {
+                let (k0, v0) = &entries[0];
+                let k_ty = self.infer_expr(k0, scope)?;
+                let v_ty = self.infer_expr(v0, scope)?;
+                Some(Type::generic("Map", vec![k_ty, v_ty]))
+            }
             // Fall back to the scope-aware inferer for everything else.
             _ => infer_expr_type_with_scope(e, scope),
         }
