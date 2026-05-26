@@ -42,6 +42,18 @@ use core { NSView }
         pub get blueComponent(): f64
         @objc("alphaComponent")
         pub get alphaComponent(): f64
+
+        /// Install this colour as the current fill / stroke / both.
+        /// Affects subsequent `NSBezierPath.fill()` and `stroke()`
+        /// calls in the same graphics context. Use inside an
+        /// `NSView.drawRect:` override or between `lockFocus` /
+        /// `unlockFocus` on an offscreen `NSImage`.
+        @objc("set")
+        pub set()
+        @objc("setFill")
+        pub setFill()
+        @objc("setStroke")
+        pub setStroke()
     }
 
     /// `NSFont` — typeface + point size. Class methods give you

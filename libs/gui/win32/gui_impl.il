@@ -23,5 +23,6 @@ pub use combo.*
 pub use list.*
 pub use groupbox.*
 pub use menu.*
+pub use canvas.*
 pub use wnd_proc.*
 pub use window.*

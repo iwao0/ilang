@@ -1,13 +1,35 @@
 /// Images + cursors — NSImage / NSImageView / NSCursor.
 
-use foundation { NSObject, NSString, NSURL, NSSize, NSRect, nsstr, makeRect }
+use foundation { NSObject, NSString, NSURL, NSSize, NSRect, NSPoint, nsstr, makeRect }
 use core { NSView }
+
+/// `NSCompositingOperation` — Porter-Duff compositing modes for
+/// `NSImage.drawInRect:fromRect:operation:fraction:`. `sourceOver`
+/// is the standard "draw on top with alpha"; `copy` overwrites the
+/// destination including alpha.
+pub enum NSCompositingOperation: u64 {
+    clear           = 0
+    copy            = 1
+    sourceOver      = 2
+    sourceIn        = 3
+    sourceOut       = 4
+    sourceAtop      = 5
+    destinationOver = 6
+    destinationIn   = 7
+    destinationOut  = 8
+    destinationAtop = 9
+    xor             = 10
+    plusDarker      = 11
+    plusLighter     = 12
+}
 
 @extern(ObjC, "/System/Library/Frameworks/AppKit.framework/AppKit") {
     /// `NSImage` — bitmap / vector image. Construct from a
     /// filesystem path (`fromFile`), an asset-catalog / named
     /// system image (`named` — returns nil if not found), or by
-    /// pointing at an `NSURL`.
+    /// pointing at an `NSURL`. For an empty offscreen bitmap to
+    /// draw into, use `alloc().initWithSize(size)` then bracket
+    /// the drawing calls with `lockFocus` / `unlockFocus`.
     @objc pub class NSImage : NSObject {
         @objc("alloc")
         pub static alloc(): NSImage
@@ -15,6 +37,8 @@ use core { NSView }
         pub initWithContentsOfFile(path: NSString): NSImage
         @objc("initWithContentsOfURL:")
         pub initWithContentsOfURL(url: NSURL): NSImage
+        @objc("initWithSize:")
+        pub initWithSize(size: NSSize): NSImage
         @objc("imageNamed:")
         pub static imageNamed(name: NSString): NSImage
 
@@ -24,6 +48,35 @@ use core { NSView }
         pub set size(s: NSSize)
         @objc("isValid")
         pub get isValid(): bool
+
+        /// Make this image the current graphics destination — every
+        /// `NSBezierPath.fill()` / `stroke()` between this call and
+        /// `unlockFocus` rasterises into the image's backing
+        /// representation. `lockFocusFlipped:YES` flips the
+        /// coordinate system so the origin is top-left (matches the
+        /// W3C / `GuiView` convention used by gui-core).
+        @objc("lockFocus")
+        pub lockFocus()
+        @objc("lockFocusFlipped:")
+        pub lockFocusFlipped(flipped: bool)
+        @objc("unlockFocus")
+        pub unlockFocus()
+
+        /// Blit the image into the current graphics context — used
+        /// by an `NSView.drawRect:` override to paint a persistent
+        /// offscreen bitmap into the view.
+        @objc("drawInRect:")
+        pub drawInRect(rect: NSRect)
+        @objc("drawInRect:fromRect:operation:fraction:")
+        pub drawInRectFromRect(
+            rect: NSRect, fromRect: NSRect,
+            op: NSCompositingOperation, fraction: f64
+        )
+        @objc("drawAtPoint:fromRect:operation:fraction:")
+        pub drawAtPoint(
+            point: NSPoint, fromRect: NSRect,
+            op: NSCompositingOperation, fraction: f64
+        )
     }
 
     /// `NSImageView` — view that draws an `NSImage`. Build with

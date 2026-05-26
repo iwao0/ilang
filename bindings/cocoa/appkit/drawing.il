@@ -90,6 +90,11 @@ pub enum NSWindingRule: u64 {
         pub appendBezierPathWithArc(
             center: NSPoint, radius: f64, startAngle: f64, endAngle: f64
         )
+        @objc("appendBezierPathWithArcWithCenter:radius:startAngle:endAngle:clockwise:")
+        pub appendBezierPathWithArcClockwise(
+            center: NSPoint, radius: f64,
+            startAngle: f64, endAngle: f64, clockwise: bool
+        )
 
         /// Inspection.
         @objc("currentPoint")

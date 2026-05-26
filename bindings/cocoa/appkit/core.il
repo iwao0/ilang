@@ -115,6 +115,10 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub get isHidden(): bool
         @objc("window")
         pub get window(): NSWindow
+        /// Mark the receiver dirty so AppKit schedules a
+        /// `drawRect:` callback on the next main-loop iteration.
+        @objc("setNeedsDisplay:")
+        pub setNeedsDisplay(flag: bool)
     }
 
     /// NSWindow. The two-step `alloc + initWithContentRect:...`
