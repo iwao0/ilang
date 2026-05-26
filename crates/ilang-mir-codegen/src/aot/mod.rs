@@ -54,52 +54,70 @@ impl From<CompileError> for AotError {
     }
 }
 
-#[cfg(not(windows))]
-unsafe extern "C" {
-    fn dlopen(path: *const u8, flags: i32) -> *mut u8;
-}
-#[cfg(not(windows))]
-const RTLD_LAZY: i32 = 1;
+// `dlopen` / `LoadLibraryA` would execute the library's constructors,
+// which means a malicious `.il` could run arbitrary native code just by
+// being passed to `ilang build`. Stick to filesystem lookups instead —
+// the linker will load the lib later, but that's `ilang run`'s
+// responsibility, not the build step's.
 
-#[cfg(windows)]
-unsafe extern "system" {
-    fn LoadLibraryA(lpFileName: *const u8) -> *mut u8;
+fn lib_search_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    let (env_var, sep) = if cfg!(target_os = "macos") {
+        ("DYLD_LIBRARY_PATH", ':')
+    } else if cfg!(target_os = "windows") {
+        ("PATH", ';')
+    } else {
+        ("LD_LIBRARY_PATH", ':')
+    };
+    if let Ok(env) = std::env::var(env_var) {
+        for part in env.split(sep) {
+            if !part.is_empty() {
+                dirs.push(std::path::PathBuf::from(part));
+            }
+        }
+    }
+    if cfg!(target_os = "macos") {
+        for p in ["/opt/homebrew/lib", "/usr/local/lib", "/usr/lib"] {
+            dirs.push(std::path::PathBuf::from(p));
+        }
+    } else if !cfg!(target_os = "windows") {
+        for p in [
+            "/usr/local/lib",
+            "/usr/lib",
+            "/lib",
+            "/usr/lib/x86_64-linux-gnu",
+            "/lib/x86_64-linux-gnu",
+            "/usr/lib/aarch64-linux-gnu",
+            "/lib/aarch64-linux-gnu",
+        ] {
+            dirs.push(std::path::PathBuf::from(p));
+        }
+    }
+    dirs
 }
 
 fn lib_loadable(name: &str) -> bool {
-    let try_one = |n: &str| -> bool {
-        let mut nul = n.as_bytes().to_vec();
-        nul.push(0);
-        #[cfg(not(windows))]
-        let h = unsafe { dlopen(nul.as_ptr(), RTLD_LAZY) };
-        #[cfg(windows)]
-        let h = unsafe { LoadLibraryA(nul.as_ptr()) };
-        !h.is_null()
-    };
-    if try_one(name) {
-        return true;
+    // `name` already names a file or carries a path separator: take it
+    // verbatim and just check the filesystem.
+    if name.contains('/') || name.contains('\\') {
+        return std::path::Path::new(name).exists();
     }
-    if !name.contains('.') && !name.contains('/') {
-        let candidates: Vec<String> = if cfg!(target_os = "macos") {
-            vec![
-                format!("lib{name}.dylib"),
-                format!("{name}.dylib"),
-                format!("/opt/homebrew/lib/lib{name}.dylib"),
-                format!("/opt/homebrew/lib/{name}.dylib"),
-                format!("/usr/local/lib/lib{name}.dylib"),
-                format!("/usr/local/lib/{name}.dylib"),
-            ]
-        } else if cfg!(target_os = "windows") {
-            vec![format!("{name}.dll"), format!("lib{name}.dll")]
-        } else {
-            let mut out = vec![format!("lib{name}.so")];
-            for n in [6, 5, 4, 3, 2, 1, 0] {
-                out.push(format!("lib{name}.so.{n}"));
-            }
-            out
-        };
-        for cand in candidates {
-            if try_one(&cand) {
+    let candidates: Vec<String> = if name.contains('.') {
+        vec![name.to_string()]
+    } else if cfg!(target_os = "macos") {
+        vec![format!("lib{name}.dylib"), format!("{name}.dylib")]
+    } else if cfg!(target_os = "windows") {
+        vec![format!("{name}.dll"), format!("lib{name}.dll")]
+    } else {
+        let mut out = vec![format!("lib{name}.so")];
+        for n in 0..=6 {
+            out.push(format!("lib{name}.so.{n}"));
+        }
+        out
+    };
+    for dir in lib_search_dirs() {
+        for cand in &candidates {
+            if dir.join(cand).exists() {
                 return true;
             }
         }
@@ -108,10 +126,12 @@ fn lib_loadable(name: &str) -> bool {
 }
 
 /// Probe each `@lib(...)` name referenced by any extern fn and
-/// return the subset that loads via dlopen at build time. The CLI
-/// uses this to filter `-l<missing>` flags out of the link command,
-/// and aot codegen uses it to swap missing-optional fn declarations
-/// to local stubs.
+/// return the subset whose shared-library file is present in the
+/// standard search paths at build time. The CLI uses this to filter
+/// `-l<missing>` flags out of the link command, and aot codegen uses
+/// it to swap missing-optional fn declarations to local stubs.
+/// Stays strictly read-only on the filesystem — never `dlopen`s the
+/// candidates, since that would run their constructors during build.
 pub fn probe_available_libs(prog: &Program) -> std::collections::HashSet<String> {
     let mut all = std::collections::HashSet::new();
     for f in &prog.functions {
