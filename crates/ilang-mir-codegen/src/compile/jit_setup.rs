@@ -482,6 +482,16 @@ pub fn compile_with_builtins(
     jit_builder.symbol("$math.ceil", ilang_runtime::math_ceil as *const u8);
     jit_builder.symbol("$math.round", ilang_runtime::math_round as *const u8);
     jit_builder.symbol("$math.abs", ilang_runtime::math_abs as *const u8);
+    jit_builder.symbol("$math.sign", ilang_runtime::math_sign as *const u8);
+    jit_builder.symbol("$math.trunc", ilang_runtime::math_trunc as *const u8);
+    jit_builder.symbol("$math.cbrt", ilang_runtime::math_cbrt as *const u8);
+    jit_builder.symbol("$math.hypot", ilang_runtime::math_hypot as *const u8);
+    jit_builder.symbol("$math.sinh", ilang_runtime::math_sinh as *const u8);
+    jit_builder.symbol("$math.cosh", ilang_runtime::math_cosh as *const u8);
+    jit_builder.symbol("$math.tanh", ilang_runtime::math_tanh as *const u8);
+    jit_builder.symbol("$math.asinh", ilang_runtime::math_asinh as *const u8);
+    jit_builder.symbol("$math.acosh", ilang_runtime::math_acosh as *const u8);
+    jit_builder.symbol("$math.atanh", ilang_runtime::math_atanh as *const u8);
     jit_builder.symbol("$math.random", ilang_runtime::math_random as *const u8);
     jit_builder.symbol(
         "$math.isFinite_f32",

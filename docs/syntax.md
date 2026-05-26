@@ -2455,10 +2455,22 @@ math.pow(2.0, 10.0)          // 1024.0
 math.atan2(1.0, 1.0)         // π/4
 ```
 
-Functions (all f64): `sin`, `cos`, `tan`, `asin`, `acos`, `atan`,
-`atan2`, `sqrt`, `pow`, `exp`, `ln`, `log10`, `log2`, `floor`,
-`ceil`, `round`, `abs`. Constants: `pi`, `e` (declared as `const`
-in the bundled module). Both interpreter and JIT.
+Functions (all f64):
+
+- **Trig**: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`
+- **Hyperbolic**: `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`
+- **Power / log**: `sqrt`, `cbrt`, `pow`, `hypot`, `exp`, `ln`,
+  `log10`, `log2`
+- **Rounding**: `floor`, `ceil`, `round`, `trunc`
+- **Sign / magnitude**: `abs`, `sign`
+- **Min / max**: `min(a, b)`, `max(a, b)` — fixed 2-arg
+- **Game / interp**: `clamp(v, lo, hi)`, `lerp(a, b, t)`,
+  `smoothstep(edge0, edge1, x)`, `remap(v, fromLo, fromHi, toLo, toHi)`
+- **Random**: `random()` — uniform `f64` in `[0.0, 1.0)`
+
+Constants (all `f64` `const`): `pi`, `e`, `ln2`, `ln10`, `log2e`,
+`log10e`, `sqrt2`, `sqrt1_2`. All available in both interpreter and
+JIT.
 
 ### Built-in `std.test` module
 

@@ -1831,7 +1831,18 @@ math.pow(2.0, 10.0)          // 1024.0
 math.atan2(1.0, 1.0)         // π/4
 ```
 
-提供関数 (すべて f64): `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sqrt`, `pow`, `exp`, `ln`, `log10`, `log2`, `floor`, `ceil`, `round`, `abs`。定数: `pi`, `e` (`const` 宣言で同梱)。interpreter / JIT 両対応。
+提供関数 (すべて f64):
+
+- **三角関数**: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`
+- **双曲線関数**: `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`
+- **冪乗・対数**: `sqrt`, `cbrt`, `pow`, `hypot`, `exp`, `ln`, `log10`, `log2`
+- **丸め**: `floor`, `ceil`, `round`, `trunc`
+- **符号・絶対値**: `abs`, `sign`
+- **最小・最大**: `min(a, b)`, `max(a, b)` — 固定 2 引数
+- **ゲーム / 補間**: `clamp(v, lo, hi)`, `lerp(a, b, t)`, `smoothstep(edge0, edge1, x)`, `remap(v, fromLo, fromHi, toLo, toHi)`
+- **乱数**: `random()` — `[0.0, 1.0)` の一様 `f64`
+
+定数 (すべて `f64` `const`): `pi`, `e`, `ln2`, `ln10`, `log2e`, `log10e`, `sqrt2`, `sqrt1_2`。interpreter / JIT 両対応。
 
 ### 組み込み `std.test` モジュール
 

@@ -33,12 +33,28 @@ math_unary!(math_floor, "$math.floor", f64::floor);
 math_unary!(math_ceil,  "$math.ceil",  f64::ceil);
 math_unary!(math_round, "$math.round", f64::round);
 math_unary!(math_abs,   "$math.abs",   f64::abs);
+math_unary!(math_sign,  "$math.sign",  f64::signum);
+math_unary!(math_trunc, "$math.trunc", f64::trunc);
+math_unary!(math_cbrt,  "$math.cbrt",  f64::cbrt);
+math_unary!(math_sinh,  "$math.sinh",  f64::sinh);
+math_unary!(math_cosh,  "$math.cosh",  f64::cosh);
+math_unary!(math_tanh,  "$math.tanh",  f64::tanh);
+math_unary!(math_asinh, "$math.asinh", f64::asinh);
+math_unary!(math_acosh, "$math.acosh", f64::acosh);
+math_unary!(math_atanh, "$math.atanh", f64::atanh);
 
 #[unsafe(export_name = "$math.atan2")]
 pub extern "C" fn math_atan2(y: f64, x: f64) -> f64 { y.atan2(x) }
 
 #[unsafe(export_name = "$math.pow")]
 pub extern "C" fn math_pow(x: f64, y: f64) -> f64 { x.powf(y) }
+
+/// 2-argument hypotenuse `sqrt(a*a + b*b)`, computed via the host's
+/// IEEE-754-safe path so overflow / underflow midway through doesn't
+/// poison the result. JS's `Math.hypot` is variadic; ilang sticks to
+/// two arguments and lets callers fold over arrays themselves.
+#[unsafe(export_name = "$math.hypot")]
+pub extern "C" fn math_hypot(a: f64, b: f64) -> f64 { a.hypot(b) }
 
 // --------------------------------------------------------------------
 // IEEE-754 predicates (`.isFinite()` / `.isNaN()` on f32 / f64)
