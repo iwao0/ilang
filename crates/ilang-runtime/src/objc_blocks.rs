@@ -1,10 +1,10 @@
 //! Minimal Objective-C block creation for ilang.
 //!
 //! Builds a heap block whose `invoke` trampoline calls an ilang
-//! `fn(): unit` closure. The block is autoreleased (via the ObjC
-//! ARC runtime's `objc_autorelease`) so callers can pass it
-//! straight to APIs that expect `^void(^)(void)` without manual
-//! `Block_release` bookkeeping — typical completion-handler use.
+//! closure value. The block is autoreleased (via the ObjC ARC
+//! runtime's `objc_autorelease`) so callers can pass it straight to
+//! APIs that expect a completion handler without manual
+//! `Block_release` bookkeeping.
 //!
 //! Layout follows clang's compiler-rt:
 //!
@@ -25,15 +25,23 @@
 //!   * `BLOCK_HAS_SIGNATURE` (1 << 30)     — descriptor carries an ObjC method signature
 //!   * refcount bits (BLOCK_REFCOUNT_MASK = 0xFFFE) start at `1 << 1` (rc = 1)
 //!
-//! The copy / dispose helpers bump / drop the captured ilang closure's
-//! refcount so the closure outlives the block when ObjC's
+//! The copy / dispose helpers bump / drop the captured ilang
+//! closure's refcount so the closure outlives the block when ObjC's
 //! `Block_copy` snapshots us for later invocation.
+//!
+//! Each supported `void(^)(...)` / `id(^)(...)` shape is generated
+//! by `define_block_shape!` below — one macro invocation produces
+//! the signature bytes, the static `BlockDescriptor`, the C-ABI
+//! invoke trampoline, the user-facing `$objc.make_*` symbol, and
+//! the test-side `$objc.invoke_*` driver. Adding a new shape means
+//! a single new `define_block_shape!` block.
 
 #[cfg(target_os = "macos")]
 use std::ffi::c_void;
 
 #[cfg(target_os = "macos")]
-use crate::alloc::{__mir_alloc, __mir_free};
+use crate::alloc::__mir_alloc;
+use crate::alloc::__mir_free;
 
 #[cfg(target_os = "macos")]
 #[repr(C)]
@@ -85,197 +93,6 @@ const BLOCK_HAS_SIGNATURE: i32 = 1 << 30;
 #[cfg(target_os = "macos")]
 const BLOCK_RC_ONE: i32 = 1 << 1;
 
-// `void(^)(void)` — encoding: "v8@?0" → return void, total args 8 bytes,
-// arg 0 is the block itself (type `@?` for "block id"). Apple's
-// runtime checks the size prefix loosely; the encoding matters for
-// NSMethodSignature-based introspection.
-#[cfg(target_os = "macos")]
-static VOID_VOID_SIGNATURE: &[u8] = b"v8@?0\0";
-// `void(^)(id)` — block + one id arg = 16 bytes total. `@8` says
-// the second arg is an id starting at offset 8 in the arg frame.
-#[cfg(target_os = "macos")]
-static VOID_OBJ_SIGNATURE: &[u8] = b"v16@?0@8\0";
-// `id(^)(id)` — return id, block + id args.
-#[cfg(target_os = "macos")]
-static OBJ_TO_OBJ_SIGNATURE: &[u8] = b"@16@?0@8\0";
-// `void(^)(void *, size_t)` — block + raw bytes pointer + length.
-// Used by `SKMutableTexture.modifyPixelDataWithBlock:` and the
-// like. Arg-frame layout: block@0 (8B), pointer@8 (8B), length@16
-// (8B) = 24B total. `^v` is `void *`; `Q` is `unsigned long long`
-// (size_t on 64-bit).
-#[cfg(target_os = "macos")]
-static VOID_BYTES_SIGNATURE: &[u8] = b"v24@?0^v8Q16\0";
-// `void(^)(id, id, id)` — block + three `id` arguments. Total arg
-// frame: block@0 (8B), a@8 (8B), b@16 (8B), c@24 (8B) = 32B. Used
-// by `NSURLSession`'s `dataTaskWithRequest:completionHandler:`
-// family where the callback receives (NSData *, NSURLResponse *,
-// NSError *).
-#[cfg(target_os = "macos")]
-static VOID_THREE_OBJ_SIGNATURE: &[u8] = b"v32@?0@8@16@24\0";
-// `void(^)(BOOL)` — `c` is `signed char` (Objective-C's BOOL is a
-// signed char on macOS x86_64 and a `_Bool` (i8) on arm64; the
-// encoding is `c` either way for the size 1, signed slot). Block
-// + BOOL = 9 bytes nominally, padded to 16 in the arg frame.
-#[cfg(target_os = "macos")]
-static VOID_BOOL_SIGNATURE: &[u8] = b"v16@?0c8\0";
-// `void(^)(id, id)` — block + two id args = 24 bytes total.
-// Identical calling convention to `void(^)(void *, size_t)` but
-// the NSMethodSignature encoding correctly says "id, id" so any
-// receiver that introspects (NSInvocation etc.) sees the right
-// argument kinds.
-#[cfg(target_os = "macos")]
-static VOID_TWO_OBJ_SIGNATURE: &[u8] = b"v24@?0@8@16\0";
-
-#[cfg(target_os = "macos")]
-extern "C" fn invoke_void_block(b: *mut BlockLayout) {
-    if b.is_null() {
-        return;
-    }
-    let closure_ptr = unsafe { (*b).closure };
-    if closure_ptr == 0 {
-        return;
-    }
-    // Closure layout: [fn_ptr @ 0 | rc @ 8 | captures…]. Call
-    // `fn_ptr(closure_ptr)` — the lifted fn's first param is its
-    // own env pointer.
-    unsafe {
-        let fn_ptr = *(closure_ptr as *const usize);
-        let f: extern "C" fn(i64) = std::mem::transmute(fn_ptr);
-        f(closure_ptr);
-    }
-}
-
-/// `id(^)(id)` trampoline. The ilang closure signature is
-/// `fn(arg: i64): i64` — receives a raw `id` and returns a raw
-/// `id` (or 0 for nil). Same env-is-last calling convention as
-/// `invoke_obj_block`.
-#[cfg(target_os = "macos")]
-extern "C" fn invoke_obj_to_obj_block(b: *mut BlockLayout, arg: i64) -> i64 {
-    if b.is_null() {
-        return 0;
-    }
-    let closure_ptr = unsafe { (*b).closure };
-    if closure_ptr == 0 {
-        return 0;
-    }
-    unsafe {
-        let fn_ptr = *(closure_ptr as *const usize);
-        let f: extern "C" fn(i64, i64) -> i64 = std::mem::transmute(fn_ptr);
-        f(arg, closure_ptr)
-    }
-}
-
-/// `void(^)(id)` trampoline. The ilang closure signature is
-/// `fn(arg: i64): unit`; the user is expected to wrap `arg` via
-/// `NSObject.wrap(arg)` if they want a typed NSObject view.
-///
-/// Note the calling convention: ilang's lifted closure fn takes
-/// `(user_args..., env)` — env is the *last* clif param, not the
-/// first (see ilang-mir-codegen's lower_function `env_value`).
-#[cfg(target_os = "macos")]
-extern "C" fn invoke_obj_block(b: *mut BlockLayout, arg: i64) {
-    if b.is_null() {
-        return;
-    }
-    let closure_ptr = unsafe { (*b).closure };
-    if closure_ptr == 0 {
-        return;
-    }
-    unsafe {
-        let fn_ptr = *(closure_ptr as *const usize);
-        let f: extern "C" fn(i64, i64) = std::mem::transmute(fn_ptr);
-        f(arg, closure_ptr);
-    }
-}
-
-/// `void(^)(void *, size_t)` trampoline. The ilang closure
-/// signature is `fn(ptr: i64, len: i64): unit` — raw bytes
-/// pointer and length in bytes. Used by
-/// `SKMutableTexture.modifyPixelDataWithBlock:` where the
-/// callback writes pixel data into the texture's backing store
-/// in-place; the user reaches for `readU8` / `writeU8` etc. to
-/// poke individual bytes.
-#[cfg(target_os = "macos")]
-extern "C" fn invoke_void_bytes_block(b: *mut BlockLayout, ptr: i64, len: i64) {
-    if b.is_null() {
-        return;
-    }
-    let closure_ptr = unsafe { (*b).closure };
-    if closure_ptr == 0 {
-        return;
-    }
-    unsafe {
-        let fn_ptr = *(closure_ptr as *const usize);
-        // Lifted closure shape: (user_args..., env).
-        let f: extern "C" fn(i64, i64, i64) = std::mem::transmute(fn_ptr);
-        f(ptr, len, closure_ptr);
-    }
-}
-
-/// `void(^)(id, id, id)` trampoline. ilang closure signature is
-/// `fn(a: i64, b: i64, c: i64): unit`. The three `id`s come
-/// straight off the wire as raw handles; the closure body wraps
-/// each in `NSObject.wrap` (or a subclass equivalent) if it wants
-/// a typed view. Used by every Foundation completion handler that
-/// hands back `(NSData *, NSURLResponse *, NSError *)`.
-/// `void(^)(id, id)` trampoline. Shares the calling convention
-/// of `invoke_void_bytes_block` but is paired with the
-/// `(id, id)` ObjC signature so introspection sees the right
-/// arg kinds.
-#[cfg(target_os = "macos")]
-extern "C" fn invoke_void_two_obj_block(b: *mut BlockLayout, a: i64, c: i64) {
-    if b.is_null() {
-        return;
-    }
-    let closure_ptr = unsafe { (*b).closure };
-    if closure_ptr == 0 {
-        return;
-    }
-    unsafe {
-        let fn_ptr = *(closure_ptr as *const usize);
-        let f: extern "C" fn(i64, i64, i64) = std::mem::transmute(fn_ptr);
-        f(a, c, closure_ptr);
-    }
-}
-
-/// `void(^)(BOOL)` trampoline. ilang closure shape is
-/// `fn(b: bool): unit`. ObjC's BOOL is a signed char on
-/// macOS, which Rust models as `bool` (1-byte i8). The lifted
-/// closure trailing-env signature is `(bool, i64)`.
-#[cfg(target_os = "macos")]
-extern "C" fn invoke_void_bool_block(b: *mut BlockLayout, val: bool) {
-    if b.is_null() {
-        return;
-    }
-    let closure_ptr = unsafe { (*b).closure };
-    if closure_ptr == 0 {
-        return;
-    }
-    unsafe {
-        let fn_ptr = *(closure_ptr as *const usize);
-        let f: extern "C" fn(bool, i64) = std::mem::transmute(fn_ptr);
-        f(val, closure_ptr);
-    }
-}
-
-#[cfg(target_os = "macos")]
-extern "C" fn invoke_void_three_obj_block(
-    b: *mut BlockLayout, a: i64, c: i64, d: i64,
-) {
-    if b.is_null() {
-        return;
-    }
-    let closure_ptr = unsafe { (*b).closure };
-    if closure_ptr == 0 {
-        return;
-    }
-    unsafe {
-        let fn_ptr = *(closure_ptr as *const usize);
-        let f: extern "C" fn(i64, i64, i64, i64) = std::mem::transmute(fn_ptr);
-        f(a, c, d, closure_ptr);
-    }
-}
-
 #[cfg(target_os = "macos")]
 extern "C" fn copy_helper(dst: *mut c_void, src: *const c_void) {
     let src_b = src as *const BlockLayout;
@@ -311,7 +128,6 @@ extern "C" fn dispose_helper(src: *const c_void) {
             // leak a per-block capture region until we record the
             // closure's allocation size on the block.
             __mir_free(closure_ptr, 16);
-            let _ = &__mir_alloc;
         }
     }
 }
@@ -323,187 +139,6 @@ extern "C" fn dispose_helper(src: *const c_void) {
 struct DescriptorBox(BlockDescriptor);
 #[cfg(target_os = "macos")]
 unsafe impl Sync for DescriptorBox {}
-
-#[cfg(target_os = "macos")]
-static VOID_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
-    reserved: 0,
-    size: std::mem::size_of::<BlockLayout>(),
-    copy_helper,
-    dispose_helper,
-    signature: VOID_VOID_SIGNATURE.as_ptr(),
-});
-
-#[cfg(target_os = "macos")]
-static OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
-    reserved: 0,
-    size: std::mem::size_of::<BlockLayout>(),
-    copy_helper,
-    dispose_helper,
-    signature: VOID_OBJ_SIGNATURE.as_ptr(),
-});
-
-#[cfg(target_os = "macos")]
-static OBJ_TO_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
-    reserved: 0,
-    size: std::mem::size_of::<BlockLayout>(),
-    copy_helper,
-    dispose_helper,
-    signature: OBJ_TO_OBJ_SIGNATURE.as_ptr(),
-});
-
-#[cfg(target_os = "macos")]
-static VOID_BYTES_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
-    reserved: 0,
-    size: std::mem::size_of::<BlockLayout>(),
-    copy_helper,
-    dispose_helper,
-    signature: VOID_BYTES_SIGNATURE.as_ptr(),
-});
-
-#[cfg(target_os = "macos")]
-static VOID_THREE_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
-    reserved: 0,
-    size: std::mem::size_of::<BlockLayout>(),
-    copy_helper,
-    dispose_helper,
-    signature: VOID_THREE_OBJ_SIGNATURE.as_ptr(),
-});
-
-#[cfg(target_os = "macos")]
-static VOID_BOOL_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
-    reserved: 0,
-    size: std::mem::size_of::<BlockLayout>(),
-    copy_helper,
-    dispose_helper,
-    signature: VOID_BOOL_SIGNATURE.as_ptr(),
-});
-
-#[cfg(target_os = "macos")]
-static VOID_TWO_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
-    reserved: 0,
-    size: std::mem::size_of::<BlockLayout>(),
-    copy_helper,
-    dispose_helper,
-    signature: VOID_TWO_OBJ_SIGNATURE.as_ptr(),
-});
-
-/// Read the block's `invoke` slot (offset 16 in Block_layout) and
-/// call it with the block as the sole argument. The standard
-/// `void(^)(void)` calling convention. Exposed for unit-test
-/// drivers; production code hands the block to ObjC methods that
-/// own the invocation.
-#[unsafe(export_name = "$objc.invoke_void_block")]
-pub extern "C" fn invoke_void_block_via_runtime(block_ptr: i64) {
-    if block_ptr == 0 {
-        return;
-    }
-    unsafe {
-        let invoke_slot = (block_ptr + 16) as *const usize;
-        let invoke_addr = *invoke_slot;
-        if invoke_addr == 0 {
-            return;
-        }
-        let f: extern "C" fn(i64) = std::mem::transmute(invoke_addr);
-        f(block_ptr);
-    }
-}
-
-/// Same idea for `void(^)(id)` — invoke the block with the given
-/// raw id argument. Test-only driver for `make_obj_block`.
-#[unsafe(export_name = "$objc.invoke_obj_block")]
-pub extern "C" fn invoke_obj_block_via_runtime(block_ptr: i64, arg: i64) {
-    if block_ptr == 0 {
-        return;
-    }
-    unsafe {
-        let invoke_slot = (block_ptr + 16) as *const usize;
-        let invoke_addr = *invoke_slot;
-        if invoke_addr == 0 {
-            return;
-        }
-        let f: extern "C" fn(i64, i64) = std::mem::transmute(invoke_addr);
-        f(block_ptr, arg);
-    }
-}
-
-/// Same idea for `id(^)(id)` — invoke and return the result.
-/// Test-only driver for `make_obj_to_obj_block`.
-#[unsafe(export_name = "$objc.invoke_obj_to_obj_block")]
-pub extern "C" fn invoke_obj_to_obj_block_via_runtime(block_ptr: i64, arg: i64) -> i64 {
-    if block_ptr == 0 {
-        return 0;
-    }
-    unsafe {
-        let invoke_slot = (block_ptr + 16) as *const usize;
-        let invoke_addr = *invoke_slot;
-        if invoke_addr == 0 {
-            return 0;
-        }
-        let f: extern "C" fn(i64, i64) -> i64 = std::mem::transmute(invoke_addr);
-        f(block_ptr, arg)
-    }
-}
-
-/// `void(^)(void *, size_t)` invoker. Both extra args are passed
-/// straight through as i64 — the block's invoke trampoline reads
-/// them with the C ABI's natural register layout.
-#[unsafe(export_name = "$objc.invoke_void_bytes_block")]
-pub extern "C" fn invoke_void_bytes_block_via_runtime(
-    block_ptr: i64, ptr: i64, len: i64,
-) {
-    if block_ptr == 0 {
-        return;
-    }
-    unsafe {
-        let invoke_slot = (block_ptr + 16) as *const usize;
-        let invoke_addr = *invoke_slot;
-        if invoke_addr == 0 {
-            return;
-        }
-        let f: extern "C" fn(i64, i64, i64) = std::mem::transmute(invoke_addr);
-        f(block_ptr, ptr, len);
-    }
-}
-
-/// `void(^)(id, id, id)` invoker — three raw handles forwarded
-/// to the block's trampoline. Used by callers that want to
-/// trigger an incoming completion handler delivered through a
-/// delegate slot.
-#[unsafe(export_name = "$objc.invoke_void_three_obj_block")]
-pub extern "C" fn invoke_void_three_obj_block_via_runtime(
-    block_ptr: i64, a: i64, b: i64, c: i64,
-) {
-    if block_ptr == 0 {
-        return;
-    }
-    unsafe {
-        let invoke_slot = (block_ptr + 16) as *const usize;
-        let invoke_addr = *invoke_slot;
-        if invoke_addr == 0 {
-            return;
-        }
-        let f: extern "C" fn(i64, i64, i64, i64) = std::mem::transmute(invoke_addr);
-        f(block_ptr, a, b, c);
-    }
-}
-
-/// `void(^)(BOOL)` invoker. The single `val` is a Rust `bool`
-/// (1-byte) to match the block ABI on macOS.
-#[unsafe(export_name = "$objc.invoke_void_bool_block")]
-pub extern "C" fn invoke_void_bool_block_via_runtime(block_ptr: i64, val: bool) {
-    if block_ptr == 0 {
-        return;
-    }
-    unsafe {
-        let invoke_slot = (block_ptr + 16) as *const usize;
-        let invoke_addr = *invoke_slot;
-        if invoke_addr == 0 {
-            return;
-        }
-        let f: extern "C" fn(i64, bool) = std::mem::transmute(invoke_addr);
-        f(block_ptr, val);
-    }
-}
 
 /// Shared allocation path for every `make_*_block` flavour. Builds
 /// a heap block with the given `invoke` trampoline + descriptor,
@@ -539,175 +174,200 @@ fn make_block(
     }
 }
 
-/// Build a heap ObjC `void(^)(void)` block whose `invoke`
-/// trampoline calls `closure_ptr` (an ilang `fn(): unit` value).
-/// Comes back autoreleased — pass straight to ObjC APIs that
-/// take a completion handler.
-#[unsafe(export_name = "$objc.make_void_block")]
-pub extern "C" fn make_void_block(closure_ptr: i64) -> i64 {
-    if closure_ptr == 0 {
-        return 0;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        return make_block(
-            closure_ptr,
-            invoke_void_block as *const c_void,
-            &VOID_DESCRIPTOR.0,
-        );
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = closure_ptr;
-        0
-    }
+// ────────────────────────────────────────────────────────────────────
+// `define_block_shape!` — one macro invocation produces the five
+// items every supported block flavour needs:
+//
+//   1. The C `_NSMethodSignature`-compatible encoding bytes.
+//   2. A `static DescriptorBox` wiring up copy / dispose / signature.
+//   3. The C-ABI `invoke_*` trampoline that decodes the captured
+//      closure and dispatches with the (user_args…, closure_ptr)
+//      trailing-env calling convention.
+//   4. The user-facing `$objc.make_*` export that allocates the
+//      block + autoreleases it.
+//   5. The test-side `$objc.invoke_*` export that reads the block's
+//      invoke slot and dispatches the block as the C ABI demands.
+//
+// `args` lists the user-visible parameters in source order — the
+// trampoline appends `closure_ptr` automatically when synthesising
+// the call to the lifted ilang fn. `default` is the early-return
+// value used when the block or its captured closure is null;
+// callers that don't return a value pass `()`.
+// ────────────────────────────────────────────────────────────────────
+
+macro_rules! define_block_shape {
+    (
+        signature: $sig_bytes:expr,
+        sig_static: $sig_static:ident,
+        descriptor: $descriptor:ident,
+        invoke_trampoline: $invoke:ident($($arg:ident: $arg_ty:ty),* $(,)?)
+            $(-> $ret_ty:ty)? = $default:expr,
+        make_fn: $make_fn:ident @ $make_export:literal,
+        invoke_runtime_fn: $invoke_rt:ident @ $invoke_rt_export:literal,
+    ) => {
+        #[cfg(target_os = "macos")]
+        static $sig_static: &[u8] = $sig_bytes;
+
+        #[cfg(target_os = "macos")]
+        static $descriptor: DescriptorBox = DescriptorBox(BlockDescriptor {
+            reserved: 0,
+            size: std::mem::size_of::<BlockLayout>(),
+            copy_helper,
+            dispose_helper,
+            signature: $sig_static.as_ptr(),
+        });
+
+        #[cfg(target_os = "macos")]
+        extern "C" fn $invoke(b: *mut BlockLayout, $($arg: $arg_ty),*) $(-> $ret_ty)? {
+            if b.is_null() {
+                return $default;
+            }
+            let closure_ptr = unsafe { (*b).closure };
+            if closure_ptr == 0 {
+                return $default;
+            }
+            // Closure layout: [fn_ptr | rc | captures…]. The lifted
+            // ilang fn takes `(user_args…, env)` — env is the *last*
+            // clif param, mirroring lower_function's `env_value`.
+            unsafe {
+                let fn_ptr = *(closure_ptr as *const usize);
+                let f: extern "C" fn($($arg_ty,)* i64) $(-> $ret_ty)? =
+                    std::mem::transmute(fn_ptr);
+                f($($arg,)* closure_ptr)
+            }
+        }
+
+        #[unsafe(export_name = $make_export)]
+        pub extern "C" fn $make_fn(closure_ptr: i64) -> i64 {
+            if closure_ptr == 0 {
+                return 0;
+            }
+            #[cfg(target_os = "macos")]
+            {
+                return make_block(
+                    closure_ptr,
+                    $invoke as *const c_void,
+                    &$descriptor.0,
+                );
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = closure_ptr;
+                0
+            }
+        }
+
+        #[unsafe(export_name = $invoke_rt_export)]
+        pub extern "C" fn $invoke_rt(block_ptr: i64, $($arg: $arg_ty),*) $(-> $ret_ty)? {
+            if block_ptr == 0 {
+                return $default;
+            }
+            unsafe {
+                let invoke_slot = (block_ptr + 16) as *const usize;
+                let invoke_addr = *invoke_slot;
+                if invoke_addr == 0 {
+                    return $default;
+                }
+                let f: extern "C" fn(i64, $($arg_ty),*) $(-> $ret_ty)? =
+                    std::mem::transmute(invoke_addr);
+                f(block_ptr, $($arg),*)
+            }
+        }
+    };
 }
 
-/// Build a heap ObjC `void(^)(id)` block whose trampoline calls
-/// `closure_ptr` with the raw `id` argument as `i64`. The ilang
-/// closure should be `fn(handle: i64): unit`; use `NSObject.wrap`
-/// (or a subclass equivalent) inside if you want a typed view.
-#[unsafe(export_name = "$objc.make_obj_block")]
-pub extern "C" fn make_obj_block(closure_ptr: i64) -> i64 {
-    if closure_ptr == 0 {
-        return 0;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        return make_block(
-            closure_ptr,
-            invoke_obj_block as *const c_void,
-            &OBJ_DESCRIPTOR.0,
-        );
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = closure_ptr;
-        0
-    }
+// ─── void(^)(void) ────────────────────────────────────────────────
+// Encoding `v8@?0` → return void; arg frame = 8 bytes (just the
+// block id `@?` at offset 0). The simplest shape; used by APIs
+// that take a no-arg completion handler.
+define_block_shape! {
+    signature: b"v8@?0\0",
+    sig_static: VOID_VOID_SIGNATURE,
+    descriptor: VOID_DESCRIPTOR,
+    invoke_trampoline: invoke_void_block() = (),
+    make_fn: make_void_block @ "$objc.make_void_block",
+    invoke_runtime_fn: invoke_void_block_via_runtime @ "$objc.invoke_void_block",
 }
 
-/// Build a heap ObjC `id(^)(id)` block. The ilang closure is
-/// `fn(handle: i64): i64` — returns a raw `id` (or 0 for nil).
-/// Used for monitoring APIs (`addLocalMonitorForEventsMatchingMask
-/// :handler:`) where the handler decides whether to forward,
-/// replace, or swallow the event.
-#[unsafe(export_name = "$objc.make_obj_to_obj_block")]
-pub extern "C" fn make_obj_to_obj_block(closure_ptr: i64) -> i64 {
-    if closure_ptr == 0 {
-        return 0;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        return make_block(
-            closure_ptr,
-            invoke_obj_to_obj_block as *const c_void,
-            &OBJ_TO_OBJ_DESCRIPTOR.0,
-        );
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = closure_ptr;
-        0
-    }
+// ─── void(^)(id) ──────────────────────────────────────────────────
+// Encoding `v16@?0@8` → return void; block at offset 0, one `id`
+// argument at offset 8. The ilang closure is `fn(handle: i64): ()`;
+// users wrap with `NSObject.wrap` for a typed view.
+define_block_shape! {
+    signature: b"v16@?0@8\0",
+    sig_static: VOID_OBJ_SIGNATURE,
+    descriptor: OBJ_DESCRIPTOR,
+    invoke_trampoline: invoke_obj_block(arg: i64) = (),
+    make_fn: make_obj_block @ "$objc.make_obj_block",
+    invoke_runtime_fn: invoke_obj_block_via_runtime @ "$objc.invoke_obj_block",
 }
 
-/// Build a heap ObjC `void(^)(void *, size_t)` block. The ilang
-/// closure is `fn(ptr: i64, len: i64): unit` — receives a raw
-/// bytes pointer and length so the body can mutate the buffer
-/// in-place via `writeU8` etc.
-#[unsafe(export_name = "$objc.make_void_bytes_block")]
-pub extern "C" fn make_void_bytes_block(closure_ptr: i64) -> i64 {
-    if closure_ptr == 0 {
-        return 0;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        return make_block(
-            closure_ptr,
-            invoke_void_bytes_block as *const c_void,
-            &VOID_BYTES_DESCRIPTOR.0,
-        );
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = closure_ptr;
-        0
-    }
+// ─── id(^)(id) ────────────────────────────────────────────────────
+// Encoding `@16@?0@8` → return id; block + id args. Used by
+// monitor / filter APIs (`addLocalMonitorForEventsMatchingMask:
+// handler:`) where the handler returns nil to swallow the event.
+define_block_shape! {
+    signature: b"@16@?0@8\0",
+    sig_static: OBJ_TO_OBJ_SIGNATURE,
+    descriptor: OBJ_TO_OBJ_DESCRIPTOR,
+    invoke_trampoline: invoke_obj_to_obj_block(arg: i64) -> i64 = 0,
+    make_fn: make_obj_to_obj_block @ "$objc.make_obj_to_obj_block",
+    invoke_runtime_fn: invoke_obj_to_obj_block_via_runtime @ "$objc.invoke_obj_to_obj_block",
 }
 
-/// Build a heap ObjC `void(^)(id, id)` block. The ilang closure
-/// is `fn(a: i64, b: i64): unit` (or with NSObject-shaped
-/// params) — the two args land in the closure verbatim as raw
-/// `id` handles. Differs from `make_void_bytes_block` only in
-/// the NSMethodSignature encoding string.
-#[unsafe(export_name = "$objc.make_void_two_obj_block")]
-pub extern "C" fn make_void_two_obj_block(closure_ptr: i64) -> i64 {
-    if closure_ptr == 0 {
-        return 0;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        return make_block(
-            closure_ptr,
-            invoke_void_two_obj_block as *const c_void,
-            &VOID_TWO_OBJ_DESCRIPTOR.0,
-        );
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = closure_ptr;
-        0
-    }
+// ─── void(^)(void *, size_t) ──────────────────────────────────────
+// Encoding `v24@?0^v8Q16` → return void; block@0 (8B), `void *`@8
+// (8B), `unsigned long long`@16 (8B) = 24B total. Used by
+// `SKMutableTexture.modifyPixelDataWithBlock:` and the like, where
+// the callback mutates a raw byte buffer in place via readU8 /
+// writeU8.
+define_block_shape! {
+    signature: b"v24@?0^v8Q16\0",
+    sig_static: VOID_BYTES_SIGNATURE,
+    descriptor: VOID_BYTES_DESCRIPTOR,
+    invoke_trampoline: invoke_void_bytes_block(ptr: i64, len: i64) = (),
+    make_fn: make_void_bytes_block @ "$objc.make_void_bytes_block",
+    invoke_runtime_fn: invoke_void_bytes_block_via_runtime @ "$objc.invoke_void_bytes_block",
 }
 
-/// Build a heap ObjC `void(^)(BOOL)` block. The ilang closure is
-/// `fn(b: bool): unit`. Used by completion handlers that report
-/// a single success / failure flag (e.g.
-/// `NSExtensionContext.openURL:completionHandler:`).
-#[unsafe(export_name = "$objc.make_void_bool_block")]
-pub extern "C" fn make_void_bool_block(closure_ptr: i64) -> i64 {
-    if closure_ptr == 0 {
-        return 0;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        return make_block(
-            closure_ptr,
-            invoke_void_bool_block as *const c_void,
-            &VOID_BOOL_DESCRIPTOR.0,
-        );
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = closure_ptr;
-        0
-    }
+// ─── void(^)(id, id, id) ──────────────────────────────────────────
+// Encoding `v32@?0@8@16@24` → return void; block + three id args.
+// Used by `NSURLSession`'s `dataTaskWithRequest:completionHandler:`
+// family — the trio is `(NSData *, NSURLResponse *, NSError *)`.
+define_block_shape! {
+    signature: b"v32@?0@8@16@24\0",
+    sig_static: VOID_THREE_OBJ_SIGNATURE,
+    descriptor: VOID_THREE_OBJ_DESCRIPTOR,
+    invoke_trampoline: invoke_void_three_obj_block(a: i64, b: i64, c: i64) = (),
+    make_fn: make_void_three_obj_block @ "$objc.make_void_three_obj_block",
+    invoke_runtime_fn: invoke_void_three_obj_block_via_runtime @ "$objc.invoke_void_three_obj_block",
 }
 
-/// Build a heap ObjC `void(^)(id, id, id)` block. The ilang
-/// closure is `fn(a: i64, b: i64, c: i64): unit` — receives three
-/// raw `id` handles. Used by `NSURLSession`'s
-/// `dataTaskWithRequest:completionHandler:` family, where the
-/// trio is `(NSData *, NSURLResponse *, NSError *)`.
-#[unsafe(export_name = "$objc.make_void_three_obj_block")]
-pub extern "C" fn make_void_three_obj_block(closure_ptr: i64) -> i64 {
-    if closure_ptr == 0 {
-        return 0;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        return make_block(
-            closure_ptr,
-            invoke_void_three_obj_block as *const c_void,
-            &VOID_THREE_OBJ_DESCRIPTOR.0,
-        );
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = closure_ptr;
-        0
-    }
+// ─── void(^)(BOOL) ────────────────────────────────────────────────
+// Encoding `v16@?0c8` → return void; block + BOOL (`c` is signed
+// char, the encoding for BOOL on both macOS x86_64 and arm64).
+// Used by single-flag completion handlers (e.g.
+// `NSExtensionContext.openURL:completionHandler:`).
+define_block_shape! {
+    signature: b"v16@?0c8\0",
+    sig_static: VOID_BOOL_SIGNATURE,
+    descriptor: VOID_BOOL_DESCRIPTOR,
+    invoke_trampoline: invoke_void_bool_block(val: bool) = (),
+    make_fn: make_void_bool_block @ "$objc.make_void_bool_block",
+    invoke_runtime_fn: invoke_void_bool_block_via_runtime @ "$objc.invoke_void_bool_block",
+}
+
+// ─── void(^)(id, id) ──────────────────────────────────────────────
+// Encoding `v24@?0@8@16` → same arg-frame size as `void_bytes` but
+// the NSMethodSignature correctly says "id, id" so receivers that
+// introspect (NSInvocation etc.) see the right argument kinds.
+define_block_shape! {
+    signature: b"v24@?0@8@16\0",
+    sig_static: VOID_TWO_OBJ_SIGNATURE,
+    descriptor: VOID_TWO_OBJ_DESCRIPTOR,
+    invoke_trampoline: invoke_void_two_obj_block(a: i64, b: i64) = (),
+    make_fn: make_void_two_obj_block @ "$objc.make_void_two_obj_block",
+    invoke_runtime_fn: invoke_void_two_obj_block_via_runtime @ "$objc.invoke_void_two_obj_block",
 }
 
 // ─── Unified dispatcher for `new ObjCBlock(closure)` ────────────────
