@@ -11,6 +11,7 @@ mod binop_cast;
 mod host_misc;
 mod host_os;
 mod jit_setup;
+mod jit_symbols;
 mod layout;
 mod lower_function;
 mod lower_inst;
