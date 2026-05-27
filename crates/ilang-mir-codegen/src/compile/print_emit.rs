@@ -21,7 +21,7 @@ pub(super) fn emit_print_lit<M: Module>(
 ) {
     let gv = module.declare_data_in_func(msg_data, fb.func);
     let base = fb.ins().symbol_value(types::I64, gv);
-    let off = fb.ins().iconst(types::I64, 8);
+    let off = fb.ins().iconst(types::I64, 24);
     let addr = fb.ins().iadd(base, off);
     let fr = module.declare_func_in_func(print_str, fb.func);
     fb.ins().call(fr, &[addr]);
@@ -227,7 +227,7 @@ pub(super) fn emit_panic_if<M: Module>(
     fb.seal_block(panic_block);
     let gv = module.declare_data_in_func(msg_data, fb.func);
     let base = fb.ins().symbol_value(types::I64, gv);
-    let off = fb.ins().iconst(types::I64, 8);
+    let off = fb.ins().iconst(types::I64, 24);
     let addr = fb.ins().iadd(base, off);
     let fr = module.declare_func_in_func(panic_fn, fb.func);
     fb.ins().call(fr, &[addr]);

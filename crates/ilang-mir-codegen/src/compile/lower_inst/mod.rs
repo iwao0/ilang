@@ -91,9 +91,10 @@ pub(super) fn lower_inst<M: Module>(
                 })?;
                 let gv = module.declare_data_in_func(did, fb.func);
                 let base = fb.ins().symbol_value(types::I64, gv);
-                // The user-visible string pointer skips the 8-byte
-                // length prefix (see string_data layout above).
-                let off = fb.ins().iconst(types::I64, 8);
+                // The user-visible string pointer skips the 24-byte
+                // `[cap | rc | len]` prefix (see string_data layout
+                // above).
+                let off = fb.ins().iconst(types::I64, 24);
                 let v = fb.ins().iadd(base, off);
                 vmap.insert(*dst, v);
                 return Ok(());

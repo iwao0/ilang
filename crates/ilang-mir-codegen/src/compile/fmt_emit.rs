@@ -16,8 +16,8 @@ use super::abi::{extend_to_i64, reduce_from_i64};
 use super::{FmtIds, PrintLits, StrIds};
 
 /// Materialize a literal C-string symbol as a ilang string pointer
-/// (i.e. step past the 8-byte length prefix). Mirrors the bump
-/// applied to string `Const`s in the regular MIR lowering.
+/// (i.e. step past the 24-byte `[cap | rc | len]` prefix). Mirrors
+/// the bump applied to string `Const`s in the regular MIR lowering.
 fn lit_value<M: Module>(
     fb: &mut ClifFnBuilder,
     module: &mut M,
@@ -25,7 +25,7 @@ fn lit_value<M: Module>(
 ) -> Value {
     let gv = module.declare_data_in_func(data, fb.func);
     let base = fb.ins().symbol_value(types::I64, gv);
-    let off = fb.ins().iconst(types::I64, 8);
+    let off = fb.ins().iconst(types::I64, 24);
     fb.ins().iadd(base, off)
 }
 

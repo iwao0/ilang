@@ -1,10 +1,23 @@
-//! String layout helpers + heap registry + `__str_*` operations +
-//! C-string interop. Strings live as `[ i64 len | bytes | \0 ]` with
-//! body pointer past the prefix; `leak_cstring` produces them, the
-//! registry tracks the buffer for the matching `__release_string`.
+//! String layout helpers + heap allocator + `__str_*` operations +
+//! C-string interop. Every ilang string — whether it came out of
+//! `leak_cstring` or was emitted by the codegen into `.rodata` —
+//! lives as
+//!
+//! ```text
+//! [ i64 cap | i64 rc | i64 len | bytes... | \0 ]
+//! ```
+//!
+//! with the body pointer sitting 24 bytes past the allocation base.
+//! `cap` is the total allocation size (so `__release_string` can
+//! `dealloc` with the right `Layout` and `__str_concat_inplace` can
+//! check spare capacity). Runtime-allocated strings start at `rc=1`;
+//! codegen-emitted literals use `cap=0, rc=-1` as a sentinel pair so
+//! `atomic_retain` / `atomic_release` (which both skip on `rc <= 0`)
+//! treat them as permanent and never try to free them. That removes
+//! the need for a registry side-table — every retain / release is a
+//! plain atomic on `body - 16`.
 
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicI64, Ordering};
 
 use crate::arrays::{build_i64_array, __c_array_to_array};
 use crate::kind::{KIND_NONE, KIND_STR};
@@ -37,73 +50,55 @@ pub fn cstr_to_str<'a>(p: i64) -> &'a str {
 }
 
 // --------------------------------------------------------------------
-// String heap allocator and registry
+// String heap allocator
 // --------------------------------------------------------------------
 
-struct StringBacking {
-    base: *mut u8,
-    total: usize,
-}
-unsafe impl Send for StringBacking {}
+/// Live runtime-allocated string count — diagnostics only. Static
+/// literals from `.rodata` are not counted (they never pass through
+/// `leak_cstring`).
+static LIVE_STRING_COUNT: AtomicI64 = AtomicI64::new(0);
 
-impl Drop for StringBacking {
-    fn drop(&mut self) {
-        if self.base.is_null() {
-            return;
-        }
-        let layout = std::alloc::Layout::from_size_align(self.total, 8).unwrap();
-        unsafe { std::alloc::dealloc(self.base, layout) };
+const HEADER_BYTES: usize = 24;
+
+#[inline]
+fn layout_for_total(total: usize) -> std::alloc::Layout {
+    std::alloc::Layout::from_size_align(total.max(HEADER_BYTES), 8).unwrap()
+}
+
+#[inline]
+unsafe fn write_header(base: *mut u8, cap: usize, rc: i64, len: i64) {
+    unsafe {
+        std::ptr::copy_nonoverlapping((cap as i64).to_le_bytes().as_ptr(), base, 8);
+        std::ptr::copy_nonoverlapping(rc.to_le_bytes().as_ptr(), base.add(8), 8);
+        std::ptr::copy_nonoverlapping(len.to_le_bytes().as_ptr(), base.add(16), 8);
     }
 }
 
-struct StringEntry {
-    #[allow(dead_code)]
-    backing: StringBacking,
-    rc: i64,
-}
-
-static STRING_REGISTRY: OnceLock<Mutex<HashMap<i64, StringEntry>>> = OnceLock::new();
-
-fn string_registry_lock() -> &'static Mutex<HashMap<i64, StringEntry>> {
-    STRING_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Allocate a heap string and register it at `rc = 1`. Returns the
-/// body pointer (the user-visible string pointer).
+/// Allocate a heap string with `rc = 1`. Returns the body pointer
+/// (the user-visible string pointer).
 pub fn leak_cstring(s: String) -> i64 {
     let body = s.into_bytes();
     let len = body.len() as i64;
-    let total = 8 + body.len() + 1;
-    let layout = std::alloc::Layout::from_size_align(total.max(8), 8).unwrap();
+    let total = HEADER_BYTES + body.len() + 1;
+    let layout = layout_for_total(total);
     let base = unsafe { std::alloc::alloc(layout) };
     if base.is_null() {
         std::alloc::handle_alloc_error(layout);
     }
     unsafe {
-        std::ptr::copy_nonoverlapping(len.to_le_bytes().as_ptr(), base, 8);
+        write_header(base, total, 1, len);
         if !body.is_empty() {
-            std::ptr::copy_nonoverlapping(body.as_ptr(), base.add(8), body.len());
+            std::ptr::copy_nonoverlapping(body.as_ptr(), base.add(HEADER_BYTES), body.len());
         }
-        *base.add(8 + body.len()) = 0;
+        *base.add(HEADER_BYTES + body.len()) = 0;
     }
-    let body_ptr = unsafe { base.add(8) } as i64;
-    {
-        let mut reg = string_registry_lock().lock().expect("string registry poisoned");
-        reg.insert(
-            body_ptr,
-            StringEntry {
-                backing: StringBacking { base, total },
-                rc: 1,
-            },
-        );
-    }
-    body_ptr
+    LIVE_STRING_COUNT.fetch_add(1, Ordering::Relaxed);
+    unsafe { base.add(HEADER_BYTES) as i64 }
 }
 
-/// Number of live entries in the string registry.
+/// Number of live heap-allocated strings (excludes static literals).
 pub fn live_string_count() -> i64 {
-    let reg = string_registry_lock().lock().expect("string registry poisoned");
-    reg.len() as i64
+    LIVE_STRING_COUNT.load(Ordering::Relaxed)
 }
 
 #[unsafe(export_name = "$string.retain")]
@@ -111,10 +106,8 @@ pub extern "C" fn __retain_string(p: i64) {
     if p == 0 {
         return;
     }
-    let mut reg = string_registry_lock().lock().expect("string registry poisoned");
-    if let Some(e) = reg.get_mut(&p) {
-        e.rc += 1;
-    }
+    let rc_ptr = (p - 16) as *mut i64;
+    unsafe { crate::refcount::atomic_retain(rc_ptr) };
 }
 
 #[unsafe(export_name = "$string.release")]
@@ -122,16 +115,18 @@ pub extern "C" fn __release_string(p: i64) {
     if p == 0 {
         return;
     }
-    let mut reg = string_registry_lock().lock().expect("string registry poisoned");
-    let drop_it = if let Some(e) = reg.get_mut(&p) {
-        e.rc -= 1;
-        e.rc <= 0
-    } else {
-        false
-    };
-    if drop_it {
-        reg.remove(&p);
+    let rc_ptr = (p - 16) as *mut i64;
+    match unsafe { crate::refcount::atomic_release(rc_ptr) } {
+        Some(0) => {}
+        _ => return,
     }
+    // Last reference — free the whole `[cap | rc | len | bytes | \0]`
+    // block, sized by the inline `cap` field.
+    let cap = unsafe { *((p - 24) as *const i64) } as usize;
+    let layout = layout_for_total(cap);
+    let base = (p - HEADER_BYTES as i64) as *mut u8;
+    unsafe { std::alloc::dealloc(base, layout) };
+    LIVE_STRING_COUNT.fetch_sub(1, Ordering::Relaxed);
 }
 
 // --------------------------------------------------------------------
@@ -175,35 +170,23 @@ pub extern "C" fn __str_concat_inplace(a: i64, b: i64) -> i64 {
         // No backing yet — fall back to the regular path.
         return __str_concat(a, b);
     }
+    // Defensive `rc == 1` check: the MIR pattern matcher only fires
+    // for Locals (closure-captured strings stay on the regular path),
+    // but a user-side `let t = s; s = s + "x"` keeps a's rc at 2 and
+    // a static literal has rc=-1. In either case the in-place rewrite
+    // is unsafe — fall back to the allocating `__str_concat`.
+    let rc = unsafe { (*((a - 16) as *const AtomicI64)).load(Ordering::Acquire) };
+    if rc != 1 {
+        return __str_concat(a, b);
+    }
     let sb = unsafe { cstr_bytes(b) };
     let a_len = unsafe { *((a - 8) as *const i64) } as usize;
     let new_len = a_len + sb.len();
-    let needed_total = 8 + new_len + 1;
-    let mut reg = string_registry_lock().lock().expect("string registry poisoned");
-    // Snapshot the raw pointer + capacity without cloning the
-    // entry (StringBacking owns the buffer through Drop — copying
-    // it would dealloc twice). Defensive `rc == 1` re-check: the
-    // MIR pattern matcher only fires for Locals (closure-captured
-    // strings stay on the regular path), but a user-side
-    // `let t = s; s = s + "x"` keeps a's rc at 2 — falling back to
-    // the allocating `__str_concat` keeps the alias safe.
-    let (cur_base, cur_total) = match reg.get(&a) {
-        Some(e) if e.rc == 1 => (e.backing.base, e.backing.total),
-        Some(_) => {
-            drop(reg);
-            return __str_concat(a, b);
-        }
-        None => {
-            // Not in registry (e.g. a static literal pointer that
-            // the codegen handed us). Fall back to a fresh
-            // allocation.
-            drop(reg);
-            return __str_concat(a, b);
-        }
-    };
+    let needed_total = HEADER_BYTES + new_len + 1;
+    let cur_total = unsafe { *((a - 24) as *const i64) } as usize;
+
     // Fast path: spare capacity already covers the result. Copy
-    // bytes in, bump the length prefix, leave the registry entry
-    // alone. Returned pointer is the same body_ptr.
+    // bytes in, bump the length prefix. Returned pointer unchanged.
     if cur_total >= needed_total {
         unsafe {
             std::ptr::copy_nonoverlapping(
@@ -212,44 +195,28 @@ pub extern "C" fn __str_concat_inplace(a: i64, b: i64) -> i64 {
                 sb.len(),
             );
             *((a as *mut u8).add(a_len + sb.len())) = 0;
-            *(cur_base as *mut i64) = new_len as i64;
+            *((a - 8) as *mut i64) = new_len as i64;
         }
         return a;
     }
-    // Grow with doubling — guarantees amortised O(1) appends. The
-    // `realloc` may move the buffer; in that case the body pointer
-    // changes, so the registry key has to move too. We pull the
-    // entry out of the registry before reallocating so that
-    // StringBacking's Drop won't fire on the old base when we
-    // re-insert the new one.
-    let old_entry = reg.remove(&a).expect("entry presence checked above");
+    // Grow with doubling — guarantees amortised O(1) appends.
     let new_total = needed_total.max(cur_total.saturating_mul(2));
-    let old_layout = std::alloc::Layout::from_size_align(cur_total.max(8), 8).unwrap();
-    // Forget the old StringBacking so its Drop doesn't deallocate
-    // the buffer realloc is about to consume.
-    std::mem::forget(old_entry.backing);
+    let old_layout = layout_for_total(cur_total);
+    let cur_base = (a - HEADER_BYTES as i64) as *mut u8;
     let new_base = unsafe { std::alloc::realloc(cur_base, old_layout, new_total) };
     if new_base.is_null() {
-        let layout = std::alloc::Layout::from_size_align(new_total, 8).unwrap();
-        std::alloc::handle_alloc_error(layout);
+        std::alloc::handle_alloc_error(layout_for_total(new_total));
     }
-    let new_body = unsafe { new_base.add(8) } as i64;
+    let new_body = unsafe { new_base.add(HEADER_BYTES) } as i64;
     unsafe {
+        write_header(new_base, new_total, 1, new_len as i64);
         std::ptr::copy_nonoverlapping(
             sb.as_ptr(),
             (new_body as *mut u8).add(a_len),
             sb.len(),
         );
         *((new_body as *mut u8).add(a_len + sb.len())) = 0;
-        *(new_base as *mut i64) = new_len as i64;
     }
-    reg.insert(
-        new_body,
-        StringEntry {
-            backing: StringBacking { base: new_base, total: new_total },
-            rc: 1,
-        },
-    );
     new_body
 }
 

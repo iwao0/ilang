@@ -537,17 +537,26 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 if let Inst::Const { value: MirConst::Str(s), .. } = inst {
                     if !string_data.contains_key(s) {
                         let body = s.as_str().as_bytes();
-                        let mut bytes: Vec<u8> = Vec::with_capacity(8 + body.len() + 1);
+                        let mut bytes: Vec<u8> = Vec::with_capacity(24 + body.len() + 1);
+                        // `[ i64 cap=0 | i64 rc=-1 | i64 len | bytes
+                        //   | \0 ]`. cap=0 + rc=-1 mark this as an
+                        // immutable static literal: runtime retain /
+                        // release (which both skip on `rc <= 0`) are
+                        // no-ops, and `__release_string` never tries
+                        // to dealloc.
+                        bytes.extend_from_slice(&0i64.to_le_bytes());
+                        bytes.extend_from_slice(&(-1i64).to_le_bytes());
                         bytes.extend_from_slice(&(body.len() as i64).to_le_bytes());
                         bytes.extend_from_slice(body);
                         bytes.push(0);
                         let mut desc = DataDescription::new();
-                        // Align=8 — the `[ i64 len | bytes | \0 ]`
-                        // layout reads `*((ptr - 8) as *const i64)`
-                        // for the length. Without explicit alignment
-                        // Cranelift packs data segments at byte
-                        // alignment, so the length read trips Rust's
-                        // misaligned-pointer check at runtime.
+                        // Align=8 — the body pointer reads
+                        // `*((ptr - 8) as *const i64)` for length,
+                        // `*((ptr - 16) as *const i64)` for rc, and
+                        // `*((ptr - 24) as *const i64)` for cap.
+                        // Without explicit alignment Cranelift packs
+                        // data segments at byte alignment, tripping
+                        // Rust's misaligned-pointer check at runtime.
                         desc.set_align(8);
                         desc.define(bytes.into_boxed_slice());
                         let name = format!("$str.{}", next_str_id);
@@ -564,13 +573,16 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     // Pre-define panic message C-strings reused across all check
     // sites. Returns a DataId; later emitters take its address via
     // `module.declare_data_in_func`.
-    // Same `[ i64 length | bytes | \0 ]` shape as user string
-    // literals — keeps cstr_bytes / host_ilang_panic / host_print_str
-    // happy without per-call-site special-casing. Consumers add 8 to
-    // the symbol address to get the user-visible pointer.
+    // Same `[ i64 cap=0 | i64 rc=-1 | i64 length | bytes | \0 ]`
+    // shape as user string literals — keeps cstr_bytes /
+    // host_ilang_panic / host_print_str happy without per-call-site
+    // special-casing. Consumers add 24 to the symbol address to get
+    // the user-visible pointer.
     let mut declare_msg = |name: &str, text: &str| -> Result<DataId, CompileError> {
         let body = text.as_bytes();
-        let mut bytes: Vec<u8> = Vec::with_capacity(8 + body.len() + 1);
+        let mut bytes: Vec<u8> = Vec::with_capacity(24 + body.len() + 1);
+        bytes.extend_from_slice(&0i64.to_le_bytes());
+        bytes.extend_from_slice(&(-1i64).to_le_bytes());
         bytes.extend_from_slice(&(body.len() as i64).to_le_bytes());
         bytes.extend_from_slice(body);
         bytes.push(0);

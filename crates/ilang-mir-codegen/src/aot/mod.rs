@@ -553,9 +553,11 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
 
 static AOT_STR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Emit a `[ i64 length | bytes | \0 ]` data symbol so init code can
-/// hand its body pointer to runtime `__register_*_print_*` calls.
-/// Names are uniqued via a process-wide counter so parallel compiles
+/// Emit a `[ i64 cap=0 | i64 rc=-1 | i64 length | bytes | \0 ]`
+/// data symbol so init code can hand its body pointer to runtime
+/// `__register_*_*` calls. cap=0 + rc=-1 mark the literal immutable
+/// so runtime retain / release / dealloc are all no-ops. Names are
+/// uniqued via a process-wide counter so parallel compiles
 /// (incremental rebuilds, parallel tests) don't trample each other.
 fn declare_ilang_string_data(
     module: &mut ObjectModule,
@@ -564,7 +566,9 @@ fn declare_ilang_string_data(
     let n = AOT_STR_COUNTER.fetch_add(1, Ordering::Relaxed);
     let sym = format!("$aot.str_{n}");
     let body = text.as_bytes();
-    let mut bytes: Vec<u8> = Vec::with_capacity(8 + body.len() + 1);
+    let mut bytes: Vec<u8> = Vec::with_capacity(24 + body.len() + 1);
+    bytes.extend_from_slice(&0i64.to_le_bytes());
+    bytes.extend_from_slice(&(-1i64).to_le_bytes());
     bytes.extend_from_slice(&(body.len() as i64).to_le_bytes());
     bytes.extend_from_slice(body);
     bytes.push(0);
@@ -576,9 +580,9 @@ fn declare_ilang_string_data(
     Ok(did)
 }
 
-/// Emit IR to load the body-pointer of the data symbol (address + 8
-/// bytes past the length prefix). Mirrors the codegen's string
-/// literal pointer convention.
+/// Emit IR to load the body-pointer of the data symbol (address + 24
+/// bytes past the `[cap | rc | len]` prefix). Mirrors the codegen's
+/// string literal pointer convention.
 fn ilang_string_body(
     module: &mut ObjectModule,
     fb: &mut ClifFnBuilder,
@@ -586,8 +590,8 @@ fn ilang_string_body(
 ) -> Value {
     let gv = module.declare_data_in_func(did, fb.func);
     let base = fb.ins().symbol_value(types::I64, gv);
-    let off8 = fb.ins().iconst(types::I64, 8);
-    fb.ins().iadd(base, off8)
+    let off = fb.ins().iconst(types::I64, 24);
+    fb.ins().iadd(base, off)
 }
 
 /// Emit a private `__ilang_aot_init()` function that fills the
