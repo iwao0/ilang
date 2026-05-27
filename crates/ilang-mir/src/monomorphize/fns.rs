@@ -2,10 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use ilang_ast::{
-    Block, Expr, ExprKind, FnDecl, Item, Program, Span,
-    Stmt, StmtKind, Symbol, Type,
-};
+use ilang_ast::{Block, Expr, ExprKind, FnDecl, Item, Program, Span, Symbol, Type};
 
 use super::walk::{map_expr_children, walk_expr_children};
 use super::class::*;
@@ -159,16 +156,19 @@ pub fn monomorphize_fns(
     for (_, f) in synthesized {
         out_items.push(Item::Fn(f));
     }
-    let stmts: Vec<Stmt> = prog
-        .stmts
-        .iter()
-        .map(|s| {
-            rewrite_calls_in_stmt(s, call_type_args, &empty_params, &empty_args, &generic_fns)
-        })
-        .collect();
-    let tail = prog.tail.as_ref().map(|e| {
-        rewrite_calls_in_expr(e, call_type_args, &empty_params, &empty_args, &generic_fns)
-    });
+    // Wrap top-level stmts + tail as a Block so we can reuse
+    // map_block_children. Unwraps the Boxed tail on the way out.
+    let pseudo = Block {
+        stmts: prog.stmts.clone(),
+        tail: prog.tail.as_ref().map(|e| Box::new(e.clone())),
+    };
+    let rewritten = super::walk::map_block_children(
+        &pseudo,
+        &mut |e| rewrite_calls_in_expr(e, call_type_args, &empty_params, &empty_args, &generic_fns),
+        &mut |t: &Type| t.clone(),
+    );
+    let stmts = rewritten.stmts;
+    let tail = rewritten.tail.map(|b| *b);
     Program {
         items: out_items,
         stmts,
@@ -273,57 +273,13 @@ pub(super) fn rewrite_calls_in_block(
     outer_args: &[Type],
     generic_fns: &HashMap<Symbol, FnDecl>,
 ) -> Block {
-    Block {
-        stmts: b
-            .stmts
-            .iter()
-            .map(|s| rewrite_calls_in_stmt(s, table, outer_params, outer_args, generic_fns))
-            .collect(),
-        tail: b.tail.as_ref().map(|e| {
-            Box::new(rewrite_calls_in_expr(
-                e,
-                table,
-                outer_params,
-                outer_args,
-                generic_fns,
-            ))
-        }),
-    }
-}
-
-pub(super) fn rewrite_calls_in_stmt(
-    s: &Stmt,
-    table: &HashMap<Span, (Symbol, Vec<Type>)>,
-    outer_params: &[Symbol],
-    outer_args: &[Type],
-    generic_fns: &HashMap<Symbol, FnDecl>,
-) -> Stmt {
-    let kind = match &s.kind {
-        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
-            is_pub: false,
-                is_const: false,
-            name: name.clone(),
-            ty: ty.clone(),
-            value: rewrite_calls_in_expr(value, table, outer_params, outer_args, generic_fns),
-        },
-        StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
-            elems: elems.clone(),
-            value: rewrite_calls_in_expr(value, table, outer_params, outer_args, generic_fns),
-        },
-        StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
-            class: class.clone(),
-            fields: fields.clone(),
-            value: rewrite_calls_in_expr(value, table, outer_params, outer_args, generic_fns),
-        },
-        StmtKind::Expr(e) => StmtKind::Expr(rewrite_calls_in_expr(
-            e,
-            table,
-            outer_params,
-            outer_args,
-            generic_fns,
-        )),
-    };
-    Stmt { kind, span: s.span, source_module: s.source_module.clone() }
+    // `rewrite_calls` only touches `Call` callee names; nothing
+    // type-bearing changes shape.
+    super::walk::map_block_children(
+        b,
+        &mut |e| rewrite_calls_in_expr(e, table, outer_params, outer_args, generic_fns),
+        &mut |t: &Type| t.clone(),
+    )
 }
 
 pub(super) fn rewrite_calls_in_expr(
@@ -369,9 +325,13 @@ pub(super) fn rewrite_calls_in_expr(
         }
         _ => {
             // Recurse through other expression shapes structurally.
-            map_expr_children(e, &mut |c| {
-                rewrite_calls_in_expr(c, table, outer_params, outer_args, generic_fns)
-            })
+            // `rewrite_calls` doesn't touch types — pass an
+            // identity type mapper.
+            map_expr_children(
+                e,
+                &mut |c| rewrite_calls_in_expr(c, table, outer_params, outer_args, generic_fns),
+                &mut |t: &Type| t.clone(),
+            )
         }
     };
     Expr { kind, span: e.span }

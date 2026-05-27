@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
     Block, EnumDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param, Program, Span,
-    Stmt, StmtKind, Symbol, Type, Variant, VariantPayload,
+    Symbol, Type, Variant, VariantPayload,
 };
 
 use super::walk::{map_expr_children, walk_expr_children};
@@ -165,28 +165,25 @@ pub fn monomorphize_enums(
     for (_, e) in synthesized {
         out_items.push(Item::Enum(e));
     }
-    let stmts: Vec<Stmt> = prog
-        .stmts
-        .iter()
-        .map(|s| {
-            rewrite_enum_refs_in_stmt(
-                s,
+    let pseudo = Block {
+        stmts: prog.stmts.clone(),
+        tail: prog.tail.as_ref().map(|e| Box::new(e.clone())),
+    };
+    let rewritten = super::walk::map_block_children(
+        &pseudo,
+        &mut |e| {
+            rewrite_enum_refs_in_expr(
+                e,
                 &generic_enums,
                 enum_ctor_type_args,
                 &empty_params,
                 &empty_args,
             )
-        })
-        .collect();
-    let tail = prog.tail.as_ref().map(|e| {
-        rewrite_enum_refs_in_expr(
-            e,
-            &generic_enums,
-            enum_ctor_type_args,
-            &empty_params,
-            &empty_args,
-        )
-    });
+        },
+        &mut |t: &Type| rewrite_enum_refs_in_type(t, &generic_enums),
+    );
+    let stmts = rewritten.stmts;
+    let tail = rewritten.tail.map(|b| *b);
     Program {
         items: out_items,
         stmts,
@@ -604,77 +601,11 @@ pub(super) fn rewrite_enum_refs_in_block(
     outer_params: &[Symbol],
     outer_args: &[Type],
 ) -> Block {
-    Block {
-        stmts: b
-            .stmts
-            .iter()
-            .map(|s| {
-                rewrite_enum_refs_in_stmt(s, generic_enums, table, outer_params, outer_args)
-            })
-            .collect(),
-        tail: b.tail.as_ref().map(|e| {
-            Box::new(rewrite_enum_refs_in_expr(
-                e,
-                generic_enums,
-                table,
-                outer_params,
-                outer_args,
-            ))
-        }),
-    }
-}
-
-pub(super) fn rewrite_enum_refs_in_stmt(
-    s: &Stmt,
-    generic_enums: &HashMap<Symbol, EnumDecl>,
-    table: &HashMap<Span, (Symbol, Vec<Type>)>,
-    outer_params: &[Symbol],
-    outer_args: &[Type],
-) -> Stmt {
-    let kind = match &s.kind {
-        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
-            is_pub: false,
-                is_const: false,
-            name: name.clone(),
-            ty: ty.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
-            value: rewrite_enum_refs_in_expr(
-                value,
-                generic_enums,
-                table,
-                outer_params,
-                outer_args,
-            ),
-        },
-        StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
-            elems: elems.clone(),
-            value: rewrite_enum_refs_in_expr(
-                value,
-                generic_enums,
-                table,
-                outer_params,
-                outer_args,
-            ),
-        },
-        StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
-            class: class.clone(),
-            fields: fields.clone(),
-            value: rewrite_enum_refs_in_expr(
-                value,
-                generic_enums,
-                table,
-                outer_params,
-                outer_args,
-            ),
-        },
-        StmtKind::Expr(e) => StmtKind::Expr(rewrite_enum_refs_in_expr(
-            e,
-            generic_enums,
-            table,
-            outer_params,
-            outer_args,
-        )),
-    };
-    Stmt { kind, span: s.span, source_module: s.source_module.clone() }
+    super::walk::map_block_children(
+        b,
+        &mut |e| rewrite_enum_refs_in_expr(e, generic_enums, table, outer_params, outer_args),
+        &mut |t: &Type| rewrite_enum_refs_in_type(t, generic_enums),
+    )
 }
 
 pub(super) fn rewrite_enum_refs_in_expr(
@@ -737,43 +668,6 @@ pub(super) fn rewrite_enum_refs_in_expr(
                 args: new_args.into(),
             }
         }
-        ExprKind::FnExpr { params, ret, body } => ExprKind::FnExpr {
-            params: params
-                .iter()
-                .map(|p| Param {
-                    name: p.name.clone(),
-                    ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
-                    span: p.span,
-                    default: p.default.as_ref().map(|d| {
-                        rewrite_enum_refs_in_expr(
-                            d, generic_enums, table, outer_params, outer_args,
-                        )
-                    }),
-                })
-                .collect(),
-            ret: ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
-            body: rewrite_enum_refs_in_block(
-                body, generic_enums, table, outer_params, outer_args,
-            ),
-        },
-        ExprKind::TypeTest { expr, ty } => ExprKind::TypeTest {
-            expr: Box::new(rewrite_enum_refs_in_expr(
-                expr, generic_enums, table, outer_params, outer_args,
-            )),
-            ty: rewrite_enum_refs_in_type(ty, generic_enums),
-        },
-        ExprKind::TypeDowncast { expr, ty } => ExprKind::TypeDowncast {
-            expr: Box::new(rewrite_enum_refs_in_expr(
-                expr, generic_enums, table, outer_params, outer_args,
-            )),
-            ty: rewrite_enum_refs_in_type(ty, generic_enums),
-        },
-        ExprKind::Cast { expr, ty } => ExprKind::Cast {
-            expr: Box::new(rewrite_enum_refs_in_expr(
-                expr, generic_enums, table, outer_params, outer_args,
-            )),
-            ty: rewrite_enum_refs_in_type(ty, generic_enums),
-        },
         ExprKind::Match { scrutinee, arms } => {
             // Patterns may carry an explicit `enum_name` (long form
             // `Result.ok(v)`); strip it when it names a now-mangled
@@ -816,9 +710,11 @@ pub(super) fn rewrite_enum_refs_in_expr(
                 .collect();
             ExprKind::Match { scrutinee: Box::new(new_scrut), arms: new_arms }
         }
-        _ => map_expr_children(e, &mut |c| {
-            rewrite_enum_refs_in_expr(c, generic_enums, table, outer_params, outer_args)
-        }),
+        _ => map_expr_children(
+            e,
+            &mut |c| rewrite_enum_refs_in_expr(c, generic_enums, table, outer_params, outer_args),
+            &mut |t: &Type| rewrite_enum_refs_in_type(t, generic_enums),
+        ),
     };
     Expr { kind, span: e.span }
 }

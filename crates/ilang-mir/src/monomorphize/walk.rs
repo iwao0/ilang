@@ -261,9 +261,19 @@ pub(super) fn walk_types_in_top_stmts(stmts: &[Stmt], f: &mut dyn FnMut(&Type)) 
 }
 
 /// Map every direct child of `e` through `f` and rebuild the Expr's
-/// kind. Used by rewrite_calls_in_expr's catch-all arm so we don't
-/// have to enumerate every variant by hand.
-pub(super) fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> ExprKind {
+/// kind. Type annotations carried directly by `ExprKind` (`Cast.ty`,
+/// `TypeTest.ty`, `TypeDowncast.ty`, `FnExpr.params[].ty`,
+/// `FnExpr.ret`, `New.type_args`) pass through `map_type`. Callers
+/// that don't need to rewrite types pass `&mut |t: &Type| t.clone()`.
+pub(super) fn map_expr_children<FE, FT>(
+    e: &Expr,
+    f: &mut FE,
+    map_type: &mut FT,
+) -> ExprKind
+where
+    FE: FnMut(&Expr) -> Expr,
+    FT: FnMut(&Type) -> Type,
+{
     match &e.kind {
         ExprKind::Int(n) => ExprKind::Int(*n),
         ExprKind::Float(x) => ExprKind::Float(*x),
@@ -292,28 +302,28 @@ pub(super) fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> E
         },
         ExprKind::Cast { expr, ty } => ExprKind::Cast {
             expr: Box::new(f(expr)),
-            ty: ty.clone(),
+            ty: map_type(ty),
         },
         ExprKind::TypeTest { expr, ty } => ExprKind::TypeTest {
             expr: Box::new(f(expr)),
-            ty: ty.clone(),
+            ty: map_type(ty),
         },
         ExprKind::TypeDowncast { expr, ty } => ExprKind::TypeDowncast {
             expr: Box::new(f(expr)),
-            ty: ty.clone(),
+            ty: map_type(ty),
         },
         ExprKind::FnExpr { params, ret, body } => ExprKind::FnExpr {
             params: params
                 .iter()
                 .map(|p| ilang_ast::Param {
                     name: p.name.clone(),
-                    ty: p.ty.clone(),
+                    ty: map_type(&p.ty),
                     span: p.span,
                     default: p.default.as_ref().map(|d| f(d)),
                 })
                 .collect(),
-            ret: ret.clone(),
-            body: map_block_children(body, f),
+            ret: ret.as_ref().map(|t| map_type(t)),
+            body: map_block_children(body, f, map_type),
         },
         ExprKind::Call { callee, args } => ExprKind::Call {
             callee: callee.clone(),
@@ -338,17 +348,18 @@ pub(super) fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> E
         },
         ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
             class: class.clone(),
-            type_args: type_args.clone(),
-            args: args.iter().map(|a| f(a)).collect(), init_method: init_method.clone(),
+            type_args: type_args.iter().map(|t| map_type(t)).collect(),
+            args: args.iter().map(|a| f(a)).collect(),
+            init_method: init_method.clone(),
         },
-        ExprKind::Block(b) => ExprKind::Block(map_block_children(b, f)),
+        ExprKind::Block(b) => ExprKind::Block(map_block_children(b, f, map_type)),
         ExprKind::If {
             cond,
             then_branch,
             else_branch,
         } => ExprKind::If {
             cond: Box::new(f(cond)),
-            then_branch: map_block_children(then_branch, f),
+            then_branch: map_block_children(then_branch, f, map_type),
             else_branch: else_branch.as_ref().map(|e| Box::new(f(e))),
         },
         ExprKind::IfLet {
@@ -359,20 +370,20 @@ pub(super) fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> E
         } => ExprKind::IfLet {
                 name: name.clone(),
             expr: Box::new(f(expr)),
-            then_branch: map_block_children(then_branch, f),
+            then_branch: map_block_children(then_branch, f, map_type),
             else_branch: else_branch.as_ref().map(|e| Box::new(f(e))),
         },
         ExprKind::While { cond, body } => ExprKind::While {
             cond: Box::new(f(cond)),
-            body: map_block_children(body, f),
+            body: map_block_children(body, f, map_type),
         },
         ExprKind::Loop { body } => ExprKind::Loop {
-            body: map_block_children(body, f),
+            body: map_block_children(body, f, map_type),
         },
         ExprKind::ForIn { var, iter, body } => ExprKind::ForIn {
             var: var.clone(),
             iter: Box::new(f(iter)),
-            body: map_block_children(body, f),
+            body: map_block_children(body, f, map_type),
         },
         ExprKind::Range { start, end, inclusive } => ExprKind::Range {
             start: start.as_ref().map(|s| Box::new(f(s))),
@@ -449,7 +460,18 @@ pub(super) fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> E
     }
 }
 
-pub(super) fn map_block_children(b: &Block, f: &mut dyn FnMut(&Expr) -> Expr) -> Block {
+/// Rebuild `b` by mapping every direct-child `Expr` through `f`
+/// and every `Let { ty }` annotation through `map_type`. Callers
+/// that don't rewrite types pass `&mut |t: &Type| t.clone()`.
+pub(super) fn map_block_children<FE, FT>(
+    b: &Block,
+    f: &mut FE,
+    map_type: &mut FT,
+) -> Block
+where
+    FE: FnMut(&Expr) -> Expr,
+    FT: FnMut(&Type) -> Type,
+{
     Block {
         stmts: b
             .stmts
@@ -458,9 +480,9 @@ pub(super) fn map_block_children(b: &Block, f: &mut dyn FnMut(&Expr) -> Expr) ->
                 let kind = match &s.kind {
                     StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
                         is_pub: false,
-                is_const: false,
+                        is_const: false,
                         name: name.clone(),
-                        ty: ty.clone(),
+                        ty: ty.as_ref().map(|t| map_type(t)),
                         value: f(value),
                     },
                     StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {

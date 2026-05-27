@@ -168,8 +168,17 @@ pub fn monomorphize(prog: &Program) -> Program {
     for (_, c) in synthesized {
         out_items.push(Item::Class(c));
     }
-    let stmts: Vec<Stmt> = prog.stmts.iter().map(rewrite_stmt).collect();
-    let tail = prog.tail.as_ref().map(rewrite_expr);
+    let pseudo = Block {
+        stmts: prog.stmts.clone(),
+        tail: prog.tail.as_ref().map(|e| Box::new(e.clone())),
+    };
+    let rewritten = super::walk::map_block_children(
+        &pseudo,
+        &mut rewrite_expr,
+        &mut rewrite_type,
+    );
+    let stmts = rewritten.stmts;
+    let tail = rewritten.tail.map(|b| *b);
     Program {
         items: out_items,
         stmts,
@@ -684,66 +693,11 @@ pub(super) fn rewrite_fn(f: &FnDecl) -> FnDecl {
 }
 
 pub(super) fn rewrite_block(b: &Block) -> Block {
-    Block {
-        stmts: b.stmts.iter().map(rewrite_stmt).collect(),
-        tail: b.tail.as_ref().map(|e| Box::new(rewrite_expr(e))),
-    }
-}
-
-pub(super) fn rewrite_stmt(s: &Stmt) -> Stmt {
-    let kind = match &s.kind {
-        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
-            is_pub: false,
-                is_const: false,
-            name: name.clone(),
-            ty: ty.as_ref().map(rewrite_type),
-            value: rewrite_expr(value),
-        },
-        StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
-            elems: elems.clone(),
-            value: rewrite_expr(value),
-        },
-        StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
-            class: class.clone(),
-            fields: fields.clone(),
-            value: rewrite_expr(value),
-        },
-        StmtKind::Expr(e) => StmtKind::Expr(rewrite_expr(e)),
-    };
-    Stmt {
-        kind,
-        span: s.span,
-        source_module: s.source_module.clone(),
-    }
+    super::walk::map_block_children(b, &mut rewrite_expr, &mut rewrite_type)
 }
 
 pub(super) fn rewrite_expr(e: &Expr) -> Expr {
     let kind = match &e.kind {
-        ExprKind::Cast { expr, ty } => ExprKind::Cast {
-            expr: Box::new(rewrite_expr(expr)),
-            ty: rewrite_type(ty),
-        },
-        ExprKind::TypeTest { expr, ty } => ExprKind::TypeTest {
-            expr: Box::new(rewrite_expr(expr)),
-            ty: rewrite_type(ty),
-        },
-        ExprKind::TypeDowncast { expr, ty } => ExprKind::TypeDowncast {
-            expr: Box::new(rewrite_expr(expr)),
-            ty: rewrite_type(ty),
-        },
-        ExprKind::FnExpr { params, ret, body } => ExprKind::FnExpr {
-            params: params
-                .iter()
-                .map(|p| ilang_ast::Param {
-                    name: p.name.clone(),
-                    ty: rewrite_type(&p.ty),
-                    span: p.span,
-                    default: p.default.as_ref().map(rewrite_expr),
-                })
-                .collect(),
-            ret: ret.as_ref().map(rewrite_type),
-            body: rewrite_block(body),
-        },
         ExprKind::New { class, type_args, args, init_method } => {
             // Concrete generic instantiation → call into the
             // monomorphized class by its mangled name. Built-in generic
@@ -755,7 +709,8 @@ pub(super) fn rewrite_expr(e: &Expr) -> Expr {
                 ExprKind::New {
                     class: class.clone(),
                     type_args: new_type_args.into(),
-                    args: new_args.into(), init_method: init_method.clone(),
+                    args: new_args.into(),
+                    init_method: init_method.clone(),
                 }
             } else {
                 let mangled = InstKey {
@@ -766,174 +721,12 @@ pub(super) fn rewrite_expr(e: &Expr) -> Expr {
                 ExprKind::New {
                     class: mangled,
                     type_args: Box::new([]),
-                    args: new_args.into(), init_method: init_method.clone(),
+                    args: new_args.into(),
+                    init_method: init_method.clone(),
                 }
             }
         }
-        // Mechanical recursion through the rest. We could derive this
-        // if we had a Visitor trait, but the AST is small enough that
-        // an explicit walk is the cheapest thing to read.
-        ExprKind::Unary { op, expr } => ExprKind::Unary {
-            op: *op,
-            expr: Box::new(rewrite_expr(expr)),
-        },
-        ExprKind::Binary { op, lhs, rhs } => ExprKind::Binary {
-            op: *op,
-            lhs: Box::new(rewrite_expr(lhs)),
-            rhs: Box::new(rewrite_expr(rhs)),
-        },
-        ExprKind::Logical { op, lhs, rhs } => ExprKind::Logical {
-            op: *op,
-            lhs: Box::new(rewrite_expr(lhs)),
-            rhs: Box::new(rewrite_expr(rhs)),
-        },
-        ExprKind::Call { callee, args } => ExprKind::Call {
-            callee: callee.clone(),
-            args: args.iter().map(rewrite_expr).collect(),
-        },
-        ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
-            method: method.clone(),
-            args: args.iter().map(rewrite_expr).collect(),
-        },
-        ExprKind::Closure { fn_name, captures } => ExprKind::Closure {
-            fn_name: fn_name.clone(),
-            captures: captures.clone(),
-        },
-        ExprKind::Field { obj, name } => ExprKind::Field {
-            obj: Box::new(rewrite_expr(obj)),
-            name: name.clone(),
-        },
-        ExprKind::MethodCall { obj, method, args } => ExprKind::MethodCall {
-            obj: Box::new(rewrite_expr(obj)),
-            method: method.clone(),
-            args: args.iter().map(rewrite_expr).collect(),
-        },
-        ExprKind::Block(b) => ExprKind::Block(rewrite_block(b)),
-        ExprKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => ExprKind::If {
-            cond: Box::new(rewrite_expr(cond)),
-            then_branch: rewrite_block(then_branch),
-            else_branch: else_branch.as_ref().map(|e| Box::new(rewrite_expr(e))),
-        },
-        ExprKind::IfLet {
-            name,
-            expr,
-            then_branch,
-            else_branch,
-        } => ExprKind::IfLet {
-                name: name.clone(),
-            expr: Box::new(rewrite_expr(expr)),
-            then_branch: rewrite_block(then_branch),
-            else_branch: else_branch.as_ref().map(|e| Box::new(rewrite_expr(e))),
-        },
-        ExprKind::While { cond, body } => ExprKind::While {
-            cond: Box::new(rewrite_expr(cond)),
-            body: rewrite_block(body),
-        },
-        ExprKind::Loop { body } => ExprKind::Loop {
-            body: rewrite_block(body),
-        },
-        ExprKind::ForIn { var, iter, body } => ExprKind::ForIn {
-            var: var.clone(),
-            iter: Box::new(rewrite_expr(iter)),
-            body: rewrite_block(body),
-        },
-        ExprKind::Range { start, end, inclusive } => ExprKind::Range {
-            start: start.as_ref().map(|s| Box::new(rewrite_expr(s))),
-            end: end.as_ref().map(|e| Box::new(rewrite_expr(e))),
-            inclusive: *inclusive,
-        },
-        ExprKind::Return(opt) => {
-            ExprKind::Return(opt.as_ref().map(|e| Box::new(rewrite_expr(e))))
-        }
-        ExprKind::Assign { target, value } => ExprKind::Assign {
-            target: target.clone(),
-            value: Box::new(rewrite_expr(value)),
-        },
-        ExprKind::AssignField { obj, field, value, is_init } => ExprKind::AssignField {
-            obj: obj.clone(),
-            field: field.clone(),
-            value: Box::new(rewrite_expr(value)), is_init: *is_init },
-        ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
-            obj: obj.clone(),
-            index: index.clone(),
-            value: Box::new(rewrite_expr(value)),
-        },
-        ExprKind::Array(items) => {
-            ExprKind::Array(items.iter().map(rewrite_expr).collect())
-        }
-        ExprKind::Tuple(items) => {
-            ExprKind::Tuple(items.iter().map(rewrite_expr).collect())
-        }
-        ExprKind::StructLit { class, fields, field_name_spans } => ExprKind::StructLit {
-            class: class.clone(),
-            fields: fields.iter().map(|(n, e)| (n.clone(), rewrite_expr(e))).collect(),
-            field_name_spans: field_name_spans.clone(),
-        },
-        ExprKind::MapLit(entries) => ExprKind::MapLit(
-            entries
-                .iter()
-                .map(|(k, v)| (rewrite_expr(k), rewrite_expr(v)))
-                .collect(),
-        ),
-        ExprKind::Index { obj, index } => ExprKind::Index {
-            obj: Box::new(rewrite_expr(obj)),
-            index: Box::new(rewrite_expr(index)),
-        },
-        ExprKind::Some(inner) => ExprKind::Some(Box::new(rewrite_expr(inner))),
-        ExprKind::Await(inner) => ExprKind::Await(Box::new(rewrite_expr(inner))),
-        ExprKind::EnumCtor {
-            enum_name,
-            variant,
-            args,
-        } => ExprKind::EnumCtor {
-            enum_name: enum_name.clone(),
-            variant: variant.clone(),
-            args: match args {
-                ilang_ast::CtorArgs::Unit => ilang_ast::CtorArgs::Unit,
-                ilang_ast::CtorArgs::Tuple(es) => {
-                    ilang_ast::CtorArgs::Tuple(es.iter().map(rewrite_expr).collect())
-                }
-                ilang_ast::CtorArgs::Struct(fs) => ilang_ast::CtorArgs::Struct(
-                    fs.iter().map(|(n, e)| (n.clone(), rewrite_expr(e))).collect(),
-                ),
-            },
-        },
-        ExprKind::Match { scrutinee, arms } => ExprKind::Match {
-            scrutinee: Box::new(rewrite_expr(scrutinee)),
-            arms: arms
-                .iter()
-                .map(|arm| ilang_ast::MatchArm {
-                    pattern: arm.pattern.clone(),
-                    body: rewrite_expr(&arm.body),
-                    span: arm.span,
-                })
-                .collect(),
-        },
-        ExprKind::Template { parts } => ExprKind::Template {
-            parts: parts
-                .iter()
-                .map(|p| match p {
-                    ilang_ast::TemplatePart::Str(s) => ilang_ast::TemplatePart::Str(s.clone()),
-                    ilang_ast::TemplatePart::Expr(e) => {
-                        ilang_ast::TemplatePart::Expr(rewrite_expr(e))
-                    }
-                })
-                .collect(),
-        },
-        // Trivial nodes pass through.
-        ExprKind::Int(n) => ExprKind::Int(*n),
-        ExprKind::Float(f) => ExprKind::Float(*f),
-        ExprKind::Bool(b) => ExprKind::Bool(*b),
-        ExprKind::Str(s) => ExprKind::Str(s.clone()),
-        ExprKind::Var(n) => ExprKind::Var(n.clone()),
-        ExprKind::This => ExprKind::This,
-        ExprKind::None => ExprKind::None,
-        ExprKind::Break(opt) => ExprKind::Break(opt.as_ref().map(|e| Box::new(rewrite_expr(e)))),
-        ExprKind::Continue => ExprKind::Continue,
+        _ => super::walk::map_expr_children(e, &mut rewrite_expr, &mut rewrite_type),
     };
     Expr {
         kind,
