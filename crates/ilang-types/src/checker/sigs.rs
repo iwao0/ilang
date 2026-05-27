@@ -797,73 +797,67 @@ pub(super) fn class_signature(
 
 /// The parser produces `Type::Object(name)` for any user-defined type
 /// reference. Inside a generic class body, references that match the
-/// class's type-parameter names are actually type variables — convert
-/// them to `Type::TypeVar` so the checker can substitute later.
-pub(super) fn rewrite_type_params(t: &Type, params: &[Symbol]) -> Type {
+/// Walk every node of a `Type` tree, giving `f` a chance to replace
+/// each subtree. `f` returns `Some(replacement)` to take over (the
+/// children of `t` are NOT visited in that case), or `None` to let
+/// the walker rebuild structurally by recursing into the composite
+/// carriers (`Array`, `Optional`, `Weak`, `Generic`, `Tuple`, `Fn`,
+/// `RawPtr`) and clone every other leaf as-is.
+fn map_type<F>(t: &Type, f: &mut F) -> Type
+where
+    F: FnMut(&Type) -> Option<Type>,
+{
+    if let Some(replaced) = f(t) {
+        return replaced;
+    }
     match t {
-        Type::Object(name) if params.iter().any(|p| p == name) => {
-            Type::TypeVar(name.clone())
-        }
         Type::Array { elem, fixed } => Type::Array {
-            elem: Box::new(rewrite_type_params(elem, params)),
+            elem: Box::new(map_type(elem, f)),
             fixed: *fixed,
         },
-        Type::Optional(inner) => {
-            Type::Optional(Box::new(rewrite_type_params(inner, params)))
-        }
-        Type::Weak(inner) => Type::Weak(Box::new(rewrite_type_params(inner, params))),
+        Type::Optional(inner) => Type::Optional(Box::new(map_type(inner, f))),
+        Type::Weak(inner) => Type::Weak(Box::new(map_type(inner, f))),
         Type::Generic(g) => Type::generic(
             g.base.clone(),
-            g.args.iter().map(|a| rewrite_type_params(a, params)).collect(),
+            g.args.iter().map(|a| map_type(a, f)).collect(),
         ),
-        Type::Tuple(elems) => Type::Tuple(
-            elems.iter().map(|e| rewrite_type_params(e, params)).collect(),
-        ),
+        Type::Tuple(elems) => Type::Tuple(elems.iter().map(|e| map_type(e, f)).collect()),
         Type::Fn(ft) => Type::func(
-            ft.params.iter().map(|p| rewrite_type_params(p, params)).collect(),
-            rewrite_type_params(&ft.ret, params),
+            ft.params.iter().map(|p| map_type(p, f)).collect(),
+            map_type(&ft.ret, f),
         ),
         Type::RawPtr { is_const, inner } => Type::RawPtr {
             is_const: *is_const,
-            inner: Box::new(rewrite_type_params(inner, params)),
+            inner: Box::new(map_type(inner, f)),
         },
         _ => t.clone(),
     }
 }
 
+/// class's type-parameter names are actually type variables — convert
+/// them to `Type::TypeVar` so the checker can substitute later.
+pub(super) fn rewrite_type_params(t: &Type, params: &[Symbol]) -> Type {
+    map_type(t, &mut |ty| match ty {
+        Type::Object(name) if params.iter().any(|p| p == name) => {
+            Some(Type::TypeVar(name.clone()))
+        }
+        _ => None,
+    })
+}
+
 /// Substitute concrete types for type variables. Used when a generic
 /// class is instantiated: each `TypeVar(P)` is replaced with the i-th
-/// concrete arg from the matching position in `params`.
+/// concrete arg from the matching position in `params`. A TypeVar
+/// whose name is not in `params` keeps its original form (map_type's
+/// leaf clone).
 pub(super) fn subst_type(t: &Type, params: &[Symbol], args: &[Type]) -> Type {
-    match t {
+    map_type(t, &mut |ty| match ty {
         Type::TypeVar(name) => params
             .iter()
             .position(|p| p == name)
-            .and_then(|i| args.get(i).cloned())
-            .unwrap_or_else(|| t.clone()),
-        Type::Array { elem, fixed } => Type::Array {
-            elem: Box::new(subst_type(elem, params, args)),
-            fixed: *fixed,
-        },
-        Type::Optional(inner) => Type::Optional(Box::new(subst_type(inner, params, args))),
-        Type::Weak(inner) => Type::Weak(Box::new(subst_type(inner, params, args))),
-        Type::Generic(g) => Type::generic(
-            g.base.clone(),
-            g.args.iter().map(|a| subst_type(a, params, args)).collect(),
-        ),
-        Type::RawPtr { is_const, inner } => Type::RawPtr {
-            is_const: *is_const,
-            inner: Box::new(subst_type(inner, params, args)),
-        },
-        Type::Tuple(elems) => Type::Tuple(
-            elems.iter().map(|e| subst_type(e, params, args)).collect(),
-        ),
-        Type::Fn(ft) => Type::func(
-            ft.params.iter().map(|p| subst_type(p, params, args)).collect(),
-            subst_type(&ft.ret, params, args),
-        ),
-        _ => t.clone(),
-    }
+            .and_then(|i| args.get(i).cloned()),
+        _ => None,
+    })
 }
 
 /// When two arms each produced a `Type::Generic` with the same base
