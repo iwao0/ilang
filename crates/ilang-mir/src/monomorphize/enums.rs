@@ -340,9 +340,7 @@ pub(super) fn seed_enums_in_block(b: &Block, visit: &mut dyn FnMut(&str, &[Type]
 }
 
 pub(super) fn seed_enums_in_expr(e: &Expr, visit: &mut dyn FnMut(&str, &[Type])) {
-    if let ExprKind::Cast { ty, .. } = &e.kind {
-        seed_enums_in_type(ty, visit);
-    }
+    super::walk::walk_types_in_expr(e, &mut |t| seed_enums_in_type(t, visit));
     walk_expr_children(e, &mut |c| seed_enums_in_expr(c, visit));
 }
 
