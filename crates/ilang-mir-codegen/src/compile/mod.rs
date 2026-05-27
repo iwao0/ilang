@@ -309,9 +309,7 @@ pub(super) struct PrintLits {
     pub(super) comma_sp: DataId,
 }
 
-/// Bytes prepended to every heap object: holds the `ClassId` so RTTI
-/// (`is_instance`, `as?`, `typeof`) can recover the dynamic class.
-pub(super) const OBJECT_HEADER_BYTES: i32 = 16;
+pub(super) use layout::object_header::FIELD_BASE as OBJECT_HEADER_BYTES;
 use cranelift_module::DataId;
 
 #[derive(Debug, thiserror::Error)]

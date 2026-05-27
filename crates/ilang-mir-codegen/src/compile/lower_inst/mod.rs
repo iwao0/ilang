@@ -475,24 +475,24 @@ pub(super) fn lower_inst<M: Module>(
             let cid = *fn_ids.get(fid).ok_or_else(|| {
                 CompileError::Other(format!("missing fn id #{}", fid.0))
             })?;
+            use super::layout::closure_header as ch;
             let local_ref = module.declare_func_in_func(cid, fb.func);
             let n_caps = captures.len() as i64;
-            // Layout: [fn_ptr @ 0 | rc @ 8 | capture_0 @ 16 | ...]
             let bytes = fb.ins().iconst(types::I64, (2 + n_caps) * 8);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
             let call = fb.ins().call(alloc_ref, &[bytes]);
             let ptr = fb.inst_results(call)[0];
             let fn_addr = fb.ins().func_addr(types::I64, local_ref);
-            fb.ins().store(MemFlags::trusted(), fn_addr, ptr, 0);
+            fb.ins().store(MemFlags::trusted(), fn_addr, ptr, ch::FN_ADDR);
             let one = fb.ins().iconst(types::I64, 1);
-            fb.ins().store(MemFlags::trusted(), one, ptr, 8);
+            fb.ins().store(MemFlags::trusted(), one, ptr, ch::RC);
             for (i, c) in captures.iter().enumerate() {
                 let v_ext = extend_to_i64(fb, vmap[c]);
                 fb.ins().store(
                     MemFlags::trusted(),
                     v_ext,
                     ptr,
-                    16 + (i as i32) * 8,
+                    ch::CAPTURE_BASE + (i as i32) * 8,
                 );
             }
             vmap.insert(*dst, ptr);
@@ -709,13 +709,15 @@ pub(super) fn lower_inst<M: Module>(
         Inst::TypeOf { dst, value } => {
             // Return the dynamic class id (i64) — used as an opaque
             // `Type` handle. Full `Type` API arrives with the runtime.
+            use super::layout::object_header as oh;
             let p = vmap[value];
-            let cid = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
+            let cid = fb.ins().load(types::I64, MemFlags::trusted(), p, oh::CLASS_ID);
             vmap.insert(*dst, cid);
         }
         Inst::IsInstance { dst, value, class } => {
+            use super::layout::object_header as oh;
             let p = vmap[value];
-            let cid = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
+            let cid = fb.ins().load(types::I64, MemFlags::trusted(), p, oh::CLASS_ID);
             let v = emit_is_subclass(fb, cid, *class, prog, class_global);
             vmap.insert(*dst, v);
         }
@@ -724,8 +726,9 @@ pub(super) fn lower_inst<M: Module>(
             // a subtype of `class`, else none. Optional<Object> is
             // boxed: we emit NewOptional on the some-branch, 0 on the
             // none-branch, and merge through a block-arg.
+            use super::layout::object_header as oh;
             let p = vmap[value];
-            let cid = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
+            let cid = fb.ins().load(types::I64, MemFlags::trusted(), p, oh::CLASS_ID);
             let cond = emit_is_subclass(fb, cid, *class, prog, class_global);
 
             let some_blk = fb.create_block();
@@ -759,6 +762,8 @@ pub(super) fn lower_inst<M: Module>(
             // returns `some(target)` only when the target's strong rc
             // is still positive; otherwise `none`. The Optional cell
             // is a 3-cell heap [value | rc | kind_tag=Object].
+            use super::layout::object_header as oh;
+            use super::layout::optional_header as opth;
             let p = vmap[weak];
             let zero = fb.ins().iconst(types::I64, 0);
             let none_blk = fb.create_block();
@@ -772,7 +777,7 @@ pub(super) fn lower_inst<M: Module>(
             // Test target rc.
             fb.switch_to_block(some_blk);
             fb.seal_block(some_blk);
-            let rc = fb.ins().load(types::I64, MemFlags::trusted(), p, 8);
+            let rc = fb.ins().load(types::I64, MemFlags::trusted(), p, oh::RC);
             let alive = fb.ins().icmp_imm(IntCC::SignedGreaterThan, rc, 0);
             let alloc_blk = fb.create_block();
             fb.ins().brif(alive, alloc_blk, &[], none_blk, &[]);
@@ -783,15 +788,15 @@ pub(super) fn lower_inst<M: Module>(
             fb.seal_block(alloc_blk);
             let one = fb.ins().iconst(types::I64, 1);
             let new_rc = fb.ins().iadd(rc, one);
-            fb.ins().store(MemFlags::trusted(), new_rc, p, 8);
-            let bytes = fb.ins().iconst(types::I64, 24);
+            fb.ins().store(MemFlags::trusted(), new_rc, p, oh::RC);
+            let bytes = fb.ins().iconst(types::I64, opth::SIZE);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
             let call = fb.ins().call(alloc_ref, &[bytes]);
             let cell = fb.inst_results(call)[0];
-            fb.ins().store(MemFlags::trusted(), p, cell, 0);
-            fb.ins().store(MemFlags::trusted(), one, cell, 8);
+            fb.ins().store(MemFlags::trusted(), p, cell, opth::VALUE);
+            fb.ins().store(MemFlags::trusted(), one, cell, opth::RC);
             let kind = fb.ins().iconst(types::I64, 1); // PrintKind::Object cascade
-            fb.ins().store(MemFlags::trusted(), kind, cell, 16);
+            fb.ins().store(MemFlags::trusted(), kind, cell, opth::KIND_TAG);
             fb.ins().jump(cont, [cell.into()].iter());
 
             fb.switch_to_block(none_blk);
@@ -965,10 +970,11 @@ pub(super) fn lower_inst<M: Module>(
             };
             // Store the GLOBAL class id at obj+0 — release_object,
             // host_print_object and __virt_dispatch all key off this.
+            use super::layout::object_header as oh;
             let cid_v = fb.ins().iconst(types::I64, class_global[class.0 as usize] as i64);
-            fb.ins().store(MemFlags::trusted(), cid_v, ptr, 0);
+            fb.ins().store(MemFlags::trusted(), cid_v, ptr, oh::CLASS_ID);
             let one = fb.ins().iconst(types::I64, 1);
-            fb.ins().store(MemFlags::trusted(), one, ptr, 8);
+            fb.ins().store(MemFlags::trusted(), one, ptr, oh::RC);
 
             if init.0 != u32::MAX {
                 let cid = *fn_ids.get(init).ok_or_else(|| {
@@ -1394,6 +1400,7 @@ pub(super) fn lower_inst<M: Module>(
             // registry via __enum_alloc so the cell can be freed on
             // rc=0. Layout still `[tag | payload...]`; the registry
             // sits beside the cell holding (rc, total_bytes).
+            use super::layout::enum_header as eh;
             let global = enum_global[enum_id.0 as usize] as i64;
             let global_v = fb.ins().iconst(types::I64, global);
             let n_v = fb.ins().iconst(types::I64, n_payload);
@@ -1407,14 +1414,15 @@ pub(super) fn lower_inst<M: Module>(
                     MemFlags::trusted(),
                     v_ext,
                     ptr,
-                    8 + (i as i32) * 8,
+                    eh::PAYLOAD_BASE + (i as i32) * 8,
                 );
             }
             vmap.insert(*dst, ptr);
         }
         Inst::EnumTag { dst, value } => {
+            use super::layout::enum_header as eh;
             let p = vmap[value];
-            let v = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
+            let v = fb.ins().load(types::I64, MemFlags::trusted(), p, eh::TAG);
             vmap.insert(*dst, v);
         }
         Inst::EnumDiscStr { dst, enum_id, value } => {
@@ -1423,8 +1431,9 @@ pub(super) fn lower_inst<M: Module>(
             // `__enum_disc_str(global, tag)` to get a fresh
             // `StringRc *` with the variant's declared
             // discriminant string.
+            use super::layout::enum_header as eh;
             let p = vmap[value];
-            let tag = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
+            let tag = fb.ins().load(types::I64, MemFlags::trusted(), p, eh::TAG);
             let global = enum_global[enum_id.0 as usize] as i64;
             let global_v = fb.ins().iconst(types::I64, global);
             let f = module.declare_func_in_func(panic_aux.enum_disc_str, fb.func);
@@ -1433,8 +1442,9 @@ pub(super) fn lower_inst<M: Module>(
             vmap.insert(*dst, v);
         }
         Inst::EnumPayload { dst, value, variant: _, idx } => {
+            use super::layout::enum_header as eh;
             let p = vmap[value];
-            let off = 8 + (*idx as i32) * 8;
+            let off = eh::PAYLOAD_BASE + (*idx as i32) * 8;
             let raw = fb.ins().load(types::I64, MemFlags::trusted(), p, off);
             let dst_ty = func.ty_of(*dst).clone();
             let v = reduce_from_i64(fb, &dst_ty, raw);
@@ -1467,26 +1477,27 @@ pub(super) fn lower_inst<M: Module>(
         Inst::NewTuple { dst, items } => {
             // Heterogeneous fixed-arity product. Hidden 16-byte
             // header lives BEFORE the user-facing pointer:
-            //   base + 0  = rc
-            //   base + 8  = packed:
-            //                 bits  0-15 = arity (max 65535)
-            //                 bits 16-63 = 4-bit KIND_* tag per
-            //                              element (up to 12 elements;
-            //                              elements 12+ leak any
-            //                              heap content but the cell
-            //                              itself is still freed).
-            //   base + 16 = element 0 ← user_ptr
+            //   base + RC      = rc
+            //   base + PACKED  = packed:
+            //                      bits  0-15 = arity (max 65535)
+            //                      bits 16-63 = 4-bit KIND_* tag per
+            //                                   element (up to 12;
+            //                                   12+ leak heap content
+            //                                   but the cell itself
+            //                                   is still freed).
+            //   base + ELEM_BASE = element 0 ← user_ptr
             // TupleExtract reads from offset 0 of user_ptr, unchanged.
+            use super::layout::tuple_header as th;
             let n = items.len() as i64;
-            let bytes = fb.ins().iconst(types::I64, 16 + n.max(1) * 8);
+            let bytes = fb.ins().iconst(types::I64, th::ELEM_BASE as i64 + n.max(1) * 8);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
             let call = fb.ins().call(alloc_ref, &[bytes]);
             let base = fb.inst_results(call)[0];
-            let off16 = fb.ins().iconst(types::I64, 16);
-            let ptr = fb.ins().iadd(base, off16);
+            let elem_off = fb.ins().iconst(types::I64, th::ELEM_BASE as i64);
+            let ptr = fb.ins().iadd(base, elem_off);
             // rc = 1
             let one = fb.ins().iconst(types::I64, 1);
-            fb.ins().store(MemFlags::trusted(), one, base, 0);
+            fb.ins().store(MemFlags::trusted(), one, base, th::RC);
             // packed (kinds | arity)
             let dst_ty = func.ty_of(*dst).clone();
             let mut packed: i64 = n & 0xFFFF;
@@ -1500,7 +1511,7 @@ pub(super) fn lower_inst<M: Module>(
                 }
             }
             let mask_v = fb.ins().iconst(types::I64, packed);
-            fb.ins().store(MemFlags::trusted(), mask_v, base, 8);
+            fb.ins().store(MemFlags::trusted(), mask_v, base, th::PACKED);
             for (i, it) in items.iter().enumerate() {
                 let v_ext = extend_to_i64(fb, vmap[it]);
                 fb.ins().store(MemFlags::trusted(), v_ext, ptr, (i as i32) * 8);
@@ -1519,14 +1530,15 @@ pub(super) fn lower_inst<M: Module>(
             // `some(v)` → allocate a 3-cell heap [value | rc | kind_tag]
             // and return its address. `value` is at offset 0 so existing
             // unwrap / iflet paths keep reading from offset 0.
-            let bytes = fb.ins().iconst(types::I64, 24);
+            use super::layout::optional_header as opth;
+            let bytes = fb.ins().iconst(types::I64, opth::SIZE);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
             let call = fb.ins().call(alloc_ref, &[bytes]);
             let ptr = fb.inst_results(call)[0];
             let v_ext = extend_to_i64(fb, vmap[value]);
-            fb.ins().store(MemFlags::trusted(), v_ext, ptr, 0);
+            fb.ins().store(MemFlags::trusted(), v_ext, ptr, opth::VALUE);
             let one = fb.ins().iconst(types::I64, 1);
-            fb.ins().store(MemFlags::trusted(), one, ptr, 8);
+            fb.ins().store(MemFlags::trusted(), one, ptr, opth::RC);
             // Tag from the dst's static type — kind_tag mirrors the
             // Array convention: KIND_* discriminant of the inner
             // type so host_release_optional can dispatch the right
@@ -1538,7 +1550,7 @@ pub(super) fn lower_inst<M: Module>(
                 KIND_NONE
             };
             let tag_v = fb.ins().iconst(types::I64, tag);
-            fb.ins().store(MemFlags::trusted(), tag_v, ptr, 16);
+            fb.ins().store(MemFlags::trusted(), tag_v, ptr, opth::KIND_TAG);
             vmap.insert(*dst, ptr);
         }
         Inst::OptionalIsSome { dst, opt } => {
