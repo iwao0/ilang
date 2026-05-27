@@ -546,10 +546,15 @@ impl<'a> BodyCx<'a> {
         if method.as_str() == "toString" && args.is_empty() {
             if oty.is_int() || oty.is_float() || matches!(oty, MirTy::Bool | MirTy::Str) {
                 let v = self.fb.new_value(MirTy::Str);
+                // Per-width split for floats: cranelift's float-arg
+                // ABI distinguishes f32 from f64, so the codegen needs
+                // a separate FuncId per width (mirrors the
+                // `math_is_finite_f32` / `_f64` pattern).
                 let builtin = match &oty {
                     MirTy::Bool => "bool_to_string",
                     MirTy::Str => "str_to_string",
-                    t if t.is_float() => "float_to_string",
+                    MirTy::F32 => "float_to_string_f32",
+                    MirTy::F64 => "float_to_string_f64",
                     _ => "int_to_string",
                 };
                 self.fb.push_inst(Inst::Call {

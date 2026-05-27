@@ -210,6 +210,14 @@ pub fn compile_with_builtins(
     jit_builder.symbol("$string.eq", ilang_runtime::__str_eq as *const u8);
     jit_builder.symbol("$string.fromInt", ilang_runtime::__int_to_string as *const u8);
     jit_builder.symbol("$string.fromBool", ilang_runtime::__bool_to_string as *const u8);
+    jit_builder.symbol(
+        "$string.fromF32",
+        ilang_runtime::__float_to_string_f32 as *const u8,
+    );
+    jit_builder.symbol(
+        "$string.fromF64",
+        ilang_runtime::__float_to_string_f64 as *const u8,
+    );
     jit_builder.symbol("$string.toUpper", ilang_runtime::__str_to_upper as *const u8);
     jit_builder.symbol("$string.toLower", ilang_runtime::__str_to_lower as *const u8);
     jit_builder.symbol("$string.trim", ilang_runtime::__str_trim as *const u8);

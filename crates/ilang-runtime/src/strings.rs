@@ -273,6 +273,32 @@ pub extern "C" fn __bool_to_string(b: i64) -> i64 {
     leak_cstring(if b != 0 { "true".to_string() } else { "false".to_string() })
 }
 
+/// `(f32).toString()` — per-width entry point because cranelift's
+/// float-arg ABI distinguishes f32 from f64. f32 widens to f64 (exact
+/// for every f32 bit pattern) and reuses the f64 formatting so the
+/// output matches `console.log` / template-literal `${x}`.
+#[unsafe(export_name = "$string.fromF32")]
+pub extern "C" fn __float_to_string_f32(x: f32) -> i64 {
+    __float_to_string_f64(x as f64)
+}
+
+/// `(f64).toString()` — JS-style: NaN / ±Infinity, `1.0` keeps the
+/// trailing `.0`, otherwise Rust's default `{f64}` formatting. Mirrors
+/// `$fmt.f64` so `x.toString()` and `` `${x}` `` produce the same string.
+#[unsafe(export_name = "$string.fromF64")]
+pub extern "C" fn __float_to_string_f64(x: f64) -> i64 {
+    let s = if x.is_nan() {
+        "NaN".to_string()
+    } else if x.is_infinite() {
+        if x > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() }
+    } else if x == x.trunc() && x.abs() < 1e16 {
+        format!("{}.0", x as i64)
+    } else {
+        format!("{x}")
+    };
+    leak_cstring(s)
+}
+
 #[unsafe(export_name = "$string.toUpper")]
 pub extern "C" fn __str_to_upper(p: i64) -> i64 {
     leak_cstring(cstr_to_str(p).to_uppercase())
