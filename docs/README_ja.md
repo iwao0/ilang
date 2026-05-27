@@ -308,12 +308,28 @@ VSCode を再起動すれば反映されます。設定 (`ilang.serverPath`) や
 も走ります:
 
 ```sh
-cargo test --workspace
+# 日常ループ。`.cargo/config.toml` の alias で cargo-nextest に
+# 流す (設定本体は `.config/nextest.toml`)。test を 1 バイナリ
+# 単位で直列に回す cargo test と違い、test 単位で全コアに撒く
+# ので 9 倍ほど速い。
+cargo t
+
+# CI プロファイル — リトライあり、fail-fast オフ、slow-test の
+# しきい値を緩めにする。カバレッジは `cargo t` と同じ。
+cargo tci
+
+# doctest (日常ループからは外している。所要時間 ~20 秒)
+cargo test --workspace --doc
 
 # AOT パスでも全 fixture を回す場合 (build + 実行 + stdout を JIT と
 # 比較)。所要時間 +80 秒程度。
-ILANG_TEST_AOT=1 cargo test --workspace
+ILANG_TEST_AOT=1 cargo t
 ```
+
+`cargo t` は `cargo-nextest` が `$PATH` にあることが前提
+(`brew install cargo-nextest` / `cargo install cargo-nextest
+--locked`)。未インストールのホストでは `cargo test --workspace`
+がそのまま使えます。
 
 ## 📄 ライセンス
 

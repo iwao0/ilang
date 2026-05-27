@@ -1,0 +1,34 @@
+# cargo-nextest config — local + CI profiles for the workspace.
+#
+# Daily-loop command (set up via the `cargo t` alias in
+# `.cargo/config.toml`):
+#
+#   cargo t           # `nextest run --workspace`
+#   cargo test --doc  # run doctests when needed (CI is the usual
+#                     # place — see the `ci` profile below).
+
+[profile.default]
+# Heaviest test in the suite is `programs::run_all_program_fixtures`
+# which fans out 495 subprocess invocations of `ilang run` internally.
+# A 2-minute soft limit + 5-minute hard kill keeps the watchdog from
+# tripping while still surfacing genuinely hung tests.
+slow-timeout = { period = "120s", terminate-after = 2, grace-period = "10s" }
+# Stop at the first failure so the dev loop doesn't bury the cause
+# under a wall of cascade errors. CI flips this off.
+fail-fast = true
+# Skip target_os-gated suites instead of marking them as a pass —
+# avoids cluttering the summary with skips on every macOS run.
+final-status-level = "fail"
+# `programs.rs::run_all_program_fixtures` is itself a parallel
+# work-stealer over the 495 fixtures, so it saturates the box on
+# its own. Let it run alongside the lighter unit tests instead of
+# blocking them.
+test-threads = "num-cpus"
+
+[profile.ci]
+# CI runs every test, retries flakes, and keeps going past failures
+# so the summary lists every actual problem in one log scrape.
+slow-timeout = { period = "300s", terminate-after = 2, grace-period = "30s" }
+fail-fast = false
+retries = 1
+final-status-level = "all"

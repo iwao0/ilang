@@ -253,7 +253,14 @@ crates/ilang-cli/tests/programs/  # 150 個の .il fixture (MIR JIT + AOT で実
 ## 開発フロー
 
 ```sh
-# 全テスト
+# 全テスト (cargo-nextest 経由、~30 秒)。`.cargo/config.toml` の
+# alias で `cargo t` = `nextest run --workspace`、`cargo tci` =
+# `--profile ci` (リトライ + fail-fast オフ)。設定本体は
+# `.config/nextest.toml`。doctest は別途 `cargo test --doc` 必要
+# (~20 秒)
+~/.cargo/bin/cargo t
+
+# cargo-nextest が無いホスト用フォールバック
 ~/.cargo/bin/cargo test --workspace
 
 # REPL (let / fn / class が永続化)

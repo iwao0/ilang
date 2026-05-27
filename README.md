@@ -335,12 +335,28 @@ the MIR → Cranelift JIT, with `expect:` / `expect-error:` magic
 comments asserting the outcome):
 
 ```sh
-cargo test --workspace
+# Daily loop. Aliased in .cargo/config.toml; runs through
+# cargo-nextest (config in .config/nextest.toml). ~9× faster than
+# cargo test on this workspace because nextest schedules each test
+# independently across cores instead of within one binary at a time.
+cargo t
 
-# also exercise the AOT path on every fixture (build + run + diff
+# CI profile — retries flakes, doesn't fail-fast, longer slow-test
+# budget. Same coverage as `cargo t`.
+cargo tci
+
+# Doctests (kept out of the default loop — separately ~20 s).
+cargo test --workspace --doc
+
+# Also exercise the AOT path on every fixture (build + run + diff
 # stdout against the JIT output). Adds ~80 s to the run.
-ILANG_TEST_AOT=1 cargo test --workspace
+ILANG_TEST_AOT=1 cargo t
 ```
+
+`cargo t` requires `cargo-nextest` on `$PATH`
+(`brew install cargo-nextest` on macOS, `cargo install cargo-nextest
+--locked` elsewhere). Plain `cargo test --workspace` still works as
+a fallback when nextest isn't available.
 
 ## 📄 License
 

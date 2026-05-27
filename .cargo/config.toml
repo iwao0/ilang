@@ -1,0 +1,9 @@
+# Cargo aliases for the daily dev loop.
+#
+# `cargo t` runs the workspace through cargo-nextest (no doctests —
+# those are still on `cargo test --doc` / the `ci` nextest profile).
+# Nextest is configured in `.config/nextest.toml`.
+
+[alias]
+t = "nextest run --workspace"
+tci = "nextest run --workspace --profile ci"
