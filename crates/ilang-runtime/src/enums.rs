@@ -1,29 +1,38 @@
-//! Enum cell layout per `Inst::NewEnum` codegen:
-//!   [ tag @ 0 | payload_0 @ 8 | payload_1 @ 16 | ... ]
+//! Enum cell layout — every enum allocation (heap-tracked, interned
+//! unit, or `__enum_box` re-box) carries a 24-byte header before the
+//! body:
 //!
-//! Cells with payloads live in `ENUM_REGISTRY` (rc-tracked); unit-
-//! variant cells are interned by the codegen via `__enum_unit_get`
-//! and bypass the registry.
+//! ```text
+//! [ i64 cap | i64 rc | i64 eid | i64 tag | payload_0 | payload_1 | ... ]
+//! ```
+//!
+//! with the body pointer (what user code sees) sitting 24 bytes past
+//! the allocation base. `cap` is the total allocation size, used by
+//! `__release_enum` to `__mir_free` the right amount. `rc` is the
+//! atomic refcount — `rc = -1` marks an interned-unit / box cell so
+//! `atomic_retain` / `atomic_release` (which skip on `rc <= 0`) treat
+//! them as permanent. `eid` lets the release path look up the payload
+//! kind table without an out-of-band side map. This removes the old
+//! global `ENUM_REGISTRY` mutex from every retain / release call.
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::alloc::{__mir_alloc, __mir_free};
 use crate::cascade::release_field_by_kind;
 use crate::print_dispatch::format_kind_id;
 use crate::strings::{cstr_to_str, leak_cstring};
 
-struct EnumEntry {
-    rc: i64,
-    total_bytes: i64,
-    global_eid: u32,
-}
+const ENUM_HEADER: i64 = 24;
 
-static ENUM_REGISTRY: OnceLock<Mutex<HashMap<i64, EnumEntry>>> = OnceLock::new();
-
-fn enum_registry() -> &'static Mutex<HashMap<i64, EnumEntry>> {
-    ENUM_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+#[inline]
+unsafe fn write_enum_header(base: i64, cap: i64, rc: i64, eid: u32) {
+    unsafe {
+        *((base) as *mut i64) = cap;
+        *((base + 8) as *mut i64) = rc;
+        *((base + 16) as *mut i64) = eid as i64;
+    }
 }
 
 /// Per-variant payload kinds, keyed by `(global_eid, tag)`. Each
@@ -55,9 +64,16 @@ pub extern "C" fn __register_enum_payload_kind(
 
 #[unsafe(export_name = "$enum.box")]
 pub extern "C" fn __enum_box(disc: i64) -> i64 {
-    let p = __mir_alloc(8);
-    unsafe { *(p as *mut i64) = disc; }
-    p
+    // Used by bitwise-on-flags-enum lowering. The result is treated
+    // as a unit cell (rc-less): rc=-1 makes retain / release no-ops,
+    // and eid=0 is never read because release short-circuits.
+    let total = ENUM_HEADER + 8;
+    let base = __mir_alloc(total);
+    unsafe {
+        write_enum_header(base, 0, -1, 0);
+        *((base + ENUM_HEADER) as *mut i64) = disc;
+    }
+    base + ENUM_HEADER
 }
 
 static ENUM_UNIT_CACHE: OnceLock<RwLock<HashMap<(u32, i64), i64>>> = OnceLock::new();
@@ -75,10 +91,23 @@ pub extern "C" fn __enum_unit_get(global_eid: i64, disc: i64) -> i64 {
             return p;
         }
     }
-    let p = __mir_alloc(8);
-    unsafe { *(p as *mut i64) = disc; }
+    let total = ENUM_HEADER + 8;
+    let base = __mir_alloc(total);
+    unsafe {
+        // rc=-1 marks interned-unit so retain / release are no-ops.
+        write_enum_header(base, 0, -1, global_eid as u32);
+        *((base + ENUM_HEADER) as *mut i64) = disc;
+    }
+    let body = base + ENUM_HEADER;
     let mut m = enum_unit_cache().write().expect("enum unit cache poisoned");
-    *m.entry(key).or_insert(p)
+    let installed = *m.entry(key).or_insert(body);
+    if installed != body {
+        // Lost the race against another thread that interned the
+        // same variant — drop our allocation.
+        drop(m);
+        __mir_free(base, total);
+    }
+    installed
 }
 
 #[unsafe(export_name = "$enum.unitGetChecked")]
@@ -103,17 +132,14 @@ pub extern "C" fn __enum_unit_get_checked(global_eid: i64, disc: i64) -> i64 {
 
 #[unsafe(export_name = "$enum.alloc")]
 pub extern "C" fn __enum_alloc(global_eid: i64, n_payload: i64, disc: i64) -> i64 {
-    let total = (1 + n_payload) * 8;
-    let ptr = __mir_alloc(total);
+    let body_bytes = (1 + n_payload) * 8;
+    let total = ENUM_HEADER + body_bytes;
+    let base = __mir_alloc(total);
     unsafe {
-        *(ptr as *mut i64) = disc;
+        write_enum_header(base, total, 1, global_eid as u32);
+        *((base + ENUM_HEADER) as *mut i64) = disc;
     }
-    let mut reg = enum_registry().lock().expect("enum registry poisoned");
-    reg.insert(
-        ptr,
-        EnumEntry { rc: 1, total_bytes: total, global_eid: global_eid as u32 },
-    );
-    ptr
+    base + ENUM_HEADER
 }
 
 #[unsafe(export_name = "$enum.retain")]
@@ -121,10 +147,8 @@ pub extern "C" fn __retain_enum(p: i64) {
     if p == 0 {
         return;
     }
-    let mut reg = enum_registry().lock().expect("enum registry poisoned");
-    if let Some(e) = reg.get_mut(&p) {
-        e.rc += 1;
-    }
+    let rc_ptr = (p - 16) as *mut i64;
+    unsafe { crate::refcount::atomic_retain(rc_ptr) };
 }
 
 #[unsafe(export_name = "$enum.release")]
@@ -132,36 +156,30 @@ pub extern "C" fn __release_enum(p: i64) {
     if p == 0 {
         return;
     }
-    let mut reg = enum_registry().lock().expect("enum registry poisoned");
-    let to_free = if let Some(e) = reg.get_mut(&p) {
-        e.rc -= 1;
-        if e.rc <= 0 {
-            Some((e.total_bytes, e.global_eid))
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    if let Some((total, global_eid)) = to_free {
-        reg.remove(&p);
-        drop(reg);
-        let tag = unsafe { *(p as *const i64) };
-        let kinds = {
-            let t = enum_payload_kinds().read().expect("enum payload kinds poisoned");
-            t.get(&(global_eid, tag)).cloned()
-        };
-        if let Some(kinds) = kinds {
-            for (i, kind) in kinds.iter().enumerate() {
-                if *kind == 0 {
-                    continue;
-                }
-                let raw = unsafe { *((p + 8 + (i as i64) * 8) as *const i64) };
-                release_field_by_kind(raw, *kind);
-            }
-        }
-        __mir_free(p, total);
+    let rc_ptr = (p - 16) as *mut i64;
+    match unsafe { crate::refcount::atomic_release(rc_ptr) } {
+        Some(0) => {}
+        _ => return,
     }
+    // Last reference — cascade-release payloads, then free the
+    // [cap | rc | eid | body] block via the inline `cap`.
+    let global_eid = unsafe { *((p - 8) as *const i64) } as u32;
+    let tag = unsafe { *(p as *const i64) };
+    let kinds = {
+        let t = enum_payload_kinds().read().expect("enum payload kinds poisoned");
+        t.get(&(global_eid, tag)).cloned()
+    };
+    if let Some(kinds) = kinds {
+        for (i, kind) in kinds.iter().enumerate() {
+            if *kind == 0 {
+                continue;
+            }
+            let raw = unsafe { *((p + 8 + (i as i64) * 8) as *const i64) };
+            release_field_by_kind(raw, *kind);
+        }
+    }
+    let cap = unsafe { *((p - 24) as *const i64) };
+    __mir_free(p - ENUM_HEADER, cap);
 }
 
 // --------------------------------------------------------------------
