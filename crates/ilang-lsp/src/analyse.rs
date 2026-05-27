@@ -396,4 +396,45 @@ use std.ffi { arrayFromCArray }
             "expected T to be substituted with u16 from the *const u16 arg",
         );
     }
+
+    /// VS Code's faint `: u16[]` ghost text after `let units = …` is
+    /// produced by `build_hints`, not the hover walker. Keep them in
+    /// lock-step so users see the same instantiated type either way.
+    #[test]
+    fn generic_intrinsic_inlay_hint_substitutes_typevar() {
+        use tower_lsp::lsp_types::{Position, Range};
+        let src = "\
+use std.ffi { arrayFromCArray }
+
+@extern(C) {
+    pub fn run() {
+        let p = 0 as *const u16
+        let units = arrayFromCArray(p, 4 as u64)
+        units.length
+    }
+}
+";
+        let tmp = std::env::temp_dir().join("ilang_lsp_probe_inlay_typevar.il");
+        std::fs::write(&tmp, src).unwrap();
+        let doc = analyse_path_to_doc(&tmp).expect("doc built");
+        let hints = crate::inlay_hints::build_hints(
+            &doc,
+            Range {
+                start: Position { line: 0, character: 0 },
+                end: Position { line: 99, character: 0 },
+            },
+        );
+        // `let units = …` sits on line 5 (0-indexed) of the fixture.
+        // Filter to that line so we don't accidentally match the
+        // `: *const u16` hint on the preceding `let p`.
+        let units_hint = hints
+            .iter()
+            .find(|h| h.position.line == 5)
+            .unwrap_or_else(|| panic!("no inlay hint on line 5; got: {hints:#?}"));
+        if let tower_lsp::lsp_types::InlayHintLabel::String(s) = &units_hint.label {
+            assert_eq!(s, ": u16[]");
+        } else {
+            panic!("expected String label, got {:?}", units_hint.label);
+        }
+    }
 }

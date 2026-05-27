@@ -748,13 +748,32 @@ fn infer(
             }
             cx.doc.var_types.get(name).cloned()
         }
-        ExprKind::Call { callee, .. } => {
-            cx.doc
+        ExprKind::Call { callee, args } => {
+            let ret = cx
+                .doc
                 .external
                 .returns
                 .get(callee)
                 .cloned()
-                .or_else(|| cx.fn_returns.get(callee.as_str()).cloned())
+                .or_else(|| cx.fn_returns.get(callee.as_str()).cloned())?;
+            // Mirror the walker's generic-intrinsic substitution so the
+            // inlay hint after `let x = arrayFromCArray(p: *const u16,
+            // ...)` reads `u16[]` instead of `T[]`.
+            if crate::walker::type_mentions_typevar(&ret) {
+                if let Some(param_tys) = cx.doc.external.fn_params.get(callee).cloned() {
+                    let mut subst: std::collections::HashMap<AstSymbol, Type> =
+                        std::collections::HashMap::new();
+                    for (p_ty, arg) in param_tys.iter().zip(args.iter()) {
+                        if let Some(a_ty) = infer(cx, arg, scope, this_class) {
+                            crate::walker::unify_typevars(p_ty, &a_ty, &mut subst);
+                        }
+                    }
+                    if !subst.is_empty() {
+                        return Some(crate::walker::substitute_typevars(&ret, &subst));
+                    }
+                }
+            }
+            Some(ret)
         }
         ExprKind::MethodCall { obj, method, .. } => {
             let cls = resolve_obj_class(cx, obj, scope, this_class)?;
