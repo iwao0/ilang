@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, FnDecl, Item, Program, Span,
+    Block, Expr, ExprKind, FnDecl, Item, Program, Span,
     Stmt, StmtKind, Symbol, Type,
 };
 
@@ -253,37 +253,11 @@ pub(super) fn rewrite_calls_in_item(
     let mut keep_type = |t: &Type| t.clone();
     match item {
         Item::Fn(f) => Item::Fn(super::walk::map_fn_decl(f, &mut map_block, &mut keep_type)),
-        Item::Class(c) => Item::Class(ClassDecl {
-            is_pub: false,
-            extern_lib: c.extern_lib.clone(),
-            is_repr_c: c.is_repr_c,
-            is_packed: c.is_packed,
-            is_handle: c.is_handle,
-            is_union: c.is_union,
-            name: c.name.clone(),
-            parent: c.parent.clone(),
-            interfaces: c.interfaces.clone(),
-            type_params: c.type_params.clone(),
-            fields: c.fields.clone(),
-            methods: c
-                .methods
-                .iter()
-                .map(|m| super::walk::map_fn_decl(m, &mut map_block, &mut keep_type))
-                .collect(),
-            static_methods: c
-                .static_methods
-                .iter()
-                .map(|m| super::walk::map_fn_decl(m, &mut map_block, &mut keep_type))
-                .collect(),
-            static_fields: c.static_fields.clone(),
-            properties: c
-                .properties
-                .iter()
-                .map(|p| super::walk::map_property_decl(p, &mut map_block, &mut keep_type))
-                .collect(),
-            attrs: c.attrs.clone(),
-            span: c.span,
-        }),
+        Item::Class(c) => Item::Class(super::walk::map_class_decl(
+            c,
+            &mut map_block,
+            &mut keep_type,
+        )),
         Item::Enum(e) => Item::Enum(e.clone()),
         Item::Use(u) => Item::Use(u.clone()),
         Item::Const(c) => Item::Const(c.clone()),

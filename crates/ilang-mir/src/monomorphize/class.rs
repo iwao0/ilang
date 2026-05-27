@@ -649,38 +649,11 @@ pub(super) fn subst_type(t: &Type, params: &[Symbol], args: &[Type]) -> Type {
 
 pub(super) fn rewrite_item(item: &Item) -> Item {
     match item {
-        Item::Class(c) => Item::Class(ClassDecl {
-            is_pub: false,
-            extern_lib: c.extern_lib.clone(),
-            is_repr_c: c.is_repr_c,
-            is_packed: c.is_packed,
-        is_handle: c.is_handle,
-            is_union: c.is_union,
-            name: c.name.clone(),
-            parent: c.parent.clone(),
-            interfaces: c.interfaces.clone(),
-            type_params: c.type_params.clone(),
-            fields: c
-                .fields
-                .iter()
-                .map(|f| FieldDecl {
-                    is_pub: false,
-                    name: f.name.clone(),
-                    ty: rewrite_type(&f.ty),
-                    span: f.span, bits: f.bits,
-                })
-                .collect(),
-            methods: c.methods.iter().map(rewrite_fn).collect(),
-            static_methods: c.static_methods.iter().map(rewrite_fn).collect(),
-            static_fields: c.static_fields.clone(),
-            properties: c
-                .properties
-                .iter()
-                .map(|p| super::walk::map_property_decl(p, &mut rewrite_block, &mut rewrite_type))
-                .collect(),
-            attrs: c.attrs.clone(),
-            span: c.span,
-        }),
+        Item::Class(c) => Item::Class(super::walk::map_class_decl(
+            c,
+            &mut rewrite_block,
+            &mut rewrite_type,
+        )),
         Item::Fn(f) => {
             // Skip rewrite for generic fns — their bodies reference
             // their own type params (as `Object("T")`), and

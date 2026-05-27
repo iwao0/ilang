@@ -12,7 +12,9 @@
 //!   `f`. Lets `rewrite_calls_in_expr`'s catch-all arm avoid
 //!   enumerating every variant by hand.
 
-use ilang_ast::{Block, Expr, ExprKind, FnDecl, Param, PropertyDecl, Stmt, StmtKind, Type};
+use ilang_ast::{
+    Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Param, PropertyDecl, Stmt, StmtKind, Type,
+};
 
 pub(super) fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
     match &e.kind {
@@ -543,5 +545,64 @@ where
         getter: p.getter.as_ref().map(|g| map_fn_decl(g, map_block, map_type)),
         setter: p.setter.as_ref().map(|s| map_fn_decl(s, map_block, map_type)),
         span: p.span,
+    }
+}
+
+/// Rebuild a `ClassDecl` by mapping every `Type` annotation
+/// (field / param / return / property type) and every method /
+/// accessor body through the supplied mappers. Class-level
+/// modifiers (`is_repr_c`, `is_handle`, `is_union`, `parent`,
+/// `interfaces`, `type_params`, `attrs`, `static_fields`) pass
+/// through clone. Same `is_pub: false` / `is_async: false`
+/// convention as `map_fn_decl`.
+pub(super) fn map_class_decl<FB, FT>(
+    c: &ClassDecl,
+    map_block: &mut FB,
+    map_type: &mut FT,
+) -> ClassDecl
+where
+    FB: FnMut(&Block) -> Block,
+    FT: FnMut(&Type) -> Type,
+{
+    ClassDecl {
+        is_pub: false,
+        extern_lib: c.extern_lib.clone(),
+        is_repr_c: c.is_repr_c,
+        is_packed: c.is_packed,
+        is_handle: c.is_handle,
+        is_union: c.is_union,
+        name: c.name.clone(),
+        parent: c.parent.clone(),
+        interfaces: c.interfaces.clone(),
+        type_params: c.type_params.clone(),
+        fields: c
+            .fields
+            .iter()
+            .map(|f| FieldDecl {
+                is_pub: false,
+                name: f.name.clone(),
+                ty: map_type(&f.ty),
+                span: f.span,
+                bits: f.bits,
+            })
+            .collect(),
+        methods: c
+            .methods
+            .iter()
+            .map(|m| map_fn_decl(m, map_block, map_type))
+            .collect(),
+        static_methods: c
+            .static_methods
+            .iter()
+            .map(|m| map_fn_decl(m, map_block, map_type))
+            .collect(),
+        static_fields: c.static_fields.clone(),
+        properties: c
+            .properties
+            .iter()
+            .map(|p| map_property_decl(p, map_block, map_type))
+            .collect(),
+        attrs: c.attrs.clone(),
+        span: c.span,
     }
 }
