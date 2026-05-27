@@ -277,6 +277,21 @@ impl TypeChecker {
             }
             return Ok(Type::Bool);
         }
+        // Primitive numeric / bool receivers reach here only when
+        // none of the small built-in method set above matched
+        // (`toString`, and for floats `isFinite` / `isNaN`). Emit
+        // a targeted `UnknownMethod` error against the receiver
+        // type — otherwise the receiver falls through to
+        // `expect_object` and surfaces a useless "expected
+        // <object>, got f64" message for what is almost always a
+        // typo (e.g. `isNan` for `isNaN`).
+        if ot.is_numeric() || ot == Type::Bool {
+            return Err(TypeError::UnknownMethod {
+                class: Symbol::intern(&format!("{ot}")),
+                method: method.clone(),
+                span,
+            });
+        }
         // Built-in string methods (JS-style camelCase).
         if matches!(ot, Type::Str) {
             let arity_check = |expected: usize| -> Result<(), TypeError> {
