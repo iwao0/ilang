@@ -24,13 +24,11 @@ use ilang_ast::{
 mod class;
 mod enums;
 mod fns;
-mod hoist;
 mod walk;
 
 pub use class::monomorphize;
 pub use enums::monomorphize_enums;
 pub use fns::monomorphize_fns;
-pub use hoist::{hoist_anon_fns, ClosureMetaIn, HoistCtx};
 
 /// The unique key of a monomorphization request: class name + concrete
 /// type arguments. We don't derive Hash on `Type`, so the worklist
