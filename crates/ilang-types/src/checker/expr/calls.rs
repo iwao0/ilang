@@ -16,6 +16,7 @@ use ilang_ast::{
 use crate::error::TypeError;
 use crate::ops::{assignable, bin_result, int_literal_fits};
 
+use super::super::utils::check_arity;
 use super::super::*;
 
 impl TypeChecker {
@@ -48,14 +49,7 @@ impl TypeChecker {
                 if name.as_str() == "string" {
                     match method.as_str() {
                         "fromUtf16" => {
-                            if args.len() != 1 {
-                                return Err(TypeError::ArityMismatch {
-                                    name: method.clone(),
-                                    expected: 1,
-                                    got: args.len(),
-                                    span,
-                                });
-                            }
+                            check_arity(args.len(), 1, method.clone(), span)?;
                             let at = self.check_expr(
                                 &args[0], env, ret_ty, in_class, loop_depth,
                             )?;
@@ -130,14 +124,7 @@ impl TypeChecker {
                 _ => None,
             };
             if let Some((arity, ret)) = target {
-                if args.len() != arity {
-                    return Err(TypeError::ArityMismatch {
-                        name: method.clone(),
-                        expected: arity,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), arity, method.clone(), span)?;
                 let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
                 if at != Type::Str {
                     return Err(TypeError::Mismatch {
@@ -152,14 +139,7 @@ impl TypeChecker {
         // Built-in Weak method: get(): T?.
         if let Type::Weak(inner) = &ot {
             if method == "get" {
-                if !args.is_empty() {
-                    return Err(TypeError::ArityMismatch {
-                        name: "get".into(),
-                        expected: 0,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 0, "get".into(), span)?;
                 return Ok(Type::Optional(inner.clone()));
             }
             return Err(TypeError::UnknownMethod {
@@ -173,14 +153,7 @@ impl TypeChecker {
         if let Type::Optional(inner) = &ot {
             match method.as_str() {
                 "unwrap" => {
-                    if !args.is_empty() {
-                        return Err(TypeError::ArityMismatch {
-                            name: method.clone(),
-                            expected: 0,
-                            got: args.len(),
-                            span,
-                        });
-                    }
+                    check_arity(args.len(), 0, method.clone(), span)?;
                     return Ok((**inner).clone());
                 }
                 _ => {
@@ -201,14 +174,7 @@ impl TypeChecker {
             if g.base.as_str() == "ObjCBlock" && g.args.len() == 1 {
                 if let Type::Fn(ft) = &g.args[0] {
                     if method.as_str() == "invoke" {
-                        if args.len() != ft.params.len() {
-                            return Err(TypeError::ArityMismatch {
-                                name: method.clone(),
-                                expected: ft.params.len(),
-                                got: args.len(),
-                                span,
-                            });
-                        }
+                        check_arity(args.len(), ft.params.len(), method.clone(), span)?;
                         for (i, expected) in ft.params.iter().enumerate() {
                             let got = self.check_expr(
                                 &args[i], env, ret_ty, in_class, loop_depth,
@@ -251,14 +217,7 @@ impl TypeChecker {
         // (matching `console.log`'s formatting), `"true"` /
         // `"false"` for bool.
         if (ot.is_numeric() || ot == Type::Bool) && method.as_str() == "toString" {
-            if !args.is_empty() {
-                return Err(TypeError::ArityMismatch {
-                    name: method.clone(),
-                    expected: 0,
-                    got: args.len(),
-                    span,
-                });
-            }
+            check_arity(args.len(), 0, method.clone(), span)?;
             return Ok(Type::Str);
         }
         // `.isFinite()` / `.isNaN()` on f32 / f64. Integers can't
@@ -267,14 +226,7 @@ impl TypeChecker {
         if matches!(ot, Type::F32 | Type::F64)
             && matches!(method.as_str(), "isFinite" | "isNaN")
         {
-            if !args.is_empty() {
-                return Err(TypeError::ArityMismatch {
-                    name: method.clone(),
-                    expected: 0,
-                    got: args.len(),
-                    span,
-                });
-            }
+            check_arity(args.len(), 0, method.clone(), span)?;
             return Ok(Type::Bool);
         }
         // Primitive numeric / bool receivers reach here only when
@@ -479,14 +431,7 @@ impl TypeChecker {
                         span,
                     });
                 }
-                if args.len() != 1 {
-                    return Err(TypeError::ArityMismatch {
-                        name: "push".into(),
-                        expected: 1,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 1, "push".into(), span)?;
                 let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
                 if !self.value_assignable(&args[0], &at, elem) {
                     return Err(TypeError::Mismatch {
@@ -508,14 +453,7 @@ impl TypeChecker {
                         span,
                     });
                 }
-                if !args.is_empty() {
-                    return Err(TypeError::ArityMismatch {
-                        name: "pop".into(),
-                        expected: 0,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 0, "pop".into(), span)?;
                 return Ok(Type::Optional(elem.clone()));
             }
             if method == "removeAt" {
@@ -529,14 +467,7 @@ impl TypeChecker {
                         span,
                     });
                 }
-                if args.len() != 1 {
-                    return Err(TypeError::ArityMismatch {
-                        name: "removeAt".into(),
-                        expected: 1,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 1, "removeAt".into(), span)?;
                 let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
                 if !self.value_assignable(&args[0], &at, &Type::I64) {
                     return Err(TypeError::Mismatch {
@@ -558,14 +489,7 @@ impl TypeChecker {
                         span,
                     });
                 }
-                if args.len() != 1 {
-                    return Err(TypeError::ArityMismatch {
-                        name: "remove".into(),
-                        expected: 1,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 1, "remove".into(), span)?;
                 let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
                 if !self.value_assignable(&args[0], &at, elem) {
                     return Err(TypeError::Mismatch {
@@ -577,14 +501,7 @@ impl TypeChecker {
                 return Ok(Type::Bool);
             }
             if method == "indexOf" || method == "includes" {
-                if args.len() != 1 {
-                    return Err(TypeError::ArityMismatch {
-                        name: method.clone(),
-                        expected: 1,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 1, method.clone(), span)?;
                 let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
                 if !self.value_assignable(&args[0], &at, elem) {
                     return Err(TypeError::Mismatch {
@@ -601,14 +518,7 @@ impl TypeChecker {
             }
             if method == "slice" {
                 // slice(start: i64, end: i64): T[]
-                if args.len() != 2 {
-                    return Err(TypeError::ArityMismatch {
-                        name: "slice".into(),
-                        expected: 2,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 2, "slice".into(), span)?;
                 for a in args {
                     let at = self.check_expr(a, env, ret_ty, in_class, loop_depth)?;
                     if !self.value_assignable(a, &at, &Type::I64) {
@@ -625,14 +535,7 @@ impl TypeChecker {
                 method.as_str(),
                 "map" | "filter" | "forEach" | "find" | "findIndex" | "every" | "some",
             ) {
-                if args.len() != 1 {
-                    return Err(TypeError::ArityMismatch {
-                        name: method.clone(),
-                        expected: 1,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 1, method.clone(), span)?;
                 let ft = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
                 let (params, ret) = match &ft {
                     Type::Fn(fty) => (fty.params.clone(), fty.ret.clone()),
@@ -674,14 +577,7 @@ impl TypeChecker {
                 });
             }
             if method == "concat" {
-                if args.len() != 1 {
-                    return Err(TypeError::ArityMismatch {
-                        name: "concat".into(),
-                        expected: 1,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 1, "concat".into(), span)?;
                 let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
                 let other_elem = match &at {
                     Type::Array { elem: e, .. } => (**e).clone(),
@@ -709,14 +605,7 @@ impl TypeChecker {
                 return Ok(Type::Array { elem: elem.clone(), fixed: None });
             }
             if method == "reverse" {
-                if !args.is_empty() {
-                    return Err(TypeError::ArityMismatch {
-                        name: "reverse".into(),
-                        expected: 0,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 0, "reverse".into(), span)?;
                 return Ok(Type::Array { elem: elem.clone(), fixed: None });
             }
             if method == "join" {
@@ -729,14 +618,7 @@ impl TypeChecker {
                         span,
                     });
                 }
-                if args.len() != 1 {
-                    return Err(TypeError::ArityMismatch {
-                        name: "join".into(),
-                        expected: 1,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 1, "join".into(), span)?;
                 let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
                 if !matches!(at, Type::Str) {
                     return Err(TypeError::Mismatch {
@@ -758,14 +640,7 @@ impl TypeChecker {
                         span,
                     });
                 }
-                if !args.is_empty() {
-                    return Err(TypeError::ArityMismatch {
-                        name: "shift".into(),
-                        expected: 0,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 0, "shift".into(), span)?;
                 return Ok(Type::Optional(elem.clone()));
             }
             if method == "unshift" {
@@ -779,14 +654,7 @@ impl TypeChecker {
                         span,
                     });
                 }
-                if args.len() != 1 {
-                    return Err(TypeError::ArityMismatch {
-                        name: "unshift".into(),
-                        expected: 1,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 1, "unshift".into(), span)?;
                 let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
                 if !self.value_assignable(&args[0], &at, elem) {
                     return Err(TypeError::Mismatch {
@@ -798,14 +666,7 @@ impl TypeChecker {
                 return Ok(Type::Unit);
             }
             if method == "fill" {
-                if args.len() != 1 {
-                    return Err(TypeError::ArityMismatch {
-                        name: "fill".into(),
-                        expected: 1,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 1, "fill".into(), span)?;
                 let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
                 if !self.value_assignable(&args[0], &at, elem) {
                     return Err(TypeError::Mismatch {
@@ -817,14 +678,7 @@ impl TypeChecker {
                 return Ok(Type::Unit);
             }
             if method == "sort" {
-                if args.len() != 1 {
-                    return Err(TypeError::ArityMismatch {
-                        name: "sort".into(),
-                        expected: 1,
-                        got: args.len(),
-                        span,
-                    });
-                }
+                check_arity(args.len(), 1, "sort".into(), span)?;
                 let ft = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
                 let (params, ret) = match &ft {
                     Type::Fn(fty) => (fty.params.clone(), fty.ret.clone()),
@@ -865,14 +719,7 @@ impl TypeChecker {
         if let Type::Object(ename) = &ot {
             if let Some(sig) = self.enums.get(ename).cloned() {
                 if sig.flags && method == "has" {
-                    if args.len() != 1 {
-                        return Err(TypeError::ArityMismatch {
-                            name: "has".into(),
-                            expected: 1,
-                            got: args.len(),
-                            span,
-                        });
-                    }
+                    check_arity(args.len(), 1, "has".into(), span)?;
                     let at = self.check_expr(
                         &args[0], env, ret_ty, in_class, loop_depth,
                     )?;
@@ -897,14 +744,7 @@ impl TypeChecker {
                     if cls.is_repr_c {
                         if let Some(field_ty) = cls.fields.get(method).cloned() {
                             if let Type::Fn(ft) = field_ty {
-                                if args.len() != ft.params.len() {
-                                    return Err(TypeError::ArityMismatch {
-                                        name: method.clone(),
-                                        expected: ft.params.len(),
-                                        got: args.len(),
-                                        span,
-                                    });
-                                }
+                                check_arity(args.len(), ft.params.len(), method.clone(), span)?;
                                 for (i, expected) in ft.params.iter().enumerate() {
                                     let got = self.check_expr(
                                         &args[i], env, ret_ty, in_class, loop_depth,
@@ -992,14 +832,7 @@ impl TypeChecker {
                 // field already carries the fn type.
                 if let Some(field_ty) = cls.fields.get(method).cloned() {
                     if let Type::Fn(ft) = field_ty {
-                        if args.len() != ft.params.len() {
-                            return Err(TypeError::ArityMismatch {
-                                name: method.clone(),
-                                expected: ft.params.len(),
-                                got: args.len(),
-                                span,
-                            });
-                        }
+                        check_arity(args.len(), ft.params.len(), method.clone(), span)?;
                         for (i, expected) in ft.params.iter().enumerate() {
                             let got = self.check_expr(
                                 &args[i], env, ret_ty, in_class, loop_depth,
@@ -1080,14 +913,7 @@ impl TypeChecker {
         // Accepts any single value; the JIT / interpreter
         // synthesise the right Type metadata at runtime.
         if callee == "typeof" {
-            if args.len() != 1 {
-                return Err(TypeError::ArityMismatch {
-                    name: callee.clone(),
-                    expected: 1,
-                    got: args.len(),
-                    span,
-                });
-            }
+            check_arity(args.len(), 1, callee.clone(), span)?;
             self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
             return Ok(Type::Object("Type".into()));
         }
@@ -1097,14 +923,7 @@ impl TypeChecker {
         // matches compiler-generated calls; no `pub` / module
         // bookkeeping needed.
         if callee.as_str() == "$ffi.cstrFromString" {
-            if args.len() != 1 {
-                return Err(TypeError::ArityMismatch {
-                    name: callee.clone(),
-                    expected: 1,
-                    got: args.len(),
-                    span,
-                });
-            }
+            check_arity(args.len(), 1, callee.clone(), span)?;
             self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
             return Ok(Type::RawPtr {
                 is_const: true,
@@ -1230,14 +1049,7 @@ impl TypeChecker {
         // param type, arg type) pairs, then validate arg-by-arg
         // against the substituted param types and return the
         // substituted return type. Mirrors enum-ctor inference.
-        if sig.params.len() != args.len() {
-            return Err(TypeError::ArityMismatch {
-                name: callee.clone(),
-                expected: sig.params.len(),
-                got: args.len(),
-                span,
-            });
-        }
+        check_arity(args.len(), sig.params.len(), callee.clone(), span)?;
         let mut bindings: HashMap<Symbol, Type> = HashMap::new();
         let mut arg_tys: Vec<Type> = Vec::with_capacity(args.len());
         for (param_ty, arg) in sig.params.iter().zip(args.iter()) {
@@ -1287,14 +1099,7 @@ impl TypeChecker {
         // lower pass will further validate that the shape matches one
         // of the runtime's pre-baked invoke trampolines.
         if class.as_str() == "ObjCBlock" && type_args.is_empty() {
-            if args.len() != 1 {
-                return Err(TypeError::ArityMismatch {
-                    name: Symbol::intern("ObjCBlock::init"),
-                    expected: 1,
-                    got: args.len(),
-                    span,
-                });
-            }
+            check_arity(args.len(), 1, Symbol::intern("ObjCBlock::init"), span)?;
             let arg_ty = self.check_expr(
                 &args[0], env, ret_ty, in_class, loop_depth,
             )?;

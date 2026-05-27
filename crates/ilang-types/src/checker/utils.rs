@@ -15,6 +15,27 @@ use crate::ops::{assignable, bin_result, int_literal_fits};
 
 use super::*;
 
+/// Boilerplate `args.len() != expected → ArityMismatch` check.
+/// Folds the 6-line `if ... { return Err(TypeError::ArityMismatch { ... }) }`
+/// pattern that the call-site checks in `checker/expr/calls.rs` repeat
+/// 30+ times into a single `check_arity(...)?;` call.
+pub(super) fn check_arity(
+    actual: usize,
+    expected: usize,
+    name: Symbol,
+    span: Span,
+) -> Result<(), TypeError> {
+    if actual != expected {
+        return Err(TypeError::ArityMismatch {
+            name,
+            expected,
+            got: actual,
+            span,
+        });
+    }
+    Ok(())
+}
+
 impl TypeChecker {
     /// Cheap literal-only type guess for `let X = expr` cases that
     /// omit the type annotation. Returns `None` for anything that
