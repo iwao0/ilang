@@ -744,20 +744,10 @@ impl TypeChecker {
                     if cls.is_repr_c {
                         if let Some(field_ty) = cls.fields.get(method).cloned() {
                             if let Type::Fn(ft) = field_ty {
-                                check_arity(args.len(), ft.params.len(), method.clone(), span)?;
-                                for (i, expected) in ft.params.iter().enumerate() {
-                                    let got = self.check_expr(
-                                        &args[i], env, ret_ty, in_class, loop_depth,
-                                    )?;
-                                    if !self.value_assignable(&args[i], &got, expected) {
-                                        return Err(TypeError::Mismatch {
-                                            expected: expected.clone(),
-                                            got,
-                                            span: args[i].span,
-                                        });
-                                    }
-                                }
-                                return Ok(ft.ret.clone());
+                                return self.check_fn_field_call(
+                                    &ft, args, env, ret_ty, in_class, loop_depth,
+                                    method.clone(), span,
+                                );
                             }
                             return Err(TypeError::UnknownMethod {
                                 class: (*struct_name).into(),
@@ -832,20 +822,10 @@ impl TypeChecker {
                 // field already carries the fn type.
                 if let Some(field_ty) = cls.fields.get(method).cloned() {
                     if let Type::Fn(ft) = field_ty {
-                        check_arity(args.len(), ft.params.len(), method.clone(), span)?;
-                        for (i, expected) in ft.params.iter().enumerate() {
-                            let got = self.check_expr(
-                                &args[i], env, ret_ty, in_class, loop_depth,
-                            )?;
-                            if !self.value_assignable(&args[i], &got, expected) {
-                                return Err(TypeError::Mismatch {
-                                    expected: expected.clone(),
-                                    got,
-                                    span: args[i].span,
-                                });
-                            }
-                        }
-                        return Ok(ft.ret.clone());
+                        return self.check_fn_field_call(
+                            &ft, args, env, ret_ty, in_class, loop_depth,
+                            method.clone(), span,
+                        );
                     }
                 }
                 return Err(TypeError::UnknownMethod {
@@ -893,6 +873,36 @@ impl TypeChecker {
             class_name.as_str(), &cmod, "method", method.as_str(), chosen.is_pub, span,
         )?;
         Ok(chosen.ret)
+    }
+
+    /// `obj.method(args)` where the lookup landed on a fn-typed
+    /// instance field instead of a real method — the dispatch
+    /// degenerates into a load + indirect call. Both the regular
+    /// path (`Object(c).field` of `Type::Fn`) and the CRepr COM
+    /// vtable path (`*T.field`) share this check shape.
+    fn check_fn_field_call(
+        &self,
+        ft: &ilang_ast::FnTy,
+        args: &[Expr],
+        env: &Vars,
+        ret_ty: Option<&Type>,
+        in_class: Option<Symbol>,
+        loop_depth: u32,
+        method_name: Symbol,
+        span: Span,
+    ) -> Result<Type, TypeError> {
+        check_arity(args.len(), ft.params.len(), method_name, span)?;
+        for (i, expected) in ft.params.iter().enumerate() {
+            let got = self.check_expr(&args[i], env, ret_ty, in_class, loop_depth)?;
+            if !self.value_assignable(&args[i], &got, expected) {
+                return Err(TypeError::Mismatch {
+                    expected: expected.clone(),
+                    got,
+                    span: args[i].span,
+                });
+            }
+        }
+        Ok(ft.ret.clone())
     }
 }
 
