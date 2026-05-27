@@ -569,6 +569,11 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         // receiver; treat it as `Type::Str` directly.
         let inferred_ty: Option<Type> = if receiver == text::STR_LITERAL_RECEIVER {
             Some(Type::Str)
+        } else if receiver == text::FLOAT_LITERAL_RECEIVER {
+            // `(1.0).` — parenthesised float literal. Float literals
+            // default to f64 in ilang, so list the f64 primitive
+            // methods (`toString` / `isFinite` / `isNaN`).
+            Some(Type::F64)
         } else {
             doc.var_types.get(&AstSymbol::intern(&receiver)).cloned()
         };
@@ -1450,6 +1455,32 @@ mod lib_filter_tests {
             labels.iter().any(|l| *l == "toString"),
             "expected `toString` in i64 receiver completion, got: {labels:?}"
         );
+    }
+
+    #[test]
+    fn paren_float_literal_receiver_surfaces_f64_methods() {
+        // `(1.0).` — parenthesised float literal as the receiver.
+        // The receiver isn't a variable name, so the old path looked
+        // it up in `var_types`, got `None`, and bailed out. Now
+        // `receiver_before_dot` returns the FLOAT_LITERAL_RECEIVER
+        // sentinel and completion surfaces the f64 primitive methods
+        // (`toString` / `isFinite` / `isNaN`).
+        let mut doc = Doc::default();
+        doc.text = "(1.0).\n".to_string();
+        let pos = Position { line: 0, character: 6 };
+        let resp = handle_completion(&doc, pos)
+            .expect("expected a completion response for `(1.0).`");
+        let items = match resp {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let labels: Vec<&str> = items.iter().map(|it| it.label.as_str()).collect();
+        for want in ["toString", "isFinite", "isNaN"] {
+            assert!(
+                labels.iter().any(|l| *l == want),
+                "expected `{want}` in (1.0). completion, got: {labels:?}"
+            );
+        }
     }
 
     #[test]

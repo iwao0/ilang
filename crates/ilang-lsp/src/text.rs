@@ -773,6 +773,58 @@ pub(crate) fn word_at(src: &str, pos: Position) -> Option<(String, u32)> {
 /// recognises this and surfaces the built-in string methods.
 pub(crate) const STR_LITERAL_RECEIVER: &str = "\"\"";
 
+/// Sentinel receiver for a parenthesised float literal (`(1.0).` /
+/// `(-3.14).`). The completion handler maps this to `Type::F64` and
+/// emits the primitive-method list (`toString`, `isFinite`, `isNaN`).
+pub(crate) const FLOAT_LITERAL_RECEIVER: &str = "(0.0)";
+
+/// Is `s` an ilang float literal? Accepts an optional leading `-`,
+/// at least one digit either side of the `.`, and an optional
+/// `e[+-]?\d+` exponent. Hex / underscore digits aren't recognised
+/// (ilang's float syntax doesn't allow them today).
+fn is_float_literal(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    if bytes.is_empty() {
+        return false;
+    }
+    let mut i = 0;
+    if bytes[i] == b'-' || bytes[i] == b'+' {
+        i += 1;
+    }
+    let int_start = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == int_start {
+        return false;
+    }
+    if i >= bytes.len() || bytes[i] != b'.' {
+        return false;
+    }
+    i += 1;
+    let frac_start = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == frac_start {
+        return false;
+    }
+    if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
+        i += 1;
+        if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') {
+            i += 1;
+        }
+        let exp_start = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == exp_start {
+            return false;
+        }
+    }
+    i == bytes.len()
+}
+
 pub(crate) fn receiver_before_dot(text: &str, pos: Position) -> Option<String> {
     let line = pos.line + 1;
     let col = pos.character + 1;
@@ -811,6 +863,27 @@ pub(crate) fn receiver_before_dot(text: &str, pos: Position) -> Option<String> {
                 }
                 if bs % 2 == 0 {
                     return Some(STR_LITERAL_RECEIVER.to_string());
+                }
+            }
+        }
+    }
+    // Parenthesised float literal: `(1.0).`. Walk back to the matching
+    // `(` (no nested parens — just a literal between them), check that
+    // the trimmed inner body parses as a float literal, and return the
+    // FLOAT_LITERAL_RECEIVER sentinel so completion surfaces the f64
+    // primitive methods.
+    if off > 0 && bytes[off - 1] == b')' {
+        let close = off - 1;
+        let mut i = close;
+        while i > 0 && bytes[i - 1] != b'(' {
+            i -= 1;
+        }
+        if i > 0 {
+            let inner_bytes = &bytes[i..close];
+            if let Ok(inner) = std::str::from_utf8(inner_bytes) {
+                let trimmed = inner.trim();
+                if is_float_literal(trimmed) {
+                    return Some(FLOAT_LITERAL_RECEIVER.to_string());
                 }
             }
         }
