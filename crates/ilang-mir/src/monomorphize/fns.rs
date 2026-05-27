@@ -248,13 +248,21 @@ pub(super) fn rewrite_calls_in_item(
     outer_args: &[Type],
     generic_fns: &HashMap<Symbol, FnDecl>,
 ) -> Item {
+    let mut map_expr =
+        |e: &Expr| rewrite_calls_in_expr(e, table, outer_params, outer_args, generic_fns);
     let mut map_block =
         |b: &Block| rewrite_calls_in_block(b, table, outer_params, outer_args, generic_fns);
     let mut keep_type = |t: &Type| t.clone();
     match item {
-        Item::Fn(f) => Item::Fn(super::walk::map_fn_decl(f, &mut map_block, &mut keep_type)),
+        Item::Fn(f) => Item::Fn(super::walk::map_fn_decl(
+            f,
+            &mut map_expr,
+            &mut map_block,
+            &mut keep_type,
+        )),
         Item::Class(c) => Item::Class(super::walk::map_class_decl(
             c,
+            &mut map_expr,
             &mut map_block,
             &mut keep_type,
         )),

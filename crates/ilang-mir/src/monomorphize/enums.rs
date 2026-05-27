@@ -456,6 +456,9 @@ pub(super) fn rewrite_enum_refs_in_item(
     outer_params: &[Symbol],
     outer_args: &[Type],
 ) -> Item {
+    let mut map_expr = |e: &Expr| {
+        rewrite_enum_refs_in_expr(e, generic_enums, table, outer_params, outer_args)
+    };
     let mut map_block =
         |b: &Block| rewrite_enum_refs_in_block(b, generic_enums, table, outer_params, outer_args);
     let mut map_type = |t: &Type| rewrite_enum_refs_in_type(t, generic_enums);
@@ -468,9 +471,15 @@ pub(super) fn rewrite_enum_refs_in_item(
         // EnumCtor refs against the side table. We just clone
         // generic templates through here.
         Item::Fn(f) if !f.type_params.is_empty() => Item::Fn(f.clone()),
-        Item::Fn(f) => Item::Fn(super::walk::map_fn_decl(f, &mut map_block, &mut map_type)),
+        Item::Fn(f) => Item::Fn(super::walk::map_fn_decl(
+            f,
+            &mut map_expr,
+            &mut map_block,
+            &mut map_type,
+        )),
         Item::Class(c) => Item::Class(super::walk::map_class_decl(
             c,
+            &mut map_expr,
             &mut map_block,
             &mut map_type,
         )),
@@ -573,11 +582,19 @@ fn rewrite_enum_refs_in_extern_c_item(
             span: *span,
         },
         ExternCItem::FnDef(f) => {
+            let mut map_expr = |e: &Expr| {
+                rewrite_enum_refs_in_expr(e, generic_enums, table, outer_params, outer_args)
+            };
             let mut map_block = |b: &Block| {
                 rewrite_enum_refs_in_block(b, generic_enums, table, outer_params, outer_args)
             };
             let mut map_type = |t: &Type| rewrite_enum_refs_in_type(t, generic_enums);
-            ExternCItem::FnDef(super::walk::map_fn_decl(f, &mut map_block, &mut map_type))
+            ExternCItem::FnDef(super::walk::map_fn_decl(
+                f,
+                &mut map_expr,
+                &mut map_block,
+                &mut map_type,
+            ))
         }
         ExternCItem::Class(c) => {
             // Reuse the regular class path — wrapping classes

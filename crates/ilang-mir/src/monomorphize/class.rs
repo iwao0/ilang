@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param, Program, Symbol, Type,
+    Block, ClassDecl, Expr, ExprKind, FnDecl, Item, Param, Program, Symbol, Type,
 };
 
 use super::*;
@@ -273,85 +273,27 @@ pub(super) fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> C
     // otherwise nested instantiations leak through as `Type::Generic`.
     let args: Vec<Type> = args.iter().map(rewrite_type).collect();
     let args = &args[..];
-    let fields = c
-        .fields
-        .iter()
-        .map(|f| FieldDecl {
-            is_pub: false,
-            name: f.name.clone(),
-            ty: subst_type(&f.ty, &params, args),
-            span: f.span, bits: f.bits,
-        })
-        .collect();
-    let methods = c
-        .methods
-        .iter()
-        .map(|m| specialize_fn(m, &params, args))
-        .collect();
-    let static_methods = c
-        .static_methods
-        .iter()
-        .map(|m| specialize_fn(m, &params, args))
-        .collect();
-    let properties = c
-        .properties
-        .iter()
-        .map(|p| ilang_ast::PropertyDecl { is_static: p.is_static,
-            is_pub: false,
-            name: p.name.clone(),
-            ty: subst_type(&p.ty, &params, args),
-            getter: p.getter.as_ref().map(|g| specialize_fn(g, &params, args)),
-            setter: p.setter.as_ref().map(|s| specialize_fn(s, &params, args)),
-            span: p.span,
-        })
-        .collect();
-    ClassDecl {
-        is_pub: c.is_pub,
-        extern_lib: c.extern_lib.clone(),
-        is_repr_c: c.is_repr_c,
-        is_packed: c.is_packed,
-        is_handle: c.is_handle,
-        is_union: c.is_union,
-        name: mangled.into(),
-        type_params: Box::new([]),
-        parent: c.parent.clone(),
-        interfaces: c.interfaces.clone(),
-        fields,
-        properties,
-        methods,
-        static_methods,
-        // Generic class + static fields shouldn't reach here (the
-        // type checker forbids static members on generic classes for
-        // now), but pass them through verbatim for completeness.
-        static_fields: c.static_fields.clone(),
-        attrs: c.attrs.clone(),
-        span: c.span,
-    }
+    let mut map_expr = |e: &Expr| subst_expr(e, &params, args);
+    let mut map_block = |b: &Block| subst_block(b, &params, args);
+    let mut map_type = |t: &Type| subst_type(t, &params, args);
+    let mut out = super::walk::map_class_decl(c, &mut map_expr, &mut map_block, &mut map_type);
+    // map_class_decl preserves the generic class's type_params and
+    // drops `is_pub`; specialize emits a concrete non-generic class
+    // bound to `mangled` instead.
+    out.name = mangled.into();
+    out.type_params = Box::new([]);
+    out
 }
 
 pub(super) fn specialize_fn(f: &FnDecl, params: &[Symbol], args: &[Type]) -> FnDecl {
-    FnDecl {
-        is_pub: f.is_pub,
-        name: f.name.clone(),
-        type_params: Box::new([]),
-        params: f
-            .params
-            .iter()
-            .map(|p| Param {
-                name: p.name.clone(),
-                ty: subst_type(&p.ty, params, args),
-                span: p.span,
-                default: p.default.as_ref().map(|d| subst_expr(d, params, args)),
-            })
-            .collect(),
-        ret: f.ret.as_ref().map(|t| subst_type(t, params, args)),
-        body: subst_block(&f.body, params, args),
-        attrs: f.attrs.clone(),
-        span: f.span,
-        is_override: f.is_override,
-            is_async: false,
-            intrinsic_name: f.intrinsic_name,
-    }
+    let mut map_expr = |e: &Expr| subst_expr(e, params, args);
+    let mut map_block = |b: &Block| subst_block(b, params, args);
+    let mut map_type = |t: &Type| subst_type(t, params, args);
+    let mut out = super::walk::map_fn_decl(f, &mut map_expr, &mut map_block, &mut map_type);
+    // Specialized fns shed their generic params — the type checker
+    // already pinned every TypeVar in `subst_type`.
+    out.type_params = Box::new([]);
+    out
 }
 
 pub(super) fn subst_block(b: &Block, params: &[Symbol], args: &[Type]) -> Block {
@@ -428,6 +370,7 @@ pub(super) fn rewrite_item(item: &Item) -> Item {
     match item {
         Item::Class(c) => Item::Class(super::walk::map_class_decl(
             c,
+            &mut rewrite_expr,
             &mut rewrite_block,
             &mut rewrite_type,
         )),
@@ -457,7 +400,7 @@ pub(super) fn rewrite_item(item: &Item) -> Item {
 }
 
 pub(super) fn rewrite_fn(f: &FnDecl) -> FnDecl {
-    super::walk::map_fn_decl(f, &mut rewrite_block, &mut rewrite_type)
+    super::walk::map_fn_decl(f, &mut rewrite_expr, &mut rewrite_block, &mut rewrite_type)
 }
 
 pub(super) fn rewrite_block(b: &Block) -> Block {

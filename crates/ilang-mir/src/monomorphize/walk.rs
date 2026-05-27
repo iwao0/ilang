@@ -503,23 +503,24 @@ where
     }
 }
 
-/// Rebuild a `FnDecl` by remapping its body `Block` and every
-/// `Type` annotation in params / return. Param `default` exprs
-/// pass through clone — the existing monomorphize passes don't
-/// rewrite them either (any T inside a default is left for a
-/// future expr-mapper-aware variant).
+/// Rebuild a `FnDecl` by remapping every component through the
+/// supplied closures: param `default` exprs go through
+/// `map_expr`, the body `Block` through `map_block`, every
+/// `Type` annotation (params + return) through `map_type`.
 ///
 /// `is_pub` is fixed to `false` and `is_async` to `false`: the
 /// type checker upstream already enforces visibility, and async
 /// fns desugar before monomorphize. `intrinsic_name` passes
 /// through — top-level fn `@intrinsic("...")` bindings need it
 /// preserved so the lower pass can route to the runtime.
-pub(super) fn map_fn_decl<FB, FT>(
+pub(super) fn map_fn_decl<FE, FB, FT>(
     f: &FnDecl,
+    map_expr: &mut FE,
     map_block: &mut FB,
     map_type: &mut FT,
 ) -> FnDecl
 where
+    FE: FnMut(&Expr) -> Expr,
     FB: FnMut(&Block) -> Block,
     FT: FnMut(&Type) -> Type,
 {
@@ -535,7 +536,7 @@ where
                 name: p.name.clone(),
                 ty: map_type(&p.ty),
                 span: p.span,
-                default: p.default.clone(),
+                default: p.default.as_ref().map(|d| map_expr(d)),
             })
             .collect(),
         ret: f.ret.as_ref().map(|t| map_type(t)),
@@ -550,12 +551,14 @@ where
 /// Rebuild a `PropertyDecl` by mapping its declared `Type` and
 /// every getter / setter body through `map_fn_decl`. Same
 /// visibility / async conventions as `map_fn_decl`.
-pub(super) fn map_property_decl<FB, FT>(
+pub(super) fn map_property_decl<FE, FB, FT>(
     p: &PropertyDecl,
+    map_expr: &mut FE,
     map_block: &mut FB,
     map_type: &mut FT,
 ) -> PropertyDecl
 where
+    FE: FnMut(&Expr) -> Expr,
     FB: FnMut(&Block) -> Block,
     FT: FnMut(&Type) -> Type,
 {
@@ -564,8 +567,14 @@ where
         is_pub: false,
         name: p.name.clone(),
         ty: map_type(&p.ty),
-        getter: p.getter.as_ref().map(|g| map_fn_decl(g, map_block, map_type)),
-        setter: p.setter.as_ref().map(|s| map_fn_decl(s, map_block, map_type)),
+        getter: p
+            .getter
+            .as_ref()
+            .map(|g| map_fn_decl(g, map_expr, map_block, map_type)),
+        setter: p
+            .setter
+            .as_ref()
+            .map(|s| map_fn_decl(s, map_expr, map_block, map_type)),
         span: p.span,
     }
 }
@@ -577,12 +586,14 @@ where
 /// `interfaces`, `type_params`, `attrs`, `static_fields`) pass
 /// through clone. Same `is_pub: false` / `is_async: false`
 /// convention as `map_fn_decl`.
-pub(super) fn map_class_decl<FB, FT>(
+pub(super) fn map_class_decl<FE, FB, FT>(
     c: &ClassDecl,
+    map_expr: &mut FE,
     map_block: &mut FB,
     map_type: &mut FT,
 ) -> ClassDecl
 where
+    FE: FnMut(&Expr) -> Expr,
     FB: FnMut(&Block) -> Block,
     FT: FnMut(&Type) -> Type,
 {
@@ -611,18 +622,18 @@ where
         methods: c
             .methods
             .iter()
-            .map(|m| map_fn_decl(m, map_block, map_type))
+            .map(|m| map_fn_decl(m, map_expr, map_block, map_type))
             .collect(),
         static_methods: c
             .static_methods
             .iter()
-            .map(|m| map_fn_decl(m, map_block, map_type))
+            .map(|m| map_fn_decl(m, map_expr, map_block, map_type))
             .collect(),
         static_fields: c.static_fields.clone(),
         properties: c
             .properties
             .iter()
-            .map(|p| map_property_decl(p, map_block, map_type))
+            .map(|p| map_property_decl(p, map_expr, map_block, map_type))
             .collect(),
         attrs: c.attrs.clone(),
         span: c.span,
