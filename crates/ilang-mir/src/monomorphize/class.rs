@@ -3,8 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param, Program,
-    Stmt, StmtKind, Symbol, Type,
+    Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param, Program, Symbol, Type,
 };
 
 use super::*;
@@ -356,251 +355,20 @@ pub(super) fn specialize_fn(f: &FnDecl, params: &[Symbol], args: &[Type]) -> FnD
 }
 
 pub(super) fn subst_block(b: &Block, params: &[Symbol], args: &[Type]) -> Block {
-    Block {
-        stmts: b.stmts.iter().map(|s| subst_stmt(s, params, args)).collect(),
-        tail: b.tail.as_ref().map(|e| Box::new(subst_expr(e, params, args))),
-    }
-}
-
-pub(super) fn subst_stmt(s: &Stmt, params: &[Symbol], args: &[Type]) -> Stmt {
-    let kind = match &s.kind {
-        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
-            is_pub: false,
-                is_const: false,
-            name: name.clone(),
-            ty: ty.as_ref().map(|t| subst_type(t, params, args)),
-            value: subst_expr(value, params, args),
-        },
-        StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
-            elems: elems.clone(),
-            value: subst_expr(value, params, args),
-        },
-        StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
-            class: class.clone(),
-            fields: fields.clone(),
-            value: subst_expr(value, params, args),
-        },
-        StmtKind::Expr(e) => StmtKind::Expr(subst_expr(e, params, args)),
-    };
-    Stmt {
-        kind,
-        span: s.span,
-        source_module: s.source_module.clone(),
-    }
+    super::walk::map_block_children(
+        b,
+        &mut |e| subst_expr(e, params, args),
+        &mut |t: &Type| subst_type(t, params, args),
+    )
 }
 
 pub(super) fn subst_expr(e: &Expr, params: &[Symbol], args: &[Type]) -> Expr {
-    let kind = match &e.kind {
-        ExprKind::Int(n) => ExprKind::Int(*n),
-        ExprKind::Float(f) => ExprKind::Float(*f),
-        ExprKind::Bool(b) => ExprKind::Bool(*b),
-        ExprKind::Str(s) => ExprKind::Str(s.clone()),
-        ExprKind::Var(n) => ExprKind::Var(n.clone()),
-        ExprKind::This => ExprKind::This,
-        ExprKind::None => ExprKind::None,
-        ExprKind::Some(inner) => ExprKind::Some(Box::new(subst_expr(inner, params, args))),
-        ExprKind::Await(inner) => ExprKind::Await(Box::new(subst_expr(inner, params, args))),
-        ExprKind::Break(opt) => ExprKind::Break(opt.as_ref().map(|e| Box::new(subst_expr(e, params, args)))),
-        ExprKind::Continue => ExprKind::Continue,
-        ExprKind::Unary { op, expr } => ExprKind::Unary {
-            op: *op,
-            expr: Box::new(subst_expr(expr, params, args)),
-        },
-        ExprKind::Binary { op, lhs, rhs } => ExprKind::Binary {
-            op: *op,
-            lhs: Box::new(subst_expr(lhs, params, args)),
-            rhs: Box::new(subst_expr(rhs, params, args)),
-        },
-        ExprKind::Logical { op, lhs, rhs } => ExprKind::Logical {
-            op: *op,
-            lhs: Box::new(subst_expr(lhs, params, args)),
-            rhs: Box::new(subst_expr(rhs, params, args)),
-        },
-        ExprKind::Cast { expr, ty } => ExprKind::Cast {
-            expr: Box::new(subst_expr(expr, params, args)),
-            ty: subst_type(ty, params, args),
-        },
-        ExprKind::TypeTest { expr, ty } => ExprKind::TypeTest {
-            expr: Box::new(subst_expr(expr, params, args)),
-            ty: subst_type(ty, params, args),
-        },
-        ExprKind::TypeDowncast { expr, ty } => ExprKind::TypeDowncast {
-            expr: Box::new(subst_expr(expr, params, args)),
-            ty: subst_type(ty, params, args),
-        },
-        ExprKind::FnExpr {
-            params: ps,
-            ret,
-            body,
-        } => ExprKind::FnExpr {
-            params: ps
-                .iter()
-                .map(|p| ilang_ast::Param {
-                    name: p.name.clone(),
-                    ty: subst_type(&p.ty, params, args),
-                    span: p.span,
-                    default: p.default.as_ref().map(|d| subst_expr(d, params, args)),
-                })
-                .collect(),
-            ret: ret.as_ref().map(|t| subst_type(t, params, args)),
-            body: subst_block(body, params, args),
-        },
-        ExprKind::Call { callee, args: a } => ExprKind::Call {
-            callee: callee.clone(),
-            args: a.iter().map(|x| subst_expr(x, params, args)).collect(),
-        },
-        ExprKind::SuperCall { method, args: a } => ExprKind::SuperCall {
-            method: method.clone(),
-            args: a.iter().map(|x| subst_expr(x, params, args)).collect(),
-        },
-        ExprKind::Closure { fn_name, captures } => ExprKind::Closure {
-            fn_name: fn_name.clone(),
-            captures: captures.clone(),
-        },
-        ExprKind::Field { obj, name } => ExprKind::Field {
-            obj: Box::new(subst_expr(obj, params, args)),
-            name: name.clone(),
-        },
-        ExprKind::MethodCall { obj, method, args: a } => ExprKind::MethodCall {
-            obj: Box::new(subst_expr(obj, params, args)),
-            method: method.clone(),
-            args: a.iter().map(|x| subst_expr(x, params, args)).collect(),
-        },
-        ExprKind::New {
-            class,
-            type_args,
-            args: a,
-            init_method,
-        } => ExprKind::New {
-            class: class.clone(),
-            type_args: type_args.iter().map(|t| subst_type(t, params, args)).collect(),
-            args: a.iter().map(|x| subst_expr(x, params, args)).collect(),
-            init_method: init_method.clone(),
-        },
-        ExprKind::Block(b) => ExprKind::Block(subst_block(b, params, args)),
-        ExprKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => ExprKind::If {
-            cond: Box::new(subst_expr(cond, params, args)),
-            then_branch: subst_block(then_branch, params, args),
-            else_branch: else_branch.as_ref().map(|e| Box::new(subst_expr(e, params, args))),
-        },
-        ExprKind::IfLet {
-            name,
-            expr,
-            then_branch,
-            else_branch,
-        } => ExprKind::IfLet {
-                name: name.clone(),
-            expr: Box::new(subst_expr(expr, params, args)),
-            then_branch: subst_block(then_branch, params, args),
-            else_branch: else_branch.as_ref().map(|e| Box::new(subst_expr(e, params, args))),
-        },
-        ExprKind::While { cond, body } => ExprKind::While {
-            cond: Box::new(subst_expr(cond, params, args)),
-            body: subst_block(body, params, args),
-        },
-        ExprKind::Loop { body } => ExprKind::Loop {
-            body: subst_block(body, params, args),
-        },
-        ExprKind::ForIn { var, iter, body } => ExprKind::ForIn {
-            var: var.clone(),
-            iter: Box::new(subst_expr(iter, params, args)),
-            body: subst_block(body, params, args),
-        },
-        ExprKind::Range { start, end, inclusive } => ExprKind::Range {
-            start: start.as_ref().map(|s| Box::new(subst_expr(s, params, args))),
-            end: end.as_ref().map(|e| Box::new(subst_expr(e, params, args))),
-            inclusive: *inclusive,
-        },
-        ExprKind::Return(opt) => ExprKind::Return(
-            opt.as_ref().map(|e| Box::new(subst_expr(e, params, args))),
-        ),
-        ExprKind::Assign { target, value } => ExprKind::Assign {
-            target: target.clone(),
-            value: Box::new(subst_expr(value, params, args)),
-        },
-        ExprKind::AssignField { obj, field, value, is_init } => ExprKind::AssignField {
-            obj: obj.clone(),
-            field: field.clone(),
-            value: Box::new(subst_expr(value, params, args)), is_init: *is_init },
-        ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
-            obj: obj.clone(),
-            index: index.clone(),
-            value: Box::new(subst_expr(value, params, args)),
-        },
-        ExprKind::Array(items) => ExprKind::Array(
-            items.iter().map(|e| subst_expr(e, params, args)).collect(),
-        ),
-        ExprKind::Tuple(items) => ExprKind::Tuple(
-            items.iter().map(|e| subst_expr(e, params, args)).collect(),
-        ),
-        ExprKind::StructLit { class, fields, field_name_spans } => ExprKind::StructLit {
-            class: class.clone(),
-            fields: fields
-                .iter()
-                .map(|(n, e)| (n.clone(), subst_expr(e, params, args)))
-                .collect(),
-            field_name_spans: field_name_spans.clone(),
-        },
-        ExprKind::MapLit(entries) => ExprKind::MapLit(
-            entries
-                .iter()
-                .map(|(k, v)| (subst_expr(k, params, args), subst_expr(v, params, args)))
-                .collect(),
-        ),
-        ExprKind::Index { obj, index } => ExprKind::Index {
-            obj: Box::new(subst_expr(obj, params, args)),
-            index: Box::new(subst_expr(index, params, args)),
-        },
-        ExprKind::EnumCtor {
-            enum_name,
-            variant,
-            args: a,
-        } => ExprKind::EnumCtor {
-            enum_name: enum_name.clone(),
-            variant: variant.clone(),
-            args: match a {
-                ilang_ast::CtorArgs::Unit => ilang_ast::CtorArgs::Unit,
-                ilang_ast::CtorArgs::Tuple(es) => ilang_ast::CtorArgs::Tuple(
-                    es.iter().map(|e| subst_expr(e, params, args)).collect(),
-                ),
-                ilang_ast::CtorArgs::Struct(fs) => ilang_ast::CtorArgs::Struct(
-                    fs.iter()
-                        .map(|(n, e)| (n.clone(), subst_expr(e, params, args)))
-                        .collect(),
-                ),
-            },
-        },
-        ExprKind::Match { scrutinee, arms } => ExprKind::Match {
-            scrutinee: Box::new(subst_expr(scrutinee, params, args)),
-            arms: arms
-                .iter()
-                .map(|arm| ilang_ast::MatchArm {
-                    pattern: arm.pattern.clone(),
-                    body: subst_expr(&arm.body, params, args),
-                    span: arm.span,
-                })
-                .collect(),
-        },
-        ExprKind::Template { parts } => ExprKind::Template {
-            parts: parts
-                .iter()
-                .map(|p| match p {
-                    ilang_ast::TemplatePart::Str(s) => ilang_ast::TemplatePart::Str(s.clone()),
-                    ilang_ast::TemplatePart::Expr(e2) => {
-                        ilang_ast::TemplatePart::Expr(subst_expr(e2, params, args))
-                    }
-                })
-                .collect(),
-        },
-    };
-    Expr {
-        kind,
-        span: e.span,
-    }
+    let kind = super::walk::map_expr_children(
+        e,
+        &mut |c| subst_expr(c, params, args),
+        &mut |t: &Type| subst_type(t, params, args),
+    );
+    Expr { kind, span: e.span }
 }
 
 pub(super) fn subst_type(t: &Type, params: &[Symbol], args: &[Type]) -> Type {
