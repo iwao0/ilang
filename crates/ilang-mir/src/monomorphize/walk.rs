@@ -167,7 +167,18 @@ pub(super) fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
 }
 
 pub(super) fn walk_block_children(b: &Block, f: &mut dyn FnMut(&Expr)) {
-    for s in &b.stmts {
+    walk_top_stmts(&b.stmts, b.tail.as_deref(), f);
+}
+
+/// Same stmts+tail walk as `walk_block_children`, but takes the
+/// pieces directly so it also works for `Program`'s top-level
+/// `stmts` / `tail` slots (which don't form a `Block`).
+pub(super) fn walk_top_stmts(
+    stmts: &[Stmt],
+    tail: Option<&Expr>,
+    f: &mut dyn FnMut(&Expr),
+) {
+    for s in stmts {
         match &s.kind {
             StmtKind::Let { value, .. }
             | StmtKind::LetTuple { value, .. }
@@ -175,7 +186,7 @@ pub(super) fn walk_block_children(b: &Block, f: &mut dyn FnMut(&Expr)) {
             StmtKind::Expr(e) => f(e),
         }
     }
-    if let Some(t) = &b.tail {
+    if let Some(t) = tail {
         f(t);
     }
 }
@@ -207,10 +218,40 @@ pub(super) fn walk_types_in_expr(e: &Expr, f: &mut dyn FnMut(&Type)) {
     }
 }
 
+/// Pre-order visit every `Type` node reachable from `t`, including
+/// `t` itself. Recurses through the structural carriers (`Generic`
+/// args, `Array` elem, `Optional`/`Weak` inner, `Fn` params + ret).
+/// Leaves the decision of *what* to do at each node to `f`.
+pub(super) fn walk_types_pre(t: &Type, f: &mut dyn FnMut(&Type)) {
+    f(t);
+    match t {
+        Type::Generic(g) => {
+            for a in &g.args {
+                walk_types_pre(a, f);
+            }
+        }
+        Type::Array { elem, .. } => walk_types_pre(elem, f),
+        Type::Optional(inner) | Type::Weak(inner) => walk_types_pre(inner, f),
+        Type::Fn(ft) => {
+            for p in &ft.params {
+                walk_types_pre(p, f);
+            }
+            walk_types_pre(&ft.ret, f);
+        }
+        _ => {}
+    }
+}
+
 /// Visit every `Type` annotation on a `Let` stmt inside `b`.
 /// Like `walk_types_in_expr`, does not recurse into Expr children.
 pub(super) fn walk_types_in_block(b: &Block, f: &mut dyn FnMut(&Type)) {
-    for s in &b.stmts {
+    walk_types_in_top_stmts(&b.stmts, f);
+}
+
+/// Same `Let { ty }` walk as `walk_types_in_block`, but for
+/// `Program`'s top-level `stmts` slice.
+pub(super) fn walk_types_in_top_stmts(stmts: &[Stmt], f: &mut dyn FnMut(&Type)) {
+    for s in stmts {
         if let StmtKind::Let { ty: Some(t), .. } = &s.kind {
             f(t);
         }

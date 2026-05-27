@@ -105,12 +105,12 @@ pub fn monomorphize(prog: &Program) -> Program {
             Item::Interface(_) => {}
         }
     }
-    for s in &prog.stmts {
-        scan_stmt(s, &mut needed, &mut worklist);
-    }
-    if let Some(t) = &prog.tail {
-        scan_expr(t, &mut needed, &mut worklist);
-    }
+    super::walk::walk_types_in_top_stmts(&prog.stmts, &mut |t| {
+        scan_type(t, &mut needed, &mut worklist)
+    });
+    super::walk::walk_top_stmts(&prog.stmts, prog.tail.as_ref(), &mut |e| {
+        scan_expr(e, &mut needed, &mut worklist)
+    });
 
     // Iteratively monomorphize each pending instantiation. As we
     // substitute T → concrete in method bodies, new generic refs may
@@ -192,18 +192,6 @@ pub(super) fn scan_block(b: &Block, needed: &mut HashSet<Symbol>, work: &mut Vec
     super::walk::walk_block_children(b, &mut |e| scan_expr(e, needed, work));
 }
 
-pub(super) fn scan_stmt(s: &Stmt, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
-    if let StmtKind::Let { ty: Some(t), .. } = &s.kind {
-        scan_type(t, needed, work);
-    }
-    match &s.kind {
-        StmtKind::Let { value, .. }
-        | StmtKind::LetTuple { value, .. }
-        | StmtKind::LetStruct { value, .. } => scan_expr(value, needed, work),
-        StmtKind::Expr(e) => scan_expr(e, needed, work),
-    }
-}
-
 pub(super) fn scan_expr(e: &Expr, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
     super::walk::walk_types_in_expr(e, &mut |t| scan_type(t, needed, work));
     // `new G<Ts>(...)` is itself a seed for the worklist, on top of
@@ -231,32 +219,18 @@ pub(super) fn collect_instantiations(
     needed: &mut HashSet<Symbol>,
     work: &mut Vec<InstKey>,
 ) {
-    match t {
-        Type::Generic(g) => {
-            // Only enqueue concrete instantiations (no remaining type
-            // variables). A `Box<T>` reference inside `class Wrap<T>`'s
-            // body is left as-is here; substitute_class produces the
-            // concrete `Box<i64>` later, which seeds the worklist on
-            // the next round.
-            if !contains_type_var(t) {
+    super::walk::walk_types_pre(t, &mut |ty| {
+        // Only enqueue concrete instantiations (no remaining type
+        // variables). A `Box<T>` reference inside `class Wrap<T>`'s
+        // body is left as-is here; substitute_class produces the
+        // concrete `Box<i64>` later, which seeds the worklist on
+        // the next round.
+        if let Type::Generic(g) = ty {
+            if !contains_type_var(ty) {
                 push_inst(g.base.clone(), g.args.to_vec(), needed, work);
             }
-            for a in &g.args {
-                collect_instantiations(a, needed, work);
-            }
         }
-        Type::Array { elem, .. } => collect_instantiations(elem, needed, work),
-        Type::Optional(inner) | Type::Weak(inner) => {
-            collect_instantiations(inner, needed, work)
-        }
-        Type::Fn(ft) => {
-            for p in &ft.params {
-                collect_instantiations(p, needed, work);
-            }
-            collect_instantiations(&ft.ret, needed, work);
-        }
-        _ => {}
-    }
+    });
 }
 
 pub(super) fn push_inst(

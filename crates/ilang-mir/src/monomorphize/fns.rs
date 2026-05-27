@@ -74,24 +74,15 @@ pub fn monomorphize_fns(
             &mut |name, args| enqueue(name, args, &mut worklist, &mut requested),
         );
     }
-    for s in &prog.stmts {
-        seed_calls_in_stmt(
-            s,
-            call_type_args,
-            &empty_params,
-            &empty_args,
-            &mut |name, args| enqueue(name, args, &mut worklist, &mut requested),
-        );
-    }
-    if let Some(t) = &prog.tail {
+    super::walk::walk_top_stmts(&prog.stmts, prog.tail.as_ref(), &mut |e| {
         seed_calls_in_expr(
-            t,
+            e,
             call_type_args,
             &empty_params,
             &empty_args,
             &mut |name, args| enqueue(name, args, &mut worklist, &mut requested),
         );
-    }
+    });
 
     // Drain the worklist. Each specialization may discover further
     // generic-fn calls in its (substituted) body; those go back on.
@@ -222,29 +213,9 @@ pub(super) fn seed_calls_in_block(
     outer_args: &[Type],
     visit: &mut dyn FnMut(&str, &[Type]),
 ) {
-    for s in &b.stmts {
-        seed_calls_in_stmt(s, table, outer_params, outer_args, visit);
-    }
-    if let Some(t) = &b.tail {
-        seed_calls_in_expr(t, table, outer_params, outer_args, visit);
-    }
-}
-
-pub(super) fn seed_calls_in_stmt(
-    s: &Stmt,
-    table: &HashMap<Span, (Symbol, Vec<Type>)>,
-    outer_params: &[Symbol],
-    outer_args: &[Type],
-    visit: &mut dyn FnMut(&str, &[Type]),
-) {
-    match &s.kind {
-        StmtKind::Let { value, .. }
-        | StmtKind::LetTuple { value, .. }
-        | StmtKind::LetStruct { value, .. } => {
-            seed_calls_in_expr(value, table, outer_params, outer_args, visit)
-        }
-        StmtKind::Expr(e) => seed_calls_in_expr(e, table, outer_params, outer_args, visit),
-    }
+    super::walk::walk_block_children(b, &mut |e| {
+        seed_calls_in_expr(e, table, outer_params, outer_args, visit)
+    });
 }
 
 pub(super) fn seed_calls_in_expr(

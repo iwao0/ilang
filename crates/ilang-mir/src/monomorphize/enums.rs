@@ -79,12 +79,12 @@ pub fn monomorphize_enums(
     for item in &prog.items {
         seed_enums_in_item(item, &mut |n, a| enqueue_enum(n, a, &mut worklist, &mut requested));
     }
-    for s in &prog.stmts {
-        seed_enums_in_stmt(s, &mut |n, a| enqueue_enum(n, a, &mut worklist, &mut requested));
-    }
-    if let Some(t) = &prog.tail {
-        seed_enums_in_expr(t, &mut |n, a| enqueue_enum(n, a, &mut worklist, &mut requested));
-    }
+    super::walk::walk_types_in_top_stmts(&prog.stmts, &mut |t| {
+        seed_enums_in_type(t, &mut |n, a| enqueue_enum(n, a, &mut worklist, &mut requested))
+    });
+    super::walk::walk_top_stmts(&prog.stmts, prog.tail.as_ref(), &mut |e| {
+        seed_enums_in_expr(e, &mut |n, a| enqueue_enum(n, a, &mut worklist, &mut requested))
+    });
 
     // Seed pass B: walk every EnumCtor with the side-table.
     let empty_params: Vec<Symbol> = Vec::new();
@@ -98,24 +98,15 @@ pub fn monomorphize_enums(
             &mut |n, a| enqueue_enum(n, a, &mut worklist, &mut requested),
         );
     }
-    for s in &prog.stmts {
-        seed_enum_ctors_in_stmt(
-            s,
-            enum_ctor_type_args,
-            &empty_params,
-            &empty_args,
-            &mut |n, a| enqueue_enum(n, a, &mut worklist, &mut requested),
-        );
-    }
-    if let Some(t) = &prog.tail {
+    super::walk::walk_top_stmts(&prog.stmts, prog.tail.as_ref(), &mut |e| {
         seed_enum_ctors_in_expr(
-            t,
+            e,
             enum_ctor_type_args,
             &empty_params,
             &empty_args,
             &mut |n, a| enqueue_enum(n, a, &mut worklist, &mut requested),
         );
-    }
+    });
 
     // Drain worklist. Each specialization's payload types may
     // themselves contain `Type::Generic { Enum, ... }` refs (e.g.
@@ -347,26 +338,8 @@ pub(super) fn seed_enums_in_fn(f: &FnDecl, visit: &mut dyn FnMut(&str, &[Type]))
 }
 
 pub(super) fn seed_enums_in_block(b: &Block, visit: &mut dyn FnMut(&str, &[Type])) {
-    for s in &b.stmts {
-        seed_enums_in_stmt(s, visit);
-    }
-    if let Some(t) = &b.tail {
-        seed_enums_in_expr(t, visit);
-    }
-}
-
-pub(super) fn seed_enums_in_stmt(s: &Stmt, visit: &mut dyn FnMut(&str, &[Type])) {
-    match &s.kind {
-        StmtKind::Let { value, ty, .. } => {
-            if let Some(t) = ty {
-                seed_enums_in_type(t, visit);
-            }
-            seed_enums_in_expr(value, visit);
-        }
-        StmtKind::LetTuple { value, .. }
-        | StmtKind::LetStruct { value, .. } => seed_enums_in_expr(value, visit),
-        StmtKind::Expr(e) => seed_enums_in_expr(e, visit),
-    }
+    super::walk::walk_types_in_block(b, &mut |t| seed_enums_in_type(t, visit));
+    super::walk::walk_block_children(b, &mut |e| seed_enums_in_expr(e, visit));
 }
 
 pub(super) fn seed_enums_in_expr(e: &Expr, visit: &mut dyn FnMut(&str, &[Type])) {
@@ -377,23 +350,11 @@ pub(super) fn seed_enums_in_expr(e: &Expr, visit: &mut dyn FnMut(&str, &[Type]))
 }
 
 pub(super) fn seed_enums_in_type(t: &Type, visit: &mut dyn FnMut(&str, &[Type])) {
-    match t {
-        Type::Generic(g) => {
+    super::walk::walk_types_pre(t, &mut |ty| {
+        if let Type::Generic(g) = ty {
             visit(g.base.as_str(), &g.args);
-            for a in &g.args {
-                seed_enums_in_type(a, visit);
-            }
         }
-        Type::Array { elem, .. } => seed_enums_in_type(elem, visit),
-        Type::Optional(inner) | Type::Weak(inner) => seed_enums_in_type(inner, visit),
-        Type::Fn(ft) => {
-            for p in &ft.params {
-                seed_enums_in_type(p, visit);
-            }
-            seed_enums_in_type(&ft.ret, visit);
-        }
-        _ => {}
-    }
+    });
 }
 
 pub(super) fn seed_enum_ctors_in_item(
@@ -463,29 +424,9 @@ pub(super) fn seed_enum_ctors_in_block(
     outer_args: &[Type],
     visit: &mut dyn FnMut(&str, &[Type]),
 ) {
-    for s in &b.stmts {
-        seed_enum_ctors_in_stmt(s, table, outer_params, outer_args, visit);
-    }
-    if let Some(t) = &b.tail {
-        seed_enum_ctors_in_expr(t, table, outer_params, outer_args, visit);
-    }
-}
-
-pub(super) fn seed_enum_ctors_in_stmt(
-    s: &Stmt,
-    table: &HashMap<Span, (Symbol, Vec<Type>)>,
-    outer_params: &[Symbol],
-    outer_args: &[Type],
-    visit: &mut dyn FnMut(&str, &[Type]),
-) {
-    match &s.kind {
-        StmtKind::Let { value, .. }
-        | StmtKind::LetTuple { value, .. }
-        | StmtKind::LetStruct { value, .. } => {
-            seed_enum_ctors_in_expr(value, table, outer_params, outer_args, visit)
-        }
-        StmtKind::Expr(e) => seed_enum_ctors_in_expr(e, table, outer_params, outer_args, visit),
-    }
+    super::walk::walk_block_children(b, &mut |e| {
+        seed_enum_ctors_in_expr(e, table, outer_params, outer_args, visit)
+    });
 }
 
 pub(super) fn seed_enum_ctors_in_expr(
