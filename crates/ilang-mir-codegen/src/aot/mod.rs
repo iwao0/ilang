@@ -31,10 +31,69 @@ mod helpers;
 use helpers::{coerce_to_i32, field_kind_tag, print_kind_id_for_ty, validate_subset};
 
 use crate::compile::{
-    alloc_global_class_id, alloc_global_enum_id, lower_program_into_with_missing,
-    CompileError,
+    alloc_global_class_id, alloc_global_enum_id, declare_binary_i64_void,
+    declare_n_i64_void, declare_quad_i64_void, declare_returns_i64,
+    declare_ternary_i64_void, lower_program_into_with_missing, CompileError,
 };
 use crate::ty::mir_to_clif;
+
+/// Cranelift `FuncId`s for the runtime's metadata-registration entry
+/// points (vtable, drop, size, object-field, closure capture / size,
+/// enum payload-kind / print metadata, lib-group). Populated once via
+/// `import_all` so `emit_aot_init` stays readable.
+struct AotRegistry {
+    vtable: cranelift_module::FuncId,
+    drop_: cranelift_module::FuncId,
+    class_size: cranelift_module::FuncId,
+    object_field: cranelift_module::FuncId,
+    closure_capture: cranelift_module::FuncId,
+    closure_size: cranelift_module::FuncId,
+    enum_payload_kind: cranelift_module::FuncId,
+    class_print_name: cranelift_module::FuncId,
+    class_print_field: cranelift_module::FuncId,
+    struct_print_field: cranelift_module::FuncId,
+    enum_print_name: cranelift_module::FuncId,
+    enum_print_variant_name: cranelift_module::FuncId,
+    enum_print_variant_payload_pk: cranelift_module::FuncId,
+    fn_name: cranelift_module::FuncId,
+    enum_disc_str: cranelift_module::FuncId,
+    lib_group_begin: cranelift_module::FuncId,
+    lib_group_member: cranelift_module::FuncId,
+}
+
+impl AotRegistry {
+    fn import_all(module: &mut ObjectModule) -> Result<Self, AotError> {
+        Ok(Self {
+            vtable: declare_ternary_i64_void(module, "$class.registerVtableEntry")?,
+            drop_: declare_binary_i64_void(module, "$class.registerDrop")?,
+            class_size: declare_binary_i64_void(module, "$class.registerSize")?,
+            object_field: declare_ternary_i64_void(module, "$class.registerObjectField")?,
+            closure_capture: declare_ternary_i64_void(module, "$closure.registerCapture")?,
+            closure_size: declare_binary_i64_void(module, "$closure.registerSize")?,
+            enum_payload_kind: declare_quad_i64_void(module, "$enum.registerPayloadKind")?,
+            class_print_name: declare_binary_i64_void(module, "$class.registerPrintName")?,
+            class_print_field: declare_quad_i64_void(module, "$class.registerPrintField")?,
+            struct_print_field: declare_n_i64_void(
+                module,
+                "$class.registerStructPrintField",
+                6,
+            )?,
+            enum_print_name: declare_binary_i64_void(module, "$enum.registerPrintName")?,
+            enum_print_variant_name: declare_ternary_i64_void(
+                module,
+                "$enum.registerPrintVariantName",
+            )?,
+            enum_print_variant_payload_pk: declare_quad_i64_void(
+                module,
+                "$enum.registerPrintVariantPayloadPk",
+            )?,
+            fn_name: declare_binary_i64_void(module, "$print.registerFnName")?,
+            enum_disc_str: declare_ternary_i64_void(module, "$enum.registerDiscStr")?,
+            lib_group_begin: declare_returns_i64(module, "$os.registerLibGroupBegin")?,
+            lib_group_member: declare_binary_i64_void(module, "$os.registerLibGroupMember")?,
+        })
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum AotError {
@@ -494,34 +553,7 @@ fn emit_aot_init(
     fn_ids: &std::collections::HashMap<FuncId, cranelift_module::FuncId>,
 ) -> Result<cranelift_module::FuncId, AotError> {
     // Imports.
-    use crate::compile::{
-        declare_binary_i64_void, declare_n_i64_void, declare_quad_i64_void,
-        declare_ternary_i64_void,
-    };
-    let reg_vtable = declare_ternary_i64_void(module, "$class.registerVtableEntry")?;
-    let reg_drop = declare_binary_i64_void(module, "$class.registerDrop")?;
-    let reg_class_size = declare_binary_i64_void(module, "$class.registerSize")?;
-    let reg_object_field = declare_ternary_i64_void(module, "$class.registerObjectField")?;
-    let reg_closure_capture = declare_ternary_i64_void(module, "$closure.registerCapture")?;
-    let reg_closure_size = declare_binary_i64_void(module, "$closure.registerSize")?;
-    let reg_enum_payload_kind = declare_quad_i64_void(module, "$enum.registerPayloadKind")?;
-    let reg_class_print_name = declare_binary_i64_void(module, "$class.registerPrintName")?;
-    let reg_class_print_field = declare_quad_i64_void(module, "$class.registerPrintField")?;
-    let reg_struct_print_field =
-        declare_n_i64_void(module, "$class.registerStructPrintField", 6)?;
-    let reg_enum_print_name = declare_binary_i64_void(module, "$enum.registerPrintName")?;
-    let reg_enum_print_variant_name =
-        declare_ternary_i64_void(module, "$enum.registerPrintVariantName")?;
-    let reg_enum_print_variant_payload_pk =
-        declare_quad_i64_void(module, "$enum.registerPrintVariantPayloadPk")?;
-    let reg_fn_name = declare_binary_i64_void(module, "$print.registerFnName")?;
-    let reg_enum_disc_str = declare_ternary_i64_void(module, "$enum.registerDiscStr")?;
-    let reg_lib_group_begin = {
-        let mut s = module.make_signature();
-        s.returns.push(AbiParam::new(types::I64));
-        module.declare_function("$os.registerLibGroupBegin", Linkage::Import, &s)?
-    };
-    let reg_lib_group_member = declare_binary_i64_void(module, "$os.registerLibGroupMember")?;
+    let regs = AotRegistry::import_all(module)?;
 
     // Scan the whole program for `MirTy::Weak(C)` references so the
     // class-size registration below can skip those classes — `weak.get`
@@ -667,37 +699,36 @@ fn emit_aot_init(
         fb.switch_to_block(block);
         fb.seal_block(block);
 
-        let reg_vtable_ref = module.declare_func_in_func(reg_vtable, fb.func);
-        let reg_drop_ref = module.declare_func_in_func(reg_drop, fb.func);
-        let reg_class_size_ref = module.declare_func_in_func(reg_class_size, fb.func);
+        let reg_vtable_ref = module.declare_func_in_func(regs.vtable, fb.func);
+        let reg_drop_ref = module.declare_func_in_func(regs.drop_, fb.func);
+        let reg_class_size_ref = module.declare_func_in_func(regs.class_size, fb.func);
         let reg_object_field_ref =
-            module.declare_func_in_func(reg_object_field, fb.func);
+            module.declare_func_in_func(regs.object_field, fb.func);
         let reg_closure_capture_ref =
-            module.declare_func_in_func(reg_closure_capture, fb.func);
+            module.declare_func_in_func(regs.closure_capture, fb.func);
         let reg_closure_size_ref =
-            module.declare_func_in_func(reg_closure_size, fb.func);
+            module.declare_func_in_func(regs.closure_size, fb.func);
         let reg_enum_payload_kind_ref =
-            module.declare_func_in_func(reg_enum_payload_kind, fb.func);
+            module.declare_func_in_func(regs.enum_payload_kind, fb.func);
         let reg_class_print_name_ref =
-            module.declare_func_in_func(reg_class_print_name, fb.func);
+            module.declare_func_in_func(regs.class_print_name, fb.func);
         let reg_class_print_field_ref =
-            module.declare_func_in_func(reg_class_print_field, fb.func);
+            module.declare_func_in_func(regs.class_print_field, fb.func);
         let reg_struct_print_field_ref =
-            module.declare_func_in_func(reg_struct_print_field, fb.func);
+            module.declare_func_in_func(regs.struct_print_field, fb.func);
         let reg_enum_print_name_ref =
-            module.declare_func_in_func(reg_enum_print_name, fb.func);
+            module.declare_func_in_func(regs.enum_print_name, fb.func);
         let reg_enum_print_variant_name_ref =
-            module.declare_func_in_func(reg_enum_print_variant_name, fb.func);
+            module.declare_func_in_func(regs.enum_print_variant_name, fb.func);
         let reg_enum_print_variant_payload_pk_ref =
-            module.declare_func_in_func(reg_enum_print_variant_payload_pk, fb.func);
-        let reg_fn_name_ref =
-            module.declare_func_in_func(reg_fn_name, fb.func);
+            module.declare_func_in_func(regs.enum_print_variant_payload_pk, fb.func);
+        let reg_fn_name_ref = module.declare_func_in_func(regs.fn_name, fb.func);
         let reg_enum_disc_str_ref =
-            module.declare_func_in_func(reg_enum_disc_str, fb.func);
+            module.declare_func_in_func(regs.enum_disc_str, fb.func);
         let reg_lib_group_begin_ref =
-            module.declare_func_in_func(reg_lib_group_begin, fb.func);
+            module.declare_func_in_func(regs.lib_group_begin, fb.func);
         let reg_lib_group_member_ref =
-            module.declare_func_in_func(reg_lib_group_member, fb.func);
+            module.declare_func_in_func(regs.lib_group_member, fb.func);
 
         for (cls_idx, class) in prog.classes.iter().enumerate() {
             let global_cid = class_global[class.id.0 as usize] as i64;
