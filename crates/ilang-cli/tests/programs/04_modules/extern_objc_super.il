@@ -8,7 +8,7 @@
 //
 // jit: skip
 use std.test as test
-@extern(ObjC) {
+@extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
     @objc class NSObject {
         @objc("release") release()
         @objc("hash") hash(): i64

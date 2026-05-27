@@ -19,10 +19,11 @@ use std.ffi { cstrFromString }
     struct objc_object {}
     struct objc_class {}
 
-    // We force `@lib("objc")` to be resolvable at AOT build time
-    // by declaring a real libobjc symbol up front. Without this,
-    // probe_available_libs wouldn't see "objc" in the lib set
-    // and the linker would never pull in libobjc.A.dylib.
+    // `@lib("objc")` no longer probes successfully on modern macOS
+    // (`/usr/lib/libobjc.*.dylib` doesn't exist on disk — only in
+    // the dyld shared cache), so we rely on the
+    // `@extern(ObjC, ".../Foundation")` block below to pull in
+    // libobjc transitively via `-framework Foundation`.
     @lib("objc") fn objc_getClass(name: *const char): *objc_class
 
     // Helper that stays inside the @extern(C) scope so the
@@ -34,7 +35,7 @@ use std.ffi { cstrFromString }
     }
 }
 
-@extern(ObjC) {
+@extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
     // Single-arg receiver pattern (no extra args).
     @objc("alloc")
     fn alloc(cls: *objc_class): *objc_object
