@@ -1059,9 +1059,10 @@ pub(super) fn lower_inst<M: Module>(
             // the right slots. For CRepr struct elements the stride
             // is the struct's `c_size` and each slot stores the
             // struct's bytes inline.
+            use super::layout::array_header as ah;
             let stride_bytes = crepr_struct_elem_size.unwrap_or_else(|| elem_byte_stride(elem));
             let n = items.len() as i64;
-            let header_bytes = fb.ins().iconst(types::I64, 48);
+            let header_bytes = fb.ins().iconst(types::I64, ah::SIZE);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
             let call = fb.ins().call(alloc_ref, &[header_bytes]);
             let ptr = fb.inst_results(call)[0];
@@ -1070,16 +1071,17 @@ pub(super) fn lower_inst<M: Module>(
             let data_ptr = fb.inst_results(dcall)[0];
 
             let len_v = fb.ins().iconst(types::I64, n);
-            fb.ins().store(MemFlags::trusted(), len_v, ptr, 0);
-            fb.ins().store(MemFlags::trusted(), len_v, ptr, 8);
-            fb.ins().store(MemFlags::trusted(), data_ptr, ptr, 16);
+            fb.ins().store(MemFlags::trusted(), len_v, ptr, ah::LEN);
+            // Capacity equals length for a freshly built array literal.
+            fb.ins().store(MemFlags::trusted(), len_v, ptr, ah::CAP);
+            fb.ins().store(MemFlags::trusted(), data_ptr, ptr, ah::DATA_PTR);
             let one = fb.ins().iconst(types::I64, 1);
-            fb.ins().store(MemFlags::trusted(), one, ptr, 24);
+            fb.ins().store(MemFlags::trusted(), one, ptr, ah::RC);
             let tag = kind_tag_of(elem, &prog.classes);
             let tag_v = fb.ins().iconst(types::I64, tag);
-            fb.ins().store(MemFlags::trusted(), tag_v, ptr, 32);
+            fb.ins().store(MemFlags::trusted(), tag_v, ptr, ah::KIND_TAG);
             let stride_v = fb.ins().iconst(types::I64, stride_bytes);
-            fb.ins().store(MemFlags::trusted(), stride_v, ptr, 40);
+            fb.ins().store(MemFlags::trusted(), stride_v, ptr, ah::STRIDE);
             let elem_clif_opt = elem_clif_type(elem);
             for (i, it) in items.iter().enumerate() {
                 let raw = vmap[it];
@@ -1103,9 +1105,10 @@ pub(super) fn lower_inst<M: Module>(
             vmap.insert(*dst, ptr);
         }
         Inst::NewArrayEmpty { dst, elem, fixed_len } => {
+            use super::layout::array_header as ah;
             let stride_bytes = elem_byte_stride(elem);
             let n = fixed_len.unwrap_or(0) as i64;
-            let header_bytes = fb.ins().iconst(types::I64, 48);
+            let header_bytes = fb.ins().iconst(types::I64, ah::SIZE);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
             let call = fb.ins().call(alloc_ref, &[header_bytes]);
             let ptr = fb.inst_results(call)[0];
@@ -1115,16 +1118,16 @@ pub(super) fn lower_inst<M: Module>(
             let data_ptr = fb.inst_results(dcall)[0];
             let len_v = fb.ins().iconst(types::I64, n);
             let cap_v = fb.ins().iconst(types::I64, cap);
-            fb.ins().store(MemFlags::trusted(), len_v, ptr, 0);
-            fb.ins().store(MemFlags::trusted(), cap_v, ptr, 8);
-            fb.ins().store(MemFlags::trusted(), data_ptr, ptr, 16);
+            fb.ins().store(MemFlags::trusted(), len_v, ptr, ah::LEN);
+            fb.ins().store(MemFlags::trusted(), cap_v, ptr, ah::CAP);
+            fb.ins().store(MemFlags::trusted(), data_ptr, ptr, ah::DATA_PTR);
             let one = fb.ins().iconst(types::I64, 1);
-            fb.ins().store(MemFlags::trusted(), one, ptr, 24);
+            fb.ins().store(MemFlags::trusted(), one, ptr, ah::RC);
             let tag = kind_tag_of(elem, &prog.classes);
             let tag_v = fb.ins().iconst(types::I64, tag);
-            fb.ins().store(MemFlags::trusted(), tag_v, ptr, 32);
+            fb.ins().store(MemFlags::trusted(), tag_v, ptr, ah::KIND_TAG);
             let stride_v = fb.ins().iconst(types::I64, stride_bytes);
-            fb.ins().store(MemFlags::trusted(), stride_v, ptr, 40);
+            fb.ins().store(MemFlags::trusted(), stride_v, ptr, ah::STRIDE);
             vmap.insert(*dst, ptr);
         }
         Inst::NewSimd { dst, lanes } => {
@@ -1161,12 +1164,13 @@ pub(super) fn lower_inst<M: Module>(
             vmap.insert(*dst, v);
         }
         Inst::ArrayLen { dst, arr } => {
+            use super::layout::array_header as ah;
             let arr_ty = func.ty_of(*arr).clone();
             let v = if let MirTy::Array { len: Some(n), .. } = &arr_ty {
                 fb.ins().iconst(types::I64, *n as i64)
             } else {
                 let p = vmap[arr];
-                fb.ins().load(types::I64, MemFlags::trusted(), p, 0)
+                fb.ins().load(types::I64, MemFlags::trusted(), p, ah::LEN)
             };
             vmap.insert(*dst, v);
         }
@@ -1226,13 +1230,14 @@ pub(super) fn lower_inst<M: Module>(
                 let s_v = fb.ins().iconst(types::I64, s);
                 (p, s_v)
             } else {
-                let len = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
+                use super::layout::array_header as ah;
+                let len = fb.ins().load(types::I64, MemFlags::trusted(), p, ah::LEN);
                 let oob_lo = fb.ins().icmp_imm(IntCC::SignedLessThan, i, 0);
                 let oob_hi = fb.ins().icmp(IntCC::SignedGreaterThanOrEqual, i, len);
                 let oob = fb.ins().bor(oob_lo, oob_hi);
                 emit_panic_if(fb, module, panic_aux.fn_id, panic_aux.msg_oob, oob);
-                let data_ptr = fb.ins().load(types::I64, MemFlags::trusted(), p, 16);
-                let stride = fb.ins().load(types::I64, MemFlags::trusted(), p, 40);
+                let data_ptr = fb.ins().load(types::I64, MemFlags::trusted(), p, ah::DATA_PTR);
+                let stride = fb.ins().load(types::I64, MemFlags::trusted(), p, ah::STRIDE);
                 (data_ptr, stride)
             };
             let off = fb.ins().imul(i, stride);
@@ -1288,13 +1293,14 @@ pub(super) fn lower_inst<M: Module>(
                 let s_v = fb.ins().iconst(types::I64, s);
                 (p, s_v)
             } else {
-                let len = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
+                use super::layout::array_header as ah;
+                let len = fb.ins().load(types::I64, MemFlags::trusted(), p, ah::LEN);
                 let oob_lo = fb.ins().icmp_imm(IntCC::SignedLessThan, i, 0);
                 let oob_hi = fb.ins().icmp(IntCC::SignedGreaterThanOrEqual, i, len);
                 let oob = fb.ins().bor(oob_lo, oob_hi);
                 emit_panic_if(fb, module, panic_aux.fn_id, panic_aux.msg_oob, oob);
-                let data_ptr = fb.ins().load(types::I64, MemFlags::trusted(), p, 16);
-                let stride = fb.ins().load(types::I64, MemFlags::trusted(), p, 40);
+                let data_ptr = fb.ins().load(types::I64, MemFlags::trusted(), p, ah::DATA_PTR);
+                let stride = fb.ins().load(types::I64, MemFlags::trusted(), p, ah::STRIDE);
                 (data_ptr, stride)
             };
             let off = fb.ins().imul(i, stride);
