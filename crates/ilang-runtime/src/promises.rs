@@ -294,67 +294,57 @@ fn fire_rejected(
     __release_promise(downstream);
 }
 
+/// Try to flip `p` from Pending to `new_state`, returning the queued
+/// waiters on success. Returns `None` when `p` is null or already
+/// settled; the caller is then responsible for releasing whatever
+/// resource (value rc, msg rc) it was trying to install.
+fn take_pending_waiters(p: i64, new_state: State) -> Option<Vec<Continuation>> {
+    if p == 0 {
+        return None;
+    }
+    let pr = unsafe { promise_ref(p) };
+    let mut g = pr.inner.lock().expect("promise mutex poisoned");
+    if matches!(g.state, State::Pending) {
+        g.state = new_state;
+        Some(std::mem::take(&mut g.waiters))
+    } else {
+        None
+    }
+}
+
 /// Transition `p` Pending → Resolved. Takes ownership of `value`'s
 /// +1 refcount. Schedules every queued continuation. No-op if `p`
 /// is already settled.
 fn settle_resolve(p: i64, value: i64, kind: i64) {
-    if p == 0 {
-        release_field_by_kind(value, kind);
-        return;
-    }
-    let pr = unsafe { promise_ref(p) };
-    let mut waiters: Vec<Continuation> = Vec::new();
-    let mut accepted = false;
-    {
-        let mut g = pr.inner.lock().expect("promise mutex poisoned");
-        if matches!(g.state, State::Pending) {
-            g.state = State::Resolved { value, kind };
-            std::mem::swap(&mut waiters, &mut g.waiters);
-            accepted = true;
+    let waiters = match take_pending_waiters(p, State::Resolved { value, kind }) {
+        Some(w) => w,
+        None => {
+            release_field_by_kind(value, kind);
+            return;
         }
-    }
-    if !accepted {
-        // Already settled — caller's value is dropped.
-        release_field_by_kind(value, kind);
-        return;
-    }
+    };
     // Fire each waiter on the pool. Each waiter needs its own
     // retain on the value (since value lives in the promise).
     for w in waiters {
         retain_field_by_kind(value, kind);
-        let v = value;
-        let k = kind;
         pool::submit(move || {
-            fire_resolved(w.on_resolve, w.on_reject, w.downstream, w.out_kind, v, k);
+            fire_resolved(w.on_resolve, w.on_reject, w.downstream, w.out_kind, value, kind);
         });
     }
 }
 
 fn settle_reject(p: i64, msg: i64) {
-    if p == 0 {
-        __release_string(msg);
-        return;
-    }
-    let pr = unsafe { promise_ref(p) };
-    let mut waiters: Vec<Continuation> = Vec::new();
-    let mut accepted = false;
-    {
-        let mut g = pr.inner.lock().expect("promise mutex poisoned");
-        if matches!(g.state, State::Pending) {
-            g.state = State::Rejected { msg };
-            std::mem::swap(&mut waiters, &mut g.waiters);
-            accepted = true;
+    let waiters = match take_pending_waiters(p, State::Rejected { msg }) {
+        Some(w) => w,
+        None => {
+            __release_string(msg);
+            return;
         }
-    }
-    if !accepted {
-        __release_string(msg);
-        return;
-    }
+    };
     for w in waiters {
         __retain_string(msg);
-        let m = msg;
         pool::submit(move || {
-            fire_rejected(w.on_resolve, w.on_reject, w.downstream, w.out_kind, m);
+            fire_rejected(w.on_resolve, w.on_reject, w.downstream, w.out_kind, msg);
         });
     }
 }
