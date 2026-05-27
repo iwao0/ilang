@@ -52,15 +52,31 @@ impl<'a> BodyCx<'a> {
         }
         // `ffi.arrayFromCArray<T>(p: *const T, n: size_t)` —
         // declared as `@intrinsic("ffi.arrayFromCArray")` inside
-        // `libs/std/ffi.il`; the loader-level rename rewrites the
-        // bare `arrayFromCArray` callee to `ffi.arrayFromCArray`
-        // after `use std.ffi { arrayFromCArray }`. The MIR-side
-        // special case stays because we need to peek the actual `T`
-        // off the first arg's MirTy (`*const T`) and synthesise the
-        // stride / kind_tag arguments the runtime helper takes;
-        // full monomorphisation isn't required since `T` is known
-        // at the call site from the pointer's element type.
-        if callee.as_str() == "ffi.arrayFromCArray" && args.len() == 2 {
+        // `libs/std/ffi.il`. The loader-level rename rewrites the
+        // bare `arrayFromCArray` callee using the importer's
+        // qualified prefix — `use std.ffi { arrayFromCArray }`
+        // produces `std.ffi.arrayFromCArray`; older `use ffi { … }`
+        // paths produce `ffi.arrayFromCArray`. Accept any tail-match
+        // on `ffi.arrayFromCArray` so the dotted variants both
+        // route through here. The MIR-side special case stays
+        // because we need to peek the actual `T` off the first
+        // arg's MirTy (`*const T`) and synthesise the stride /
+        // kind_tag arguments the runtime helper takes; full
+        // monomorphisation isn't required since `T` is known at
+        // the call site from the pointer's element type.
+        //
+        // Critical: without this dispatch the generic-resolution
+        // path lowers the call against the 2-arg declared signature
+        // — `$ffi.arrayFromCArray` is declared with 4 i64 params,
+        // so the missing stride / kind_tag end up as garbage
+        // register contents at runtime. A multi-GB memcpy from a
+        // bogus stride is the immediate `STATUS_ACCESS_VIOLATION`
+        // signature this guards against.
+        let is_afca = matches!(
+            callee.as_str(),
+            "ffi.arrayFromCArray" | "std.ffi.arrayFromCArray"
+        );
+        if is_afca && args.len() == 2 {
             let (pv, pty) = self.lower_expr(&args[0])?;
             let (nv, nty) = self.lower_expr(&args[1])?;
             let elem_ty = match &pty {
