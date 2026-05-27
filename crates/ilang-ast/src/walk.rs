@@ -87,19 +87,7 @@ pub fn walk_expr_children_ref<E>(
                 visit_child(x)?;
             }
         }
-        ExprKind::EnumCtor { args, .. } => match args {
-            CtorArgs::Unit => {}
-            CtorArgs::Tuple(es) => {
-                for a in es.iter() {
-                    visit_child(a)?;
-                }
-            }
-            CtorArgs::Struct(fs) => {
-                for (_, a) in fs.iter() {
-                    visit_child(a)?;
-                }
-            }
-        },
+        ExprKind::EnumCtor { args, .. } => try_for_each_ctor_arg(args, visit_child)?,
         // Sequences.
         ExprKind::Array(es) | ExprKind::Tuple(es) => {
             for x in es.iter() {
@@ -150,23 +138,13 @@ pub fn walk_expr_children_ref<E>(
                 visit_child(e2)?;
             }
         }
-        ExprKind::Template { parts } => {
-            for p in parts.iter() {
-                if let TemplatePart::Expr(e) = p {
-                    visit_child(e)?;
-                }
-            }
-        }
+        ExprKind::Template { parts } => try_for_each_template_expr(parts, visit_child)?,
         ExprKind::Block(b) => visit_block(b)?,
         ExprKind::FnExpr { params, body, .. } => {
             // Param `ty` and `ret` are types, walked separately by
             // the caller's special arm; here only the value-bearing
             // parts (defaults + body) are descended into.
-            for p in params.iter() {
-                if let Some(d) = &p.default {
-                    visit_child(d)?;
-                }
-            }
+            try_for_each_param_default(params, visit_child)?;
             visit_block(body)?;
         }
         // Leaves.
@@ -248,19 +226,7 @@ pub fn walk_expr_descendants_ref<E>(
                 visit_child(x)?;
             }
         }
-        ExprKind::EnumCtor { args, .. } => match args {
-            CtorArgs::Unit => {}
-            CtorArgs::Tuple(es) => {
-                for a in es.iter() {
-                    visit_child(a)?;
-                }
-            }
-            CtorArgs::Struct(fs) => {
-                for (_, a) in fs.iter() {
-                    visit_child(a)?;
-                }
-            }
-        },
+        ExprKind::EnumCtor { args, .. } => try_for_each_ctor_arg(args, visit_child)?,
         ExprKind::Array(es) | ExprKind::Tuple(es) => {
             for x in es.iter() {
                 visit_child(x)?;
@@ -309,20 +275,10 @@ pub fn walk_expr_descendants_ref<E>(
                 visit_child(e2)?;
             }
         }
-        ExprKind::Template { parts } => {
-            for p in parts.iter() {
-                if let TemplatePart::Expr(e) = p {
-                    visit_child(e)?;
-                }
-            }
-        }
+        ExprKind::Template { parts } => try_for_each_template_expr(parts, visit_child)?,
         ExprKind::Block(b) => descend_block_ref(b, visit_child)?,
         ExprKind::FnExpr { params, body, .. } => {
-            for p in params.iter() {
-                if let Some(d) = &p.default {
-                    visit_child(d)?;
-                }
-            }
+            try_for_each_param_default(params, visit_child)?;
             descend_block_ref(body, visit_child)?;
         }
         ExprKind::Var(_)
@@ -355,6 +311,74 @@ fn descend_block_ref<E>(
         visit_child(t)?;
     }
     Ok(())
+}
+
+/// Visit every `&Expr` carried by an `EnumCtor`'s `args`. `Unit`
+/// has no payload; `Tuple` / `Struct` carry positional / named
+/// element exprs respectively. Shared by every `&Expr` walker.
+fn try_for_each_ctor_arg<E>(
+    args: &CtorArgs,
+    f: &mut impl FnMut(&Expr) -> Result<(), E>,
+) -> Result<(), E> {
+    match args {
+        CtorArgs::Unit => Ok(()),
+        CtorArgs::Tuple(es) => es.iter().try_for_each(f),
+        CtorArgs::Struct(fs) => fs.iter().try_for_each(|(_, e)| f(e)),
+    }
+}
+
+/// Mutable counterpart to [`try_for_each_ctor_arg`].
+fn for_each_ctor_arg_mut(args: &mut CtorArgs, f: &mut impl FnMut(&mut Expr)) {
+    match args {
+        CtorArgs::Unit => {}
+        CtorArgs::Tuple(es) => es.iter_mut().for_each(f),
+        CtorArgs::Struct(fs) => fs.iter_mut().for_each(|(_, e)| f(e)),
+    }
+}
+
+/// Visit every value-bearing `Expr` in a template's `parts`
+/// sequence — `TemplatePart::Str` is a leaf and gets skipped.
+fn try_for_each_template_expr<E>(
+    parts: &[TemplatePart],
+    f: &mut impl FnMut(&Expr) -> Result<(), E>,
+) -> Result<(), E> {
+    for p in parts.iter() {
+        if let TemplatePart::Expr(e) = p {
+            f(e)?;
+        }
+    }
+    Ok(())
+}
+
+/// Mutable counterpart to [`try_for_each_template_expr`].
+fn for_each_template_expr_mut(parts: &mut [TemplatePart], f: &mut impl FnMut(&mut Expr)) {
+    for p in parts.iter_mut() {
+        if let TemplatePart::Expr(e) = p {
+            f(e);
+        }
+    }
+}
+
+/// Visit every `Expr` default value on `FnExpr` params.
+fn try_for_each_param_default<E>(
+    params: &[Param],
+    f: &mut impl FnMut(&Expr) -> Result<(), E>,
+) -> Result<(), E> {
+    for p in params.iter() {
+        if let Some(d) = &p.default {
+            f(d)?;
+        }
+    }
+    Ok(())
+}
+
+/// Mutable counterpart to [`try_for_each_param_default`].
+fn for_each_param_default_mut(params: &mut [Param], f: &mut impl FnMut(&mut Expr)) {
+    for p in params.iter_mut() {
+        if let Some(d) = &mut p.default {
+            f(d);
+        }
+    }
 }
 
 /// Mutable-reference twin of [`walk_expr_children_ref`]. The
@@ -413,19 +437,7 @@ pub fn walk_expr_children_mut(
                 visit_child(x);
             }
         }
-        ExprKind::EnumCtor { args, .. } => match args {
-            CtorArgs::Unit => {}
-            CtorArgs::Tuple(es) => {
-                for a in es.iter_mut() {
-                    visit_child(a);
-                }
-            }
-            CtorArgs::Struct(fs) => {
-                for (_, a) in fs.iter_mut() {
-                    visit_child(a);
-                }
-            }
-        },
+        ExprKind::EnumCtor { args, .. } => for_each_ctor_arg_mut(args, visit_child),
         ExprKind::Array(es) | ExprKind::Tuple(es) => {
             for x in es.iter_mut() {
                 visit_child(x);
@@ -474,20 +486,10 @@ pub fn walk_expr_children_mut(
                 visit_child(e2);
             }
         }
-        ExprKind::Template { parts } => {
-            for p in parts.iter_mut() {
-                if let TemplatePart::Expr(e) = p {
-                    visit_child(e);
-                }
-            }
-        }
+        ExprKind::Template { parts } => for_each_template_expr_mut(parts, visit_child),
         ExprKind::Block(b) => visit_block(b),
         ExprKind::FnExpr { params, body, .. } => {
-            for p in params.iter_mut() {
-                if let Some(d) = &mut p.default {
-                    visit_child(d);
-                }
-            }
+            for_each_param_default_mut(params, visit_child);
             visit_block(body);
         }
         ExprKind::Var(_)
