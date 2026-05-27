@@ -87,7 +87,7 @@ pub(super) fn lower_inst<M: Module>(
         locals,
         local_slots,
         env_value,
-        stack_local,
+        ..
     } = *fn_ctx;
     match inst {
         Inst::Const { dst, value } => {
@@ -399,142 +399,7 @@ pub(super) fn lower_inst<M: Module>(
             vmap.insert(*dst, p);
         }
         Inst::NewObject { dst, class, init_args, init } => {
-            let layout = &prog.classes[class.0 as usize];
-            // `@extern(C) struct` lives flat with no header / rc:
-            // alloc exactly c_size bytes (zero-init by host_mir_alloc)
-            // and bind that pointer. No init / deinit / vtable.
-            if matches!(
-                layout.repr,
-                ilang_mir::ClassRepr::CRepr
-                    | ilang_mir::ClassRepr::CPacked
-                    | ilang_mir::ClassRepr::CUnion
-            ) {
-                // CRepr struct alloc. Two paths:
-                //
-                // 1. Stack promotion (`stack_local.contains(dst)`):
-                //    escape analysis cleared this allocation, so back
-                //    it with a function-local Cranelift StackSlot of
-                //    `c_size` bytes instead of going through
-                //    `__mir_alloc`. Field offsets are computed by
-                //    LoadField / StoreField from `c_field_offsets`
-                //    against whatever base pointer we hand back,
-                //    which works identically for heap and stack
-                //    memory. The flex-array-tail form
-                //    (`new Packet(n)`) needs a dynamic size, so it's
-                //    not eligible — fall through to the heap path.
-                //
-                // 2. Heap (default): one call to `__mir_alloc` for
-                //    `c_size` bytes (or `c_size + n*flex_elem_size`
-                //    for the FAM form).
-                let stack_ok =
-                    stack_local.contains(dst) && layout.flex_elem_size == 0;
-                let ptr = if stack_ok {
-                    let slot_size = (layout.c_size.max(1)) as u32;
-                    let slot = fb.create_sized_stack_slot(StackSlotData::new(
-                        StackSlotKind::ExplicitSlot,
-                        slot_size,
-                        // log2 of alignment. 8-byte alignment covers
-                        // every primitive a top-level struct field
-                        // can hold (i64 / f64 / pointer); over-
-                        // aligning is cheap since the slot's purely
-                        // local.
-                        3,
-                    ));
-                    let p = fb.ins().stack_addr(types::I64, slot, 0);
-                    // Zero the slot to mirror `__mir_alloc`'s
-                    // zero-init contract — primitive field reads
-                    // before the first write must see 0 instead of
-                    // stack garbage. Whole-slot 8-byte stores are
-                    // safe here because `c_size` rounds up to the
-                    // largest field's alignment in `class_signature`.
-                    let zero = fb.ins().iconst(types::I64, 0);
-                    let mut off: i32 = 0;
-                    while (off as i64) < slot_size as i64 {
-                        fb.ins().store(MemFlags::trusted(), zero, p, off);
-                        off += 8;
-                    }
-                    p
-                } else {
-                    let size_v = if layout.flex_elem_size > 0 && !init_args.is_empty() {
-                        let n_v = vmap[&init_args[0]];
-                        let n_i64 = extend_to_i64(fb, n_v);
-                        let elem_v = fb.ins().iconst(types::I64, layout.flex_elem_size);
-                        let extra = fb.ins().imul(n_i64, elem_v);
-                        let base = fb.ins().iconst(types::I64, layout.c_size.max(0));
-                        fb.ins().iadd(base, extra)
-                    } else {
-                        fb.ins().iconst(types::I64, layout.c_size.max(1))
-                    };
-                    let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
-                    let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
-                    fb.inst_results(alloc_call)[0]
-                };
-                vmap.insert(*dst, ptr);
-                return Ok(());
-            }
-            let n_fields = layout.fields.len() as i64;
-            let total_bytes = OBJECT_HEADER_BYTES as i64 + n_fields * 8;
-            // Stack-promotion fast path: escape analysis has cleared
-            // this `dst`, so allocate a cranelift StackSlot inside
-            // the current function frame instead of going through
-            // __mir_alloc. Field offsets and LoadField / StoreField
-            // / VirtCall layouts stay identical (header + n*8). The
-            // matching `Retain` / `Release` calls are no-op'd below
-            // so the stack memory's lifetime is the function frame's.
-            let ptr = if stack_local.contains(dst) {
-                let slot = fb.create_sized_stack_slot(StackSlotData::new(
-                    StackSlotKind::ExplicitSlot,
-                    total_bytes as u32,
-                    3,
-                ));
-                let p = fb.ins().stack_addr(types::I64, slot, 0);
-                // Zero the slot's bytes — heap alloc zeros via
-                // __mir_alloc; we keep the same invariant so any
-                // primitive field read before its first write sees
-                // 0 instead of stack garbage.
-                let zero = fb.ins().iconst(types::I64, 0);
-                let mut off = 0;
-                while off < total_bytes {
-                    fb.ins().store(MemFlags::trusted(), zero, p, off as i32);
-                    off += 8;
-                }
-                p
-            } else {
-                let size = fb.ins().iconst(types::I64, total_bytes);
-                let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
-                let alloc_call = fb.ins().call(alloc_ref, &[size]);
-                fb.inst_results(alloc_call)[0]
-            };
-            // Store the GLOBAL class id at obj+0 — release_object,
-            // host_print_object and __virt_dispatch all key off this.
-            use super::layout::object_header as oh;
-            let cid_v = fb.ins().iconst(types::I64, class_global[class.0 as usize] as i64);
-            fb.ins().store(MemFlags::trusted(), cid_v, ptr, oh::CLASS_ID);
-            let one = fb.ins().iconst(types::I64, 1);
-            fb.ins().store(MemFlags::trusted(), one, ptr, oh::RC);
-
-            if init.0 != u32::MAX {
-                let cid = *fn_ids.get(init).ok_or_else(|| {
-                    CompileError::Other(format!("missing init fn id #{}", init.0))
-                })?;
-                let local_ref = module.declare_func_in_func(cid, fb.func);
-                let mut args: Vec<Value> = Vec::with_capacity(init_args.len() + 2);
-                args.push(ptr);
-                for a in init_args.iter() {
-                    args.push(vmap[a]);
-                }
-                // Trailing env-ptr (unused by init).
-                let zero = fb.ins().iconst(types::I64, 0);
-                args.push(zero);
-                let call_inst = fb.ins().call(local_ref, &args);
-                // init returns `this`; use it (in case the runtime
-                // ever wraps the receiver).
-                let returned = fb.inst_results(call_inst).first().copied();
-                let result = returned.unwrap_or(ptr);
-                vmap.insert(*dst, result);
-            } else {
-                vmap.insert(*dst, ptr);
-            }
+            objects::lower_new_object(fb, vmap, module, prog_ctx, fn_ctx, dst, class, init_args, init)?;
         }
         Inst::NewArray { .. }
         | Inst::NewArrayEmpty { .. }
