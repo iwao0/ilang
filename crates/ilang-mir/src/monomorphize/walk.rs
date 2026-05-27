@@ -12,7 +12,7 @@
 //!   `f`. Lets `rewrite_calls_in_expr`'s catch-all arm avoid
 //!   enumerating every variant by hand.
 
-use ilang_ast::{Block, Expr, ExprKind, Stmt, StmtKind, Type};
+use ilang_ast::{Block, Expr, ExprKind, FnDecl, Param, PropertyDecl, Stmt, StmtKind, Type};
 
 pub(super) fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
     match &e.kind {
@@ -476,5 +476,72 @@ pub(super) fn map_block_children(b: &Block, f: &mut dyn FnMut(&Expr) -> Expr) ->
             })
             .collect(),
         tail: b.tail.as_ref().map(|e| Box::new(f(e))),
+    }
+}
+
+/// Rebuild a `FnDecl` by remapping its body `Block` and every
+/// `Type` annotation in params / return. Param `default` exprs
+/// pass through clone — the existing monomorphize passes don't
+/// rewrite them either (any T inside a default is left for a
+/// future expr-mapper-aware variant).
+///
+/// `is_pub` is fixed to `false` and `is_async` to `false`: the
+/// type checker upstream already enforces visibility, and async
+/// fns desugar before monomorphize. `intrinsic_name` passes
+/// through — top-level fn `@intrinsic("...")` bindings need it
+/// preserved so the lower pass can route to the runtime.
+pub(super) fn map_fn_decl<FB, FT>(
+    f: &FnDecl,
+    map_block: &mut FB,
+    map_type: &mut FT,
+) -> FnDecl
+where
+    FB: FnMut(&Block) -> Block,
+    FT: FnMut(&Type) -> Type,
+{
+    FnDecl {
+        is_pub: false,
+        attrs: f.attrs.clone(),
+        name: f.name.clone(),
+        type_params: f.type_params.clone(),
+        params: f
+            .params
+            .iter()
+            .map(|p| Param {
+                name: p.name.clone(),
+                ty: map_type(&p.ty),
+                span: p.span,
+                default: p.default.clone(),
+            })
+            .collect(),
+        ret: f.ret.as_ref().map(|t| map_type(t)),
+        body: map_block(&f.body),
+        span: f.span,
+        is_override: f.is_override,
+        is_async: false,
+        intrinsic_name: f.intrinsic_name,
+    }
+}
+
+/// Rebuild a `PropertyDecl` by mapping its declared `Type` and
+/// every getter / setter body through `map_fn_decl`. Same
+/// visibility / async conventions as `map_fn_decl`.
+pub(super) fn map_property_decl<FB, FT>(
+    p: &PropertyDecl,
+    map_block: &mut FB,
+    map_type: &mut FT,
+) -> PropertyDecl
+where
+    FB: FnMut(&Block) -> Block,
+    FT: FnMut(&Type) -> Type,
+{
+    PropertyDecl {
+        is_static: p.is_static,
+        is_pub: false,
+        name: p.name.clone(),
+        ty: map_type(&p.ty),
+        getter: p.getter.as_ref().map(|g| map_fn_decl(g, map_block, map_type)),
+        setter: p.setter.as_ref().map(|s| map_fn_decl(s, map_block, map_type)),
+        span: p.span,
     }
 }

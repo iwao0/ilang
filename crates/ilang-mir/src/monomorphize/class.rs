@@ -676,14 +676,7 @@ pub(super) fn rewrite_item(item: &Item) -> Item {
             properties: c
                 .properties
                 .iter()
-                .map(|p| ilang_ast::PropertyDecl { is_static: p.is_static,
-                    is_pub: false,
-                    name: p.name.clone(),
-                    ty: rewrite_type(&p.ty),
-                    getter: p.getter.as_ref().map(rewrite_fn),
-                    setter: p.setter.as_ref().map(rewrite_fn),
-                    span: p.span,
-                })
+                .map(|p| super::walk::map_property_decl(p, &mut rewrite_block, &mut rewrite_type))
                 .collect(),
             attrs: c.attrs.clone(),
             span: c.span,
@@ -714,28 +707,7 @@ pub(super) fn rewrite_item(item: &Item) -> Item {
 }
 
 pub(super) fn rewrite_fn(f: &FnDecl) -> FnDecl {
-    FnDecl {
-        is_pub: f.is_pub,
-        name: f.name.clone(),
-        type_params: f.type_params.clone(),
-        params: f
-            .params
-            .iter()
-            .map(|p| Param {
-                name: p.name.clone(),
-                ty: rewrite_type(&p.ty),
-                span: p.span,
-                default: p.default.clone(),
-            })
-            .collect(),
-        ret: f.ret.as_ref().map(rewrite_type),
-        body: rewrite_block(&f.body),
-        attrs: f.attrs.clone(),
-        span: f.span,
-        is_override: f.is_override,
-            is_async: false,
-            intrinsic_name: f.intrinsic_name,
-    }
+    super::walk::map_fn_decl(f, &mut rewrite_block, &mut rewrite_type)
 }
 
 pub(super) fn rewrite_block(b: &Block) -> Block {

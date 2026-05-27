@@ -459,6 +459,9 @@ pub(super) fn rewrite_enum_refs_in_item(
     outer_params: &[Symbol],
     outer_args: &[Type],
 ) -> Item {
+    let mut map_block =
+        |b: &Block| rewrite_enum_refs_in_block(b, generic_enums, table, outer_params, outer_args);
+    let mut map_type = |t: &Type| rewrite_enum_refs_in_type(t, generic_enums);
     match item {
         // Generic fn bodies reference their own type params as
         // `Object("T")`; the rewrite would mangle `MyOpt<T>` to
@@ -468,37 +471,13 @@ pub(super) fn rewrite_enum_refs_in_item(
         // EnumCtor refs against the side table. We just clone
         // generic templates through here.
         Item::Fn(f) if !f.type_params.is_empty() => Item::Fn(f.clone()),
-        Item::Fn(f) => Item::Fn(FnDecl {
-            is_pub: false,
-            attrs: f.attrs.clone(),
-
-            name: f.name.clone(),
-            type_params: f.type_params.clone(),
-            params: f
-                .params
-                .iter()
-                .map(|p| Param {
-                    name: p.name.clone(),
-                    ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
-                    span: p.span,
-                    default: p.default.clone(),
-                })
-                .collect(),
-            ret: f.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
-            body: rewrite_enum_refs_in_block(
-                &f.body, generic_enums, table, outer_params, outer_args,
-            ),
-            span: f.span,
-        is_override: f.is_override,
-            is_async: false,
-            intrinsic_name: f.intrinsic_name,
-        }),
+        Item::Fn(f) => Item::Fn(super::walk::map_fn_decl(f, &mut map_block, &mut map_type)),
         Item::Class(c) => Item::Class(ClassDecl {
             is_pub: false,
             extern_lib: c.extern_lib.clone(),
             is_repr_c: c.is_repr_c,
             is_packed: c.is_packed,
-        is_handle: c.is_handle,
+            is_handle: c.is_handle,
             is_union: c.is_union,
             name: c.name.clone(),
             parent: c.parent.clone(),
@@ -510,112 +489,26 @@ pub(super) fn rewrite_enum_refs_in_item(
                 .map(|f| FieldDecl {
                     is_pub: false,
                     name: f.name.clone(),
-                    ty: rewrite_enum_refs_in_type(&f.ty, generic_enums),
-                    span: f.span, bits: f.bits,
+                    ty: map_type(&f.ty),
+                    span: f.span,
+                    bits: f.bits,
                 })
                 .collect(),
             methods: c
                 .methods
                 .iter()
-                .map(|m| FnDecl {
-                    is_pub: false,
-                    attrs: m.attrs.clone(),
-
-                    name: m.name.clone(),
-                    type_params: m.type_params.clone(),
-                    params: m
-                        .params
-                        .iter()
-                        .map(|p| Param {
-                            name: p.name.clone(),
-                            ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
-                            span: p.span,
-                            default: p.default.clone(),
-                        })
-                        .collect(),
-                    ret: m.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
-                    body: rewrite_enum_refs_in_block(
-                        &m.body, generic_enums, table, outer_params, outer_args,
-                    ),
-                    span: m.span,
-                is_override: m.is_override,
-            is_async: false,
-            intrinsic_name: None,
-                })
+                .map(|m| super::walk::map_fn_decl(m, &mut map_block, &mut map_type))
                 .collect(),
             static_methods: c
                 .static_methods
                 .iter()
-                .map(|m| FnDecl {
-                    is_pub: false,
-                    attrs: m.attrs.clone(),
-
-                    name: m.name.clone(),
-                    type_params: m.type_params.clone(),
-                    params: m.params.iter().map(|p| Param {
-                        name: p.name.clone(),
-                        ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
-                        span: p.span,
-                        default: p.default.clone(),
-                    }).collect(),
-                    ret: m.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
-                    body: rewrite_enum_refs_in_block(
-                        &m.body, generic_enums, table, outer_params, outer_args,
-                    ),
-                    span: m.span,
-                is_override: m.is_override,
-            is_async: false,
-            intrinsic_name: None,
-                })
+                .map(|m| super::walk::map_fn_decl(m, &mut map_block, &mut map_type))
                 .collect(),
             static_fields: c.static_fields.clone(),
             properties: c
                 .properties
                 .iter()
-                .map(|p| ilang_ast::PropertyDecl { is_static: p.is_static,
-                    is_pub: false,
-                    name: p.name.clone(),
-                    ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
-                    getter: p.getter.as_ref().map(|g| FnDecl {
-                        is_pub: false,
-                        attrs: g.attrs.clone(),
-
-                        name: g.name.clone(),
-                        type_params: g.type_params.clone(),
-                        params: g.params.iter().map(|q| Param {
-                            name: q.name.clone(),
-                            ty: rewrite_enum_refs_in_type(&q.ty, generic_enums),
-                            span: q.span,
-                            default: q.default.clone(),
-                        }).collect(),
-                        ret: g.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
-                        body: rewrite_enum_refs_in_block(&g.body, generic_enums, table, outer_params, outer_args),
-                        span: g.span,
-                    is_override: g.is_override,
-            is_async: false,
-            intrinsic_name: None,
-                    }),
-                    setter: p.setter.as_ref().map(|s| FnDecl {
-                        is_pub: false,
-                        attrs: s.attrs.clone(),
-
-                        name: s.name.clone(),
-                        type_params: s.type_params.clone(),
-                        params: s.params.iter().map(|q| Param {
-                            name: q.name.clone(),
-                            ty: rewrite_enum_refs_in_type(&q.ty, generic_enums),
-                            span: q.span,
-                            default: q.default.clone(),
-                        }).collect(),
-                        ret: s.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
-                        body: rewrite_enum_refs_in_block(&s.body, generic_enums, table, outer_params, outer_args),
-                        span: s.span,
-                    is_override: s.is_override,
-            is_async: false,
-            intrinsic_name: None,
-                    }),
-                    span: p.span,
-                })
+                .map(|p| super::walk::map_property_decl(p, &mut map_block, &mut map_type))
                 .collect(),
             attrs: c.attrs.clone(),
             span: c.span,
@@ -718,30 +611,13 @@ fn rewrite_enum_refs_in_extern_c_item(
             intrinsic_name: *intrinsic_name,
             span: *span,
         },
-        ExternCItem::FnDef(f) => ExternCItem::FnDef(FnDecl {
-            is_pub: f.is_pub,
-            attrs: f.attrs.clone(),
-            name: f.name.clone(),
-            type_params: f.type_params.clone(),
-            params: f
-                .params
-                .iter()
-                .map(|p| Param {
-                    name: p.name.clone(),
-                    ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
-                    span: p.span,
-                    default: p.default.clone(),
-                })
-                .collect(),
-            ret: f.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
-            body: rewrite_enum_refs_in_block(
-                &f.body, generic_enums, table, outer_params, outer_args,
-            ),
-            span: f.span,
-            is_override: f.is_override,
-            is_async: false,
-            intrinsic_name: None,
-        }),
+        ExternCItem::FnDef(f) => {
+            let mut map_block = |b: &Block| {
+                rewrite_enum_refs_in_block(b, generic_enums, table, outer_params, outer_args)
+            };
+            let mut map_type = |t: &Type| rewrite_enum_refs_in_type(t, generic_enums);
+            ExternCItem::FnDef(super::walk::map_fn_decl(f, &mut map_block, &mut map_type))
+        }
         ExternCItem::Class(c) => {
             // Reuse the regular class path — wrapping classes
             // inside `@extern(C)` share the same shape.

@@ -248,27 +248,17 @@ pub(super) fn rewrite_calls_in_item(
     outer_args: &[Type],
     generic_fns: &HashMap<Symbol, FnDecl>,
 ) -> Item {
+    let mut map_block =
+        |b: &Block| rewrite_calls_in_block(b, table, outer_params, outer_args, generic_fns);
+    let mut keep_type = |t: &Type| t.clone();
     match item {
-        Item::Fn(f) => Item::Fn(FnDecl {
-            is_pub: false,
-            attrs: f.attrs.clone(),
-
-            name: f.name.clone(),
-            type_params: f.type_params.clone(),
-            params: f.params.clone(),
-            ret: f.ret.clone(),
-            body: rewrite_calls_in_block(&f.body, table, outer_params, outer_args, generic_fns),
-            span: f.span,
-        is_override: f.is_override,
-            is_async: false,
-            intrinsic_name: f.intrinsic_name,
-        }),
+        Item::Fn(f) => Item::Fn(super::walk::map_fn_decl(f, &mut map_block, &mut keep_type)),
         Item::Class(c) => Item::Class(ClassDecl {
             is_pub: false,
             extern_lib: c.extern_lib.clone(),
             is_repr_c: c.is_repr_c,
             is_packed: c.is_packed,
-        is_handle: c.is_handle,
+            is_handle: c.is_handle,
             is_union: c.is_union,
             name: c.name.clone(),
             parent: c.parent.clone(),
@@ -278,101 +268,18 @@ pub(super) fn rewrite_calls_in_item(
             methods: c
                 .methods
                 .iter()
-                .map(|m| FnDecl {
-                    is_pub: false,
-                    attrs: m.attrs.clone(),
-
-                    name: m.name.clone(),
-                    type_params: m.type_params.clone(),
-                    params: m.params.clone(),
-                    ret: m.ret.clone(),
-                    body: rewrite_calls_in_block(
-                        &m.body,
-                        table,
-                        outer_params,
-                        outer_args,
-                        generic_fns,
-                    ),
-                    span: m.span,
-                is_override: m.is_override,
-            is_async: false,
-            intrinsic_name: None,
-                })
+                .map(|m| super::walk::map_fn_decl(m, &mut map_block, &mut keep_type))
                 .collect(),
             static_methods: c
                 .static_methods
                 .iter()
-                .map(|m| FnDecl {
-                    is_pub: false,
-                    attrs: m.attrs.clone(),
-
-                    name: m.name.clone(),
-                    type_params: m.type_params.clone(),
-                    params: m.params.clone(),
-                    ret: m.ret.clone(),
-                    body: rewrite_calls_in_block(
-                        &m.body,
-                        table,
-                        outer_params,
-                        outer_args,
-                        generic_fns,
-                    ),
-                    span: m.span,
-                is_override: m.is_override,
-            is_async: false,
-            intrinsic_name: None,
-                })
+                .map(|m| super::walk::map_fn_decl(m, &mut map_block, &mut keep_type))
                 .collect(),
             static_fields: c.static_fields.clone(),
             properties: c
                 .properties
                 .iter()
-                .map(|p| ilang_ast::PropertyDecl { is_static: p.is_static,
-                    is_pub: false,
-                    name: p.name.clone(),
-                    ty: p.ty.clone(),
-                    getter: p.getter.as_ref().map(|g| FnDecl {
-                        is_pub: false,
-                        attrs: g.attrs.clone(),
-
-                        name: g.name.clone(),
-                        type_params: g.type_params.clone(),
-                        params: g.params.clone(),
-                        ret: g.ret.clone(),
-                        body: rewrite_calls_in_block(
-                            &g.body,
-                            table,
-                            outer_params,
-                            outer_args,
-                            generic_fns,
-                        ),
-                        span: g.span,
-                    is_override: g.is_override,
-            is_async: false,
-            intrinsic_name: None,
-                    }),
-                    setter: p.setter.as_ref().map(|s| FnDecl {
-                        is_pub: false,
-                        attrs: s.attrs.clone(),
-
-                        name: s.name.clone(),
-                        type_params: s.type_params.clone(),
-                        params: s.params.clone(),
-                        ret: s.ret.clone(),
-                        body: rewrite_calls_in_block(
-                            &s.body,
-                            table,
-                            outer_params,
-                            outer_args,
-                            generic_fns,
-                        ),
-                        span: s.span,
-                    is_override: s.is_override,
-            is_async: false,
-            intrinsic_name: None,
-                    }),
-                    span: p.span,
-                })
+                .map(|p| super::walk::map_property_decl(p, &mut map_block, &mut keep_type))
                 .collect(),
             attrs: c.attrs.clone(),
             span: c.span,
@@ -381,7 +288,6 @@ pub(super) fn rewrite_calls_in_item(
         Item::Use(u) => Item::Use(u.clone()),
         Item::Const(c) => Item::Const(c.clone()),
         Item::ExternC(b) => Item::ExternC(b.clone()),
-        
         Item::Interface(i) => Item::Interface(i.clone()),
     }
 }
