@@ -61,6 +61,29 @@ struct AotRegistry {
     lib_group_member: cranelift_module::FuncId,
 }
 
+/// `FuncRef`s that bind each `AotRegistry` import into a specific
+/// `Function`'s scope — produced by `AotRegistry::declare_in` once
+/// per emitted function. Same field shape as `AotRegistry`.
+struct AotRegistryRefs {
+    vtable: cranelift_codegen::ir::FuncRef,
+    drop_: cranelift_codegen::ir::FuncRef,
+    class_size: cranelift_codegen::ir::FuncRef,
+    object_field: cranelift_codegen::ir::FuncRef,
+    closure_capture: cranelift_codegen::ir::FuncRef,
+    closure_size: cranelift_codegen::ir::FuncRef,
+    enum_payload_kind: cranelift_codegen::ir::FuncRef,
+    class_print_name: cranelift_codegen::ir::FuncRef,
+    class_print_field: cranelift_codegen::ir::FuncRef,
+    struct_print_field: cranelift_codegen::ir::FuncRef,
+    enum_print_name: cranelift_codegen::ir::FuncRef,
+    enum_print_variant_name: cranelift_codegen::ir::FuncRef,
+    enum_print_variant_payload_pk: cranelift_codegen::ir::FuncRef,
+    fn_name: cranelift_codegen::ir::FuncRef,
+    enum_disc_str: cranelift_codegen::ir::FuncRef,
+    lib_group_begin: cranelift_codegen::ir::FuncRef,
+    lib_group_member: cranelift_codegen::ir::FuncRef,
+}
+
 impl AotRegistry {
     fn import_all(module: &mut ObjectModule) -> Result<Self, AotError> {
         Ok(Self {
@@ -92,6 +115,34 @@ impl AotRegistry {
             lib_group_begin: declare_returns_i64(module, "$os.registerLibGroupBegin")?,
             lib_group_member: declare_binary_i64_void(module, "$os.registerLibGroupMember")?,
         })
+    }
+
+    fn declare_in(
+        &self,
+        module: &mut ObjectModule,
+        fn_: &mut cranelift_codegen::ir::Function,
+    ) -> AotRegistryRefs {
+        AotRegistryRefs {
+            vtable: module.declare_func_in_func(self.vtable, fn_),
+            drop_: module.declare_func_in_func(self.drop_, fn_),
+            class_size: module.declare_func_in_func(self.class_size, fn_),
+            object_field: module.declare_func_in_func(self.object_field, fn_),
+            closure_capture: module.declare_func_in_func(self.closure_capture, fn_),
+            closure_size: module.declare_func_in_func(self.closure_size, fn_),
+            enum_payload_kind: module.declare_func_in_func(self.enum_payload_kind, fn_),
+            class_print_name: module.declare_func_in_func(self.class_print_name, fn_),
+            class_print_field: module.declare_func_in_func(self.class_print_field, fn_),
+            struct_print_field: module.declare_func_in_func(self.struct_print_field, fn_),
+            enum_print_name: module.declare_func_in_func(self.enum_print_name, fn_),
+            enum_print_variant_name: module
+                .declare_func_in_func(self.enum_print_variant_name, fn_),
+            enum_print_variant_payload_pk: module
+                .declare_func_in_func(self.enum_print_variant_payload_pk, fn_),
+            fn_name: module.declare_func_in_func(self.fn_name, fn_),
+            enum_disc_str: module.declare_func_in_func(self.enum_disc_str, fn_),
+            lib_group_begin: module.declare_func_in_func(self.lib_group_begin, fn_),
+            lib_group_member: module.declare_func_in_func(self.lib_group_member, fn_),
+        }
     }
 }
 
@@ -699,36 +750,26 @@ fn emit_aot_init(
         fb.switch_to_block(block);
         fb.seal_block(block);
 
-        let reg_vtable_ref = module.declare_func_in_func(regs.vtable, fb.func);
-        let reg_drop_ref = module.declare_func_in_func(regs.drop_, fb.func);
-        let reg_class_size_ref = module.declare_func_in_func(regs.class_size, fb.func);
-        let reg_object_field_ref =
-            module.declare_func_in_func(regs.object_field, fb.func);
-        let reg_closure_capture_ref =
-            module.declare_func_in_func(regs.closure_capture, fb.func);
-        let reg_closure_size_ref =
-            module.declare_func_in_func(regs.closure_size, fb.func);
-        let reg_enum_payload_kind_ref =
-            module.declare_func_in_func(regs.enum_payload_kind, fb.func);
-        let reg_class_print_name_ref =
-            module.declare_func_in_func(regs.class_print_name, fb.func);
-        let reg_class_print_field_ref =
-            module.declare_func_in_func(regs.class_print_field, fb.func);
-        let reg_struct_print_field_ref =
-            module.declare_func_in_func(regs.struct_print_field, fb.func);
-        let reg_enum_print_name_ref =
-            module.declare_func_in_func(regs.enum_print_name, fb.func);
-        let reg_enum_print_variant_name_ref =
-            module.declare_func_in_func(regs.enum_print_variant_name, fb.func);
-        let reg_enum_print_variant_payload_pk_ref =
-            module.declare_func_in_func(regs.enum_print_variant_payload_pk, fb.func);
-        let reg_fn_name_ref = module.declare_func_in_func(regs.fn_name, fb.func);
-        let reg_enum_disc_str_ref =
-            module.declare_func_in_func(regs.enum_disc_str, fb.func);
-        let reg_lib_group_begin_ref =
-            module.declare_func_in_func(regs.lib_group_begin, fb.func);
-        let reg_lib_group_member_ref =
-            module.declare_func_in_func(regs.lib_group_member, fb.func);
+        let refs = regs.declare_in(module, fb.func);
+        let AotRegistryRefs {
+            vtable: reg_vtable_ref,
+            drop_: reg_drop_ref,
+            class_size: reg_class_size_ref,
+            object_field: reg_object_field_ref,
+            closure_capture: reg_closure_capture_ref,
+            closure_size: reg_closure_size_ref,
+            enum_payload_kind: reg_enum_payload_kind_ref,
+            class_print_name: reg_class_print_name_ref,
+            class_print_field: reg_class_print_field_ref,
+            struct_print_field: reg_struct_print_field_ref,
+            enum_print_name: reg_enum_print_name_ref,
+            enum_print_variant_name: reg_enum_print_variant_name_ref,
+            enum_print_variant_payload_pk: reg_enum_print_variant_payload_pk_ref,
+            fn_name: reg_fn_name_ref,
+            enum_disc_str: reg_enum_disc_str_ref,
+            lib_group_begin: reg_lib_group_begin_ref,
+            lib_group_member: reg_lib_group_member_ref,
+        } = refs;
 
         for (cls_idx, class) in prog.classes.iter().enumerate() {
             let global_cid = class_global[class.id.0 as usize] as i64;
