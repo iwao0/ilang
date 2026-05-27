@@ -206,6 +206,62 @@ pub(super) fn declare_unit_void<M: Module>(
     Ok(module.declare_function(name, Linkage::Import, &sig)?)
 }
 
+/// Declare an `i64 name()` extern import — no params, single i64 return.
+pub(super) fn declare_returns_i64<M: Module>(
+    module: &mut M,
+    name: &str,
+) -> Result<cranelift_module::FuncId, CompileError> {
+    let mut sig = module.make_signature();
+    sig.returns.push(AbiParam::new(types::I64));
+    Ok(module.declare_function(name, Linkage::Import, &sig)?)
+}
+
+/// Declare a `void name(i64, i64)` extern import.
+pub(super) fn declare_binary_i64_void<M: Module>(
+    module: &mut M,
+    name: &str,
+) -> Result<cranelift_module::FuncId, CompileError> {
+    let mut sig = module.make_signature();
+    sig.params.push(AbiParam::new(types::I64));
+    sig.params.push(AbiParam::new(types::I64));
+    Ok(module.declare_function(name, Linkage::Import, &sig)?)
+}
+
+/// Declare a `void name(i64, i64, i64)` extern import.
+pub(super) fn declare_ternary_i64_void<M: Module>(
+    module: &mut M,
+    name: &str,
+) -> Result<cranelift_module::FuncId, CompileError> {
+    let mut sig = module.make_signature();
+    sig.params.push(AbiParam::new(types::I64));
+    sig.params.push(AbiParam::new(types::I64));
+    sig.params.push(AbiParam::new(types::I64));
+    Ok(module.declare_function(name, Linkage::Import, &sig)?)
+}
+
+/// Declare a `void name(i64, i64, i64, i64)` extern import.
+pub(super) fn declare_quad_i64_void<M: Module>(
+    module: &mut M,
+    name: &str,
+) -> Result<cranelift_module::FuncId, CompileError> {
+    declare_n_i64_void(module, name, 4)
+}
+
+/// Declare a `void name(i64 × n)` extern import. The 1-/2-/3-/4-arg
+/// shapes have dedicated wrappers above; this is for the wider
+/// signatures we hit a single time (e.g. AOT struct-print metadata).
+pub(super) fn declare_n_i64_void<M: Module>(
+    module: &mut M,
+    name: &str,
+    n: usize,
+) -> Result<cranelift_module::FuncId, CompileError> {
+    let mut sig = module.make_signature();
+    for _ in 0..n {
+        sig.params.push(AbiParam::new(types::I64));
+    }
+    Ok(module.declare_function(name, Linkage::Import, &sig)?)
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct PrintIds {
     pub(super) int: cranelift_module::FuncId,

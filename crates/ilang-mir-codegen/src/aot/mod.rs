@@ -494,130 +494,34 @@ fn emit_aot_init(
     fn_ids: &std::collections::HashMap<FuncId, cranelift_module::FuncId>,
 ) -> Result<cranelift_module::FuncId, AotError> {
     // Imports.
-    let reg_vtable = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$class.registerVtableEntry", Linkage::Import, &s)?
+    use crate::compile::{
+        declare_binary_i64_void, declare_n_i64_void, declare_quad_i64_void,
+        declare_ternary_i64_void,
     };
-    let reg_drop = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$class.registerDrop", Linkage::Import, &s)?
-    };
-    let reg_class_size = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$class.registerSize", Linkage::Import, &s)?
-    };
-    let reg_object_field = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$class.registerObjectField", Linkage::Import, &s)?
-    };
-    let reg_closure_capture = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$closure.registerCapture", Linkage::Import, &s)?
-    };
-    let reg_closure_size = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$closure.registerSize", Linkage::Import, &s)?
-    };
-    let reg_enum_payload_kind = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$enum.registerPayloadKind", Linkage::Import, &s)?
-    };
-    let reg_class_print_name = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$class.registerPrintName", Linkage::Import, &s)?
-    };
-    let reg_class_print_field = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$class.registerPrintField", Linkage::Import, &s)?
-    };
-    let reg_struct_print_field = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$class.registerStructPrintField", Linkage::Import, &s)?
-    };
-    let reg_enum_print_name = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$enum.registerPrintName", Linkage::Import, &s)?
-    };
-    let reg_enum_print_variant_name = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function(
-            "$enum.registerPrintVariantName",
-            Linkage::Import,
-            &s,
-        )?
-    };
-    let reg_enum_print_variant_payload_pk = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function(
-            "$enum.registerPrintVariantPayloadPk",
-            Linkage::Import,
-            &s,
-        )?
-    };
-    let reg_fn_name = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$print.registerFnName", Linkage::Import, &s)?
-    };
-    let reg_enum_disc_str = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$enum.registerDiscStr", Linkage::Import, &s)?
-    };
+    let reg_vtable = declare_ternary_i64_void(module, "$class.registerVtableEntry")?;
+    let reg_drop = declare_binary_i64_void(module, "$class.registerDrop")?;
+    let reg_class_size = declare_binary_i64_void(module, "$class.registerSize")?;
+    let reg_object_field = declare_ternary_i64_void(module, "$class.registerObjectField")?;
+    let reg_closure_capture = declare_ternary_i64_void(module, "$closure.registerCapture")?;
+    let reg_closure_size = declare_binary_i64_void(module, "$closure.registerSize")?;
+    let reg_enum_payload_kind = declare_quad_i64_void(module, "$enum.registerPayloadKind")?;
+    let reg_class_print_name = declare_binary_i64_void(module, "$class.registerPrintName")?;
+    let reg_class_print_field = declare_quad_i64_void(module, "$class.registerPrintField")?;
+    let reg_struct_print_field =
+        declare_n_i64_void(module, "$class.registerStructPrintField", 6)?;
+    let reg_enum_print_name = declare_binary_i64_void(module, "$enum.registerPrintName")?;
+    let reg_enum_print_variant_name =
+        declare_ternary_i64_void(module, "$enum.registerPrintVariantName")?;
+    let reg_enum_print_variant_payload_pk =
+        declare_quad_i64_void(module, "$enum.registerPrintVariantPayloadPk")?;
+    let reg_fn_name = declare_binary_i64_void(module, "$print.registerFnName")?;
+    let reg_enum_disc_str = declare_ternary_i64_void(module, "$enum.registerDiscStr")?;
     let reg_lib_group_begin = {
         let mut s = module.make_signature();
         s.returns.push(AbiParam::new(types::I64));
         module.declare_function("$os.registerLibGroupBegin", Linkage::Import, &s)?
     };
-    let reg_lib_group_member = {
-        let mut s = module.make_signature();
-        s.params.push(AbiParam::new(types::I64));
-        s.params.push(AbiParam::new(types::I64));
-        module.declare_function("$os.registerLibGroupMember", Linkage::Import, &s)?
-    };
+    let reg_lib_group_member = declare_binary_i64_void(module, "$os.registerLibGroupMember")?;
 
     // Scan the whole program for `MirTy::Weak(C)` references so the
     // class-size registration below can skip those classes — `weak.get`
