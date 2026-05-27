@@ -209,12 +209,6 @@ pub(super) fn scan_expr(e: &Expr, needed: &mut HashSet<Symbol>, work: &mut Vec<I
             push_inst(class.clone(), type_args.to_vec(), needed, work);
         }
     }
-    // walk_expr_children skips into FnExpr bodies (those get hoisted
-    // out post-monomorphize). Monomorphize runs first, so the FnExpr
-    // body still needs scanning here for any generic refs.
-    if let ExprKind::FnExpr { body, .. } = &e.kind {
-        scan_block(body, needed, work);
-    }
     super::walk::walk_expr_children(e, &mut |c| scan_expr(c, needed, work));
 }
 

@@ -39,8 +39,16 @@ pub(super) fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
         ExprKind::Cast { expr, .. }
         | ExprKind::TypeTest { expr, .. }
         | ExprKind::TypeDowncast { expr, .. } => f(expr),
-        ExprKind::FnExpr { .. } => {
-            // Anonymous fns are hoisted out before this pass; nothing to do.
+        ExprKind::FnExpr { params, body, .. } => {
+            // Walk param defaults and the body so seed / scan passes
+            // catch generic refs inside anonymous-fn captures
+            // (`fn outer<T>() { let cb = fn() { use::<T>() }; }`).
+            for p in params {
+                if let Some(d) = &p.default {
+                    f(d);
+                }
+            }
+            walk_block_children(body, f);
         }
         ExprKind::Call { args, .. } => {
             for a in args {
