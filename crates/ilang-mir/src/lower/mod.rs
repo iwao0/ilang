@@ -788,53 +788,53 @@ impl Lower {
 
 
 struct BodyCx<'a> {
-    fb: &'a mut FunctionBuilder,
-    env: &'a mut Env,
-    ret_ty: MirTy,
-    fn_ids: &'a mut HashMap<Symbol, FuncId>,
-    fn_sigs: &'a mut HashMap<Symbol, FnSig>,
-    loops: Vec<LoopFrame>,
+    pub(in crate::lower) fb: &'a mut FunctionBuilder,
+    pub(in crate::lower) env: &'a mut Env,
+    pub(in crate::lower) ret_ty: MirTy,
+    pub(in crate::lower) fn_ids: &'a mut HashMap<Symbol, FuncId>,
+    pub(in crate::lower) fn_sigs: &'a mut HashMap<Symbol, FnSig>,
+    pub(in crate::lower) loops: Vec<LoopFrame>,
     /// The receiver class when lowering a method body (`Some(cid)`).
-    this_class: Option<crate::types::ClassId>,
-    classes: &'a [crate::program::ClassLayout],
-    class_meta: &'a HashMap<crate::types::ClassId, ClassMeta>,
-    interface_ids: &'a HashMap<Symbol, crate::types::ClassId>,
-    iface_method_slots: &'a HashMap<(Symbol, Symbol), u32>,
-    iface_method_sigs: &'a HashMap<(Symbol, Symbol), FnSig>,
-    com_interfaces: &'a std::collections::HashSet<Symbol>,
-    com_iface_slots: &'a HashMap<(Symbol, Symbol), u32>,
-    enum_ids: &'a HashMap<Symbol, crate::types::EnumId>,
-    enum_meta: &'a HashMap<crate::types::EnumId, EnumMeta>,
-    enums: &'a [crate::program::EnumLayout],
-    statics: &'a [crate::program::StaticSlot],
+    pub(in crate::lower) this_class: Option<crate::types::ClassId>,
+    pub(in crate::lower) classes: &'a [crate::program::ClassLayout],
+    pub(in crate::lower) class_meta: &'a HashMap<crate::types::ClassId, ClassMeta>,
+    pub(in crate::lower) interface_ids: &'a HashMap<Symbol, crate::types::ClassId>,
+    pub(in crate::lower) iface_method_slots: &'a HashMap<(Symbol, Symbol), u32>,
+    pub(in crate::lower) iface_method_sigs: &'a HashMap<(Symbol, Symbol), FnSig>,
+    pub(in crate::lower) com_interfaces: &'a std::collections::HashSet<Symbol>,
+    pub(in crate::lower) com_iface_slots: &'a HashMap<(Symbol, Symbol), u32>,
+    pub(in crate::lower) enum_ids: &'a HashMap<Symbol, crate::types::EnumId>,
+    pub(in crate::lower) enum_meta: &'a HashMap<crate::types::EnumId, EnumMeta>,
+    pub(in crate::lower) enums: &'a [crate::program::EnumLayout],
+    pub(in crate::lower) statics: &'a [crate::program::StaticSlot],
     /// Slot for pushing newly-discovered anonymous closures that need
     /// their bodies lowered after the current fn finishes.
-    pending: &'a mut Vec<PendingClosure>,
-    funcs: &'a mut Vec<Function>,
-    anon_counter: &'a mut u32,
+    pub(in crate::lower) pending: &'a mut Vec<PendingClosure>,
+    pub(in crate::lower) funcs: &'a mut Vec<Function>,
+    pub(in crate::lower) anon_counter: &'a mut u32,
     /// Captures available in this scope (only set when lowering a
     /// closure body — maps a captured name to its `LoadCapture(i)`
     /// index plus type).
-    captures_in_scope: Option<&'a HashMap<Symbol, (u32, MirTy)>>,
+    pub(in crate::lower) captures_in_scope: Option<&'a HashMap<Symbol, (u32, MirTy)>>,
     /// Names whose captures are heap cells (the cell pointer was
     /// captured, not the value snapshot). Reads / writes go through
     /// `ArrayLoad` / `ArrayStore` after a `LoadCapture` on the cell
     /// pointer.
-    cell_captures: Option<&'a std::collections::HashSet<Symbol>>,
-    overloads: &'a HashMap<Symbol, Vec<Symbol>>,
+    pub(in crate::lower) cell_captures: Option<&'a std::collections::HashSet<Symbol>>,
+    pub(in crate::lower) overloads: &'a HashMap<Symbol, Vec<Symbol>>,
     /// Names that should be allocated as heap cells inside this fn
     /// body (because some inner closure captures+mutates them).
     /// Populated by a per-fn-body pre-pass.
-    cellify_set: &'a std::collections::HashSet<Symbol>,
+    pub(in crate::lower) cellify_set: &'a std::collections::HashSet<Symbol>,
     /// REPL persistent slots: name → (slot index, MirTy). Forwarded
     /// from `Lower::repl_slots`. Drives `__repl_load_slot` emission
     /// in `Var` lookup (any fn body) and `__repl_store_slot` after
     /// top-level `let`s in `__main` when `is_main_body` is set.
-    repl_slots: &'a HashMap<Symbol, (u32, MirTy)>,
+    pub(in crate::lower) repl_slots: &'a HashMap<Symbol, (u32, MirTy)>,
     /// True iff we're lowering `__main`'s body. Restricts top-level
     /// `let` → slot-store to that scope so a same-named local in a
     /// fn body doesn't accidentally clobber the REPL slot.
-    is_main_body: bool,
+    pub(in crate::lower) is_main_body: bool,
     /// Locals whose value is an owned `host_mir_alloc` buffer for a
     /// CRepr (no-rc-header) struct. Populated when a `let` binding
     /// stores a fresh `new T()` of a CRepr class. `release_top_scope
@@ -842,7 +842,7 @@ struct BodyCx<'a> {
     /// for CRepr Locals — without it, a `let p = r.origin` (where
     /// `r.origin` is just a borrow into `r`'s buffer) would
     /// erroneously free part of `r`'s memory.
-    crepr_owned_locals: std::collections::HashSet<crate::inst::LocalId>,
+    pub(in crate::lower) crepr_owned_locals: std::collections::HashSet<crate::inst::LocalId>,
     /// Name of the top-level slot binding currently being assigned
     /// (Some(X) while we're inside the value of `let X = ...`).
     /// `lower_fn_expr` checks this to avoid snapshotting the X slot
@@ -851,7 +851,7 @@ struct BodyCx<'a> {
     /// hasn't been written yet at construction time. The Var
     /// lookup inside the body resolves through the slot at call
     /// time instead.
-    binding_self_name: Option<Symbol>,
+    pub(in crate::lower) binding_self_name: Option<Symbol>,
 }
 
 impl<'a> BodyCx<'a> {
