@@ -338,18 +338,25 @@ pub extern "C" fn __map_for_each(map: i64, closure: i64) {
     }
     let m = unsafe { &*(map as *const ManagedMap) };
     let key_is_str = m.key_print_kind == PK_STR;
-    // Snapshot entries before invoking the closure so concurrent
-    // mutations from the callback can't invalidate iterator state.
-    let entries: Vec<(MapKey, i64)> =
-        m.inner.iter().map(|(k, &v)| (k.clone(), v)).collect();
-    for (k, v) in entries {
-        let key_raw = if key_is_str {
-            let orig = m.str_orig_or_leak(&k);
-            __retain_string(orig);
-            orig
-        } else {
-            map_key_to_raw(&k)
-        };
+    // Snapshot as raw (key, value) pairs so the callback can mutate
+    // the map without aliasing our iterator. String keys keep a +1
+    // registry rc through the call so mid-iteration `delete` can't
+    // free them out from under the callback.
+    let pairs: Vec<(i64, i64)> = m
+        .inner
+        .iter()
+        .map(|(k, &v)| {
+            let key_raw = if key_is_str {
+                let orig = m.str_orig_or_leak(k);
+                __retain_string(orig);
+                orig
+            } else {
+                map_key_to_raw(k)
+            };
+            (key_raw, v)
+        })
+        .collect();
+    for (key_raw, v) in pairs {
         unsafe { call_closure_kv(closure, key_raw, v) };
         if key_is_str {
             crate::strings::__release_string(key_raw);
@@ -371,23 +378,28 @@ pub fn format_map_into(out: &mut String, map_ptr: i64) {
         return;
     }
     let m = unsafe { &*(map_ptr as *const ManagedMap) };
-    let mut entries: Vec<(i64, i64)> =
-        m.inner.iter().map(|(k, &v)| (m.str_orig_or_leak(k), v)).collect();
     let kk = m.key_print_kind;
     let vk = m.val_print_kind;
-    entries.sort_by(|a, b| {
-        let mut sa = String::new();
-        let mut sb = String::new();
-        format_kind_id(&mut sa, kk, a.0);
-        format_kind_id(&mut sb, kk, b.0);
-        sa.cmp(&sb)
-    });
+    // Pre-render each key once for stable display ordering. Without
+    // caching, `sort_by` would call `format_kind_id` twice per
+    // comparison — O(n log n) format calls instead of O(n).
+    let mut entries: Vec<(String, i64, i64)> = m
+        .inner
+        .iter()
+        .map(|(k, &v)| {
+            let raw = m.str_orig_or_leak(k);
+            let mut s = String::new();
+            format_kind_id(&mut s, kk, raw);
+            (s, raw, v)
+        })
+        .collect();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
     out.push('{');
-    for (i, (k, v)) in entries.iter().enumerate() {
+    for (i, (key_str, _raw, v)) in entries.iter().enumerate() {
         if i > 0 {
             out.push_str(", ");
         }
-        format_kind_id(out, kk, *k);
+        out.push_str(key_str);
         out.push_str(": ");
         format_kind_id(out, vk, *v);
     }

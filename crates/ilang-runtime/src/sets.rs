@@ -294,15 +294,21 @@ pub extern "C" fn __set_for_each(set: i64, closure: i64) {
     }
     let s = unsafe { &*(set as *const ManagedSet) };
     let is_str = s.elem_print_kind == PK_STR;
-    let elems: Vec<SetElem> = s.inner.iter().cloned().collect();
-    for e in elems {
-        let arg = if is_str {
-            let orig = s.str_orig_or_leak(&e);
-            __retain_string(orig);
-            orig
-        } else {
-            set_elem_to_raw(&e)
-        };
+    // Snapshot as raw i64 — for string elements we retain the registry
+    // pointer up-front so each entry survives any mutation the
+    // callback may perform on the set (e.g. delete during iteration).
+    let args: Vec<i64> = s
+        .inner
+        .iter()
+        .map(|e| {
+            let raw = if is_str { s.str_orig_or_leak(e) } else { set_elem_to_raw(e) };
+            if is_str {
+                __retain_string(raw);
+            }
+            raw
+        })
+        .collect();
+    for arg in args {
         unsafe { call_closure_1_i64(closure, arg) };
         if is_str {
             __release_string(arg);
@@ -316,12 +322,14 @@ pub extern "C" fn __set_for_each_f32(set: i64, closure: i64) {
         return;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
-    let elems: Vec<SetElem> = s.inner.iter().cloned().collect();
-    for e in elems {
-        if let SetElem::Int(bits) = e {
-            let v = f32::from_bits(bits as u32);
-            unsafe { call_closure_1_f32(closure, v) };
-        }
+    let bits: Vec<i64> = s
+        .inner
+        .iter()
+        .filter_map(|e| if let SetElem::Int(b) = e { Some(*b) } else { None })
+        .collect();
+    for b in bits {
+        let v = f32::from_bits(b as u32);
+        unsafe { call_closure_1_f32(closure, v) };
     }
 }
 
@@ -331,12 +339,14 @@ pub extern "C" fn __set_for_each_f64(set: i64, closure: i64) {
         return;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
-    let elems: Vec<SetElem> = s.inner.iter().cloned().collect();
-    for e in elems {
-        if let SetElem::Int(bits) = e {
-            let v = f64::from_bits(bits as u64);
-            unsafe { call_closure_1_f64(closure, v) };
-        }
+    let bits: Vec<i64> = s
+        .inner
+        .iter()
+        .filter_map(|e| if let SetElem::Int(b) = e { Some(*b) } else { None })
+        .collect();
+    for b in bits {
+        let v = f64::from_bits(b as u64);
+        unsafe { call_closure_1_f64(closure, v) };
     }
 }
 
@@ -548,26 +558,30 @@ pub fn format_set_into(out: &mut String, set: i64) {
     }
     let s = unsafe { &*(set as *const ManagedSet) };
     let pk = s.elem_print_kind;
-    let mut raws: Vec<i64> = s.inner.iter().map(|e| s.str_orig_or_leak(e)).collect();
-    // Stable display: sort by the formatted text, the same trick
-    // `__print_map` uses for HashMap iteration order.
-    raws.sort_by(|a, b| {
-        let mut sa = String::new();
-        let mut sb = String::new();
-        crate::print_dispatch::format_kind_id(&mut sa, pk, *a);
-        crate::print_dispatch::format_kind_id(&mut sb, pk, *b);
-        sa.cmp(&sb)
-    });
+    // Stable display: pre-render each element once, sort by the
+    // formatted text. Same trick `format_map_into` uses to avoid
+    // O(n log n) format calls inside the comparator.
+    let mut rendered: Vec<String> = s
+        .inner
+        .iter()
+        .map(|e| {
+            let raw = s.str_orig_or_leak(e);
+            let mut buf = String::new();
+            crate::print_dispatch::format_kind_id(&mut buf, pk, raw);
+            buf
+        })
+        .collect();
+    rendered.sort();
     out.push_str("Set {");
-    for (i, r) in raws.iter().enumerate() {
+    for (i, r) in rendered.iter().enumerate() {
         if i == 0 {
             out.push(' ');
         } else {
             out.push_str(", ");
         }
-        crate::print_dispatch::format_kind_id(out, pk, *r);
+        out.push_str(r);
     }
-    if !raws.is_empty() {
+    if !rendered.is_empty() {
         out.push(' ');
     }
     out.push('}');
