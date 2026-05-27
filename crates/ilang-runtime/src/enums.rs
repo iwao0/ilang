@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use crate::alloc::{__mir_alloc, __mir_free};
 use crate::cascade::release_field_by_kind;
@@ -28,10 +28,12 @@ fn enum_registry() -> &'static Mutex<HashMap<i64, EnumEntry>> {
 
 /// Per-variant payload kinds, keyed by `(global_eid, tag)`. Each
 /// `Vec` slot holds the `KIND_*` tag for the matching payload slot.
-static ENUM_PAYLOAD_KINDS: OnceLock<Mutex<HashMap<(u32, i64), Vec<i64>>>> = OnceLock::new();
+/// Wrapped in `Arc` so `__release_enum` can grab a pointer copy
+/// without cloning the inner vec on every drop.
+static ENUM_PAYLOAD_KINDS: OnceLock<RwLock<HashMap<(u32, i64), Arc<Vec<i64>>>>> = OnceLock::new();
 
-fn enum_payload_kinds() -> &'static Mutex<HashMap<(u32, i64), Vec<i64>>> {
-    ENUM_PAYLOAD_KINDS.get_or_init(|| Mutex::new(HashMap::new()))
+fn enum_payload_kinds() -> &'static RwLock<HashMap<(u32, i64), Arc<Vec<i64>>>> {
+    ENUM_PAYLOAD_KINDS.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$enum.registerPayloadKind")]
@@ -41,13 +43,14 @@ pub extern "C" fn __register_enum_payload_kind(
     slot_idx: i64,
     kind: i64,
 ) {
-    let mut t = enum_payload_kinds().lock().expect("enum payload kinds poisoned");
+    let mut t = enum_payload_kinds().write().expect("enum payload kinds poisoned");
     let entry = t.entry((global_eid as u32, tag)).or_default();
+    let v = Arc::make_mut(entry);
     let idx = slot_idx as usize;
-    while entry.len() <= idx {
-        entry.push(0);
+    while v.len() <= idx {
+        v.push(0);
     }
-    entry[idx] = kind;
+    v[idx] = kind;
 }
 
 #[unsafe(export_name = "$enum.box")]
@@ -57,31 +60,31 @@ pub extern "C" fn __enum_box(disc: i64) -> i64 {
     p
 }
 
-static ENUM_UNIT_CACHE: OnceLock<Mutex<HashMap<(u32, i64), i64>>> = OnceLock::new();
+static ENUM_UNIT_CACHE: OnceLock<RwLock<HashMap<(u32, i64), i64>>> = OnceLock::new();
 
-fn enum_unit_cache() -> &'static Mutex<HashMap<(u32, i64), i64>> {
-    ENUM_UNIT_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn enum_unit_cache() -> &'static RwLock<HashMap<(u32, i64), i64>> {
+    ENUM_UNIT_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$enum.unitGet")]
 pub extern "C" fn __enum_unit_get(global_eid: i64, disc: i64) -> i64 {
     let key = (global_eid as u32, disc);
     {
-        let m = enum_unit_cache().lock().expect("enum unit cache poisoned");
+        let m = enum_unit_cache().read().expect("enum unit cache poisoned");
         if let Some(&p) = m.get(&key) {
             return p;
         }
     }
     let p = __mir_alloc(8);
     unsafe { *(p as *mut i64) = disc; }
-    let mut m = enum_unit_cache().lock().expect("enum unit cache poisoned");
+    let mut m = enum_unit_cache().write().expect("enum unit cache poisoned");
     *m.entry(key).or_insert(p)
 }
 
 #[unsafe(export_name = "$enum.unitGetChecked")]
 pub extern "C" fn __enum_unit_get_checked(global_eid: i64, disc: i64) -> i64 {
     let (valid, name) = {
-        let t = enum_print_info().lock().expect("enum print info poisoned");
+        let t = enum_print_info().read().expect("enum print info poisoned");
         match t.get(&(global_eid as u32)) {
             Some(info) => (info.variants.contains_key(&disc), info.name.clone()),
             None => (false, format!("<enum#{global_eid}>")),
@@ -145,7 +148,7 @@ pub extern "C" fn __release_enum(p: i64) {
         drop(reg);
         let tag = unsafe { *(p as *const i64) };
         let kinds = {
-            let t = enum_payload_kinds().lock().expect("enum payload kinds poisoned");
+            let t = enum_payload_kinds().read().expect("enum payload kinds poisoned");
             t.get(&(global_eid, tag)).cloned()
         };
         if let Some(kinds) = kinds {
@@ -170,16 +173,16 @@ pub(crate) struct EnumPrintInfo {
     pub(crate) variants: HashMap<i64, (String, Vec<i64>)>,
 }
 
-static ENUM_PRINT_INFO: OnceLock<Mutex<HashMap<u32, EnumPrintInfo>>> = OnceLock::new();
+static ENUM_PRINT_INFO: OnceLock<RwLock<HashMap<u32, EnumPrintInfo>>> = OnceLock::new();
 
-pub(crate) fn enum_print_info() -> &'static Mutex<HashMap<u32, EnumPrintInfo>> {
-    ENUM_PRINT_INFO.get_or_init(|| Mutex::new(HashMap::new()))
+pub(crate) fn enum_print_info() -> &'static RwLock<HashMap<u32, EnumPrintInfo>> {
+    ENUM_PRINT_INFO.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$enum.registerPrintName")]
 pub extern "C" fn __register_enum_print_name(eid: i64, name_str_ptr: i64) {
     let name = cstr_to_str(name_str_ptr).to_string();
-    let mut t = enum_print_info().lock().expect("enum print info poisoned");
+    let mut t = enum_print_info().write().expect("enum print info poisoned");
     let entry = t.entry(eid as u32).or_insert_with(|| EnumPrintInfo {
         name: String::new(),
         variants: HashMap::new(),
@@ -194,7 +197,7 @@ pub extern "C" fn __register_enum_print_variant_name(
     name_str_ptr: i64,
 ) {
     let name = cstr_to_str(name_str_ptr).to_string();
-    let mut t = enum_print_info().lock().expect("enum print info poisoned");
+    let mut t = enum_print_info().write().expect("enum print info poisoned");
     let entry = t.entry(eid as u32).or_insert_with(|| EnumPrintInfo {
         name: String::new(),
         variants: HashMap::new(),
@@ -209,7 +212,7 @@ pub extern "C" fn __register_enum_print_variant_payload_pk(
     slot_idx: i64,
     pk: i64,
 ) {
-    let mut t = enum_print_info().lock().expect("enum print info poisoned");
+    let mut t = enum_print_info().write().expect("enum print info poisoned");
     let entry = t.entry(eid as u32).or_insert_with(|| EnumPrintInfo {
         name: String::new(),
         variants: HashMap::new(),
@@ -233,7 +236,7 @@ pub extern "C" fn __print_enum(enum_id: i64, ptr: i64) {
 pub fn format_enum_into(out: &mut String, enum_id: i64, ptr: i64) {
     use std::fmt::Write;
     let info = {
-        let t = enum_print_info().lock().expect("enum print info poisoned");
+        let t = enum_print_info().read().expect("enum print info poisoned");
         t.get(&(enum_id as u32))
             .map(|i| (i.name.clone(), i.variants.clone()))
     };
@@ -275,10 +278,10 @@ pub fn format_enum_into(out: &mut String, enum_id: i64, ptr: i64) {
 
 // `(global_eid, disc) → discriminant string` for `: string`-repr
 // enums. Populated at compile time; read by `__enum_disc_str`.
-static ENUM_DISC_STR: OnceLock<Mutex<HashMap<(u32, i64), String>>> = OnceLock::new();
+static ENUM_DISC_STR: OnceLock<RwLock<HashMap<(u32, i64), String>>> = OnceLock::new();
 
-fn enum_disc_str_table() -> &'static Mutex<HashMap<(u32, i64), String>> {
-    ENUM_DISC_STR.get_or_init(|| Mutex::new(HashMap::new()))
+fn enum_disc_str_table() -> &'static RwLock<HashMap<(u32, i64), String>> {
+    ENUM_DISC_STR.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$enum.registerDiscStr")]
@@ -289,7 +292,7 @@ pub extern "C" fn __register_enum_disc_str(
 ) {
     let s = cstr_to_str(str_ptr).to_string();
     enum_disc_str_table()
-        .lock()
+        .write()
         .expect("enum disc str poisoned")
         .insert((global_eid as u32, disc), s);
 }
@@ -297,7 +300,7 @@ pub extern "C" fn __register_enum_disc_str(
 #[unsafe(export_name = "$enum.discStr")]
 pub extern "C" fn __enum_disc_str(global_eid: i64, disc: i64) -> i64 {
     let t = enum_disc_str_table()
-        .lock()
+        .read()
         .expect("enum disc str poisoned");
     match t.get(&(global_eid as u32, disc)) {
         Some(s) => leak_cstring(s.clone()),
