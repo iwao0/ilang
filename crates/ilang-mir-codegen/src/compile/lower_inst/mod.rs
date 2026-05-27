@@ -11,6 +11,7 @@ mod array;
 mod call_dispatch;
 mod calls;
 mod objects;
+mod rtti;
 
 use std::collections::HashMap;
 
@@ -31,7 +32,7 @@ use super::print_kind::{
     kind_tag_of, print_kind_id, KIND_ARRAY, KIND_CLOSURE, KIND_ENUM, KIND_MAP, KIND_NONE,
     KIND_OBJECT, KIND_OPTIONAL, KIND_PROMISE, KIND_STR, KIND_TUPLE,
 };
-use super::{emit_is_subclass, CompileError, OBJECT_HEADER_BYTES};
+use super::{CompileError, OBJECT_HEADER_BYTES};
 
 /// Inline byte-wise copy of `total` bytes from `src` to `dst_addr`.
 /// Mirrors the pattern used in `objects.rs` for CRepr struct copies —
@@ -78,7 +79,6 @@ pub(super) fn lower_inst<M: Module>(
         str_ids,
         panic_aux,
         prog,
-        class_global,
         enum_global,
         ..
     } = *prog_ctx;
@@ -243,107 +243,11 @@ pub(super) fn lower_inst<M: Module>(
         }
         Inst::WeakRetain { .. }
         | Inst::WeakRelease { .. } => {}
-        Inst::TypeOf { dst, value } => {
-            // Return the dynamic class id (i64) — used as an opaque
-            // `Type` handle. Full `Type` API arrives with the runtime.
-            use super::layout::object_header as oh;
-            let p = vmap[value];
-            let cid = fb.ins().load(types::I64, MemFlags::trusted(), p, oh::CLASS_ID);
-            vmap.insert(*dst, cid);
-        }
-        Inst::IsInstance { dst, value, class } => {
-            use super::layout::object_header as oh;
-            let p = vmap[value];
-            let cid = fb.ins().load(types::I64, MemFlags::trusted(), p, oh::CLASS_ID);
-            let v = emit_is_subclass(fb, cid, *class, prog, class_global);
-            vmap.insert(*dst, v);
-        }
-        Inst::DowncastOrNone { dst, value, class } => {
-            // `value as? Class` → some(value) if dynamic class is
-            // a subtype of `class`, else none. Optional<Object> is
-            // boxed: we emit NewOptional on the some-branch, 0 on the
-            // none-branch, and merge through a block-arg.
-            use super::layout::object_header as oh;
-            let p = vmap[value];
-            let cid = fb.ins().load(types::I64, MemFlags::trusted(), p, oh::CLASS_ID);
-            let cond = emit_is_subclass(fb, cid, *class, prog, class_global);
-
-            let some_blk = fb.create_block();
-            let none_blk = fb.create_block();
-            let cont_blk = fb.create_block();
-            let result = fb.append_block_param(cont_blk, types::I64);
-
-            fb.ins().brif(cond, some_blk, &[], none_blk, &[]);
-
-            fb.switch_to_block(some_blk);
-            fb.seal_block(some_blk);
-            // Allocate one i64 cell containing the value.
-            let bytes = fb.ins().iconst(types::I64, 8);
-            let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
-            let call = fb.ins().call(alloc_ref, &[bytes]);
-            let ptr = fb.inst_results(call)[0];
-            fb.ins().store(MemFlags::trusted(), p, ptr, 0);
-            fb.ins().jump(cont_blk, [cranelift_codegen::ir::BlockArg::from(ptr)].iter());
-
-            fb.switch_to_block(none_blk);
-            fb.seal_block(none_blk);
-            let zero = fb.ins().iconst(types::I64, 0);
-            fb.ins().jump(cont_blk, [cranelift_codegen::ir::BlockArg::from(zero)].iter());
-
-            fb.switch_to_block(cont_blk);
-            fb.seal_block(cont_blk);
-            vmap.insert(*dst, result);
-        }
-        Inst::WeakUpgrade { dst, weak } => {
-            // Weak refs share storage with the strong rep. Upgrade
-            // returns `some(target)` only when the target's strong rc
-            // is still positive; otherwise `none`. The Optional cell
-            // is a 3-cell heap [value | rc | kind_tag=Object].
-            use super::layout::object_header as oh;
-            use super::layout::optional_header as opth;
-            let p = vmap[weak];
-            let zero = fb.ins().iconst(types::I64, 0);
-            let none_blk = fb.create_block();
-            let some_blk = fb.create_block();
-            let cont = fb.create_block();
-            fb.append_block_param(cont, types::I64);
-
-            let p_nz = fb.ins().icmp(IntCC::NotEqual, p, zero);
-            fb.ins().brif(p_nz, some_blk, &[], none_blk, &[]);
-
-            // Test target rc.
-            fb.switch_to_block(some_blk);
-            fb.seal_block(some_blk);
-            let rc = fb.ins().load(types::I64, MemFlags::trusted(), p, oh::RC);
-            let alive = fb.ins().icmp_imm(IntCC::SignedGreaterThan, rc, 0);
-            let alloc_blk = fb.create_block();
-            fb.ins().brif(alive, alloc_blk, &[], none_blk, &[]);
-
-            // alive: bump strong rc (caller now owns +1) and box into
-            // a fresh Optional cell.
-            fb.switch_to_block(alloc_blk);
-            fb.seal_block(alloc_blk);
-            let one = fb.ins().iconst(types::I64, 1);
-            let new_rc = fb.ins().iadd(rc, one);
-            fb.ins().store(MemFlags::trusted(), new_rc, p, oh::RC);
-            let bytes = fb.ins().iconst(types::I64, opth::SIZE);
-            let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
-            let call = fb.ins().call(alloc_ref, &[bytes]);
-            let cell = fb.inst_results(call)[0];
-            fb.ins().store(MemFlags::trusted(), p, cell, opth::VALUE);
-            fb.ins().store(MemFlags::trusted(), one, cell, opth::RC);
-            let kind = fb.ins().iconst(types::I64, 1); // PrintKind::Object cascade
-            fb.ins().store(MemFlags::trusted(), kind, cell, opth::KIND_TAG);
-            fb.ins().jump(cont, [cell.into()].iter());
-
-            fb.switch_to_block(none_blk);
-            fb.seal_block(none_blk);
-            fb.ins().jump(cont, [zero.into()].iter());
-
-            fb.switch_to_block(cont);
-            fb.seal_block(cont);
-            let v = fb.block_params(cont)[0];
-            vmap.insert(*dst, v);
+        Inst::TypeOf { .. }
+        | Inst::IsInstance { .. }
+        | Inst::DowncastOrNone { .. }
+        | Inst::WeakUpgrade { .. } => {
+            rtti::lower_rtti_inst(fb, vmap, module, prog_ctx, fn_ctx, inst)?;
         }
         Inst::DefLocal { local, value } => {
             let v = vmap[value];
