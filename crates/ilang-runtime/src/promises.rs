@@ -22,7 +22,7 @@
 //! Continuations hold +1 references on their downstream promise +
 //! the callback closure; they release both after firing.
 
-use std::sync::atomic::{AtomicI64, Ordering, fence};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use crate::cascade::{release_field_by_kind, retain_field_by_kind};
@@ -114,21 +114,7 @@ pub extern "C" fn __retain_promise(p: i64) {
         return;
     }
     let pr = unsafe { promise_ref(p) };
-    let mut cur = pr.rc.load(Ordering::Relaxed);
-    loop {
-        if cur <= 0 {
-            return;
-        }
-        match pr.rc.compare_exchange_weak(
-            cur,
-            cur + 1,
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-        ) {
-            Ok(_) => return,
-            Err(actual) => cur = actual,
-        }
-    }
+    crate::refcount::retain_atomic(&pr.rc);
 }
 
 #[unsafe(export_name = "$promise.release")]
@@ -137,25 +123,9 @@ pub extern "C" fn __release_promise(p: i64) {
         return;
     }
     let pr = unsafe { promise_ref(p) };
-    let mut cur = pr.rc.load(Ordering::Relaxed);
-    loop {
-        if cur <= 0 {
-            return;
-        }
-        match pr.rc.compare_exchange_weak(
-            cur,
-            cur - 1,
-            Ordering::Release,
-            Ordering::Relaxed,
-        ) {
-            Ok(_) => break,
-            Err(actual) => cur = actual,
-        }
-    }
-    if cur != 1 {
+    if crate::refcount::release_atomic(&pr.rc) != Some(0) {
         return;
     }
-    fence(Ordering::Acquire);
     // Final drop — cascade-release whatever the state owns.
     let mut owned = unsafe { Box::from_raw(p as *mut ManagedPromise) };
     let inner = owned.inner.get_mut().expect("promise mutex poisoned");

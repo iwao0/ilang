@@ -50,6 +50,19 @@ fn set_elem_to_raw(e: &SetElem) -> i64 {
     }
 }
 
+impl ManagedSet {
+    /// Return the original raw pointer for `e` if we recorded one at
+    /// insertion time, otherwise mint a fresh C-string. Used by
+    /// iteration methods so emitted strings match what the user
+    /// passed into `add()`.
+    fn str_orig_or_leak(&self, e: &SetElem) -> i64 {
+        self.str_origs
+            .get(e)
+            .copied()
+            .unwrap_or_else(|| set_elem_to_raw(e))
+    }
+}
+
 #[unsafe(export_name = "$set.new")]
 pub extern "C" fn __set_new() -> i64 {
     let s = Box::new(ManagedSet {
@@ -231,7 +244,7 @@ pub extern "C" fn __set_values(set: i64) -> i64 {
     let mut values: Vec<i64> = Vec::with_capacity(s.inner.len());
     if s.elem_print_kind == PK_STR {
         for e in s.inner.iter() {
-            let orig = s.str_origs.get(e).copied().unwrap_or_else(|| set_elem_to_raw(e));
+            let orig = s.str_orig_or_leak(e);
             __retain_string(orig);
             values.push(orig);
         }
@@ -284,7 +297,7 @@ pub extern "C" fn __set_for_each(set: i64, closure: i64) {
     let elems: Vec<SetElem> = s.inner.iter().cloned().collect();
     for e in elems {
         let arg = if is_str {
-            let orig = s.str_origs.get(&e).copied().unwrap_or_else(|| set_elem_to_raw(&e));
+            let orig = s.str_orig_or_leak(&e);
             __retain_string(orig);
             orig
         } else {
@@ -490,16 +503,7 @@ pub extern "C" fn __retain_set(set: i64) {
         return;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
-    let mut cur = s.rc.load(Ordering::Relaxed);
-    loop {
-        if cur <= 0 {
-            return;
-        }
-        match s.rc.compare_exchange_weak(cur, cur + 1, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => return,
-            Err(actual) => cur = actual,
-        }
-    }
+    crate::refcount::retain_atomic(&s.rc);
 }
 
 #[unsafe(export_name = "$set.release")]

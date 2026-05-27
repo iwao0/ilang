@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::atomic::{AtomicI64, Ordering, fence};
+use std::sync::atomic::AtomicI64;
 
 use crate::alloc::__mir_alloc;
 use crate::arrays::build_i64_array;
@@ -48,6 +48,19 @@ fn map_key_to_raw(k: &MapKey) -> i64 {
     match k {
         MapKey::Int(n) => *n,
         MapKey::Str(s) => leak_cstring(s.clone()),
+    }
+}
+
+impl ManagedMap {
+    /// Return the original raw pointer for `k` if we recorded one at
+    /// insertion time, otherwise mint a fresh C-string. Used by
+    /// `keys()` / `entries()` so the strings handed back match what
+    /// the user passed into `set()`.
+    fn str_orig_or_leak(&self, k: &MapKey) -> i64 {
+        self.str_key_origs
+            .get(k)
+            .copied()
+            .unwrap_or_else(|| map_key_to_raw(k))
     }
 }
 
@@ -199,7 +212,7 @@ pub extern "C" fn __map_keys(map: i64) -> i64 {
     let keys: Vec<i64> = if m.key_print_kind == PK_STR {
         m.inner
             .keys()
-            .map(|k| m.str_key_origs.get(k).copied().unwrap_or_else(|| map_key_to_raw(k)))
+            .map(|k| m.str_orig_or_leak(k))
             .collect()
     } else {
         m.inner.keys().map(map_key_to_raw).collect()
@@ -275,7 +288,7 @@ pub extern "C" fn __map_entries(map: i64) -> i64 {
     let mut tuples: Vec<i64> = Vec::with_capacity(m.inner.len());
     for (k, &v) in m.inner.iter() {
         let key_raw = if m.key_print_kind == PK_STR {
-            let orig = m.str_key_origs.get(k).copied().unwrap_or_else(|| map_key_to_raw(k));
+            let orig = m.str_orig_or_leak(k);
             __retain_string(orig);
             orig
         } else {
@@ -331,7 +344,7 @@ pub extern "C" fn __map_for_each(map: i64, closure: i64) {
         m.inner.iter().map(|(k, &v)| (k.clone(), v)).collect();
     for (k, v) in entries {
         let key_raw = if key_is_str {
-            let orig = m.str_key_origs.get(&k).copied().unwrap_or_else(|| map_key_to_raw(&k));
+            let orig = m.str_orig_or_leak(&k);
             __retain_string(orig);
             orig
         } else {
@@ -387,16 +400,7 @@ pub extern "C" fn __retain_map(map: i64) {
         return;
     }
     let m = unsafe { &*(map as *const ManagedMap) };
-    let mut cur = m.rc.load(Ordering::Relaxed);
-    loop {
-        if cur <= 0 {
-            return;
-        }
-        match m.rc.compare_exchange_weak(cur, cur + 1, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => return,
-            Err(actual) => cur = actual,
-        }
-    }
+    crate::refcount::retain_atomic(&m.rc);
 }
 
 #[unsafe(export_name = "$map.release")]
@@ -408,25 +412,9 @@ pub extern "C" fn __release_map(map: i64) {
     // to 0 may run the destructor (and is then the sole owner of
     // the Box).
     let m_ref = unsafe { &*(map as *const ManagedMap) };
-    let mut cur = m_ref.rc.load(Ordering::Relaxed);
-    loop {
-        if cur <= 0 {
-            return;
-        }
-        match m_ref.rc.compare_exchange_weak(
-            cur,
-            cur - 1,
-            Ordering::Release,
-            Ordering::Relaxed,
-        ) {
-            Ok(_) => break,
-            Err(actual) => cur = actual,
-        }
-    }
-    if cur != 1 {
+    if crate::refcount::release_atomic(&m_ref.rc) != Some(0) {
         return;
     }
-    fence(Ordering::Acquire);
     let m_mut = unsafe { &mut *(map as *mut ManagedMap) };
     let val_kind = m_mut.val_kind;
     if val_kind != KIND_NONE {

@@ -24,11 +24,10 @@
 
 use std::sync::atomic::{AtomicI64, Ordering, fence};
 
-/// Increment the rc at `rc_ptr`. No-op when the current value is
-/// `<= 0` (the slot isn't refcounted).
+/// Increment the rc through `atomic`. No-op when the current value
+/// is `<= 0` (the slot isn't refcounted — see module doc).
 #[inline]
-pub unsafe fn atomic_retain(rc_ptr: *mut i64) {
-    let atomic = unsafe { &*(rc_ptr as *const AtomicI64) };
+pub fn retain_atomic(atomic: &AtomicI64) {
     let mut cur = atomic.load(Ordering::Relaxed);
     loop {
         if cur <= 0 {
@@ -46,12 +45,12 @@ pub unsafe fn atomic_retain(rc_ptr: *mut i64) {
     }
 }
 
-/// Decrement the rc at `rc_ptr`. Returns `Some(new_value)` if a
+/// Decrement the rc through `atomic`. Returns `Some(new_value)` if a
 /// decrement happened (caller frees when it equals 0), `None` when
-/// the slot is non-refcounted (rc was `<= 0`).
+/// the slot is non-refcounted (rc was `<= 0`). The 1→0 transition
+/// emits the Acquire fence that pairs with the Release on the CAS.
 #[inline]
-pub unsafe fn atomic_release(rc_ptr: *mut i64) -> Option<i64> {
-    let atomic = unsafe { &*(rc_ptr as *const AtomicI64) };
+pub fn release_atomic(atomic: &AtomicI64) -> Option<i64> {
     let mut cur = atomic.load(Ordering::Relaxed);
     loop {
         if cur <= 0 {
@@ -73,4 +72,19 @@ pub unsafe fn atomic_release(rc_ptr: *mut i64) -> Option<i64> {
             Err(actual) => cur = actual,
         }
     }
+}
+
+/// Increment the rc at `rc_ptr`. No-op when the current value is
+/// `<= 0` (the slot isn't refcounted).
+#[inline]
+pub unsafe fn atomic_retain(rc_ptr: *mut i64) {
+    retain_atomic(unsafe { &*(rc_ptr as *const AtomicI64) });
+}
+
+/// Decrement the rc at `rc_ptr`. Returns `Some(new_value)` if a
+/// decrement happened (caller frees when it equals 0), `None` when
+/// the slot is non-refcounted (rc was `<= 0`).
+#[inline]
+pub unsafe fn atomic_release(rc_ptr: *mut i64) -> Option<i64> {
+    release_atomic(unsafe { &*(rc_ptr as *const AtomicI64) })
 }
