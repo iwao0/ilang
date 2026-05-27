@@ -1,14 +1,18 @@
 //! Generic AST walkers used by the per-instantiation rewrite
-//! passes. Two pairs:
+//! passes. Three pairs:
 //!
 //! - `walk_expr_children` / `walk_block_children`: read-only visit
 //!   of an Expr / Block's direct children.
+//! - `walk_types_in_expr` / `walk_types_in_block`: visit every
+//!   `Type` annotation that appears directly inside an Expr's
+//!   `ExprKind` or a Block's `Let` stmts. Does NOT recurse into
+//!   child Exprs — pair with `walk_expr_children` for full coverage.
 //! - `map_expr_children` / `map_block_children`: rebuild an Expr's
 //!   `ExprKind` / a Block by mapping each direct-child Expr through
 //!   `f`. Lets `rewrite_calls_in_expr`'s catch-all arm avoid
 //!   enumerating every variant by hand.
 
-use ilang_ast::{Block, Expr, ExprKind, Stmt, StmtKind};
+use ilang_ast::{Block, Expr, ExprKind, Stmt, StmtKind, Type};
 
 pub(super) fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
     match &e.kind {
@@ -173,6 +177,43 @@ pub(super) fn walk_block_children(b: &Block, f: &mut dyn FnMut(&Expr)) {
     }
     if let Some(t) = &b.tail {
         f(t);
+    }
+}
+
+/// Visit every `Type` annotation that appears directly inside
+/// `e`'s `ExprKind` — Cast / TypeTest / TypeDowncast target
+/// types, FnExpr param types and return, and New's `type_args`.
+/// Does NOT recurse into child Exprs (pair with
+/// `walk_expr_children`).
+pub(super) fn walk_types_in_expr(e: &Expr, f: &mut dyn FnMut(&Type)) {
+    match &e.kind {
+        ExprKind::Cast { ty, .. }
+        | ExprKind::TypeTest { ty, .. }
+        | ExprKind::TypeDowncast { ty, .. } => f(ty),
+        ExprKind::FnExpr { params, ret, .. } => {
+            for p in params {
+                f(&p.ty);
+            }
+            if let Some(t) = ret {
+                f(t);
+            }
+        }
+        ExprKind::New { type_args, .. } => {
+            for t in type_args {
+                f(t);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Visit every `Type` annotation on a `Let` stmt inside `b`.
+/// Like `walk_types_in_expr`, does not recurse into Expr children.
+pub(super) fn walk_types_in_block(b: &Block, f: &mut dyn FnMut(&Type)) {
+    for s in &b.stmts {
+        if let StmtKind::Let { ty: Some(t), .. } = &s.kind {
+            f(t);
+        }
     }
 }
 

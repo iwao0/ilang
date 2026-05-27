@@ -188,201 +188,38 @@ pub(super) fn scan_fn(f: &FnDecl, needed: &mut HashSet<Symbol>, work: &mut Vec<I
 }
 
 pub(super) fn scan_block(b: &Block, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
-    for s in &b.stmts {
-        scan_stmt(s, needed, work);
-    }
-    if let Some(t) = &b.tail {
-        scan_expr(t, needed, work);
-    }
+    super::walk::walk_types_in_block(b, &mut |t| scan_type(t, needed, work));
+    super::walk::walk_block_children(b, &mut |e| scan_expr(e, needed, work));
 }
 
 pub(super) fn scan_stmt(s: &Stmt, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
+    if let StmtKind::Let { ty: Some(t), .. } = &s.kind {
+        scan_type(t, needed, work);
+    }
     match &s.kind {
-        StmtKind::Let { value, ty, .. } => {
-            if let Some(t) = ty {
-                scan_type(t, needed, work);
-            }
-            scan_expr(value, needed, work);
-        }
-        StmtKind::LetTuple { value, .. }
+        StmtKind::Let { value, .. }
+        | StmtKind::LetTuple { value, .. }
         | StmtKind::LetStruct { value, .. } => scan_expr(value, needed, work),
         StmtKind::Expr(e) => scan_expr(e, needed, work),
     }
 }
 
 pub(super) fn scan_expr(e: &Expr, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
-    match &e.kind {
-        ExprKind::Int(_)
-        | ExprKind::Float(_)
-        | ExprKind::Bool(_)
-        | ExprKind::Str(_)
-        | ExprKind::Var(_)
-        | ExprKind::This
-        | ExprKind::None
-        | ExprKind::Continue => {}
-        ExprKind::Break(opt) => {
-            if let Some(e) = opt {
-                scan_expr(e, needed, work);
-            }
-        }
-        ExprKind::Some(inner) => scan_expr(inner, needed, work),
-        ExprKind::Await(inner) => scan_expr(inner, needed, work),
-        ExprKind::Unary { expr, .. } => scan_expr(expr, needed, work),
-        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
-            scan_expr(lhs, needed, work);
-            scan_expr(rhs, needed, work);
-        }
-        ExprKind::Cast { expr, ty }
-        | ExprKind::TypeTest { expr, ty }
-        | ExprKind::TypeDowncast { expr, ty } => {
-            scan_expr(expr, needed, work);
-            scan_type(ty, needed, work);
-        }
-        ExprKind::FnExpr { params, ret, body } => {
-            for p in params {
-                scan_type(&p.ty, needed, work);
-            }
-            if let Some(t) = ret {
-                scan_type(t, needed, work);
-            }
-            scan_block(body, needed, work);
-        }
-        ExprKind::Call { args, .. } => {
-            for a in args {
-                scan_expr(a, needed, work);
-            }
-        }
-        ExprKind::SuperCall { args, .. } => {
-            for a in args {
-                scan_expr(a, needed, work);
-            }
-        }
-        ExprKind::Closure { .. } => {}
-        ExprKind::Field { obj, .. } => scan_expr(obj, needed, work),
-        ExprKind::MethodCall { obj, args, .. } => {
-            scan_expr(obj, needed, work);
-            for a in args {
-                scan_expr(a, needed, work);
-            }
-        }
-        ExprKind::New { type_args, args, class, init_method: _ } => {
-            for t in type_args {
-                scan_type(t, needed, work);
-            }
-            for a in args {
-                scan_expr(a, needed, work);
-            }
-            // The `new` itself is also an instantiation seed.
-            if !type_args.is_empty() {
-                push_inst(class.clone(), type_args.to_vec(), needed, work);
-            }
-        }
-        ExprKind::Block(b) => scan_block(b, needed, work),
-        ExprKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            scan_expr(cond, needed, work);
-            scan_block(then_branch, needed, work);
-            if let Some(e) = else_branch {
-                scan_expr(e, needed, work);
-            }
-        }
-        ExprKind::IfLet {
-            expr,
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            scan_expr(expr, needed, work);
-            scan_block(then_branch, needed, work);
-            if let Some(e) = else_branch {
-                scan_expr(e, needed, work);
-            }
-        }
-        ExprKind::While { cond, body } => {
-            scan_expr(cond, needed, work);
-            scan_block(body, needed, work);
-        }
-        ExprKind::Loop { body } => scan_block(body, needed, work),
-        ExprKind::ForIn { iter, body, .. } => {
-            scan_expr(iter, needed, work);
-            scan_block(body, needed, work);
-        }
-        ExprKind::Range { start, end, .. } => {
-            if let Some(s) = start {
-                scan_expr(s, needed, work);
-            }
-            if let Some(e) = end {
-                scan_expr(e, needed, work);
-            }
-        }
-        ExprKind::Return(opt) => {
-            if let Some(e) = opt {
-                scan_expr(e, needed, work);
-            }
-        }
-        ExprKind::Assign { value, .. } => scan_expr(value, needed, work),
-        ExprKind::AssignField { obj, value, .. } => {
-            scan_expr(obj, needed, work);
-            scan_expr(value, needed, work);
-        }
-        ExprKind::AssignIndex { obj, index, value } => {
-            scan_expr(obj, needed, work);
-            scan_expr(index, needed, work);
-            scan_expr(value, needed, work);
-        }
-        ExprKind::Array(items) => {
-            for i in items {
-                scan_expr(i, needed, work);
-            }
-        }
-        ExprKind::Tuple(items) => {
-            for i in items {
-                scan_expr(i, needed, work);
-            }
-        }
-        ExprKind::StructLit { fields, .. } => {
-            for (_, e) in fields {
-                scan_expr(e, needed, work);
-            }
-        }
-        ExprKind::MapLit(entries) => {
-            for (k, v) in entries {
-                scan_expr(k, needed, work);
-                scan_expr(v, needed, work);
-            }
-        }
-        ExprKind::Index { obj, index } => {
-            scan_expr(obj, needed, work);
-            scan_expr(index, needed, work);
-        }
-        ExprKind::EnumCtor { args, .. } => {
-            if let ilang_ast::CtorArgs::Tuple(es) = args {
-                for e in es {
-                    scan_expr(e, needed, work);
-                }
-            } else if let ilang_ast::CtorArgs::Struct(fs) = args {
-                for (_, e) in fs {
-                    scan_expr(e, needed, work);
-                }
-            }
-        }
-        ExprKind::Match { scrutinee, arms } => {
-            scan_expr(scrutinee, needed, work);
-            for arm in arms {
-                scan_expr(&arm.body, needed, work);
-            }
-        }
-        ExprKind::Template { parts } => {
-            for p in parts.iter() {
-                if let ilang_ast::TemplatePart::Expr(e) = p {
-                    scan_expr(e, needed, work);
-                }
-            }
+    super::walk::walk_types_in_expr(e, &mut |t| scan_type(t, needed, work));
+    // `new G<Ts>(...)` is itself a seed for the worklist, on top of
+    // the type args already visited above.
+    if let ExprKind::New { type_args, class, .. } = &e.kind {
+        if !type_args.is_empty() {
+            push_inst(class.clone(), type_args.to_vec(), needed, work);
         }
     }
+    // walk_expr_children skips into FnExpr bodies (those get hoisted
+    // out post-monomorphize). Monomorphize runs first, so the FnExpr
+    // body still needs scanning here for any generic refs.
+    if let ExprKind::FnExpr { body, .. } = &e.kind {
+        scan_block(body, needed, work);
+    }
+    super::walk::walk_expr_children(e, &mut |c| scan_expr(c, needed, work));
 }
 
 pub(super) fn scan_type(t: &Type, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
