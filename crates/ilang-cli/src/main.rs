@@ -48,6 +48,11 @@ enum Cmd {
 }
 
 fn main() -> ExitCode {
+    // Opt-in Windows crash reporter: set `ILANG_TRACE_CRASH=1` to get
+    // a stack trace + offending RIP printed to stderr when the JIT'd
+    // program faults (typically `STATUS_ACCESS_VIOLATION`). No-op
+    // when the env var is unset or on non-Windows hosts.
+    ilang_runtime::crash_handler::install_if_enabled();
     let cli = Cli::parse();
     match cli.command {
         None => run_repl(),

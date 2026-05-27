@@ -11,3 +11,11 @@ crate-type = ["rlib", "staticlib"]
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode"] }
 crossbeam-deque = "0.8"
 rand = "0.9"
+backtrace = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Kernel",
+] }

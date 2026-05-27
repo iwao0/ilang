@@ -34,6 +34,7 @@ pub mod alloc;
 pub mod arrays;
 pub mod cascade;
 pub mod classes;
+pub mod crash_handler;
 pub mod closures;
 pub mod enums;
 pub mod fs;
