@@ -778,6 +778,84 @@ pub(crate) const STR_LITERAL_RECEIVER: &str = "\"\"";
 /// emits the primitive-method list (`toString`, `isFinite`, `isNaN`).
 pub(crate) const FLOAT_LITERAL_RECEIVER: &str = "(0.0)";
 
+/// Sentinel receiver for a parenthesised int literal (`(1).` /
+/// `(0xFF).` / `(-42).`). The completion handler maps this to
+/// `Type::I64` (the default int type) and surfaces the numeric
+/// primitive methods (just `toString` today).
+pub(crate) const INT_LITERAL_RECEIVER: &str = "(0)";
+
+/// Sentinel receiver for a parenthesised bool literal (`(true).` /
+/// `(false).`). Mapped to `Type::Bool` so completion surfaces
+/// `toString`.
+pub(crate) const BOOL_LITERAL_RECEIVER: &str = "(false)";
+
+/// Is `s` an ilang int literal? Accepts an optional leading sign,
+/// decimal / `0x` hex / `0b` binary / `0o` octal bodies (with `_`
+/// permitted between digits, matching the lexer), and an optional
+/// trailing numeric type suffix (`i8`..`u64`, optionally preceded
+/// by `_`). Mirrors `ilang-lexer/src/scanner.rs::read_number` +
+/// `try_read_numeric_suffix`.
+fn is_int_literal(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    if bytes.is_empty() {
+        return false;
+    }
+    let mut i = 0;
+    if bytes[i] == b'-' || bytes[i] == b'+' {
+        i += 1;
+    }
+    if i >= bytes.len() {
+        return false;
+    }
+    // Radix prefix dispatch. `0x` / `0b` / `0o` (case-insensitive)
+    // each demand at least one digit of the matching kind; `_` is
+    // permitted between digits but not as the first body char.
+    let digit_ok: fn(u8) -> bool = if bytes.len() - i >= 2
+        && bytes[i] == b'0'
+        && matches!(bytes[i + 1], b'x' | b'X' | b'b' | b'B' | b'o' | b'O')
+    {
+        let pred: fn(u8) -> bool = match bytes[i + 1] {
+            b'x' | b'X' => |c: u8| c.is_ascii_hexdigit(),
+            b'b' | b'B' => |c: u8| c == b'0' || c == b'1',
+            _ => |c: u8| (b'0'..=b'7').contains(&c),
+        };
+        i += 2;
+        pred
+    } else {
+        |c: u8| c.is_ascii_digit()
+    };
+    if i >= bytes.len() || !digit_ok(bytes[i]) {
+        return false;
+    }
+    i += 1;
+    while i < bytes.len() && (digit_ok(bytes[i]) || bytes[i] == b'_') {
+        i += 1;
+    }
+    // Optional type suffix: one of i8/i16/i32/i64/u8/u16/u32/u64,
+    // optionally preceded by `_` (matches `try_read_numeric_suffix`).
+    // No float suffix — `1.0` already routes through `is_float_literal`,
+    // and a bare `1f64` isn't recognised as a float by the lexer
+    // (which demands the `.`), so it stays in the int family here.
+    if i < bytes.len() {
+        let mut j = i;
+        if bytes[j] == b'_' {
+            j += 1;
+        }
+        let suffix = match std::str::from_utf8(&bytes[j..]) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+        if !matches!(
+            suffix,
+            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64"
+        ) {
+            return false;
+        }
+        return true;
+    }
+    true
+}
+
 /// Is `s` an ilang float literal? Accepts an optional leading `-`,
 /// at least one digit either side of the `.`, and an optional
 /// `e[+-]?\d+` exponent. Hex / underscore digits aren't recognised
@@ -884,6 +962,12 @@ pub(crate) fn receiver_before_dot(text: &str, pos: Position) -> Option<String> {
                 let trimmed = inner.trim();
                 if is_float_literal(trimmed) {
                     return Some(FLOAT_LITERAL_RECEIVER.to_string());
+                }
+                if is_int_literal(trimmed) {
+                    return Some(INT_LITERAL_RECEIVER.to_string());
+                }
+                if trimmed == "true" || trimmed == "false" {
+                    return Some(BOOL_LITERAL_RECEIVER.to_string());
                 }
             }
         }

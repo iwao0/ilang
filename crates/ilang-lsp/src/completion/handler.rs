@@ -574,6 +574,16 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
             // default to f64 in ilang, so list the f64 primitive
             // methods (`toString` / `isFinite` / `isNaN`).
             Some(Type::F64)
+        } else if receiver == text::INT_LITERAL_RECEIVER {
+            // `(1).` — parenthesised int literal. Surface as i64 (the
+            // default int type); the only numeric primitive method is
+            // `toString`, so width-specific accuracy doesn't change
+            // the listed candidates.
+            Some(Type::I64)
+        } else if receiver == text::BOOL_LITERAL_RECEIVER {
+            // `(true).` / `(false).` — bool literal. `toString` is the
+            // sole bool primitive method.
+            Some(Type::Bool)
         } else {
             doc.var_types.get(&AstSymbol::intern(&receiver)).cloned()
         };
@@ -1454,6 +1464,79 @@ mod lib_filter_tests {
         assert!(
             labels.iter().any(|l| *l == "toString"),
             "expected `toString` in i64 receiver completion, got: {labels:?}"
+        );
+    }
+
+    #[test]
+    fn paren_int_literal_receiver_surfaces_i64_methods() {
+        // `(1).` — parenthesised int literal. Same fix shape as the
+        // float-literal case; the int branch lists `toString` but
+        // NOT the float-only `isFinite` / `isNaN`.
+        let mut doc = Doc::default();
+        doc.text = "(1).\n".to_string();
+        let pos = Position { line: 0, character: 4 };
+        let resp = handle_completion(&doc, pos)
+            .expect("expected a completion response for `(1).`");
+        let items = match resp {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let labels: Vec<&str> = items.iter().map(|it| it.label.as_str()).collect();
+        assert!(
+            labels.iter().any(|l| *l == "toString"),
+            "expected `toString` in (1). completion, got: {labels:?}"
+        );
+        for unwanted in ["isFinite", "isNaN"] {
+            assert!(
+                !labels.iter().any(|l| *l == unwanted),
+                "did not expect float-only `{unwanted}` in (1). completion, got: {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn paren_bool_literal_receiver_surfaces_bool_methods() {
+        // `(true).` — bool literal. Only `toString` is offered; the
+        // float-only predicates must stay hidden.
+        let mut doc = Doc::default();
+        doc.text = "(true).\n".to_string();
+        let pos = Position { line: 0, character: 7 };
+        let resp = handle_completion(&doc, pos)
+            .expect("expected a completion response for `(true).`");
+        let items = match resp {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let labels: Vec<&str> = items.iter().map(|it| it.label.as_str()).collect();
+        assert!(
+            labels.iter().any(|l| *l == "toString"),
+            "expected `toString` in (true). completion, got: {labels:?}"
+        );
+        for unwanted in ["isFinite", "isNaN"] {
+            assert!(
+                !labels.iter().any(|l| *l == unwanted),
+                "did not expect float-only `{unwanted}` in (true). completion, got: {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn paren_hex_int_literal_receiver_surfaces_i64_methods() {
+        // `(0xFF).` — hex int literal in parens. Same int sentinel
+        // as decimal; `is_int_literal` handles the `0x` prefix.
+        let mut doc = Doc::default();
+        doc.text = "(0xFF).\n".to_string();
+        let pos = Position { line: 0, character: 7 };
+        let resp = handle_completion(&doc, pos)
+            .expect("expected a completion response for `(0xFF).`");
+        let items = match resp {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let labels: Vec<&str> = items.iter().map(|it| it.label.as_str()).collect();
+        assert!(
+            labels.iter().any(|l| *l == "toString"),
+            "expected `toString` in (0xFF). completion, got: {labels:?}"
         );
     }
 
