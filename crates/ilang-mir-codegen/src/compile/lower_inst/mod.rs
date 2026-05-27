@@ -12,15 +12,11 @@ mod objects;
 use std::collections::HashMap;
 
 use cranelift::prelude::*;
-use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature};
-use cranelift_frontend::{FunctionBuilder as ClifFnBuilder, Variable};
-use cranelift_module::{DataId, Module};
+use cranelift_codegen::ir::{AbiParam, InstBuilder};
+use cranelift_frontend::FunctionBuilder as ClifFnBuilder;
+use cranelift_module::Module;
 
-use ilang_ast::Symbol;
-use ilang_mir::{
-    BinOp, FuncId, Function as MirFunction, Inst, MirConst, MirTy, Program,
-    StaticSlotId, UnOp, ValueId,
-};
+use ilang_mir::{BinOp, Inst, MirConst, MirTy, UnOp, ValueId};
 
 use crate::ty::mir_to_clif;
 
@@ -36,10 +32,7 @@ use super::print_kind::{
     kind_tag_of, print_kind_id, KIND_ARRAY, KIND_CLOSURE, KIND_ENUM, KIND_MAP, KIND_NONE,
     KIND_OBJECT, KIND_OPTIONAL, KIND_PROMISE, KIND_STR, KIND_TUPLE,
 };
-use super::{
-    emit_is_subclass, CompileError, FmtIds, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, SetIds, StrIds,
-    OBJECT_HEADER_BYTES,
-};
+use super::{emit_is_subclass, CompileError, OBJECT_HEADER_BYTES};
 
 /// Inline byte-wise copy of `total` bytes from `src` to `dst_addr`.
 /// Mirrors the pattern used in `objects.rs` for CRepr struct copies —
@@ -71,33 +64,32 @@ fn crepr_struct_copy(fb: &mut ClifFnBuilder, src: Value, dst_addr: Value, total:
 
 pub(super) fn lower_inst<M: Module>(
     fb: &mut ClifFnBuilder,
-    inst: &Inst,
     vmap: &mut HashMap<ValueId, Value>,
-    func: &MirFunction,
-    fn_ids: &HashMap<FuncId, cranelift_module::FuncId>,
-    extern_alias_fn_ids: &std::collections::HashSet<FuncId>,
-    builtin_ids: &HashMap<String, (cranelift_module::FuncId, Signature)>,
-    static_data: &HashMap<StaticSlotId, DataId>,
-    string_data: &HashMap<Symbol, DataId>,
-    alloc_id: cranelift_module::FuncId,
-    map_ids: MapIds,
-    set_ids: SetIds,
-    promise_ids: PromiseIds,
-    str_ids: StrIds,
-    print_ids: PrintIds,
-    fmt_ids: FmtIds,
-    panic_aux: PanicAux,
-    print_lits: PrintLits,
     module: &mut M,
-    locals: &[Variable],
-    local_slots: &[Option<cranelift_codegen::ir::StackSlot>],
-    prog: &Program,
-    env_value: Value,
-    class_global: &[u32],
-    enum_global: &[u32],
-    class_struct_global: &[i64],
-    stack_local: &std::collections::HashSet<ValueId>,
+    prog_ctx: &super::ProgCtx,
+    fn_ctx: &super::FnCtx,
+    inst: &Inst,
 ) -> Result<(), CompileError> {
+    let super::ProgCtx {
+        fn_ids,
+        static_data,
+        string_data,
+        alloc_id,
+        map_ids,
+        str_ids,
+        panic_aux,
+        prog,
+        class_global,
+        enum_global,
+        ..
+    } = *prog_ctx;
+    let super::FnCtx {
+        func,
+        locals,
+        local_slots,
+        env_value,
+        stack_local,
+    } = *fn_ctx;
     match inst {
         Inst::Const { dst, value } => {
             let ty = func.ty_of(*dst);
@@ -190,14 +182,7 @@ pub(super) fn lower_inst<M: Module>(
             vmap.insert(*dst, v);
         }
         Inst::Call { dst, callee, args } => {
-            calls::lower_call(
-                fb, dst, callee, args, vmap, func, fn_ids, extern_alias_fn_ids,
-                builtin_ids,
-                static_data, string_data, alloc_id, map_ids, set_ids, promise_ids, str_ids,
-                print_ids, fmt_ids, panic_aux, print_lits, module, locals, prog,
-                env_value, class_global, enum_global,
-                class_struct_global, stack_local,
-            )?;
+            calls::lower_call(fb, vmap, module, prog_ctx, fn_ctx, dst, callee, args)?;
         }
         Inst::VirtCall { dst, recv, slot, args } => {
             // Load class_id from object header, dispatch via the
@@ -1570,22 +1555,10 @@ pub(super) fn lower_inst<M: Module>(
             vmap.insert(*dst, v);
         }
         Inst::LoadField { dst, obj, field } => {
-            objects::lower_load_field(
-                fb, dst, obj, field, vmap, func, fn_ids, builtin_ids,
-                static_data, string_data, alloc_id, map_ids, promise_ids, str_ids,
-                print_ids, panic_aux, print_lits, module, locals, prog,
-                env_value, class_global, enum_global,
-                class_struct_global, stack_local,
-            )?;
+            objects::lower_load_field(fb, vmap, module, prog_ctx, fn_ctx, dst, obj, field)?;
         }
         Inst::StoreField { obj, field, value } => {
-            objects::lower_store_field(
-                fb, obj, field, value, vmap, func, fn_ids, builtin_ids,
-                static_data, string_data, alloc_id, map_ids, promise_ids, str_ids,
-                print_ids, panic_aux, print_lits, module, locals, prog,
-                env_value, class_global, enum_global,
-                class_struct_global, stack_local,
-            )?;
+            objects::lower_store_field(fb, vmap, module, prog_ctx, fn_ctx, obj, field, value)?;
         }
         Inst::LoadStatic { dst, slot } => {
             let did = *static_data.get(slot).ok_or_else(|| {

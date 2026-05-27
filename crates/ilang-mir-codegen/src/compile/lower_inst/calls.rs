@@ -8,14 +8,11 @@
 use std::collections::HashMap;
 
 use cranelift::prelude::*;
-use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature};
-use cranelift_frontend::{FunctionBuilder as ClifFnBuilder, Variable};
-use cranelift_module::{DataId, Module};
+use cranelift_codegen::ir::{AbiParam, InstBuilder};
+use cranelift_frontend::FunctionBuilder as ClifFnBuilder;
+use cranelift_module::Module;
 
-use ilang_ast::Symbol;
-use ilang_mir::{
-    FuncId, FuncRef, Function as MirFunction, MirTy, Program, StaticSlotId, ValueId,
-};
+use ilang_mir::{FuncRef, MirTy, ValueId};
 
 use crate::ty::mir_to_clif;
 
@@ -26,39 +23,38 @@ use super::super::abi::{
 };
 use super::super::fmt_emit::emit_format_value;
 use super::super::print_emit::emit_print_value;
-use super::super::{
-    CompileError, FmtIds, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, SetIds, StrIds,
-};
+use super::super::CompileError;
 
 
 pub(super) fn lower_call<M: Module>(
     fb: &mut ClifFnBuilder,
-    dst: &Option<ValueId>, callee: &FuncRef, args: &[ValueId],
     vmap: &mut HashMap<ValueId, Value>,
-    func: &MirFunction,
-    fn_ids: &HashMap<FuncId, cranelift_module::FuncId>,
-    extern_alias_fn_ids: &std::collections::HashSet<FuncId>,
-    builtin_ids: &HashMap<String, (cranelift_module::FuncId, Signature)>,
-    _static_data: &HashMap<StaticSlotId, DataId>,
-    _string_data: &HashMap<Symbol, DataId>,
-    alloc_id: cranelift_module::FuncId,
-    map_ids: MapIds,
-    set_ids: SetIds,
-    promise_ids: PromiseIds,
-    str_ids: StrIds,
-    print_ids: PrintIds,
-    fmt_ids: FmtIds,
-    panic_aux: PanicAux,
-    print_lits: PrintLits,
     module: &mut M,
-    _locals: &[Variable],
-    prog: &Program,
-    _env_value: Value,
-    _class_global: &[u32],
-    enum_global: &[u32],
-    class_struct_global: &[i64],
-    _stack_local: &std::collections::HashSet<ValueId>,
+    prog_ctx: &super::super::ProgCtx,
+    fn_ctx: &super::super::FnCtx,
+    dst: &Option<ValueId>,
+    callee: &FuncRef,
+    args: &[ValueId],
 ) -> Result<(), CompileError> {
+    let super::super::ProgCtx {
+        fn_ids,
+        extern_alias_fn_ids,
+        builtin_ids,
+        alloc_id,
+        map_ids,
+        set_ids,
+        promise_ids,
+        str_ids,
+        print_ids,
+        fmt_ids,
+        panic_aux,
+        print_lits,
+        prog,
+        enum_global,
+        class_struct_global,
+        ..
+    } = *prog_ctx;
+    let super::super::FnCtx { func, .. } = *fn_ctx;
     // `console.log(...)` — special-cased variadic. Each
     // argument prints with a per-type host helper, separated
     // by spaces and terminated by a newline.

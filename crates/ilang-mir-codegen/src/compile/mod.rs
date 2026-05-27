@@ -26,11 +26,13 @@ pub(crate) use program_decl::{
 };
 use lower_function::lower_function;
 
+use std::collections::HashMap;
+
 use cranelift::prelude::*;
 use cranelift_codegen::ir::{AbiParam, InstBuilder};
 use cranelift_frontend::FunctionBuilder as ClifFnBuilder;
 use cranelift_jit::JITModule;
-use cranelift_module::{Linkage, Module};
+use cranelift_module::{DataId, Linkage, Module};
 
 use ilang_mir::{ClassId, MirTy, Program};
 
@@ -310,7 +312,45 @@ pub(super) struct PrintLits {
 }
 
 pub(super) use layout::object_header::FIELD_BASE as OBJECT_HEADER_BYTES;
-use cranelift_module::DataId;
+
+/// Lowering-time context shared across every per-Inst dispatch in a
+/// single function compilation. All fields are immutable for the
+/// duration of `lower_function`, so the struct itself is `Copy` — pass
+/// it by value and consumers borrow the inner references they need.
+#[derive(Clone, Copy)]
+pub(super) struct ProgCtx<'a> {
+    pub(super) fn_ids: &'a HashMap<ilang_mir::FuncId, cranelift_module::FuncId>,
+    pub(super) extern_alias_fn_ids: &'a std::collections::HashSet<ilang_mir::FuncId>,
+    pub(super) builtin_ids:
+        &'a HashMap<String, (cranelift_module::FuncId, cranelift_codegen::ir::Signature)>,
+    pub(super) static_data: &'a HashMap<ilang_mir::StaticSlotId, DataId>,
+    pub(super) string_data: &'a HashMap<ilang_ast::Symbol, DataId>,
+    pub(super) alloc_id: cranelift_module::FuncId,
+    pub(super) map_ids: MapIds,
+    pub(super) set_ids: SetIds,
+    pub(super) promise_ids: PromiseIds,
+    pub(super) str_ids: StrIds,
+    pub(super) print_ids: PrintIds,
+    pub(super) fmt_ids: FmtIds,
+    pub(super) panic_aux: PanicAux,
+    pub(super) print_lits: PrintLits,
+    pub(super) prog: &'a Program,
+    pub(super) class_global: &'a [u32],
+    pub(super) enum_global: &'a [u32],
+    pub(super) class_struct_global: &'a [i64],
+}
+
+/// Per-function context — values that only make sense inside a single
+/// MIR `Function`'s lowering (parameters / locals / stack slots /
+/// captured-env handle).
+#[derive(Clone, Copy)]
+pub(super) struct FnCtx<'a> {
+    pub(super) func: &'a ilang_mir::Function,
+    pub(super) locals: &'a [cranelift_frontend::Variable],
+    pub(super) local_slots: &'a [Option<cranelift_codegen::ir::StackSlot>],
+    pub(super) env_value: cranelift_codegen::ir::Value,
+    pub(super) stack_local: &'a std::collections::HashSet<ilang_mir::ValueId>,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum CompileError {

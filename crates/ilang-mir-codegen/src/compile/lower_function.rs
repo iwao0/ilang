@@ -296,36 +296,35 @@ pub(super) fn lower_function<M: Module>(
         if i != func.entry.0 as usize {
             fb.switch_to_block(cb);
         }
+        let prog_ctx = super::ProgCtx {
+            fn_ids,
+            extern_alias_fn_ids,
+            builtin_ids,
+            static_data,
+            string_data,
+            alloc_id,
+            map_ids,
+            set_ids,
+            promise_ids,
+            str_ids,
+            print_ids,
+            fmt_ids,
+            panic_aux,
+            print_lits,
+            prog,
+            class_global,
+            enum_global,
+            class_struct_global,
+        };
+        let fn_ctx = super::FnCtx {
+            func,
+            locals: &locals,
+            local_slots: &local_slots,
+            env_value,
+            stack_local,
+        };
         for inst in &blk.insts {
-            lower_inst(
-                fb,
-                inst,
-                &mut vmap,
-                func,
-                fn_ids,
-                extern_alias_fn_ids,
-                builtin_ids,
-                static_data,
-                string_data,
-                alloc_id,
-                map_ids,
-                set_ids,
-                promise_ids,
-                str_ids,
-                print_ids,
-                fmt_ids,
-                panic_aux,
-                print_lits,
-                module,
-                &locals,
-                &local_slots,
-                prog,
-                env_value,
-                class_global,
-                enum_global,
-                class_struct_global,
-                stack_local,
-            )?;
+            lower_inst(fb, &mut vmap, module, &prog_ctx, &fn_ctx, inst)?;
         }
         lower_term(fb, &blk.term, &vmap, &blocks, &ret_abi, prog)?;
     }

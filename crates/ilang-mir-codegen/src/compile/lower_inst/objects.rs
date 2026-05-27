@@ -7,50 +7,36 @@
 use std::collections::HashMap;
 
 use cranelift::prelude::*;
-use cranelift_codegen::ir::{InstBuilder, Signature};
-use cranelift_frontend::{FunctionBuilder as ClifFnBuilder, Variable};
-use cranelift_module::{DataId, Module};
+use cranelift_codegen::ir::InstBuilder;
+use cranelift_frontend::FunctionBuilder as ClifFnBuilder;
+use cranelift_module::Module;
 
-use ilang_ast::Symbol;
-use ilang_mir::{
-    FuncId, Function as MirFunction, MirTy, Program, StaticSlotId, ValueId,
-};
-
+use ilang_mir::{MirTy, ValueId};
 
 use super::super::abi::{
     celem_clif_type_with_enum, elem_byte_stride, elem_clif_type, extend_to_i64,
     ireduce_or_pass, reduce_from_i64,
 };
-use super::super::{
-    CompileError, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds,
-    OBJECT_HEADER_BYTES,
-};
+use super::super::{CompileError, OBJECT_HEADER_BYTES};
 
 pub(super) fn lower_load_field<M: Module>(
     fb: &mut ClifFnBuilder,
-    dst: &ValueId, obj: &ValueId, field: &ilang_mir::FieldId,
     vmap: &mut HashMap<ValueId, Value>,
-    func: &MirFunction,
-    _fn_ids: &HashMap<FuncId, cranelift_module::FuncId>,
-    _builtin_ids: &HashMap<String, (cranelift_module::FuncId, Signature)>,
-    _static_data: &HashMap<StaticSlotId, DataId>,
-    _string_data: &HashMap<Symbol, DataId>,
-    _alloc_id: cranelift_module::FuncId,
-    _map_ids: MapIds,
-    _promise_ids: PromiseIds,
-    str_ids: StrIds,
-    _print_ids: PrintIds,
-    panic_aux: PanicAux,
-    _print_lits: PrintLits,
     module: &mut M,
-    _locals: &[Variable],
-    prog: &Program,
-    _env_value: Value,
-    _class_global: &[u32],
-    enum_global: &[u32],
-    _class_struct_global: &[i64],
-    _stack_local: &std::collections::HashSet<ValueId>,
+    prog_ctx: &super::super::ProgCtx,
+    fn_ctx: &super::super::FnCtx,
+    dst: &ValueId,
+    obj: &ValueId,
+    field: &ilang_mir::FieldId,
 ) -> Result<(), CompileError> {
+    let super::super::ProgCtx {
+        str_ids,
+        panic_aux,
+        prog,
+        enum_global,
+        ..
+    } = *prog_ctx;
+    let super::super::FnCtx { func, .. } = *fn_ctx;
     let obj_v = vmap[obj];
     let dst_ty_mir = func.ty_of(*dst).clone();
     let obj_ty_mir = func.ty_of(*obj).clone();
@@ -242,29 +228,16 @@ pub(super) fn lower_load_field<M: Module>(
 
 pub(super) fn lower_store_field<M: Module>(
     fb: &mut ClifFnBuilder,
-    obj: &ValueId, field: &ilang_mir::FieldId, value: &ValueId,
     vmap: &mut HashMap<ValueId, Value>,
-    func: &MirFunction,
-    _fn_ids: &HashMap<FuncId, cranelift_module::FuncId>,
-    _builtin_ids: &HashMap<String, (cranelift_module::FuncId, Signature)>,
-    _static_data: &HashMap<StaticSlotId, DataId>,
-    _string_data: &HashMap<Symbol, DataId>,
-    _alloc_id: cranelift_module::FuncId,
-    _map_ids: MapIds,
-    _promise_ids: PromiseIds,
-    _str_ids: StrIds,
-    _print_ids: PrintIds,
-    _panic_aux: PanicAux,
-    _print_lits: PrintLits,
     _module: &mut M,
-    _locals: &[Variable],
-    prog: &Program,
-    _env_value: Value,
-    _class_global: &[u32],
-    _enum_global: &[u32],
-    _class_struct_global: &[i64],
-    _stack_local: &std::collections::HashSet<ValueId>,
+    prog_ctx: &super::super::ProgCtx,
+    fn_ctx: &super::super::FnCtx,
+    obj: &ValueId,
+    field: &ilang_mir::FieldId,
+    value: &ValueId,
 ) -> Result<(), CompileError> {
+    let super::super::ProgCtx { prog, .. } = *prog_ctx;
+    let super::super::FnCtx { func, .. } = *fn_ctx;
     let obj_v = vmap[obj];
     let obj_ty_mir = func.ty_of(*obj).clone();
     let (crepr, bit_info) = if let MirTy::Object(cid) = &obj_ty_mir {
