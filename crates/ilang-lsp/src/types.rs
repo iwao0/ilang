@@ -164,6 +164,13 @@ pub(crate) struct ExternalIndex {
     /// Return types for imported fns. Drives `let x = math.sqrt(...)`
     /// inference.
     pub(crate) returns: HashMap<AstSymbol, ilang_ast::Type>,
+    /// Parameter types for imported fns whose return mentions a
+    /// type parameter (`arrayFromCArray<T>(p: *const T, …): T[]`).
+    /// Keyed the same way as `returns`; used to substitute the type
+    /// variable from a call site's argument types so hover shows
+    /// `u16[]` instead of `T[]`. Stored only for generic fns to keep
+    /// the map small.
+    pub(crate) fn_params: HashMap<AstSymbol, Vec<ilang_ast::Type>>,
     /// Source-file location for each imported decl (cross-file F12).
     pub(crate) sources: ExternalSources,
     /// Interface decls keyed by bare name (and dotted form for

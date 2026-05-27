@@ -21,6 +21,105 @@ use ilang_types::{check, TypeError};
 
 use crate::*;
 
+/// True when `t` contains a `Type::TypeVar(_)` anywhere in its tree.
+/// Used to skip the substitution dance for the common (concrete-return)
+/// case where there's no type variable to fill in.
+pub(crate) fn type_mentions_typevar(t: &Type) -> bool {
+    use Type::*;
+    match t {
+        TypeVar(_) => true,
+        Array { elem, .. } => type_mentions_typevar(elem),
+        Optional(inner) | Weak(inner) => type_mentions_typevar(inner),
+        RawPtr { inner, .. } => type_mentions_typevar(inner),
+        Tuple(es) => es.iter().any(type_mentions_typevar),
+        Generic(g) => g.args.iter().any(type_mentions_typevar),
+        Fn(ft) => type_mentions_typevar(&ft.ret) || ft.params.iter().any(type_mentions_typevar),
+        _ => false,
+    }
+}
+
+/// Walk `param` and `arg` in parallel; whenever `param` reaches a
+/// `TypeVar(name)`, record `name -> arg` in `subst` (first wins so a
+/// later mismatch can't overwrite an earlier successful binding).
+/// Mismatched shapes silently no-op — we're best-effort for hover
+/// rendering, not a full unifier. The walker calls this once per
+/// argument; the accumulated `subst` is then applied to the function's
+/// return type.
+pub(crate) fn unify_typevars(
+    param: &Type,
+    arg: &Type,
+    subst: &mut HashMap<AstSymbol, Type>,
+) {
+    use Type::*;
+    match (param, arg) {
+        (TypeVar(name), other) => {
+            subst.entry(*name).or_insert(other.clone());
+        }
+        (Array { elem: pe, .. }, Array { elem: ae, .. }) => unify_typevars(pe, ae, subst),
+        (Optional(pi), Optional(ai)) | (Weak(pi), Weak(ai)) => unify_typevars(pi, ai, subst),
+        (RawPtr { inner: pi, .. }, RawPtr { inner: ai, .. }) => unify_typevars(pi, ai, subst),
+        (Tuple(pes), Tuple(aes)) if pes.len() == aes.len() => {
+            for (p, a) in pes.iter().zip(aes.iter()) {
+                unify_typevars(p, a, subst);
+            }
+        }
+        (Generic(pg), Generic(ag)) if pg.args.len() == ag.args.len() => {
+            for (p, a) in pg.args.iter().zip(ag.args.iter()) {
+                unify_typevars(p, a, subst);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Apply a TypeVar substitution to `t`, returning a fresh `Type` with
+/// every `TypeVar(name)` replaced by `subst[name]` (if known). Unmapped
+/// type vars are left as-is — hover then falls back to showing `T`
+/// rather than throwing the result away entirely.
+pub(crate) fn substitute_typevars(t: &Type, subst: &HashMap<AstSymbol, Type>) -> Type {
+    use Type::*;
+    match t {
+        TypeVar(name) => subst.get(name).cloned().unwrap_or_else(|| t.clone()),
+        Array { elem, fixed } => Array {
+            elem: Box::new(substitute_typevars(elem, subst)),
+            fixed: *fixed,
+        },
+        Optional(inner) => Optional(Box::new(substitute_typevars(inner, subst))),
+        Weak(inner) => Weak(Box::new(substitute_typevars(inner, subst))),
+        RawPtr { is_const, inner } => RawPtr {
+            is_const: *is_const,
+            inner: Box::new(substitute_typevars(inner, subst)),
+        },
+        Tuple(es) => Tuple(
+            es.iter()
+                .map(|e| substitute_typevars(e, subst))
+                .collect::<Vec<_>>()
+                .into(),
+        ),
+        Generic(g) => Generic(Box::new(GenericTy {
+            base: g.base,
+            args: g
+                .args
+                .iter()
+                .map(|a| substitute_typevars(a, subst))
+                .collect::<Vec<_>>()
+                .into(),
+        })),
+        Fn(ft) => {
+            let new_params: Vec<Type> = ft
+                .params
+                .iter()
+                .map(|p| substitute_typevars(p, subst))
+                .collect();
+            Fn(Box::new(ilang_ast::FnTy {
+                params: new_params.into(),
+                ret: substitute_typevars(&ft.ret, subst),
+            }))
+        }
+        _ => t.clone(),
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Binding {
     pub(crate) name: String,
@@ -77,6 +176,11 @@ pub(crate) struct Walker<'a> {
     /// Return types for the same set of external fns. Used when
     /// inferring `let x = math.sqrt(...)` etc.
     pub(crate) external_returns: &'a HashMap<AstSymbol, Type>,
+    /// Parameter types for imported generic fns whose return mentions
+    /// a type parameter (`arrayFromCArray<T>(p: *const T, …): T[]`).
+    /// Drives call-site type-var substitution so hover shows the
+    /// instantiated return (`u16[]`) instead of the raw `T[]`.
+    pub(crate) external_fn_params: &'a HashMap<AstSymbol, Vec<Type>>,
     /// Source-file path for each `module.<decl>` so cross-file F12
     /// can navigate into the originating module.
     pub(crate) external_sources: &'a ExternalSources,
@@ -1332,22 +1436,43 @@ impl<'a> Walker<'a> {
                     // hover / ref path.
                     .or_else(|| self.var_types.get(name).cloned())
             }
-            ExprKind::Call { callee, .. } => self
-                .fn_returns
-                .get(callee)
-                .or_else(|| self.external_returns.get(callee))
-                .cloned()
-                .or_else(|| {
-                    // FFI marshalling helpers (`cstrFromString`,
-                    // `readU64`, ...) are pre-registered by the type
-                    // checker but never declared in the buffer, so
-                    // they don't sit in `fn_returns` or
-                    // `external_returns`. Look them up by name so
-                    // a binding like `let p = cstrFromString(s)`
-                    // hovers with its pointer type.
-                    crate::builtins::ffi_helper_return_type(callee.as_str())
-                })
-                .or_else(|| self.infer_dotted_static_call(callee.as_str())),
+            ExprKind::Call { callee, args } => {
+                let ret = self
+                    .fn_returns
+                    .get(callee)
+                    .or_else(|| self.external_returns.get(callee))
+                    .cloned()
+                    .or_else(|| {
+                        // FFI marshalling helpers (`cstrFromString`,
+                        // `readU64`, ...) are pre-registered by the type
+                        // checker but never declared in the buffer, so
+                        // they don't sit in `fn_returns` or
+                        // `external_returns`. Look them up by name so
+                        // a binding like `let p = cstrFromString(s)`
+                        // hovers with its pointer type.
+                        crate::builtins::ffi_helper_return_type(callee.as_str())
+                    })
+                    .or_else(|| self.infer_dotted_static_call(callee.as_str()))?;
+                // Generic intrinsics (`arrayFromCArray<T>(p: *const T,
+                // …): T[]`) ship with a TypeVar in the return type.
+                // When `external_fn_params` carries the matching param
+                // list, infer T from arg types and substitute so
+                // hover lands on `u16[]` instead of `T[]`.
+                if type_mentions_typevar(&ret) {
+                    if let Some(param_tys) = self.external_fn_params.get(callee).cloned() {
+                        let mut subst: HashMap<AstSymbol, Type> = HashMap::new();
+                        for (p_ty, arg) in param_tys.iter().zip(args.iter()) {
+                            if let Some(a_ty) = self.infer_expr(arg, scope) {
+                                unify_typevars(p_ty, &a_ty, &mut subst);
+                            }
+                        }
+                        if !subst.is_empty() {
+                            return Some(substitute_typevars(&ret, &subst));
+                        }
+                    }
+                }
+                Some(ret)
+            }
             ExprKind::MethodCall { obj, method, .. } => {
                 if let Some(Type::Generic(g)) = self.infer_expr(obj, scope) {
                     if let Some(t) = infer_map_method_type(&g, method.as_str()) {

@@ -471,10 +471,44 @@ fn register_external_interface(
 
 pub(crate) fn collect_external_signatures(
     prog: &Program,
-) -> (HashMap<AstSymbol, String>, HashMap<AstSymbol, Type>) {
+) -> (
+    HashMap<AstSymbol, String>,
+    HashMap<AstSymbol, Type>,
+    HashMap<AstSymbol, Vec<Type>>,
+) {
     use ilang_ast::ExternCItem;
     let mut out = HashMap::new();
     let mut rets: HashMap<AstSymbol, Type> = HashMap::new();
+    // Capture param types only when the return type mentions a type
+    // parameter — that's the only case the call-site substitution
+    // path needs. Filtering keeps the map narrow on huge umbrella
+    // imports where most fn returns are concrete.
+    let mut fn_params_map: HashMap<AstSymbol, Vec<Type>> = HashMap::new();
+    fn ret_mentions_typevar(t: &Type) -> bool {
+        use Type::*;
+        match t {
+            TypeVar(_) => true,
+            Array { elem, .. } => ret_mentions_typevar(elem),
+            Optional(inner) | Weak(inner) => ret_mentions_typevar(inner),
+            RawPtr { inner, .. } => ret_mentions_typevar(inner),
+            Tuple(es) => es.iter().any(ret_mentions_typevar),
+            Generic(g) => g.args.iter().any(ret_mentions_typevar),
+            Fn(ft) => {
+                ret_mentions_typevar(&ft.ret) || ft.params.iter().any(ret_mentions_typevar)
+            }
+            _ => false,
+        }
+    }
+    fn record_params(
+        name: &AstSymbol,
+        ret_ty: &Type,
+        ps: &[ilang_ast::Param],
+        params: &mut HashMap<AstSymbol, Vec<Type>>,
+    ) {
+        if name.as_str().contains('.') && ret_mentions_typevar(ret_ty) {
+            params.insert(name.clone(), ps.iter().map(|p| p.ty.clone()).collect());
+        }
+    }
     let put_dotted = |name: &str, sig: String, m: &mut HashMap<AstSymbol, String>| {
         if name.contains('.') {
             m.insert(name.into(), sig);
@@ -491,6 +525,7 @@ pub(crate) fn collect_external_signatures(
                     if f.name.as_str().contains('.') {
                         rets.insert(f.name.clone(), t.clone());
                     }
+                    record_params(&f.name, t, &f.params, &mut fn_params_map);
                 }
             }
             Item::Const(c) => {
@@ -597,6 +632,7 @@ pub(crate) fn collect_external_signatures(
                                 if name.as_str().contains('.') {
                                     rets.insert(name.clone(), t.clone());
                                 }
+                                record_params(name, t, params, &mut fn_params_map);
                             }
                         }
                         ExternCItem::FnDef(f) => {
@@ -605,6 +641,7 @@ pub(crate) fn collect_external_signatures(
                                 if f.name.as_str().contains('.') {
                                     rets.insert(f.name.clone(), t.clone());
                                 }
+                                record_params(&f.name, t, &f.params, &mut fn_params_map);
                             }
                         }
                         ExternCItem::Struct { name, .. } => {
@@ -648,7 +685,7 @@ pub(crate) fn collect_external_signatures(
             _ => {}
         }
     }
-    (out, rets)
+    (out, rets, fn_params_map)
 }
 
 /// Collect every `interface` / `@objc interface` declaration in

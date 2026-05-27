@@ -129,7 +129,7 @@ pub(crate) async fn refresh_impl(
             })
     };
     let diags = analyse(&text, path.as_deref(), &merged, is_submodule);
-    let (mut external_sigs, mut external_rets) = merged
+    let (mut external_sigs, mut external_rets, mut external_fn_params) = merged
         .as_ref()
         .map(collect_external_signatures)
         .unwrap_or_default();
@@ -143,44 +143,11 @@ pub(crate) async fn refresh_impl(
     // so mirror those dotted entries under their bare names. Without
     // this `let x = fn()` hover never picks up the inferred type.
     if let Ok(buffer_prog) = &parsed_buffer {
-        for item in &buffer_prog.items {
-            let Item::Use(u) = item else { continue };
-            // For `use a.b.c.*` / `use a.b.c { X }` the effective
-            // module name is the deepest subpath segment — the file
-            // the loader actually picked up.
-            let effective_module = if let Some(last) = u.subpath.last() {
-                last.as_str().to_string()
-            } else {
-                u.module.as_str().to_string()
-            };
-            if u.wildcard && u.selective.is_none() {
-                // `use M { * }` — mirror every `M.<X>` ret type
-                // under its bare name. Matches the selective-import
-                // path below; same rationale (the buffer references
-                // `<X>(...)` bare, but `collect_external_signatures`
-                // only emitted the `M.<X>` key).
-                let module_dot = format!("{effective_module}.");
-                let bare: Vec<(AstSymbol, _)> = external_rets
-                    .iter()
-                    .filter_map(|(k, v)| {
-                        k.as_str()
-                            .strip_prefix(&module_dot)
-                            .map(|tail| (AstSymbol::intern(tail), v.clone()))
-                    })
-                    .collect();
-                for (k, v) in bare {
-                    external_rets.entry(k).or_insert(v);
-                }
-                continue;
-            }
-            let Some(names) = &u.selective else { continue };
-            for name in names.iter() {
-                let prefixed = AstSymbol::intern(&format!("{effective_module}.{name}"));
-                if let Some(t) = external_rets.get(&prefixed).cloned() {
-                    external_rets.insert(name.clone(), t);
-                }
-            }
-        }
+        mirror_imported_returns_to_bare(
+            buffer_prog,
+            &mut external_rets,
+            &mut external_fn_params,
+        );
     }
     // Augment with `module.const_name` entries — the loader inlines
     // constants away, so they're not in the merged program. Parse
@@ -247,6 +214,7 @@ pub(crate) async fn refresh_impl(
                 &prog,
                 &external_sigs,
                 &external_rets,
+                &external_fn_params,
                 &external_classes,
                 &external_sources,
                 &external_docs,
@@ -254,6 +222,7 @@ pub(crate) async fn refresh_impl(
                 &external_enums,
             );
             d.external.docs = external_docs;
+            d.external.fn_params = external_fn_params;
             let mut docs_lock = docs.lock().unwrap();
             // If the user typed more characters between the start
             // of this refresh and now, `did_change` will have
@@ -284,6 +253,9 @@ pub(crate) async fn refresh_impl(
             }
             if !external_rets.is_empty() {
                 entry.external.returns = external_rets;
+            }
+            if !external_fn_params.is_empty() {
+                entry.external.fn_params = external_fn_params;
             }
             if !external_docs.is_empty() {
                 entry.external.docs = external_docs;
@@ -323,6 +295,71 @@ pub(crate) async fn refresh_impl(
     for (p, file_diags) in by_path {
         if let Ok(target_uri) = Url::from_file_path(&p) {
             client.publish_diagnostics(target_uri, file_diags, None).await;
+        }
+    }
+}
+
+/// Mirror dotted return-type entries (`a.b.c.X` → `T`) under their bare
+/// names for every `use a.b.c { X }` / `use a.b.c { * }` import in
+/// `buffer_prog`. The merged-program scan in
+/// `collect_external_signatures` only emits dotted keys, but call
+/// expressions in the buffer reference the imported names bare. Without
+/// this alias step `let x = X(...)` couldn't recover a hover type for
+/// `x`. Selective-import lookups use the full `module + subpath` prefix
+/// — using just the leaf segment misses every multi-segment import
+/// (`use std.ffi { … }` → keys live under `std.ffi.<X>`, not `ffi.<X>`).
+pub(crate) fn mirror_imported_returns_to_bare(
+    buffer_prog: &Program,
+    external_rets: &mut HashMap<AstSymbol, Type>,
+    external_fn_params: &mut HashMap<AstSymbol, Vec<Type>>,
+) {
+    for item in &buffer_prog.items {
+        let Item::Use(u) = item else { continue };
+        let effective_module = if u.subpath.is_empty() {
+            u.module.as_str().to_string()
+        } else {
+            let mut s = u.module.as_str().to_string();
+            for seg in u.subpath.iter() {
+                s.push('.');
+                s.push_str(seg.as_str());
+            }
+            s
+        };
+        if u.wildcard && u.selective.is_none() {
+            let module_dot = format!("{effective_module}.");
+            let bare_rets: Vec<(AstSymbol, _)> = external_rets
+                .iter()
+                .filter_map(|(k, v)| {
+                    k.as_str()
+                        .strip_prefix(&module_dot)
+                        .map(|tail| (AstSymbol::intern(tail), v.clone()))
+                })
+                .collect();
+            for (k, v) in bare_rets {
+                external_rets.entry(k).or_insert(v);
+            }
+            let bare_params: Vec<(AstSymbol, _)> = external_fn_params
+                .iter()
+                .filter_map(|(k, v)| {
+                    k.as_str()
+                        .strip_prefix(&module_dot)
+                        .map(|tail| (AstSymbol::intern(tail), v.clone()))
+                })
+                .collect();
+            for (k, v) in bare_params {
+                external_fn_params.entry(k).or_insert(v);
+            }
+            continue;
+        }
+        let Some(names) = &u.selective else { continue };
+        for name in names.iter() {
+            let prefixed = AstSymbol::intern(&format!("{effective_module}.{name}"));
+            if let Some(t) = external_rets.get(&prefixed).cloned() {
+                external_rets.insert(name.clone(), t);
+            }
+            if let Some(ps) = external_fn_params.get(&prefixed).cloned() {
+                external_fn_params.insert(name.clone(), ps);
+            }
         }
     }
 }

@@ -122,10 +122,15 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
             entry, &extra, &dep_tree.parents, &names_to_dirs, &overlay,
         ).ok()
     };
-    let (mut external_sigs, mut external_rets) = merged
+    let (mut external_sigs, mut external_rets, mut external_fn_params) = merged
         .as_ref()
         .map(collect_external_signatures)
         .unwrap_or_default();
+    crate::backend::mirror_imported_returns_to_bare(
+        &parsed_buffer,
+        &mut external_rets,
+        &mut external_fn_params,
+    );
     let mut external_sources: ExternalSources = HashMap::new();
     let mut external_docs: HashMap<AstSymbol, String> = HashMap::new();
     let mut external_const_types: HashMap<AstSymbol, Type> = HashMap::new();
@@ -162,6 +167,7 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
         &parsed_buffer,
         &external_sigs,
         &external_rets,
+        &external_fn_params,
         &external_classes,
         &external_sources,
         &external_docs,
@@ -169,6 +175,7 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
         &external_enums,
     );
     doc.external.docs = external_docs;
+    doc.external.fn_params = external_fn_params;
     Some(doc)
 }
 
@@ -323,6 +330,70 @@ mod tests {
             diags.len(),
             2,
             "expected diagnostic per bad arg, got {diags:?}"
+        );
+    }
+
+    /// Multi-segment selective imports (`use std.ffi { arrayFromCArray }`)
+    /// must mirror the dotted ret-type entry to the bare name so
+    /// `let x = arrayFromCArray(...)` hovers with a type. The buggy
+    /// path used the leaf segment (`ffi`) instead of the full prefix
+    /// (`std.ffi`) and the alias lookup never hit.
+    #[test]
+    fn selective_import_with_subpath_mirrors_ret_type() {
+        let src = "\
+use std.ffi { arrayFromCArray }
+
+@extern(C) {
+    pub fn run() {
+        let p = 0 as *const u8
+        let units = arrayFromCArray(p, 4 as u64)
+        units.length
+    }
+}
+";
+        let tmp = std::env::temp_dir().join("ilang_lsp_probe_subpath_import.il");
+        std::fs::write(&tmp, src).unwrap();
+        let doc = analyse_path_to_doc(&tmp).expect("doc built");
+        let units_decl = doc
+            .refs
+            .iter()
+            .find(|r| r.signature.starts_with("let units"))
+            .unwrap_or_else(|| panic!("no `let units` ref; got: {:#?}", doc.refs));
+        assert!(
+            units_decl.signature.contains(": "),
+            "expected `units` hover to include an inferred type, got {:?}",
+            units_decl.signature,
+        );
+    }
+
+    /// Generic intrinsics (`arrayFromCArray<T>(p: *const T, …): T[]`)
+    /// must have `T` instantiated from the call's argument types so
+    /// hover shows the concrete element type instead of `T[]`. The
+    /// call below binds `T = u16` via the `*const u16` argument.
+    #[test]
+    fn generic_intrinsic_call_substitutes_typevar_in_return() {
+        let src = "\
+use std.ffi { arrayFromCArray }
+
+@extern(C) {
+    pub fn run() {
+        let p = 0 as *const u16
+        let units = arrayFromCArray(p, 4 as u64)
+        units.length
+    }
+}
+";
+        let tmp = std::env::temp_dir().join("ilang_lsp_probe_typevar_subst.il");
+        std::fs::write(&tmp, src).unwrap();
+        let doc = analyse_path_to_doc(&tmp).expect("doc built");
+        let units_decl = doc
+            .refs
+            .iter()
+            .find(|r| r.signature.starts_with("let units"))
+            .unwrap_or_else(|| panic!("no `let units` ref; got: {:#?}", doc.refs));
+        assert_eq!(
+            units_decl.signature, "let units: u16[]",
+            "expected T to be substituted with u16 from the *const u16 arg",
         );
     }
 }
