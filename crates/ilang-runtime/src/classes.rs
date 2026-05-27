@@ -197,15 +197,44 @@ pub extern "C" fn __register_class_print_field(
     entry.fields[i] = (name, pk);
 }
 
+/// `class_id` → leaked C-string for the base class name (i.e. the
+/// name with any `<TypeArgs>` suffix stripped). The cache holds a +1
+/// registry rc per class so callers can release their own +1 without
+/// dropping the body.
+static CLASS_BASENAME_CACHE: OnceLock<Mutex<HashMap<u32, i64>>> = OnceLock::new();
+
+fn class_basename_cache() -> &'static Mutex<HashMap<u32, i64>> {
+    CLASS_BASENAME_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 #[unsafe(export_name = "$class.name")]
 pub extern "C" fn __class_name(class_id: i64) -> i64 {
+    let key = class_id as u32;
+    {
+        let cache = class_basename_cache().lock().expect("class name cache poisoned");
+        if let Some(&ptr) = cache.get(&key) {
+            crate::strings::__retain_string(ptr);
+            return ptr;
+        }
+    }
+    // Cold path: build the basename once.
     let name = {
         let t = class_print_info().lock().expect("class print info poisoned");
-        t.get(&(class_id as u32)).map(|i| i.name.clone())
+        t.get(&key).map(|i| i.name.clone())
     };
     let name = name.unwrap_or_else(|| format!("<obj#{class_id}>"));
     let base = name.split('<').next().unwrap_or(name.as_str()).to_string();
-    leak_cstring(base)
+    let new_ptr = leak_cstring(base);
+    let installed = {
+        let mut cache = class_basename_cache().lock().expect("class name cache poisoned");
+        *cache.entry(key).or_insert(new_ptr)
+    };
+    if installed != new_ptr {
+        // Lost the race against another thread — drop our pointer.
+        crate::strings::__release_string(new_ptr);
+    }
+    crate::strings::__retain_string(installed);
+    installed
 }
 
 #[unsafe(export_name = "$print.object")]
