@@ -260,7 +260,15 @@ pub(super) fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> E
             ty: ty.clone(),
         },
         ExprKind::FnExpr { params, ret, body } => ExprKind::FnExpr {
-            params: params.clone(),
+            params: params
+                .iter()
+                .map(|p| ilang_ast::Param {
+                    name: p.name.clone(),
+                    ty: p.ty.clone(),
+                    span: p.span,
+                    default: p.default.as_ref().map(|d| f(d)),
+                })
+                .collect(),
             ret: ret.clone(),
             body: map_block_children(body, f),
         },

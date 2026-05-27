@@ -456,7 +456,7 @@ pub(super) fn subst_expr(e: &Expr, params: &[Symbol], args: &[Type]) -> Expr {
                     name: p.name.clone(),
                     ty: subst_type(&p.ty, params, args),
                     span: p.span,
-                    default: p.default.clone(),
+                    default: p.default.as_ref().map(|d| subst_expr(d, params, args)),
                 })
                 .collect(),
             ret: ret.as_ref().map(|t| subst_type(t, params, args)),
@@ -819,7 +819,7 @@ pub(super) fn rewrite_expr(e: &Expr) -> Expr {
                     name: p.name.clone(),
                     ty: rewrite_type(&p.ty),
                     span: p.span,
-                    default: p.default.clone(),
+                    default: p.default.as_ref().map(rewrite_expr),
                 })
                 .collect(),
             ret: ret.as_ref().map(rewrite_type),

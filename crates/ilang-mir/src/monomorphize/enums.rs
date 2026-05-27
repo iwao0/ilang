@@ -963,7 +963,11 @@ pub(super) fn rewrite_enum_refs_in_expr(
                     name: p.name.clone(),
                     ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
                     span: p.span,
-                    default: p.default.clone(),
+                    default: p.default.as_ref().map(|d| {
+                        rewrite_enum_refs_in_expr(
+                            d, generic_enums, table, outer_params, outer_args,
+                        )
+                    }),
                 })
                 .collect(),
             ret: ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),

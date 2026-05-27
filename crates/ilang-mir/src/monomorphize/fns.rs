@@ -198,6 +198,17 @@ pub(super) fn seed_calls_in_item(
             for m in &c.methods {
                 seed_calls_in_block(&m.body, table, outer_params, outer_args, visit);
             }
+            for m in &c.static_methods {
+                seed_calls_in_block(&m.body, table, outer_params, outer_args, visit);
+            }
+            for p in &c.properties {
+                if let Some(g) = &p.getter {
+                    seed_calls_in_block(&g.body, table, outer_params, outer_args, visit);
+                }
+                if let Some(s) = &p.setter {
+                    seed_calls_in_block(&s.body, table, outer_params, outer_args, visit);
+                }
+            }
         }
         Item::Enum(_) | Item::Use(_) | Item::Const(_)  | Item::ExternC(_) => {}
         Item::Interface(_) => {}
