@@ -76,6 +76,18 @@ pub fn monomorphize(prog: &Program) -> Program {
                 for m in &c.methods {
                     scan_fn(m, &mut needed, &mut worklist);
                 }
+                for m in &c.static_methods {
+                    scan_fn(m, &mut needed, &mut worklist);
+                }
+                for p in &c.properties {
+                    seed(&p.ty, &mut needed, &mut worklist);
+                    if let Some(g) = &p.getter {
+                        scan_fn(g, &mut needed, &mut worklist);
+                    }
+                    if let Some(s) = &p.setter {
+                        scan_fn(s, &mut needed, &mut worklist);
+                    }
+                }
             }
             // Skip seeding from generic fn bodies: they reference
             // their own type params as `Object("T")`, and
@@ -125,6 +137,18 @@ pub fn monomorphize(prog: &Program) -> Program {
         }
         for m in &new_class.methods {
             scan_fn(m, &mut needed, &mut worklist);
+        }
+        for m in &new_class.static_methods {
+            scan_fn(m, &mut needed, &mut worklist);
+        }
+        for p in &new_class.properties {
+            scan_type(&p.ty, &mut needed, &mut worklist);
+            if let Some(g) = &p.getter {
+                scan_fn(g, &mut needed, &mut worklist);
+            }
+            if let Some(s) = &p.setter {
+                scan_fn(s, &mut needed, &mut worklist);
+            }
         }
         synthesized.insert(mangled, new_class);
     }
@@ -498,7 +522,7 @@ pub(super) fn specialize_fn(f: &FnDecl, params: &[Symbol], args: &[Type]) -> FnD
                 name: p.name.clone(),
                 ty: subst_type(&p.ty, params, args),
                 span: p.span,
-                default: p.default.clone(),
+                default: p.default.as_ref().map(|d| subst_expr(d, params, args)),
             })
             .collect(),
         ret: f.ret.as_ref().map(|t| subst_type(t, params, args)),
