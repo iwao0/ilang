@@ -54,6 +54,19 @@ unsafe fn store_packed(data: i64, idx: i64, stride: i64, value: i64) {
     }
 }
 
+#[inline]
+unsafe fn load_packed(data: i64, idx: i64, stride: i64) -> i64 {
+    unsafe {
+        let addr = (data + idx * stride) as *const u8;
+        match stride {
+            1 => *(addr as *const u8) as i64,
+            2 => *(addr as *const u16) as i64,
+            4 => *(addr as *const u32) as i64,
+            _ => *(addr as *const i64),
+        }
+    }
+}
+
 #[unsafe(export_name = "$array.push")]
 pub extern "C" fn __array_push(arr: i64, value: i64) {
     if arr == 0 {
@@ -104,20 +117,10 @@ pub extern "C" fn __array_pop(arr: i64) -> i64 {
         let data = *h.add(2);
         let stride = *h.add(5);
         let idx = len - 1;
-        let addr = (data + idx * stride) as *const u8;
-        let value: i64 = match stride {
-            1 => *(addr as *const u8) as i64,
-            2 => *(addr as *const u16) as i64,
-            4 => *(addr as *const u32) as i64,
-            _ => *(addr as *const i64),
-        };
+        let value = load_packed(data, idx, stride);
         *h = idx;
         let elem_tag = *h.add(4);
-        let cell = __mir_alloc(24) as *mut i64;
-        *cell = value;
-        *cell.add(1) = 1;
-        *cell.add(2) = elem_tag;
-        cell as i64
+        box_optional_cell_transferred(value, elem_tag)
     }
 }
 
@@ -156,21 +159,11 @@ pub extern "C" fn __array_remove_at(arr: i64, index: i64) -> i64 {
         }
         let data = *h.add(2);
         let stride = *h.add(5);
-        let addr = (data + index * stride) as *const u8;
-        let value: i64 = match stride {
-            1 => *(addr as *const u8) as i64,
-            2 => *(addr as *const u16) as i64,
-            4 => *(addr as *const u32) as i64,
-            _ => *(addr as *const i64),
-        };
+        let value = load_packed(data, index, stride);
         shift_left_one(data, index + 1, len, stride);
         *h = len - 1;
         let elem_tag = *h.add(4);
-        let cell = __mir_alloc(24) as *mut i64;
-        *cell = value;
-        *cell.add(1) = 1;
-        *cell.add(2) = elem_tag;
-        cell as i64
+        box_optional_cell_transferred(value, elem_tag)
     }
 }
 
@@ -190,14 +183,7 @@ pub extern "C" fn __array_remove(arr: i64, value: i64) -> i64 {
         let stride = *h.add(5);
         let mut idx: i64 = -1;
         for i in 0..len {
-            let addr = (data + i * stride) as *const u8;
-            let cell: i64 = match stride {
-                1 => *(addr as *const u8) as i64,
-                2 => *(addr as *const u16) as i64,
-                4 => *(addr as *const u32) as i64,
-                _ => *(addr as *const i64),
-            };
-            if cell == value {
+            if load_packed(data, i, stride) == value {
                 idx = i;
                 break;
             }
@@ -358,14 +344,11 @@ unsafe fn call_closure_2(closure: i64, a: i64, b: i64) -> i64 {
     }
 }
 
-/// Box an array cell into a fresh `Optional<T>` heap block
-/// (`[value | rc | kind_tag]`). The cell counts as one new
-/// reference: bump rc on heap kinds before boxing so the Optional
-/// owns its own +1 alongside the array's existing one.
-fn box_optional_cell(value: i64, elem_tag: i64) -> i64 {
-    if elem_tag != KIND_NONE {
-        retain_field_by_kind(value, elem_tag);
-    }
+/// Allocate a fresh `Optional<T>` heap block (`[value | rc | kind_tag]`)
+/// holding `value`. The caller's reference is **transferred** into the
+/// Optional — no retain. Use this when the array's existing slot is
+/// being handed off (pop / removeAt / shift).
+fn box_optional_cell_transferred(value: i64, elem_tag: i64) -> i64 {
     let cell = __mir_alloc(24) as *mut i64;
     unsafe {
         *cell = value;
@@ -373,6 +356,16 @@ fn box_optional_cell(value: i64, elem_tag: i64) -> i64 {
         *cell.add(2) = elem_tag;
     }
     cell as i64
+}
+
+/// Box an array cell into a fresh `Optional<T>` heap block. The cell
+/// counts as one new reference: bump rc on heap kinds before boxing
+/// so the Optional owns its own +1 alongside the array's existing one.
+fn box_optional_cell(value: i64, elem_tag: i64) -> i64 {
+    if elem_tag != KIND_NONE {
+        retain_field_by_kind(value, elem_tag);
+    }
+    box_optional_cell_transferred(value, elem_tag)
 }
 
 #[unsafe(export_name = "$array.map")]
@@ -616,21 +609,11 @@ pub extern "C" fn __array_shift(arr: i64) -> i64 {
         }
         let data = *h.add(2);
         let stride = *h.add(5);
-        let addr = data as *const u8;
-        let value: i64 = match stride {
-            1 => *(addr as *const u8) as i64,
-            2 => *(addr as *const u16) as i64,
-            4 => *(addr as *const u32) as i64,
-            _ => *(addr as *const i64),
-        };
+        let value = load_packed(data, 0, stride);
         shift_left_one(data, 1, len, stride);
         *h = len - 1;
         let elem_tag = *h.add(4);
-        let cell = __mir_alloc(24) as *mut i64;
-        *cell = value;
-        *cell.add(1) = 1;
-        *cell.add(2) = elem_tag;
-        cell as i64
+        box_optional_cell_transferred(value, elem_tag)
     }
 }
 
@@ -694,12 +677,7 @@ pub extern "C" fn __array_fill(arr: i64, value: i64) {
         let stride = *h.add(5);
         for i in 0..len {
             if elem_tag != KIND_NONE {
-                let old = match stride {
-                    1 => *((data + i * stride) as *const u8) as i64,
-                    2 => *((data + i * stride) as *const u16) as i64,
-                    4 => *((data + i * stride) as *const u32) as i64,
-                    _ => *((data + i * stride) as *const i64),
-                };
+                let old = load_packed(data, i, stride);
                 release_field_by_kind(old, elem_tag);
                 retain_field_by_kind(value, elem_tag);
             }
