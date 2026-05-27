@@ -186,6 +186,11 @@ impl<'a> BodyCx<'a> {
         }
         let msg_is_fresh = self.is_fresh_object_expr(&args[1]);
         let (mv, _) = self.lower_expr(&args[1])?;
+        // The type checker pins msg to `string` for this builtin
+        // (see ilang-types/.../builtins.rs `$promise.settleReject`),
+        // so the unconditional Retain is sound — Str is always
+        // ARC-heap. The settleResolve path runs an explicit
+        // `is_arc_heap` check because its value is generic.
         if !msg_is_fresh {
             self.fb.push_inst(Inst::Retain { value: mv });
         }
