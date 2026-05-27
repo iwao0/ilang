@@ -548,7 +548,7 @@ pub fn format_set_into(out: &mut String, set: i64) {
     }
     let s = unsafe { &*(set as *const ManagedSet) };
     let pk = s.elem_print_kind;
-    let mut raws: Vec<i64> = s.inner.iter().map(set_elem_to_raw).collect();
+    let mut raws: Vec<i64> = s.inner.iter().map(|e| s.str_orig_or_leak(e)).collect();
     // Stable display: sort by the formatted text, the same trick
     // `__print_map` uses for HashMap iteration order.
     raws.sort_by(|a, b| {

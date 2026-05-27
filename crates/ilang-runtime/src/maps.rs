@@ -372,7 +372,7 @@ pub fn format_map_into(out: &mut String, map_ptr: i64) {
     }
     let m = unsafe { &*(map_ptr as *const ManagedMap) };
     let mut entries: Vec<(i64, i64)> =
-        m.inner.iter().map(|(k, &v)| (map_key_to_raw(k), v)).collect();
+        m.inner.iter().map(|(k, &v)| (m.str_orig_or_leak(k), v)).collect();
     let kk = m.key_print_kind;
     let vk = m.val_print_kind;
     entries.sort_by(|a, b| {
