@@ -165,47 +165,44 @@ impl TypeChecker {
     /// flowing into a `Parent[]` slot, `(new Child(),)` into
     /// `(Parent,)`, and `some(new Child())` into `Parent?`.
     pub(super) fn value_assignable(&self, value: &Expr, vt: &Type, target: &Type) -> bool {
-        if literal_assignable_with(value, vt, target, &|c, p| {
+        literal_assignable_with(value, vt, target, &|c, p| {
             self.is_subclass(c, p) || self.class_implements(c, p)
-        }) {
-            return true;
-        }
-        // `pub enum E: T { ... }` flows into a slot typed `T`
-        // implicitly. The same value already flowed through an
-        // explicit `as T` cast at every call site (Win32 message
-        // matches, `pDesc.Type: i32 = D3D12CommandListType.direct
-        // as i32`, etc.); since the cast was a no-op beyond reading
-        // the tag, drop the boilerplate. Restricted to the
-        // declared repr type to avoid surprising widening.
-        if let (Type::Object(name), _) = (vt, target) {
-            if let Some(sig) = self.enums.get(name) {
-                if let Some(repr) = &sig.repr {
-                    if repr == target {
-                        return true;
-                    }
-                }
-            }
-        }
-        // `@handle pub struct H {}` is C-style "pointer-sized
-        // opaque" — values flow freely between `H` and `*void` /
-        // `*const void` (and vice versa), mirroring how a C
-        // function returning `HWND` can be stored in `void *` and
-        // back. Two distinct `@handle` types stay nominally
-        // distinct under the equal-name check above.
-        let is_void_ptr = |t: &Type| matches!(
-            t,
-            Type::RawPtr { inner, .. } if matches!(**inner, Type::CVoid)
-        );
-        let is_handle_obj = |t: &Type| matches!(
-            t,
-            Type::Object(name) if self.classes.get(name).map(|s| s.is_handle).unwrap_or(false)
-        );
-        if (is_handle_obj(vt) && is_void_ptr(target))
-            || (is_void_ptr(vt) && is_handle_obj(target))
-        {
-            return true;
-        }
-        false
+        })
+            || self.enum_repr_assignable(vt, target)
+            || self.handle_void_ptr_assignable(vt, target)
+    }
+
+    /// `pub enum E: T { ... }` flows into a slot typed `T`
+    /// implicitly. The same value already flowed through an
+    /// explicit `as T` cast at every call site (Win32 message
+    /// matches, `pDesc.Type: i32 = D3D12CommandListType.direct
+    /// as i32`, etc.); since the cast was a no-op beyond reading
+    /// the tag, drop the boilerplate. Restricted to the declared
+    /// repr type to avoid surprising widening.
+    fn enum_repr_assignable(&self, vt: &Type, target: &Type) -> bool {
+        let Type::Object(name) = vt else { return false };
+        let Some(sig) = self.enums.get(name) else { return false };
+        let Some(repr) = &sig.repr else { return false };
+        repr == target
+    }
+
+    /// `@handle pub struct H {}` is C-style "pointer-sized opaque"
+    /// — values flow freely between `H` and `*void` / `*const void`
+    /// (in either direction), mirroring how a C function returning
+    /// `HWND` can be stored in `void *` and back. Two distinct
+    /// `@handle` types stay nominally distinct under the equal-name
+    /// check elsewhere.
+    fn handle_void_ptr_assignable(&self, a: &Type, b: &Type) -> bool {
+        let is_void_ptr = |t: &Type| {
+            matches!(t, Type::RawPtr { inner, .. } if matches!(**inner, Type::CVoid))
+        };
+        let is_handle_obj = |t: &Type| {
+            matches!(
+                t,
+                Type::Object(name) if self.classes.get(name).map(|s| s.is_handle).unwrap_or(false)
+            )
+        };
+        (is_handle_obj(a) && is_void_ptr(b)) || (is_void_ptr(a) && is_handle_obj(b))
     }
 
     /// When an EnumCtor's inferred type-args contain `Type::Any` (because
