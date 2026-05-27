@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::alloc::__mir_free;
 use crate::cascade::release_field_by_kind;
@@ -42,17 +42,18 @@ pub fn class_size_for(class_id: i64) -> Option<i64> {
 // Object field table (heap-typed field cascade)
 // --------------------------------------------------------------------
 
-static OBJECT_FIELD_TABLE: OnceLock<Mutex<HashMap<u32, Vec<(i64, i64)>>>> =
+static OBJECT_FIELD_TABLE: OnceLock<Mutex<HashMap<u32, Arc<Vec<(i64, i64)>>>>> =
     OnceLock::new();
 
-fn object_field_table() -> &'static Mutex<HashMap<u32, Vec<(i64, i64)>>> {
+fn object_field_table() -> &'static Mutex<HashMap<u32, Arc<Vec<(i64, i64)>>>> {
     OBJECT_FIELD_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$class.registerObjectField")]
 pub extern "C" fn __register_object_field(class_id: i64, offset: i64, kind: i64) {
     let mut t = object_field_table().lock().expect("field table poisoned");
-    t.entry(class_id as u32).or_default().push((offset, kind));
+    let entry = t.entry(class_id as u32).or_default();
+    Arc::make_mut(entry).push((offset, kind));
 }
 
 #[unsafe(export_name = "$class.releaseObjectFields")]
@@ -60,10 +61,14 @@ pub extern "C" fn __release_object_fields(class_id: i64, obj_ptr: i64) {
     if obj_ptr == 0 {
         return;
     }
+    // Bump an Arc reference instead of cloning the Vec — the table is
+    // append-only during registration and never mutated after startup,
+    // so this is a cheap pointer copy. Released outside the lock to
+    // avoid re-entering `object_field_table()` from nested releases.
     let entries = {
         let t = object_field_table().lock().expect("field table poisoned");
         match t.get(&(class_id as u32)) {
-            Some(e) if !e.is_empty() => e.clone(),
+            Some(e) if !e.is_empty() => Arc::clone(e),
             _ => return,
         }
     };
