@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::alloc::__mir_free;
 use crate::cascade::release_field_by_kind;
@@ -18,15 +18,15 @@ use crate::strings::{cstr_to_str, leak_cstring};
 // Class size table
 // --------------------------------------------------------------------
 
-static CLASS_SIZE_TABLE: OnceLock<Mutex<HashMap<u32, i64>>> = OnceLock::new();
+static CLASS_SIZE_TABLE: OnceLock<RwLock<HashMap<u32, i64>>> = OnceLock::new();
 
-fn class_size_table() -> &'static Mutex<HashMap<u32, i64>> {
-    CLASS_SIZE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+fn class_size_table() -> &'static RwLock<HashMap<u32, i64>> {
+    CLASS_SIZE_TABLE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$class.registerSize")]
 pub extern "C" fn __register_class_size(class_id: i64, size: i64) {
-    let mut t = class_size_table().lock().expect("class size table poisoned");
+    let mut t = class_size_table().write().expect("class size table poisoned");
     t.insert(class_id as u32, size);
 }
 
@@ -34,7 +34,7 @@ pub extern "C" fn __register_class_size(class_id: i64, size: i64) {
 /// the class was deliberately left out of the table (CRepr / packed /
 /// union, weak-referenced, etc.).
 pub fn class_size_for(class_id: i64) -> Option<i64> {
-    let t = class_size_table().lock().expect("class size table poisoned");
+    let t = class_size_table().read().expect("class size table poisoned");
     t.get(&(class_id as u32)).copied()
 }
 
@@ -42,16 +42,16 @@ pub fn class_size_for(class_id: i64) -> Option<i64> {
 // Object field table (heap-typed field cascade)
 // --------------------------------------------------------------------
 
-static OBJECT_FIELD_TABLE: OnceLock<Mutex<HashMap<u32, Arc<Vec<(i64, i64)>>>>> =
+static OBJECT_FIELD_TABLE: OnceLock<RwLock<HashMap<u32, Arc<Vec<(i64, i64)>>>>> =
     OnceLock::new();
 
-fn object_field_table() -> &'static Mutex<HashMap<u32, Arc<Vec<(i64, i64)>>>> {
-    OBJECT_FIELD_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+fn object_field_table() -> &'static RwLock<HashMap<u32, Arc<Vec<(i64, i64)>>>> {
+    OBJECT_FIELD_TABLE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$class.registerObjectField")]
 pub extern "C" fn __register_object_field(class_id: i64, offset: i64, kind: i64) {
-    let mut t = object_field_table().lock().expect("field table poisoned");
+    let mut t = object_field_table().write().expect("field table poisoned");
     let entry = t.entry(class_id as u32).or_default();
     Arc::make_mut(entry).push((offset, kind));
 }
@@ -66,7 +66,7 @@ pub extern "C" fn __release_object_fields(class_id: i64, obj_ptr: i64) {
     // so this is a cheap pointer copy. Released outside the lock to
     // avoid re-entering `object_field_table()` from nested releases.
     let entries = {
-        let t = object_field_table().lock().expect("field table poisoned");
+        let t = object_field_table().read().expect("field table poisoned");
         match t.get(&(class_id as u32)) {
             Some(e) if !e.is_empty() => Arc::clone(e),
             _ => return,
@@ -82,39 +82,39 @@ pub extern "C" fn __release_object_fields(class_id: i64, obj_ptr: i64) {
 // Vtable + drop dispatch
 // --------------------------------------------------------------------
 
-static VTABLE: OnceLock<Mutex<HashMap<(u32, u32), i64>>> = OnceLock::new();
+static VTABLE: OnceLock<RwLock<HashMap<(u32, u32), i64>>> = OnceLock::new();
 
-fn vtable() -> &'static Mutex<HashMap<(u32, u32), i64>> {
-    VTABLE.get_or_init(|| Mutex::new(HashMap::new()))
+fn vtable() -> &'static RwLock<HashMap<(u32, u32), i64>> {
+    VTABLE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$class.registerVtableEntry")]
 pub extern "C" fn __register_vtable_entry(class_id: i64, slot: i64, fn_addr: i64) {
-    let mut t = vtable().lock().expect("vtable poisoned");
+    let mut t = vtable().write().expect("vtable poisoned");
     t.insert((class_id as u32, slot as u32), fn_addr);
 }
 
 #[unsafe(export_name = "$class.virtDispatch")]
 pub extern "C" fn __virt_dispatch(class_id: i64, slot: i64) -> i64 {
-    let t = vtable().lock().expect("vtable poisoned");
+    let t = vtable().read().expect("vtable poisoned");
     *t.get(&(class_id as u32, slot as u32)).unwrap_or(&0)
 }
 
-static DROP_TABLE: OnceLock<Mutex<HashMap<u32, i64>>> = OnceLock::new();
+static DROP_TABLE: OnceLock<RwLock<HashMap<u32, i64>>> = OnceLock::new();
 
-fn drop_table() -> &'static Mutex<HashMap<u32, i64>> {
-    DROP_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+fn drop_table() -> &'static RwLock<HashMap<u32, i64>> {
+    DROP_TABLE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$class.registerDrop")]
 pub extern "C" fn __register_drop(class_id: i64, fn_addr: i64) {
-    let mut t = drop_table().lock().expect("drop table poisoned");
+    let mut t = drop_table().write().expect("drop table poisoned");
     t.insert(class_id as u32, fn_addr);
 }
 
 #[unsafe(export_name = "$class.dropDispatch")]
 pub extern "C" fn __drop_dispatch(class_id: i64) -> i64 {
-    let t = drop_table().lock().expect("drop table poisoned");
+    let t = drop_table().read().expect("drop table poisoned");
     *t.get(&(class_id as u32)).unwrap_or(&0)
 }
 
@@ -162,16 +162,16 @@ pub(crate) struct ClassPrintInfo {
     pub(crate) fields: Vec<(String, i64)>,
 }
 
-static CLASS_PRINT_INFO: OnceLock<Mutex<HashMap<u32, ClassPrintInfo>>> = OnceLock::new();
+static CLASS_PRINT_INFO: OnceLock<RwLock<HashMap<u32, ClassPrintInfo>>> = OnceLock::new();
 
-pub(crate) fn class_print_info() -> &'static Mutex<HashMap<u32, ClassPrintInfo>> {
-    CLASS_PRINT_INFO.get_or_init(|| Mutex::new(HashMap::new()))
+pub(crate) fn class_print_info() -> &'static RwLock<HashMap<u32, ClassPrintInfo>> {
+    CLASS_PRINT_INFO.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$class.registerPrintName")]
 pub extern "C" fn __register_class_print_name(class_id: i64, name_str_ptr: i64) {
     let name = cstr_to_str(name_str_ptr).to_string();
-    let mut t = class_print_info().lock().expect("class print info poisoned");
+    let mut t = class_print_info().write().expect("class print info poisoned");
     let entry = t
         .entry(class_id as u32)
         .or_insert_with(|| ClassPrintInfo { name: String::new(), fields: Vec::new() });
@@ -186,7 +186,7 @@ pub extern "C" fn __register_class_print_field(
     pk: i64,
 ) {
     let name = cstr_to_str(name_str_ptr).to_string();
-    let mut t = class_print_info().lock().expect("class print info poisoned");
+    let mut t = class_print_info().write().expect("class print info poisoned");
     let entry = t
         .entry(class_id as u32)
         .or_insert_with(|| ClassPrintInfo { name: String::new(), fields: Vec::new() });
@@ -201,17 +201,17 @@ pub extern "C" fn __register_class_print_field(
 /// name with any `<TypeArgs>` suffix stripped). The cache holds a +1
 /// registry rc per class so callers can release their own +1 without
 /// dropping the body.
-static CLASS_BASENAME_CACHE: OnceLock<Mutex<HashMap<u32, i64>>> = OnceLock::new();
+static CLASS_BASENAME_CACHE: OnceLock<RwLock<HashMap<u32, i64>>> = OnceLock::new();
 
-fn class_basename_cache() -> &'static Mutex<HashMap<u32, i64>> {
-    CLASS_BASENAME_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn class_basename_cache() -> &'static RwLock<HashMap<u32, i64>> {
+    CLASS_BASENAME_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$class.name")]
 pub extern "C" fn __class_name(class_id: i64) -> i64 {
     let key = class_id as u32;
     {
-        let cache = class_basename_cache().lock().expect("class name cache poisoned");
+        let cache = class_basename_cache().read().expect("class name cache poisoned");
         if let Some(&ptr) = cache.get(&key) {
             crate::strings::__retain_string(ptr);
             return ptr;
@@ -219,14 +219,14 @@ pub extern "C" fn __class_name(class_id: i64) -> i64 {
     }
     // Cold path: build the basename once.
     let name = {
-        let t = class_print_info().lock().expect("class print info poisoned");
+        let t = class_print_info().read().expect("class print info poisoned");
         t.get(&key).map(|i| i.name.clone())
     };
     let name = name.unwrap_or_else(|| format!("<obj#{class_id}>"));
     let base = name.split('<').next().unwrap_or(name.as_str()).to_string();
     let new_ptr = leak_cstring(base);
     let installed = {
-        let mut cache = class_basename_cache().lock().expect("class name cache poisoned");
+        let mut cache = class_basename_cache().write().expect("class name cache poisoned");
         *cache.entry(key).or_insert(new_ptr)
     };
     if installed != new_ptr {
@@ -257,7 +257,7 @@ pub fn format_object_into(out: &mut String, obj_ptr: i64) {
     }
     let class_id = unsafe { *(obj_ptr as *const i64) } as u32;
     let info = {
-        let t = class_print_info().lock().expect("class print info poisoned");
+        let t = class_print_info().read().expect("class print info poisoned");
         t.get(&class_id).map(|i| (i.name.clone(), i.fields.clone()))
     };
     let (name, fields) = match info {
@@ -307,10 +307,10 @@ pub(crate) struct StructPrintField {
     pub(crate) nested_cid: u32,
 }
 
-static STRUCT_PRINT_INFO: OnceLock<Mutex<HashMap<u32, Vec<StructPrintField>>>> = OnceLock::new();
+static STRUCT_PRINT_INFO: OnceLock<RwLock<HashMap<u32, Vec<StructPrintField>>>> = OnceLock::new();
 
-fn struct_print_info() -> &'static Mutex<HashMap<u32, Vec<StructPrintField>>> {
-    STRUCT_PRINT_INFO.get_or_init(|| Mutex::new(HashMap::new()))
+fn struct_print_info() -> &'static RwLock<HashMap<u32, Vec<StructPrintField>>> {
+    STRUCT_PRINT_INFO.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$class.registerStructPrintField")]
@@ -323,7 +323,7 @@ pub extern "C" fn __register_struct_print_field(
     nested_cid: i64,
 ) {
     let name = cstr_to_str(name_str_ptr).to_string();
-    let mut t = struct_print_info().lock().expect("struct print info poisoned");
+    let mut t = struct_print_info().write().expect("struct print info poisoned");
     let entry = t.entry(class_id as u32).or_default();
     let i = idx as usize;
     while entry.len() <= i {
@@ -362,11 +362,11 @@ pub fn format_struct_into(out: &mut String, class_id: i64, ptr: i64) {
     }
     let cid = class_id as u32;
     let name = {
-        let t = class_print_info().lock().expect("class print info poisoned");
+        let t = class_print_info().read().expect("class print info poisoned");
         t.get(&cid).map(|i| i.name.clone())
     };
     let fields = {
-        let t = struct_print_info().lock().expect("struct print info poisoned");
+        let t = struct_print_info().read().expect("struct print info poisoned");
         t.get(&cid).map(|fs| {
             fs.iter()
                 .map(|f| (f.name.clone(), f.pk, f.offset, f.nested_cid))
