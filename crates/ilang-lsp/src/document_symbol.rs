@@ -58,8 +58,14 @@ pub(crate) fn expand_range(outer: &mut Range, inner: &Range) {
 /// Locate the identifier span for a top-level / nested decl. Falls
 /// back to a zero-width span at `decl_span` when the name isn't
 /// found on the recorded line (e.g. parser-synthesised decls).
-pub(crate) fn name_range(text: &str, decl_span: Span, kw: &str, name: &str) -> Range {
-    let name_span = text::locate_let_name_with_kw(text, decl_span, kw, name)
+pub(crate) fn name_range(
+    line_starts: &[usize],
+    text: &str,
+    decl_span: Span,
+    kw: &str,
+    name: &str,
+) -> Range {
+    let name_span = text::locate_let_name_with_kw_at(line_starts, text, decl_span, kw, name)
         .unwrap_or(decl_span);
     text::span_to_range(name_span, name.len())
 }
@@ -77,10 +83,10 @@ pub(crate) fn render_fn_detail(f: &FnDecl) -> String {
     }
 }
 
-pub(crate) fn collect_item_symbol(text: &str, item: &Item, out: &mut Vec<DocumentSymbol>) {
+pub(crate) fn collect_item_symbol(line_starts: &[usize], text: &str, item: &Item, out: &mut Vec<DocumentSymbol>) {
     match item {
         Item::Fn(f) => {
-            let sel = name_range(text, f.span, "fn", f.name.as_str());
+            let sel = name_range(line_starts, text, f.span, "fn", f.name.as_str());
             out.push(make_doc_sym(
                 f.name.as_str().to_string(),
                 Some(render_fn_detail(f)),
@@ -91,13 +97,13 @@ pub(crate) fn collect_item_symbol(text: &str, item: &Item, out: &mut Vec<Documen
             ));
         }
         Item::Class(c) => {
-            out.push(class_symbol(text, c));
+            out.push(class_symbol(line_starts, text, c));
         }
         Item::Interface(i) => {
-            let sel = name_range(text, i.span, "interface", i.name.as_str());
+            let sel = name_range(line_starts, text, i.span, "interface", i.name.as_str());
             let mut children: Vec<DocumentSymbol> = Vec::new();
             for m in i.methods.iter() {
-                let m_sel = name_range(text, m.span, "fn", m.name.as_str());
+                let m_sel = name_range(line_starts, text, m.span, "fn", m.name.as_str());
                 let params = m
                     .params
                     .iter()
@@ -127,7 +133,7 @@ pub(crate) fn collect_item_symbol(text: &str, item: &Item, out: &mut Vec<Documen
             ));
         }
         Item::Enum(e) => {
-            let sel = name_range(text, e.span, "enum", e.name.as_str());
+            let sel = name_range(line_starts, text, e.span, "enum", e.name.as_str());
             let mut children: Vec<DocumentSymbol> = Vec::new();
             for v in e.variants.iter() {
                 let v_sel = text::span_to_range(v.span, v.name.as_str().len());
@@ -150,7 +156,7 @@ pub(crate) fn collect_item_symbol(text: &str, item: &Item, out: &mut Vec<Documen
             ));
         }
         Item::Const(c) => {
-            let sel = name_range(text, c.span, "const", c.name.as_str());
+            let sel = name_range(line_starts, text, c.span, "const", c.name.as_str());
             let detail = c.ty.as_ref().map(|t| format!(": {t}"));
             out.push(make_doc_sym(
                 c.name.as_str().to_string(),
@@ -166,7 +172,7 @@ pub(crate) fn collect_item_symbol(text: &str, item: &Item, out: &mut Vec<Documen
                 match inner {
                     ilang_ast::ExternCItem::FnDef(f) => {
                         let name = f.name.as_str().to_string();
-                        let sel = name_range(text, f.span, "fn", &name);
+                        let sel = name_range(line_starts, text, f.span, "fn", &name);
                         out.push(make_doc_sym(
                             name,
                             Some(render_fn_detail(f)),
@@ -178,7 +184,7 @@ pub(crate) fn collect_item_symbol(text: &str, item: &Item, out: &mut Vec<Documen
                     }
                     ilang_ast::ExternCItem::FnDecl { name, params, ret, span, .. } => {
                         let name_s = name.as_str().to_string();
-                        let sel = name_range(text, *span, "fn", &name_s);
+                        let sel = name_range(line_starts, text, *span, "fn", &name_s);
                         let plist = params
                             .iter()
                             .map(|p| format!("{}: {}", p.name, p.ty))
@@ -198,10 +204,10 @@ pub(crate) fn collect_item_symbol(text: &str, item: &Item, out: &mut Vec<Documen
                         ));
                     }
                     ilang_ast::ExternCItem::Class(c) => {
-                        out.push(class_symbol(text, c));
+                        out.push(class_symbol(line_starts, text, c));
                     }
                     ilang_ast::ExternCItem::Struct { name, fields, span, .. } => {
-                        let sel = name_range(text, *span, "struct", name.as_str());
+                        let sel = name_range(line_starts, text, *span, "struct", name.as_str());
                         let mut children: Vec<DocumentSymbol> = Vec::new();
                         for f in fields.iter() {
                             let f_sel = text::span_to_range(f.span, f.name.as_str().len());
@@ -224,7 +230,7 @@ pub(crate) fn collect_item_symbol(text: &str, item: &Item, out: &mut Vec<Documen
                         ));
                     }
                     ilang_ast::ExternCItem::Union { name, fields, span, .. } => {
-                        let sel = name_range(text, *span, "union", name.as_str());
+                        let sel = name_range(line_starts, text, *span, "union", name.as_str());
                         let mut children: Vec<DocumentSymbol> = Vec::new();
                         for f in fields.iter() {
                             let f_sel = text::span_to_range(f.span, f.name.as_str().len());
@@ -249,17 +255,17 @@ pub(crate) fn collect_item_symbol(text: &str, item: &Item, out: &mut Vec<Documen
                 }
             }
             for iface in b.interfaces.iter() {
-                collect_item_symbol(text, &Item::Interface(iface.clone()), out);
+                collect_item_symbol(line_starts, text, &Item::Interface(iface.clone()), out);
             }
             for c in b.consts.iter() {
-                collect_item_symbol(text, &Item::Const(c.clone()), out);
+                collect_item_symbol(line_starts, text, &Item::Const(c.clone()), out);
             }
         }
         Item::Use(_) => {}
     }
 }
 
-pub(crate) fn class_symbol(text: &str, c: &ClassDecl) -> DocumentSymbol {
+pub(crate) fn class_symbol(line_starts: &[usize], text: &str, c: &ClassDecl) -> DocumentSymbol {
     let kw = if c.is_union {
         "union"
     } else if c.is_repr_c {
@@ -272,7 +278,7 @@ pub(crate) fn class_symbol(text: &str, c: &ClassDecl) -> DocumentSymbol {
     } else {
         SymbolKind::CLASS
     };
-    let sel = name_range(text, c.span, kw, c.name.as_str());
+    let sel = name_range(line_starts, text, c.span, kw, c.name.as_str());
     let mut children: Vec<DocumentSymbol> = Vec::new();
     for f in c.fields.iter() {
         if is_parser_synth_field(f, c.span) {
@@ -316,7 +322,7 @@ pub(crate) fn class_symbol(text: &str, c: &ClassDecl) -> DocumentSymbol {
         ));
     }
     for m in c.methods.iter() {
-        let m_sel = name_range(text, m.span, "fn", m.name.as_str());
+        let m_sel = name_range(line_starts, text, m.span, "fn", m.name.as_str());
         let sym_kind = if m.name.as_str() == "init" {
             SymbolKind::CONSTRUCTOR
         } else {
@@ -332,7 +338,7 @@ pub(crate) fn class_symbol(text: &str, c: &ClassDecl) -> DocumentSymbol {
         ));
     }
     for m in c.static_methods.iter() {
-        let m_sel = name_range(text, m.span, "fn", m.name.as_str());
+        let m_sel = name_range(line_starts, text, m.span, "fn", m.name.as_str());
         children.push(make_doc_sym(
             m.name.as_str().to_string(),
             Some(render_fn_detail(m)),

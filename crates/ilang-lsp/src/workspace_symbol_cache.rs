@@ -38,39 +38,42 @@ pub(crate) struct Symbol {
 /// failure mode as the existing inline path.
 pub(crate) fn build(text: &str) -> Vec<Symbol> {
     let Some(prog) = crate::text::try_parse(text) else { return Vec::new() };
+    // Build the line-start table once; every `push_top` below would
+    // otherwise rescan the buffer from byte 0 per decl.
+    let line_starts = crate::text_utils::compute_line_starts(text);
     let mut out = Vec::new();
-    collect_program(text, &prog, &mut out);
+    collect_program(&line_starts, text, &prog, &mut out);
     out
 }
 
-fn collect_program(text: &str, prog: &Program, out: &mut Vec<Symbol>) {
+fn collect_program(line_starts: &[usize], text: &str, prog: &Program, out: &mut Vec<Symbol>) {
     for item in &prog.items {
-        collect_item(text, item, None, out);
+        collect_item(line_starts, text, item, None, out);
     }
 }
 
-fn collect_item(text: &str, item: &Item, container: Option<&str>, out: &mut Vec<Symbol>) {
+fn collect_item(line_starts: &[usize], text: &str, item: &Item, container: Option<&str>, out: &mut Vec<Symbol>) {
     match item {
         Item::Fn(f) => push_top(
-            text, f.span, "fn", f.name.as_str(), SymbolKind::FUNCTION,
+            line_starts, text, f.span, "fn", f.name.as_str(), SymbolKind::FUNCTION,
             container, out,
         ),
-        Item::Class(c) => collect_class(text, c, container, out),
+        Item::Class(c) => collect_class(line_starts, text, c, container, out),
         Item::Interface(i) => {
             push_top(
-                text, i.span, "interface", i.name.as_str(),
+                line_starts, text, i.span, "interface", i.name.as_str(),
                 SymbolKind::INTERFACE, container, out,
             );
             for m in i.methods.iter() {
                 push_top(
-                    text, m.span, "fn", m.name.as_str(),
+                    line_starts, text, m.span, "fn", m.name.as_str(),
                     SymbolKind::METHOD, Some(i.name.as_str()), out,
                 );
             }
         }
         Item::Enum(e) => {
             push_top(
-                text, e.span, "enum", e.name.as_str(),
+                line_starts, text, e.span, "enum", e.name.as_str(),
                 SymbolKind::ENUM, container, out,
             );
             for v in e.variants.iter() {
@@ -81,26 +84,26 @@ fn collect_item(text: &str, item: &Item, container: Option<&str>, out: &mut Vec<
             }
         }
         Item::Const(c) => push_top(
-            text, c.span, "const", c.name.as_str(),
+            line_starts, text, c.span, "const", c.name.as_str(),
             SymbolKind::CONSTANT, container, out,
         ),
         Item::ExternC(b) => {
             for inner in b.items.iter() {
                 match inner {
                     ilang_ast::ExternCItem::FnDef(f) => push_top(
-                        text, f.span, "fn", f.name.as_str(),
+                        line_starts, text, f.span, "fn", f.name.as_str(),
                         SymbolKind::FUNCTION, container, out,
                     ),
                     ilang_ast::ExternCItem::FnDecl { name, span, .. } => push_top(
-                        text, *span, "fn", name.as_str(),
+                        line_starts, text, *span, "fn", name.as_str(),
                         SymbolKind::FUNCTION, container, out,
                     ),
                     ilang_ast::ExternCItem::Class(c) => {
-                        collect_class(text, c, container, out)
+                        collect_class(line_starts, text, c, container, out)
                     }
                     ilang_ast::ExternCItem::Struct { name, fields, span, .. } => {
                         push_top(
-                            text, *span, "struct", name.as_str(),
+                            line_starts, text, *span, "struct", name.as_str(),
                             SymbolKind::STRUCT, container, out,
                         );
                         for f in fields.iter() {
@@ -112,7 +115,7 @@ fn collect_item(text: &str, item: &Item, container: Option<&str>, out: &mut Vec<
                     }
                     ilang_ast::ExternCItem::Union { name, fields, span, .. } => {
                         push_top(
-                            text, *span, "union", name.as_str(),
+                            line_starts, text, *span, "union", name.as_str(),
                             SymbolKind::STRUCT, container, out,
                         );
                         for f in fields.iter() {
@@ -125,10 +128,10 @@ fn collect_item(text: &str, item: &Item, container: Option<&str>, out: &mut Vec<
                 }
             }
             for iface in b.interfaces.iter() {
-                collect_item(text, &Item::Interface(iface.clone()), container, out);
+                collect_item(line_starts, text, &Item::Interface(iface.clone()), container, out);
             }
             for c in b.consts.iter() {
-                collect_item(text, &Item::Const(c.clone()), container, out);
+                collect_item(line_starts, text, &Item::Const(c.clone()), container, out);
             }
         }
         Item::Use(_) => {}
@@ -136,6 +139,7 @@ fn collect_item(text: &str, item: &Item, container: Option<&str>, out: &mut Vec<
 }
 
 fn collect_class(
+    line_starts: &[usize],
     text: &str,
     c: &ClassDecl,
     container: Option<&str>,
@@ -153,7 +157,7 @@ fn collect_class(
     } else {
         SymbolKind::CLASS
     };
-    push_top(text, c.span, kw, c.name.as_str(), kind, container, out);
+    push_top(line_starts, text, c.span, kw, c.name.as_str(), kind, container, out);
     let class_name = c.name.as_str();
     for f in c.fields.iter() {
         if is_parser_synth_field(f, c.span) {
@@ -182,17 +186,18 @@ fn collect_class(
         } else {
             SymbolKind::METHOD
         };
-        push_top(text, m.span, "fn", m.name.as_str(), k, Some(class_name), out);
+        push_top(line_starts, text, m.span, "fn", m.name.as_str(), k, Some(class_name), out);
     }
     for m in c.static_methods.iter() {
         push_top(
-            text, m.span, "fn", m.name.as_str(), SymbolKind::METHOD,
+            line_starts, text, m.span, "fn", m.name.as_str(), SymbolKind::METHOD,
             Some(class_name), out,
         );
     }
 }
 
 fn push_top(
+    line_starts: &[usize],
     text: &str,
     decl_span: Span,
     kw: &str,
@@ -201,7 +206,7 @@ fn push_top(
     container: Option<&str>,
     out: &mut Vec<Symbol>,
 ) {
-    let name_span = text::locate_let_name_with_kw(text, decl_span, kw, name)
+    let name_span = text::locate_let_name_with_kw_at(line_starts, text, decl_span, kw, name)
         .unwrap_or(decl_span);
     out.push(Symbol {
         name:      name.to_string(),

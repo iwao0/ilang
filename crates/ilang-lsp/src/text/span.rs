@@ -79,13 +79,9 @@ pub(crate) fn text_at_span_starts_with_at(
         .unwrap_or(false)
 }
 
-/// Inverse of `line_col_to_offset`. `col` is a 1-based **character**
-/// index (matches the lexer's `Span.col`).
-pub(crate) fn offset_to_line_col(text: &str, offset: usize) -> Option<(u32, u32)> {
-    offset_to_line_col_at(&compute_line_starts(text), text, offset)
-}
-
-/// Table-driven `offset_to_line_col`. The line is found by a binary
+/// Convert a byte offset to a 1-based `(line, col)` (the inverse of
+/// `line_col_to_offset`). `col` is a 1-based **character** index
+/// (matches the lexer's `Span.col`). The line is found by a binary
 /// search over `line_starts`; only the within-line character count
 /// for the column remains.
 pub(crate) fn offset_to_line_col_at(

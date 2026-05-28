@@ -132,19 +132,22 @@ struct FnRange {
 }
 
 fn collect_fn_ranges(text: &str, prog: &Program) -> Vec<FnRange> {
+    // One line-start table for the whole file; `push_fn` would
+    // otherwise rescan from byte 0 per function.
+    let line_starts = crate::text_utils::compute_line_starts(text);
     let mut out: Vec<FnRange> = Vec::new();
     for item in &prog.items {
         match item {
-            Item::Fn(f) => push_fn(text, f, None, false, &mut out),
-            Item::Class(c) => push_class_methods(text, c, &mut out),
+            Item::Fn(f) => push_fn(&line_starts, text, f, None, false, &mut out),
+            Item::Class(c) => push_class_methods(&line_starts, text, c, &mut out),
             Item::ExternC(b) => {
                 for inner in b.items.iter() {
                     match inner {
                         ilang_ast::ExternCItem::FnDef(f) => {
-                            push_fn(text, f, None, false, &mut out);
+                            push_fn(&line_starts, text, f, None, false, &mut out);
                         }
                         ilang_ast::ExternCItem::Class(c) => {
-                            push_class_methods(text, c, &mut out);
+                            push_class_methods(&line_starts, text, c, &mut out);
                         }
                         _ => {}
                     }
@@ -157,13 +160,14 @@ fn collect_fn_ranges(text: &str, prog: &Program) -> Vec<FnRange> {
 }
 
 fn push_fn(
+    line_starts: &[usize],
     text: &str,
     f: &FnDecl,
     container: Option<&str>,
     is_static: bool,
     out: &mut Vec<FnRange>,
 ) {
-    let name_span = text::locate_let_name_with_kw(text, f.span, "fn", f.name.as_str())
+    let name_span = text::locate_let_name_with_kw_at(line_starts, text, f.span, "fn", f.name.as_str())
         .unwrap_or(f.span);
     let kind = if f.name.as_str() == "init" && container.is_some() {
         SymbolKind::CONSTRUCTOR
@@ -216,13 +220,13 @@ fn fn_body_end_line(f: &FnDecl) -> u32 {
     last
 }
 
-fn push_class_methods(text: &str, c: &ClassDecl, out: &mut Vec<FnRange>) {
+fn push_class_methods(line_starts: &[usize], text: &str, c: &ClassDecl, out: &mut Vec<FnRange>) {
     let cname = c.name.as_str();
     for m in c.methods.iter() {
-        push_fn(text, m, Some(cname), false, out);
+        push_fn(line_starts, text, m, Some(cname), false, out);
     }
     for m in c.static_methods.iter() {
-        push_fn(text, m, Some(cname), true, out);
+        push_fn(line_starts, text, m, Some(cname), true, out);
     }
 }
 
@@ -270,9 +274,10 @@ pub(crate) fn prepare(
     let key = AstSymbol::intern(&word);
     if let Some(sym) = doc.symbols.get(&key) {
         let (kind, container, is_static) = classify_callable(&sym.signature)?;
+        let line_starts = crate::text_utils::compute_line_starts(text);
         let decl_name_span = ["fn", "init"]
             .iter()
-            .find_map(|kw| text::locate_let_name_with_kw(text, sym.span, kw, &sym.name))
+            .find_map(|kw| text::locate_let_name_with_kw_at(&line_starts, text, sym.span, kw, &sym.name))
             .unwrap_or(sym.span);
         return Some(ItemRef {
             uri,

@@ -496,9 +496,10 @@ impl LanguageServer for Backend {
         let Some(prog) = text::try_parse(&text) else {
             return Ok(None);
         };
+        let line_starts = crate::text_utils::compute_line_starts(&text);
         let mut out: Vec<DocumentSymbol> = Vec::new();
         for item in &prog.items {
-            collect_item_symbol(&text, item, &mut out);
+            collect_item_symbol(&line_starts, &text, item, &mut out);
         }
         if out.is_empty() {
             Ok(None)

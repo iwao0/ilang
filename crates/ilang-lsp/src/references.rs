@@ -115,7 +115,10 @@ pub(crate) fn scan_decl_name(
     name: &str,
 ) -> Option<ilang_ast::Span> {
     let bytes = text.as_bytes();
-    let start = text::line_col_to_offset(text, decl_span.line, decl_span.col)?;
+    // Build the line-start table once; the two coordinate conversions
+    // below would otherwise each rescan the buffer from byte 0.
+    let line_starts = crate::text_utils::compute_line_starts(text);
+    let start = text::line_col_to_offset_at(&line_starts, text, decl_span.line, decl_span.col)?;
     let name_bytes = name.as_bytes();
     let keywords: &[&str] = &[
         "class",
@@ -161,7 +164,7 @@ pub(crate) fn scan_decl_name(
             if after_name.is_ascii_alphanumeric() || after_name == b'_' {
                 continue;
             }
-            let (line, col) = text::offset_to_line_col(text, j)?;
+            let (line, col) = text::offset_to_line_col_at(&line_starts, text, j)?;
             return Some(ilang_ast::Span::new(line, col));
         }
         // Stop at the end of the decl's first source line — the

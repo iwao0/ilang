@@ -139,13 +139,16 @@ fn gather_from_program(
     target: &Target,
     out: &mut Vec<Location>,
 ) {
+    // One line-start table per file; the `push_*_name` helpers would
+    // otherwise rescan from byte 0 per matched class / method.
+    let line_starts = crate::text_utils::compute_line_starts(text);
     for item in &prog.items {
         match item {
-            Item::Class(c) => visit_class(uri, text, c, target, out),
+            Item::Class(c) => visit_class(&line_starts, uri, text, c, target, out),
             Item::ExternC(b) => {
                 for inner in b.items.iter() {
                     if let ilang_ast::ExternCItem::Class(c) = inner {
-                        visit_class(uri, text, c, target, out);
+                        visit_class(&line_starts, uri, text, c, target, out);
                     }
                 }
             }
@@ -155,6 +158,7 @@ fn gather_from_program(
 }
 
 fn visit_class(
+    line_starts: &[usize],
     uri: &Url,
     text: &str,
     c: &ClassDecl,
@@ -175,7 +179,7 @@ fn visit_class(
     match target {
         Target::Interface { name } => {
             if names_first_then_rest.clone().any(|n| n == name.as_str()) {
-                push_class_name(uri, text, c, out);
+                push_class_name(line_starts, uri, text, c, out);
             }
         }
         Target::InterfaceMethod { iface, method } => {
@@ -183,7 +187,7 @@ fn visit_class(
                 return;
             }
             if let Some(m) = find_method_by_name(c, method) {
-                push_method_name(uri, text, m, out);
+                push_method_name(line_starts, uri, text, m, out);
             }
         }
         Target::Class { name } => {
@@ -191,7 +195,7 @@ fn visit_class(
             // contains it, in case the target turned out to be an
             // interface after typecheck and we missed the flip).
             if names_first_then_rest.clone().any(|n| n == name.as_str()) {
-                push_class_name(uri, text, c, out);
+                push_class_name(line_starts, uri, text, c, out);
             }
         }
         Target::ClassMethod { class, method } => {
@@ -205,7 +209,7 @@ fn visit_class(
             }
             if let Some(m) = find_method_by_name(c, method) {
                 if m.is_override {
-                    push_method_name(uri, text, m, out);
+                    push_method_name(line_starts, uri, text, m, out);
                 }
             }
         }
@@ -220,6 +224,7 @@ fn find_method_by_name<'a>(c: &'a ClassDecl, name: &str) -> Option<&'a FnDecl> {
 }
 
 fn push_class_name(
+    line_starts: &[usize],
     uri: &Url,
     text: &str,
     c: &ClassDecl,
@@ -228,7 +233,7 @@ fn push_class_name(
     let name = c.name.as_str();
     let name_span = ["class", "struct", "union", "interface"]
         .iter()
-        .find_map(|kw| text::locate_let_name_with_kw(text, c.span, kw, name))
+        .find_map(|kw| text::locate_let_name_with_kw_at(line_starts, text, c.span, kw, name))
         .unwrap_or(c.span);
     out.push(Location {
         uri:   uri.clone(),
@@ -237,13 +242,14 @@ fn push_class_name(
 }
 
 fn push_method_name(
+    line_starts: &[usize],
     uri: &Url,
     text: &str,
     m: &FnDecl,
     out: &mut Vec<Location>,
 ) {
     let name = m.name.as_str();
-    let name_span = text::locate_let_name_with_kw(text, m.span, "fn", name)
+    let name_span = text::locate_let_name_with_kw_at(line_starts, text, m.span, "fn", name)
         .unwrap_or(m.span);
     out.push(Location {
         uri:   uri.clone(),
