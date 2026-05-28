@@ -1,0 +1,6 @@
+[package]
+name = "wgpu_triangle"
+
+[deps]
+wgpu = "../../bindings/wgpu"
+sdl2 = "../../bindings/sdl2"

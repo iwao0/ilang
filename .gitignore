@@ -3,3 +3,11 @@
 /.claude/scheduled_tasks.lock
 /.claude/settings.local.json
 .DS_Store
+
+# Prebuilt wgpu-native binaries/headers — fetched via
+# third_party/wgpu/fetch.sh, not committed (large). Keep the script.
+/third_party/wgpu/*.zip
+/third_party/wgpu/macos-aarch64/
+/third_party/wgpu/macos-x86_64/
+/third_party/wgpu/linux-x86_64/
+/third_party/wgpu/linux-aarch64/

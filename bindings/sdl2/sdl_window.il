@@ -210,6 +210,15 @@ pub enum SubSystem: u32 {
     @lib pub fn SDL_GetWindowFlags(window: *SDL_Window): u32
     @lib pub fn SDL_GetWindowPixelFormat(window: *SDL_Window): u32
 
+    // ─── Metal (SDL_metal.h) ─────────────────────────────────────
+    // `SDL_MetalView` is an opaque `void*`. `SDL_Metal_GetLayer`
+    // returns the backing `CAMetalLayer*`, which wgpu consumes via
+    // `WGPUSurfaceSourceMetalLayer.layer`. The window must be created
+    // with the `WindowFlags.metal` flag.
+    @lib pub fn SDL_Metal_CreateView(window: *SDL_Window): *void
+    @lib pub fn SDL_Metal_GetLayer(view: *void): *void
+    @lib pub fn SDL_Metal_DestroyView(view: *void)
+
     // ─── window title / icon ────────────────────────────────────
     @lib pub fn SDL_SetWindowTitle(window: *SDL_Window, title: *const char)
     @lib pub fn SDL_GetWindowTitle(window: *SDL_Window): *const char
