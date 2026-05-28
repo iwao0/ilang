@@ -15,6 +15,7 @@ use gtk {
     gtk_window_set_title, gtk_window_set_default_size,
     gtk_window_present, gtk_window_set_child, gtk_window_destroy,
     gtk_widget_set_visible, gtk_widget_set_size_request,
+    gtk_widget_get_width, gtk_widget_get_height,
     gtk_widget_add_controller,
     gtk_fixed_new,
     gtk_event_controller_key_new, gtk_event_controller_motion_new,
@@ -23,7 +24,7 @@ use gtk {
     gtk_event_controller_get_current_event_state,
     gdk_keyval_to_lower,
     g_main_loop_new, g_main_loop_run, g_main_loop_quit,
-    g_signal_connect_data, g_signal_connect_key,
+    g_signal_connect_data, g_signal_connect_data2, g_signal_connect_key,
     g_signal_connect_motion, g_signal_connect_click,
 }
 use core { WINDOWS, WindowSlot, GTK_INITED, LOOP_HOLDER }
@@ -109,6 +110,21 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
         }
         if WINDOWS.size() == 0 as i64 {
             if LOOP_HOLDER.length > 0 { g_main_loop_quit(LOOP_HOLDER[0]) }
+        }
+    }
+
+    /// `void(GObject* window, GParamSpec*, gpointer)` — GTK 4 updates
+    /// the window's `default-width` / `default-height` properties as
+    /// the user resizes a resizable window, so a `notify::` on either
+    /// is the recommended resize hook. Both fire on a diagonal drag;
+    /// each reads the current allocated size and forwards it, so the
+    /// double-fire just delivers `onResize` twice with the same dims.
+    pub fn linux_window_resize(win: i64, pspec: i64, data: i64) {
+        if let some(slot) = WINDOWS.get(data) {
+            let w = gtk_widget_get_width(slot.win as GtkWidget)
+            let h = gtk_widget_get_height(slot.win as GtkWidget)
+            let cb = slot.onResize
+            cb(w as f64, h as f64)
         }
     }
 
@@ -222,6 +238,17 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         0 as *void,
         0 as i64,
         0 as u32
+    )
+
+    // Resize — GTK 4 tracks the live size in default-width /
+    // default-height, so notify on both drives onResize.
+    g_signal_connect_data2(
+        win as GObject, cstrFromString("notify::default-width"),
+        linux_window_resize, handle as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data2(
+        win as GObject, cstrFromString("notify::default-height"),
+        linux_window_resize, handle as *void, 0 as i64, 0 as u32
     )
 
     // Key controller — emits "key-pressed" / "key-released" on
