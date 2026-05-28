@@ -47,7 +47,7 @@
 - 関数オーバーロード — best-match scoring、ambiguous エラー
 - ファーストクラス関数 (`let f = add; f(2, 3)`)
 - 匿名関数 `let inc = fn(x: i64): i64 { x + 1 }`
-- クロージャ (value-capture、全 capture 型対応)
+- クロージャ (読むだけ=値スナップショット / 代入=共有、全 capture 型対応)
 - `@requires(...)` 等の属性 (パースのみ、enforce は未実装)
 - `@override` (継承メソッドの override マーカー、必須)
 
@@ -121,7 +121,7 @@
 - リテラル + エスケープ (`\n` `\t` `\r` `\\` `\"` `\0`)
 - `+` (連結)、`==` `!=` (構造的等値)
 - メソッド: `length` (Unicode コードポイント) / `charAt` / `includes` / `startsWith` / `endsWith` / `toUpper` / `toLower` / `trim` / `split` / `replace` / `slice`
-- 文字列補間は **未実装**
+- 文字列補間 (テンプレートリテラル) 対応: `` `val=${x} sum=${x + 1}` ``
 
 ### メモリ管理 (ARC)
 - 全ヒープ値は ref-counted: Object / String / Array / Optional / Weak / Map / closure / EnumHeap
@@ -227,7 +227,7 @@ crates/ilang-cli/tests/programs/  # 150 個の .il fixture (MIR JIT + AOT で実
 | クラス継承 | 単一継承 + 仮想ディスパッチ | 採用済み |
 | コンストラクタ名 | `init` (Swift 風) | 特殊メソッド名、キーワードではない |
 | オブジェクト等価性 | 参照等価 (`Rc::ptr_eq`) | structural equality は将来トレイト経由 |
-| クロージャキャプチャ | by value (Rust の `move` 相当) | by ref はまだ未対応 |
+| クロージャキャプチャ | 読むだけ=値スナップショット / 代入=共有 (JS・Swift 既定) | 代入される capture は共有セル経由で外側・兄弟と共有。別 `let` は独立 |
 | FFI 構文 | `@extern(C) { ... }` ブロック | per-fn フラグまみれの旧構文を捨てて Rust の extern "C" {} を踏襲 |
 | FFI 型カプセル化 | raw pointer / C-only 型はブロック内のみ書ける + 値を外に漏らせない | 「ブロックの内側だけが unsafe」という Rust と同じ思想 |
 | プロジェクトファイル | `ilang.toml` (Cargo 風) | binding 配布のため最小限の `[deps]` だけ |

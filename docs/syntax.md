@@ -531,7 +531,7 @@ f(2, 3)                              // 5
 let inc = fn(x: i64): i64 { x + 1 }
 inc(41)                              // 42
 
-// Closure — captures outer locals by value
+// Closure — read-only capture of `factor` is a value snapshot
 let factor = 10
 let scale = fn(x: i64): i64 { x * factor }
 scale(3)                             // 30
@@ -1075,7 +1075,7 @@ ss.join(", ")                                // string — concat cells with sep
 ```
 
 Callbacks may be **first-class functions** or **closures**
-(anonymous `fn` capturing outer locals by value — see §6). All
+(anonymous `fn` capturing outer locals — see §6). All
 element types are allowed without restriction. The mutating ops
 (`push` / `pop` / `shift` / `unshift` / `remove` / `removeAt` /
 `fill`) require a dynamic-length receiver — fixed-length arrays
