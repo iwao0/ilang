@@ -320,12 +320,16 @@ pub(super) fn lower_load_field<M: Module>(
                 // (additive offset) for composites, otherwise
                 // load the i64 cell.
                 let returns_inline = match &dst_ty_mir {
-                    MirTy::Object(inner_cid) => matches!(
-                        prog.classes[inner_cid.0 as usize].repr,
-                        ilang_mir::ClassRepr::CRepr
-                            | ilang_mir::ClassRepr::CPacked
-                            | ilang_mir::ClassRepr::CUnion
-                    ),
+                    MirTy::Object(inner_cid) => {
+                        let inner = &prog.classes[inner_cid.0 as usize];
+                        !inner.is_handle
+                            && matches!(
+                                inner.repr,
+                                ilang_mir::ClassRepr::CRepr
+                                    | ilang_mir::ClassRepr::CPacked
+                                    | ilang_mir::ClassRepr::CUnion
+                            )
+                    }
                     MirTy::Array { len: Some(_), .. } => true,
                     _ => false,
                 };
@@ -431,12 +435,14 @@ pub(super) fn lower_store_field<M: Module>(
         // inline region rather than storing the pointer.
         if let MirTy::Object(inner_cid) = &val_ty_mir {
             let inner_layout = &prog.classes[inner_cid.0 as usize];
-            if matches!(
-                inner_layout.repr,
-                ilang_mir::ClassRepr::CRepr
-                    | ilang_mir::ClassRepr::CPacked
-                    | ilang_mir::ClassRepr::CUnion
-            ) {
+            if !inner_layout.is_handle
+                && matches!(
+                    inner_layout.repr,
+                    ilang_mir::ClassRepr::CRepr
+                        | ilang_mir::ClassRepr::CPacked
+                        | ilang_mir::ClassRepr::CUnion
+                )
+            {
                 let dst_addr = if c_off == 0 {
                     obj_v
                 } else {
