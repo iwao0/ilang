@@ -41,6 +41,7 @@ use std::ffi::c_void;
 
 #[cfg(target_os = "macos")]
 use crate::alloc::__mir_alloc;
+#[cfg(target_os = "macos")]
 use crate::alloc::__mir_free;
 
 #[cfg(target_os = "macos")]
