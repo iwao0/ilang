@@ -90,6 +90,46 @@ impl<'a> Parser<'a> {
                         span,
                     );
                 }
+                // Call on an arbitrary callee expression — `arr[0]()`,
+                // `(f)(x)`, `obj.make()()`. A bare `name(...)` is
+                // already turned into `Call` by the primary parser, so
+                // this only fires when `(` follows a non-name postfix
+                // expression. The AST's `Call` is name-based, so
+                // desugar to a block that binds the callee to a
+                // positional temp and calls that, reusing the
+                // closure-call machinery the named case already has
+                // (mirrors the `?`-operator desugar below). The
+                // newline guard keeps a `(...)` that starts the next
+                // statement from being read as a call.
+                TokenKind::LParen if !self.peek().leading_newline => {
+                    let lp_span = self.peek().span;
+                    self.bump();
+                    let args = self.parse_call_args()?;
+                    let span = expr.span.to(lp_span);
+                    let tmp: Symbol =
+                        format!("__call_{}_{}", lp_span.line, lp_span.col)
+                            .as_str()
+                            .into();
+                    let call = Expr::new(
+                        ExprKind::Call { callee: tmp, args: args.into() },
+                        span,
+                    );
+                    let block = ilang_ast::Block {
+                        stmts: vec![ilang_ast::Stmt {
+                            kind: ilang_ast::StmtKind::Let {
+                                is_pub: false,
+                                is_const: false,
+                                name: tmp,
+                                ty: None,
+                                value: expr,
+                            },
+                            span,
+                            source_module: None,
+                        }],
+                        tail: Some(Box::new(call)),
+                    };
+                    expr = Expr::new(ExprKind::Block(block), span);
+                }
                 // Postfix `?` — Result short-circuit. `e?` evaluates
                 // to the `ok` payload when `e` is `Result.ok(v)`, or
                 // early-returns `Result.err(err)` from the enclosing

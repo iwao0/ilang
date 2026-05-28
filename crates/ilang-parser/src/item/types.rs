@@ -174,10 +174,14 @@ impl<'a> Parser<'a> {
             return self.apply_type_postfix(ty);
         }
         // Tuple type: `(T1, T2, ...)`. A single `(T)` is grouping and
-        // returns `T` itself; `()` would be unit but is not currently
-        // emitted by the type parser.
+        // returns `T` itself; `()` is the unit type (e.g. an explicit
+        // `fn(x): ()` void return annotation).
         if matches!(t.kind, TokenKind::LParen) {
             self.bump();
+            if matches!(self.peek().kind, TokenKind::RParen) {
+                self.bump();
+                return self.apply_type_postfix(Type::Unit);
+            }
             let first = self.parse_type()?;
             if matches!(self.peek().kind, TokenKind::Comma) {
                 let mut elems = vec![first];
