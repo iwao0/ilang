@@ -70,10 +70,42 @@ impl Symbol {
     /// Returns the interned text. The reference is `'static` because
     /// interned strings are leaked once and live for the rest of the
     /// process.
+    ///
+    /// Hot path: served from a per-thread cache with no global lock.
+    /// The interner only ever *appends* (a `Symbol`'s string never
+    /// changes once assigned), so a cached entry is valid for the rest
+    /// of the process. Only a cache miss — the first time this thread
+    /// sees a given `Symbol` index — takes the interner read lock, and
+    /// then just to copy the newly-seen `&'static str` pointers across.
+    /// `as_str` is called pervasively (every `Display` / `Debug` /
+    /// `== "lit"` comparison routes through it), and the LSP resolves
+    /// symbols from many worker threads at once, so the old
+    /// per-call read lock was a real contention point.
     pub fn as_str(self) -> &'static str {
-        let r = interner().read().expect("interner poisoned");
-        r.strings[self.0 as usize]
+        let idx = self.0 as usize;
+        STR_CACHE.with(|cache| {
+            if let Some(&s) = cache.borrow().get(idx) {
+                return s;
+            }
+            // Miss: catch this thread's cache up to the global
+            // interner under a single read lock, then resolve.
+            let mut cache = cache.borrow_mut();
+            let r = interner().read().expect("interner poisoned");
+            let have = cache.len();
+            if have < r.strings.len() {
+                cache.extend_from_slice(&r.strings[have..]);
+            }
+            cache[idx]
+        })
     }
+}
+
+thread_local! {
+    /// Per-thread `Symbol`-index → `&'static str` cache backing
+    /// `Symbol::as_str` (see there). Append-only, mirroring the global
+    /// interner; never reset because interned strings are never freed.
+    static STR_CACHE: std::cell::RefCell<Vec<&'static str>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 impl fmt::Display for Symbol {
