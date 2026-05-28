@@ -7,11 +7,15 @@
 //   per-frame render pass (clear + draw 3 verts) → submit → present.
 //
 // The surface source is picked from `os.platform`: CAMetalLayer on
-// macOS, HWND on Windows. (X11/Wayland sources are not wired up yet.)
+// macOS, HWND on Windows, and X11 / Wayland on Linux (chosen at
+// runtime from SDL's reported subsystem).
 //
 // Setup (once): third_party/wgpu/fetch.sh   (downloads libwgpu_native)
 // Run (macOS):
 //   DYLD_LIBRARY_PATH=third_party/wgpu/macos-aarch64/lib \
+//     cargo run -p ilang -- run examples/wgpu_triangle/main.il
+// Run (Linux):
+//   LD_LIBRARY_PATH=third_party/wgpu/linux-x86_64/lib \
 //     cargo run -p ilang -- run examples/wgpu_triangle/main.il
 // Run (Windows): put wgpu_native.dll on PATH (or next to the entry),
 //   then: cargo run -p ilang -- run examples/wgpu_triangle/main.il
@@ -33,6 +37,7 @@ use wgpu {
     WGPURequestAdapterOptions,
     WGPURequestAdapterCallbackInfo, WGPURequestDeviceCallbackInfo,
     WGPUSurfaceSourceMetalLayer, WGPUSurfaceSourceWindowsHWND,
+    WGPUSurfaceSourceXlibWindow, WGPUSurfaceSourceWaylandSurface,
     WGPUSurfaceDescriptor,
     WGPUSurfaceConfiguration, WGPUSurfaceTexture, WGPUSurfaceCapabilities,
     WGPURenderPassColorAttachment, WGPURenderPassDescriptor,
@@ -164,6 +169,37 @@ const WIN_H: i32 = 480
                 label: WGPUStringView { data: 0 as *void, length: 0 as u64 },
             }
             wgpuInstanceCreateSurface(inst, &sdesc)
+        } elif plat == "linux" {
+            // SDL picks X11 or Wayland at runtime (driver / env), so
+            // branch on the recorded subsystem rather than guessing.
+            let info = new SysWMinfo()
+            info.versionMajor = 2 as u8
+            info.versionMinor = 0 as u8
+            info.versionPatch = 0 as u8
+            SDL_GetWindowWMInfo(win, &info)
+            if info.subsystem == 6 as u32 {          // SDL_SYSWM_WAYLAND
+                let wlSrc = WGPUSurfaceSourceWaylandSurface {
+                    chain: WGPUChainedStruct { next: 0 as *void, sType: 7 as u32 },
+                    display: info.handle1 as *void,  // wl_display*
+                    surface: info.handle2 as *void,  // wl_surface*
+                }
+                let sdesc = WGPUSurfaceDescriptor {
+                    nextInChain: (&wlSrc) as *void,
+                    label: WGPUStringView { data: 0 as *void, length: 0 as u64 },
+                }
+                wgpuInstanceCreateSurface(inst, &sdesc)
+            } else {                                 // SDL_SYSWM_X11 (2)
+                let x11Src = WGPUSurfaceSourceXlibWindow {
+                    chain: WGPUChainedStruct { next: 0 as *void, sType: 6 as u32 },
+                    display: info.handle1 as *void,  // Display*
+                    window: info.handle2 as u64,     // X Window XID
+                }
+                let sdesc = WGPUSurfaceDescriptor {
+                    nextInChain: (&x11Src) as *void,
+                    label: WGPUStringView { data: 0 as *void, length: 0 as u64 },
+                }
+                wgpuInstanceCreateSurface(inst, &sdesc)
+            }
         } else {
             console.log("FAIL: unsupported platform ", plat)
             0 as WGPUSurface

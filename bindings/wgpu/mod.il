@@ -132,6 +132,22 @@
         hinstance: *void          // HINSTANCE
         hwnd:      *void          // HWND
     }
+    // WGPUSType_SurfaceSourceXlibWindow = 6. Linux/X11: `display` is
+    // the X `Display*`, `window` the XID (a 64-bit value). Both come
+    // from SDL's `SysWMinfo` (handle1 / handle2) when subsystem == x11.
+    pub struct WGPUSurfaceSourceXlibWindow {
+        chain:   WGPUChainedStruct
+        display: *void            // Display*
+        window:  u64              // X Window XID
+    }
+    // WGPUSType_SurfaceSourceWaylandSurface = 7. Linux/Wayland:
+    // `display` is the `wl_display*`, `surface` the `wl_surface*`.
+    // From SysWMinfo (handle1 / handle2) when subsystem == wayland.
+    pub struct WGPUSurfaceSourceWaylandSurface {
+        chain:   WGPUChainedStruct
+        display: *void            // wl_display*
+        surface: *void            // wl_surface*
+    }
     pub struct WGPUSurfaceDescriptor {
         nextInChain: *void        // WGPUChainedStruct*
         label:       WGPUStringView
