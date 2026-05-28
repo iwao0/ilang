@@ -47,6 +47,61 @@ struct Continuation {
     /// Cascade kind for the value `cb` returns (output kind of the
     /// downstream's resolved value).
     out_kind: i64,
+    /// Float-kind of the callback's parameter / return (0 = int/ptr,
+    /// 1 = f32, 2 = f64) so a float value rides a float register
+    /// rather than an integer one. `on_reject`'s input is always a
+    /// string, so `in_fk` only applies to the `on_resolve` path.
+    in_fk: i64,
+    out_fk: i64,
+}
+
+/// Invoke a 1-arg promise callback (`fn(value, env) -> output`)
+/// through an ABI that matches its float parameter / return kind
+/// (`arg_fk` / `ret_fk`: 0 = int/ptr cell, 1 = f32, 2 = f64). The
+/// value and result live in the i64 cell as raw bits; convert with
+/// `from_bits` / `to_bits` so a float is passed / read in a float
+/// register instead of an integer one (mirrors the array-HOF fix).
+unsafe fn call_cb_1(fn_addr: i64, env: i64, arg: i64, arg_fk: i64, ret_fk: i64) -> i64 {
+    unsafe {
+        match (arg_fk, ret_fk) {
+            (1, 0) => {
+                let f: extern "C" fn(f32, i64) -> i64 = std::mem::transmute(fn_addr);
+                f(f32::from_bits(arg as u32), env)
+            }
+            (2, 0) => {
+                let f: extern "C" fn(f64, i64) -> i64 = std::mem::transmute(fn_addr);
+                f(f64::from_bits(arg as u64), env)
+            }
+            (0, 1) => {
+                let f: extern "C" fn(i64, i64) -> f32 = std::mem::transmute(fn_addr);
+                f(arg, env).to_bits() as i64
+            }
+            (1, 1) => {
+                let f: extern "C" fn(f32, i64) -> f32 = std::mem::transmute(fn_addr);
+                f(f32::from_bits(arg as u32), env).to_bits() as i64
+            }
+            (2, 1) => {
+                let f: extern "C" fn(f64, i64) -> f32 = std::mem::transmute(fn_addr);
+                f(f64::from_bits(arg as u64), env).to_bits() as i64
+            }
+            (0, 2) => {
+                let f: extern "C" fn(i64, i64) -> f64 = std::mem::transmute(fn_addr);
+                f(arg, env).to_bits() as i64
+            }
+            (1, 2) => {
+                let f: extern "C" fn(f32, i64) -> f64 = std::mem::transmute(fn_addr);
+                f(f32::from_bits(arg as u32), env).to_bits() as i64
+            }
+            (2, 2) => {
+                let f: extern "C" fn(f64, i64) -> f64 = std::mem::transmute(fn_addr);
+                f(f64::from_bits(arg as u64), env).to_bits() as i64
+            }
+            _ => {
+                let f: extern "C" fn(i64, i64) -> i64 = std::mem::transmute(fn_addr);
+                f(arg, env)
+            }
+        }
+    }
 }
 
 struct Inner {
@@ -172,6 +227,8 @@ fn register_continuation(
     on_resolve: i64,
     on_reject: i64,
     out_kind: i64,
+    in_fk: i64,
+    out_fk: i64,
 ) -> i64 {
     let downstream = alloc_pending();
     if upstream == 0 {
@@ -199,6 +256,8 @@ fn register_continuation(
                     on_reject,
                     downstream,
                     out_kind,
+                    in_fk,
+                    out_fk,
                 });
                 to_fire = None;
             }
@@ -216,13 +275,15 @@ fn register_continuation(
             State::Resolved { value, kind } => {
                 retain_field_by_kind(value, kind);
                 pool::submit(move || {
-                    fire_resolved(on_resolve, on_reject, downstream, out_kind, value, kind);
+                    fire_resolved(
+                        on_resolve, on_reject, downstream, out_kind, value, kind, in_fk, out_fk,
+                    );
                 });
             }
             State::Rejected { msg } => {
                 __retain_string(msg);
                 pool::submit(move || {
-                    fire_rejected(on_resolve, on_reject, downstream, out_kind, msg);
+                    fire_rejected(on_resolve, on_reject, downstream, out_kind, msg, out_fk);
                 });
             }
             State::Pending => unreachable!(),
@@ -232,6 +293,7 @@ fn register_continuation(
     downstream
 }
 
+#[allow(clippy::too_many_arguments)]
 fn fire_resolved(
     on_resolve: i64,
     on_reject: i64,
@@ -239,6 +301,8 @@ fn fire_resolved(
     out_kind: i64,
     value: i64,
     in_kind: i64,
+    in_fk: i64,
+    out_fk: i64,
 ) {
     // We took +1 on on_reject for symmetry; on a resolved path it's
     // unused, drop it.
@@ -254,10 +318,10 @@ fn fire_resolved(
         return;
     }
     // Invoke the closure. ilang closures carry the env (closure_ptr)
-    // as the trailing argument — `extern "C" fn(value, env) -> output`.
+    // as the trailing argument — `extern "C" fn(value, env) -> output`,
+    // through a float-kind-matched ABI.
     let fn_addr = unsafe { *(on_resolve as *const i64) };
-    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_addr) };
-    let out = f(value, on_resolve);
+    let out = unsafe { call_cb_1(fn_addr, on_resolve, value, in_fk, out_fk) };
     // Closure call doesn't consume `value`; release our extra retain.
     release_field_by_kind(value, in_kind);
     release_closure_arg(on_resolve);
@@ -271,6 +335,7 @@ fn fire_rejected(
     downstream: i64,
     out_kind: i64,
     msg: i64,
+    out_fk: i64,
 ) {
     if on_resolve != 0 {
         release_closure_arg(on_resolve);
@@ -283,9 +348,10 @@ fn fire_rejected(
         __release_promise(downstream);
         return;
     }
+    // The on-reject input is always the error string (fk 0); only the
+    // recovery return value can be a float.
     let fn_addr = unsafe { *(on_reject as *const i64) };
-    let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_addr) };
-    let out = f(msg, on_reject);
+    let out = unsafe { call_cb_1(fn_addr, on_reject, msg, 0, out_fk) };
     __release_string(msg);
     release_closure_arg(on_reject);
     // .catch's handler returns a recovery value of type T; the
@@ -328,7 +394,9 @@ fn settle_resolve(p: i64, value: i64, kind: i64) {
     for w in waiters {
         retain_field_by_kind(value, kind);
         pool::submit(move || {
-            fire_resolved(w.on_resolve, w.on_reject, w.downstream, w.out_kind, value, kind);
+            fire_resolved(
+                w.on_resolve, w.on_reject, w.downstream, w.out_kind, value, kind, w.in_fk, w.out_fk,
+            );
         });
     }
 }
@@ -344,19 +412,32 @@ fn settle_reject(p: i64, msg: i64) {
     for w in waiters {
         __retain_string(msg);
         pool::submit(move || {
-            fire_rejected(w.on_resolve, w.on_reject, w.downstream, w.out_kind, msg);
+            fire_rejected(w.on_resolve, w.on_reject, w.downstream, w.out_kind, msg, w.out_fk);
         });
     }
 }
 
 #[unsafe(export_name = "$promise.then")]
-pub extern "C" fn __promise_then(p: i64, on_resolve: i64, out_kind: i64) -> i64 {
-    register_continuation(p, on_resolve, 0, out_kind)
+pub extern "C" fn __promise_then(
+    p: i64,
+    on_resolve: i64,
+    out_kind: i64,
+    in_fk: i64,
+    out_fk: i64,
+) -> i64 {
+    register_continuation(p, on_resolve, 0, out_kind, in_fk, out_fk)
 }
 
 #[unsafe(export_name = "$promise.catch")]
-pub extern "C" fn __promise_catch(p: i64, on_reject: i64, out_kind: i64) -> i64 {
-    register_continuation(p, 0, on_reject, out_kind)
+pub extern "C" fn __promise_catch(
+    p: i64,
+    on_reject: i64,
+    out_kind: i64,
+    out_fk: i64,
+) -> i64 {
+    // `catch`'s callback takes the error string (fk 0); only its
+    // recovery return value can be a float.
+    register_continuation(p, 0, on_reject, out_kind, 0, out_fk)
 }
 
 // --------------------------------------------------------------------
@@ -700,9 +781,9 @@ pub extern "C" fn __promise_all(arr_ptr: i64, value_kind: i64) -> i64 {
         // Wire both callbacks to the same upstream. Each takes
         // ownership of its closure via register_continuation; we
         // discard the downstream promises (they never settle visibly).
-        let d1 = register_continuation(up, resolve_cb, 0, value_kind);
+        let d1 = register_continuation(up, resolve_cb, 0, value_kind, 0, 0);
         __release_promise(d1);
-        let d2 = register_continuation(up, 0, reject_cb, value_kind);
+        let d2 = register_continuation(up, 0, reject_cb, value_kind, 0, 0);
         __release_promise(d2);
     }
     agg
@@ -738,9 +819,9 @@ pub extern "C" fn __promise_race(arr_ptr: i64, value_kind: i64) -> i64 {
         __retain_promise(agg);
         let reject_cb = rcell as i64;
 
-        let d1 = register_continuation(up, resolve_cb, 0, value_kind);
+        let d1 = register_continuation(up, resolve_cb, 0, value_kind, 0, 0);
         __release_promise(d1);
-        let d2 = register_continuation(up, 0, reject_cb, value_kind);
+        let d2 = register_continuation(up, 0, reject_cb, value_kind, 0, 0);
         __release_promise(d2);
     }
     agg
@@ -780,7 +861,7 @@ mod tests {
         }
         crate::closures::__register_closure_size(cb as *const () as i64, 16);
 
-        let downstream = __promise_then(p, closure as i64, KIND_STR);
+        let downstream = __promise_then(p, closure as i64, KIND_STR, 0, 0);
         pool::drain();
         // Inspect downstream state.
         let pr = unsafe { promise_ref(downstream) };
@@ -804,7 +885,7 @@ mod tests {
         let msg = make_string("boom");
         let p = __promise_reject(msg);
         // .then with no handler — should propagate.
-        let mid = __promise_then(p, 0, KIND_STR);
+        let mid = __promise_then(p, 0, KIND_STR, 0, 0);
         // .catch recovers to a string.
         extern "C" fn recover(_msg: i64, _closure: i64) -> i64 {
             leak_cstring("recovered".to_string())
@@ -815,7 +896,7 @@ mod tests {
             *closure.add(1) = 1;
         }
         crate::closures::__register_closure_size(recover as *const () as i64, 16);
-        let final_ = __promise_catch(mid, closure as i64, KIND_STR);
+        let final_ = __promise_catch(mid, closure as i64, KIND_STR, 0);
         pool::drain();
         let pr = unsafe { promise_ref(final_) };
         let g = pr.inner.lock().unwrap();

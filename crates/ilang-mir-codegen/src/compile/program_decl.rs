@@ -180,8 +180,24 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     // Promise runtime imports.
     let promise_resolve_id = declare_binary_i64(module, "$promise.resolve")?;
     let promise_reject_id = declare_unary_i64(module, "$promise.reject")?;
-    let promise_then_id = declare_ternary_i64(module, "$promise.then")?;
-    let promise_catch_id = declare_ternary_i64(module, "$promise.catch")?;
+    // (promise, on_resolve, out_kind, in_fk, out_fk) -> promise.
+    let promise_then_id = {
+        let mut sig = module.make_signature();
+        for _ in 0..5 {
+            sig.params.push(AbiParam::new(types::I64));
+        }
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("$promise.then", Linkage::Import, &sig)?
+    };
+    // (promise, on_reject, out_kind, out_fk) -> promise.
+    let promise_catch_id = {
+        let mut sig = module.make_signature();
+        for _ in 0..4 {
+            sig.params.push(AbiParam::new(types::I64));
+        }
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("$promise.catch", Linkage::Import, &sig)?
+    };
     let promise_with_executor_id =
         declare_binary_i64(module, "$promise.withExecutor")?;
     let promise_drain_id = declare_unit_void(module, "$promise.drain")?;
