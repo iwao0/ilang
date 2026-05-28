@@ -172,6 +172,18 @@ impl<'a> BodyCx<'a> {
             if Some(name) == self.binding_self_name {
                 continue;
             }
+            // A top-level slot that some closure mutates is shared
+            // global storage: don't snapshot it. Skipping the capture
+            // lets the body's reads fall through to `loadSlot` (live)
+            // and writes to `storeSlot`, so a mutation through one
+            // closure is visible to the outer scope and to siblings —
+            // shared mutable capture. Read-only / never-closure-mutated
+            // slots (not in `cellify_set`) keep the value-snapshot
+            // capture below so a later outer reassignment doesn't leak
+            // into the closure.
+            if self.repl_slots.contains_key(&name) && self.cellify_set.contains(&name) {
+                continue;
+            }
             if let Some((idx, slot_ty)) = self.repl_slots.get(&name).cloned() {
                 let idx_v = self.const_int(MirTy::I64, idx as i64);
                 let raw = self.fb.new_value(MirTy::I64);

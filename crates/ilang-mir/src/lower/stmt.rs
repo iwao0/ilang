@@ -129,8 +129,27 @@ impl<'a> BodyCx<'a> {
                     self.env.bind(*name, bound, bind_ty.clone());
                 } else if is_slot_global {
                     // No local binding — slot lookup handles reads.
+                } else if self.cellify_set.contains(name) {
+                    // This name is captured AND mutated by some inner
+                    // closure — bind it as a shared 1-element heap cell
+                    // so reads/writes here and in every closure that
+                    // captures it go through the same storage (shared
+                    // mutable capture: a write through one closure is
+                    // visible to the outer scope and to sibling
+                    // closures). Reads/writes use ArrayLoad/Store[0];
+                    // closures capture the cell pointer.
+                    let cell_ty = MirTy::Array {
+                        elem: Box::new(bind_ty.clone()),
+                        len: None,
+                    };
+                    let cell_v = self.fb.new_value(cell_ty);
+                    self.fb.push_inst(Inst::NewArray {
+                        dst: cell_v,
+                        elem: bind_ty.clone(),
+                        items: Box::new([bound]),
+                    });
+                    self.env.bind_cell(*name, cell_v, bind_ty.clone());
                 } else {
-                    let _ = &self.cellify_set; // legacy field, retained for ABI
                     let lid = self.fb.new_local(bind_ty.clone());
                     self.fb.push_inst(Inst::DefLocal { local: lid, value: bound });
                     self.env.bind_local(*name, lid, bind_ty.clone());

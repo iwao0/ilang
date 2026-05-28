@@ -518,7 +518,9 @@ After type checking, overloaded names are mangled to
 
 Functions are values: assignable to variables, passable as
 arguments, returnable. Anonymous-function bodies can **capture
-outer locals by value** (every capture type is supported).
+outer locals** (every capture type is supported). A capture the
+closure only *reads* is a value snapshot; a capture the closure
+*assigns* is shared (see below).
 
 ```rust
 fn add(a: i64, b: i64): i64 { a + b }
@@ -551,10 +553,17 @@ apply(double, 7)                     // 14
   return is `()`).
 - A local `let f = some_fn` shadows a top-level `fn` of the same
   name.
-- **Captures are value snapshots**: the closure retains (ARC) or
-  copies (primitive) the outer-variable values at the moment it's
-  built. Later mutation of the outer variable doesn't bleed into
-  the closure (Rust's `move` closure equivalent).
+- **Read-only captures are value snapshots**: a capture the closure
+  only reads is copied (primitive) or retained (heap) at the moment
+  the closure is built, so a *later* reassignment of the outer
+  variable doesn't bleed in (`factor` above stays 10 even if you
+  reassign `factor = 999` afterwards).
+- **Mutated captures are shared** (JS / Swift-default): if a closure
+  *assigns* a captured variable, that variable and every closure
+  capturing it share one storage cell, so a write through the
+  closure is visible to the outer scope and to sibling closures.
+  Independent `let` bindings (e.g. two separate `makeCounter()`
+  calls) still get their own cells.
 - Parameters with the same name as a capture shadow the capture.
 - Top-level functions/classes with the same name are *not*
   captured — they resolve as globals.

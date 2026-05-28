@@ -667,15 +667,17 @@ impl<'a> BodyCx<'a> {
                     }
                     self.fb.push_inst(Inst::Release { value: v });
                 }
-                Binding::Cell(cell_v, ty) if needs_release(&ty) => {
-                    let zero = self.const_int(MirTy::I64, 0);
-                    let v = self.fb.new_value(ty.clone());
-                    self.fb.push_inst(Inst::ArrayLoad {
-                        dst: v,
-                        arr: cell_v,
-                        idx: zero,
-                    });
-                    self.fb.push_inst(Inst::Release { value: v });
+                Binding::Cell(..) => {
+                    // A cell is a heap 1-element array shared between
+                    // this scope and every closure that captured it
+                    // (shared mutable capture). We must NOT release its
+                    // contents here: a captured closure may outlive the
+                    // scope and still read/write the cell, so a
+                    // scope-exit release would free a value the closure
+                    // still points at (use-after-free). Closures leak
+                    // their captured cells today (see jit_setup's
+                    // `__register_closure_capture` "leak for now"), so
+                    // the cell + its contents leak rather than dangle.
                 }
                 _ => {}
             }
