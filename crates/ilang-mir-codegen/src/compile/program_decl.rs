@@ -314,7 +314,15 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         array_pop: declare_unary_i64(module, "$array.pop")?,
         array_remove: declare_binary_i64(module, "$array.remove")?,
         array_remove_at: declare_binary_i64(module, "$array.removeAt")?,
-        array_map: declare_ternary_i64(module, "$array.map")?,
+        array_map: {
+            let mut sig = module.make_signature();
+            sig.params.push(AbiParam::new(types::I64)); // arr
+            sig.params.push(AbiParam::new(types::I64)); // closure
+            sig.params.push(AbiParam::new(types::I64)); // result_kind
+            sig.params.push(AbiParam::new(types::I64)); // result_stride
+            sig.returns.push(AbiParam::new(types::I64));
+            module.declare_function("$array.map", Linkage::Import, &sig)?
+        },
         array_filter: declare_binary_i64(module, "$array.filter")?,
         array_for_each: {
             let mut sig = module.make_signature();

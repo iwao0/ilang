@@ -316,14 +316,22 @@ impl<'a> BodyCx<'a> {
     pub(super) fn lower_return(&mut self, value: Option<&Expr>) -> Result<(ValueId, MirTy), LowerError> {
         let v = match value {
             Some(e) => {
-                let (vv, vty) = self.lower_expr(e)?;
                 let ret_ty = self.ret_ty.clone();
-                let coerced = if vty == ret_ty || matches!(ret_ty, MirTy::Unit) {
-                    vv
+                // Composite literals (`return [..]` / `return (..)`)
+                // build with the declared return element types pushed
+                // in, so packed arrays / narrowed tuples get correct
+                // cell widths instead of defaulting to i64/f64.
+                if let Some(res) = self.lower_composite_with_hint(e, &ret_ty) {
+                    Some(res?.0)
                 } else {
-                    self.coerce(vv, &vty, &ret_ty, e.span).unwrap_or(vv)
-                };
-                Some(coerced)
+                    let (vv, vty) = self.lower_expr(e)?;
+                    let coerced = if vty == ret_ty || matches!(ret_ty, MirTy::Unit) {
+                        vv
+                    } else {
+                        self.coerce(vv, &vty, &ret_ty, e.span).unwrap_or(vv)
+                    };
+                    Some(coerced)
+                }
             }
             None => None,
         };

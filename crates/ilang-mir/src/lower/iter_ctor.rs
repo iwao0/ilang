@@ -241,27 +241,7 @@ impl<'a> BodyCx<'a> {
                     // dynamic↔fixed identity-coerce later silently
                     // hands a header pointer where inline data is
                     // expected.
-                    let (v, vty) = if let (
-                        ExprKind::Array(items),
-                        MirTy::Array { elem, len: Some(_) },
-                    ) = (&ae.kind, &tys[i])
-                    {
-                        self.lower_array_literal_with_hint(
-                            items,
-                            Some((**elem).clone()),
-                            match &tys[i] {
-                                MirTy::Array { len, .. } => *len,
-                                _ => None,
-                            },
-                        )?
-                    } else {
-                        self.lower_expr(ae)?
-                    };
-                    let coerced = if vty == tys[i] {
-                        v
-                    } else {
-                        self.coerce(v, &vty, &tys[i], ae.span)?
-                    };
+                    let (coerced, _) = self.lower_arg_to(ae, Some(&tys[i]))?;
                     // Heap payload from an aliased Var: retain so the
                     // enum value owns its own +1. Required now that
                     // host_release_array actually frees memory at
@@ -304,29 +284,9 @@ impl<'a> BodyCx<'a> {
                             ))
                         })?;
                     let arg_is_fresh = self.is_fresh_object_expr(ae);
-                    // See tuple-variant branch above — same fixed-array
+                    // See tuple-variant branch above — same composite
                     // hint propagation reason.
-                    let (v, vty) = if let (
-                        ExprKind::Array(items),
-                        MirTy::Array { elem, len: Some(_) },
-                    ) = (&ae.kind, &fty)
-                    {
-                        self.lower_array_literal_with_hint(
-                            items,
-                            Some((**elem).clone()),
-                            match &fty {
-                                MirTy::Array { len, .. } => *len,
-                                _ => None,
-                            },
-                        )?
-                    } else {
-                        self.lower_expr(ae)?
-                    };
-                    let coerced = if vty == fty {
-                        v
-                    } else {
-                        self.coerce(v, &vty, &fty, ae.span)?
-                    };
+                    let (coerced, _) = self.lower_arg_to(ae, Some(&fty))?;
                     let needs_retain = !arg_is_fresh
                         && matches!(
                             fty,

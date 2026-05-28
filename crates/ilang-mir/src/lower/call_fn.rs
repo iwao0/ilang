@@ -176,11 +176,7 @@ impl<'a> BodyCx<'a> {
                 let sig_ret = ft.ret.clone();
                 let mut arg_vals = Vec::with_capacity(args.len());
                 for (i, a) in args.iter().enumerate() {
-                    let (v, vty) = self.lower_expr(a)?;
-                    let coerced = match sig_params.get(i) {
-                        Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
-                        _ => v,
-                    };
+                    let (coerced, _) = self.lower_arg_to(a, sig_params.get(i))?;
                     arg_vals.push(coerced);
                 }
                 let dst = if matches!(sig_ret, MirTy::Unit) {
@@ -292,14 +288,10 @@ impl<'a> BodyCx<'a> {
                         }
                     }
                 }
-                let (v, vty) = self.lower_expr(a)?;
-                let coerced = if i < sig.params.len() {
-                    match sig.params.get(i) {
-                        Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
-                        _ => v,
-                    }
+                let (coerced, vty) = if i < sig.params.len() {
+                    self.lower_arg_to(a, sig.params.get(i))?
                 } else {
-                    v
+                    self.lower_expr(a)?
                 };
                 if arg_is_fresh && matches!(vty, MirTy::Object(_) | MirTy::Str) {
                     fresh_obj_args.push(coerced);
@@ -334,11 +326,7 @@ impl<'a> BodyCx<'a> {
                 let (this_v, _) = self.lookup_var(Symbol::intern("this")).unwrap();
                 let mut arg_vals = vec![this_v];
                 for (i, a) in args.iter().enumerate() {
-                    let (v, vty) = self.lower_expr(a)?;
-                    let coerced = match sig.params.get(i + 1) {
-                        Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
-                        _ => v,
-                    };
+                    let (coerced, _) = self.lower_arg_to(a, sig.params.get(i + 1))?;
                     arg_vals.push(coerced);
                 }
                 let dst = if matches!(sig.ret, MirTy::Unit) {

@@ -389,16 +389,10 @@ pub(super) fn struct_indirect_with_max(
 }
 
 pub(super) fn elem_byte_stride(t: &MirTy) -> i64 {
-    match t {
-        MirTy::I8 | MirTy::U8 | MirTy::CChar | MirTy::Bool => 1,
-        MirTy::I16 | MirTy::U16 => 2,
-        MirTy::I32 | MirTy::U32 | MirTy::F32 => 4,
-        // SIMD vector — packed `lanes × lane_bytes` so an array of
-        // `simd.f32x2` matches the C `vector_float2[]` layout that
-        // `const vector_float2 *` parameters expect.
-        MirTy::Simd { elem, lanes } => elem.lane_bytes() * (*lanes as i64),
-        _ => 8,
-    }
+    // Single source of truth lives on `MirTy` so the runtime
+    // higher-order helpers (which take a stride argument) and the
+    // codegen load/store paths can't drift apart.
+    t.elem_byte_stride()
 }
 
 

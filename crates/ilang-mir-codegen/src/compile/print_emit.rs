@@ -9,7 +9,7 @@ use cranelift_module::{DataId, Module};
 
 use ilang_mir::MirTy;
 
-use super::abi::{extend_to_i64, reduce_from_i64};
+use super::abi::{elem_byte_stride, elem_clif_type, extend_to_i64, reduce_from_i64};
 use super::{PrintIds, PrintLits};
 
 /// Print a literal C-string (DataId) via `__print_str`.
@@ -149,12 +149,31 @@ pub(super) fn emit_print_value<M: Module>(
 
             fb.switch_to_block(after_sep);
             fb.seal_block(after_sep);
-            // Load elem at i.
-            let stride = fb.ins().iconst(types::I64, 8);
+            // Load elem at i, honoring the element's packed stride.
+            let stride = fb.ins().iconst(types::I64, elem_byte_stride(elem));
             let off = fb.ins().imul(i_arg, stride);
             let addr = fb.ins().iadd(data_ptr, off);
-            let raw = fb.ins().load(types::I64, MemFlags::trusted(), addr, 0);
-            let elem_v = reduce_from_i64(fb, elem, raw);
+            let elem_v = match elem_clif_type(elem) {
+                Some(ct) if ct == types::I8 => {
+                    fb.ins().load(types::I8, MemFlags::trusted(), addr, 0)
+                }
+                Some(ct) if ct == types::I16 => {
+                    fb.ins().load(types::I16, MemFlags::trusted(), addr, 0)
+                }
+                Some(ct) if ct == types::I32 => {
+                    fb.ins().load(types::I32, MemFlags::trusted(), addr, 0)
+                }
+                Some(ct) if ct == types::F32 => {
+                    fb.ins().load(types::F32, MemFlags::trusted(), addr, 0)
+                }
+                Some(ct) if ct == types::F64 => {
+                    fb.ins().load(types::F64, MemFlags::trusted(), addr, 0)
+                }
+                _ => {
+                    let raw = fb.ins().load(types::I64, MemFlags::trusted(), addr, 0);
+                    reduce_from_i64(fb, elem, raw)
+                }
+            };
             emit_print_value(fb, module, print_ids, print_lits, elem, elem_v, enum_global, class_struct_global);
             // i = i + 1
             let one = fb.ins().iconst(types::I64, 1);

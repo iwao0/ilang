@@ -95,11 +95,7 @@ impl<'a> BodyCx<'a> {
 
         let mut arg_vals = vec![this_v];
         for (i, a) in args.iter().enumerate() {
-            let (v, vty) = self.lower_expr(a)?;
-            let coerced = match sig.params.get(i + 1) {
-                Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
-                _ => v,
-            };
+            let (coerced, _) = self.lower_arg_to(a, sig.params.get(i + 1))?;
             arg_vals.push(coerced);
         }
         let dst = if matches!(sig.ret, MirTy::Unit) {
@@ -151,20 +147,8 @@ impl<'a> BodyCx<'a> {
         let mut fresh_obj_args: Vec<ValueId> = Vec::new();
         for (i, a) in args.iter().enumerate() {
             let arg_is_fresh = self.is_fresh_object_expr(a);
-            let (v, vty) = self.lower_expr(a)?;
-            let final_v = if let Some(sig) = &init_sig {
-                if let Some(target) = sig.params.get(i + 1) {
-                    if vty == *target {
-                        v
-                    } else {
-                        self.coerce(v, &vty, target, a.span)?
-                    }
-                } else {
-                    v
-                }
-            } else {
-                v
-            };
+            let target = init_sig.as_ref().and_then(|sig| sig.params.get(i + 1));
+            let (final_v, vty) = self.lower_arg_to(a, target)?;
             if arg_is_fresh && matches!(vty, MirTy::Object(_)) {
                 fresh_obj_args.push(final_v);
             }

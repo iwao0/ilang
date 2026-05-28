@@ -132,7 +132,8 @@ impl Lower {
             .as_ref()
             .map(|e| bcx.callee_retain_decision(e))
             .unwrap_or(false);
-        let tail = bcx.lower_block(&pc.body)?;
+        let ret_hint = bcx.ret_ty.clone();
+        let tail = bcx.lower_block_hinted(&pc.body, Some(&ret_hint))?;
         if needs_retain {
             bcx.emit_callee_retain(&tail);
         }
@@ -230,7 +231,8 @@ impl Lower {
             .as_ref()
             .map(|e| bcx.callee_retain_decision(e))
             .unwrap_or(false);
-        let tail = bcx.lower_block(&m.body)?;
+        let ret_hint = bcx.ret_ty.clone();
+        let tail = bcx.lower_block_hinted(&m.body, Some(&ret_hint))?;
         if needs_retain {
             bcx.emit_callee_retain(&tail);
         }
@@ -333,7 +335,8 @@ impl Lower {
             .as_ref()
             .map(|e| bcx.callee_retain_decision(e))
             .unwrap_or(false);
-        let tail = bcx.lower_block(&m.body)?;
+        let ret_hint = bcx.ret_ty.clone();
+        let tail = bcx.lower_block_hinted(&m.body, Some(&ret_hint))?;
         let is_init = matches!(m.name.as_str(), "init");
         if is_init {
             bcx.fb.set_terminator(Terminator::Return { value: Some(this_v) });
@@ -446,7 +449,8 @@ impl Lower {
             .as_ref()
             .map(|e| bcx.callee_retain_decision(e))
             .unwrap_or(false);
-        let tail = bcx.lower_block(&fd.body)?;
+        let ret_hint = bcx.ret_ty.clone();
+        let tail = bcx.lower_block_hinted(&fd.body, Some(&ret_hint))?;
         if needs_retain {
             bcx.emit_callee_retain(&tail);
         }

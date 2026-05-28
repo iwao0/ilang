@@ -449,6 +449,20 @@ impl<'a> BodyCx<'a> {
         &mut self,
         blk: &AstBlock,
     ) -> Result<Option<(ValueId, MirTy)>, LowerError> {
+        self.lower_block_hinted(blk, None)
+    }
+
+    /// Like `lower_block`, but `tail_hint` (when set) is the type the
+    /// block's tail expression flows into — used so a function body
+    /// whose tail is a bare composite literal (`fn f(): i32[] { [..] }`)
+    /// builds it with the right element widths instead of defaulting
+    /// to i64/f64 cells. Only the tail is affected; nested blocks
+    /// lowered while processing the statements get no hint.
+    pub(in crate::lower) fn lower_block_hinted(
+        &mut self,
+        blk: &AstBlock,
+        tail_hint: Option<&MirTy>,
+    ) -> Result<Option<(ValueId, MirTy)>, LowerError> {
         self.env.enter_scope();
         // Stop treating let bindings as top-level once we descend
         // into a nested block — block-scoped `let x = ...` should
@@ -462,7 +476,10 @@ impl<'a> BodyCx<'a> {
             self.lower_stmt(stmt)?;
         }
         let tail = match &blk.tail {
-            Some(e) => Some(self.lower_expr(e)?),
+            Some(e) => Some(match tail_hint.and_then(|h| self.lower_composite_with_hint(e, h)) {
+                Some(res) => res?,
+                None => self.lower_expr(e)?,
+            }),
             None => None,
         };
         self.is_main_body = saved_main_body;

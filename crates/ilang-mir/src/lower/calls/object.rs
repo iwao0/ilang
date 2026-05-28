@@ -121,12 +121,7 @@ impl<'a> BodyCx<'a> {
         com_sig_params.extend(sig.params.iter().cloned());
         let mut user_args: Vec<ValueId> = Vec::with_capacity(args.len());
         for (i, a) in args.iter().enumerate() {
-            let (v, vty) = self.lower_expr(a)?;
-            let target = sig.params.get(i);
-            let coerced = match target {
-                Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
-                _ => v,
-            };
+            let (coerced, _) = self.lower_arg_to(a, sig.params.get(i))?;
             user_args.push(coerced);
         }
         let dst = if matches!(sig.ret, MirTy::Unit) {
@@ -177,12 +172,7 @@ impl<'a> BodyCx<'a> {
             })?;
         let mut user_args: Vec<ValueId> = Vec::with_capacity(args.len());
         for (i, a) in args.iter().enumerate() {
-            let (v, vty) = self.lower_expr(a)?;
-            let target = sig.params.get(i);
-            let coerced = match target {
-                Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
-                _ => v,
-            };
+            let (coerced, _) = self.lower_arg_to(a, sig.params.get(i))?;
             user_args.push(coerced);
         }
         let dst = if matches!(sig.ret, MirTy::Unit) {
@@ -219,11 +209,7 @@ impl<'a> BodyCx<'a> {
         });
         let mut arg_vals = Vec::with_capacity(args.len());
         for (i, a) in args.iter().enumerate() {
-            let (v, vty) = self.lower_expr(a)?;
-            let coerced = match ft.params.get(i) {
-                Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
-                _ => v,
-            };
+            let (coerced, _) = self.lower_arg_to(a, ft.params.get(i))?;
             arg_vals.push(coerced);
         }
         let dst = if matches!(ft.ret, MirTy::Unit) {
@@ -270,12 +256,7 @@ impl<'a> BodyCx<'a> {
         let mut fresh_obj_args: Vec<ValueId> = Vec::new();
         for (i, a) in args.iter().enumerate() {
             let arg_is_fresh = self.is_fresh_object_expr(a);
-            let (v, vty) = self.lower_expr(a)?;
-            let target = sig.params.get(i + 1);
-            let coerced = match target {
-                Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
-                _ => v,
-            };
+            let (coerced, vty) = self.lower_arg_to(a, sig.params.get(i + 1))?;
             if arg_is_fresh && matches!(vty, MirTy::Object(_)) {
                 fresh_obj_args.push(coerced);
             }

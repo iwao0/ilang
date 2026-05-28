@@ -105,6 +105,10 @@ impl<'a> BodyCx<'a> {
                         lanes: lane_vals.into_boxed_slice(),
                     });
                     (dst, simd_ty.clone())
+                } else if let (ExprKind::Tuple(items), Some(MirTy::Tuple(elems))) =
+                    (&value.kind, &bind_hint)
+                {
+                    self.lower_tuple_literal_with_hint(items, elems)?
                 } else {
                     self.lower_expr(value)?
                 };

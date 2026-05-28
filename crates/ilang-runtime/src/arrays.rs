@@ -27,9 +27,10 @@ pub extern "C" fn __array_index_of(arr: i64, value: i64) -> i64 {
         return -1;
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
+    let stride = unsafe { *(arr as *const i64).add(5) };
+    let needle = value & width_mask(stride);
     for i in 0..len {
-        let cell = unsafe { *((data + i * 8) as *const i64) };
-        if cell == value {
+        if unsafe { load_packed(data, i, stride) } == needle {
             return i;
         }
     }
@@ -64,6 +65,21 @@ unsafe fn load_packed(data: i64, idx: i64, stride: i64) -> i64 {
             4 => *(addr as *const u32) as i64,
             _ => *(addr as *const i64),
         }
+    }
+}
+
+/// `load_packed` zero-extends a packed cell to i64, so an equality
+/// search must compare against the needle truncated to the same width
+/// — otherwise a negative small-int needle (sign-extended to i64) never
+/// matches its stored, zero-extended form. A full-width mask leaves the
+/// i64 cell path unchanged.
+#[inline]
+fn width_mask(stride: i64) -> i64 {
+    match stride {
+        1 => 0xff,
+        2 => 0xffff,
+        4 => 0xffff_ffff,
+        _ => -1,
     }
 }
 
@@ -181,9 +197,10 @@ pub extern "C" fn __array_remove(arr: i64, value: i64) -> i64 {
         let len = *h;
         let data = *h.add(2);
         let stride = *h.add(5);
+        let needle = value & width_mask(stride);
         let mut idx: i64 = -1;
         for i in 0..len {
-            if load_packed(data, i, stride) == value {
+            if load_packed(data, i, stride) == needle {
                 idx = i;
                 break;
             }
@@ -272,7 +289,7 @@ pub extern "C" fn __release_array(arr_ptr: i64) {
     let stride = unsafe { *((arr_ptr + 40) as *const i64) };
     if tag != KIND_NONE {
         for i in 0..len {
-            let cell = unsafe { *((data_ptr + i * 8) as *const i64) };
+            let cell = unsafe { load_packed(data_ptr, i, stride) };
             release_field_by_kind(cell, tag);
         }
     }
@@ -286,12 +303,15 @@ pub extern "C" fn __release_array(arr_ptr: i64) {
 // Construction + higher-order helpers
 // --------------------------------------------------------------------
 
-/// Build an i64-cell array from a slice. `elem_kind` is the KIND_*
-/// tag stored at +32 so `__release_array` cascades correctly.
-pub(crate) fn build_i64_array(items: &[i64], elem_kind: i64) -> i64 {
+/// Build a fresh dynamic array from `items` (each a zero-extended
+/// i64 cell value), storing them packed at `stride` bytes. `elem_kind`
+/// is the KIND_* tag stored at +32 so `__release_array` cascades
+/// correctly. Small numeric element types use stride 1/2/4; heap and
+/// 64-bit elements use stride 8.
+pub(crate) fn build_packed_array(items: &[i64], elem_kind: i64, stride: i64) -> i64 {
     let cap = items.len().max(4);
     let header = __mir_alloc(48);
-    let data = __mir_alloc((cap * 8) as i64);
+    let data = __mir_alloc((cap as i64) * stride);
     unsafe {
         let h = header as *mut i64;
         *h = items.len() as i64;
@@ -299,12 +319,24 @@ pub(crate) fn build_i64_array(items: &[i64], elem_kind: i64) -> i64 {
         *h.add(2) = data;
         *h.add(3) = 1;
         *h.add(4) = elem_kind;
-        *h.add(5) = 8;
+        *h.add(5) = stride;
         for (i, v) in items.iter().enumerate() {
-            *((data + (i as i64) * 8) as *mut i64) = *v;
+            store_packed(data, i as i64, stride, *v);
         }
     }
     header
+}
+
+/// Convenience for callers whose elements are full 8-byte cells
+/// (heap pointers, i64/f64, or empty arrays).
+pub(crate) fn build_i64_array(items: &[i64], elem_kind: i64) -> i64 {
+    build_packed_array(items, elem_kind, 8)
+}
+
+/// Read the per-cell stride byte width from an array header (+40).
+#[inline]
+unsafe fn array_stride(arr: i64) -> i64 {
+    unsafe { *((arr + 40) as *const i64) }
 }
 
 /// Wrap an inline fixed-length array (a bare `ptr` to `len` elements
@@ -379,18 +411,19 @@ fn box_optional_cell(value: i64, elem_tag: i64) -> i64 {
 }
 
 #[unsafe(export_name = "$array.map")]
-pub extern "C" fn __array_map(arr: i64, closure: i64, result_kind: i64) -> i64 {
+pub extern "C" fn __array_map(arr: i64, closure: i64, result_kind: i64, result_stride: i64) -> i64 {
     if arr == 0 || closure == 0 {
-        return build_i64_array(&[], result_kind);
+        return build_packed_array(&[], result_kind, result_stride);
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
+    let stride = unsafe { array_stride(arr) };
     let mut out: Vec<i64> = Vec::with_capacity(len as usize);
     for i in 0..len {
-        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let cell = unsafe { load_packed(data, i, stride) };
         let v = unsafe { call_closure_1(closure, cell) };
         out.push(v);
     }
-    build_i64_array(&out, result_kind)
+    build_packed_array(&out, result_kind, result_stride)
 }
 
 #[unsafe(export_name = "$array.filter")]
@@ -400,9 +433,10 @@ pub extern "C" fn __array_filter(arr: i64, closure: i64) -> i64 {
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
     let elem_kind = unsafe { *((arr + 32) as *const i64) };
+    let stride = unsafe { array_stride(arr) };
     let mut out: Vec<i64> = Vec::new();
     for i in 0..len {
-        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let cell = unsafe { load_packed(data, i, stride) };
         let keep = unsafe { call_predicate_1(closure, cell) };
         if keep {
             if elem_kind != KIND_NONE {
@@ -411,7 +445,7 @@ pub extern "C" fn __array_filter(arr: i64, closure: i64) -> i64 {
             out.push(cell);
         }
     }
-    build_i64_array(&out, elem_kind)
+    build_packed_array(&out, elem_kind, stride)
 }
 
 #[unsafe(export_name = "$array.slice")]
@@ -421,18 +455,19 @@ pub extern "C" fn __array_slice(arr: i64, start: i64, end: i64) -> i64 {
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
     let elem_kind = unsafe { *((arr + 32) as *const i64) };
+    let stride = unsafe { array_stride(arr) };
     let lo = start.max(0).min(len) as usize;
     let hi = end.max(0).min(len) as usize;
     let lo = lo.min(hi);
     let mut out: Vec<i64> = Vec::with_capacity(hi - lo);
     for i in lo..hi {
-        let cell = unsafe { *((data + (i as i64) * 8) as *const i64) };
+        let cell = unsafe { load_packed(data, i as i64, stride) };
         if elem_kind != KIND_NONE {
             retain_field_by_kind(cell, elem_kind);
         }
         out.push(cell);
     }
-    build_i64_array(&out, elem_kind)
+    build_packed_array(&out, elem_kind, stride)
 }
 
 #[unsafe(export_name = "$array.forEach")]
@@ -441,8 +476,9 @@ pub extern "C" fn __array_for_each(arr: i64, closure: i64) {
         return;
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
+    let stride = unsafe { array_stride(arr) };
     for i in 0..len {
-        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let cell = unsafe { load_packed(data, i, stride) };
         unsafe { call_closure_1(closure, cell) };
     }
 }
@@ -458,8 +494,9 @@ pub extern "C" fn __array_find(arr: i64, closure: i64) -> i64 {
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
     let elem_kind = unsafe { *((arr + 32) as *const i64) };
+    let stride = unsafe { array_stride(arr) };
     for i in 0..len {
-        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let cell = unsafe { load_packed(data, i, stride) };
         let hit = unsafe { call_predicate_1(closure, cell) };
         if hit {
             return box_optional_cell(cell, elem_kind);
@@ -476,8 +513,9 @@ pub extern "C" fn __array_find_index(arr: i64, closure: i64) -> i64 {
         return -1;
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
+    let stride = unsafe { array_stride(arr) };
     for i in 0..len {
-        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let cell = unsafe { load_packed(data, i, stride) };
         let hit = unsafe { call_predicate_1(closure, cell) };
         if hit {
             return i;
@@ -494,8 +532,9 @@ pub extern "C" fn __array_every(arr: i64, closure: i64) -> i64 {
         return 1;
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
+    let stride = unsafe { array_stride(arr) };
     for i in 0..len {
-        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let cell = unsafe { load_packed(data, i, stride) };
         let hit = unsafe { call_predicate_1(closure, cell) };
         if !hit {
             return 0;
@@ -512,8 +551,9 @@ pub extern "C" fn __array_some(arr: i64, closure: i64) -> i64 {
         return 0;
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
+    let stride = unsafe { array_stride(arr) };
     for i in 0..len {
-        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let cell = unsafe { load_packed(data, i, stride) };
         let hit = unsafe { call_predicate_1(closure, cell) };
         if hit {
             return 1;
@@ -537,11 +577,20 @@ pub extern "C" fn __array_concat(a: i64, b: i64) -> i64 {
     } else {
         KIND_NONE
     };
+    // Both inputs share the element type, hence the same stride; take
+    // it from whichever source array is non-empty.
+    let stride = if a != 0 {
+        unsafe { array_stride(a) }
+    } else if b != 0 {
+        unsafe { array_stride(b) }
+    } else {
+        8
+    };
     let mut out: Vec<i64> = Vec::with_capacity((a_len + b_len) as usize);
     if a != 0 {
         let data = unsafe { *((a + 16) as *const i64) };
         for i in 0..a_len {
-            let cell = unsafe { *((data + i * 8) as *const i64) };
+            let cell = unsafe { load_packed(data, i, stride) };
             if elem_kind != KIND_NONE {
                 retain_field_by_kind(cell, elem_kind);
             }
@@ -551,14 +600,14 @@ pub extern "C" fn __array_concat(a: i64, b: i64) -> i64 {
     if b != 0 {
         let data = unsafe { *((b + 16) as *const i64) };
         for i in 0..b_len {
-            let cell = unsafe { *((data + i * 8) as *const i64) };
+            let cell = unsafe { load_packed(data, i, stride) };
             if elem_kind != KIND_NONE {
                 retain_field_by_kind(cell, elem_kind);
             }
             out.push(cell);
         }
     }
-    build_i64_array(&out, elem_kind)
+    build_packed_array(&out, elem_kind, stride)
 }
 
 /// Build a fresh array with the cells of `arr` in reverse order.
@@ -571,15 +620,16 @@ pub extern "C" fn __array_reverse(arr: i64) -> i64 {
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
     let elem_kind = unsafe { *((arr + 32) as *const i64) };
+    let stride = unsafe { array_stride(arr) };
     let mut out: Vec<i64> = Vec::with_capacity(len as usize);
     for i in (0..len).rev() {
-        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let cell = unsafe { load_packed(data, i, stride) };
         if elem_kind != KIND_NONE {
             retain_field_by_kind(cell, elem_kind);
         }
         out.push(cell);
     }
-    build_i64_array(&out, elem_kind)
+    build_packed_array(&out, elem_kind, stride)
 }
 
 /// Join a `string[]` into a single ilang string with `sep` between
@@ -591,13 +641,14 @@ pub extern "C" fn __array_join(arr: i64, sep: i64) -> i64 {
         return leak_cstring(String::new());
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
+    let stride = unsafe { array_stride(arr) };
     let sep_str = cstr_to_str(sep);
     let mut out = String::new();
     for i in 0..len {
         if i > 0 {
             out.push_str(sep_str);
         }
-        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let cell = unsafe { load_packed(data, i, stride) };
         out.push_str(cstr_to_str(cell));
     }
     leak_cstring(out)
@@ -708,9 +759,10 @@ pub extern "C" fn __array_sort(arr: i64, closure: i64) -> i64 {
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
     let elem_kind = unsafe { *((arr + 32) as *const i64) };
+    let stride = unsafe { array_stride(arr) };
     let mut buf: Vec<i64> = Vec::with_capacity(len as usize);
     for i in 0..len {
-        let cell = unsafe { *((data + i * 8) as *const i64) };
+        let cell = unsafe { load_packed(data, i, stride) };
         if elem_kind != KIND_NONE {
             retain_field_by_kind(cell, elem_kind);
         }
@@ -722,6 +774,6 @@ pub extern "C" fn __array_sort(arr: i64, closure: i64) -> i64 {
             r.cmp(&0)
         });
     }
-    build_i64_array(&buf, elem_kind)
+    build_packed_array(&buf, elem_kind, stride)
 }
 

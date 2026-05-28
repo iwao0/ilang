@@ -75,11 +75,7 @@ impl<'a> BodyCx<'a> {
         });
         let mut arg_vals = Vec::with_capacity(args.len());
         for (i, a) in args.iter().enumerate() {
-            let (v, vty) = self.lower_expr(a)?;
-            let coerced = match ft.params.get(i) {
-                Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
-                _ => v,
-            };
+            let (coerced, _) = self.lower_arg_to(a, ft.params.get(i))?;
             arg_vals.push(coerced);
         }
         let sig = crate::inst::FnSig {

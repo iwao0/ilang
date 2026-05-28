@@ -167,6 +167,11 @@ impl<'a> BodyCx<'a> {
                 (simd_elem_hint, &it.kind)
             {
                 self.lower_simd_from_array_literal(lane_items, selem, slanes, it.span)?
+            } else if let Some(h) = elem_hint.as_ref() {
+                match self.lower_composite_with_hint(it, h) {
+                    Some(res) => res?,
+                    None => self.lower_expr(it)?,
+                }
             } else {
                 self.lower_expr(it)?
             };
@@ -342,6 +347,101 @@ impl<'a> BodyCx<'a> {
             items: vals.into_boxed_slice(),
         });
         Ok((v, ty))
+    }
+
+    /// Lower a tuple literal whose slot types are dictated by an
+    /// ascription (`let f: (f32, f64) = (1.5, 2.5)`). Each element is
+    /// lowered against its hint so nested composites build with the
+    /// correct element types and scalar leaves get the coerce
+    /// (f64→f32 demote, i64→i32 narrow) that a bare `new_tuple` of
+    /// inferred types would skip.
+    pub(super) fn lower_tuple_literal_with_hint(
+        &mut self,
+        items: &[Expr],
+        hint_tys: &[MirTy],
+    ) -> Result<(ValueId, MirTy), LowerError> {
+        let mut vals = Vec::with_capacity(items.len());
+        let mut tys = Vec::with_capacity(items.len());
+        for (i, it) in items.iter().enumerate() {
+            let elem_is_fresh = self.is_fresh_object_expr(it);
+            let hint = hint_tys.get(i);
+            let (v0, t0) = match hint {
+                Some(h) => match self.lower_composite_with_hint(it, h) {
+                    Some(res) => res?,
+                    None => self.lower_expr(it)?,
+                },
+                None => self.lower_expr(it)?,
+            };
+            let (v, t) = match hint {
+                Some(h) if *h != t0 => (self.coerce(v0, &t0, h, it.span)?, h.clone()),
+                _ => (v0, t0),
+            };
+            let is_heap = matches!(
+                t,
+                MirTy::Object(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Optional(_)
+                    | MirTy::Fn(_)
+                    | MirTy::Str
+            );
+            if is_heap && !elem_is_fresh {
+                self.fb.push_inst(Inst::Retain { value: v });
+            }
+            vals.push(v);
+            tys.push(t);
+        }
+        let ty = MirTy::Tuple(tys.into_boxed_slice());
+        let v = self.fb.new_value(ty.clone());
+        self.fb.push_inst(Inst::NewTuple {
+            dst: v,
+            items: vals.into_boxed_slice(),
+        });
+        Ok((v, ty))
+    }
+
+    /// Lower an expression that flows into a slot of known type
+    /// `target` (a call argument, return value, or assignment target).
+    /// Composite literals are built with the target's element types
+    /// pushed in (so packed arrays / narrowed tuples get the right
+    /// cell widths); other expressions lower normally and scalar-coerce
+    /// to `target`. A `None` target means "no expectation" — lower as-is.
+    pub(super) fn lower_arg_to(
+        &mut self,
+        a: &Expr,
+        target: Option<&MirTy>,
+    ) -> Result<(ValueId, MirTy), LowerError> {
+        if let Some(t) = target {
+            if let Some(res) = self.lower_composite_with_hint(a, t) {
+                return res;
+            }
+        }
+        let (v, vty) = self.lower_expr(a)?;
+        match target {
+            Some(t) if t != &vty => Ok((self.coerce(v, &vty, t, a.span)?, t.clone())),
+            _ => Ok((v, vty)),
+        }
+    }
+
+    /// If `expr` is a composite literal (array / tuple) and `hint`
+    /// is the matching composite type, lower it with the hint pushed
+    /// into its elements; otherwise return `None` so the caller falls
+    /// back to plain `lower_expr` + scalar coerce.
+    pub(super) fn lower_composite_with_hint(
+        &mut self,
+        expr: &Expr,
+        hint: &MirTy,
+    ) -> Option<Result<(ValueId, MirTy), LowerError>> {
+        match (&expr.kind, hint) {
+            (ExprKind::Array(items), MirTy::Array { elem, len }) => {
+                Some(self.lower_array_literal_with_hint(items, Some((**elem).clone()), *len))
+            }
+            (ExprKind::Tuple(items), MirTy::Tuple(elems)) => {
+                Some(self.lower_tuple_literal_with_hint(items, elems))
+            }
+            _ => None,
+        }
     }
 
     pub(super) fn lower_index(&mut self, obj: &Expr, index: &Expr) -> Result<(ValueId, MirTy), LowerError> {

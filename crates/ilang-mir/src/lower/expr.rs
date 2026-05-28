@@ -225,12 +225,7 @@ impl<'a> BodyCx<'a> {
                             if let Some((fid, prop_ty)) =
                                 meta.static_property_setter.get(field).cloned()
                             {
-                                let (vv, vty) = self.lower_expr(value)?;
-                                let coerced = if vty == prop_ty {
-                                    vv
-                                } else {
-                                    self.coerce(vv, &vty, &prop_ty, expr.span)?
-                                };
+                                let (coerced, _) = self.lower_arg_to(value, Some(&prop_ty))?;
                                 self.fb.push_inst(Inst::Call {
                                     dst: None,
                                     callee: crate::inst::FuncRef::Local(fid),
@@ -245,12 +240,7 @@ impl<'a> BodyCx<'a> {
                                         "cannot assign to const {field}"
                                     )));
                                 }
-                                let (vv, vty) = self.lower_expr(value)?;
-                                let coerced = if vty == s.ty {
-                                    vv
-                                } else {
-                                    self.coerce(vv, &vty, &s.ty, expr.span)?
-                                };
+                                let (coerced, _) = self.lower_arg_to(value, Some(&s.ty))?;
                                 self.fb.push_inst(Inst::StoreStatic { slot, value: coerced });
                                 return Ok((self.const_unit(), MirTy::Unit));
                             }
@@ -269,12 +259,7 @@ impl<'a> BodyCx<'a> {
                 // Property setter on instance.
                 let meta = self.class_meta.get(&class_id).expect("class meta");
                 if let Some((fid, prop_ty)) = meta.property_setter.get(field).cloned() {
-                    let (vv, vty) = self.lower_expr(value)?;
-                    let coerced = if vty == prop_ty {
-                        vv
-                    } else {
-                        self.coerce(vv, &vty, &prop_ty, value.span)?
-                    };
+                    let (coerced, _) = self.lower_arg_to(value, Some(&prop_ty))?;
                     self.fb.push_inst(Inst::Call {
                         dst: None,
                         callee: FuncRef::Local(fid),
@@ -288,7 +273,10 @@ impl<'a> BodyCx<'a> {
                     .ok_or_else(|| LowerError::Other(format!("no field {field}")))?;
                 let fty = meta.field_ty.get(&fid).cloned().unwrap_or(MirTy::I64);
                 let src_is_fresh = self.is_fresh_object_expr(value);
-                let (vv0, vty) = self.lower_expr(value)?;
+                let (vv0, vty) = match self.lower_composite_with_hint(value, &fty) {
+                    Some(res) => res?,
+                    None => self.lower_expr(value)?,
+                };
                 // Coerce the rhs to the field's declared type — this
                 // is where `T → T?` Optional auto-wrap fires for
                 // `this.f = expr` / `obj.f = expr` (struct-literal
@@ -449,7 +437,19 @@ impl<'a> BodyCx<'a> {
                     }
                     _ => None,
                 });
-                let (v, vty) = self.lower_expr(value)?;
+                let target_ty = match self.env.lookup_binding(*target) {
+                    Some(Binding::Ssa(_, ty))
+                    | Some(Binding::Local(_, ty))
+                    | Some(Binding::Cell(_, ty)) => Some(ty),
+                    None => self.repl_slots.get(target).map(|(_, ty)| ty.clone()),
+                };
+                let (v, vty) = match target_ty
+                    .as_ref()
+                    .and_then(|t| self.lower_composite_with_hint(value, t))
+                {
+                    Some(res) => res?,
+                    None => self.lower_expr(value)?,
+                };
                 if self.assign_var(*target, v, vty.clone()) {
                     if matches!(vty, MirTy::Object(_)) {
                         if !value_is_fresh {
@@ -839,39 +839,14 @@ impl<'a> BodyCx<'a> {
                         }
                     }
                     let value_is_fresh = self.is_fresh_object_expr(fval);
-                    // Fixed-length array field (`pos: f32[3]` etc.) with
-                    // an array literal on the RHS: lower the literal
-                    // with the field's element type + length as hints so
-                    // the result has the inline (header-less) layout
-                    // `StoreField` will memcpy from below. Without this
-                    // the literal would lower as a dynamic array (48-
-                    // byte header + data buffer) and the store would
-                    // bit-cast the header pointer into the field's
-                    // first 8 bytes, leaving the rest at whatever the
-                    // fresh-alloc left there.
-                    let (vv, vty) = if let (
-                        ExprKind::Array(items),
-                        MirTy::Array { elem: e_ty, len: Some(_) },
-                    ) = (&fval.kind, &fty)
-                    {
-                        let len = if let MirTy::Array { len, .. } = &fty {
-                            *len
-                        } else {
-                            None
-                        };
-                        self.lower_array_literal_with_hint(
-                            items,
-                            Some((**e_ty).clone()),
-                            len,
-                        )?
-                    } else {
-                        self.lower_expr(fval)?
-                    };
-                    let coerced = if vty == fty {
-                        vv
-                    } else {
-                        self.coerce(vv, &vty, &fty, fval.span)?
-                    };
+                    // Push the field's declared type into composite
+                    // literals on the RHS. This covers fixed-length
+                    // array fields (`pos: f32[3]`) — which need the
+                    // inline, header-less layout `StoreField` memcpys
+                    // from — as well as dynamic packed arrays and
+                    // narrowed tuples, all of which would otherwise
+                    // default to i64/f64 cells.
+                    let (coerced, _) = self.lower_arg_to(fval, Some(&fty))?;
                     // ARC retain for heap-typed fields: same rule as
                     // AssignField. The slot started at zero (fresh
                     // alloc) so there is no prior occupant to

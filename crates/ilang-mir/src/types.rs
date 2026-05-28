@@ -184,6 +184,19 @@ impl MirTy {
                 | MirTy::Fn(_)
         )
     }
+    /// Per-element byte stride when this type is stored in a packed
+    /// array cell. Small numeric types pack tightly (1/2/4 bytes);
+    /// SIMD vectors pack as `lanes × lane_bytes`; everything else uses
+    /// an 8-byte cell. Keep in sync with the codegen load/store paths.
+    pub fn elem_byte_stride(&self) -> i64 {
+        match self {
+            MirTy::I8 | MirTy::U8 | MirTy::CChar | MirTy::Bool => 1,
+            MirTy::I16 | MirTy::U16 => 2,
+            MirTy::I32 | MirTy::U32 | MirTy::F32 => 4,
+            MirTy::Simd { elem, lanes } => elem.lane_bytes() * (*lanes as i64),
+            _ => 8,
+        }
+    }
 }
 
 impl std::fmt::Display for MirTy {
