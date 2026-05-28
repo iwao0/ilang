@@ -203,15 +203,15 @@ impl TypeChecker {
                 // Closure and the wrapper FnDecl is in self.fns.
                 // The wrapper's first param is the synthetic
                 // `__env: i64`; the user-facing fn type is the rest.
-                let sigs = self.fns.get(fn_name).cloned().ok_or_else(|| {
+                let sigs = self.fns.get(fn_name).ok_or_else(|| {
                     TypeError::UndefinedVariable {
                         name: fn_name.clone(),
                         span,
                     }
                 })?;
-                let sig = sigs.into_iter().next().expect("registered fn has sig");
+                let sig = sigs.first().expect("registered fn has sig");
                 let user_params: Vec<Type> = sig.params.iter().skip(1).cloned().collect();
-                Ok(Type::func(user_params, sig.ret))
+                Ok(Type::func(user_params, sig.ret.clone()))
             }
             ExprKind::This => match in_class {
                 Some(name) => Ok(Type::Object(name.into())),
@@ -233,9 +233,9 @@ impl TypeChecker {
                         ),
                         span,
                     })?;
-                let parent_sig = self.classes.get(&parent_name).cloned().expect("parent registered");
+                let parent_sig = self.classes.get(&parent_name).expect("parent registered");
                 let lookup: Symbol = method.unwrap_or_else(|| "init".into());
-                let sigs = parent_sig.methods.get(&lookup).cloned().ok_or_else(|| {
+                let sigs = parent_sig.methods.get(&lookup).ok_or_else(|| {
                     TypeError::UnknownMethod {
                         class: parent_name,
                         method: lookup,
@@ -251,7 +251,7 @@ impl TypeChecker {
                         span,
                     });
                 }
-                let sig = sigs.into_iter().next().unwrap();
+                let sig = sigs[0].clone();
                 self.check_args(lookup, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                 Ok(sig.ret)
             }

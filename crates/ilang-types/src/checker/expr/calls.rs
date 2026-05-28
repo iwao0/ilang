@@ -812,7 +812,7 @@ impl TypeChecker {
                 span,
             }
         })?;
-        let raw_sigs = match cls.methods.get(method).cloned() {
+        let raw_sigs = match cls.methods.get(method) {
             Some(s) => s,
             None => {
                 // Fn-typed instance field — `obj.field(args)`
@@ -969,17 +969,17 @@ impl TypeChecker {
         }
         if let Some(class_name) = in_class {
             if let Some(cls) = self.classes.get(&class_name) {
-                if let Some(sigs) = cls.methods.get(callee).cloned() {
+                if let Some(sigs) = cls.methods.get(callee) {
                     // Implicit-this method call. Resolve overload
                     // exactly like a top-level fn call.
                     let chosen = self.resolve_method_call(
-                        class_name, *callee, &sigs, args, env, ret_ty, in_class, loop_depth, span,
+                        class_name, *callee, sigs, args, env, ret_ty, in_class, loop_depth, span,
                     )?;
                     return Ok(chosen.ret);
                 }
             }
         }
-        let sigs = self.fns.get(callee).cloned().ok_or_else(|| {
+        let sigs = self.fns.get(callee).ok_or_else(|| {
             TypeError::UndefinedFunction {
                 name: callee.clone(),
                 span,
@@ -1023,7 +1023,7 @@ impl TypeChecker {
                 // Single non-generic overload: keep the existing
                 // arity / per-arg validation so error variants
                 // (Mismatch / ArityMismatch) stay precise.
-                let sig = sigs.into_iter().next().unwrap();
+                let sig = sigs[0].clone();
                 self.fn_overload_pick
                     .borrow_mut()
                     .insert(span, (callee.clone(), 0));
@@ -1038,7 +1038,7 @@ impl TypeChecker {
             }
             let chosen = resolve_overload(
                 *callee,
-                &sigs,
+                sigs,
                 &arg_tys,
                 args,
                 span,
@@ -1051,7 +1051,7 @@ impl TypeChecker {
             self.check_args(*callee, &chosen_sig, args, env, ret_ty, in_class, loop_depth, span)?;
             return Ok(chosen_sig.ret);
         }
-        let sig = sigs.into_iter().next().unwrap();
+        let sig = sigs[0].clone();
         // Generic fn — see below; we also stash the inferred
         // type-args vector keyed by call span so the JIT's
         // monomorphization pass can find it later.
@@ -1141,7 +1141,7 @@ impl TypeChecker {
         // was picked. Look that up first so a re-typecheck on the
         // mangled program still resolves correctly.
         let init_lookup: Symbol = init_method.unwrap_or_else(|| "init".into());
-        let init_raw = cls.methods.get(&init_lookup).cloned();
+        let init_raw = cls.methods.get(&init_lookup);
         // Generic instantiation: arity check on type args.
         if !class_params.is_empty() && type_args.len() != class_params.len() {
             return Err(TypeError::ArityMismatch {
