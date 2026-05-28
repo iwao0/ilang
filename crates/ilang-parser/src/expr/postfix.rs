@@ -16,7 +16,12 @@ impl<'a> Parser<'a> {
     pub(in crate::expr) fn parse_postfix(&mut self, mut expr: Expr) -> Result<Expr, ParseError> {
         loop {
             match self.peek().kind {
-                TokenKind::LBracket => {
+                // Index `expr[i]`. The newline guard keeps an array
+                // literal that *starts* the next statement (`[a, b]` on
+                // its own line) from being glued onto the previous
+                // expression as a subscript — same rule as the postfix
+                // call below.
+                TokenKind::LBracket if !self.peek().leading_newline => {
                     self.bump();
                     let index = self.parse_expr(0)?;
                     let close_span = self.peek().span;
