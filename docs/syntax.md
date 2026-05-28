@@ -1946,7 +1946,7 @@ paths.
 }
 
 let ts = new timespec()              // zero-initialised
-clock_gettime(0 as i32, ts)          // Object → *T auto-coercion (like u8[] → *u8)
+clock_gettime(0 as i32, &ts)         // pass the struct's address with `&`
 console.log(ts.tv_sec)
 ```
 
@@ -2085,8 +2085,12 @@ functions described below.
 - **`T[]` → `*T` / `*const T`**: implicit (passes the array's
   data-area pointer). ARC keeps the array alive across the call
   even if the C side writes to it.
-- **Object (`@extern(C)` struct) → `*StructName`**: implicit
-  (passes the user-data pointer).
+- **`@extern(C)` struct → `*StructName`**: **not implicit** — spell
+  out `&value` to pass the struct's address (e.g. an out-parameter:
+  `let ts = new timespec(); clock_gettime(0, &ts)`). This keeps the
+  address-taking explicit, the same as `&local` / `&field` elsewhere.
+  (Array → pointer stays implicit because the array's storage layout
+  already makes the data pointer its natural representation.)
 - **`*T` ↔ `*U`** (block-only): explicit `as` cast for C-style
   type punning (e.g. `*const u8 → *const void`).
 
