@@ -170,37 +170,8 @@ impl<'a> Parser<'a> {
             } else {
                 Type::Unit
             };
-            let mut ty = Type::func(params, ret);
-            loop {
-                match self.peek().kind {
-                    TokenKind::LBracket => {
-                        self.bump();
-                        let fixed = match self.peek().kind {
-                            TokenKind::RBracket => None,
-                            TokenKind::Int(n) if n >= 0 => {
-                                self.bump();
-                                Some(n as usize)
-                            }
-                            _ => {
-                                let p = self.peek();
-                                return Err(ParseError::Unexpected {
-                                    found: p.kind.clone(),
-                                    expected: "']' or non-negative integer literal".into(),
-                                    span: p.span,
-                                });
-                            }
-                        };
-                        self.expect(&TokenKind::RBracket, "']'")?;
-                        ty = Type::Array { elem: Box::new(ty), fixed };
-                    }
-                    TokenKind::Question => {
-                        self.bump();
-                        ty = Type::Optional(Box::new(ty));
-                    }
-                    _ => break,
-                }
-            }
-            return Ok(ty);
+            let ty = Type::func(params, ret);
+            return self.apply_type_postfix(ty);
         }
         // Tuple type: `(T1, T2, ...)`. A single `(T)` is grouping and
         // returns `T` itself; `()` would be unit but is not currently
@@ -218,12 +189,12 @@ impl<'a> Parser<'a> {
                     elems.push(self.parse_type()?);
                 }
                 self.expect(&TokenKind::RParen, "')'")?;
-                return Ok(Type::Tuple(elems.into()));
+                return self.apply_type_postfix(Type::Tuple(elems.into()));
             }
             self.expect(&TokenKind::RParen, "')'")?;
-            return Ok(first);
+            return self.apply_type_postfix(first);
         }
-        let mut ty = match t.kind {
+        let ty = match t.kind {
             TokenKind::Ident(n) => {
                 self.bump();
                 match n.as_str() {
@@ -302,8 +273,15 @@ impl<'a> Parser<'a> {
                 });
             }
         };
-        // Postfix modifiers: array `T[]` / `T[N]` and optional `T?`.
-        // Both can chain (`T[]?`, `T?[]`, `T??` though redundant).
+        self.apply_type_postfix(ty)
+    }
+
+    /// Apply the postfix type modifiers — array `T[]` / `T[N]`,
+    /// optional `T?`, and weak `T.weak` — to an already-parsed base
+    /// type. They can chain (`T[]?`, `T?[]`). Shared by every branch
+    /// of `parse_type` so tuple / function / grouped types accept the
+    /// same suffixes a named type does (e.g. `(i32, f32)[]`).
+    pub(crate) fn apply_type_postfix(&mut self, mut ty: Type) -> Result<Type, ParseError> {
         loop {
             match self.peek().kind {
                 TokenKind::LBracket => {
