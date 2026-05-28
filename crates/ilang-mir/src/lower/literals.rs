@@ -440,8 +440,53 @@ impl<'a> BodyCx<'a> {
             (ExprKind::Tuple(items), MirTy::Tuple(elems)) => {
                 Some(self.lower_tuple_literal_with_hint(items, elems))
             }
+            (ExprKind::Some(inner), MirTy::Optional(inner_ty)) => {
+                Some(self.lower_some_with_hint(inner, inner_ty))
+            }
+            // A bare `none` adopts the expected `T?` so it unifies with
+            // sibling `some(..)` elements (e.g. `[some(x), none]: T?[]`)
+            // instead of defaulting to `Optional<Unit>`.
+            (ExprKind::None, MirTy::Optional(_)) => {
+                let ty = hint.clone();
+                let v = self.fb.new_value(ty.clone());
+                self.fb.push_inst(Inst::Const { dst: v, value: MirConst::None });
+                Some(Ok((v, ty)))
+            }
             _ => None,
         }
+    }
+
+    /// Lower `some(inner)` against an `Optional<inner_ty>` hint so the
+    /// wrapped value is built as `inner_ty` (pushing the hint into a
+    /// nested literal / narrowing a scalar) instead of defaulting.
+    fn lower_some_with_hint(
+        &mut self,
+        inner: &Expr,
+        inner_ty: &MirTy,
+    ) -> Result<(ValueId, MirTy), LowerError> {
+        let value_is_fresh = self.is_fresh_object_expr(inner);
+        let (iv, _) = self.lower_arg_to(inner, Some(inner_ty))?;
+        // Mirror the no-hint `some(..)` retain rule: an aliased heap
+        // inner needs a +1 so the Optional doesn't dangle when the
+        // source binding's scope-exit release fires.
+        let needs_retain = !value_is_fresh
+            && matches!(
+                inner_ty,
+                MirTy::Object(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Optional(_)
+                    | MirTy::Fn(_)
+                    | MirTy::Str
+            );
+        if needs_retain {
+            self.fb.push_inst(Inst::Retain { value: iv });
+        }
+        let ty = MirTy::Optional(Box::new(inner_ty.clone()));
+        let v = self.fb.new_value(ty.clone());
+        self.fb.push_inst(Inst::NewOptional { dst: v, value: iv });
+        Ok((v, ty))
     }
 
     pub(super) fn lower_index(&mut self, obj: &Expr, index: &Expr) -> Result<(ValueId, MirTy), LowerError> {

@@ -127,7 +127,14 @@ where
     // `let x: T? = literal` — auto-wrap. The literal is assignable to T?
     // iff it's assignable to the inner T (with literal coercions).
     if let Type::Optional(inner) = target {
-        // `none` itself: vt = Optional<Any>, handled by `assignable`.
+        // `none` fits any `T?` regardless of the inferred inner type.
+        // Without this early-out a `[some(x), none]` literal whose
+        // inferred element type came from the `some` sibling (e.g.
+        // `(f64,f64)?`) would descend into the inner tuple and reject
+        // the `none` element against `(f32,f64)`.
+        if matches!(value.kind, ExprKind::None) {
+            return true;
+        }
         // For `some(x)` we have to descend into the wrapped expression
         // so the recursive composite cases see the actual literal
         // (e.g. `some([new B()])` against `A[]?` matches the array-

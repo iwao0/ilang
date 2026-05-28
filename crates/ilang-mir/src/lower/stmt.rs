@@ -45,42 +45,14 @@ impl<'a> BodyCx<'a> {
                 }
                 let (v, mty) = if let (
                     ExprKind::Array(items),
-                    Some(MirTy::Array { elem, len }),
-                ) = (&value.kind, &bind_hint)
-                {
-                    if items.is_empty() {
-                        let ty_full = MirTy::Array {
-                            elem: elem.clone(),
-                            len: *len,
-                        };
-                        let dst = self.fb.new_value(ty_full.clone());
-                        self.fb.push_inst(Inst::NewArrayEmpty {
-                            dst,
-                            elem: (**elem).clone(),
-                            fixed_len: *len,
-                        });
-                        (dst, ty_full)
-                    } else {
-                        // Hint-directed lowering: build an array whose
-                        // element MirTy AND fixed-length match the
-                        // binding's hint, so the inline-vs-dynamic
-                        // codegen layout is consistent with how
-                        // ArrayLoad / ArrayLen later type-dispatch.
-                        self.lower_array_literal_with_hint(
-                            items,
-                            Some((**elem).clone()),
-                            *len,
-                        )?
-                    }
-                } else if let (
-                    ExprKind::Array(items),
                     Some(simd_ty @ MirTy::Simd { elem, lanes }),
                 ) = (&value.kind, &bind_hint)
                 {
                     // Array literal → SIMD vector: each element
                     // coerces to the lane scalar type, then
                     // `NewSimd` packs them into a single cranelift
-                    // vector value.
+                    // vector value. (No `lower_composite_with_hint`
+                    // arm covers array→simd, so handle it up front.)
                     if items.len() != *lanes as usize {
                         return Err(LowerError::Other(format!(
                             "expected {} elements for {simd_ty}, got {}",
@@ -105,10 +77,17 @@ impl<'a> BodyCx<'a> {
                         lanes: lane_vals.into_boxed_slice(),
                     });
                     (dst, simd_ty.clone())
-                } else if let (ExprKind::Tuple(items), Some(MirTy::Tuple(elems))) =
-                    (&value.kind, &bind_hint)
-                {
-                    self.lower_tuple_literal_with_hint(items, elems)?
+                } else if let Some(h) = &bind_hint {
+                    // Push the binding's declared type into a composite
+                    // literal RHS (array / tuple / some / none) so it is
+                    // built with the right element widths and the empty
+                    // array gets the annotated element type. Non-literal
+                    // values fall through to a plain lowering + the
+                    // coerce below.
+                    match self.lower_composite_with_hint(value, h) {
+                        Some(res) => res?,
+                        None => self.lower_expr(value)?,
+                    }
                 } else {
                     self.lower_expr(value)?
                 };
