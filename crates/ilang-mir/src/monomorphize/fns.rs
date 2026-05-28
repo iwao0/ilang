@@ -111,28 +111,24 @@ pub fn monomorphize_fns(
             },
         );
 
-        // 3. Rewrite generic-fn calls in the substituted body to use
-        //    their mangled names.
-        new_fn.body = rewrite_calls_in_block(
+        // 3. Rewrite, in a single body walk, both generic-fn calls
+        //    (mangle the callee) and generic-enum references (mangle
+        //    each `EnumCtor.enum_name` + strip now-mangled match
+        //    patterns + mangle enum types). The two transforms touch
+        //    disjoint node kinds (`Call` vs `EnumCtor` / `Match`), so
+        //    one traversal is equivalent to the former two separate
+        //    passes and saves a full clone of the body. Without the
+        //    enum half, `MyOpt.some(v)` inside a specialized `wrap_i64`
+        //    body would keep `enum_name="MyOpt"` and MIR lower couldn't
+        //    find the (already-dropped) generic `MyOpt` template.
+        new_fn.body = rewrite_calls_and_enums_in_block(
             &new_fn.body,
             call_type_args,
-            &outer_params,
-            &outer_args,
-            &generic_fns,
-        );
-
-        // 4. Rewrite EnumCtors in the substituted body so refs to
-        //    generic enums get their `enum_name` mangled with the
-        //    now-concrete args. Without this, `MyOpt.some(v)` inside
-        //    a specialized `wrap_i64` body keeps `enum_name="MyOpt"`,
-        //    and MIR lower can't find the (already-dropped) generic
-        //    `MyOpt` template.
-        new_fn.body = super::enums::rewrite_enum_refs_in_block(
-            &new_fn.body,
-            &generic_enums,
             enum_ctor_type_args,
             &outer_params,
             &outer_args,
+            &generic_fns,
+            &generic_enums,
         );
 
         synthesized.insert(mangled, new_fn);
@@ -341,6 +337,153 @@ pub(super) fn rewrite_calls_in_expr(
                 &mut |t: &Type| t.clone(),
             )
         }
+    };
+    Expr { kind, span: e.span }
+}
+
+/// Combined per-specialization body rewrite: mangle generic-fn call
+/// callees (`call_table`) AND generic-enum `EnumCtor.enum_name` /
+/// match-pattern / enum types (`enum_table` + `generic_enums`) in a
+/// single traversal. `Call` and `EnumCtor` / `Match` are disjoint node
+/// kinds, so doing both here is equivalent to the former two separate
+/// `rewrite_calls_in_block` + `rewrite_enum_refs_in_block` passes while
+/// cloning the body only once.
+pub(super) fn rewrite_calls_and_enums_in_block(
+    b: &Block,
+    call_table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    enum_table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
+    outer_args: &[Type],
+    generic_fns: &HashMap<Symbol, FnDecl>,
+    generic_enums: &HashMap<Symbol, ilang_ast::EnumDecl>,
+) -> Block {
+    super::walk::map_block_children(
+        b,
+        &mut |e| {
+            rewrite_calls_and_enums_in_expr(
+                e, call_table, enum_table, outer_params, outer_args, generic_fns, generic_enums,
+            )
+        },
+        &mut |t: &Type| super::enums::rewrite_enum_refs_in_type(t, generic_enums),
+    )
+}
+
+fn rewrite_calls_and_enums_in_expr(
+    e: &Expr,
+    call_table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    enum_table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
+    outer_args: &[Type],
+    generic_fns: &HashMap<Symbol, FnDecl>,
+    generic_enums: &HashMap<Symbol, ilang_ast::EnumDecl>,
+) -> Expr {
+    let recurse = |c: &Expr| {
+        rewrite_calls_and_enums_in_expr(
+            c, call_table, enum_table, outer_params, outer_args, generic_fns, generic_enums,
+        )
+    };
+    let kind = match &e.kind {
+        ExprKind::Call { callee, args } => {
+            let new_args: Vec<Expr> = args.iter().map(&recurse).collect();
+            let new_callee = if generic_fns.contains_key(callee) {
+                if let Some((cname, raw_args)) = call_table.get(&e.span) {
+                    if cname == callee {
+                        let concrete: Vec<Type> = raw_args
+                            .iter()
+                            .map(|t| subst_type(t, outer_params, outer_args))
+                            .collect();
+                        if !concrete.iter().any(contains_type_var) {
+                            mangle_fn_name(callee.as_str(), &concrete)
+                        } else {
+                            callee.clone()
+                        }
+                    } else {
+                        callee.clone()
+                    }
+                } else {
+                    callee.clone()
+                }
+            } else {
+                callee.clone()
+            };
+            ExprKind::Call { callee: new_callee, args: new_args.into() }
+        }
+        ExprKind::EnumCtor { enum_name, variant, args } => {
+            let new_args = match args {
+                ilang_ast::CtorArgs::Unit => ilang_ast::CtorArgs::Unit,
+                ilang_ast::CtorArgs::Tuple(es) => {
+                    ilang_ast::CtorArgs::Tuple(es.iter().map(&recurse).collect())
+                }
+                ilang_ast::CtorArgs::Struct(fs) => ilang_ast::CtorArgs::Struct(
+                    fs.iter().map(|(n, x)| (n.clone(), recurse(x))).collect(),
+                ),
+            };
+            let new_name = if generic_enums.contains_key(enum_name) {
+                if let Some((tn, raw_args)) = enum_table.get(&e.span) {
+                    if tn == enum_name {
+                        let concrete: Vec<Type> = raw_args
+                            .iter()
+                            .map(|t| subst_type(t, outer_params, outer_args))
+                            .collect();
+                        if !concrete.iter().any(contains_type_var) {
+                            super::enums::mangle_enum(enum_name.as_str(), &concrete)
+                        } else {
+                            enum_name.clone()
+                        }
+                    } else {
+                        enum_name.clone()
+                    }
+                } else {
+                    enum_name.clone()
+                }
+            } else {
+                enum_name.clone()
+            };
+            ExprKind::EnumCtor {
+                enum_name: new_name,
+                variant: variant.clone(),
+                args: new_args.into(),
+            }
+        }
+        ExprKind::Match { scrutinee, arms } => {
+            let new_scrut = recurse(scrutinee);
+            let new_arms = arms
+                .iter()
+                .map(|arm| {
+                    let new_pat = match &arm.pattern.kind {
+                        ilang_ast::PatternKind::Variant { enum_name, variant, bindings } => {
+                            let stripped = enum_name
+                                .as_ref()
+                                .filter(|n| !generic_enums.contains_key(n))
+                                .cloned();
+                            ilang_ast::Pattern {
+                                kind: ilang_ast::PatternKind::Variant {
+                                    enum_name: stripped,
+                                    variant: variant.clone(),
+                                    bindings: bindings.clone(),
+                                },
+                                span: arm.pattern.span,
+                            }
+                        }
+                        other => ilang_ast::Pattern {
+                            kind: other.clone(),
+                            span: arm.pattern.span,
+                        },
+                    };
+                    ilang_ast::MatchArm {
+                        pattern: new_pat,
+                        body: recurse(&arm.body),
+                        span: arm.span,
+                    }
+                })
+                .collect();
+            ExprKind::Match { scrutinee: Box::new(new_scrut), arms: new_arms }
+        }
+        _ => map_expr_children(
+            e,
+            &mut |c| recurse(c),
+            &mut |t: &Type| super::enums::rewrite_enum_refs_in_type(t, generic_enums),
+        ),
     };
     Expr { kind, span: e.span }
 }

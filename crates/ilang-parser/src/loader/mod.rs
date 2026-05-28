@@ -46,8 +46,8 @@ mod target_filter;
 
 use apply_use::apply_use;
 use consts::inline_constants;
-use prescan::{collect_objc_class_names, expand_embeds, pre_scan_use_modules,
-    prescan_sibling_objc_classes};
+use prescan::{build_dir_objc_scan, collect_objc_class_names, expand_embeds,
+    pre_scan_use_modules, DirObjcScan};
 use rename::rename_in_program;
 use resolve::{canonicalize, read_source, resolve_module};
 use spans::tag_program_spans;
@@ -242,6 +242,10 @@ pub fn load_program_full(
     // before prefix to qualify bare @objc class refs that target a
     // sibling category file the source didn't (and can't) `use`.
     let mut sibling_class_maps: HashMap<PathBuf, HashMap<Symbol, Symbol>> = HashMap::new();
+    // Per-folder `@objc class` pre-scan cache. A folder module's
+    // siblings are read + tokenized once here instead of once per
+    // sibling that gets parsed (which was O(N²) in folder size).
+    let mut objc_dir_cache: HashMap<PathBuf, DirObjcScan> = HashMap::new();
     let entry_dir = entry.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
     let entry_canon = canonicalize(entry)?;
     let extra_paths: Vec<PathBuf> = extra_paths.to_vec();
@@ -249,7 +253,7 @@ pub fn load_program_full(
     load_recursive(
         &entry_canon, &entry_dir, &extra_paths, parents, dep_names_to_dirs,
         &mut visiting, &mut chain, &mut loaded, overlay, &mut objc_registry,
-        &mut objc_class_modules, &mut sibling_class_maps,
+        &mut objc_class_modules, &mut sibling_class_maps, &mut objc_dir_cache,
     )?;
 
     // Cross-module visibility check before merging: every `M.X`
@@ -368,6 +372,7 @@ fn load_recursive(
     objc_registry: &mut HashSet<Symbol>,
     objc_class_modules: &mut HashMap<Symbol, Symbol>,
     sibling_class_maps: &mut HashMap<PathBuf, HashMap<Symbol, Symbol>>,
+    objc_dir_cache: &mut HashMap<PathBuf, DirObjcScan>,
 ) -> Result<(), LoadError> {
     if loaded.contains_key(file) {
         return Ok(());
@@ -391,7 +396,7 @@ fn load_recursive(
         )?;
         load_recursive(
             &canon, &dir, extra_paths, parents, dep_names_to_dirs, visiting, chain, loaded, overlay,
-            objc_registry, objc_class_modules, sibling_class_maps,
+            objc_registry, objc_class_modules, sibling_class_maps, objc_dir_cache,
         )?;
     }
     // Folder-module sibling pre-scan: when `<dir>/mod.il` exists, peek
@@ -409,40 +414,57 @@ fn load_recursive(
     // a sibling-file class — the loader's prefix pass would otherwise
     // re-tag the bare `<Class>` with the *importer's* module name and
     // the type checker would fail to resolve it.
-    // Per-file sibling-class map. Built fresh from the prescan so a
+    // Per-file sibling-class map. Built fresh per file (excluding the
+    // file currently being parsed) from the cached directory scan, so a
     // class defined in the file currently being parsed doesn't carry
-    // over a stale `module → file's stem` mapping accumulated when
-    // earlier siblings prescanned this same file.
+    // over a stale mapping.
     let mut file_class_modules: HashMap<Symbol, Symbol> = HashMap::new();
     let mut implicit_modules: Vec<Symbol> = Vec::new();
     if dir.join("mod.il").exists() {
-        prescan_sibling_objc_classes(&dir, file, objc_registry, &mut file_class_modules);
+        // Umbrella module name = containing directory's basename.
+        // Folder-bindings flatten everything through `mod.il`'s
+        // `pub use sibling.*` (wildcard re-export), which merges every
+        // sibling's items under the umbrella's prefix, NOT under each
+        // sibling's file stem (so `spritekit/actions.il`'s `SKAction`
+        // becomes `spritekit.SKAction`). Pointing the qualified ref at
+        // the umbrella gives a name the merged Program will carry.
+        let umbrella = dir.file_name().and_then(|n| n.to_str()).map(Symbol::intern);
+        // Scan the directory's siblings once (reads + tokenizes each
+        // file a single time), then reuse the cache for every other
+        // sibling in the same folder.
+        let scan = objc_dir_cache
+            .entry(dir.clone())
+            .or_insert_with(|| build_dir_objc_scan(&dir));
+        let current_canon = file.canonicalize().ok();
+        for e in &scan.entries {
+            // Skip the file currently being parsed — its own @objc
+            // classes are harvested post-parse by
+            // `collect_objc_class_names`; matching the old per-file
+            // prescan which excluded `current`.
+            let is_current = match (&current_canon, &e.canon) {
+                (Some(a), Some(b)) => a == b,
+                _ => false,
+            };
+            if is_current {
+                continue;
+            }
+            if let Some(um) = umbrella {
+                for &cls in &e.classes {
+                    objc_registry.insert(cls);
+                    file_class_modules.entry(cls).or_insert(um);
+                }
+            }
+            // Every sibling stem becomes an implicit `use <stem>` for
+            // normalize's dotted-ref validation, so the auto-lift's
+            // synthetic `new physics.SKPhysicsWorld(...)` passes the
+            // "this file does not `use physics`" check without an
+            // actual (circular) import.
+            implicit_modules.push(e.stem);
+        }
         // Also seed the cumulative cross-file map for any downstream
         // consumers that still consult it.
         for (k, v) in &file_class_modules {
             objc_class_modules.entry(*k).or_insert(*v);
-        }
-        // Every sibling stem becomes an implicit `use <stem>` for the
-        // purposes of normalize's dotted-ref validation. Lets the
-        // auto-lift's synthetic `new physics.SKPhysicsWorld(...)`
-        // (emitted from node.il when wrapping a sibling-class return)
-        // pass the "this file does not `use physics`" check without
-        // having to actually `use` the sibling — which would create a
-        // circular dependency.
-        if let Ok(rd) = std::fs::read_dir(&dir) {
-            for entry in rd.flatten() {
-                let p = entry.path();
-                if p.extension().and_then(|e| e.to_str()) != Some("il") { continue; }
-                let stem = match p.file_stem().and_then(|s| s.to_str()) {
-                    Some(s) => s,
-                    None => continue,
-                };
-                if stem == "mod" { continue; }
-                if let (Some(a), Ok(b)) = (file.canonicalize().ok().as_ref(), p.canonicalize()) {
-                    if a == &b { continue; }
-                }
-                implicit_modules.push(Symbol::intern(stem));
-            }
         }
     }
     let mut prog = crate::parse_with_implicit_modules(

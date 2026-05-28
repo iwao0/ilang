@@ -7,7 +7,7 @@
 //! `expand_embeds` resolves `@embed("path")` const RHSs against the
 //! declaring source file's directory.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use ilang_ast::{ExternCItem, Item, Program, Symbol};
@@ -102,41 +102,46 @@ pub(super) fn pre_scan_use_modules(
     deps
 }
 
-/// Tokenize each sibling `*.il` next to `current` (skipping `current`
-/// itself and `mod.il`) and harvest `@objc pub class <Name>` /
-/// `@objc class <Name>` declarations into `registry`. Run before
-/// parsing a file that lives inside a folder-module so its auto-lift
-/// sees @objc class types declared in sibling category files —
-/// without requiring an actual `use sibling { … }`, which would create
-/// a circular import (siblings routinely reference each other through
-/// the umbrella).
+/// Per-sibling result of a folder-module `@objc class` pre-scan.
+pub(super) struct SiblingObjcEntry {
+    /// Canonicalized sibling path; used to exclude the file currently
+    /// being parsed (which harvests its own @objc classes post-parse).
+    /// `None` when canonicalize failed (the file is then never treated
+    /// as "current", matching the old per-sibling comparison).
+    pub(super) canon: Option<PathBuf>,
+    /// File stem, registered as an implicit `use <stem>` so the
+    /// auto-lift's synthetic cross-sibling refs pass normalize's
+    /// dotted-ref check without a (circular) explicit import.
+    pub(super) stem: Symbol,
+    /// `@objc [pub] class <Name>` names harvested from this sibling.
+    pub(super) classes: Vec<Symbol>,
+}
+
+/// Whole-directory `@objc class` pre-scan, computed once per folder
+/// module and cached. Each sibling `*.il` (skipping `mod.il`) is read
+/// and tokenized exactly once here, rather than re-read for every
+/// other sibling that gets parsed — an N-file folder used to do
+/// O(N²) reads + tokenizations.
+pub(super) struct DirObjcScan {
+    pub(super) entries: Vec<SiblingObjcEntry>,
+}
+
+/// Tokenize each sibling `*.il` in `dir` (skipping `mod.il`) and
+/// harvest `@objc pub class <Name>` / `@objc class <Name>` names plus
+/// the file stem. The caller merges these (excluding the file it's
+/// about to parse) into the cross-file `@objc` registry so a file's
+/// auto-lift sees @objc class types declared in sibling category files
+/// — without requiring an actual `use sibling { … }`, which would
+/// create a circular import.
 ///
 /// Cheap pre-pass: just tokenize and look for the three-token sequence
 /// `@objc [pub] class <Ident>`. Avoids a full parse; missed classes
 /// (typo'd attribute, etc.) just fall through to the existing
 /// post-parse `collect_objc_class_names` pass.
-pub(super) fn prescan_sibling_objc_classes(
-    dir: &Path,
-    current: &Path,
-    registry: &mut HashSet<Symbol>,
-    class_modules: &mut HashMap<Symbol, Symbol>,
-) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    let current_canon = current.canonicalize().ok();
-    // Umbrella module name = containing directory's basename.
-    // Folder-bindings flatten everything through `mod.il`'s
-    // `pub use sibling.*` (wildcard re-export), which merges every
-    // sibling's items under the umbrella's prefix, NOT under each
-    // sibling's file stem. So `bindings/cocoa/spritekit/actions.il`'s
-    // `SKAction` becomes `spritekit.SKAction` after merge — the
-    // sibling-stem path (`actions.SKAction`) never exists unless
-    // someone explicitly `use`s the file directly, which the
-    // category files can't do without circular imports. Pointing
-    // the qualified ref at the umbrella gives a name the merged
-    // Program will actually carry.
-    let umbrella = match dir.file_name().and_then(|n| n.to_str()) {
-        Some(s) => Symbol::intern(s),
-        None => return,
+pub(super) fn build_dir_objc_scan(dir: &Path) -> DirObjcScan {
+    let mut entries = Vec::new();
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return DirObjcScan { entries };
     };
     for entry in rd.flatten() {
         let p = entry.path();
@@ -147,40 +152,43 @@ pub(super) fn prescan_sibling_objc_classes(
         if name == "mod.il" {
             continue;
         }
-        if let (Some(a), Ok(b)) = (current_canon.as_ref(), p.canonicalize()) {
-            if a == &b { continue; }
-        }
-        let module_name = umbrella;
-        let Ok(src) = std::fs::read_to_string(&p) else { continue };
-        let Ok(toks) = ilang_lexer::tokenize(&src) else { continue };
-        // Scan for `@objc ... class <Ident>` patterns. The `...` is
-        // either nothing or `pub` (the only modifier the parser
-        // accepts between `@objc` and `class` in this position).
-        let mut i = 0;
-        while i + 2 < toks.len() {
-            // `@` (At) + `objc` (Ident "objc")
-            if matches!(toks[i].kind, TokenKind::At) {
-                if let TokenKind::Ident(n) = &toks[i + 1].kind {
-                    if n.as_str() == "objc" {
-                        let mut j = i + 2;
-                        if matches!(toks.get(j).map(|t| &t.kind), Some(TokenKind::Pub)) {
-                            j += 1;
-                        }
-                        if matches!(toks.get(j).map(|t| &t.kind), Some(TokenKind::Class)) {
-                            if let Some(TokenKind::Ident(cls)) =
-                                toks.get(j + 1).map(|t| &t.kind)
-                            {
-                                let class_sym = Symbol::intern(cls.as_str());
-                                registry.insert(class_sym);
-                                class_modules.entry(class_sym).or_insert(module_name);
+        let Some(stem) = p.file_stem().and_then(|s| s.to_str()).map(Symbol::intern) else {
+            continue;
+        };
+        let canon = p.canonicalize().ok();
+        let mut classes = Vec::new();
+        if let Ok(src) = std::fs::read_to_string(&p) {
+            if let Ok(toks) = ilang_lexer::tokenize(&src) {
+                // Scan for `@objc ... class <Ident>` patterns. The `...`
+                // is either nothing or `pub` (the only modifier the
+                // parser accepts between `@objc` and `class` here).
+                let mut i = 0;
+                while i + 2 < toks.len() {
+                    // `@` (At) + `objc` (Ident "objc")
+                    if matches!(toks[i].kind, TokenKind::At) {
+                        if let TokenKind::Ident(n) = &toks[i + 1].kind {
+                            if n.as_str() == "objc" {
+                                let mut j = i + 2;
+                                if matches!(toks.get(j).map(|t| &t.kind), Some(TokenKind::Pub)) {
+                                    j += 1;
+                                }
+                                if matches!(toks.get(j).map(|t| &t.kind), Some(TokenKind::Class)) {
+                                    if let Some(TokenKind::Ident(cls)) =
+                                        toks.get(j + 1).map(|t| &t.kind)
+                                    {
+                                        classes.push(Symbol::intern(cls.as_str()));
+                                    }
+                                }
                             }
                         }
                     }
+                    i += 1;
                 }
             }
-            i += 1;
         }
+        entries.push(SiblingObjcEntry { canon, stem, classes });
     }
+    DirObjcScan { entries }
 }
 
 /// Collect every `@objc class` name declared in `prog` (i.e. classes
