@@ -64,6 +64,33 @@ pub(super) fn chunk_max_for(f: &MirFunction) -> i64 {
     if is_c_abi(f) { C_BYVAL_CHUNK_MAX } else { IL_BYVAL_CHUNK_MAX }
 }
 
+/// The chunk cap that applies to a struct *return*. Unlike
+/// arguments (which can spill onto the stack when they overflow the
+/// GPRs), return values must fit in the ABI's return registers:
+///
+/// - **x86_64 System V** returns integer aggregates in at most two
+///   GPRs (rax:rdx) — 16 bytes. Anything larger must come back
+///   through an sret hidden pointer, so the return cap is clamped to
+///   16 B regardless of the looser ilang argument cap. Without this,
+///   a 32 B ilang-ABI struct return asks Cranelift for four return
+///   registers and fails with "Too many return values to fit in
+///   registers" (#9510).
+/// - **AArch64 AAPCS64 / Win64** let Cranelift spread the ilang-ABI
+///   return across more registers, so they keep the full cap.
+///
+/// (Float HFAs return in v0..v3 on every target and are decided
+/// before this cap is consulted, so they're unaffected.)
+pub(super) fn ret_chunk_max(
+    call_conv: cranelift_codegen::isa::CallConv,
+    chunk_max: i64,
+) -> i64 {
+    if call_conv == cranelift_codegen::isa::CallConv::SystemV {
+        chunk_max.min(C_BYVAL_CHUNK_MAX)
+    } else {
+        chunk_max
+    }
+}
+
 /// Build a Cranelift `Signature` matching the calling convention
 /// for `f`:
 ///
@@ -99,11 +126,15 @@ pub(super) fn clif_signature_for<M: Module>(
     // sret. Without checking HFA first, NSRect-returning ObjC
     // selectors (`-[NSScreen frame]` etc.) silently sret-pre-alloc
     // a buffer the callee never writes to, leaving zeros.
-    let ret_is_hfa = hfa_ok && struct_hfa(&f.ret, prog).is_some();
-    let sret_size = if ret_is_hfa {
+    // Returns are register-bound (no stack spill), so they use a
+    // possibly-tighter cap than arguments — see `ret_chunk_max` /
+    // `struct_hfa_ret`.
+    let ret_max = ret_chunk_max(sig.call_conv, chunk_max);
+    let ret_hfa = struct_hfa_ret(&f.ret, prog, sig.call_conv);
+    let sret_size = if ret_hfa.is_some() {
         None
     } else {
-        struct_indirect_with_max(&f.ret, prog, chunk_max)
+        struct_indirect_with_max(&f.ret, prog, ret_max)
     };
     if sret_size.is_some() {
         sig.params.push(AbiParam::special(
@@ -126,14 +157,31 @@ pub(super) fn clif_signature_for<M: Module>(
             }
             continue;
         }
-        // CRepr over the chunk cap (neither HFA nor chunkable):
-        // the param is a single pointer at the ABI level, but the
-        // call site memcpys the bytes into a scratch buffer before
-        // the call (see `lower_inst::calls`) — the callee sees a
-        // pointer to *that* copy, preserving value semantics.
-        // Cranelift's `StructArgument` purpose would also do this
-        // but it isn't supported on AArch64, so the copy is
-        // emitted manually.
+        // CRepr over the chunk cap (neither HFA nor chunkable). How
+        // the aggregate travels depends on the ABI:
+        //
+        // - **x86_64 System V** classifies a >16 B aggregate as
+        //   MEMORY and copies its bytes onto the stack at the call —
+        //   there is *no* pointer indirection. Cranelift models this
+        //   with the `StructArgument` purpose (caller passes a pointer
+        //   to the source bytes, Cranelift copies them into the
+        //   outgoing stack slot). Without this the struct would be
+        //   handed over as a bare pointer in a register, which the C
+        //   callee reads as garbage stack bytes.
+        // - **AArch64 AAPCS64 / Win64** pass the same aggregate as a
+        //   pointer to a caller-side copy, which is exactly the plain
+        //   i64 pointer path below (the call site memcpys into a
+        //   scratch buffer first). Cranelift also doesn't implement
+        //   `StructArgument` on AArch64, so that path stays manual.
+        if sig.call_conv == cranelift_codegen::isa::CallConv::SystemV {
+            if let Some(size) = struct_byval_size_with_max(&p.ty, prog, chunk_max) {
+                sig.params.push(AbiParam::special(
+                    types::I64,
+                    cranelift_codegen::ir::ArgumentPurpose::StructArgument(size as u32),
+                ));
+                continue;
+            }
+        }
         if let Some(ct) = mir_to_clif(&p.ty) {
             sig.params.push(AbiParam::new(ct));
         } else {
@@ -149,15 +197,13 @@ pub(super) fn clif_signature_for<M: Module>(
         return Ok(sig);
     }
     if !matches!(f.ret, MirTy::Unit) {
-        if hfa_ok {
-            if let Some((elem_ct, count)) = struct_hfa(&f.ret, prog) {
-                for _ in 0..count {
-                    sig.returns.push(AbiParam::new(elem_ct));
-                }
-                return Ok(sig);
+        if let Some((elem_ct, count)) = ret_hfa {
+            for _ in 0..count {
+                sig.returns.push(AbiParam::new(elem_ct));
             }
+            return Ok(sig);
         }
-        if let Some(chunks) = struct_chunks_with_max(&f.ret, prog, chunk_max) {
+        if let Some(chunks) = struct_chunks_with_max(&f.ret, prog, ret_max) {
             for _ in 0..chunks {
                 sig.returns.push(AbiParam::new(types::I64));
             }
@@ -215,6 +261,37 @@ pub(super) fn struct_hfa(ty: &MirTy, prog: &Program) -> Option<(cranelift::prelu
     let first = floats[0];
     if floats.iter().all(|t| *t == first) {
         Some((first, floats.len()))
+    } else {
+        None
+    }
+}
+
+/// HFA for a *return* value, honoring the target's float return-register
+/// budget. Unlike arguments (8 SSE / v registers to spread across), a
+/// float aggregate that comes back in registers is limited on the
+/// return path:
+///
+/// - **x86_64 System V** returns floats in xmm0:xmm1 — at most 2. A 3-
+///   or 4-float aggregate exceeds that and must come back via sret, so
+///   this returns `None` and the caller falls through to the chunk /
+///   sret path. (AArch64's 4-float v0..v3 budget is unaffected.)
+/// - **Windows fastcall** has no HFA return path at all.
+///
+/// Returning `None` here keeps the return shape consistent across the
+/// signature, the callee's `ret` lowering, and the caller's result
+/// reconstruction — they all consult this same helper.
+pub(super) fn struct_hfa_ret(
+    ty: &MirTy,
+    prog: &Program,
+    call_conv: cranelift_codegen::isa::CallConv,
+) -> Option<(cranelift::prelude::Type, usize)> {
+    if call_conv == cranelift_codegen::isa::CallConv::WindowsFastcall {
+        return None;
+    }
+    let (ct, count) = struct_hfa(ty, prog)?;
+    let max_floats = if cfg!(target_arch = "x86_64") { 2 } else { 4 };
+    if count <= max_floats {
+        Some((ct, count))
     } else {
         None
     }

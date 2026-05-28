@@ -14,7 +14,8 @@ use ilang_ast::Symbol;
 use ilang_mir::{FuncId, Function as MirFunction, MirTy, Program, StaticSlotId, ValueId};
 
 use crate::compile::abi::{
-    chunk_max_for, struct_chunks_with_max, struct_hfa, struct_indirect_with_max,
+    chunk_max_for, ret_chunk_max, struct_chunks_with_max, struct_hfa, struct_hfa_ret,
+    struct_indirect_with_max,
 };
 use crate::ty::mir_to_clif;
 
@@ -76,11 +77,14 @@ pub(super) fn lower_function<M: Module>(
     // pre-check would synthesise a hidden sret pointer for a
     // function whose signature actually returns the floats
     // directly, mis-aligning the entry-block param schema.
-    let ret_is_hfa = hfa_ok && struct_hfa(&func.ret, prog).is_some();
-    let sret_ret_size = if ret_is_hfa {
+    // Returns are register-bound; use the (possibly tighter) return
+    // caps so this matches `clif_signature_for` on every ABI.
+    let ret_max = ret_chunk_max(fb.func.signature.call_conv, chunk_max);
+    let ret_hfa = struct_hfa_ret(&func.ret, prog, fb.func.signature.call_conv);
+    let sret_ret_size = if ret_hfa.is_some() {
         None
     } else {
-        struct_indirect_with_max(&func.ret, prog, chunk_max)
+        struct_indirect_with_max(&func.ret, prog, ret_max)
     };
     let mut blocks: Vec<cranelift::prelude::Block> = Vec::with_capacity(func.blocks.len());
     for (i, blk) in func.blocks.iter().enumerate() {
@@ -236,7 +240,9 @@ pub(super) fn lower_function<M: Module>(
     let ret_abi = ReturnAbi {
         sret_ptr,
         ret_ty: func.ret.clone(),
-        chunk_max,
+        // Return-side cap (SysV-tightened) so the Ret lowering picks
+        // the same sret-vs-chunks shape as the signature / entry block.
+        chunk_max: ret_max,
     };
 
     // Address-taken locals (those that show up in an

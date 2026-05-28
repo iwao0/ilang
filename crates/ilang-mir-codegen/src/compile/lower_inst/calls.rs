@@ -19,7 +19,7 @@ use crate::ty::mir_to_clif;
 use super::super::abi::{
     chunk_max_for, clif_signature_for, elem_byte_stride, elem_clif_type,
     extend_to_i64, struct_byval_size_with_max, struct_chunks_with_max,
-    struct_hfa, struct_indirect_with_max,
+    struct_hfa, struct_hfa_ret, struct_indirect_with_max,
 };
 use super::super::fmt_emit::emit_format_value;
 use super::super::print_emit::emit_print_value;
@@ -144,14 +144,17 @@ pub(super) fn lower_call<M: Module>(
     // `clif_signature_for`'s return-shape decision, otherwise the
     // caller pre-allocs an sret buffer the HFA-returning callee
     // never writes to and the values come back as zero.
-    let hfa_ok_for_ret = fb.func.signature.call_conv
-        != cranelift_codegen::isa::CallConv::WindowsFastcall;
+    let ret_conv = fb.func.signature.call_conv;
+    // Returns are register-bound; mirror `clif_signature_for`'s
+    // SysV-tightened return cap so caller and callee agree on whether
+    // the result comes back via sret or i64 chunks.
+    let ret_chunk_cap = super::super::abi::ret_chunk_max(ret_conv, callee_chunk_max);
     let sret_dst = if let Some(d) = dst {
         let dst_ty = func.ty_of(*d).clone();
-        let ret_is_hfa = hfa_ok_for_ret && struct_hfa(&dst_ty, prog).is_some();
+        let ret_is_hfa = struct_hfa_ret(&dst_ty, prog, ret_conv).is_some();
         if !ret_is_hfa {
             if let Some(c_size) =
-                struct_indirect_with_max(&dst_ty, prog, callee_chunk_max)
+                struct_indirect_with_max(&dst_ty, prog, ret_chunk_cap)
             {
                 let size_v = fb.ins().iconst(types::I64, c_size);
                 let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
@@ -649,13 +652,11 @@ pub(super) fn lower_call<M: Module>(
         // this allocation to a StackSlot at the NewObject site, but
         // call-result buffers always go through alloc.
         if !is_callee_builtin {
-            // HFA result unpacking is not valid on Windows fastcall;
-            // those calls return i64 chunks instead (matched by the
-            // chunks path below).
-            let hfa_ok = fb.func.signature.call_conv
-                != cranelift_codegen::isa::CallConv::WindowsFastcall;
-            if hfa_ok {
-                if let Some((elem_ct, count)) = struct_hfa(&dst_ty, prog) {
+            // HFA result unpacking honors the return float-register
+            // budget (none on Windows fastcall, 2 on x86_64, 4 on
+            // AArch64); anything past it came back via chunks / sret.
+            {
+                if let Some((elem_ct, count)) = struct_hfa_ret(&dst_ty, prog, ret_conv) {
                     let layout = if let MirTy::Object(cid) = &dst_ty {
                         &prog.classes[cid.0 as usize]
                     } else {
@@ -679,7 +680,7 @@ pub(super) fn lower_call<M: Module>(
                     return Ok(());
                 }
             }
-            if let Some(chunks) = struct_chunks_with_max(&dst_ty, prog, callee_chunk_max) {
+            if let Some(chunks) = struct_chunks_with_max(&dst_ty, prog, ret_chunk_cap) {
                 let layout = if let MirTy::Object(cid) = &dst_ty {
                     &prog.classes[cid.0 as usize]
                 } else {

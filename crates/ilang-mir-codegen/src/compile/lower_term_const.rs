@@ -8,7 +8,7 @@ use cranelift_frontend::FunctionBuilder as ClifFnBuilder;
 
 use ilang_mir::{MirConst, MirTy, Program, Terminator, ValueId};
 
-use crate::compile::abi::{struct_chunks_with_max, struct_hfa, struct_indirect_with_max};
+use crate::compile::abi::{struct_chunks_with_max, struct_hfa_ret, struct_indirect_with_max};
 use crate::ty::mir_to_clif;
 
 use super::CompileError;
@@ -67,24 +67,23 @@ pub(super) fn lower_term(
                 // function whose signature actually returns
                 // floats directly would memcpy into a non-existent
                 // hidden pointer and the caller would see zeros.
-                let hfa_ok = fb.func.signature.call_conv
-                    != cranelift_codegen::isa::CallConv::WindowsFastcall;
-                if hfa_ok {
-                    if let Some((elem_ct, count)) = struct_hfa(&ret_abi.ret_ty, prog) {
-                        if let Some(cv) = cv_opt {
-                            let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
-                            let mut vs: Vec<Value> = Vec::with_capacity(count);
-                            for c in 0..count {
-                                vs.push(fb.ins().load(
-                                    elem_ct,
-                                    MemFlags::trusted(),
-                                    cv,
-                                    (c as i32) * elem_size,
-                                ));
-                            }
-                            fb.ins().return_(&vs);
-                            return Ok(());
+                let call_conv = fb.func.signature.call_conv;
+                if let Some((elem_ct, count)) =
+                    struct_hfa_ret(&ret_abi.ret_ty, prog, call_conv)
+                {
+                    if let Some(cv) = cv_opt {
+                        let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
+                        let mut vs: Vec<Value> = Vec::with_capacity(count);
+                        for c in 0..count {
+                            vs.push(fb.ins().load(
+                                elem_ct,
+                                MemFlags::trusted(),
+                                cv,
+                                (c as i32) * elem_size,
+                            ));
                         }
+                        fb.ins().return_(&vs);
+                        return Ok(());
                     }
                 }
                 if let Some(c_size) =
