@@ -358,11 +358,56 @@ pub extern "C" fn __fixed_to_dyn(ptr: i64, len: i64, stride: i64, kind_tag: i64)
 
 /// Invoke a closure (`[fn_ptr | rc | captures...]` block pointer)
 /// with one arg and the trailing env pointer.
-unsafe fn call_closure_1(closure: i64, arg: i64) -> i64 {
+///
+/// `arg_fk` / `ret_fk` are float-kind tags (0 = integer/pointer cell,
+/// 1 = f32, 2 = f64) describing the closure's parameter and return
+/// types. Float values travel in float registers, so a closure whose
+/// parameter or return is `f32`/`f64` must be called through an
+/// ABI-matched signature — calling it as `fn(i64, i64) -> i64` would
+/// pass / read the value in the wrong register class and corrupt it.
+/// The array cell holds the value's raw bit pattern; convert via
+/// `from_bits` / `to_bits` around the call.
+unsafe fn call_closure_1(closure: i64, arg: i64, arg_fk: i64, ret_fk: i64) -> i64 {
     unsafe {
         let fn_ptr = *(closure as *const i64);
-        let f: extern "C" fn(i64, i64) -> i64 = std::mem::transmute(fn_ptr);
-        f(arg, closure)
+        match (arg_fk, ret_fk) {
+            (1, 0) => {
+                let f: extern "C" fn(f32, i64) -> i64 = std::mem::transmute(fn_ptr);
+                f(f32::from_bits(arg as u32), closure)
+            }
+            (2, 0) => {
+                let f: extern "C" fn(f64, i64) -> i64 = std::mem::transmute(fn_ptr);
+                f(f64::from_bits(arg as u64), closure)
+            }
+            (0, 1) => {
+                let f: extern "C" fn(i64, i64) -> f32 = std::mem::transmute(fn_ptr);
+                f(arg, closure).to_bits() as i64
+            }
+            (1, 1) => {
+                let f: extern "C" fn(f32, i64) -> f32 = std::mem::transmute(fn_ptr);
+                f(f32::from_bits(arg as u32), closure).to_bits() as i64
+            }
+            (2, 1) => {
+                let f: extern "C" fn(f64, i64) -> f32 = std::mem::transmute(fn_ptr);
+                f(f64::from_bits(arg as u64), closure).to_bits() as i64
+            }
+            (0, 2) => {
+                let f: extern "C" fn(i64, i64) -> f64 = std::mem::transmute(fn_ptr);
+                f(arg, closure).to_bits() as i64
+            }
+            (1, 2) => {
+                let f: extern "C" fn(f32, i64) -> f64 = std::mem::transmute(fn_ptr);
+                f(f32::from_bits(arg as u32), closure).to_bits() as i64
+            }
+            (2, 2) => {
+                let f: extern "C" fn(f64, i64) -> f64 = std::mem::transmute(fn_ptr);
+                f(f64::from_bits(arg as u64), closure).to_bits() as i64
+            }
+            _ => {
+                let f: extern "C" fn(i64, i64) -> i64 = std::mem::transmute(fn_ptr);
+                f(arg, closure)
+            }
+        }
     }
 }
 
@@ -371,18 +416,32 @@ unsafe fn call_closure_1(closure: i64, arg: i64) -> i64 {
 /// x86_64 a `setcc`-produced result leaves the upper bits of `rax`
 /// undefined (AArch64's `cset` zeroes them, which is why a plain
 /// `!= 0` test only misbehaves on SysV x86_64). Masking to the low
-/// byte makes the truthiness test correct on every target.
-unsafe fn call_predicate_1(closure: i64, arg: i64) -> bool {
-    (unsafe { call_closure_1(closure, arg) } as u8) != 0
+/// byte makes the truthiness test correct on every target. `arg_fk`
+/// is the element's float kind (see `call_closure_1`).
+unsafe fn call_predicate_1(closure: i64, arg: i64, arg_fk: i64) -> bool {
+    (unsafe { call_closure_1(closure, arg, arg_fk, 0) } as u8) != 0
 }
 
 /// Invoke a closure with two args plus the trailing env pointer.
-/// Used by `__array_sort`'s comparator callback.
-unsafe fn call_closure_2(closure: i64, a: i64, b: i64) -> i64 {
+/// Used by `__array_sort`'s comparator callback, whose two parameters
+/// share the element's float kind `arg_fk` and which returns an int.
+unsafe fn call_closure_2(closure: i64, a: i64, b: i64, arg_fk: i64) -> i64 {
     unsafe {
         let fn_ptr = *(closure as *const i64);
-        let f: extern "C" fn(i64, i64, i64) -> i64 = std::mem::transmute(fn_ptr);
-        f(a, b, closure)
+        match arg_fk {
+            1 => {
+                let f: extern "C" fn(f32, f32, i64) -> i64 = std::mem::transmute(fn_ptr);
+                f(f32::from_bits(a as u32), f32::from_bits(b as u32), closure)
+            }
+            2 => {
+                let f: extern "C" fn(f64, f64, i64) -> i64 = std::mem::transmute(fn_ptr);
+                f(f64::from_bits(a as u64), f64::from_bits(b as u64), closure)
+            }
+            _ => {
+                let f: extern "C" fn(i64, i64, i64) -> i64 = std::mem::transmute(fn_ptr);
+                f(a, b, closure)
+            }
+        }
     }
 }
 
@@ -411,7 +470,14 @@ fn box_optional_cell(value: i64, elem_tag: i64) -> i64 {
 }
 
 #[unsafe(export_name = "$array.map")]
-pub extern "C" fn __array_map(arr: i64, closure: i64, result_kind: i64, result_stride: i64) -> i64 {
+pub extern "C" fn __array_map(
+    arr: i64,
+    closure: i64,
+    result_kind: i64,
+    result_stride: i64,
+    arg_fk: i64,
+    ret_fk: i64,
+) -> i64 {
     if arr == 0 || closure == 0 {
         return build_packed_array(&[], result_kind, result_stride);
     }
@@ -420,14 +486,14 @@ pub extern "C" fn __array_map(arr: i64, closure: i64, result_kind: i64, result_s
     let mut out: Vec<i64> = Vec::with_capacity(len as usize);
     for i in 0..len {
         let cell = unsafe { load_packed(data, i, stride) };
-        let v = unsafe { call_closure_1(closure, cell) };
+        let v = unsafe { call_closure_1(closure, cell, arg_fk, ret_fk) };
         out.push(v);
     }
     build_packed_array(&out, result_kind, result_stride)
 }
 
 #[unsafe(export_name = "$array.filter")]
-pub extern "C" fn __array_filter(arr: i64, closure: i64) -> i64 {
+pub extern "C" fn __array_filter(arr: i64, closure: i64, arg_fk: i64) -> i64 {
     if arr == 0 || closure == 0 {
         return build_i64_array(&[], KIND_NONE);
     }
@@ -437,7 +503,7 @@ pub extern "C" fn __array_filter(arr: i64, closure: i64) -> i64 {
     let mut out: Vec<i64> = Vec::new();
     for i in 0..len {
         let cell = unsafe { load_packed(data, i, stride) };
-        let keep = unsafe { call_predicate_1(closure, cell) };
+        let keep = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if keep {
             if elem_kind != KIND_NONE {
                 retain_field_by_kind(cell, elem_kind);
@@ -471,7 +537,7 @@ pub extern "C" fn __array_slice(arr: i64, start: i64, end: i64) -> i64 {
 }
 
 #[unsafe(export_name = "$array.forEach")]
-pub extern "C" fn __array_for_each(arr: i64, closure: i64) {
+pub extern "C" fn __array_for_each(arr: i64, closure: i64, arg_fk: i64) {
     if arr == 0 || closure == 0 {
         return;
     }
@@ -479,7 +545,7 @@ pub extern "C" fn __array_for_each(arr: i64, closure: i64) {
     let stride = unsafe { array_stride(arr) };
     for i in 0..len {
         let cell = unsafe { load_packed(data, i, stride) };
-        unsafe { call_closure_1(closure, cell) };
+        unsafe { call_closure_1(closure, cell, arg_fk, 0) };
     }
 }
 
@@ -488,7 +554,7 @@ pub extern "C" fn __array_for_each(arr: i64, closure: i64) {
 /// its own reference to the matched cell, so the Optional grabs
 /// a fresh +1 via `retain_field_by_kind` before boxing.
 #[unsafe(export_name = "$array.find")]
-pub extern "C" fn __array_find(arr: i64, closure: i64) -> i64 {
+pub extern "C" fn __array_find(arr: i64, closure: i64, arg_fk: i64) -> i64 {
     if arr == 0 || closure == 0 {
         return 0;
     }
@@ -497,7 +563,7 @@ pub extern "C" fn __array_find(arr: i64, closure: i64) -> i64 {
     let stride = unsafe { array_stride(arr) };
     for i in 0..len {
         let cell = unsafe { load_packed(data, i, stride) };
-        let hit = unsafe { call_predicate_1(closure, cell) };
+        let hit = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if hit {
             return box_optional_cell(cell, elem_kind);
         }
@@ -508,7 +574,7 @@ pub extern "C" fn __array_find(arr: i64, closure: i64) -> i64 {
 /// Index of the first cell for which `pred(cell)` returns non-zero,
 /// or `-1` when nothing matched.
 #[unsafe(export_name = "$array.findIndex")]
-pub extern "C" fn __array_find_index(arr: i64, closure: i64) -> i64 {
+pub extern "C" fn __array_find_index(arr: i64, closure: i64, arg_fk: i64) -> i64 {
     if arr == 0 || closure == 0 {
         return -1;
     }
@@ -516,7 +582,7 @@ pub extern "C" fn __array_find_index(arr: i64, closure: i64) -> i64 {
     let stride = unsafe { array_stride(arr) };
     for i in 0..len {
         let cell = unsafe { load_packed(data, i, stride) };
-        let hit = unsafe { call_predicate_1(closure, cell) };
+        let hit = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if hit {
             return i;
         }
@@ -527,7 +593,7 @@ pub extern "C" fn __array_find_index(arr: i64, closure: i64) -> i64 {
 /// `1` when `pred(cell)` returns non-zero for every cell (vacuously
 /// true on an empty array). Short-circuits on the first `0`.
 #[unsafe(export_name = "$array.every")]
-pub extern "C" fn __array_every(arr: i64, closure: i64) -> i64 {
+pub extern "C" fn __array_every(arr: i64, closure: i64, arg_fk: i64) -> i64 {
     if arr == 0 || closure == 0 {
         return 1;
     }
@@ -535,7 +601,7 @@ pub extern "C" fn __array_every(arr: i64, closure: i64) -> i64 {
     let stride = unsafe { array_stride(arr) };
     for i in 0..len {
         let cell = unsafe { load_packed(data, i, stride) };
-        let hit = unsafe { call_predicate_1(closure, cell) };
+        let hit = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if !hit {
             return 0;
         }
@@ -546,7 +612,7 @@ pub extern "C" fn __array_every(arr: i64, closure: i64) -> i64 {
 /// `1` when `pred(cell)` returns non-zero for at least one cell;
 /// `0` otherwise (including the empty array case).
 #[unsafe(export_name = "$array.some")]
-pub extern "C" fn __array_some(arr: i64, closure: i64) -> i64 {
+pub extern "C" fn __array_some(arr: i64, closure: i64, arg_fk: i64) -> i64 {
     if arr == 0 || closure == 0 {
         return 0;
     }
@@ -554,7 +620,7 @@ pub extern "C" fn __array_some(arr: i64, closure: i64) -> i64 {
     let stride = unsafe { array_stride(arr) };
     for i in 0..len {
         let cell = unsafe { load_packed(data, i, stride) };
-        let hit = unsafe { call_predicate_1(closure, cell) };
+        let hit = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if hit {
             return 1;
         }
@@ -753,7 +819,7 @@ pub extern "C" fn __array_fill(arr: i64, value: i64) {
 /// for less / equal / greater — same convention `qsort_r` /
 /// `Array.prototype.sort` use.
 #[unsafe(export_name = "$array.sort")]
-pub extern "C" fn __array_sort(arr: i64, closure: i64) -> i64 {
+pub extern "C" fn __array_sort(arr: i64, closure: i64, arg_fk: i64) -> i64 {
     if arr == 0 {
         return build_i64_array(&[], KIND_NONE);
     }
@@ -770,7 +836,7 @@ pub extern "C" fn __array_sort(arr: i64, closure: i64) -> i64 {
     }
     if closure != 0 {
         buf.sort_by(|a, b| {
-            let r = unsafe { call_closure_2(closure, *a, *b) };
+            let r = unsafe { call_closure_2(closure, *a, *b, arg_fk) };
             r.cmp(&0)
         });
     }

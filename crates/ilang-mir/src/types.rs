@@ -184,6 +184,17 @@ impl MirTy {
                 | MirTy::Fn(_)
         )
     }
+    /// Float-kind tag for the runtime closure-call ABI: 0 = integer /
+    /// pointer cell, 1 = `f32`, 2 = `f64`. The higher-order array
+    /// helpers use this to call a closure through an ABI that matches
+    /// its float parameter / return type instead of the integer path.
+    pub fn float_kind(&self) -> i64 {
+        match self {
+            MirTy::F32 => 1,
+            MirTy::F64 => 2,
+            _ => 0,
+        }
+    }
     /// Per-element byte stride when this type is stored in a packed
     /// array cell. Small numeric types pack tightly (1/2/4 bytes);
     /// SIMD vectors pack as `lanes × lane_bytes`; everything else uses

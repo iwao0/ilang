@@ -68,10 +68,10 @@ impl<'a> BodyCx<'a> {
             "indexOf" => self.lower_array_index_of(ov, args)?,
             "map" => self.lower_array_map(ov, &elem, args)?,
             "filter" => self.lower_array_filter(ov, &elem, args)?,
-            "forEach" => self.lower_array_for_each(ov, args)?,
+            "forEach" => self.lower_array_for_each(ov, &elem, args)?,
             "find" => self.lower_array_find(ov, &elem, args)?,
-            "findIndex" => self.lower_array_find_index(ov, args)?,
-            "every" | "some" => self.lower_array_every_some(ov, m, args)?,
+            "findIndex" => self.lower_array_find_index(ov, &elem, args)?,
+            "every" | "some" => self.lower_array_every_some(ov, &elem, m, args)?,
             "concat" => self.lower_array_concat(ov, &elem, args)?,
             "reverse" => self.lower_array_reverse(ov, &elem)?,
             "join" => self.lower_array_join(ov, args)?,
@@ -210,11 +210,15 @@ impl<'a> BodyCx<'a> {
         // The result element type can differ from the input's, so the
         // runtime can't infer the output cell width — pass it through.
         let stride_v = self.const_int(MirTy::I64, ret_ty.elem_byte_stride());
+        // Float-kind tags so the runtime calls the closure through an
+        // ABI matching its (input) parameter and (output) return type.
+        let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
+        let ret_fk_v = self.const_int(MirTy::I64, ret_ty.float_kind());
         let v = self.fb.new_value(arr_ty.clone());
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
             callee: FuncRef::Builtin(Symbol::intern("array_map")),
-            args: Box::new([ov, fv, kind_v, stride_v]),
+            args: Box::new([ov, fv, kind_v, stride_v, arg_fk_v, ret_fk_v]),
         });
         Ok((v, arr_ty))
     }
@@ -230,11 +234,12 @@ impl<'a> BodyCx<'a> {
         }
         let arr_ty = MirTy::Array { elem: Box::new(elem.clone()), len: None };
         let (fv, _) = self.lower_expr(&args[0])?;
+        let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
         let v = self.fb.new_value(arr_ty.clone());
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
             callee: FuncRef::Builtin(Symbol::intern("array_filter")),
-            args: Box::new([ov, fv]),
+            args: Box::new([ov, fv, arg_fk_v]),
         });
         Ok((v, arr_ty))
     }
@@ -242,16 +247,18 @@ impl<'a> BodyCx<'a> {
     fn lower_array_for_each(
         &mut self,
         ov: ValueId,
+        elem: &MirTy,
         args: &[Expr],
     ) -> Result<(ValueId, MirTy), LowerError> {
         if args.len() != 1 {
             return Err(LowerError::Other("Array.forEach takes 1 arg".into()));
         }
         let (fv, _) = self.lower_expr(&args[0])?;
+        let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
         self.fb.push_inst(Inst::Call {
             dst: None,
             callee: FuncRef::Builtin(Symbol::intern("array_for_each")),
-            args: Box::new([ov, fv]),
+            args: Box::new([ov, fv, arg_fk_v]),
         });
         Ok((self.const_unit(), MirTy::Unit))
     }
@@ -267,11 +274,12 @@ impl<'a> BodyCx<'a> {
         }
         let opt_ty = MirTy::Optional(Box::new(elem.clone()));
         let (fv, _) = self.lower_expr(&args[0])?;
+        let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
         let v = self.fb.new_value(opt_ty.clone());
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
             callee: FuncRef::Builtin(Symbol::intern("array_find")),
-            args: Box::new([ov, fv]),
+            args: Box::new([ov, fv, arg_fk_v]),
         });
         Ok((v, opt_ty))
     }
@@ -279,17 +287,19 @@ impl<'a> BodyCx<'a> {
     fn lower_array_find_index(
         &mut self,
         ov: ValueId,
+        elem: &MirTy,
         args: &[Expr],
     ) -> Result<(ValueId, MirTy), LowerError> {
         if args.len() != 1 {
             return Err(LowerError::Other("Array.findIndex takes 1 arg".into()));
         }
         let (fv, _) = self.lower_expr(&args[0])?;
+        let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
         let v = self.fb.new_value(MirTy::I64);
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
             callee: FuncRef::Builtin(Symbol::intern("array_find_index")),
-            args: Box::new([ov, fv]),
+            args: Box::new([ov, fv, arg_fk_v]),
         });
         Ok((v, MirTy::I64))
     }
@@ -297,6 +307,7 @@ impl<'a> BodyCx<'a> {
     fn lower_array_every_some(
         &mut self,
         ov: ValueId,
+        elem: &MirTy,
         m: &str,
         args: &[Expr],
     ) -> Result<(ValueId, MirTy), LowerError> {
@@ -304,12 +315,13 @@ impl<'a> BodyCx<'a> {
             return Err(LowerError::Other(format!("Array.{m} takes 1 arg")));
         }
         let (fv, _) = self.lower_expr(&args[0])?;
+        let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
         let builtin = if m == "every" { "array_every" } else { "array_some" };
         let v = self.fb.new_value(MirTy::Bool);
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
             callee: FuncRef::Builtin(Symbol::intern(builtin)),
-            args: Box::new([ov, fv]),
+            args: Box::new([ov, fv, arg_fk_v]),
         });
         Ok((v, MirTy::Bool))
     }
@@ -433,11 +445,12 @@ impl<'a> BodyCx<'a> {
         }
         let arr_ty = MirTy::Array { elem: Box::new(elem.clone()), len: None };
         let (fv, _) = self.lower_expr(&args[0])?;
+        let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
         let v = self.fb.new_value(arr_ty.clone());
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
             callee: FuncRef::Builtin(Symbol::intern("array_sort")),
-            args: Box::new([ov, fv]),
+            args: Box::new([ov, fv, arg_fk_v]),
         });
         Ok((v, arr_ty))
     }

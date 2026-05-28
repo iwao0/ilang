@@ -320,14 +320,17 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             sig.params.push(AbiParam::new(types::I64)); // closure
             sig.params.push(AbiParam::new(types::I64)); // result_kind
             sig.params.push(AbiParam::new(types::I64)); // result_stride
+            sig.params.push(AbiParam::new(types::I64)); // arg_fk
+            sig.params.push(AbiParam::new(types::I64)); // ret_fk
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("$array.map", Linkage::Import, &sig)?
         },
-        array_filter: declare_binary_i64(module, "$array.filter")?,
+        array_filter: declare_ternary_i64(module, "$array.filter")?,
         array_for_each: {
             let mut sig = module.make_signature();
-            sig.params.push(AbiParam::new(types::I64));
-            sig.params.push(AbiParam::new(types::I64));
+            sig.params.push(AbiParam::new(types::I64)); // arr
+            sig.params.push(AbiParam::new(types::I64)); // closure
+            sig.params.push(AbiParam::new(types::I64)); // arg_fk
             module.declare_function("$array.forEach", Linkage::Import, &sig)?
         },
         array_slice: {
@@ -338,10 +341,10 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("$array.slice", Linkage::Import, &sig)?
         },
-        array_find: declare_binary_i64(module, "$array.find")?,
-        array_find_index: declare_binary_i64(module, "$array.findIndex")?,
-        array_every: declare_binary_i64(module, "$array.every")?,
-        array_some: declare_binary_i64(module, "$array.some")?,
+        array_find: declare_ternary_i64(module, "$array.find")?,
+        array_find_index: declare_ternary_i64(module, "$array.findIndex")?,
+        array_every: declare_ternary_i64(module, "$array.every")?,
+        array_some: declare_ternary_i64(module, "$array.some")?,
         array_concat: declare_binary_i64(module, "$array.concat")?,
         array_reverse: declare_unary_i64(module, "$array.reverse")?,
         array_join: declare_binary_i64(module, "$array.join")?,
@@ -358,7 +361,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             sig.params.push(AbiParam::new(types::I64));
             module.declare_function("$array.fill", Linkage::Import, &sig)?
         },
-        array_sort: declare_binary_i64(module, "$array.sort")?,
+        array_sort: declare_ternary_i64(module, "$array.sort")?,
         str_split: declare_binary_i64(module, "$string.split")?,
         virt_dispatch: declare_binary_i64(module, "$class.virtDispatch")?,
         fixed_to_dyn: {
