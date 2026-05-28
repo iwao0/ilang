@@ -20,10 +20,13 @@ REPO="gfx-rs/wgpu-native"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 case "$(uname -s)-$(uname -m)" in
-  Darwin-arm64)  ASSET="wgpu-macos-aarch64-release.zip"; OUT="macos-aarch64" ;;
-  Darwin-x86_64) ASSET="wgpu-macos-x86_64-release.zip";  OUT="macos-x86_64"  ;;
-  Linux-x86_64)  ASSET="wgpu-linux-x86_64-release.zip";  OUT="linux-x86_64"  ;;
-  Linux-aarch64) ASSET="wgpu-linux-aarch64-release.zip"; OUT="linux-aarch64" ;;
+  Darwin-arm64)        ASSET="wgpu-macos-aarch64-release.zip";       OUT="macos-aarch64" ;;
+  Darwin-x86_64)       ASSET="wgpu-macos-x86_64-release.zip";        OUT="macos-x86_64"  ;;
+  Linux-x86_64)        ASSET="wgpu-linux-x86_64-release.zip";        OUT="linux-x86_64"  ;;
+  Linux-aarch64)       ASSET="wgpu-linux-aarch64-release.zip";       OUT="linux-aarch64" ;;
+  # git-bash / MSYS report e.g. MINGW64_NT-10.0 / MSYS_NT-10.0.
+  MINGW*-x86_64|MSYS*-x86_64|CYGWIN*-x86_64)
+    ASSET="wgpu-windows-x86_64-msvc-release.zip"; OUT="windows-x86_64" ;;
   *) echo "unsupported host: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
 esac
 
@@ -33,6 +36,8 @@ gh release download "$TAG" -R "$REPO" -p "$ASSET" --clobber
 rm -rf "$OUT"
 unzip -q "$ASSET" -d "$OUT"
 rm -f "$ASSET"
-# Drop the static archive — the PoC links the dynamic library at runtime.
-rm -f "$OUT/lib/"*.a
-echo "Ready: $HERE/$OUT/lib (set DYLD_LIBRARY_PATH / LD_LIBRARY_PATH to it)"
+# Drop the static archive + debug symbols — the PoC loads the dynamic
+# library at runtime, so the import lib / static lib / pdb aren't needed.
+rm -f "$OUT/lib/"*.a "$OUT/lib/wgpu_native.lib" "$OUT/lib/"*.pdb
+echo "Ready: $HERE/$OUT/lib (set DYLD_LIBRARY_PATH / LD_LIBRARY_PATH to it,"
+echo "       or put $OUT/lib/wgpu_native.dll on PATH on Windows)"

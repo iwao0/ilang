@@ -123,6 +123,15 @@
         chain: WGPUChainedStruct
         layer: *void              // CAMetalLayer*
     }
+    // WGPUSType_SurfaceSourceWindowsHWND = 5. Chain this off the
+    // descriptor's nextInChain for the Windows surface. `hinstance`
+    // is the module HINSTANCE, `hwnd` the window handle — both pulled
+    // from SDL's `SysWMinfo` (handle3 / handle1 respectively).
+    pub struct WGPUSurfaceSourceWindowsHWND {
+        chain:     WGPUChainedStruct
+        hinstance: *void          // HINSTANCE
+        hwnd:      *void          // HWND
+    }
     pub struct WGPUSurfaceDescriptor {
         nextInChain: *void        // WGPUChainedStruct*
         label:       WGPUStringView

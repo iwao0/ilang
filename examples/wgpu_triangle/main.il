@@ -1,21 +1,27 @@
 // PoC — SDL2 window + wgpu-native, drawing a WGSL triangle for a
 // fixed number of frames (no event loop / interaction).
 //
-// Proves the full WebGPU bring-up from ilang on macOS:
-//   SDL window → CAMetalLayer → WGPUSurface → request adapter/device →
-//   configure → WGSL shader module + render pipeline → per-frame render
-//   pass (clear + draw 3 verts) → submit → present.
+// Proves the full WebGPU bring-up from ilang:
+//   SDL window → native surface source → WGPUSurface → request
+//   adapter/device → configure → WGSL shader module + render pipeline →
+//   per-frame render pass (clear + draw 3 verts) → submit → present.
+//
+// The surface source is picked from `os.platform`: CAMetalLayer on
+// macOS, HWND on Windows. (X11/Wayland sources are not wired up yet.)
 //
 // Setup (once): third_party/wgpu/fetch.sh   (downloads libwgpu_native)
 // Run (macOS):
 //   DYLD_LIBRARY_PATH=third_party/wgpu/macos-aarch64/lib \
 //     cargo run -p ilang -- run examples/wgpu_triangle/main.il
+// Run (Windows): put wgpu_native.dll on PATH (or next to the entry),
+//   then: cargo run -p ilang -- run examples/wgpu_triangle/main.il
 
 use std.ffi { cstrFromString, readU32, stringFromCstr }
+use std.os as os
 use sdl2 {
-    SDL_Window,
+    SDL_Window, SysWMinfo,
     SDL_Init, SDL_Quit, SDL_Delay, SDL_PumpEvents,
-    SDL_CreateWindow, SDL_DestroyWindow,
+    SDL_CreateWindow, SDL_DestroyWindow, SDL_GetWindowWMInfo,
     SDL_ShowWindow, SDL_RaiseWindow, SDL_GetWindowSizeInPixels,
     SDL_Metal_CreateView, SDL_Metal_GetLayer, SDL_Metal_DestroyView,
 }
@@ -26,7 +32,8 @@ use wgpu {
     WGPUStringView, WGPUChainedStruct, WGPUColor,
     WGPURequestAdapterOptions,
     WGPURequestAdapterCallbackInfo, WGPURequestDeviceCallbackInfo,
-    WGPUSurfaceSourceMetalLayer, WGPUSurfaceDescriptor,
+    WGPUSurfaceSourceMetalLayer, WGPUSurfaceSourceWindowsHWND,
+    WGPUSurfaceDescriptor,
     WGPUSurfaceConfiguration, WGPUSurfaceTexture, WGPUSurfaceCapabilities,
     WGPURenderPassColorAttachment, WGPURenderPassDescriptor,
     WGPUShaderModuleDescriptor, WGPUShaderSourceWGSL,
@@ -84,23 +91,28 @@ const WIN_H: i32 = 480
     }
 
     fn run(): i64 {
-        // ── SDL window + Metal layer ──────────────────────────
+        let plat = os.platform
+        // ── SDL window ────────────────────────────────────────
         if SDL_Init(0x20 as u32) != 0 {            // SDL_INIT_VIDEO
             console.log("FAIL: SDL_Init")
             return 1
         }
-        let flags: u32 = (0x20000000 | 0x4) as u32  // METAL | SHOWN
+        // macOS needs the Metal flag so SDL_Metal_CreateView works;
+        // the other backends (Win32 HWND, X11, Wayland) just want a
+        // shown window.
+        let flags: u32 = if plat == "macos" {
+            (0x20000000 | 0x4) as u32              // METAL | SHOWN
+        } else {
+            0x4 as u32                             // SHOWN
+        }
         let win = SDL_CreateWindow(
-            cstrFromString("ilang × wgpu — clear"),
+            cstrFromString("ilang × wgpu — triangle"),
             100, 100, WIN_W, WIN_H, flags
         )
         if (win as i64) == 0 { console.log("FAIL: window"); return 2 }
-        let view = SDL_Metal_CreateView(win)
-        let layer = SDL_Metal_GetLayer(view)
-        if (layer as i64) == 0 { console.log("FAIL: metal layer"); return 3 }
 
         // Bring the window on screen + frontmost and let it settle, so
-        // the CAMetalLayer actually vends drawables.
+        // the native surface actually vends drawables.
         SDL_ShowWindow(win)
         SDL_RaiseWindow(win)
         let settle = 0
@@ -115,15 +127,47 @@ const WIN_H: i32 = 480
         wgpuSetLogCallback(onLog, 0 as *void)
         wgpuSetLogLevel(2 as u32)        // Warn
         let inst = wgpuCreateInstance(0 as *void)
-        let metalSrc = WGPUSurfaceSourceMetalLayer {
-            chain: WGPUChainedStruct { next: 0 as *void, sType: 4 as u32 },
-            layer: layer,
+
+        // The OS-specific SurfaceSource chains off the descriptor's
+        // nextInChain. It must outlive the create call, so each branch
+        // builds the source and creates the surface in one block.
+        let metalView: i64 = 0
+        let surface = if plat == "macos" {
+            let view = SDL_Metal_CreateView(win)
+            metalView = view as i64
+            let layer = SDL_Metal_GetLayer(view)
+            if (layer as i64) == 0 { console.log("FAIL: metal layer") }
+            let metalSrc = WGPUSurfaceSourceMetalLayer {
+                chain: WGPUChainedStruct { next: 0 as *void, sType: 4 as u32 },
+                layer: layer,
+            }
+            let sdesc = WGPUSurfaceDescriptor {
+                nextInChain: (&metalSrc) as *void,
+                label: WGPUStringView { data: 0 as *void, length: 0 as u64 },
+            }
+            wgpuInstanceCreateSurface(inst, &sdesc)
+        } elif plat == "windows" {
+            // Pull HWND + HINSTANCE out of SDL's SysWMinfo. Seed the
+            // version triple so SDL agrees to populate the union.
+            let info = new SysWMinfo()
+            info.versionMajor = 2 as u8
+            info.versionMinor = 0 as u8
+            info.versionPatch = 0 as u8
+            SDL_GetWindowWMInfo(win, &info)
+            let winSrc = WGPUSurfaceSourceWindowsHWND {
+                chain: WGPUChainedStruct { next: 0 as *void, sType: 5 as u32 },
+                hinstance: info.handle3 as *void,    // HINSTANCE
+                hwnd: info.handle1 as *void,         // HWND
+            }
+            let sdesc = WGPUSurfaceDescriptor {
+                nextInChain: (&winSrc) as *void,
+                label: WGPUStringView { data: 0 as *void, length: 0 as u64 },
+            }
+            wgpuInstanceCreateSurface(inst, &sdesc)
+        } else {
+            console.log("FAIL: unsupported platform ", plat)
+            0 as WGPUSurface
         }
-        let sdesc = WGPUSurfaceDescriptor {
-            nextInChain: (&metalSrc) as *void,
-            label: WGPUStringView { data: 0 as *void, length: 0 as u64 },
-        }
-        let surface = wgpuInstanceCreateSurface(inst, &sdesc)
         if (surface as i64) == 0 { console.log("FAIL: surface"); return 6 }
 
         // ── adapter (compatible with the surface) / device / queue ─
@@ -312,7 +356,7 @@ const WIN_H: i32 = 480
         console.log("PASS: presented 120 frames")
         wgpuRenderPipelineRelease(pipeline)
         wgpuShaderModuleRelease(shader)
-        SDL_Metal_DestroyView(view)
+        if metalView != 0 { SDL_Metal_DestroyView(metalView as *void) }
         SDL_DestroyWindow(win)
         SDL_Quit()
         0
