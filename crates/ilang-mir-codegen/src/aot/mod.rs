@@ -206,6 +206,33 @@ fn lib_search_dirs() -> Vec<std::path::PathBuf> {
     dirs
 }
 
+/// macOS: system dylibs (libc, libSystem, the rest of `/usr/lib`) live
+/// only inside the dyld shared cache, so they have no on-disk file for
+/// `.exists()` to find — `lib_loadable` would wrongly report them
+/// missing and aot codegen would stub the `@optional` fns that use
+/// them. `dlopen_preflight` validates that a path names a loadable
+/// image (resolving the shared cache) WITHOUT running the library's
+/// constructors, so it keeps the build step's read-only,
+/// no-arbitrary-code contract while matching what `dlopen` resolves at
+/// run time. A no-op on other targets, whose filesystem lookup already
+/// finds `libX.so.N` on disk.
+#[cfg(target_os = "macos")]
+fn path_preflights(path: &std::path::Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    unsafe extern "C" {
+        fn dlopen_preflight(path: *const std::os::raw::c_char) -> bool;
+    }
+    let Ok(c) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+    unsafe { dlopen_preflight(c.as_ptr()) }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn path_preflights(_path: &std::path::Path) -> bool {
+    false
+}
+
 fn lib_loadable(name: &str) -> bool {
     // `name` already names a file or carries a path separator: take it
     // verbatim. `symlink_metadata` (not `exists`) — macOS system
@@ -217,7 +244,8 @@ fn lib_loadable(name: &str) -> bool {
     // and accepts it, which matches what `dlopen` / the linker
     // actually do at runtime.
     if name.contains('/') || name.contains('\\') {
-        return std::fs::symlink_metadata(name).is_ok();
+        let p = std::path::Path::new(name);
+        return std::fs::symlink_metadata(p).is_ok() || path_preflights(p);
     }
     let candidates: Vec<String> = if name.contains('.') {
         vec![name.to_string()]
@@ -234,7 +262,8 @@ fn lib_loadable(name: &str) -> bool {
     };
     for dir in lib_search_dirs() {
         for cand in &candidates {
-            if dir.join(cand).exists() {
+            let p = dir.join(cand);
+            if p.exists() || path_preflights(&p) {
                 return true;
             }
         }
