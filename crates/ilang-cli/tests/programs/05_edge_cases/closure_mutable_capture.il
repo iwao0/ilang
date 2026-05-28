@@ -1,8 +1,10 @@
-// Closures own a private cell per captured variable. The cell is
-// snapshotted from the outer binding at creation time, then becomes
-// the closure's own state — mutations inside the body persist across
-// repeated invocations of the same closure, and different closures
-// (even built in the same scope) get independent cells.
+// A captured-and-mutated variable lives in a shared heap cell:
+// mutations inside the closure body persist across repeated
+// invocations of the same closure. Different `let` instances — e.g.
+// two separate `makeCounter()` calls — get their own cell, so they
+// stay independent. Closures built in the same scope that capture the
+// same mutated name SHARE one cell (see closure_pair_shared_cell);
+// read-only captures keep their value snapshot (exercised at the end).
 use std.test as test
 fn makeCounter(): fn(): i64 {
     let n = 0
