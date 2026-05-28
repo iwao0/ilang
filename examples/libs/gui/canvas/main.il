@@ -3,11 +3,12 @@
 // drawing surface (`fillRect`, `strokeRect`, path / `arc`,
 // `fill` / `stroke`).
 //
-// Run on macOS:
+// Run:
 //   ilang run examples/libs/gui/canvas/main.il
 //
-// On win32 / linux the Canvas widget is a no-op stub for now —
-// the window opens, but nothing draws.
+// Implemented on all three backends: macOS (NSImage), Windows
+// (GDI memory-DC bitmap), and Linux (cairo image surface behind a
+// GtkDrawingArea).
 
 use gui
 

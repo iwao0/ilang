@@ -3,3 +3,4 @@ name = "gui-linux"
 
 [deps]
 gtk = "../../../bindings/gtk4"
+cairo = "../../../bindings/cairo"

@@ -29,7 +29,7 @@
 // import (the umbrella `pub use`s this file too).
 use generated.gobject { GObject }
 use generated.glib { GMainLoop }
-use generated.gtk { GtkWidget, GtkEntry }
+use generated.gtk { GtkWidget, GtkEntry, GtkDrawingArea }
 
 // ─── Gdk keyvals ─────────────────────────────────────────────
 // Subset libs/gui maps to W3C `KeyboardEvent.code`. Values from
@@ -121,6 +121,21 @@ pub enum Keyval: u32 {
     @lib pub fn gtk_combo_box_text_remove_all(c: GtkComboBoxText)
     @lib pub fn gtk_combo_box_set_active(c: GtkComboBoxText, index: i32)
     @lib pub fn gtk_combo_box_get_active(c: GtkComboBoxText): i32
+
+    // ─── GtkDrawingArea draw-func ─────────────────────────────
+    // The GIR generator emits `GtkDrawingArea` and the content-size
+    // accessors but drops `set_draw_func` because its second
+    // argument is the `GtkDrawingAreaDrawFunc` callback typedef
+    // (`void(GtkDrawingArea*, cairo_t* cr, int width, int height,
+    // gpointer)`). The `cairo_t*` is passed as a bare `i64` so this
+    // binding stays independent of the separate `cairo` package; the
+    // callee casts it to `cairo.cairo_t`.
+    @lib pub fn gtk_drawing_area_set_draw_func(
+        area: GtkDrawingArea,
+        draw_func: fn(i64, i64, i32, i32, i64),
+        user_data: *void,
+        destroy: i64
+    )
 
     // ─── Signal-connect callback variants ─────────────────────
     // Same C symbol; each ilang name pins one callback shape.
