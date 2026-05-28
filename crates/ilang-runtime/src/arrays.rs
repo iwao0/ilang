@@ -334,6 +334,16 @@ unsafe fn call_closure_1(closure: i64, arg: i64) -> i64 {
     }
 }
 
+/// Invoke a `bool`-returning predicate closure and read its result.
+/// An ilang `bool` lives in the low byte of the return register; on
+/// x86_64 a `setcc`-produced result leaves the upper bits of `rax`
+/// undefined (AArch64's `cset` zeroes them, which is why a plain
+/// `!= 0` test only misbehaves on SysV x86_64). Masking to the low
+/// byte makes the truthiness test correct on every target.
+unsafe fn call_predicate_1(closure: i64, arg: i64) -> bool {
+    (unsafe { call_closure_1(closure, arg) } as u8) != 0
+}
+
 /// Invoke a closure with two args plus the trailing env pointer.
 /// Used by `__array_sort`'s comparator callback.
 unsafe fn call_closure_2(closure: i64, a: i64, b: i64) -> i64 {
@@ -393,8 +403,8 @@ pub extern "C" fn __array_filter(arr: i64, closure: i64) -> i64 {
     let mut out: Vec<i64> = Vec::new();
     for i in 0..len {
         let cell = unsafe { *((data + i * 8) as *const i64) };
-        let keep = unsafe { call_closure_1(closure, cell) };
-        if keep != 0 {
+        let keep = unsafe { call_predicate_1(closure, cell) };
+        if keep {
             if elem_kind != KIND_NONE {
                 retain_field_by_kind(cell, elem_kind);
             }
@@ -450,8 +460,8 @@ pub extern "C" fn __array_find(arr: i64, closure: i64) -> i64 {
     let elem_kind = unsafe { *((arr + 32) as *const i64) };
     for i in 0..len {
         let cell = unsafe { *((data + i * 8) as *const i64) };
-        let hit = unsafe { call_closure_1(closure, cell) };
-        if hit != 0 {
+        let hit = unsafe { call_predicate_1(closure, cell) };
+        if hit {
             return box_optional_cell(cell, elem_kind);
         }
     }
@@ -468,8 +478,8 @@ pub extern "C" fn __array_find_index(arr: i64, closure: i64) -> i64 {
     let (len, _cap, data) = unsafe { array_header(arr) };
     for i in 0..len {
         let cell = unsafe { *((data + i * 8) as *const i64) };
-        let hit = unsafe { call_closure_1(closure, cell) };
-        if hit != 0 {
+        let hit = unsafe { call_predicate_1(closure, cell) };
+        if hit {
             return i;
         }
     }
@@ -486,8 +496,8 @@ pub extern "C" fn __array_every(arr: i64, closure: i64) -> i64 {
     let (len, _cap, data) = unsafe { array_header(arr) };
     for i in 0..len {
         let cell = unsafe { *((data + i * 8) as *const i64) };
-        let hit = unsafe { call_closure_1(closure, cell) };
-        if hit == 0 {
+        let hit = unsafe { call_predicate_1(closure, cell) };
+        if !hit {
             return 0;
         }
     }
@@ -504,8 +514,8 @@ pub extern "C" fn __array_some(arr: i64, closure: i64) -> i64 {
     let (len, _cap, data) = unsafe { array_header(arr) };
     for i in 0..len {
         let cell = unsafe { *((data + i * 8) as *const i64) };
-        let hit = unsafe { call_closure_1(closure, cell) };
-        if hit != 0 {
+        let hit = unsafe { call_predicate_1(closure, cell) };
+        if hit {
             return 1;
         }
     }
