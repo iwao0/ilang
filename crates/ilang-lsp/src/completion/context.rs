@@ -837,3 +837,46 @@ class Foo {
         assert_eq!(enclosing_class(src, src.len()).as_deref(), Some("Foo"));
     }
 }
+
+#[cfg(test)]
+mod at_type_position_tests {
+    use super::at_type_position;
+
+    #[test]
+    fn at_type_position_recognises_class_base_list() {
+        // `class C : ` — cursor right after the `:` (with trailing
+        // space) should be a type position.
+        let src = "class C : ";
+        assert!(at_type_position(src, src.len()));
+
+        // `class C : A, ` — cursor right after the comma + space
+        // should also be a type position (additional interfaces).
+        let src = "class C : A, ";
+        assert!(at_type_position(src, src.len()));
+
+        // `foo(a, ` — regular call argument list, NOT a type position.
+        let src = "foo(a, ";
+        assert!(!at_type_position(src, src.len()));
+
+        // `(a, ` — bare tuple, NOT a type position.
+        let src = "let t = (a, ";
+        assert!(!at_type_position(src, src.len()));
+
+        // `let a: Map<` — first generic argument slot is a type position.
+        let src = "let a: Map<";
+        assert!(at_type_position(src, src.len()));
+
+        // `let a: Map<K, ` — subsequent generic argument slot is a type
+        // position.
+        let src = "let a: Map<K, ";
+        assert!(at_type_position(src, src.len()));
+
+        // `new Map<` — generic args inside a constructor are types.
+        let src = "let a = new Map<";
+        assert!(at_type_position(src, src.len()));
+
+        // `new Map<i32, ` — subsequent constructor generic slot.
+        let src = "let a = new Map<i32, ";
+        assert!(at_type_position(src, src.len()));
+    }
+}

@@ -82,6 +82,8 @@ pub(crate) struct ExternalLoc {
     pub(crate) name_len: u32,
 }
 
+pub(crate) type ExternalSources = HashMap<AstSymbol, ExternalLoc>;
+
 /// Push the parent of every umbrella-folder ancestor (a directory
 /// that holds a `mod.il`) of `entry_dir` onto `extra`. Lets the LSP
 /// resolve a `use foundation` from a deep category file like

@@ -437,4 +437,140 @@ use std.ffi { arrayFromCArray }
             panic!("expected String label, got {:?}", units_hint.label);
         }
     }
+
+    #[test]
+    fn external_sources_track_subfolder_mod_il_definitions() {
+        // After the `bindings/cocoa/foundation/` split, `NSString` /
+        // `NSObject` live in `foundation/core.il`, re-exported by
+        // `foundation/mod.il`. F12 from a sibling binding
+        // (`bindings/cocoa/spritekit.il` does `use foundation
+        // { NSString }`) must still land on the real declaration —
+        // the harvest used to give up when `<dir>/foundation.il`
+        // didn't exist and miss the `<dir>/foundation/mod.il`
+        // fallback the loader now accepts.
+        use std::path::PathBuf;
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("bindings/cocoa/spritekit/node.il");
+        let doc = analyse_path_to_doc(&path)
+            .expect("bindings/cocoa/spritekit/node.il must load");
+        let ns_string_loc = doc
+            .external
+            .sources
+            .get(&AstSymbol::intern("NSString"))
+            .expect("F12 should resolve `NSString` through foundation/mod.il");
+        // The target file must be the actual declaration site, not
+        // the umbrella stub.
+        // Normalise the platform path separator: the source-of-truth
+        // assertion is the trailing `foundation/core.il` segments,
+        // and we only care that the F12 target sits in that file.
+        let path_str = ns_string_loc
+            .path
+            .to_string_lossy()
+            .replace('\\', "/");
+        assert!(
+            path_str.ends_with("foundation/core.il"),
+            "expected F12 target inside foundation/core.il, got {path_str}"
+        );
+    }
+
+    // macOS-only: `libs/gui` resolves its `gui_impl` dep to `cocoa`
+    // only when the host target is macOS (`[[deps.gui_impl]] target =
+    // "macos"` in `libs/gui/ilang.toml`). On Windows / Linux the dep
+    // tree picks `win32` / `linux` instead, so the loader can't
+    // resolve combo.il's `use super.events` and `analyse_path_to_doc`
+    // returns a degraded doc without external classes. Skip there.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn inherited_external_method_lookup_keeps_parent_source_path() {
+        // `libs/gui/cocoa/combo.il` calls `slot.combo.setFrame(...)`
+        // where `slot.combo: NSPopUpButton`. `setFrame` is declared
+        // on NSView (its grandparent), not on NSPopUpButton itself,
+        // so the parent-chain flatten in `collect_external_classes`
+        // is what makes the method visible on NSPopUpButton. F12
+        // must route through `MemberInfo.source_path` so the jump
+        // lands in NSView's declaring file (appkit/core.il) at the
+        // recorded line, not in NSPopUpButton's file at the same
+        // line number (which is a completely unrelated identifier).
+        use std::path::PathBuf;
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("libs/gui/cocoa/combo.il");
+        if !path.exists() {
+            return;
+        }
+        let doc = analyse_path_to_doc(&path)
+            .expect("libs/gui/cocoa/combo.il must load");
+        let popup_info = doc
+            .classes
+            .get(&AstSymbol::intern("NSPopUpButton"))
+            .expect("NSPopUpButton must be visible through `use cocoa`");
+        let set_frame = popup_info
+            .methods
+            .get(&AstSymbol::intern("setFrame"))
+            .expect("NSPopUpButton's flattened methods must include the inherited setFrame");
+        let src_path = set_frame
+            .source_path
+            .as_ref()
+            .expect("inherited methods must carry the parent's source_path");
+        let path_str = src_path.to_string_lossy().replace('\\', "/");
+        assert!(
+            path_str.ends_with("appkit/core.il"),
+            "expected setFrame's recorded path to live in NSView's file (appkit/core.il), got {path_str}"
+        );
+    }
+
+    #[test]
+    fn local_class_inheriting_nsobject_has_synth_alloc_init_types() {
+        // `examples/macos/cocoa/main.il` declares
+        //   class AppDelegate : NSApplicationDelegate { ... }
+        //   class FormHandler : NSObject { ... }
+        // The loader's auto-lift gives both classes synthesized
+        // `alloc` / `init` / `register` methods. Confirm the LSP's
+        // local parse (post-lift) sees them — without the lift on
+        // the buffer-local path, `let appDel = AppDelegate.alloc().init()`
+        // would infer no type and hover would come up blank.
+        use std::path::PathBuf;
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("examples/macos/cocoa/main.il");
+        let doc = analyse_path_to_doc(&path)
+            .expect("examples/macos/cocoa/main.il must load");
+
+        let app_del_key = AstSymbol::intern("AppDelegate");
+        let info = doc
+            .classes
+            .get(&app_del_key)
+            .expect("AppDelegate must be in doc.classes");
+        assert!(
+            info.methods.contains_key(&AstSymbol::intern("init")),
+            "AppDelegate is missing the synth `init` method"
+        );
+        // `alloc` is a static method on @objc classes.
+        let alloc_present = info
+            .methods
+            .get(&AstSymbol::intern("alloc"))
+            .map(|m| m.is_static)
+            .unwrap_or(false);
+        assert!(
+            alloc_present,
+            "AppDelegate is missing the synth static `alloc` method"
+        );
+
+        // Likewise, AppDelegate.alloc().init() should be inferrable
+        // as Object("AppDelegate"). The buffer binds the result to
+        // `appDel`; var_types stores the walker-inferred type.
+        let app_del_ty = doc.var_types.get(&AstSymbol::intern("appDel"));
+        assert!(
+            matches!(
+                app_del_ty,
+                Some(ilang_ast::Type::Object(n)) if n.as_str() == "AppDelegate"
+            ),
+            "expected appDel: AppDelegate, got {:?}",
+            app_del_ty
+        );
+    }
 }

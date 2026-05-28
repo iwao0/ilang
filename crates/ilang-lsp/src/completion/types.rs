@@ -187,3 +187,95 @@ pub(crate) fn type_completions(doc: &Doc, in_extern_c: bool) -> Vec<CompletionIt
     out.sort_by(|a, b| a.label.cmp(&b.label));
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::type_completions;
+    use crate::analyse;
+    use std::path::PathBuf;
+
+    #[test]
+    fn windows_actctxw_hidden_from_top_level_type_completion() {
+        // End-to-end: load a tiny `use windows` fixture through the
+        // real loader → harvest → `collect_external_classes` pipeline
+        // and confirm that `ACTCTXW` (whose fields use `*const u16`)
+        // does NOT surface in top-level type-position completion.
+        // Mirrors the user-visible bug where typing `let x: ` at the
+        // top of a `use windows` file dumped every Win32 struct
+        // including the C-only ones.
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("tests/fixtures/use_windows/main.il");
+        let doc = analyse::analyse_path_to_doc(&path)
+            .expect("fixtures/use_windows/main.il must load");
+        // Sanity: harvest actually saw ACTCTXW from kernel32.
+        let saw_actctxw = doc.external.signatures.keys().any(|k| {
+            k.as_str().rsplit_once('.').map(|(_, t)| t) == Some("ACTCTXW")
+        });
+        assert!(
+            saw_actctxw,
+            "harvest did not surface ACTCTXW — fixture / loader setup is off; \
+             keys ending in `.ACTCTXW`: {:?}",
+            doc.external
+                .signatures
+                .keys()
+                .filter(|k| k.as_str().ends_with(".ACTCTXW"))
+                .collect::<Vec<_>>()
+        );
+        // Type-position completion outside extern-C must hide it.
+        let labels: Vec<String> = type_completions(&doc, false)
+            .into_iter()
+            .map(|it| it.label)
+            .collect();
+        assert!(
+            !labels.iter().any(|l| l == "windows.ACTCTXW" || l == "ACTCTXW"),
+            "ACTCTXW (has `*const u16` fields) leaked into top-level \
+             type completion: matching labels = {:?}",
+            labels
+                .iter()
+                .filter(|l| l.ends_with("ACTCTXW"))
+                .collect::<Vec<_>>()
+        );
+        // Inside extern-C it must surface again.
+        let labels_in_extern: Vec<String> = type_completions(&doc, true)
+            .into_iter()
+            .map(|it| it.label)
+            .collect();
+        assert!(
+            labels_in_extern.iter().any(|l| l == "windows.ACTCTXW" || l == "ACTCTXW"),
+            "ACTCTXW must surface inside @extern(C). \
+             First 80 labels: {:?}",
+            labels_in_extern.iter().take(80).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn type_completion_surfaces_cocoa_interface_for_example_click() {
+        // Load examples/macos/cocoa_click/main.il through the same
+        // path the LSP uses and inspect `type_completions(doc)`.
+        // The buffer's `use cocoa { … }` does NOT list
+        // `NSApplicationDelegate`, so the completion should label
+        // it module-qualified (`cocoa.NSApplicationDelegate`).
+        // `NSApplication` IS in the use list, so it should appear
+        // bare.
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("examples/macos/cocoa_click/main.il");
+        let doc = analyse::analyse_path_to_doc(&path)
+            .expect("examples/macos/cocoa_click/main.il must load");
+        let items = type_completions(&doc, false);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(
+            labels.iter().any(|l| *l == "cocoa.NSApplicationDelegate"),
+            "expected dotted `cocoa.NSApplicationDelegate` (not in use list). \
+             First 40 labels: {:?}",
+            labels.iter().take(40).collect::<Vec<_>>()
+        );
+        assert!(
+            labels.iter().any(|l| *l == "NSApplication"),
+            "expected bare `NSApplication` (in use list). \
+             First 40 labels: {:?}",
+            labels.iter().take(40).collect::<Vec<_>>()
+        );
+    }
+}

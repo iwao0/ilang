@@ -716,3 +716,73 @@ pub(crate) fn render_user_attrs(attrs: &[ilang_ast::Attribute]) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::collect_symbols;
+    use ilang_ast::Symbol as AstSymbol;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+
+    #[test]
+    fn synthesized_objc_helpers_excluded_from_symbols_and_completion() {
+        // Source with one user @objc class triggers the desugar's
+        // sel-cache helper class; `collect_symbols` should not
+        // record it.
+        let src = "\
+@extern(ObjC) {
+    @objc pub class NSObject {
+        @objc(\"release\") release()
+    }
+    @objc pub class MyView : NSObject {
+        @objc(\"alloc\") pub static alloc(): MyView
+    }
+}
+";
+        let toks = tokenize(src).unwrap();
+        let prog = parse(&toks).unwrap();
+        let syms = collect_symbols(&prog, src);
+        for key in syms.keys() {
+            assert!(
+                !key.as_str().contains("_sel_cache"),
+                "synth helper leaked: {}",
+                key.as_str()
+            );
+            assert!(
+                !key.as_str().starts_with("__objc_"),
+                "synth helper leaked: {}",
+                key.as_str()
+            );
+        }
+        // User-declared classes should still be present.
+        assert!(syms.contains_key(&AstSymbol::intern("MyView")));
+        assert!(syms.contains_key(&AstSymbol::intern("NSObject")));
+    }
+
+    #[test]
+    fn collect_symbols_picks_up_objc_interface() {
+        // @objc interface declared inside @extern(ObjC) should
+        // surface in `doc.symbols` so hover over the name works.
+        let src = "\
+@extern(ObjC) {
+    @objc pub interface MyDel {
+        notifyMe(name: i64)
+        cleanup?()
+    }
+}
+";
+        let toks = tokenize(src).unwrap();
+        let prog = parse(&toks).unwrap();
+        let syms = collect_symbols(&prog, src);
+        let key = AstSymbol::intern("MyDel");
+        let sym = syms.get(&key).expect("MyDel should be in symbols");
+        assert!(
+            sym.signature.contains("@objc interface MyDel"),
+            "signature: {}",
+            sym.signature
+        );
+        // The method list should be included in the hover detail.
+        assert!(sym.signature.contains("notifyMe(name: i64)"), "{}", sym.signature);
+        assert!(sym.signature.contains("cleanup?()"), "{}", sym.signature);
+    }
+}

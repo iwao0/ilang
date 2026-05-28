@@ -1593,3 +1593,204 @@ mod lib_filter_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod dispatch_tests {
+    use super::handle_completion;
+    use crate::analyse;
+    use std::path::PathBuf;
+    use tower_lsp::lsp_types::{CompletionResponse, Position};
+
+    #[test]
+    fn diag_scan_user_file_for_actctxw() {
+        // Replays target/test.il's exact shape and tries every cursor
+        // position on every line, dumping any completion that mentions
+        // ACTCTXW. Catches a context I might have missed in the more
+        // targeted tests.
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("tests/fixtures/use_windows/main.il");
+        let mut doc = analyse::analyse_path_to_doc(&path)
+            .expect("fixtures/use_windows/main.il must load");
+        doc.text = "use windows\n\nfn add(a: i64, _: i64) {\n    console.log(\"add\", a)\n}\nadd(1, 2)\n".to_string();
+        let mut leaks: Vec<String> = Vec::new();
+        let line_count = doc.text.lines().count() as u32;
+        for line in 0..=line_count {
+            let line_str = doc.text.lines().nth(line as usize).unwrap_or("");
+            let line_len = line_str.chars().count() as u32;
+            for col in 0..=line_len {
+                let pos = Position { line, character: col };
+                let Some(resp) = handle_completion(&doc, pos) else { continue };
+                let items = match resp {
+                    CompletionResponse::Array(items) => items,
+                    CompletionResponse::List(list) => list.items,
+                };
+                for it in items {
+                    if it.label.contains("ACTCTXW") {
+                        leaks.push(format!(
+                            "line={line} col={col} label={:?} detail={:?}",
+                            it.label, it.detail
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(
+            leaks.is_empty(),
+            "ACTCTXW leaked into completion at these cursor positions:\n{}",
+            leaks.join("\n")
+        );
+    }
+
+    #[test]
+    fn selective_use_surfaces_extern_c_lib_fn_inside_extern_c_block() {
+        // End-to-end reproduction of the user-reported bug at
+        // `libs/gui/win32/edit.il`: `use windows { HeapFree, ... }`
+        // selectively imports an `@lib pub fn HeapFree(...)`
+        // declaration that lives behind a chain of `pub use`
+        // re-exports (windows.il → kernel32.il). Inside an
+        // `@extern(C) { ... }` block in the same file, typing `h`
+        // must surface `HeapFree` as a completion candidate.
+        // (The original fixture was `button.il` — that file got
+        // refactored to drop its HeapAlloc/HeapFree dance, so we
+        // probe edit.il which still demonstrates the pattern.)
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("libs/gui/win32/edit.il");
+        let mut doc = analyse::analyse_path_to_doc(&path)
+            .expect("libs/gui/win32/edit.il must load");
+        // Slip a probe `            h` line in just before the
+        // existing `HeapFree(heap, 0 as u32, wideBuf as *void)` call
+        // so the cursor sits inside the same @extern(C) block.
+        let mut lines: Vec<String> = doc.text.lines().map(|s| s.to_string()).collect();
+        let probe_line_idx = lines
+            .iter()
+            .position(|l| l.contains("HeapFree(heap, 0 as u32, wideBuf"))
+            .expect("expected HeapFree(heap, …, wideBuf) line in fixture");
+        lines.insert(probe_line_idx, "            h".to_string());
+        doc.text = lines.join("\n");
+        let pos = Position { line: probe_line_idx as u32, character: 13 };
+        let items = match handle_completion(&doc, pos)
+            .expect("completion at `h` must return a response")
+        {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let labels: Vec<String> = items.into_iter().map(|it| it.label).collect();
+        assert!(
+            labels.iter().any(|l| l == "HeapFree"),
+            "expected `HeapFree` in completion list; matching `h*` \
+             labels: {:?}",
+            labels.iter().filter(|l| l.starts_with('H')).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn lambda_param_dot_completion_surfaces_event_fields() {
+        // Real reproduction of the user-reported bug:
+        // `examples/libs/gui/window/main.il` has multiple
+        // `<emitter>.add(fn(e: gui.<EventType>) { ... })` lambdas.
+        // Pre-fix, `resolve_receiver_class` couldn't see `e` because
+        // the walker registered FnExpr params only in its transient
+        // `Binding` scope, never in `var_classes` / `var_types`, so
+        // `handle_completion` returned `None` at `e.|` inside the
+        // lambda body.
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("examples/libs/gui/window/main.il");
+        let mut doc = analyse::analyse_path_to_doc(&path)
+            .expect("examples/libs/gui/window/main.il must load");
+        // Drop a probe `    e.` line inside the lambda the user
+        // pointed at (the one that logs "clicked at"). The column
+        // lands right after the dot.
+        let mut lines: Vec<String> = doc.text.lines().map(|s| s.to_string()).collect();
+        let probe_line_idx = lines
+            .iter()
+            .position(|l| l.contains("clicked at"))
+            .expect("expected `clicked at` line in fixture");
+        lines[probe_line_idx] = "    e.".to_string();
+        doc.text = lines.join("\n");
+        let pos = Position { line: probe_line_idx as u32, character: 6 };
+        let items = match handle_completion(&doc, pos)
+            .expect("completion at `e.` must return some response")
+        {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let labels: Vec<String> = items.into_iter().map(|it| it.label).collect();
+        for required in ["x", "y", "button"] {
+            assert!(
+                labels.iter().any(|l| l == required),
+                "expected MouseEvent field `{required}` after `e.` inside \
+                 Button.onClick lambda; got {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_actctxw_hidden_for_bare_top_level_prefix() {
+        // Reproduce the user's actual scenario: target/test.il with
+        // `use windows` and a regular top-level fn, cursor typing
+        // a bare prefix (no `.`, no `:`) at the very top. Every
+        // completion item returned must NOT mention ACTCTXW in any
+        // form — bare label, dotted label, or filter text.
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("tests/fixtures/use_windows/main.il");
+        let mut doc = analyse::analyse_path_to_doc(&path)
+            .expect("fixtures/use_windows/main.il must load");
+        // Type a single letter at the very top of the file to mimic
+        // VSCode's per-keystroke completion request.
+        doc.text = "use windows\n\nA\n".to_string();
+        let pos = Position { line: 2, character: 1 };
+        let resp = handle_completion(&doc, pos).expect("completion response");
+        let items = match resp {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let offending: Vec<String> = items
+            .iter()
+            .filter(|it| {
+                it.label.ends_with("ACTCTXW")
+                    || it.filter_text.as_deref().is_some_and(|t| t.contains("ACTCTXW"))
+            })
+            .map(|it| {
+                format!(
+                    "label={:?} filter_text={:?} detail={:?}",
+                    it.label, it.filter_text, it.detail
+                )
+            })
+            .collect();
+        assert!(
+            offending.is_empty(),
+            "bare top-level completion still surfaces ACTCTXW: {offending:#?}"
+        );
+    }
+
+    #[test]
+    fn windows_actctxw_hidden_after_dot_at_top_level() {
+        // Same fixture, but exercise the receiver-after-dot path
+        // (`windows.<.>`). The user-visible bug also surfaced here.
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("tests/fixtures/use_windows/main.il");
+        let mut doc = analyse::analyse_path_to_doc(&path)
+            .expect("fixtures/use_windows/main.il must load");
+        // Overlay a buffer line that ends in `windows.` so
+        // `receiver_before_dot` resolves to `windows`.
+        doc.text.push_str("\nwindows.\n");
+        let line = doc.text.lines().count() as u32 - 2;
+        let pos = Position { line, character: 8 };
+        let resp = handle_completion(&doc, pos).expect("completion response");
+        let items = match resp {
+            CompletionResponse::Array(items) => items,
+            CompletionResponse::List(list) => list.items,
+        };
+        let labels: Vec<String> = items.into_iter().map(|it| it.label).collect();
+        assert!(
+            !labels.iter().any(|l| l == "ACTCTXW"),
+            "ACTCTXW leaked into `windows.<.>` at top level: \
+             labels ending in ACTCTXW = {:?}",
+            labels.iter().filter(|l| l.ends_with("ACTCTXW")).collect::<Vec<_>>()
+        );
+    }
+}

@@ -104,3 +104,75 @@ fn render_uses(uses: &[&ilang_ast::UseDecl]) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::organize_imports;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+
+    fn run(src: &str) -> Option<String> {
+        let toks = tokenize(src).ok()?;
+        let prog = parse(&toks).ok()?;
+        let (s, e, new) = organize_imports(src, &prog)?;
+        let mut out = src.to_string();
+        out.replace_range(s..e, &new);
+        Some(out)
+    }
+
+    #[test]
+    fn already_sorted_is_no_op() {
+        let src = "use math\nuse test\n";
+        assert!(run(src).is_none() || run(src).as_deref() == Some(src));
+    }
+
+    #[test]
+    fn sorts_modules_alphabetically() {
+        let src = "use test\nuse math\n";
+        let want = "use math\nuse test\n";
+        assert_eq!(run(src).unwrap(), want);
+    }
+
+    #[test]
+    fn dedupes_whole_module() {
+        let src = "use math\nuse math\nuse test\n";
+        let want = "use math\nuse test\n";
+        assert_eq!(run(src).unwrap(), want);
+    }
+
+    #[test]
+    fn merges_selective_names_alphabetically() {
+        let src = "use math { sin }\nuse math { cos, abs }\n";
+        let want = "use math { abs, cos, sin }\n";
+        assert_eq!(run(src).unwrap(), want);
+    }
+
+    #[test]
+    fn whole_and_selective_coexist() {
+        // sdl_breakout/main.il has both `use sdl` and `use sdl { ... }`.
+        let src = "use sdl { InitFlag }\nuse sdl\n";
+        let want = "use sdl\nuse sdl { InitFlag }\n";
+        assert_eq!(run(src).unwrap(), want);
+    }
+
+    #[test]
+    fn re_export_grouped_separately() {
+        let src = "pub use beta\nuse alpha\n";
+        // Non-export comes first (re_export = false sorts before true).
+        let want = "use alpha\npub use beta\n";
+        assert_eq!(run(src).unwrap(), want);
+    }
+
+    #[test]
+    fn leaves_non_use_items_alone() {
+        // Disordered leading uses should sort, but the trailing
+        // `use later` after the `fn` stays put — only the leading
+        // contiguous block is reorganised.
+        let src = "use test\nuse math\nfn foo() {}\nuse later\n";
+        let out = run(src).unwrap();
+        assert!(
+            out.starts_with("use math\nuse test\nfn foo() {}\nuse later\n"),
+            "out:\n{out}"
+        );
+    }
+}

@@ -327,3 +327,37 @@ pub(crate) fn find_project_file(start: &Path) -> Option<PathBuf> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::collect_dep_tree;
+    use std::path::PathBuf;
+
+    #[test]
+    fn dep_tree_prefers_inner_manifest_for_sub_package_file() {
+        // Regression for the bug where opening `libs/gui/win32/
+        // button.il` on macOS resolved the dep tree against the
+        // outer `libs/gui/ilang.toml` (whose macOS-resolved
+        // `gui_impl` is cocoa) instead of the inner
+        // `libs/gui/win32/ilang.toml` (which declares `windows`).
+        // The collateral damage was the entire windows binding
+        // disappearing from completion — `HeapFree`, `HMODULE`,
+        // `CreateWindowExW`, every Win32 type — even though those
+        // are exactly what the file uses.
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("libs/gui/win32/button.il");
+        let dep_tree = collect_dep_tree(&path).expect("dep tree collection");
+        let has_windows = dep_tree
+            .dirs
+            .iter()
+            .any(|d| d.ends_with("bindings/windows"));
+        assert!(
+            has_windows,
+            "expected dep tree for libs/gui/win32/button.il to include \
+             bindings/windows; got {:#?}",
+            dep_tree.dirs
+        );
+    }
+}

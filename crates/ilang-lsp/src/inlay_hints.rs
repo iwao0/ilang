@@ -851,3 +851,63 @@ fn in_range(p: Position, r: &Range) -> bool {
     let before_end = (p.line, p.character) <= (r.end.line, r.end.character);
     after_start && before_end
 }
+
+#[cfg(test)]
+mod tests {
+    use super::build_hints;
+    use crate::analyse;
+    use std::path::PathBuf;
+    use tower_lsp::lsp_types::{InlayHintLabel, Position, Range};
+
+    #[test]
+    fn inlay_hint_for_lib_fn_call_uses_real_param_names() {
+        // Reproduction of the bug at `libs/gui/win32/button.il` L63:
+        // the first arg `0,` of `CreateWindowExW(...)` got an inlay
+        // hint of `"user32":` because `parse_param_names_from_signature`
+        // grabbed the `(` from the `@lib("user32")` prefix attribute
+        // instead of skipping past it to the real `fn …(dwExStyle:
+        // u32, …)` paren list.
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("libs/gui/win32/button.il");
+        let doc = analyse::analyse_path_to_doc(&path)
+            .expect("libs/gui/win32/button.il must load");
+        // Find the L62 `let hwnd = CreateWindowExW(` line, then ask
+        // for inlay hints covering the call's arg block.
+        let target = doc
+            .text
+            .lines()
+            .enumerate()
+            .find(|(_, l)| l.contains("let hwnd = CreateWindowExW("))
+            .map(|(i, _)| i as u32)
+            .expect("expected CreateWindowExW call line");
+        let range = Range {
+            start: Position { line: target, character: 0 },
+            end: Position { line: target + 12, character: 0 },
+        };
+        let hints = build_hints(&doc, range);
+        // Collect every hint label as plain text.
+        let labels: Vec<String> = hints
+            .iter()
+            .map(|h| match &h.label {
+                InlayHintLabel::String(s) => s.clone(),
+                InlayHintLabel::LabelParts(parts) => parts
+                    .iter()
+                    .map(|p| p.value.clone())
+                    .collect::<Vec<_>>()
+                    .join(""),
+            })
+            .collect();
+        assert!(
+            !labels.iter().any(|l| l.contains("user32")),
+            "inlay hints must not pull the `@lib(\"user32\")` prefix \
+             as a param name; got {labels:?}"
+        );
+        assert!(
+            labels.iter().any(|l| l.contains("dwExStyle")),
+            "expected `dwExStyle:` inlay hint on CreateWindowExW's \
+             first arg; got {labels:?}"
+        );
+    }
+}

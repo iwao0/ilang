@@ -1127,3 +1127,560 @@ fn quickfix_action(
         command: None,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tower_lsp::lsp_types::Position;
+
+    fn pos(line: u32, col: u32) -> Position {
+        Position { line, character: col }
+    }
+
+    fn run(src: &str, cursor: Position) -> Option<String> {
+        let toks = tokenize(src).ok()?;
+        let prog = parse(&toks).ok()?;
+        // Re-derive var_types the way `analyse` would for `let x: Foo = ...`
+        // bindings — minimal pass good enough for these unit tests.
+        let mut var_types: HashMap<AstSymbol, Type> = HashMap::new();
+        for it in &prog.items {
+            if let Item::Fn(f) = it {
+                for p in f.params.iter() {
+                    var_types.insert(p.name.clone(), p.ty.clone());
+                }
+                collect_let_types(&f.body, &mut var_types);
+            }
+        }
+        let (insert, new_text, _) =
+            fill_match_arms_at(src, &prog, &var_types, cursor)?;
+        let mut out = src.to_string();
+        out.insert_str(insert, &new_text);
+        Some(out)
+    }
+
+    fn collect_let_types(b: &Block, out: &mut HashMap<AstSymbol, Type>) {
+        for s in &b.stmts {
+            if let StmtKind::Let { name, ty: Some(t), .. } = &s.kind {
+                out.insert(name.clone(), t.clone());
+            }
+        }
+    }
+
+    fn run_init(src: &str, cursor: Position) -> Option<String> {
+        let toks = tokenize(src).ok()?;
+        let prog = parse(&toks).ok()?;
+        let (insert, new_text) = generate_init_at(src, &prog, cursor)?;
+        let mut out = src.to_string();
+        out.insert_str(insert, &new_text);
+        Some(out)
+    }
+
+    fn run_iface(src: &str, cursor: Position) -> Option<String> {
+        let toks = tokenize(src).ok()?;
+        let prog = parse(&toks).ok()?;
+        let empty: HashMap<AstSymbol, ilang_ast::InterfaceDecl> = HashMap::new();
+        let (insert, new_text, _) =
+            implement_interface_methods_at(src, &prog, &empty, cursor)?;
+        let mut out = src.to_string();
+        out.insert_str(insert, &new_text);
+        Some(out)
+    }
+
+    #[test]
+    fn unit_variants_filled() {
+        let src = "\
+enum Color { Red, Green, Blue }
+fn f(c: Color) {
+    match c {
+        Color.Red { 1 }
+    }
+}
+";
+        // cursor inside the match block (line 3 in 0-based).
+        let out = run(src, pos(3, 8)).unwrap();
+        assert!(out.contains("Color.Green { todo() }"), "out:\n{out}");
+        assert!(out.contains("Color.Blue { todo() }"), "out:\n{out}");
+    }
+
+    #[test]
+    fn wildcard_arm_skips_completion() {
+        let src = "\
+enum Color { Red, Green, Blue }
+fn f(c: Color) {
+    match c {
+        Color.Red { 1 }
+        _ { 0 }
+    }
+}
+";
+        assert!(run(src, pos(3, 8)).is_none());
+    }
+
+    #[test]
+    fn fully_covered_skips_completion() {
+        let src = "\
+enum Color { Red, Green, Blue }
+fn f(c: Color) {
+    match c {
+        Color.Red { 1 }
+        Color.Green { 2 }
+        Color.Blue { 3 }
+    }
+}
+";
+        assert!(run(src, pos(3, 8)).is_none());
+    }
+
+    #[test]
+    fn cursor_outside_match_returns_none() {
+        let src = "\
+enum Color { Red, Green, Blue }
+fn f(c: Color) {
+    match c {
+        Color.Red { 1 }
+    }
+}
+";
+        // line 0 is the enum decl — outside any match.
+        assert!(run(src, pos(0, 5)).is_none());
+    }
+
+    #[test]
+    fn tuple_variant_uses_underscore_placeholders() {
+        let src = "\
+enum Shape { Circle: (f64), Square: (f64, f64) }
+fn area(s: Shape): f64 {
+    match s {
+        Shape.Circle(r) { r }
+    }
+}
+";
+        let out = run(src, pos(3, 8)).unwrap();
+        assert!(
+            out.contains("Shape.Square(_, _) { todo() }"),
+            "out:\n{out}"
+        );
+    }
+
+    #[test]
+    fn struct_variant_emits_field_names() {
+        let src = "\
+enum Msg { Ping, Move: { x: f64, y: f64 } }
+fn h(m: Msg) {
+    match m {
+        Msg.Ping { 1 }
+    }
+}
+";
+        let out = run(src, pos(3, 8)).unwrap();
+        assert!(
+            out.contains("Msg.Move { x, y } { todo() }"),
+            "out:\n{out}"
+        );
+    }
+
+    #[test]
+    fn init_generated_from_fields() {
+        let src = "\
+class Point {
+    x: f64
+    y: f64
+}
+";
+        // cursor inside class body (line 1, anywhere).
+        let out = run_init(src, pos(1, 4)).unwrap();
+        assert!(out.contains("init(x: f64, y: f64) {"), "out:\n{out}");
+        assert!(out.contains("this.x = x"), "out:\n{out}");
+        assert!(out.contains("this.y = y"), "out:\n{out}");
+    }
+
+    #[test]
+    fn init_skipped_when_already_defined() {
+        let src = "\
+class Point {
+    x: f64
+    init(x: f64) { this.x = x }
+}
+";
+        assert!(run_init(src, pos(1, 4)).is_none());
+    }
+
+    #[test]
+    fn init_skipped_for_empty_class() {
+        let src = "\
+class Empty {
+}
+";
+        assert!(run_init(src, pos(1, 0)).is_none());
+    }
+
+    #[test]
+    fn init_outside_class_returns_none() {
+        let src = "\
+class Point {
+    x: f64
+}
+fn f() {}
+";
+        // cursor is on the `fn` line — outside the class.
+        assert!(run_init(src, pos(3, 0)).is_none());
+    }
+
+    #[test]
+    fn init_renders_complex_field_types() {
+        let src = "\
+class Bag {
+    items: i32[]
+    label: string
+    count: i64
+}
+";
+        let out = run_init(src, pos(1, 4)).unwrap();
+        assert!(
+            out.contains("init(items: i32[], label: string, count: i64)"),
+            "out:\n{out}"
+        );
+    }
+
+    #[test]
+    fn implement_stubs_inserted_for_missing_methods() {
+        let src = "\
+@extern(ObjC) {
+    @objc interface Greeter {
+        hello(name: i64)
+        goodbye?(name: i64): bool
+    }
+}
+class Eager : Greeter {
+    pub init() {}
+}
+";
+        // cursor inside the class body
+        let out = run_iface(src, pos(7, 4)).unwrap();
+        assert!(out.contains("pub hello(name: i64) {"), "out:\n{out}");
+        assert!(out.contains("pub goodbye(name: i64): bool {"), "out:\n{out}");
+        assert!(out.contains("optional"), "out:\n{out}");
+        assert!(out.contains("false"), "out:\n{out}");
+    }
+
+    #[test]
+    fn implement_skips_existing_methods() {
+        let src = "\
+interface Greet {
+    hi(): string
+    bye(): string
+}
+class C : Greet {
+    pub init() {}
+    pub hi(): string { \"hi\" }
+}
+";
+        // cursor inside class body
+        let out = run_iface(src, pos(5, 4)).unwrap();
+        // `hi` already implemented — only `bye` should be added.
+        assert!(out.contains("pub bye(): string {"), "out:\n{out}");
+        // Should NOT add a second `pub hi`.
+        assert_eq!(out.matches("pub hi(").count(), 1, "out:\n{out}");
+    }
+
+    #[test]
+    fn implement_returns_none_when_all_methods_present() {
+        let src = "\
+interface I {
+    f()
+}
+class D : I {
+    pub init() {}
+    pub f() {}
+}
+";
+        assert!(run_iface(src, pos(4, 4)).is_none());
+    }
+
+    #[test]
+    fn implement_returns_none_outside_class() {
+        let src = "\
+interface I { f() }
+class D : I { pub init() {} pub f() {} }
+fn outside() {}
+";
+        // cursor on the outside fn
+        assert!(run_iface(src, pos(2, 0)).is_none());
+    }
+
+    #[test]
+    fn interface_method_completion_emits_snippets() {
+        // Cursor inside a class body that lists an interface as
+        // its base — completion should produce one entry per
+        // unimplemented interface method, with a snippet that
+        // inserts the full signature + body.
+        let src = "\
+interface Greeter {
+    hello(name: i64): bool
+    bye()
+}
+class C : Greeter {
+    pub init() {}
+
+}
+";
+        let toks = tokenize(src).unwrap();
+        let prog = parse(&toks).unwrap();
+        let empty: HashMap<AstSymbol, ilang_ast::InterfaceDecl> = HashMap::new();
+        // Cursor inside the class body, just past `pub init() {}`
+        // on the next line.
+        let stubs =
+            interface_method_stub_completions_at(src, &prog, &empty, pos(5, 18));
+        // Two missing methods: `hello` and `bye`. `init` already
+        // exists.
+        assert_eq!(stubs.len(), 2, "stubs: {:?}", stubs);
+        let labels: Vec<&str> = stubs.iter().map(|(l, _, _)| l.as_str()).collect();
+        assert!(labels.contains(&"hello"), "labels: {labels:?}");
+        assert!(labels.contains(&"bye"), "labels: {labels:?}");
+        // Snippet for `hello(name: i64): bool` should include the
+        // signature + a default `false` for the bool return.
+        let (_, _, hello_snippet) = stubs.iter().find(|(l, _, _)| l == "hello").unwrap();
+        assert!(hello_snippet.contains("pub hello(name: i64): bool"), "{}", hello_snippet);
+        assert!(hello_snippet.contains("false"), "{}", hello_snippet);
+    }
+
+    #[test]
+    fn interface_method_completion_textual_works_mid_edit() {
+        // The user is mid-typing inside a class body whose buffer
+        // doesn't yet parse cleanly. The text-based completion
+        // path should still surface the missing-method stubs.
+        let src = "\
+interface Greeter {
+    hello(name: i64): bool
+    bye()
+}
+class C : Greeter {
+    pub init() {}
+    he
+}
+";
+        let ext_src = "\
+interface Greeter {
+    hello(name: i64): bool
+    bye()
+}
+";
+        // Build local_interfaces map from a parse of the interface
+        // declaration (the LSP would normally have this populated
+        // from the last successful parse of the same buffer).
+        let ext_toks = tokenize(ext_src).unwrap();
+        let ext_prog = parse(&ext_toks).unwrap();
+        let mut locals: HashMap<AstSymbol, ilang_ast::InterfaceDecl> = HashMap::new();
+        for it in &ext_prog.items {
+            if let Item::Interface(i) = it {
+                locals.insert(i.name, i.clone());
+            }
+        }
+        let empty: HashMap<AstSymbol, ilang_ast::InterfaceDecl> = HashMap::new();
+        // Cursor at line 6 col 6, right after `he` partial ident.
+        let off = crate::text::line_col_to_offset(src, 7, 7).expect("offset");
+        let stubs =
+            interface_method_stub_completions_textual(src, off, &locals, &empty);
+        assert_eq!(stubs.len(), 2, "stubs: {:?}", stubs);
+        let labels: Vec<&str> = stubs.iter().map(|(l, _, _)| l.as_str()).collect();
+        assert!(labels.contains(&"hello"));
+        assert!(labels.contains(&"bye"));
+    }
+
+    #[test]
+    fn implement_works_for_inline_empty_class_body() {
+        // `class MyApp : NSApplicationDelegate {}` on a single
+        // line with empty body — same shape the user reports.
+        let local_src = "class MyApp : MyDel {}\n";
+        let toks = tokenize(local_src).unwrap();
+        let local_prog = parse(&toks).unwrap();
+
+        let ext_src = "\
+interface MyDel {
+    notifyMe(name: i64)
+}
+";
+        let ext_toks = tokenize(ext_src).unwrap();
+        let ext_prog = parse(&ext_toks).unwrap();
+        let mut ext_ifaces: HashMap<AstSymbol, ilang_ast::InterfaceDecl> = HashMap::new();
+        for it in &ext_prog.items {
+            if let Item::Interface(i) = it {
+                ext_ifaces.insert(i.name, i.clone());
+            }
+        }
+        // Cursor between `{` and `}` on line 0 (column ~21).
+        let res = implement_interface_methods_at(
+            local_src,
+            &local_prog,
+            &ext_ifaces,
+            pos(0, 21),
+        );
+        assert!(res.is_some(), "inline `{{}}` body should still trigger");
+    }
+
+    #[test]
+    fn implement_uses_external_interfaces_for_cross_module() {
+        // Simulate `use cocoa { MyDel }` where MyDel lives in
+        // another file: the local buffer has no `interface MyDel`
+        // visible, but `external_interfaces` carries the decl
+        // populated by the loader. The code action should fall
+        // back to that map.
+        let local_src = "\
+class MyApp : MyDel {
+}
+";
+        let toks = tokenize(local_src).unwrap();
+        let local_prog = parse(&toks).unwrap();
+
+        // Build a stand-in InterfaceDecl by parsing a separate
+        // snippet that DOES declare it.
+        let ext_src = "\
+@extern(ObjC) {
+    @objc interface MyDel {
+        notifyMe(name: i64)
+        cleanup?()
+    }
+}
+";
+        let ext_toks = tokenize(ext_src).unwrap();
+        let ext_prog = parse(&ext_toks).unwrap();
+        let mut ext_ifaces: HashMap<AstSymbol, ilang_ast::InterfaceDecl> = HashMap::new();
+        for it in &ext_prog.items {
+            if let Item::ExternC(b) = it {
+                for i in b.interfaces.iter() {
+                    ext_ifaces.insert(i.name, i.clone());
+                }
+            }
+        }
+
+        let (insert, new_text, count) =
+            implement_interface_methods_at(local_src, &local_prog, &ext_ifaces, pos(0, 22))
+                .expect("should fire for cross-module interface");
+        assert!(count >= 2, "missing count = {count}");
+        let mut out = local_src.to_string();
+        out.insert_str(insert, &new_text);
+        assert!(out.contains("pub notifyMe(name: i64) {"), "out:\n{out}");
+        assert!(out.contains("pub cleanup() {"), "out:\n{out}");
+        assert!(out.contains("optional"), "out:\n{out}");
+    }
+
+    #[test]
+    fn implement_fires_when_cursor_on_class_header_line() {
+        // VSCode's lightbulb often anchors on the class header
+        // line, not the body. The action must still fire when the
+        // cursor sits on `class NAME : Base` rather than between
+        // the braces.
+        let local_src = "class AA : MyDel {\n}\n";
+        let toks = tokenize(local_src).unwrap();
+        let local_prog = parse(&toks).unwrap();
+
+        let ext_src = "\
+interface MyDel {
+    notifyMe(name: i64)
+}
+";
+        let ext_toks = tokenize(ext_src).unwrap();
+        let ext_prog = parse(&ext_toks).unwrap();
+        let mut ext_ifaces: HashMap<AstSymbol, ilang_ast::InterfaceDecl> = HashMap::new();
+        for it in &ext_prog.items {
+            if let Item::Interface(i) = it {
+                ext_ifaces.insert(i.name, i.clone());
+            }
+        }
+        // Cursor on the `class` keyword (line 0, col 0).
+        let res = implement_interface_methods_at(
+            local_src,
+            &local_prog,
+            &ext_ifaces,
+            pos(0, 0),
+        );
+        assert!(res.is_some(), "should fire with cursor on header");
+    }
+
+    #[test]
+    fn implement_fires_for_objc_class_inside_extern_block() {
+        // The `@objc class` is wrapped in an `@extern(ObjC) { … }`
+        // block, parsed as `Item::ExternC` with the class buried
+        // inside `ExternCItem::Class`. The code action must still
+        // locate the enclosing class.
+        let local_src = "\
+@extern(ObjC) {
+    @objc class MyApp : MyDel {
+    }
+}
+";
+        let toks = tokenize(local_src).unwrap();
+        let local_prog = parse(&toks).unwrap();
+
+        let ext_src = "\
+@extern(ObjC) {
+    @objc interface MyDel {
+        notifyMe(name: i64)
+    }
+}
+";
+        let ext_toks = tokenize(ext_src).unwrap();
+        let ext_prog = parse(&ext_toks).unwrap();
+        let mut ext_ifaces: HashMap<AstSymbol, ilang_ast::InterfaceDecl> = HashMap::new();
+        for it in &ext_prog.items {
+            if let Item::ExternC(b) = it {
+                for i in b.interfaces.iter() {
+                    ext_ifaces.insert(i.name, i.clone());
+                }
+            }
+        }
+
+        // Cursor inside the @objc class body (line 2, between the
+        // `{` and `}`).
+        let res = implement_interface_methods_at(
+            local_src,
+            &local_prog,
+            &ext_ifaces,
+            pos(2, 4),
+        );
+        let (_, new_text, count) =
+            res.expect("should fire for @objc class inside @extern(ObjC)");
+        assert_eq!(count, 1, "missing count = {count}");
+        assert!(new_text.contains("pub notifyMe(name: i64) {"), "new_text:\n{new_text}");
+    }
+
+    #[test]
+    fn textual_completion_resolves_dotted_external_iface() {
+        // User wrote `class AA: cocoa.NSMenuDelegate {}` at top
+        // level and put the cursor inside the body. The textual
+        // completion should surface every unimplemented method of
+        // the cocoa.NSMenuDelegate interface.
+        let local_src = "class AA: cocoa.NSMenuDelegate {\n    \n}\n";
+
+        // Build external_interfaces the way `collect_external_interfaces`
+        // would: dotted key + bare key both pointing at the decl.
+        let ext_src = "\
+@extern(ObjC) {
+    @objc pub interface NSMenuDelegate {
+        menuWillOpen?(menu: i64)
+    }
+}
+";
+        let ext_toks = tokenize(ext_src).unwrap();
+        let ext_prog = parse(&ext_toks).unwrap();
+        let mut ext_ifaces: HashMap<AstSymbol, ilang_ast::InterfaceDecl> = HashMap::new();
+        for it in &ext_prog.items {
+            if let Item::ExternC(b) = it {
+                for i in b.interfaces.iter() {
+                    ext_ifaces.insert(i.name, i.clone());
+                    ext_ifaces.insert(AstSymbol::intern("cocoa.NSMenuDelegate"), i.clone());
+                }
+            }
+        }
+        let empty: HashMap<AstSymbol, ilang_ast::InterfaceDecl> = HashMap::new();
+        let off = crate::text::line_col_to_offset(local_src, 2, 5).expect("offset");
+        let stubs = interface_method_stub_completions_textual(
+            local_src, off, &empty, &ext_ifaces,
+        );
+        let labels: Vec<&str> = stubs.iter().map(|(l, _, _)| l.as_str()).collect();
+        assert!(
+            labels.contains(&"menuWillOpen"),
+            "labels did not include menuWillOpen: {labels:?}"
+        );
+    }
+}
