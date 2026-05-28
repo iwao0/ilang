@@ -37,9 +37,14 @@ pub(crate) fn make_hover_with_doc(sig: &str, doc: Option<&str>) -> Hover {
 pub(crate) fn lookup_ref(doc: &Doc, pos: Position) -> Option<&RefEntry> {
     let line = pos.line + 1;
     let col = pos.character + 1;
-    doc.refs
+    // `doc.refs` is sorted by `(line, start_col)` (see `diag.rs`), so
+    // binary-search to the first ref on `line` and scan only that
+    // line's (short) run instead of walking the whole list.
+    let start = doc.refs.partition_point(|r| r.line < line);
+    doc.refs[start..]
         .iter()
-        .find(|r| r.line == line && col >= r.start_col && col <= r.end_col)
+        .take_while(|r| r.line == line)
+        .find(|r| col >= r.start_col && col <= r.end_col)
 }
 
 /// Build a `Doc` for a file we don't have open in the editor.

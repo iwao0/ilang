@@ -153,15 +153,17 @@ pub(crate) fn resolve_receiver_class(
 /// `handlers.rs` converts to `Ok(...)`. Pure function over `doc` /
 /// `pos`; the impl method handles state lookup.
 pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionResponse> {
+    // Cursor byte offset, computed once and shared by every context
+    // probe below — each `at_*` / `use_path_prefix_at` check needs it,
+    // and `line_col_to_offset` would otherwise rescan the buffer per
+    // call.
+    let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
+        .unwrap_or(doc.text.len());
     // `use M as |` — the alias name is a fresh binder; offering any
     // visible identifier just invites shadowing. Return an empty
     // list so VSCode's word-based fallback doesn't fill in.
-    {
-        let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
-            .unwrap_or(doc.text.len());
-        if at_use_alias_position(&doc.text, off) {
-            return Some(CompletionResponse::Array(Vec::new()));
-        }
+    if at_use_alias_position(&doc.text, off) {
+        return Some(CompletionResponse::Array(Vec::new()));
     }
     // `use <ident>` or `use a.b.<ident>` — the cursor is on a
     // segment of the module path. This branch fires before the
@@ -169,8 +171,6 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
     // would otherwise route through "receiver = std" and try to
     // resolve it as a class / variable.
     {
-        let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
-            .unwrap_or(doc.text.len());
         if let Some(prefix) = use_path_prefix_at(&doc.text, off) {
             let mut heads: std::collections::BTreeSet<String> =
                 std::collections::BTreeSet::new();
@@ -226,8 +226,6 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
     // (which would mix in unrelated identifiers from other open
     // files) from being the only source.
     let Some(receiver) = receiver_before_dot(&doc.text, pos) else {
-        let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
-            .unwrap_or(doc.text.len());
         // After `let` / `const` the user is naming a new binding —
         // suppress all suggestions so VSCode doesn't autocomplete
         // an unrelated identifier into the binder slot.
@@ -467,8 +465,6 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
         // Built-in singleton: instance of `Console`.
         "Console".to_string()
     } else {
-        let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
-            .unwrap_or(doc.text.len());
         resolve_receiver_class(doc, &receiver, off).unwrap_or_default()
     };
     if doc.classes.get(&AstSymbol::intern(&class_name)).is_none() {
@@ -733,8 +729,6 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
             .map(|s| s.as_str().to_string())
             .unwrap_or_else(|| receiver.clone());
         let prefix = format!("{canonical}.");
-        let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
-            .unwrap_or(doc.text.len());
         let in_extern_c = in_extern_c_block(&doc.text, off);
         let c_only_structs = if in_extern_c {
             std::collections::HashSet::new()
@@ -858,8 +852,6 @@ pub(crate) fn handle_completion(doc: &Doc, pos: Position) -> Option<CompletionRe
     // Recover the receiver's concrete generic args (`Signal<KeyEvent>`)
     // so the snippet/detail show `fn(KeyEvent)` instead of the
     // declared `fn(T)`.
-    let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
-        .unwrap_or(doc.text.len());
     let generic_args: Vec<Type> = resolve_receiver_type(doc, &receiver, off)
         .and_then(|ty| match ty {
             Type::Generic(g) => Some(g.args.to_vec()),
