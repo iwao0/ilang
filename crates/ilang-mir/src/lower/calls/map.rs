@@ -53,11 +53,22 @@ impl<'a> BodyCx<'a> {
                 return Err(LowerError::Other(format!("unknown map method `{other}`")));
             }
         };
+        // Narrow key / value args to the map's declared K / V so a
+        // float / int literal adopts the slot width (`m.set(k, 0.5)`
+        // against `Map<_, f32>` must store an f32, not an f64 whose
+        // low 32 bits read back as 0). `get`/`has`/`delete` take a key;
+        // `set` takes a key then a value; other methods take none.
+        let arg_types: Vec<Option<&MirTy>> = match m {
+            "get" | "has" | "delete" => vec![Some(&**key)],
+            "set" => vec![Some(&**key), Some(&**val)],
+            _ => Vec::new(),
+        };
         let mut arg_vals = vec![ov];
         let mut arg_meta: Vec<(bool, ValueId, MirTy)> = Vec::new();
-        for a in args {
+        for (idx, a) in args.iter().enumerate() {
             let arg_is_fresh = self.is_fresh_object_expr(a);
-            let (v, vty) = self.lower_expr(a)?;
+            let target = arg_types.get(idx).copied().flatten();
+            let (v, vty) = self.lower_arg_to(a, target)?;
             // Map host fns are uniformly (i64, i64, i64). Cast
             // smaller / float / bool args to i64 cells.
             let v_ext = if matches!(vty, MirTy::I64 | MirTy::U64)
@@ -78,6 +89,14 @@ impl<'a> BodyCx<'a> {
             };
             arg_vals.push(v_ext);
             arg_meta.push((arg_is_fresh, v_ext, vty));
+        }
+        // `forEach`'s callback is `fn(key, value, env)`; float key /
+        // value params travel in float registers, so pass their
+        // float-kind tags (0=int/ptr, 1=f32, 2=f64) for the runtime to
+        // call the closure through a matching ABI.
+        if m == "forEach" {
+            arg_vals.push(self.const_int(MirTy::I64, key.float_kind()));
+            arg_vals.push(self.const_int(MirTy::I64, val.float_kind()));
         }
         let dst = if matches!(ret_ty, MirTy::Unit) {
             None

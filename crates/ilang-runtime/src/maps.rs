@@ -315,14 +315,66 @@ pub extern "C" fn __map_entries(map: i64) -> i64 {
     build_i64_array(&tuples, crate::kind::KIND_TUPLE)
 }
 
+/// Reinterpret an i64 cell as the closure-arg value for float-kind
+/// `fk` (0 = integer/pointer, 1 = f32, 2 = f64). Used to feed a float
+/// key / value into the float register the closure's parameter expects.
+macro_rules! kv_call {
+    ($fn_ptr:expr, $closure:expr, $k:expr, $kfk:expr, $v:expr, $vfk:expr) => {{
+        let fp = $fn_ptr;
+        match ($kfk, $vfk) {
+            (0, 0) => {
+                let f: extern "C" fn(i64, i64, i64) -> i64 = std::mem::transmute(fp);
+                let _ = f($k, $v, $closure);
+            }
+            (0, 1) => {
+                let f: extern "C" fn(i64, f32, i64) -> i64 = std::mem::transmute(fp);
+                let _ = f($k, f32::from_bits($v as u32), $closure);
+            }
+            (0, 2) => {
+                let f: extern "C" fn(i64, f64, i64) -> i64 = std::mem::transmute(fp);
+                let _ = f($k, f64::from_bits($v as u64), $closure);
+            }
+            (1, 0) => {
+                let f: extern "C" fn(f32, i64, i64) -> i64 = std::mem::transmute(fp);
+                let _ = f(f32::from_bits($k as u32), $v, $closure);
+            }
+            (2, 0) => {
+                let f: extern "C" fn(f64, i64, i64) -> i64 = std::mem::transmute(fp);
+                let _ = f(f64::from_bits($k as u64), $v, $closure);
+            }
+            (1, 1) => {
+                let f: extern "C" fn(f32, f32, i64) -> i64 = std::mem::transmute(fp);
+                let _ = f(f32::from_bits($k as u32), f32::from_bits($v as u32), $closure);
+            }
+            (1, 2) => {
+                let f: extern "C" fn(f32, f64, i64) -> i64 = std::mem::transmute(fp);
+                let _ = f(f32::from_bits($k as u32), f64::from_bits($v as u64), $closure);
+            }
+            (2, 1) => {
+                let f: extern "C" fn(f64, f32, i64) -> i64 = std::mem::transmute(fp);
+                let _ = f(f64::from_bits($k as u64), f32::from_bits($v as u32), $closure);
+            }
+            (2, 2) => {
+                let f: extern "C" fn(f64, f64, i64) -> i64 = std::mem::transmute(fp);
+                let _ = f(f64::from_bits($k as u64), f64::from_bits($v as u64), $closure);
+            }
+            _ => {
+                let f: extern "C" fn(i64, i64, i64) -> i64 = std::mem::transmute(fp);
+                let _ = f($k, $v, $closure);
+            }
+        }
+    }};
+}
+
 /// Invoke an ilang closure with two args (key, value) and the
-/// trailing env pointer. The closure body's return value is
-/// discarded — `forEach` callbacks return Unit by signature.
-unsafe fn call_closure_kv(closure: i64, k: i64, v: i64) {
+/// trailing env pointer. `key_fk` / `val_fk` are float-kind tags so a
+/// float key / value reaches the closure in a float register rather
+/// than an integer one. The closure body's return value is discarded —
+/// `forEach` callbacks return Unit by signature.
+unsafe fn call_closure_kv(closure: i64, k: i64, v: i64, key_fk: i64, val_fk: i64) {
     unsafe {
         let fn_ptr = *(closure as *const i64);
-        let f: extern "C" fn(i64, i64, i64) -> i64 = std::mem::transmute(fn_ptr);
-        let _ = f(k, v, closure);
+        kv_call!(fn_ptr, closure, k, key_fk, v, val_fk);
     }
 }
 
@@ -332,7 +384,7 @@ unsafe fn call_closure_kv(closure: i64, k: i64, v: i64) {
 /// returns. If the callback wants to keep the key alive past its own
 /// return, it must `retain` like any other ilang heap arg.
 #[unsafe(export_name = "$map.forEach")]
-pub extern "C" fn __map_for_each(map: i64, closure: i64) {
+pub extern "C" fn __map_for_each(map: i64, closure: i64, key_fk: i64, val_fk: i64) {
     if map == 0 || closure == 0 {
         return;
     }
@@ -357,7 +409,7 @@ pub extern "C" fn __map_for_each(map: i64, closure: i64) {
         })
         .collect();
     for (key_raw, v) in pairs {
-        unsafe { call_closure_kv(closure, key_raw, v) };
+        unsafe { call_closure_kv(closure, key_raw, v, key_fk, val_fk) };
         if key_is_str {
             crate::strings::__release_string(key_raw);
         }

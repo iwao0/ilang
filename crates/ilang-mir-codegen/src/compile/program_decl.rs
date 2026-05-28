@@ -108,7 +108,15 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let map_values_id = declare_unary_i64(module, "$map.values")?;
     let map_clear_id = declare_unit_i64(module, "$map.clear")?;
     let map_entries_id = declare_unary_i64(module, "$map.entries")?;
-    let map_for_each_id = declare_binary_i64_void(module, "$map.forEach")?;
+    // (map, closure, key_fk, val_fk) -> void.
+    let map_for_each_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("$map.forEach", Linkage::Import, &sig)?
+    };
     // Set runtime imports — mirror Map's shape but every entry-side
     // op is a 2-arg `(set, raw_elem)` instead of `(set, key, value)`.
     let set_new_id = declare_returns_i64(module, "$set.new")?;
