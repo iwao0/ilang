@@ -50,7 +50,7 @@ impl<'a> Walker<'a> {
                     _ => None,
                 });
                 let name_span =
-                    locate_if_let_some_name(self.text, e.span, name.as_str()).unwrap_or(e.span);
+                    text::locate_if_let_some_name_at(self.line_starts, self.text, e.span, name.as_str()).unwrap_or(e.span);
                 let sig = BindKind::Let.render(name.as_str(), inner_ty.as_ref());
                 self.push_decl(name.as_str(), name_span, sig);
                 if let Some(c) = inner_ty.as_ref().and_then(type_to_class) {
@@ -144,7 +144,7 @@ impl<'a> Walker<'a> {
                             .get(field)
                             .or_else(|| info.fields.get(field))
                         {
-                            if let Some((line, col)) = locate_dot_name(self.text, obj.span, field.as_str())
+                            if let Some((line, col)) = text::locate_dot_name_at(self.line_starts, self.text, obj.span, field.as_str())
                             {
                                 let (target, no_def, uri) = member_target(
                                     m,
@@ -370,7 +370,7 @@ impl<'a> Walker<'a> {
                 _ => None,
             };
             if let Some(prefix) = prefix {
-                if let Some((line, col)) = locate_dot_name(self.text, obj.span, name.as_str()) {
+                if let Some((line, col)) = text::locate_dot_name_at(self.line_starts, self.text, obj.span, name.as_str()) {
                     self.refs.push(RefEntry {
                         line,
                         start_col: col,
@@ -394,7 +394,7 @@ impl<'a> Walker<'a> {
                     .or_else(|| info.fields.get(name))
                     .or_else(|| info.methods.get(name))
                 {
-                    if let Some((line, col)) = locate_dot_name(self.text, obj.span, name.as_str()) {
+                    if let Some((line, col)) = text::locate_dot_name_at(self.line_starts, self.text, obj.span, name.as_str()) {
                         let (target, no_def, uri) = member_target(
                             m,
                             info,
@@ -428,7 +428,7 @@ impl<'a> Walker<'a> {
             if let Some(sig) = self.external_signatures.get(&key).cloned() {
                 if sig.starts_with("(variant)") {
                     if let Some((line, col)) =
-                        locate_dot_name(self.text, obj.span, name.as_str())
+                        text::locate_dot_name_at(self.line_starts, self.text, obj.span, name.as_str())
                     {
                         let loc = self.external_sources.get(&key);
                         let target_uri = loc.and_then(|l| Url::from_file_path(&l.path).ok());
@@ -493,7 +493,7 @@ impl<'a> Walker<'a> {
             _ => None,
         };
         if let Some((sig, doc_text)) = builtin {
-            if let Some((line, col)) = locate_dot_name(self.text, obj.span, method.as_str()) {
+            if let Some((line, col)) = text::locate_dot_name_at(self.line_starts, self.text, obj.span, method.as_str()) {
                 self.refs.push(RefEntry {
                     line,
                     start_col: col,
@@ -511,7 +511,7 @@ impl<'a> Walker<'a> {
         if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
             if let Some(info) = self.classes.get(&AstSymbol::intern(&class)) {
                 if let Some(m) = info.methods.get(&AstSymbol::intern(method.as_str())) {
-                    if let Some((line, col)) = locate_dot_name(self.text, obj.span, method.as_str()) {
+                    if let Some((line, col)) = text::locate_dot_name_at(self.line_starts, self.text, obj.span, method.as_str()) {
                         let (target, no_def, uri) = member_target(
                             m,
                             info,
@@ -577,7 +577,7 @@ impl<'a> Walker<'a> {
             // Same use_span guard as push_ref — synthesised calls
             // (e.g. `cstrFromString` inside the @objc class desugar)
             // borrow nearby user spans.
-            if text::text_at_span_starts_with(self.text, span, callee.as_str()) {
+            if text::text_at_span_starts_with_at(self.line_starts, self.text, span, callee.as_str()) {
                 self.refs.push(RefEntry {
                     line: span.line,
                     start_col: span.col,
@@ -621,7 +621,8 @@ impl<'a> Walker<'a> {
         // Walk the args (still useful for nested type refs) then skip
         // the class ref entirely.
         let class_str = class.as_str();
-        let Some(class_start) = locate_let_name_with_kw(
+        let Some(class_start) = text::locate_let_name_with_kw_at(
+            self.line_starts,
             self.text,
             span,
             "new",
@@ -656,7 +657,7 @@ impl<'a> Walker<'a> {
                 target_uri: prefix_uri,
                 doc: None,
             });
-            if let Some((line, col)) = locate_dot_name(self.text, class_start, suffix) {
+            if let Some((line, col)) = text::locate_dot_name_at(self.line_starts, self.text, class_start, suffix) {
                 let loc = self.external_sources.get(class);
                 let target_uri = loc.and_then(|l| Url::from_file_path(&l.path).ok());
                 let is_external = info.map(|i| i.external).unwrap_or(true);
@@ -731,7 +732,7 @@ impl<'a> Walker<'a> {
         // cross-module enums.
         let key = AstSymbol::intern(&format!("{}.{}", enum_name, variant));
         if let Some(sig) = self.external_signatures.get(&key).cloned() {
-            if let Some((line, col)) = locate_dot_name(self.text, span, variant.as_str()) {
+            if let Some((line, col)) = text::locate_dot_name_at(self.line_starts, self.text, span, variant.as_str()) {
                 let loc = self.external_sources.get(&key);
                 let target_uri = loc.and_then(|l| Url::from_file_path(&l.path).ok());
                 let (target_span, target_name_len, no_def) = match loc {

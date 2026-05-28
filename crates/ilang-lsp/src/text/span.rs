@@ -8,6 +8,8 @@ use ilang_lexer::tokenize;
 use ilang_parser::parse;
 use tower_lsp::lsp_types::{Position, Range};
 
+use crate::text_utils::compute_line_starts;
+
 
 /// Tokenise + parse `text` into a `Program`. Returns `None` if either
 /// step fails — the lex/parse error itself is discarded since LSP
@@ -26,50 +28,49 @@ pub(crate) fn try_parse(text: &str) -> Option<Program> {
 /// see `ilang_lexer::scanner`). Multi-byte UTF-8 columns therefore
 /// resolve to the byte where the *char* sits, not `line_start + col`.
 pub(crate) fn line_col_to_offset(text: &str, line: u32, col: u32) -> Option<usize> {
-    let mut cur_line = 1u32;
-    let mut line_start = 0usize;
-    for (i, ch) in text.char_indices() {
-        if cur_line == line {
-            let target_col = col.saturating_sub(1) as usize;
-            let mut byte = line_start;
-            let mut walked = 0usize;
-            for c in text[line_start..].chars() {
-                if walked >= target_col || c == '\n' {
-                    return Some(byte);
-                }
-                byte += c.len_utf8();
-                walked += 1;
-            }
+    line_col_to_offset_at(&compute_line_starts(text), text, line, col)
+}
+
+/// Table-driven `line_col_to_offset`. `line_starts[k]` is the byte
+/// offset of line `k+1`'s first character (the layout produced by
+/// `compute_line_starts`). Finding the line is O(1); only the
+/// within-line character walk for `col` remains. Callers that resolve
+/// many positions against the same buffer (the ref walker, inlay
+/// hints) build the table once and reuse it instead of paying a
+/// from-byte-0 scan per lookup.
+pub(crate) fn line_col_to_offset_at(
+    line_starts: &[usize],
+    text: &str,
+    line: u32,
+    col: u32,
+) -> Option<usize> {
+    let line_start = *line_starts.get((line.checked_sub(1)?) as usize)?;
+    let target_col = col.saturating_sub(1) as usize;
+    let mut byte = line_start;
+    let mut walked = 0usize;
+    for c in text[line_start..].chars() {
+        if walked >= target_col || c == '\n' {
             return Some(byte);
         }
-        if ch == '\n' {
-            cur_line += 1;
-            line_start = i + 1;
-        }
+        byte += c.len_utf8();
+        walked += 1;
     }
-    if cur_line == line {
-        let target_col = col.saturating_sub(1) as usize;
-        let mut byte = line_start;
-        let mut walked = 0usize;
-        for c in text[line_start..].chars() {
-            if walked >= target_col {
-                return Some(byte);
-            }
-            byte += c.len_utf8();
-            walked += 1;
-        }
-        return Some(byte);
-    }
-    None
+    Some(byte)
 }
 
 /// `true` when the source text starting at `span` (1-based line /
 /// col) begins with `name`. Used to drop parser-synthesised refs
 /// whose AST span borrows a nearby user span but doesn't actually
 /// hold the callee text — those would otherwise hijack hover on
-/// neighbouring identifiers.
-pub(crate) fn text_at_span_starts_with(text: &str, span: ilang_ast::Span, name: &str) -> bool {
-    let Some(off) = line_col_to_offset(text, span.line, span.col) else {
+/// neighbouring identifiers. `line_starts` is the precomputed
+/// line-start table for `text` (see `compute_line_starts`).
+pub(crate) fn text_at_span_starts_with_at(
+    line_starts: &[usize],
+    text: &str,
+    span: Span,
+    name: &str,
+) -> bool {
+    let Some(off) = line_col_to_offset_at(line_starts, text, span.line, span.col) else {
         return false;
     };
     text.as_bytes()
@@ -81,23 +82,26 @@ pub(crate) fn text_at_span_starts_with(text: &str, span: ilang_ast::Span, name: 
 /// Inverse of `line_col_to_offset`. `col` is a 1-based **character**
 /// index (matches the lexer's `Span.col`).
 pub(crate) fn offset_to_line_col(text: &str, offset: usize) -> Option<(u32, u32)> {
+    offset_to_line_col_at(&compute_line_starts(text), text, offset)
+}
+
+/// Table-driven `offset_to_line_col`. The line is found by a binary
+/// search over `line_starts`; only the within-line character count
+/// for the column remains.
+pub(crate) fn offset_to_line_col_at(
+    line_starts: &[usize],
+    text: &str,
+    offset: usize,
+) -> Option<(u32, u32)> {
     if offset > text.len() {
         return None;
     }
-    let mut line = 1u32;
-    let mut col = 1u32;
-    for (i, ch) in text.char_indices() {
-        if i >= offset {
-            return Some((line, col));
-        }
-        if ch == '\n' {
-            line += 1;
-            col = 1;
-        } else {
-            col += 1;
-        }
-    }
-    Some((line, col))
+    // `line_starts[0]` is always 0, so at least one start is `<= offset`
+    // and `line` is `>= 1`.
+    let line = line_starts.partition_point(|&s| s <= offset);
+    let line_start = line_starts[line - 1];
+    let col = text[line_start..offset].chars().count() as u32 + 1;
+    Some((line as u32, col))
 }
 
 

@@ -2,23 +2,31 @@
 //! source to find the exact `Span` of a name token inside it (the
 //! parser only records the keyword position for many constructs, so
 //! hover / F12 / rename need this to land on the identifier itself).
+//!
+//! Each helper comes in two forms: a `&str`-only public function that
+//! builds a one-shot line-start table, and a `*_at` variant that takes
+//! a precomputed `line_starts` table. The ref walker resolves many
+//! positions against the same buffer, so it builds the table once and
+//! calls the `*_at` forms to avoid a from-byte-0 rescan per lookup.
 
 use ilang_ast::Span;
 
-use super::{line_col_to_offset, offset_to_line_col};
+use crate::text_utils::compute_line_starts;
 
+use super::{line_col_to_offset_at, offset_to_line_col_at};
 
 /// Locate the start of the type token in a `name: T` form (field
 /// declarations, params, etc.). Skips the `name` identifier, the
 /// trailing whitespace, the `:`, more whitespace, and lands on the
 /// first character of the type. Returns `None` if the layout
 /// doesn't match (e.g., no `:` follows the name).
-pub(crate) fn locate_type_after_colon(
+pub(crate) fn locate_type_after_colon_at(
+    line_starts: &[usize],
     text: &str,
     name_span: Span,
     name: &str,
 ) -> Option<Span> {
-    let off = line_col_to_offset(text, name_span.line, name_span.col)?;
+    let off = line_col_to_offset_at(line_starts, text, name_span.line, name_span.col)?;
     let bytes = text.as_bytes();
     let mut i = off + name.len();
     while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
@@ -38,7 +46,7 @@ pub(crate) fn locate_type_after_colon(
     if !b.is_ascii_alphabetic() && b != b'_' {
         return None;
     }
-    let (line, col) = offset_to_line_col(text, i)?;
+    let (line, col) = offset_to_line_col_at(line_starts, text, i)?;
     Some(Span::new(line, col))
 }
 
@@ -50,12 +58,13 @@ pub(crate) fn locate_type_after_colon(
 /// with a non-identifier character we can't anchor on (e.g.
 /// `*const T`, `T[]`) — in those cases there's nothing for the type
 /// ref to be anchored at, so skipping is correct.
-pub(crate) fn locate_fn_return_type(
+pub(crate) fn locate_fn_return_type_at(
+    line_starts: &[usize],
     text: &str,
     name_span: Span,
     name: &str,
 ) -> Option<Span> {
-    let off = line_col_to_offset(text, name_span.line, name_span.col)?;
+    let off = line_col_to_offset_at(line_starts, text, name_span.line, name_span.col)?;
     let bytes = text.as_bytes();
     let mut i = off + name.len();
     // Skip whitespace + optional generic argument list `<...>` —
@@ -111,18 +120,19 @@ pub(crate) fn locate_fn_return_type(
     if !b.is_ascii_alphabetic() && b != b'_' {
         return None;
     }
-    let (line, col) = offset_to_line_col(text, i)?;
+    let (line, col) = offset_to_line_col_at(line_starts, text, i)?;
     Some(Span::new(line, col))
 }
 
 /// Locate the Nth base name in a class declaration's `: Base1, Base2`
 /// list. `class_span` points at the `class` keyword.
-pub(crate) fn locate_class_base_name(
+pub(crate) fn locate_class_base_name_at(
+    line_starts: &[usize],
     text: &str,
     class_span: Span,
     index: usize,
 ) -> Option<Span> {
-    let off = line_col_to_offset(text, class_span.line, class_span.col)?;
+    let off = line_col_to_offset_at(line_starts, text, class_span.line, class_span.col)?;
     let bytes = text.as_bytes();
     let mut i = off;
     while i < bytes.len() && bytes[i] != b'{' {
@@ -150,7 +160,7 @@ pub(crate) fn locate_class_base_name(
             if !b.is_ascii_alphabetic() && b != b'_' {
                 return None;
             }
-            let (line, col) = offset_to_line_col(text, i)?;
+            let (line, col) = offset_to_line_col_at(line_starts, text, i)?;
             return Some(Span::new(line, col));
         }
         found += 1;
@@ -165,8 +175,13 @@ pub(crate) fn locate_class_base_name(
 }
 
 /// Locate the property name after a `get` or `set` keyword.
-pub(crate) fn locate_property_name(text: &str, kw_span: Span, name: &str) -> Option<Span> {
-    let off = line_col_to_offset(text, kw_span.line, kw_span.col)?;
+pub(crate) fn locate_property_name_at(
+    line_starts: &[usize],
+    text: &str,
+    kw_span: Span,
+    name: &str,
+) -> Option<Span> {
+    let off = line_col_to_offset_at(line_starts, text, kw_span.line, kw_span.col)?;
     let bytes = text.as_bytes();
     // Skip 3 keyword chars (`get` / `set`).
     let mut i = off + 3;
@@ -177,7 +192,7 @@ pub(crate) fn locate_property_name(text: &str, kw_span: Span, name: &str) -> Opt
     if bytes.len() - i >= nb.len() && &bytes[i..i + nb.len()] == nb {
         let next = bytes.get(i + nb.len()).copied().unwrap_or(b' ');
         if !next.is_ascii_alphanumeric() && next != b'_' {
-            let (line, col) = offset_to_line_col(text, i)?;
+            let (line, col) = offset_to_line_col_at(line_starts, text, i)?;
             return Some(name_span(line, col, name));
         }
     }
@@ -190,6 +205,15 @@ pub(crate) fn locate_let_name(text: &str, stmt_span: Span, name: &str) -> Option
     locate_let_name_with_kw(text, stmt_span, "let", name)
 }
 
+pub(crate) fn locate_let_name_at(
+    line_starts: &[usize],
+    text: &str,
+    stmt_span: Span,
+    name: &str,
+) -> Option<Span> {
+    locate_let_name_with_kw_at(line_starts, text, stmt_span, "let", name)
+}
+
 /// Same as `locate_let_name` but parameterised on the keyword length —
 /// works for `use`, `let`, etc.
 pub(crate) fn locate_let_name_with_kw(
@@ -198,7 +222,17 @@ pub(crate) fn locate_let_name_with_kw(
     kw: &str,
     name: &str,
 ) -> Option<Span> {
-    let off = line_col_to_offset(text, kw_span.line, kw_span.col)?;
+    locate_let_name_with_kw_at(&compute_line_starts(text), text, kw_span, kw, name)
+}
+
+pub(crate) fn locate_let_name_with_kw_at(
+    line_starts: &[usize],
+    text: &str,
+    kw_span: Span,
+    kw: &str,
+    name: &str,
+) -> Option<Span> {
+    let off = line_col_to_offset_at(line_starts, text, kw_span.line, kw_span.col)?;
     let bytes = text.as_bytes();
     let mut i = off + kw.len();
     while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
@@ -208,7 +242,7 @@ pub(crate) fn locate_let_name_with_kw(
     if bytes.len() - i >= nb.len() && &bytes[i..i + nb.len()] == nb {
         let next = bytes.get(i + nb.len()).copied().unwrap_or(b' ');
         if !next.is_ascii_alphanumeric() && next != b'_' {
-            let (line, col) = offset_to_line_col(text, i)?;
+            let (line, col) = offset_to_line_col_at(line_starts, text, i)?;
             return Some(name_span(line, col, name));
         }
     }
@@ -219,12 +253,13 @@ pub(crate) fn locate_let_name_with_kw(
 /// expression. The IfLet AST node only carries its outer span (the `if`
 /// keyword), so we scan forward to the next `some(` and read the
 /// identifier inside its parentheses.
-pub(crate) fn locate_if_let_some_name(
+pub(crate) fn locate_if_let_some_name_at(
+    line_starts: &[usize],
     text: &str,
     if_span: Span,
     name: &str,
 ) -> Option<Span> {
-    let off = line_col_to_offset(text, if_span.line, if_span.col)?;
+    let off = line_col_to_offset_at(line_starts, text, if_span.line, if_span.col)?;
     let bytes = text.as_bytes();
     let needle = b"some(";
     let mut i = off;
@@ -238,7 +273,7 @@ pub(crate) fn locate_if_let_some_name(
             if bytes.len() - j >= nb.len() && &bytes[j..j + nb.len()] == nb {
                 let next = bytes.get(j + nb.len()).copied().unwrap_or(b' ');
                 if !next.is_ascii_alphanumeric() && next != b'_' {
-                    let (line, col) = offset_to_line_col(text, j)?;
+                    let (line, col) = offset_to_line_col_at(line_starts, text, j)?;
                     return Some(name_span(line, col, name));
                 }
             }
@@ -254,8 +289,12 @@ pub(crate) fn locate_if_let_some_name(
 /// dotted name the buffer literally starts with (e.g. `math` in
 /// `math.abs()` even though the AST resolved the callee to
 /// `std.math.abs` via an alias rewrite).
-pub(crate) fn read_identifier_at(text: &str, span: Span) -> Option<String> {
-    let offset = line_col_to_offset(text, span.line, span.col)?;
+pub(crate) fn read_identifier_at_with(
+    line_starts: &[usize],
+    text: &str,
+    span: Span,
+) -> Option<String> {
+    let offset = line_col_to_offset_at(line_starts, text, span.line, span.col)?;
     let bytes = text.as_bytes();
     if offset >= bytes.len() {
         return None;
@@ -278,7 +317,16 @@ pub(crate) fn read_identifier_at(text: &str, span: Span) -> Option<String> {
 /// `MethodCall` references whose AST nodes only carry the receiver's
 /// span.
 pub(crate) fn locate_dot_name(text: &str, obj_span: Span, name: &str) -> Option<(u32, u32)> {
-    let offset = line_col_to_offset(text, obj_span.line, obj_span.col)?;
+    locate_dot_name_at(&compute_line_starts(text), text, obj_span, name)
+}
+
+pub(crate) fn locate_dot_name_at(
+    line_starts: &[usize],
+    text: &str,
+    obj_span: Span,
+    name: &str,
+) -> Option<(u32, u32)> {
+    let offset = line_col_to_offset_at(line_starts, text, obj_span.line, obj_span.col)?;
     let bytes = text.as_bytes();
     let mut i = offset;
     let mut paren_depth: i32 = 0;
@@ -299,7 +347,7 @@ pub(crate) fn locate_dot_name(text: &str, obj_span: Span, name: &str) -> Option<
                 if bytes.len() - j >= nb.len() && &bytes[j..j + nb.len()] == nb {
                     let next = bytes.get(j + nb.len()).copied().unwrap_or(b' ');
                     if !next.is_ascii_alphanumeric() && next != b'_' {
-                        return offset_to_line_col(text, j);
+                        return offset_to_line_col_at(line_starts, text, j);
                     }
                 }
             }
@@ -319,7 +367,8 @@ pub(crate) fn locate_selective_name(
     use_span: Span,
     name: &str,
 ) -> Option<(u32, u32)> {
-    let off = line_col_to_offset(text, use_span.line, use_span.col)?;
+    let line_starts = compute_line_starts(text);
+    let off = line_col_to_offset_at(&line_starts, text, use_span.line, use_span.col)?;
     let bytes = text.as_bytes();
     // Walk forward to the opening `{`.
     let mut i = off;
@@ -348,7 +397,7 @@ pub(crate) fn locate_selective_name(
                 j += 1;
             }
             if &bytes[start..j] == nb {
-                return offset_to_line_col(text, start);
+                return offset_to_line_col_at(&line_starts, text, start);
             }
             i = j;
             continue;

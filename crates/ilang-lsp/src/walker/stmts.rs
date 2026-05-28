@@ -47,7 +47,7 @@ impl<'a> Walker<'a> {
                     .unwrap_or_else(|| BindKind::Let.render(name.as_str(), inferred.as_ref()));
                 // s.span points at the `let` keyword. Locate the actual
                 // name position by skipping `let` + whitespace.
-                let name_span = locate_let_name(self.text, s.span, name.as_str()).unwrap_or(s.span);
+                let name_span = text::locate_let_name_at(self.line_starts, self.text, s.span, name.as_str()).unwrap_or(s.span);
                 self.push_decl(name.as_str(), name_span, sig);
                 if let Some(c) = inferred.as_ref().and_then(type_to_class) {
                     self.var_classes.insert(name.clone(), c);

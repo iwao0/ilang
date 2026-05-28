@@ -180,6 +180,12 @@ impl BindKind {
 
 pub(crate) struct Walker<'a> {
     pub(crate) text: &'a str,
+    /// Precomputed line-start byte offsets for `text` (one entry per
+    /// line, `[0]` = 0). Lets the per-ref `locate_*` / span lookups
+    /// resolve a line in O(1) instead of rescanning `text` from byte 0
+    /// on every call — the walker resolves one position per pushed ref,
+    /// so the table turns an O(refs × text) build into O(refs + text).
+    pub(crate) line_starts: &'a [usize],
     pub(crate) symbols: &'a HashMap<AstSymbol, Symbol>,
     pub(crate) classes: &'a HashMap<AstSymbol, ClassInfo>,
     /// Top-level fn return types, keyed by name. Used to infer

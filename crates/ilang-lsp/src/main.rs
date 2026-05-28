@@ -56,9 +56,7 @@ use builtins::{
 pub(crate) use external::ExternalSources;
 use project::{find_project_file, find_umbrella};
 use text::{
-    locate_class_base_name, locate_dot_name, locate_if_let_some_name, locate_let_name,
-    locate_let_name_with_kw, locate_property_name, locate_selective_name, locate_type_after_colon,
-    span_full_to_range, word_at,
+    locate_let_name_with_kw, locate_selective_name, span_full_to_range, word_at,
 };
 
 #[tokio::main]

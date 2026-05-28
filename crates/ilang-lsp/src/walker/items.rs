@@ -16,14 +16,14 @@ impl<'a> Walker<'a> {
     pub(crate) fn walk_fn_header_type_refs(&mut self, f: &FnDecl) {
         for p in &f.params {
             if let Some(start) =
-                locate_type_after_colon(self.text, p.span, p.name.as_str())
+                text::locate_type_after_colon_at(self.line_starts, self.text, p.span, p.name.as_str())
             {
                 self.walk_type_at(&p.ty, start);
             }
         }
         if let Some(ret) = &f.ret {
             if let Some(start) =
-                text::locate_fn_return_type(self.text, f.span, f.name.as_str())
+                text::locate_fn_return_type_at(self.line_starts, self.text, f.span, f.name.as_str())
             {
                 self.walk_type_at(ret, start);
             }
@@ -36,7 +36,7 @@ impl<'a> Walker<'a> {
             let sig = BindKind::Param.render(p.name.as_str(), Some(&p.ty));
             self.push_decl(p.name.as_str(), p.span, sig);
             if let Some(start) =
-                locate_type_after_colon(self.text, p.span, p.name.as_str())
+                text::locate_type_after_colon_at(self.line_starts, self.text, p.span, p.name.as_str())
             {
                 self.walk_type_at(&p.ty, start);
             }
@@ -59,7 +59,7 @@ impl<'a> Walker<'a> {
         // because they only iterate `doc.refs`.
         if let Some(ret) = &f.ret {
             if let Some(start) =
-                text::locate_fn_return_type(self.text, f.span, f.name.as_str())
+                text::locate_fn_return_type_at(self.line_starts, self.text, f.span, f.name.as_str())
             {
                 self.walk_type_at(ret, start);
             }
@@ -78,12 +78,12 @@ impl<'a> Walker<'a> {
 
     pub(crate) fn walk_class(&mut self, c: &ClassDecl) {
         if let Some(parent) = &c.parent {
-            if let Some(start) = locate_class_base_name(self.text, c.span, 0) {
+            if let Some(start) = text::locate_class_base_name_at(self.line_starts, self.text, c.span, 0) {
                 self.walk_type_at(&Type::Object(parent.clone()), start);
             }
         }
         for (idx, ifn) in c.interfaces.iter().enumerate() {
-            if let Some(start) = locate_class_base_name(self.text, c.span, idx + 1) {
+            if let Some(start) = text::locate_class_base_name_at(self.line_starts, self.text, c.span, idx + 1) {
                 self.walk_type_at(&Type::Object(ifn.clone()), start);
             }
         }
@@ -99,7 +99,7 @@ impl<'a> Walker<'a> {
                 text::extract_doc_above(self.text, f.span.line),
             );
             if let Some(start) =
-                locate_type_after_colon(self.text, f.span, f.name.as_str())
+                text::locate_type_after_colon_at(self.line_starts, self.text, f.span, f.name.as_str())
             {
                 self.walk_type_at(&f.ty, start);
             }
@@ -116,7 +116,7 @@ impl<'a> Walker<'a> {
                 text::extract_doc_above(self.text, f.span.line),
             );
             if let Some(start) =
-                locate_type_after_colon(self.text, f.span, f.name.as_str())
+                text::locate_type_after_colon_at(self.line_starts, self.text, f.span, f.name.as_str())
             {
                 self.walk_type_at(&f.ty, start);
             }
@@ -134,7 +134,7 @@ impl<'a> Walker<'a> {
                 let Some(span) = accessor_span else { continue };
                 let sig = format!("({kind}) {}.{}: {}", c.name, p.name, p.ty);
                 if let Some(name_span) =
-                    locate_property_name(self.text, span, p.name.as_str())
+                    text::locate_property_name_at(self.line_starts, self.text, span, p.name.as_str())
                 {
                     let accessor_doc =
                         text::extract_doc_above(self.text, span.line)
@@ -245,7 +245,7 @@ impl<'a> Walker<'a> {
                 None => String::new(),
             };
             let sig = format!("(method) {}.{}({}){}", i.name, m.name, params, ret);
-            let name_span = locate_let_name_with_kw(self.text, m.span, "fn", m.name.as_str())
+            let name_span = text::locate_let_name_with_kw_at(self.line_starts, self.text, m.span, "fn", m.name.as_str())
                 .unwrap_or(m.span);
             self.push_decl_with_doc(
                 m.name.as_str(),
@@ -254,7 +254,7 @@ impl<'a> Walker<'a> {
                 text::extract_doc_above(self.text, m.span.line),
             );
             for p in &m.params {
-                if let Some(start) = locate_type_after_colon(self.text, p.span, p.name.as_str()) {
+                if let Some(start) = text::locate_type_after_colon_at(self.line_starts, self.text, p.span, p.name.as_str()) {
                     self.walk_type_at(&p.ty, start);
                 }
             }

@@ -37,10 +37,12 @@ pub(crate) fn build_hints(doc: &Doc, range: Range) -> Vec<InlayHint> {
     // Cross-file calls fall through (no hint emitted).
     let callees = build_callee_table(&prog);
     let fn_returns = build_fn_return_table(&prog);
+    let line_starts = crate::text_utils::compute_line_starts(text);
 
     let mut out: Vec<InlayHint> = Vec::new();
     let cx = Cx {
         text,
+        line_starts: &line_starts,
         doc,
         callees: &callees,
         fn_returns: &fn_returns,
@@ -54,6 +56,10 @@ pub(crate) fn build_hints(doc: &Doc, range: Range) -> Vec<InlayHint> {
 
 struct Cx<'a> {
     text:       &'a str,
+    /// Precomputed line-start table for `text`, built once per
+    /// `build_hints` call so the per-hint span ↔ offset conversions
+    /// don't rescan the whole document from byte 0 each time.
+    line_starts: &'a [usize],
     doc:        &'a Doc,
     callees:    &'a CalleeTable,
     /// Per-file top-level fn → declared return type. Lets `infer(Call)`
@@ -258,7 +264,7 @@ fn walk_stmt(
             // is just noise.
             if ty.is_none() && name.as_str() != "_" {
                 if let Some(t) = &inferred {
-                    push_type_hint(cx.text, s.span, "let", name.as_str(), t, out);
+                    push_type_hint(cx.line_starts, cx.text, s.span, "let", name.as_str(), t, out);
                 }
             }
             scope.push(Binding {
@@ -276,7 +282,7 @@ fn walk_stmt(
             if let Some(ty) = infer(cx, value, scope, this_class) {
                 if let Type::Tuple(elems_ty) = &ty {
                     if elems_ty.len() == elems.len() {
-                        push_destructure_hint(cx.text, s.span, b')', &ty, out);
+                        push_destructure_hint(cx.line_starts, cx.text, s.span, b')', &ty, out);
                     }
                 }
             }
@@ -296,7 +302,7 @@ fn walk_stmt(
             // closing `}` so the user can confirm the rhs's static
             // type matches the destructure shape.
             let ty = Type::Object(*class);
-            push_destructure_hint(cx.text, s.span, b'}', &ty, out);
+            push_destructure_hint(cx.line_starts, cx.text, s.span, b'}', &ty, out);
         }
     }
 }
@@ -307,13 +313,14 @@ fn walk_stmt(
 /// keyword for the first matching close at depth 0 of the
 /// destructure pattern.
 fn push_destructure_hint(
+    line_starts: &[usize],
     text: &str,
     stmt_span: Span,
     close: u8,
     ty: &Type,
     out: &mut Vec<InlayHint>,
 ) {
-    let Some(off) = text::line_col_to_offset(text, stmt_span.line, stmt_span.col) else {
+    let Some(off) = text::line_col_to_offset_at(line_starts, text, stmt_span.line, stmt_span.col) else {
         return;
     };
     let bytes = text.as_bytes();
@@ -340,7 +347,7 @@ fn push_destructure_hint(
         i += 1;
     }
     let Some(byte_pos) = found else { return };
-    let Some((line, col)) = text::offset_to_line_col(text, byte_pos) else {
+    let Some((line, col)) = text::offset_to_line_col_at(line_starts, text, byte_pos) else {
         return;
     };
     out.push(InlayHint {
@@ -446,7 +453,7 @@ fn walk_expr(
                 _ => None,
             });
             if let Some(t) = &elem_ty {
-                push_type_hint(cx.text, e.span, "for", var.as_str(), t, out);
+                push_type_hint(cx.line_starts, cx.text, e.span, "for", var.as_str(), t, out);
             }
             scope.push(Binding {
                 name: var.as_str().to_string(),
@@ -500,6 +507,7 @@ fn introduce_pattern_bindings(p: &Pattern, scope: &mut Vec<Binding>) {
 }
 
 fn push_type_hint(
+    line_starts: &[usize],
     text: &str,
     decl_span: Span,
     kw: &str,
@@ -508,7 +516,7 @@ fn push_type_hint(
     out: &mut Vec<InlayHint>,
 ) {
     let Some(name_span) =
-        text::locate_let_name_with_kw(text, decl_span, kw, name)
+        text::locate_let_name_with_kw_at(line_starts, text, decl_span, kw, name)
     else {
         return;
     };

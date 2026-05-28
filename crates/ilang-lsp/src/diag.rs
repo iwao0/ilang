@@ -168,9 +168,11 @@ pub(crate) fn build_doc(
     let mut refs = Vec::new();
     let mut var_classes: HashMap<AstSymbol, String> = HashMap::new();
     let mut var_types: HashMap<AstSymbol, Type> = HashMap::new();
+    let line_starts = crate::text_utils::compute_line_starts(&text);
     {
         let mut walker = Walker {
             text: &text,
+            line_starts: &line_starts,
             symbols: &symbols,
             classes: &classes,
             fn_returns: &fn_returns,

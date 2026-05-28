@@ -36,12 +36,12 @@ impl<'a> Walker<'a> {
     ///     selective-import maps
     fn walk_type_name_at(&mut self, name: &str, start_span: Span) {
         if name.contains('.') {
-            if text::text_at_span_starts_with(self.text, start_span, name) {
+            if text::text_at_span_starts_with_at(self.line_starts, self.text, start_span, name) {
                 self.push_external_dotted_ref(name, start_span);
                 return;
             }
             if let Some((_, suffix)) = name.rsplit_once('.') {
-                if text::text_at_span_starts_with(self.text, start_span, suffix) {
+                if text::text_at_span_starts_with_at(self.line_starts, self.text, start_span, suffix) {
                     self.push_external_type_ref(suffix, start_span);
                     return;
                 }
@@ -111,7 +111,7 @@ impl<'a> Walker<'a> {
         // chain the buffer starts at by matching the identifier at
         // `receiver_span` against the segments; treat everything
         // before that as a logical prefix (skipped for refs).
-        let source_head = crate::text::read_identifier_at(self.text, receiver_span);
+        let source_head = crate::text::read_identifier_at_with(self.line_starts, self.text, receiver_span);
         let start_idx = match source_head {
             Some(head) => segments.iter().position(|s| *s == head).unwrap_or(0),
             None => 0,
@@ -149,7 +149,7 @@ impl<'a> Walker<'a> {
                 (receiver_span.line, receiver_span.col)
             } else {
                 let tail: String = segments[i..].join(".");
-                let Some((l, c)) = locate_dot_name(self.text, receiver_span, &tail) else {
+                let Some((l, c)) = text::locate_dot_name_at(self.line_starts, self.text, receiver_span, &tail) else {
                     continue;
                 };
                 (l, c)
@@ -230,7 +230,7 @@ impl<'a> Walker<'a> {
         // synthesised Call ref instead of `class ClassName`. Drop
         // any push whose use_span doesn't actually contain `name`
         // in the source text.
-        if !text::text_at_span_starts_with(self.text, use_span, name) {
+        if !text::text_at_span_starts_with_at(self.line_starts, self.text, use_span, name) {
             return;
         }
         self.refs.push(RefEntry {
