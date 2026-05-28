@@ -109,6 +109,24 @@ mod tests {
     }
 
     #[test]
+    fn backtick_template_literal_round_trips() {
+        // The lexer splits `` `...` `` into TmplStart/TmplLit/TmplEnd;
+        // the formatter must not slip a space between the content and
+        // the closing backtick (regression: `}\n \`` corrupted the
+        // WGSL string in examples/wgpu_triangle/main.il).
+        let src = concat!(
+            "const W: string = `\n",
+            "@vertex\n",
+            "fn f() {\n",
+            "    return vec4(p[i], 0.0);\n",
+            "}\n",
+            "`\n",
+            "let x = 0\n",
+        );
+        assert_eq!(fmt(src), src);
+    }
+
+    #[test]
     fn objc_attr_breaks_onto_its_own_line() {
         let src = concat!(
             "@extern(ObjC) {\n",

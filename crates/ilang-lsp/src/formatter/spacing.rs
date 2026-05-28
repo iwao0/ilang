@@ -104,6 +104,17 @@ pub(super) fn needs_space(
 ) -> bool {
     use TokenKind::*;
 
+    // A backtick template literal is lexed as `TmplStart` + `TmplLit`
+    // (content) + `TmplEnd`. Those pieces must hug each other — any
+    // inserted space lands *inside* the string and corrupts it (the
+    // content `TmplLit` even ends one char before `TmplEnd`, so the
+    // default one-space rule would push a space before the closing
+    // backtick). The opening backtick keeps normal spacing on its
+    // left, e.g. `= \``, since neither side is a template piece there.
+    if matches!(prev, TmplStart | TmplLit(_)) || matches!(next, TmplLit(_) | TmplEnd) {
+        return false;
+    }
+
     // No space inside open / before close parens & brackets.
     // Braces (`{` / `}`) keep a space — block bodies on a single
     // line look like `{ expr }` in this codebase. Empty blocks
