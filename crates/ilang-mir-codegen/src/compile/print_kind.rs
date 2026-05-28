@@ -90,7 +90,18 @@ pub(super) fn kind_tag_of(ty: &MirTy, classes: &[ClassLayout]) -> i64 {
                 KIND_OBJECT
             }
         }
-        MirTy::Array { .. } => KIND_ARRAY,
+        // Only *dynamic* arrays (`T[]`, `len: None`) are heap blocks
+        // with an ARC header + separate data buffer. Fixed-length
+        // arrays (`T[N]`) are inline value data with no header and no
+        // standalone allocation — they're freed together with their
+        // container, so the release cascade must NOT treat them as a
+        // heap array pointer (doing so frees a bogus address →
+        // `munmap_chunk(): invalid pointer`). Heap-element fixed
+        // arrays would still need per-element release, which isn't
+        // modeled here yet; primitive-element ones (the common case)
+        // need nothing.
+        MirTy::Array { len: None, .. } => KIND_ARRAY,
+        MirTy::Array { len: Some(_), .. } => KIND_NONE,
         MirTy::Optional(_) => KIND_OPTIONAL,
         MirTy::Tuple(_) => KIND_TUPLE,
         MirTy::Map { .. } => KIND_MAP,
@@ -98,21 +109,6 @@ pub(super) fn kind_tag_of(ty: &MirTy, classes: &[ClassLayout]) -> i64 {
         MirTy::Str => KIND_STR,
         MirTy::Enum(_) => KIND_ENUM,
         MirTy::Promise(_) => KIND_PROMISE,
-        _ => KIND_NONE,
-    }
-}
-
-/// Reduce a `PrintKind` to the runtime's `KIND_*` tag the field
-/// registry needs. The runtime cascade reads back the cell's own kind
-/// for Optional / Array / Map / Tuple, so the top-level tag is all
-/// we need to dispatch correctly.
-pub(super) fn kind_tag_of_print_kind(k: &PrintKind) -> i64 {
-    match k {
-        PrintKind::Object => KIND_OBJECT,
-        PrintKind::Array(_) => KIND_ARRAY,
-        PrintKind::Optional => KIND_OPTIONAL,
-        PrintKind::Tuple => KIND_TUPLE,
-        PrintKind::Str => KIND_STR,
         _ => KIND_NONE,
     }
 }

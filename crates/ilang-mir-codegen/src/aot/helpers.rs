@@ -42,15 +42,21 @@ pub(super) fn print_kind_id_for_ty(ty: &MirTy) -> i64 {
 /// Returns 0 (`KIND_NONE`) for primitives that need no cascade.
 pub(super) fn field_kind_tag(ty: &MirTy) -> i64 {
     match ty {
-        MirTy::Object(_) => 1,    // KIND_OBJECT
-        MirTy::Array { .. } => 2, // KIND_ARRAY
-        MirTy::Optional(_) => 3,  // KIND_OPTIONAL
-        MirTy::Tuple(_) => 4,     // KIND_TUPLE
-        MirTy::Map { .. } => 5,   // KIND_MAP
-        MirTy::Fn(_) => 6,        // KIND_CLOSURE
-        MirTy::Str => 7,          // KIND_STR
-        MirTy::Enum(_) => 8,      // KIND_ENUM
-        _ => 0,                   // KIND_NONE
+        MirTy::Object(_) => 1, // KIND_OBJECT
+        // Only dynamic arrays (`len: None`) are standalone heap blocks
+        // with an ARC header; fixed-length arrays (`T[N]`) are inline
+        // value data freed with their container, so they must not be
+        // cascaded as a heap array pointer (→ bogus free / corruption).
+        // Mirrors `print_kind::kind_tag_of`.
+        MirTy::Array { len: None, .. } => 2, // KIND_ARRAY
+        MirTy::Array { len: Some(_), .. } => 0, // KIND_NONE (inline)
+        MirTy::Optional(_) => 3, // KIND_OPTIONAL
+        MirTy::Tuple(_) => 4,    // KIND_TUPLE
+        MirTy::Map { .. } => 5,  // KIND_MAP
+        MirTy::Fn(_) => 6,       // KIND_CLOSURE
+        MirTy::Str => 7,         // KIND_STR
+        MirTy::Enum(_) => 8,     // KIND_ENUM
+        _ => 0,                  // KIND_NONE
     }
 }
 

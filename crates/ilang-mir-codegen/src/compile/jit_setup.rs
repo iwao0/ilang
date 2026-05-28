@@ -16,7 +16,7 @@ use ilang_mir::{FuncId, MirTy, Program};
 use super::host_misc::{host_optional_missing_stub, lookup_symbol_in_process, process_symbol_exists};
 use super::host_os::try_open_lib;
 use super::print_kind::{
-    kind_tag_of, kind_tag_of_print_kind, print_kind_id, print_kind_id_for_print_kind,
+    kind_tag_of, print_kind_id, print_kind_id_for_print_kind,
     print_kind_of, PrintKind, KIND_NONE,
 };
 use super::{
@@ -323,15 +323,19 @@ pub fn compile_with_builtins(
         ilang_runtime::__register_enum_print_name(global_id as i64, name_ptr);
         let is_str_repr = matches!(e.repr, MirTy::Str);
         for v in &e.variants {
-            let kinds: Vec<PrintKind> = match &v.payload {
+            // Keep the payload's actual MIR types alongside the print
+            // kinds: the release cascade is len-sensitive (fixed vs
+            // dynamic arrays differ), but `PrintKind` collapses both to
+            // `Array`, so the cascade tag is derived from the MIR type.
+            let payload_tys: Vec<MirTy> = match &v.payload {
                 ilang_mir::VariantPayload::Unit => Vec::new(),
-                ilang_mir::VariantPayload::Tuple(tys) => {
-                    tys.iter().map(print_kind_of).collect()
-                }
+                ilang_mir::VariantPayload::Tuple(tys) => tys.to_vec(),
                 ilang_mir::VariantPayload::Struct(fs) => {
-                    fs.iter().map(|(_, t)| print_kind_of(t)).collect()
+                    fs.iter().map(|(_, t)| t.clone()).collect()
                 }
             };
+            let kinds: Vec<PrintKind> =
+                payload_tys.iter().map(print_kind_of).collect();
             let vname_ptr = ilang_runtime::leak_cstring(v.name.as_str().to_string());
             ilang_runtime::__register_enum_print_variant_name(
                 global_id as i64,
@@ -339,8 +343,10 @@ pub fn compile_with_builtins(
                 vname_ptr,
             );
             for (i, k) in kinds.iter().enumerate() {
-                // Cascade tag (KIND_*) for release cascade.
-                let cascade_tag = kind_tag_of_print_kind(k);
+                // Cascade tag (KIND_*) for release cascade — derived
+                // from the MIR type so fixed-length array payloads
+                // (inline, no heap header) aren't freed as heap arrays.
+                let cascade_tag = kind_tag_of(&payload_tys[i], &prog.classes);
                 if cascade_tag != KIND_NONE {
                     ilang_runtime::__register_enum_payload_kind(
                         global_id as i64,
