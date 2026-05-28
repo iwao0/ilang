@@ -133,7 +133,7 @@ const WIN_H: i32 = 480
             powerPreference: 0 as u32,
             forceFallbackAdapter: 0 as u32,
             backendType: 0 as u32,
-            compatibleSurface: surface as *void,
+            compatibleSurface: surface,
         }
         let aInfo = WGPURequestAdapterCallbackInfo {
             nextInChain: 0 as *void, mode: 2 as u32,
@@ -168,7 +168,7 @@ const WIN_H: i32 = 480
 
         let cfg = WGPUSurfaceConfiguration {
             nextInChain: 0 as *void,
-            device: dev as *void,
+            device: dev,
             format: fmt,
             usage: 0x10 as u64,         // RenderAttachment
             width: WIN_W as u32,
@@ -204,7 +204,7 @@ const WIN_H: i32 = 480
         }
         let fragState = WGPUFragmentState {
             nextInChain: 0 as *void,
-            module: shader as *void,
+            module: shader,
             entryPoint: WGPUStringView {
                 data: cstrFromString("fs_main") as *void, length: 0xFFFFFFFFFFFFFFFF as u64,
             },
@@ -219,7 +219,7 @@ const WIN_H: i32 = 480
             layout: 0 as *void,           // auto layout
             vertex: WGPUVertexState {
                 nextInChain: 0 as *void,
-                module: shader as *void,
+                module: shader,
                 entryPoint: WGPUStringView {
                     data: cstrFromString("vs_main") as *void, length: 0xFFFFFFFFFFFFFFFF as u64,
                 },
@@ -270,14 +270,14 @@ const WIN_H: i32 = 480
                 continue
             }
             if frame == 0 { console.log("first drawable acquired") }
-            let tv = wgpuTextureCreateView(st.texture as WGPUTexture, 0 as *void)
+            let tv = wgpuTextureCreateView(st.texture, 0 as *void)
             let enc = wgpuDeviceCreateCommandEncoder(dev, 0 as *void)
 
             let att = WGPURenderPassColorAttachment {
                 nextInChain: 0 as *void,
-                view: tv as *void,
+                view: tv,
                 depthSlice: 0xFFFFFFFF as u32,    // UNDEFINED
-                resolveTarget: 0 as *void,
+                resolveTarget: 0 as WGPUTextureView,
                 loadOp: 2 as u32,                 // Clear
                 storeOp: 1 as u32,                // Store
                 clearValue: WGPUColor { r: 0.10, g: 0.20, b: 0.55, a: 1.0 },
@@ -296,7 +296,7 @@ const WIN_H: i32 = 480
             wgpuRenderPassEncoderDraw(pass, 3 as u32, 1 as u32, 0 as u32, 0 as u32)
             wgpuRenderPassEncoderEnd(pass)
             let cmd = wgpuCommandEncoderFinish(enc, 0 as *void)
-            let cmds: i64[] = [cmd as i64]
+            let cmds: WGPUCommandBuffer[] = [cmd]
             wgpuQueueSubmit(queue, 1 as u64, cmds)
             wgpuSurfacePresent(surface)
 
@@ -304,7 +304,7 @@ const WIN_H: i32 = 480
             wgpuRenderPassEncoderRelease(pass)
             wgpuCommandEncoderRelease(enc)
             wgpuTextureViewRelease(tv)
-            wgpuTextureRelease(st.texture as WGPUTexture)
+            wgpuTextureRelease(st.texture)
             SDL_Delay(8 as u32)
             frame = frame + 1
         }

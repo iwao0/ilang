@@ -71,19 +71,13 @@
     // chosen adapter able to present to that surface (required before
     // wgpuSurfaceConfigure, else "invalid device for surface").
     // featureLevel/powerPreference/backendType Undefined = 0.
-    // NOTE: handle-typed fields are declared `*void` (not the
-    // `@handle` type) because ilang currently mis-serialises a
-    // `@handle`-typed field inside an `@extern(C)` struct — the
-    // stored value doesn't round-trip. Handles pass fine as direct
-    // function arguments, so only struct *fields* use `*void` +
-    // an `as` cast at the call site.
     pub struct WGPURequestAdapterOptions {
         nextInChain:          *void
         featureLevel:         u32
         powerPreference:      u32
         forceFallbackAdapter: u32     // WGPUBool
         backendType:          u32
-        compatibleSurface:    *void    // WGPUSurface
+        compatibleSurface:    WGPUSurface
     }
 
     // Same layout; callback is
@@ -137,7 +131,7 @@
     // (WGPUFlags = uint64). RenderAttachment = 0x10.
     pub struct WGPUSurfaceConfiguration {
         nextInChain:     *void
-        device:          *void        // WGPUDevice
+        device:          WGPUDevice
         format:          u32
         usage:           u64
         width:           u32
@@ -149,7 +143,7 @@
     }
     pub struct WGPUSurfaceTexture {
         nextInChain: *void
-        texture:     *void        // WGPUTexture
+        texture:     WGPUTexture
         status:      u32          // SuccessOptimal = 1
     }
 
@@ -188,9 +182,9 @@
     // WGPULoadOp_Clear = 2, WGPUStoreOp_Store = 1.
     pub struct WGPURenderPassColorAttachment {
         nextInChain:   *void
-        view:          *void      // WGPUTextureView
+        view:          WGPUTextureView
         depthSlice:    u32        // WGPU_DEPTH_SLICE_UNDEFINED = 0xFFFFFFFF
-        resolveTarget: *void      // WGPUTextureView (nullable)
+        resolveTarget: WGPUTextureView   // nullable
         loadOp:        u32
         storeOp:       u32
         clearValue:    WGPUColor
@@ -216,11 +210,10 @@
     @lib pub fn wgpuCommandEncoderFinish(
         commandEncoder: WGPUCommandEncoder, descriptor: *void
     ): WGPUCommandBuffer
-    // `commands` is a `WGPUCommandBuffer const*` (array). Pass an
-    // `i64[]` of command-buffer handles (i64[] → *i64 coercion) to
-    // avoid taking `&` of a `@handle` local.
+    // `commands` is a `WGPUCommandBuffer const*` (array). Pass a
+    // 1-element `WGPUCommandBuffer[]` (T[] → *T coercion).
     @lib pub fn wgpuQueueSubmit(
-        queue: WGPUQueue, commandCount: u64, commands: *i64
+        queue: WGPUQueue, commandCount: u64, commands: *WGPUCommandBuffer
     )
 
     // ─── shader module (WGSL) ─────────────────────────────────
@@ -248,7 +241,7 @@
     }
     pub struct WGPUVertexState {
         nextInChain:   *void
-        module:        *void  // WGPUShaderModule
+        module:        WGPUShaderModule
         entryPoint:    WGPUStringView
         constantCount: u64
         constants:     *void
@@ -271,7 +264,7 @@
     }
     pub struct WGPUFragmentState {
         nextInChain:   *void
-        module:        *void  // WGPUShaderModule
+        module:        WGPUShaderModule
         entryPoint:    WGPUStringView
         constantCount: u64
         constants:     *void
