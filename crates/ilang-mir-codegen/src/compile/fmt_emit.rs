@@ -166,13 +166,20 @@ pub(super) fn emit_format_value<M: Module>(
             let close = lit_value(fb, module, print_lits.close_paren);
             concat(fb, module, str_ids, acc, close)
         }
-        MirTy::Array { elem, .. } => {
-            // [len|cap|data_ptr] header; loop over elements writing
-            // "[a, b, c]". The accumulator is threaded as a block
-            // parameter so each iteration appends to the previous
-            // string without needing a stack slot.
-            let len = fb.ins().load(types::I64, MemFlags::trusted(), av, 0);
-            let data_ptr = fb.ins().load(types::I64, MemFlags::trusted(), av, 16);
+        MirTy::Array { elem, len: arr_len } => {
+            // Dynamic arrays carry a `[len|cap|data_ptr|..]` header and
+            // loop over elements writing "[a, b, c]"; fixed-length
+            // `T[N]` arrays are header-less inline storage — the value
+            // points straight at the elements with a static length.
+            // The accumulator is threaded as a block parameter so each
+            // iteration appends to the previous string without a slot.
+            let (len, data_ptr) = match arr_len {
+                Some(n) => (fb.ins().iconst(types::I64, *n as i64), av),
+                None => (
+                    fb.ins().load(types::I64, MemFlags::trusted(), av, 0),
+                    fb.ins().load(types::I64, MemFlags::trusted(), av, 16),
+                ),
+            };
             let open = lit_value(fb, module, print_lits.open_bracket);
             let open_s = {
                 let r = module.declare_func_in_func(fmt_ids.str_, fb.func);
