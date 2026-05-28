@@ -40,11 +40,15 @@ pub fn monomorphize_fns(
     // Worklist of concrete instantiations to synthesize. Dedup by
     // mangled name; keep the (name, args) pair around for substitution.
     let mut requested: HashSet<Symbol> = HashSet::new();
-    let mut worklist: Vec<(Symbol, Vec<Type>)> = Vec::new();
+    // Worklist entries carry the already-computed mangled name
+    // alongside `(name, args)` so the drain below doesn't re-run
+    // `mangle_fn_name` (which stringifies every type arg) a second
+    // time — `enqueue` already computed it for the dedup key.
+    let mut worklist: Vec<(Symbol, Symbol, Vec<Type>)> = Vec::new();
 
     let enqueue = |name: &str,
                    args: &[Type],
-                   wl: &mut Vec<(Symbol, Vec<Type>)>,
+                   wl: &mut Vec<(Symbol, Symbol, Vec<Type>)>,
                    req: &mut HashSet<Symbol>| {
         if !generic_fns.contains_key(&Symbol::intern(name)) {
             return;
@@ -54,7 +58,7 @@ pub fn monomorphize_fns(
         }
         let key = mangle_fn_name(name, args);
         if req.insert(key) {
-            wl.push((name.into(), args.to_vec()));
+            wl.push((key, name.into(), args.to_vec()));
         }
     };
 
@@ -84,8 +88,7 @@ pub fn monomorphize_fns(
     // Drain the worklist. Each specialization may discover further
     // generic-fn calls in its (substituted) body; those go back on.
     let mut synthesized: HashMap<Symbol, FnDecl> = HashMap::new();
-    while let Some((name, args)) = worklist.pop() {
-        let mangled = mangle_fn_name(name.as_str(), &args);
+    while let Some((mangled, name, args)) = worklist.pop() {
         if synthesized.contains_key(&mangled) {
             continue;
         }

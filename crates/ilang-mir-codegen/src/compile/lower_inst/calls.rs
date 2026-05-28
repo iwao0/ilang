@@ -497,11 +497,14 @@ pub(super) fn lower_call<M: Module>(
     // unsigned bit pattern instead of `-1` (mirrored across
     // i8 / i16 / i32 — see int_to_string_signed.il).
     if is_builtin && !alias_dispatch_early {
-        let sig_params = module.declarations()
+        // Borrow the declared params rather than cloning the whole
+        // `Vec<AbiParam>` per builtin call — the loop only reads each
+        // param's `value_type` and emits via `fb` (a distinct borrow),
+        // so the immutable `module` borrow can stay live across it.
+        let sig_params = &module.declarations()
             .get_function_decl(cid)
             .signature
-            .params
-            .clone();
+            .params;
         for (i, av) in arg_vs.iter_mut().enumerate() {
             let want = match sig_params.get(i) {
                 Some(p) => p.value_type,

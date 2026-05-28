@@ -332,7 +332,7 @@ pub(super) fn subst_type(t: &Type, params: &[Symbol], args: &[Type]) -> Type {
             // `Type::Object` arm would error with
             // "unknown type: Map<string, i32[]>".
             let gen_ty = Type::generic(g.base.clone(), new_args.clone());
-            if is_generic_enum(g.base.as_str()) || is_builtin_generic_class(g.base.as_str()) {
+            if is_generic_enum(&g.base) || is_builtin_generic_class(g.base.as_str()) {
                 gen_ty
             } else if !contains_type_var(&gen_ty) {
                 Type::Object(
@@ -439,8 +439,8 @@ pub(super) fn rewrite_expr(e: &Expr) -> Expr {
     }
 }
 
-pub(super) fn is_generic_enum(name: &str) -> bool {
-    GENERIC_ENUM_NAMES.with(|set| set.borrow().contains(&Symbol::intern(name)))
+pub(super) fn is_generic_enum(name: &Symbol) -> bool {
+    GENERIC_ENUM_NAMES.with(|set| set.borrow().contains(name))
 }
 
 /// Built-in generic classes whose `Type::Generic { base, args }` should
@@ -468,7 +468,7 @@ pub(super) fn rewrite_type(t: &Type) -> Type {
             // left intact here — the separate `monomorphize_enums` pass
             // converts them to `Type::Object(mangled)` after this pass.
             // User generic classes get the mangled Object name now.
-            if is_generic_enum(g.base.as_str()) || is_builtin_generic_class(g.base.as_str()) {
+            if is_generic_enum(&g.base) || is_builtin_generic_class(g.base.as_str()) {
                 Type::generic(g.base.clone(), new_args)
             } else {
                 Type::Object(
