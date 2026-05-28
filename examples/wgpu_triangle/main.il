@@ -1,9 +1,10 @@
-// PoC — SDL2 window + wgpu-native surface, clearing to a solid
-// colour for a fixed number of frames (no event loop / interaction).
+// PoC — SDL2 window + wgpu-native, drawing a WGSL triangle for a
+// fixed number of frames (no event loop / interaction).
 //
 // Proves the full WebGPU bring-up from ilang on macOS:
 //   SDL window → CAMetalLayer → WGPUSurface → request adapter/device →
-//   configure → per-frame render pass (LoadOp.Clear) → submit → present.
+//   configure → WGSL shader module + render pipeline → per-frame render
+//   pass (clear + draw 3 verts) → submit → present.
 //
 // Setup (once): third_party/wgpu/fetch.sh   (downloads libwgpu_native)
 // Run (macOS):
@@ -28,17 +29,41 @@ use wgpu {
     WGPUSurfaceSourceMetalLayer, WGPUSurfaceDescriptor,
     WGPUSurfaceConfiguration, WGPUSurfaceTexture, WGPUSurfaceCapabilities,
     WGPURenderPassColorAttachment, WGPURenderPassDescriptor,
+    WGPUShaderModuleDescriptor, WGPUShaderSourceWGSL,
+    WGPUColorTargetState, WGPUVertexState, WGPUPrimitiveState,
+    WGPUMultisampleState, WGPUFragmentState, WGPURenderPipelineDescriptor,
     wgpuSetLogLevel, wgpuSetLogCallback,
     wgpuCreateInstance, wgpuInstanceRequestAdapter, wgpuInstanceProcessEvents,
     wgpuAdapterRequestDevice, wgpuDeviceGetQueue,
     wgpuSurfaceGetCapabilities,
     wgpuInstanceCreateSurface, wgpuSurfaceConfigure,
     wgpuSurfaceGetCurrentTexture, wgpuTextureCreateView, wgpuSurfacePresent,
+    wgpuDeviceCreateShaderModule, wgpuDeviceCreateRenderPipeline,
+    wgpuRenderPassEncoderSetPipeline, wgpuRenderPassEncoderDraw,
     wgpuDeviceCreateCommandEncoder, wgpuCommandEncoderBeginRenderPass,
     wgpuRenderPassEncoderEnd, wgpuCommandEncoderFinish, wgpuQueueSubmit,
     wgpuTextureViewRelease, wgpuTextureRelease, wgpuRenderPassEncoderRelease,
     wgpuCommandEncoderRelease, wgpuCommandBufferRelease,
+    wgpuShaderModuleRelease, wgpuRenderPipelineRelease,
 }
+
+// WGSL: hardcoded triangle (no vertex buffers — positions indexed by
+// @builtin(vertex_index)). One module, vs_main + fs_main entry points.
+const WGSL: string = `
+@vertex
+fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    var p = array<vec2<f32>, 3>(
+        vec2<f32>( 0.0,  0.5),
+        vec2<f32>(-0.5, -0.5),
+        vec2<f32>( 0.5, -0.5)
+    );
+    return vec4<f32>(p[i], 0.0, 1.0);
+}
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0, 0.6, 0.1, 1.0);
+}
+`
 
 let ADAPTER: i64[] = [0]
 let DEVICE:  i64[] = [0]
@@ -154,7 +179,75 @@ const WIN_H: i32 = 480
             presentMode: present,
         }
         wgpuSurfaceConfigure(surface, &cfg)
-        console.log("surface configured — clearing frames")
+        console.log("surface configured")
+
+        // ── WGSL shader module + render pipeline ──────────────
+        let wgslSrc = WGPUShaderSourceWGSL {
+            chain: WGPUChainedStruct { next: 0 as *void, sType: 2 as u32 }, // ShaderSourceWGSL
+            code: WGPUStringView {
+                data: cstrFromString(WGSL) as *void,
+                length: 0xFFFFFFFFFFFFFFFF as u64,   // WGPU_STRLEN → strlen
+            },
+        }
+        let smDesc = WGPUShaderModuleDescriptor {
+            nextInChain: (&wgslSrc) as *void,
+            label: WGPUStringView { data: 0 as *void, length: 0 as u64 },
+        }
+        let shader = wgpuDeviceCreateShaderModule(dev, &smDesc)
+        if (shader as i64) == 0 { console.log("FAIL: shader"); return 8 }
+
+        let target = WGPUColorTargetState {
+            nextInChain: 0 as *void,
+            format: fmt,
+            blend: 0 as *void,
+            writeMask: 0xF as u64,        // All
+        }
+        let fragState = WGPUFragmentState {
+            nextInChain: 0 as *void,
+            module: shader as *void,
+            entryPoint: WGPUStringView {
+                data: cstrFromString("fs_main") as *void, length: 0xFFFFFFFFFFFFFFFF as u64,
+            },
+            constantCount: 0 as u64,
+            constants: 0 as *void,
+            targetCount: 1 as u64,
+            targets: &target,
+        }
+        let pipeDesc = WGPURenderPipelineDescriptor {
+            nextInChain: 0 as *void,
+            label: WGPUStringView { data: 0 as *void, length: 0 as u64 },
+            layout: 0 as *void,           // auto layout
+            vertex: WGPUVertexState {
+                nextInChain: 0 as *void,
+                module: shader as *void,
+                entryPoint: WGPUStringView {
+                    data: cstrFromString("vs_main") as *void, length: 0xFFFFFFFFFFFFFFFF as u64,
+                },
+                constantCount: 0 as u64,
+                constants: 0 as *void,
+                bufferCount: 0 as u64,
+                buffers: 0 as *void,
+            },
+            primitive: WGPUPrimitiveState {
+                nextInChain: 0 as *void,
+                topology: 4 as u32,        // TriangleList
+                stripIndexFormat: 0 as u32,
+                frontFace: 1 as u32,       // CCW
+                cullMode: 1 as u32,        // None
+                unclippedDepth: 0 as u32,
+            },
+            depthStencil: 0 as *void,
+            multisample: WGPUMultisampleState {
+                nextInChain: 0 as *void,
+                count: 1 as u32,
+                mask: 0xFFFFFFFF as u32,
+                alphaToCoverageEnabled: 0 as u32,
+            },
+            fragment: &fragState,
+        }
+        let pipeline = wgpuDeviceCreateRenderPipeline(dev, &pipeDesc)
+        if (pipeline as i64) == 0 { console.log("FAIL: pipeline"); return 9 }
+        console.log("pipeline ready — drawing triangle")
 
         // ── render N frames, clearing to a blue-ish colour ────
         // The CAMetalLayer only yields a drawable once the window is
@@ -199,6 +292,8 @@ const WIN_H: i32 = 480
                 timestampWrites: 0 as *void,
             }
             let pass = wgpuCommandEncoderBeginRenderPass(enc, &rp)
+            wgpuRenderPassEncoderSetPipeline(pass, pipeline)
+            wgpuRenderPassEncoderDraw(pass, 3 as u32, 1 as u32, 0 as u32, 0 as u32)
             wgpuRenderPassEncoderEnd(pass)
             let cmd = wgpuCommandEncoderFinish(enc, 0 as *void)
             let cmds: i64[] = [cmd as i64]
@@ -215,6 +310,8 @@ const WIN_H: i32 = 480
         }
 
         console.log("PASS: presented 120 frames")
+        wgpuRenderPipelineRelease(pipeline)
+        wgpuShaderModuleRelease(shader)
         SDL_Metal_DestroyView(view)
         SDL_DestroyWindow(win)
         SDL_Quit()

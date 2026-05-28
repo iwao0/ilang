@@ -30,6 +30,8 @@
     @handle pub struct WGPUCommandEncoder {}
     @handle pub struct WGPUCommandBuffer {}
     @handle pub struct WGPURenderPassEncoder {}
+    @handle pub struct WGPUShaderModule {}
+    @handle pub struct WGPURenderPipeline {}
 
     // ─── common value structs ─────────────────────────────────
     // WGPUStringView { const char* data; size_t length }. Empty
@@ -221,10 +223,90 @@
         queue: WGPUQueue, commandCount: u64, commands: *i64
     )
 
+    // ─── shader module (WGSL) ─────────────────────────────────
+    // WGPUSType_ShaderSourceWGSL = 2. Chain off the descriptor's
+    // nextInChain. `code` / entry-point StringViews can use
+    // length = WGPU_STRLEN (SIZE_MAX) to let wgpu strlen the data.
+    pub struct WGPUShaderSourceWGSL {
+        chain: WGPUChainedStruct
+        code:  WGPUStringView
+    }
+    pub struct WGPUShaderModuleDescriptor {
+        nextInChain: *void
+        label:       WGPUStringView
+    }
+    @lib pub fn wgpuDeviceCreateShaderModule(
+        device: WGPUDevice, descriptor: *WGPUShaderModuleDescriptor
+    ): WGPUShaderModule
+
+    // ─── render pipeline ──────────────────────────────────────
+    pub struct WGPUColorTargetState {
+        nextInChain: *void
+        format:      u32
+        blend:       *void    // WGPUBlendState* (nullable)
+        writeMask:   u64      // WGPUColorWriteMask flags; All = 0xF
+    }
+    pub struct WGPUVertexState {
+        nextInChain:   *void
+        module:        *void  // WGPUShaderModule
+        entryPoint:    WGPUStringView
+        constantCount: u64
+        constants:     *void
+        bufferCount:   u64
+        buffers:       *void
+    }
+    pub struct WGPUPrimitiveState {
+        nextInChain:      *void
+        topology:         u32  // TriangleList = 4
+        stripIndexFormat: u32
+        frontFace:        u32  // CCW = 1
+        cullMode:         u32  // None = 1
+        unclippedDepth:   u32  // WGPUBool
+    }
+    pub struct WGPUMultisampleState {
+        nextInChain:            *void
+        count:                  u32
+        mask:                   u32
+        alphaToCoverageEnabled: u32  // WGPUBool
+    }
+    pub struct WGPUFragmentState {
+        nextInChain:   *void
+        module:        *void  // WGPUShaderModule
+        entryPoint:    WGPUStringView
+        constantCount: u64
+        constants:     *void
+        targetCount:   u64
+        targets:       *WGPUColorTargetState
+    }
+    pub struct WGPURenderPipelineDescriptor {
+        nextInChain:    *void
+        label:          WGPUStringView
+        layout:         *void              // WGPUPipelineLayout (nullable = auto)
+        vertex:         WGPUVertexState
+        primitive:      WGPUPrimitiveState
+        depthStencil:   *void              // WGPUDepthStencilState* (nullable)
+        multisample:    WGPUMultisampleState
+        fragment:       *WGPUFragmentState  // (nullable)
+    }
+    @lib pub fn wgpuDeviceCreateRenderPipeline(
+        device: WGPUDevice, descriptor: *WGPURenderPipelineDescriptor
+    ): WGPURenderPipeline
+
+    @lib pub fn wgpuRenderPassEncoderSetPipeline(
+        encoder: WGPURenderPassEncoder, pipeline: WGPURenderPipeline
+    )
+    @lib pub fn wgpuRenderPassEncoderDraw(
+        encoder: WGPURenderPassEncoder,
+        vertexCount: u32, instanceCount: u32,
+        firstVertex: u32, firstInstance: u32
+    )
+
     // ─── release (avoid leaks across frames) ──────────────────
     @lib pub fn wgpuTextureViewRelease(view: WGPUTextureView)
     @lib pub fn wgpuTextureRelease(texture: WGPUTexture)
     @lib pub fn wgpuRenderPassEncoderRelease(encoder: WGPURenderPassEncoder)
     @lib pub fn wgpuCommandEncoderRelease(encoder: WGPUCommandEncoder)
     @lib pub fn wgpuCommandBufferRelease(commandBuffer: WGPUCommandBuffer)
+    @lib pub fn wgpuShaderModuleRelease(shaderModule: WGPUShaderModule)
+    @lib pub fn wgpuRenderPipelineRelease(pipeline: WGPURenderPipeline)
 }
