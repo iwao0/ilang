@@ -751,6 +751,31 @@ fn com_interface_parent_cycle_is_rejected_without_hanging() {
     );
 }
 
+/// A second `interface Name { ... }` in the same program must
+/// surface a diagnostic instead of silently overwriting the first
+/// one — every parent / method resolution downstream is keyed by
+/// interface name, so a last-wins overwrite makes the type-check
+/// outcome depend on declaration order.
+#[test]
+fn duplicate_interface_declarations_are_diagnosed() {
+    let src = "\
+interface Foo {
+    a(): i32
+}
+interface Foo {
+    b(): i32
+}
+";
+    let errs = errors(src);
+    assert!(
+        errs.iter().any(|e| matches!(
+            e,
+            TypeError::Unsupported { what, .. } if what.contains("declared more than once")
+        )),
+        "expected a duplicate-interface error, got {errs:?}",
+    );
+}
+
 /// A `@com interface` whose parent name doesn't resolve to any
 /// declared interface must produce a typed error instead of being
 /// silently registered with a dangling `parent`. Otherwise the

@@ -67,6 +67,24 @@ impl TypeChecker {
                 _ => continue,
             };
             for i in iface_list {
+                // Reject a second declaration of the same interface
+                // name. Without this, a later definition silently
+                // overwrites the earlier `self.interfaces` entry, so
+                // every method/parent resolution downstream becomes
+                // declaration-order dependent. (Cross-module `pub use`
+                // duplicates are caught separately by `dup_pub`; this
+                // covers same-program duplicates including non-pub
+                // declarations.)
+                if self.interfaces.contains_key(&i.name) {
+                    self.record(TypeError::Unsupported {
+                        what: format!(
+                            "interface {:?} is declared more than once",
+                            i.name,
+                        ),
+                        span: i.span,
+                    });
+                    continue;
+                }
                 let mut methods = Vec::with_capacity(i.methods.len());
                 let mut seen: HashSet<Symbol> = HashSet::new();
                 for m in i.methods.iter() {
