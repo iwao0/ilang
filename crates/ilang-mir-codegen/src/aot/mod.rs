@@ -233,7 +233,7 @@ fn path_preflights(_path: &std::path::Path) -> bool {
     false
 }
 
-fn lib_loadable(name: &str) -> bool {
+fn lib_loadable(name: &str, dirs: &[std::path::PathBuf]) -> bool {
     // `name` already names a file or carries a path separator: take it
     // verbatim. `symlink_metadata` (not `exists`) — macOS system
     // frameworks ship as broken symlinks pointing into the dyld
@@ -260,7 +260,7 @@ fn lib_loadable(name: &str) -> bool {
         }
         out
     };
-    for dir in lib_search_dirs() {
+    for dir in dirs {
         for cand in &candidates {
             let p = dir.join(cand);
             if p.exists() || path_preflights(&p) {
@@ -288,7 +288,11 @@ pub fn probe_available_libs(prog: &Program) -> std::collections::HashSet<String>
             all.insert(sym.as_str().to_string());
         }
     }
-    all.retain(|name| lib_loadable(name));
+    // Build the loader search path once and share it across every probe
+    // — it's the same env-split + platform-default list for all libs, so
+    // rebuilding it per lib was wasted work.
+    let dirs = lib_search_dirs();
+    all.retain(|name| lib_loadable(name, &dirs));
     all
 }
 
