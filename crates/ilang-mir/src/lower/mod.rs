@@ -251,9 +251,20 @@ pub fn lower_program_with_slots(
             // from root to leaf. The leaf's own methods are
             // appended last so its slot range is `[parent_total ..
             // parent_total + own.len())`.
+            //
+            // Type-check rejects cycles before lowering, but MIR
+            // walks the raw AST `parent` field (not the validated
+            // `InterfaceSig`), so a misbehaving caller that hands us
+            // an unchecked AST could still feed in a cycle. Guard
+            // with a `visited` set so the walk terminates regardless.
             let mut chain: Vec<Symbol> = Vec::new();
+            let mut visited: std::collections::HashSet<Symbol> =
+                std::collections::HashSet::new();
             let mut cur: Option<Symbol> = Some(i.name);
             while let Some(name) = cur {
+                if !visited.insert(name) {
+                    break;
+                }
                 chain.push(name);
                 cur = prog.items.iter().find_map(|it| {
                     let candidates: Vec<&ilang_ast::InterfaceDecl> = match it {
@@ -359,10 +370,19 @@ pub fn lower_program_with_slots(
         for i in iface_list {
             // Walk the parent chain (root → leaf) so inherited
             // signatures land under this interface's name first.
+            // Defensive `visited` guard so an unchecked-AST input
+            // with a cycle can't hang the lower pass — see the
+            // matching note on the slot-assignment walk above.
             let mut chain: Vec<Symbol> = Vec::new();
             if i.is_com {
+                let mut visited: std::collections::HashSet<Symbol> =
+                    std::collections::HashSet::new();
+                visited.insert(i.name);
                 let mut cur: Option<Symbol> = i.parent;
                 while let Some(name) = cur {
+                    if !visited.insert(name) {
+                        break;
+                    }
                     chain.push(name);
                     cur = find_iface_decl(name).and_then(|d| d.parent);
                 }

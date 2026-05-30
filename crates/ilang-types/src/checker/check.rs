@@ -100,6 +100,59 @@ impl TypeChecker {
                 );
             }
         }
+        // Validate every interface's parent chain. Each named parent
+        // must resolve to a registered interface, and the chain must
+        // terminate — otherwise the method-lookup walk in
+        // `expr/calls.rs` and the MIR slot / signature walks would
+        // spin forever on `interface A : B { } interface B : A { }`.
+        // On any failure we record the error and null out the offending
+        // interface's `parent` so the rest of the type-check pass
+        // (which doesn't short-circuit on errors) can't itself loop.
+        for item in &prog.items {
+            let iface_list: Vec<&ilang_ast::InterfaceDecl> = match item {
+                Item::Interface(i) => vec![i],
+                Item::ExternC(b) => b.interfaces.iter().collect(),
+                _ => continue,
+            };
+            for i in iface_list {
+                if i.parent.is_none() {
+                    continue;
+                }
+                let mut visited: HashSet<Symbol> = HashSet::new();
+                visited.insert(i.name.clone());
+                let mut cur = i.parent.clone();
+                let mut err: Option<TypeError> = None;
+                while let Some(p) = cur {
+                    if !self.interfaces.contains_key(&p) {
+                        err = Some(TypeError::Unsupported {
+                            what: format!(
+                                "interface {:?} extends unknown interface {:?}",
+                                i.name, p,
+                            ),
+                            span: i.span,
+                        });
+                        break;
+                    }
+                    if !visited.insert(p.clone()) {
+                        err = Some(TypeError::Unsupported {
+                            what: format!(
+                                "interface {:?} has an inheritance cycle through {:?}",
+                                i.name, p,
+                            ),
+                            span: i.span,
+                        });
+                        break;
+                    }
+                    cur = self.interfaces.get(&p).and_then(|s| s.parent.clone());
+                }
+                if let Some(e) = err {
+                    self.record(e);
+                    if let Some(sig) = self.interfaces.get_mut(&i.name) {
+                        sig.parent = None;
+                    }
+                }
+            }
+        }
         for item in &prog.items {
             match item {
                 Item::Fn(f) => {

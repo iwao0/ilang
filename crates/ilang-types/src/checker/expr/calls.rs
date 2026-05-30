@@ -773,14 +773,30 @@ impl TypeChecker {
             // method declared on the IUnknown root resolves via the
             // leaf interface name. Plain interfaces have no parent
             // today and exit the loop on the first miss.
+            //
+            // `check.rs` validates that the parent chain is acyclic
+            // and that every named parent resolves, but be defensive
+            // anyway — the type checker doesn't short-circuit on
+            // errors, so an interface that failed validation could
+            // still reach here with a stale `parent` in some
+            // execution paths. The `visited` set keeps the walk
+            // bounded regardless.
             let mut found: Option<InterfaceMethodSig> = None;
+            let mut visited: std::collections::HashSet<Symbol> =
+                std::collections::HashSet::new();
+            visited.insert(class_name);
             let mut cur = Some(isig.clone());
             while let Some(s) = cur {
                 if let Some(im) = s.methods.iter().find(|m| m.name == *method).cloned() {
                     found = Some(im);
                     break;
                 }
-                cur = s.parent.as_ref().and_then(|p| self.interfaces.get(p).cloned());
+                cur = s.parent.as_ref().and_then(|p| {
+                    if !visited.insert(*p) {
+                        return None;
+                    }
+                    self.interfaces.get(p).cloned()
+                });
             }
             if let Some(im) = found {
                 let sig = Signature {

@@ -723,3 +723,53 @@ fn if_else_no_implicit_numeric_widening() {
         Err(TypeError::Mismatch { .. })
     ));
 }
+
+/// A 2-cycle in COM interface parents (`A : B`, `B : A`) used to
+/// hang every parent-chain walk — method lookup in
+/// `checker/expr/calls.rs`, MIR slot assignment, MIR signature
+/// registration. The type-check pass must reject the cycle with a
+/// diagnostic instead of spinning.
+#[test]
+fn com_interface_parent_cycle_is_rejected_without_hanging() {
+    let src = "\
+@extern(C) {
+    @com interface A : B {
+        Foo(): i32
+    }
+    @com interface B : A {
+        Bar(): i32
+    }
+}
+";
+    let errs = errors(src);
+    assert!(
+        errs.iter().any(|e| matches!(
+            e,
+            TypeError::Unsupported { what, .. } if what.contains("cycle")
+        )),
+        "expected an inheritance-cycle error, got {errs:?}",
+    );
+}
+
+/// A `@com interface` whose parent name doesn't resolve to any
+/// declared interface must produce a typed error instead of being
+/// silently registered with a dangling `parent`. Otherwise the
+/// runtime method-lookup walk would follow a dead reference.
+#[test]
+fn com_interface_unknown_parent_is_rejected() {
+    let src = "\
+@extern(C) {
+    @com interface A : DoesNotExist {
+        Foo(): i32
+    }
+}
+";
+    let errs = errors(src);
+    assert!(
+        errs.iter().any(|e| matches!(
+            e,
+            TypeError::Unsupported { what, .. } if what.contains("unknown interface")
+        )),
+        "expected an unknown-interface error, got {errs:?}",
+    );
+}
