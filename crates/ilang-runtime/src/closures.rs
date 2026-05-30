@@ -7,33 +7,34 @@
 //! `finalize_definitions`; AOT does it inside `__ilang_aot_init`.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::alloc::__mir_free;
 use crate::cascade::release_field_by_kind;
 
-static CLOSURE_CAPTURE_TABLE: OnceLock<Mutex<HashMap<i64, Vec<(i64, i64)>>>> =
+static CLOSURE_CAPTURE_TABLE: OnceLock<RwLock<HashMap<i64, Arc<Vec<(i64, i64)>>>>> =
     OnceLock::new();
 
-fn closure_capture_table() -> &'static Mutex<HashMap<i64, Vec<(i64, i64)>>> {
-    CLOSURE_CAPTURE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+fn closure_capture_table() -> &'static RwLock<HashMap<i64, Arc<Vec<(i64, i64)>>>> {
+    CLOSURE_CAPTURE_TABLE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$closure.registerCapture")]
 pub extern "C" fn __register_closure_capture(fn_addr: i64, offset: i64, kind: i64) {
-    let mut t = closure_capture_table().lock().expect("closure capture table poisoned");
-    t.entry(fn_addr).or_default().push((offset, kind));
+    let mut t = closure_capture_table().write().expect("closure capture table poisoned");
+    let entry = t.entry(fn_addr).or_default();
+    Arc::make_mut(entry).push((offset, kind));
 }
 
-static CLOSURE_SIZE_TABLE: OnceLock<Mutex<HashMap<i64, i64>>> = OnceLock::new();
+static CLOSURE_SIZE_TABLE: OnceLock<RwLock<HashMap<i64, i64>>> = OnceLock::new();
 
-fn closure_size_table() -> &'static Mutex<HashMap<i64, i64>> {
-    CLOSURE_SIZE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+fn closure_size_table() -> &'static RwLock<HashMap<i64, i64>> {
+    CLOSURE_SIZE_TABLE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[unsafe(export_name = "$closure.registerSize")]
 pub extern "C" fn __register_closure_size(fn_addr: i64, size: i64) {
-    let mut t = closure_size_table().lock().expect("closure size table poisoned");
+    let mut t = closure_size_table().write().expect("closure size table poisoned");
     t.insert(fn_addr, size);
 }
 
@@ -48,9 +49,13 @@ pub extern "C" fn __release_closure(closure_ptr: i64) {
         _ => return,
     }
     let fn_addr = unsafe { *(closure_ptr as *const i64) };
+    // Bump an Arc instead of cloning the Vec — the table is append-only
+    // during registration and never mutated after startup, so this is a
+    // cheap pointer copy. Released outside the lock to avoid re-entering
+    // the table from nested releases.
     let entries = {
-        let t = closure_capture_table().lock().expect("closure capture table poisoned");
-        t.get(&fn_addr).cloned()
+        let t = closure_capture_table().read().expect("closure capture table poisoned");
+        t.get(&fn_addr).map(Arc::clone)
     };
     if let Some(entries) = entries {
         for (off, kind) in entries.iter() {
@@ -59,7 +64,7 @@ pub extern "C" fn __release_closure(closure_ptr: i64) {
         }
     }
     let size = {
-        let t = closure_size_table().lock().expect("closure size table poisoned");
+        let t = closure_size_table().read().expect("closure size table poisoned");
         t.get(&fn_addr).copied()
     };
     if let Some(size) = size {

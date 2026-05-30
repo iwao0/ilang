@@ -738,11 +738,10 @@ pub extern "C" fn __promise_all(arr_ptr: i64, value_kind: i64) -> i64 {
         return agg;
     }
     // Allocate the per-call state: a buffer of `n` i64 slots and
-    // an atomic counter. The counter starts at 2*n: each upstream
-    // contributes one decrement on its own resolve OR reject.
-    // (Only one happens per upstream; the other slot is consumed
-    // by the dual stub. We use 2*n so an early all-reject still
-    // converges to 0 and frees the state.)
+    // an atomic counter. The counter starts at `n`: each upstream
+    // fires exactly one of its resolve/reject stubs, so one
+    // decrement per upstream converges to 0 and the last caller
+    // frees the state.
     let layout = std::alloc::Layout::array::<i64>(n).unwrap();
     let values = unsafe { std::alloc::alloc_zeroed(layout) as *mut i64 };
     let state = Box::into_raw(Box::new(PromiseAllState {
