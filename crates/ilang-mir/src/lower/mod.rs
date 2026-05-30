@@ -231,6 +231,31 @@ pub fn lower_program_with_slots(
             }
         }
     }
+    // Build a name → declaration index once for both the slot pass
+    // below and the signature-resolution pass further down. The
+    // previous shape re-scanned `prog.items` (and allocated a fresh
+    // `Vec` each step) on every parent lookup, which on DirectX /
+    // Windows COM bindings turned into thousands of linear scans per
+    // lowering. References borrow `prog` directly; lowering only
+    // mutates `lower`, so they stay valid throughout the fn.
+    let mut iface_by_name: std::collections::HashMap<
+        Symbol,
+        &ilang_ast::InterfaceDecl,
+    > = std::collections::HashMap::new();
+    for item in &prog.items {
+        match item {
+            Item::Interface(i) => {
+                iface_by_name.insert(i.name, i);
+            }
+            Item::ExternC(b) => {
+                for i in b.interfaces.iter() {
+                    iface_by_name.insert(i.name, i);
+                }
+            }
+            _ => {}
+        }
+    }
+
     // 1a''. Once every `@com interface` is registered, walk each one
     //       to build its per-interface vtable-slot table. Slots are
     //       0-based; an `extends`-parent's slots come first, matching
@@ -266,30 +291,12 @@ pub fn lower_program_with_slots(
                     break;
                 }
                 chain.push(name);
-                cur = prog.items.iter().find_map(|it| {
-                    let candidates: Vec<&ilang_ast::InterfaceDecl> = match it {
-                        Item::Interface(ii) => vec![ii],
-                        Item::ExternC(b) => b.interfaces.iter().collect(),
-                        _ => return None,
-                    };
-                    candidates
-                        .into_iter()
-                        .find(|ii| ii.name == name)
-                        .and_then(|ii| ii.parent)
-                });
+                cur = iface_by_name.get(&name).and_then(|d| d.parent);
             }
             chain.reverse();
             let mut slot: u32 = 0;
             for ancestor in chain {
-                let ancestor_decl = prog.items.iter().find_map(|it| {
-                    let candidates: Vec<&ilang_ast::InterfaceDecl> = match it {
-                        Item::Interface(ii) => vec![ii],
-                        Item::ExternC(b) => b.interfaces.iter().collect(),
-                        _ => return None,
-                    };
-                    candidates.into_iter().find(|ii| ii.name == ancestor)
-                });
-                if let Some(ad) = ancestor_decl {
+                if let Some(ad) = iface_by_name.get(&ancestor) {
                     for m in ad.methods.iter() {
                         lower
                             .com_iface_slots
@@ -351,16 +358,6 @@ pub fn lower_program_with_slots(
     // `Release` lives on the IUnknown parent) finds its signature
     // and slot through the same `iface_method_sigs` /
     // `com_iface_slots` lookup as own methods.
-    let find_iface_decl = |name: Symbol| -> Option<&ilang_ast::InterfaceDecl> {
-        prog.items.iter().find_map(|it| {
-            let candidates: Vec<&ilang_ast::InterfaceDecl> = match it {
-                Item::Interface(ii) => vec![ii],
-                Item::ExternC(b) => b.interfaces.iter().collect(),
-                _ => return None,
-            };
-            candidates.into_iter().find(|ii| ii.name == name)
-        })
-    };
     for item in &prog.items {
         let iface_list: Vec<&ilang_ast::InterfaceDecl> = match item {
             Item::Interface(i) => vec![i],
@@ -384,13 +381,13 @@ pub fn lower_program_with_slots(
                         break;
                     }
                     chain.push(name);
-                    cur = find_iface_decl(name).and_then(|d| d.parent);
+                    cur = iface_by_name.get(&name).and_then(|d| d.parent);
                 }
                 chain.reverse();
             }
             chain.push(i.name);
             for ancestor in chain {
-                let Some(decl) = find_iface_decl(ancestor) else {
+                let Some(decl) = iface_by_name.get(&ancestor).copied() else {
                     continue;
                 };
                 for m in decl.methods.iter() {
