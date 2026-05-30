@@ -288,18 +288,23 @@ pub(crate) fn handle_workspace_symbol(
             break;
         }
         let Ok(uri) = Url::from_file_path(&path) else { continue };
-        let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
+        // `files` already comes from `walk_il`, which canonicalizes
+        // every path. Re-canonicalising here would hit the filesystem
+        // once per file per keystroke (~thousands on a large workspace
+        // quick-pick); the open-buffer map and disk-symbol cache are
+        // both keyed by the same canonical paths, so use `path`
+        // directly.
         // Open buffer: parse the live text (may have unsaved edits),
         // don't touch cache. Closed file: serve from cache when its
         // on-disk mtime matches the cached entry; else parse and
         // refresh the cache.
-        let entries: Vec<Symbol> = if let Some(text) = open_texts.get(&canon) {
+        let entries: Vec<Symbol> = if let Some(text) = open_texts.get(&path) {
             build(text)
         } else {
-            let disk_mtime = mtime(&canon);
+            let disk_mtime = mtime(&path);
             let guard = cache.lock().unwrap();
             let hit = guard
-                .get(&canon)
+                .get(&path)
                 .filter(|e| e.mtime == disk_mtime)
                 .map(|e| e.items.clone());
             match hit {
@@ -309,7 +314,7 @@ pub(crate) fn handle_workspace_symbol(
                     let Ok(text) = std::fs::read_to_string(&path) else { continue };
                     let items = build(&text);
                     cache.lock().unwrap().insert(
-                        canon.clone(),
+                        path.clone(),
                         Entry { mtime: disk_mtime, items: items.clone() },
                     );
                     items

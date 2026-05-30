@@ -8,8 +8,10 @@
 //! for now: lsp doesn't depend on ilang-cli, so the two crates copy
 //! the same logic until one of them is promoted to a shared crate.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
+use std::time::SystemTime;
 
 use ilang_ast::{Item, Program};
 
@@ -253,9 +255,32 @@ fn select_for_host(
 /// same directory (i.e. some sibling has `pub use <basename>`),
 /// return the umbrella's path. Used by the LSP so opening a sub-module
 /// alone still type-checks under its umbrella's namespace.
+///
+/// The sibling scan is cached per `(dir, basename)` and invalidated
+/// against an mtime snapshot of every `.il` in `dir`: on a refresh
+/// where nothing in the directory has been touched, we replay the
+/// previous result without re-reading or re-parsing any sibling.
+/// Hot on binding directories with many sub-modules.
 pub(crate) fn find_umbrella(path: &Path) -> Option<PathBuf> {
-    let basename = path.file_stem()?.to_str()?;
+    let basename = path.file_stem()?.to_str()?.to_string();
     let dir = path.parent()?;
+    let dir_key = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let snapshot = sibling_snapshot(dir);
+    let cache_key = (dir_key, basename.clone());
+    if let Some(hit) = UMBRELLA_CACHE.lock().unwrap().get(&cache_key) {
+        if hit.snapshot == snapshot {
+            return hit.umbrella.clone();
+        }
+    }
+    let umbrella = resolve_umbrella(path, dir, &basename);
+    UMBRELLA_CACHE.lock().unwrap().insert(
+        cache_key,
+        UmbrellaCacheEntry { snapshot, umbrella: umbrella.clone() },
+    );
+    umbrella
+}
+
+fn resolve_umbrella(path: &Path, dir: &Path, basename: &str) -> Option<PathBuf> {
     for entry in std::fs::read_dir(dir).ok()?.flatten() {
         let p = entry.path();
         if p == path || p.extension().and_then(|e| e.to_str()) != Some("il") {
@@ -272,6 +297,34 @@ pub(crate) fn find_umbrella(path: &Path) -> Option<PathBuf> {
     }
     None
 }
+
+/// Sorted `(sibling_path, mtime)` snapshot of every `.il` file in `dir`.
+/// Equal snapshots mean nothing in the directory has been added,
+/// removed, or modified since the cache entry was produced.
+fn sibling_snapshot(dir: &Path) -> Vec<(PathBuf, Option<SystemTime>)> {
+    let mut out: Vec<(PathBuf, Option<SystemTime>)> = Vec::new();
+    let Ok(rd) = std::fs::read_dir(dir) else { return out };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|e| e.to_str()) != Some("il") {
+            continue;
+        }
+        let mtime = std::fs::metadata(&p)
+            .and_then(|m| m.modified())
+            .ok();
+        out.push((p, mtime));
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+struct UmbrellaCacheEntry {
+    snapshot: Vec<(PathBuf, Option<SystemTime>)>,
+    umbrella: Option<PathBuf>,
+}
+
+static UMBRELLA_CACHE: LazyLock<Mutex<HashMap<(PathBuf, String), UmbrellaCacheEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn umbrella_re_exports(
     prog: &Program,
@@ -330,7 +383,7 @@ pub(crate) fn find_project_file(start: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::collect_dep_tree;
+    use super::{collect_dep_tree, find_umbrella};
     use std::path::PathBuf;
 
     #[test]
@@ -359,5 +412,32 @@ mod tests {
              bindings/windows; got {:#?}",
             dep_tree.dirs
         );
+    }
+
+    /// The umbrella cache must invalidate when a sibling's content
+    /// changes — otherwise editing a `pub use` line in the umbrella
+    /// would leave a stale "submodule of <X>" verdict for every
+    /// keystroke until the LSP restarts.
+    #[test]
+    fn find_umbrella_invalidates_on_sibling_mtime_change() {
+        let dir = std::env::temp_dir().join(format!(
+            "ilang_umbrella_cache_{}",
+            std::process::id(),
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let umbrella = dir.join("sdl.il");
+        let leaf = dir.join("sdl_window.il");
+        std::fs::write(&leaf, "pub fn open() {}\n").unwrap();
+        std::fs::write(&umbrella, "pub use sdl_window\n").unwrap();
+        assert_eq!(find_umbrella(&leaf).as_deref(), Some(umbrella.as_path()));
+
+        // Drop the re-export — find_umbrella must observe the change
+        // even though the file path is unchanged.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&umbrella, "pub fn unrelated() {}\n").unwrap();
+        assert_eq!(find_umbrella(&leaf), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

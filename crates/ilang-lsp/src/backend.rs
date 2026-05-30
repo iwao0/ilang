@@ -146,7 +146,7 @@ pub(crate) async fn refresh_impl(
                 ).ok()
             })
     };
-    let diags = analyse(&text, path.as_deref(), &merged, is_submodule);
+    let diags = analyse(parsed_buffer.as_ref(), &merged, is_submodule);
     let (mut external_sigs, mut external_rets, mut external_fn_params) = merged
         .as_ref()
         .map(collect_external_signatures)

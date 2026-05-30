@@ -256,34 +256,37 @@ pub(crate) fn walk_il(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-pub(crate) fn parse_ok(src: &str) -> Result<Program, ()> {
-    let tokens = tokenize(src).map_err(|_| ())?;
-    parse(&tokens).map_err(|_| ())
+/// Buffer-side parse error carried alongside `parse_ok`'s `Result`.
+/// Span + message is enough to surface the failure as a diagnostic;
+/// keeping it concrete here means callers can forward the failure
+/// to `analyse` without re-tokenizing to recover the span.
+pub(crate) type ParseDiag = (Span, String);
+
+pub(crate) fn parse_ok(src: &str) -> Result<Program, ParseDiag> {
+    let tokens = tokenize(src).map_err(|e| (e.span(), e.to_string()))?;
+    parse(&tokens).map_err(|e| (e.span(), e.to_string()))
 }
 
+/// Run the type checker against a (possibly merged) buffer parse and
+/// return diagnostics. `parsed_buffer` is the buffer's own parse —
+/// `refresh_impl` already produces it via `parse_ok` and threads it
+/// in so analyse doesn't redo the lex+parse pass on every keystroke.
 pub(crate) fn analyse(
-    src: &str,
-    path: Option<&Path>,
+    parsed_buffer: Result<&Program, &ParseDiag>,
     merged: &Option<Program>,
     is_submodule: bool,
 ) -> Vec<crate::diag::DiagEntry> {
     let mut out = Vec::new();
-    // Always run the lex + parse pass on the in-memory buffer first so
-    // unsaved edits surface syntax errors immediately.
-    let tokens = match tokenize(src) {
-        Ok(t) => t,
-        Err(e) => {
-            out.push(diag(e.span(), e.to_string()));
+    let buffer_prog = match parsed_buffer {
+        Ok(p) => p,
+        Err((span, msg)) => {
+            out.push(diag(*span, msg.clone()));
             return out;
         }
     };
-    if let Err(e) = parse(&tokens) {
-        out.push(diag(e.span(), e.to_string()));
-        return out;
-    }
     // Sub-modules can't resolve cross-module references on their own;
     // typecheck would emit spurious "undefined class sdl.X" errors.
-    // Stop after lex + parse for those.
+    // Stop after parse for those.
     if is_submodule {
         return out;
     }
@@ -298,14 +301,12 @@ pub(crate) fn analyse(
         }
         return out;
     }
-    // Fallback: in-memory parse + typecheck (no module resolution, no
-    // const inlining). Used for unsaved buffers without an on-disk file
-    // or when loading failed (the load error itself is reported by the
-    // caller via `refresh`).
-    let _ = path;
-    let prog = parse(&tokens).expect("parse already validated");
+    // Fallback: typecheck the buffer-local parse alone (no module
+    // resolution, no const inlining). Used for unsaved buffers without
+    // an on-disk file or when loading failed (the load error itself is
+    // reported by the caller via `refresh`).
     let mut tc = TypeChecker::new();
-    let (_, errs) = tc.check(&prog);
+    let (_, errs) = tc.check(buffer_prog);
     for e in errs {
         out.push(diag(e.span(), e.to_string()));
     }
@@ -321,7 +322,9 @@ mod tests {
     use tower_lsp::lsp_types::DiagnosticSeverity;
 
     fn err_diagnostics(src: &str) -> Vec<crate::diag::DiagEntry> {
-        analyse(src, None, &None, false)
+        let parsed = parse_ok(src);
+        let parsed_ref = parsed.as_ref();
+        analyse(parsed_ref, &None, false)
             .into_iter()
             .filter(|d| d.diagnostic.severity == Some(DiagnosticSeverity::ERROR))
             .collect()
