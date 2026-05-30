@@ -28,7 +28,18 @@ use crate::text::{is_keyword, is_valid_identifier, read_word_at, subsequence_ci}
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> LspResult<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
+        // Remember whether the client can dynamically register file
+        // watchers — `initialized` consults this before requesting one.
+        let dynamic_watch = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|w| w.did_change_watched_files.as_ref())
+            .and_then(|d| d.dynamic_registration)
+            .unwrap_or(false);
+        self.client_supports_dynamic_watch
+            .store(dynamic_watch, std::sync::atomic::Ordering::Relaxed);
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -132,9 +143,50 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
+        // If the client supports it, register a watcher for `.il` files so
+        // the workspace-symbol file-list cache can be invalidated on
+        // create / delete instead of re-walking the tree every request.
+        if self
+            .client_supports_dynamic_watch
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            let registration = Registration {
+                id: "ilang-watch-il-files".to_string(),
+                method: "workspace/didChangeWatchedFiles".to_string(),
+                register_options: serde_json::to_value(DidChangeWatchedFilesRegistrationOptions {
+                    watchers: vec![FileSystemWatcher {
+                        glob_pattern: GlobPattern::String("**/*.il".to_string()),
+                        kind: None, // default: Create | Change | Delete
+                    }],
+                })
+                .ok(),
+            };
+            match self.client.register_capability(vec![registration]).await {
+                Ok(()) => {
+                    self.watch_registered
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                Err(e) => {
+                    self.client
+                        .log_message(
+                            MessageType::WARNING,
+                            format!("ilang-lsp: file watch registration failed: {e}"),
+                        )
+                        .await;
+                }
+            }
+        }
         self.client
             .log_message(MessageType::INFO, "ilang-lsp ready")
             .await;
+    }
+
+    async fn did_change_watched_files(&self, _: DidChangeWatchedFilesParams) {
+        // A `.il` file was created / deleted / changed on disk. Drop the
+        // cached file lists so the next `workspace/symbol` re-walks once
+        // and repopulates. (Per-file symbol entries stay valid — they're
+        // mtime-checked independently.)
+        self.workspace_file_cache.lock().unwrap().clear();
     }
 
     async fn did_open(&self, p: DidOpenTextDocumentParams) {
@@ -529,11 +581,16 @@ impl LanguageServer for Backend {
                 })
                 .collect()
         };
+        let use_file_cache = self
+            .watch_registered
+            .load(std::sync::atomic::Ordering::Relaxed);
         Ok(workspace_symbol_cache::handle_workspace_symbol(
             &p.query,
             &anchor,
             &open_texts,
             &self.workspace_sym_cache,
+            &self.workspace_file_cache,
+            use_file_cache,
         ))
     }
 

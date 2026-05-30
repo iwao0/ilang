@@ -243,7 +243,7 @@ use std::sync::Mutex;
 
 use tower_lsp::lsp_types::{Location, SymbolInformation, Url};
 
-use crate::analyse::collect_workspace_il_files;
+use crate::analyse::{collect_workspace_il_files, workspace_root_for};
 use crate::text::subsequence_ci;
 
 /// Cap the response to keep VSCode's quick-pick responsive on large
@@ -261,9 +261,27 @@ pub(crate) fn handle_workspace_symbol(
     anchor: &Path,
     open_texts: &HashMap<PathBuf, String>,
     cache: &Mutex<HashMap<PathBuf, Entry>>,
+    file_cache: &Mutex<HashMap<PathBuf, Vec<PathBuf>>>,
+    use_file_cache: bool,
 ) -> Option<Vec<SymbolInformation>> {
     let q_lower = query.to_lowercase();
-    let files = collect_workspace_il_files(anchor);
+    // File-list lookup. When watching is registered the list is cached
+    // per workspace root and reused across keystrokes; otherwise re-walk
+    // every request so a freshly created file can't be missed.
+    let files = if use_file_cache {
+        let root = workspace_root_for(anchor);
+        let cached = file_cache.lock().unwrap().get(&root).cloned();
+        match cached {
+            Some(list) => list,
+            None => {
+                let list = collect_workspace_il_files(anchor);
+                file_cache.lock().unwrap().insert(root, list.clone());
+                list
+            }
+        }
+    } else {
+        collect_workspace_il_files(anchor)
+    };
     let mut out: Vec<SymbolInformation> = Vec::new();
     for path in files {
         if out.len() >= MAX_RESULTS {
@@ -319,7 +337,9 @@ pub(crate) fn handle_workspace_symbol(
             });
         }
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    // Lower-case each name once into the sort key rather than twice per
+    // comparison — comparison count grows with result size.
+    out.sort_by_cached_key(|s| s.name.to_lowercase());
     if out.is_empty() {
         None
     } else {

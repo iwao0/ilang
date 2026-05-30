@@ -215,18 +215,26 @@ pub(crate) fn for_each_closed_workspace_doc(
 /// by workspace-wide rename to pick up references in files that
 /// aren't currently open.
 pub(crate) fn collect_workspace_il_files(anchor: &Path) -> Vec<PathBuf> {
+    let workspace_root = workspace_root_for(anchor);
+    let mut out: Vec<PathBuf> = Vec::new();
+    walk_il(&workspace_root, &mut out);
+    out
+}
+
+/// Resolve the workspace root for `anchor`: the directory containing the
+/// nearest `ilang.toml`, or the anchor's own directory if there's no
+/// project file. Split out from `collect_workspace_il_files` so callers
+/// that cache the file list can key it by this stable root.
+pub(crate) fn workspace_root_for(anchor: &Path) -> PathBuf {
     let entry_dir = anchor
         .canonicalize()
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("."));
     let project_file = find_project_file(&entry_dir);
-    let workspace_root = project_file
+    project_file
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or(entry_dir);
-    let mut out: Vec<PathBuf> = Vec::new();
-    walk_il(&workspace_root, &mut out);
-    out
+        .unwrap_or(entry_dir)
 }
 
 pub(crate) fn walk_il(dir: &Path, out: &mut Vec<PathBuf>) {

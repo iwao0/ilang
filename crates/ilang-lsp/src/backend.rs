@@ -35,6 +35,23 @@ pub(crate) struct Backend {
     /// workspace.
     pub(crate) workspace_sym_cache:
         Arc<Mutex<HashMap<PathBuf, crate::workspace_symbol_cache::Entry>>>,
+    /// Cached `.il` file lists keyed by workspace root. Populated on the
+    /// first `workspace/symbol` request per root and reused afterwards,
+    /// so quick-pick keystrokes no longer re-walk the whole tree. A
+    /// `didChangeWatchedFiles` notification (registered in `initialized`
+    /// when the client supports dynamic registration) clears it on any
+    /// `.il` create / delete; when registration isn't available the
+    /// handler leaves the cache unpopulated and each request re-walks.
+    pub(crate) workspace_file_cache: Arc<Mutex<HashMap<PathBuf, Vec<PathBuf>>>>,
+    /// Set once at `initialized` time: whether the file-list cache may be
+    /// trusted (i.e. we successfully registered file watching). Without
+    /// it a stale cache could hide newly created files, so we skip the
+    /// cache entirely and re-walk per request.
+    pub(crate) watch_registered: Arc<std::sync::atomic::AtomicBool>,
+    /// Captured from the client's `initialize` capabilities: whether it
+    /// supports dynamically registering `didChangeWatchedFiles`. Read in
+    /// `initialized` to decide whether to attempt registration.
+    pub(crate) client_supports_dynamic_watch: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Backend {
@@ -44,6 +61,11 @@ impl Backend {
             docs: Arc::new(Mutex::new(HashMap::new())),
             latest_versions: Arc::new(Mutex::new(HashMap::new())),
             workspace_sym_cache: Arc::new(Mutex::new(HashMap::new())),
+            workspace_file_cache: Arc::new(Mutex::new(HashMap::new())),
+            watch_registered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            client_supports_dynamic_watch: Arc::new(std::sync::atomic::AtomicBool::new(
+                false,
+            )),
         }
     }
 
