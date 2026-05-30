@@ -165,6 +165,8 @@ impl LanguageServer for Backend {
                 Ok(()) => {
                     self.watch_registered
                         .store(true, std::sync::atomic::Ordering::Relaxed);
+                    crate::project::UMBRELLA_WATCH_TRUSTED
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
                 }
                 Err(e) => {
                     self.client
@@ -185,8 +187,12 @@ impl LanguageServer for Backend {
         // A `.il` file was created / deleted / changed on disk. Drop the
         // cached file lists so the next `workspace/symbol` re-walks once
         // and repopulates. (Per-file symbol entries stay valid — they're
-        // mtime-checked independently.)
+        // mtime-checked independently.) Same idea for the umbrella
+        // resolution cache: under a trusted watcher it stops re-statting
+        // siblings per refresh, so this is the only thing that lets a
+        // `pub use sub` edit in a sibling re-trigger umbrella detection.
         self.workspace_file_cache.lock().unwrap().clear();
+        crate::project::clear_umbrella_cache();
     }
 
     async fn did_open(&self, p: DidOpenTextDocumentParams) {

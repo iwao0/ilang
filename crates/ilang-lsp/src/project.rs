@@ -10,8 +10,27 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
+
+/// Set by the backend once `workspace/didChangeWatchedFiles` is
+/// successfully registered with the client. While true, the umbrella
+/// cache trusts watcher events to invalidate it: cached entries
+/// stay valid across refreshes without re-statting every sibling
+/// `.il`, and `clear_umbrella_cache()` (called from the
+/// `did_change_watched_files` handler) drops them on any `.il`
+/// create / change / delete. While false, every lookup falls back
+/// to an mtime snapshot of the directory.
+pub(crate) static UMBRELLA_WATCH_TRUSTED: AtomicBool = AtomicBool::new(false);
+
+/// Drop every umbrella-resolution cache entry. Called from the LSP's
+/// `did_change_watched_files` handler so a `pub use` edit in a
+/// sibling file shows up on the next refresh even when the cache
+/// has been skipping mtime snapshots under a trusted watcher.
+pub(crate) fn clear_umbrella_cache() {
+    UMBRELLA_CACHE.lock().unwrap().clear();
+}
 
 use ilang_ast::{Item, Program};
 
@@ -256,26 +275,46 @@ fn select_for_host(
 /// return the umbrella's path. Used by the LSP so opening a sub-module
 /// alone still type-checks under its umbrella's namespace.
 ///
-/// The sibling scan is cached per `(dir, basename)` and invalidated
-/// against an mtime snapshot of every `.il` in `dir`: on a refresh
-/// where nothing in the directory has been touched, we replay the
-/// previous result without re-reading or re-parsing any sibling.
+/// Two cache modes share one `(dir, basename)`-keyed map:
+/// * with a trusted file watcher (`UMBRELLA_WATCH_TRUSTED == true`),
+///   any cached entry is reused as-is; invalidation happens through
+///   `clear_umbrella_cache()` when the watcher fires.
+/// * without one, every lookup builds an mtime snapshot of the
+///   directory's `.il` siblings and reuses the cached entry only
+///   when the snapshot matches.
 /// Hot on binding directories with many sub-modules.
 pub(crate) fn find_umbrella(path: &Path) -> Option<PathBuf> {
     let basename = path.file_stem()?.to_str()?.to_string();
     let dir = path.parent()?;
     let dir_key = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
-    let snapshot = sibling_snapshot(dir);
     let cache_key = (dir_key, basename.clone());
+    let watch_trusted = UMBRELLA_WATCH_TRUSTED.load(Ordering::Relaxed);
+
+    if watch_trusted {
+        if let Some(hit) = UMBRELLA_CACHE.lock().unwrap().get(&cache_key) {
+            return hit.umbrella.clone();
+        }
+        let umbrella = resolve_umbrella(path, dir, &basename);
+        UMBRELLA_CACHE.lock().unwrap().insert(
+            cache_key,
+            UmbrellaCacheEntry { snapshot: None, umbrella: umbrella.clone() },
+        );
+        return umbrella;
+    }
+
+    let snapshot = sibling_snapshot(dir);
     if let Some(hit) = UMBRELLA_CACHE.lock().unwrap().get(&cache_key) {
-        if hit.snapshot == snapshot {
+        if hit.snapshot.as_ref() == Some(&snapshot) {
             return hit.umbrella.clone();
         }
     }
     let umbrella = resolve_umbrella(path, dir, &basename);
     UMBRELLA_CACHE.lock().unwrap().insert(
         cache_key,
-        UmbrellaCacheEntry { snapshot, umbrella: umbrella.clone() },
+        UmbrellaCacheEntry {
+            snapshot: Some(snapshot),
+            umbrella: umbrella.clone(),
+        },
     );
     umbrella
 }
@@ -319,7 +358,12 @@ fn sibling_snapshot(dir: &Path) -> Vec<(PathBuf, Option<SystemTime>)> {
 }
 
 struct UmbrellaCacheEntry {
-    snapshot: Vec<(PathBuf, Option<SystemTime>)>,
+    /// `Some(snapshot)` when populated without a trusted watcher;
+    /// the next lookup re-stats the dir and compares before reusing.
+    /// `None` when populated under a trusted watcher; the entry is
+    /// kept until `clear_umbrella_cache()` drops it on a watcher
+    /// event.
+    snapshot: Option<Vec<(PathBuf, Option<SystemTime>)>>,
     umbrella: Option<PathBuf>,
 }
 
