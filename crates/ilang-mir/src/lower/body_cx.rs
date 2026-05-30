@@ -393,9 +393,12 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Array { .. }
                     | MirTy::Tuple(_)
                     | MirTy::Map { .. }
+                    | MirTy::Set { .. }
                     | MirTy::Optional(_)
                     | MirTy::Fn(_)
+                    | MirTy::Promise(_)
                     | MirTy::Str
+                    | MirTy::Enum(_)
             ) {
                 self.fb.push_inst(Inst::Retain { value: *v });
             }
@@ -499,6 +502,8 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Optional(_)
                     | MirTy::Tuple(_)
                     | MirTy::Map { .. }
+                    | MirTy::Set { .. }
+                    | MirTy::Promise(_)
                     | MirTy::Str
                     | MirTy::Enum(_)
             )
@@ -624,6 +629,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Tuple(_)
                     | MirTy::Map { .. }
                     | MirTy::Set { .. }
+                    | MirTy::Promise(_)
                     | MirTy::Str
                     | MirTy::Enum(_)
             )
