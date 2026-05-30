@@ -74,10 +74,15 @@ unsafe fn write_header(base: *mut u8, cap: usize, rc: i64, len: i64) {
     }
 }
 
-/// Allocate a heap string with `rc = 1`. Returns the body pointer
-/// (the user-visible string pointer).
-pub fn leak_cstring(s: String) -> i64 {
-    let body = s.into_bytes();
+/// Allocate a heap string with `rc = 1` from raw bytes. Returns the
+/// body pointer (the user-visible string pointer). The bytes are copied
+/// into a fresh layout buffer, so the caller keeps ownership of `body`.
+///
+/// This is the core builder: callers that already hold (or can cheaply
+/// borrow) a `&[u8]` / `&str` should use this directly rather than
+/// minting a throwaway `String` just to satisfy `leak_cstring` — the
+/// `String`'s own heap allocation would be discarded here anyway.
+pub fn leak_cstr_bytes(body: &[u8]) -> i64 {
     let len = body.len() as i64;
     let total = HEADER_BYTES + body.len() + 1;
     let layout = layout_for_total(total);
@@ -94,6 +99,13 @@ pub fn leak_cstring(s: String) -> i64 {
     }
     LIVE_STRING_COUNT.fetch_add(1, Ordering::Relaxed);
     unsafe { base.add(HEADER_BYTES) as i64 }
+}
+
+/// Allocate a heap string with `rc = 1` from an owned `String`. Thin
+/// wrapper over `leak_cstr_bytes`; the bytes are copied into the layout
+/// buffer and the `String`'s own allocation is freed on drop.
+pub fn leak_cstring(s: String) -> i64 {
+    leak_cstr_bytes(s.as_bytes())
 }
 
 /// Number of live heap-allocated strings (excludes static literals).
@@ -243,7 +255,7 @@ pub extern "C" fn __int_to_string(n: i64) -> i64 {
 
 #[unsafe(export_name = "$string.fromBool")]
 pub extern "C" fn __bool_to_string(b: i64) -> i64 {
-    leak_cstring(if b != 0 { "true".to_string() } else { "false".to_string() })
+    leak_cstr_bytes(if b != 0 { b"true" } else { b"false" })
 }
 
 /// `(f32).toString()` — per-width entry point because cranelift's
@@ -284,7 +296,7 @@ pub extern "C" fn __str_to_lower(p: i64) -> i64 {
 
 #[unsafe(export_name = "$string.trim")]
 pub extern "C" fn __str_trim(p: i64) -> i64 {
-    leak_cstring(cstr_to_str(p).trim().to_string())
+    leak_cstr_bytes(cstr_to_str(p).trim().as_bytes())
 }
 
 #[unsafe(export_name = "$string.includes")]
@@ -403,9 +415,16 @@ pub extern "C" fn __str_split(p: i64, sep: i64) -> i64 {
     let s = cstr_to_str(p);
     let sp = cstr_to_str(sep);
     let parts: Vec<i64> = if sp.is_empty() {
-        s.chars().map(|c| leak_cstring(c.to_string())).collect()
+        // Encode each char into a stack buffer instead of minting a
+        // throwaway `String` per character.
+        let mut buf = [0u8; 4];
+        s.chars()
+            .map(|c| leak_cstr_bytes(c.encode_utf8(&mut buf).as_bytes()))
+            .collect()
     } else {
-        s.split(sp).map(|t| leak_cstring(t.to_string())).collect()
+        // Each piece is already a `&str` slice into `s` — copy its bytes
+        // straight into the ilang string, no intermediate `String`.
+        s.split(sp).map(|t| leak_cstr_bytes(t.as_bytes())).collect()
     };
     build_i64_array(&parts, KIND_STR)
 }
