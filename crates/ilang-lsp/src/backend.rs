@@ -382,3 +382,85 @@ pub(crate) fn mirror_imported_returns_to_bare(
     }
 }
 
+/// Build the loader overlay for a refresh.
+///
+/// `edited_canon` is the canonicalised path of the file the user is
+/// actually editing, and `text` is its live buffer. Crucially this is
+/// the *edited* file — NOT the merge entry the loader is driven from.
+/// The two diverge when editing a sub-module: the merge entry is then
+/// the umbrella (`sdl.il`), but the unsaved text belongs to the
+/// sub-module (`sdl_window.il`). Keying the buffer under the umbrella's
+/// path would make the loader parse the umbrella *as* the sub-module
+/// body, corrupting the merged program used for hover / F12 /
+/// completion. The edited file's entry therefore wins and is never
+/// overwritten by the `others` pass.
+///
+/// `others` is every other open buffer (already canonicalised); each
+/// only fills a gap — it never displaces the edited file's text.
+fn build_overlay(
+    edited_canon: Option<PathBuf>,
+    text: &str,
+    others: impl IntoIterator<Item = (PathBuf, String)>,
+) -> HashMap<PathBuf, String> {
+    let mut overlay: HashMap<PathBuf, String> = HashMap::new();
+    if let Some(canon) = edited_canon {
+        overlay.insert(canon, text.to_string());
+    }
+    for (canon, txt) in others {
+        overlay.entry(canon).or_insert(txt);
+    }
+    overlay
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_overlay;
+    use std::path::PathBuf;
+
+    /// Regression: editing a sub-module must overlay the buffer onto the
+    /// sub-module's own path, leaving the umbrella's on-disk text intact.
+    /// Pre-fix the buffer was keyed under the umbrella (the merge entry),
+    /// so the loader saw the umbrella replaced by the sub-module body.
+    #[test]
+    fn buffer_overlays_edited_file_not_umbrella() {
+        let submodule = PathBuf::from("/proj/sdl_window.il");
+        let umbrella = PathBuf::from("/proj/sdl.il");
+        let overlay = build_overlay(
+            Some(submodule.clone()),
+            "pub fn open() {}",
+            vec![(umbrella.clone(), "use sdl_window".to_string())],
+        );
+        // The edited sub-module carries the live buffer …
+        assert_eq!(overlay.get(&submodule).map(String::as_str), Some("pub fn open() {}"));
+        // … and the umbrella keeps its own on-disk text, never the buffer.
+        assert_eq!(overlay.get(&umbrella).map(String::as_str), Some("use sdl_window"));
+    }
+
+    /// The edited file's text must win even if the same path also shows
+    /// up in `others` (the file is open in its own buffer too).
+    #[test]
+    fn edited_text_is_never_overwritten_by_others() {
+        let p = PathBuf::from("/proj/a.il");
+        let overlay = build_overlay(
+            Some(p.clone()),
+            "live edit",
+            vec![(p.clone(), "stale".to_string())],
+        );
+        assert_eq!(overlay.get(&p).map(String::as_str), Some("live edit"));
+    }
+
+    /// No edited path (unsaved scratch buffer): only the `others` seed
+    /// the overlay.
+    #[test]
+    fn no_edited_path_uses_only_others() {
+        let other = PathBuf::from("/proj/b.il");
+        let overlay = build_overlay(
+            None,
+            "ignored",
+            vec![(other.clone(), "body".to_string())],
+        );
+        assert_eq!(overlay.len(), 1);
+        assert_eq!(overlay.get(&other).map(String::as_str), Some("body"));
+    }
+}
+
