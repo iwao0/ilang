@@ -299,39 +299,17 @@ impl TypeChecker {
                     *self.in_extern_c.borrow_mut() = false;
                     self.record_if_err(result);
                 }
-                Item::Interface(i) => {
-                    let mut methods = Vec::with_capacity(i.methods.len());
-                    let mut seen: HashSet<Symbol> = HashSet::new();
-                    for m in i.methods.iter() {
-                        if !seen.insert(m.name.clone()) {
-                            self.record(TypeError::Unsupported {
-                                what: format!(
-                                    "interface {:?} declares method {:?} more than once",
-                                    i.name, m.name
-                                ),
-                                span: m.span,
-                            });
-                            continue;
-                        }
-                        methods.push(InterfaceMethodSig {
-                            name: m.name.clone(),
-                            params: m.params.iter().map(|p| p.ty.clone()).collect(),
-                            ret: m.ret.clone().unwrap_or(Type::Unit),
-                            is_optional: m.is_optional,
-                        });
-                    }
-                    let module = module_of_name(i.name.as_str()).to_string();
-                    self.interfaces.insert(
-                        i.name.clone(),
-                        InterfaceSig {
-                        methods,
-                        is_pub: i.is_pub,
-                        module,
-                        is_com: i.is_com,
-                        parent: i.parent.clone(),
-                    },
-                    );
-                }
+                // `Item::Interface` is fully handled by the pre-pass
+                // at the top of `check`: it registers the sig,
+                // dedups methods, rejects duplicate interface names,
+                // and validates the parent chain. Re-running the
+                // registration here would overwrite the pre-pass's
+                // null-out of a cycle-rejected `parent`, and would
+                // also drop the duplicate-detection diagnostic since
+                // the second `insert` is silent. The method-type
+                // validation pass further down still walks every
+                // interface decl directly.
+                Item::Interface(_) => {}
             }
         }
         // (`@objc interface` declarations inside `@extern(ObjC)`
