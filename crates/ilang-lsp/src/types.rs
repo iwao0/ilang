@@ -261,3 +261,8 @@ impl Doc {
     }
 }
 
+/// Per-`Backend` cache of `analyse_path_to_doc` results for closed
+/// `.il` files. Keyed by canonical path; the `SystemTime` records
+/// the file's mtime when the entry was produced so the next walk
+/// can serve from cache while nothing on disk has moved.
+pub(crate) type ClosedDocCache = Mutex<HashMap<PathBuf, (std::time::SystemTime, Arc<Doc>)>>;

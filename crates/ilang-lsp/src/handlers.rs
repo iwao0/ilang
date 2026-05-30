@@ -193,6 +193,7 @@ impl LanguageServer for Backend {
         // `pub use sub` edit in a sibling re-trigger umbrella detection.
         self.workspace_file_cache.lock().unwrap().clear();
         crate::project::clear_umbrella_cache();
+        crate::analyse::clear_closed_doc_cache(&self.closed_doc_cache);
     }
 
     async fn did_open(&self, p: DidOpenTextDocumentParams) {
@@ -461,7 +462,13 @@ impl LanguageServer for Backend {
         let pos = p.text_document_position.position;
         let include_decl = p.context.include_declaration;
         let docs = self.docs();
-        Ok(references::handle_references(&docs, &uri, pos, include_decl))
+        Ok(references::handle_references(
+            &docs,
+            &uri,
+            pos,
+            include_decl,
+            &self.closed_doc_cache,
+        ))
     }
 
     async fn prepare_rename(
@@ -522,7 +529,7 @@ impl LanguageServer for Backend {
         let uri = p.text_document_position.text_document.uri;
         let pos = p.text_document_position.position;
         let docs = self.docs();
-        rename::handle_rename(&docs, &uri, pos, p.new_name)
+        rename::handle_rename(&docs, &uri, pos, p.new_name, &self.closed_doc_cache)
     }
 
     async fn code_action(
@@ -696,7 +703,7 @@ impl LanguageServer for Backend {
         };
         let snapshot: HashMap<Url, crate::types::Doc> =
             self.docs().clone();
-        let calls = call_hierarchy::incoming_calls(&item, &snapshot);
+        let calls = call_hierarchy::incoming_calls(&item, &snapshot, &self.closed_doc_cache);
         if calls.is_empty() { Ok(None) } else { Ok(Some(calls)) }
     }
 
@@ -760,6 +767,7 @@ impl LanguageServer for Backend {
                     ilang_ast::Span::new(decl_line, decl_col),
                     decl_name_len,
                     &snapshot,
+                    &self.closed_doc_cache,
                 );
                 let pos = text::lsp_position(decl_line, decl_col);
                 lens.command = Some(code_lens::references_command(&uri, pos, locations));

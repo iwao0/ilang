@@ -185,27 +185,86 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
 }
 
 /// Walk every `.il` file under the project rooted at `anchor`,
-/// invoke `visit` with each closed file's `(Url, Doc)`. Files whose
+/// invoke `visit` with each closed file's `(Url, &Doc)`. Files whose
 /// canonical path appears in `seen` are skipped — pass open
 /// buffers' canonical paths there so cross-file passes don't
 /// reprocess them off the on-disk version.
 ///
-/// Mirrors the per-call sites' previous "iterate
-/// collect_workspace_il_files; canonicalize; skip-if-seen;
-/// analyse_path_to_doc; Url::from_file_path" boilerplate.
+/// `cache` memoises `analyse_path_to_doc` results across requests:
+/// each entry is keyed by canonical path with the file's mtime
+/// stored alongside the `Arc<Doc>`. A `didChangeWatchedFiles` event
+/// drops the whole map, so a sibling-file edit can't leave a stale
+/// cross-module `Doc` here.
 pub(crate) fn for_each_closed_workspace_doc(
     anchor: &Path,
     seen: &HashSet<PathBuf>,
-    mut visit: impl FnMut(Url, Doc),
+    cache: &crate::types::ClosedDocCache,
+    mut visit: impl FnMut(Url, &Doc),
 ) {
     for path in collect_workspace_il_files(anchor) {
         let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
         if seen.contains(&canon) {
             continue;
         }
-        let Some(doc) = analyse_path_to_doc(&path) else { continue };
         let Ok(uri) = Url::from_file_path(&path) else { continue };
-        visit(uri, doc);
+        let mtime = std::fs::metadata(&canon)
+            .and_then(|m| m.modified())
+            .ok();
+        // Cache hit when the closed file's mtime hasn't moved since
+        // the last analyse. Cache miss otherwise (or no recorded
+        // mtime), in which case we recompute and refresh the entry.
+        let cached: Option<Arc<Doc>> = {
+            let guard = cache.lock().unwrap();
+            guard.get(&canon).and_then(|(m, d)| {
+                if Some(*m) == mtime {
+                    Some(d.clone())
+                } else {
+                    None
+                }
+            })
+        };
+        let doc_arc: Arc<Doc> = if let Some(d) = cached {
+            d
+        } else {
+            let Some(d) = analyse_path_to_doc(&path) else { continue };
+            let arc = Arc::new(d);
+            if let Some(m) = mtime {
+                cache.lock().unwrap().insert(canon, (m, arc.clone()));
+            }
+            arc
+        };
+        visit(uri, &doc_arc);
+    }
+}
+
+/// Drop every cached closed-document analyse. Called from
+/// `did_change_watched_files` so a `.il` file written outside the
+/// editor still surfaces fresh data on the next reference / rename /
+/// call-hierarchy request.
+pub(crate) fn clear_closed_doc_cache(cache: &crate::types::ClosedDocCache) {
+    cache.lock().unwrap().clear();
+}
+
+/// Lightweight workspace walk for consumers that only need the
+/// buffer text + parse, not the full cross-module-resolved `Doc`.
+/// Skips `collect_dep_tree` + `load_program_full` + typecheck, so
+/// requests like `textDocument/implementation` (which only reads
+/// `class` / `interface` AST shapes) stay sub-millisecond per file
+/// instead of paying for the full analyse pipeline.
+pub(crate) fn for_each_closed_workspace_program(
+    anchor: &Path,
+    seen: &HashSet<PathBuf>,
+    mut visit: impl FnMut(Url, &str, &Program),
+) {
+    for path in collect_workspace_il_files(anchor) {
+        let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
+        if seen.contains(&canon) {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(prog) = parse_ok(&text) else { continue };
+        let Ok(uri) = Url::from_file_path(&path) else { continue };
+        visit(uri, &text, &prog);
     }
 }
 

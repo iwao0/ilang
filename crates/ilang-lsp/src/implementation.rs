@@ -15,7 +15,7 @@ use ilang_ast::{ClassDecl, FnDecl, Item, Program, Symbol as AstSymbol};
 use tower_lsp::lsp_types::*;
 
 use crate::types::Doc;
-use crate::analyse::for_each_closed_workspace_doc;
+use crate::analyse::for_each_closed_workspace_program;
 use crate::text;
 
 /// What kind of implementation request we're servicing. Drives the
@@ -120,9 +120,8 @@ pub(crate) fn collect(
         let Some(prog) = text::try_parse(&doc.text) else { continue };
         gather_from_program(uri, &doc.text, &prog, &effective_target, &mut out);
     }
-    for_each_closed_workspace_doc(anchor, &seen, |uri, d| {
-        let Some(prog) = text::try_parse(&d.text) else { return };
-        gather_from_program(&uri, &d.text, &prog, &effective_target, &mut out);
+    for_each_closed_workspace_program(anchor, &seen, |uri, text, prog| {
+        gather_from_program(&uri, text, prog, &effective_target, &mut out);
     });
     out.sort_by(|a, b| {
         (a.uri.as_str(), a.range.start.line, a.range.start.character)

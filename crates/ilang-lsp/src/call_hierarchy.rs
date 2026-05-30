@@ -340,6 +340,7 @@ fn ref_target_name(doc: &Doc, entry: &RefEntry) -> Option<String> {
 pub(crate) fn incoming_calls(
     item: &ItemRef,
     open_docs: &HashMap<Url, Doc>,
+    cache: &crate::types::ClosedDocCache,
 ) -> Vec<CallHierarchyIncomingCall> {
     // Key: (caller_uri, caller_name_span). Value: (caller_uri,
     // FnRange, accumulated call ranges in that caller's body).
@@ -370,7 +371,7 @@ pub(crate) fn incoming_calls(
         );
     }
     // Pass 2: closed files (workspace walk).
-    for_each_closed_workspace_doc(&anchor_path, &seen_paths, |path_uri, doc| {
+    for_each_closed_workspace_doc(&anchor_path, &seen_paths, cache, |path_uri, doc| {
         let is_owner = path_uri == item.uri;
         accumulate_incoming(
             &path_uri,

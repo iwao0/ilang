@@ -24,6 +24,7 @@ pub(crate) fn collect_reference_locations(
     target_span: ilang_ast::Span,
     name_len: u32,
     snapshot: &HashMap<Url, crate::types::Doc>,
+    cache: &crate::types::ClosedDocCache,
 ) -> Vec<Location> {
     let mut out: Vec<Location> = Vec::new();
     let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
@@ -56,9 +57,9 @@ pub(crate) fn collect_reference_locations(
         push(&mut out, doc_uri, doc, is_owner);
     }
     if let Ok(anchor) = target_uri.to_file_path() {
-        for_each_closed_workspace_doc(&anchor, &seen, |uri, doc| {
+        for_each_closed_workspace_doc(&anchor, &seen, cache, |uri, doc| {
             let is_owner = uri == *target_uri;
-            push(&mut out, &uri, &doc, is_owner);
+            push(&mut out, &uri, doc, is_owner);
         });
     }
     out.sort_by(|a, b| {
@@ -182,6 +183,7 @@ pub(crate) fn handle_references(
     uri: &Url,
     pos: Position,
     include_decl: bool,
+    cache: &crate::types::ClosedDocCache,
 ) -> Option<Vec<Location>> {
     let doc = docs.get(uri)?;
     // Resolve the cursor to the same (decl_uri, decl_span, name_len,
@@ -241,9 +243,9 @@ pub(crate) fn handle_references(
         }
     }
     if let Ok(anchor_path) = target_uri.to_file_path() {
-        for_each_closed_workspace_doc(&anchor_path, &opened_paths, |path_uri, d| {
+        for_each_closed_workspace_doc(&anchor_path, &opened_paths, cache, |path_uri, d| {
             let is_owner = path_uri == target_uri;
-            push_ref_locations(&mut locations, &path_uri, &d, &target_uri, target);
+            push_ref_locations(&mut locations, &path_uri, d, &target_uri, target);
             if is_owner && include_decl {
                 locations.push(decl_location(&path_uri, decl_name_span, target.1));
             }

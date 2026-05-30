@@ -22,6 +22,7 @@ pub(crate) fn handle_rename(
     uri: &Url,
     pos: Position,
     new_name: String,
+    cache: &crate::types::ClosedDocCache,
 ) -> LspResult<Option<WorkspaceEdit>> {
     // Validate the proposed name before touching any buffers.
     // Reporting an LSP error here lets VSCode show the message
@@ -157,9 +158,9 @@ pub(crate) fn handle_rename(
     // the decl's owning file so the walk starts in the same
     // project (`ilang.toml` directory, or the file's parent).
     if let Ok(anchor_path) = target_uri.to_file_path() {
-        for_each_closed_workspace_doc(&anchor_path, &opened_paths, |path_uri, doc| {
+        for_each_closed_workspace_doc(&anchor_path, &opened_paths, cache, |path_uri, doc| {
             let is_owner = path_uri == target_uri;
-            let edits = collect_doc_edits(&doc, &target_uri, target, decl_name_span, &new_name, is_owner);
+            let edits = collect_doc_edits(doc, &target_uri, target, decl_name_span, &new_name, is_owner);
             if !edits.is_empty() {
                 changes.insert(path_uri, edits);
             }

@@ -52,6 +52,15 @@ pub(crate) struct Backend {
     /// supports dynamically registering `didChangeWatchedFiles`. Read in
     /// `initialized` to decide whether to attempt registration.
     pub(crate) client_supports_dynamic_watch: Arc<std::sync::atomic::AtomicBool>,
+    /// Closed-document analyse-result cache keyed by canonical path.
+    /// Workspace-wide passes (references / rename / call hierarchy)
+    /// previously ran `analyse_path_to_doc` — full read + parse +
+    /// dep-tree + load + typecheck — for every closed `.il` on every
+    /// request. The entry's `SystemTime` lets us reuse the previous
+    /// `Doc` when the file's mtime hasn't changed; a
+    /// `didChangeWatchedFiles` event drops the whole map so a sibling
+    /// file edit can't leave a stale cross-module `Doc` here.
+    pub(crate) closed_doc_cache: Arc<crate::types::ClosedDocCache>,
 }
 
 impl Backend {
@@ -66,6 +75,7 @@ impl Backend {
             client_supports_dynamic_watch: Arc::new(std::sync::atomic::AtomicBool::new(
                 false,
             )),
+            closed_doc_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
