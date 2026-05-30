@@ -696,3 +696,81 @@ fn pub_name_matches(pubs: &HashSet<Symbol>, name: &str) -> bool {
             && ns.starts_with(name)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn prog(src: &str) -> Program {
+        let toks = ilang_lexer::tokenize(src).expect("lex");
+        crate::parse(&toks).expect("parse")
+    }
+
+    /// Build a catalog by hand: each `(module, [names])` becomes a leaf
+    /// entry whose pub set is the interned names. Mirrors what
+    /// `build_catalog` produces, without needing on-disk files.
+    fn cat(entries: &[(&str, &[&str])]) -> PubCatalog {
+        entries
+            .iter()
+            .map(|(m, names)| {
+                (
+                    m.to_string(),
+                    names.iter().map(|n| Symbol::intern(n)).collect(),
+                )
+            })
+            .collect()
+    }
+
+    fn allows(catalog: &PubCatalog, self_module: Option<&str>, name: &str) -> bool {
+        let ck = Checker { self_module, catalog };
+        ck.check_dotted(&Symbol::intern(name), Span::new(0, 0)).is_ok()
+    }
+
+    #[test]
+    fn multi_segment_resolves_via_leaf_module() {
+        // `std.math.sqrt` after `use std.math`: the catalog is keyed by
+        // the leaf stem `math`, so peeling head segments finds it.
+        let c = cat(&[("math", &["sqrt"])]);
+        assert!(allows(&c, None, "std.math.sqrt"));
+    }
+
+    #[test]
+    fn multi_segment_rejects_non_pub_leaf_item() {
+        // `cbrt` isn't pub in `math`, and neither `std` nor `math` is a
+        // catalog key that exposes it under the single-segment fallback.
+        let c = cat(&[("math", &["sqrt"])]);
+        assert!(!allows(&c, None, "std.math.cbrt"));
+    }
+
+    #[test]
+    fn single_segment_unknown_module_rejected() {
+        let c = cat(&[("math", &["sqrt"])]);
+        assert!(!allows(&c, None, "nope.thing"));
+    }
+
+    /// Regression guard for the leaf-collision concern: `build_catalog`
+    /// keys modules by file stem, so two distinct `math.il` files (under
+    /// different directories) collapse to one `"math"` entry whose pub
+    /// set is the *union* of both. A multi-segment ref `outer.math.X`
+    /// therefore resolves against that union — `check_dotted` cannot tell
+    /// which `math` the caller imported. This pins that (intentionally
+    /// coarse) behaviour so a future change to the keying surfaces here.
+    #[test]
+    fn same_stem_modules_union_their_pubs() {
+        let a = prog("pub fn sqrt() {}");
+        let b = prog("pub fn cbrt() {}");
+        let mut loaded: HashMap<PathBuf, Program> = HashMap::new();
+        loaded.insert(PathBuf::from("/x/math.il"), a);
+        loaded.insert(PathBuf::from("/y/math.il"), b);
+
+        let catalog = build_catalog(&loaded);
+        let math = catalog.get("math").expect("math leaf entry");
+        assert!(math.contains(&Symbol::intern("sqrt")));
+        assert!(math.contains(&Symbol::intern("cbrt")));
+
+        // Both names resolve through the single merged leaf key, even
+        // though each lives in a different file.
+        assert!(allows(&catalog, None, "outer.math.sqrt"));
+        assert!(allows(&catalog, None, "outer.math.cbrt"));
+    }
+}
