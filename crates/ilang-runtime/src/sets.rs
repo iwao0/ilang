@@ -107,14 +107,20 @@ pub extern "C" fn __set_add(set: i64, raw: i64) {
             t.insert(raw);
         }
         SetStore::Str(t) => {
-            let e: Box<str> = unsafe { elem_str(raw) }.into_owned().into_boxed_str();
-            // New entry — the set takes its own +1 on string elements
-            // (mirrors Map's key handling) so subsequent `has` /
-            // iteration can hand the same pointer back. Duplicate inserts
-            // drop; the set already owns its share.
-            if t.insert(e.clone()) && raw != 0 {
-                __retain_string(raw);
-                s.str_origs.insert(e, raw);
+            // Probe by borrowed `&str` first — `elem_str` hands back a
+            // `Cow::Borrowed` for valid UTF-8, so a duplicate add allocates
+            // nothing. Only a genuinely new element mints owned key(s).
+            let key = unsafe { elem_str(raw) };
+            if !t.contains(&*key) {
+                let e: Box<str> = key.into_owned().into_boxed_str();
+                // New entry — the set takes its own +1 on string elements
+                // (mirrors Map's key handling) so subsequent `has` /
+                // iteration can hand the same pointer back.
+                if raw != 0 {
+                    __retain_string(raw);
+                    s.str_origs.insert(e.clone(), raw);
+                }
+                t.insert(e);
             }
         }
     }
