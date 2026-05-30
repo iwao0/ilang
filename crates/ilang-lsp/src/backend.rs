@@ -122,29 +122,25 @@ pub(crate) async fn refresh_impl(
                 let dep_tree = crate::project::collect_dep_tree(p).unwrap_or_default();
                 let extra = dep_tree.dirs.clone();
                 let names_to_dirs = dep_tree.names_to_dirs.clone();
-                // Use the buffer's text for the entry file so
-                // diagnostics reflect unsaved edits immediately.
-                // Also seed the overlay with every other open
-                // buffer — without this, a sub-module's
-                // unsaved edits aren't visible while checking
-                // the entry, so e.g. adding `pub` to a member
-                // in `sample2.il` wouldn't clear the entry's
-                // red squiggle until `sample2.il` is saved
-                // AND the entry buffer is touched.
-                let mut overlay: HashMap<PathBuf, String> = HashMap::new();
-                if let Ok(canon) = p.canonicalize() {
-                    overlay.insert(canon, text.clone());
-                }
-                {
+                // Overlay the live buffer text onto the *edited* file
+                // (`path`) — see `build_overlay` for why this must be the
+                // edited file, not the merge entry `p`. Other open
+                // buffers seed the overlay too (canonicalised here, off
+                // the lock-free path below isn't possible since we need
+                // the docs map).
+                let edited_canon =
+                    path.as_deref().and_then(|edited| edited.canonicalize().ok());
+                let others: Vec<(PathBuf, String)> = {
                     let lock = docs.lock().unwrap();
-                    for (other_uri, doc) in lock.iter() {
-                        if let Ok(other_path) = other_uri.to_file_path() {
-                            if let Ok(canon) = other_path.canonicalize() {
-                                overlay.entry(canon).or_insert_with(|| doc.text.clone());
-                            }
-                        }
-                    }
-                }
+                    lock.iter()
+                        .filter_map(|(other_uri, doc)| {
+                            let other_path = other_uri.to_file_path().ok()?;
+                            let canon = other_path.canonicalize().ok()?;
+                            Some((canon, doc.text.clone()))
+                        })
+                        .collect()
+                };
+                let overlay = build_overlay(edited_canon, &text, others);
                 ilang_parser::loader::load_program_full(
                     p, &extra, &dep_tree.parents, &names_to_dirs, &overlay,
                 ).ok()
