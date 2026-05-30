@@ -668,3 +668,31 @@ impl<'a> Checker<'a> {
         self.check_expr(&arm.body)
     }
 }
+
+/// `true` if `name` names a pub symbol of `pubs`, or the head segment
+/// of `name` is pub, or some pub symbol lives under the `name.` prefix
+/// (deeper dotted access — enum variants, namespaced `pub use`).
+///
+/// `Symbol`'s hash is derived from its interned id, not its bytes, so a
+/// `HashSet<Symbol>` can only be probed by an interned `Symbol` — the
+/// two exact-match checks intern `name` / its head segment. The prefix
+/// scan, however, compares against each pub's `as_str()` directly, so it
+/// allocates nothing (the old code `format!`'d a `"{name}."` needle).
+/// Net: no per-probe `Vec` / `join` / `format!`; interning is confined
+/// to the two membership lookups it genuinely needs.
+fn pub_name_matches(pubs: &HashSet<Symbol>, name: &str) -> bool {
+    if pubs.contains(&Symbol::intern(name)) {
+        return true;
+    }
+    if let Some((head, _)) = name.split_once('.') {
+        if pubs.contains(&Symbol::intern(head)) {
+            return true;
+        }
+    }
+    pubs.iter().any(|n| {
+        let ns = n.as_str();
+        ns.len() > name.len()
+            && ns.as_bytes()[name.len()] == b'.'
+            && ns.starts_with(name)
+    })
+}
