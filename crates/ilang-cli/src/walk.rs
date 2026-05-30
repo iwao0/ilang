@@ -9,8 +9,70 @@
 //!   `console.log(<tail>)` so the JIT's `__main` prints what the
 //!   user expects to see.
 
+use std::collections::HashMap;
+
 use ilang_ast::{Expr, ExprKind, Item, Program as AstProgram, StmtKind, Symbol};
 
+/// The in-scope local names during a free-var walk.
+///
+/// Backed by an insertion-ordered `Vec` (so a block exit can rewind to
+/// a saved length, the way lexical scopes nest) plus a `HashMap` of
+/// live shadow counts keyed by name. The map turns the hot
+/// `contains` check — run at every `Var` / `Call` / `Assign` — from a
+/// linear scan of the `Vec` into an O(1) lookup, which matters in deep
+/// scopes or large functions where the old `Vec::contains` made the
+/// walk O(exprs × locals).
+///
+/// The two stay in lock-step: `push` appends to the `Vec` and bumps the
+/// name's count; `truncate` pops the tail back to `len` and drops each
+/// popped name's count (removing the entry at zero). A name shadowed N
+/// times has count N, so it stays "in scope" until the last shadow is
+/// popped.
+#[derive(Default)]
+struct Scope {
+    order: Vec<Symbol>,
+    counts: HashMap<Symbol, u32>,
+}
+
+impl Scope {
+    fn len(&self) -> usize {
+        self.order.len()
+    }
+
+    fn push(&mut self, name: Symbol) {
+        self.order.push(name);
+        *self.counts.entry(name).or_insert(0) += 1;
+    }
+
+    fn truncate(&mut self, len: usize) {
+        while self.order.len() > len {
+            let name = self.order.pop().expect("len checked above");
+            if let std::collections::hash_map::Entry::Occupied(mut e) =
+                self.counts.entry(name)
+            {
+                let c = e.get_mut();
+                *c -= 1;
+                if *c == 0 {
+                    e.remove();
+                }
+            }
+        }
+    }
+
+    fn contains(&self, name: &Symbol) -> bool {
+        self.counts.contains_key(name)
+    }
+}
+
+impl FromIterator<Symbol> for Scope {
+    fn from_iter<I: IntoIterator<Item = Symbol>>(iter: I) -> Self {
+        let mut s = Scope::default();
+        for name in iter {
+            s.push(name);
+        }
+        s
+    }
+}
 
 /// Walk every named fn / method body in the program and collect
 /// the top-level let names actually referenced as free variables —
@@ -34,13 +96,13 @@ pub(crate) fn collect_fn_free_var_refs(
         |c: &ilang_ast::ClassDecl,
          out: &mut std::collections::HashSet<Symbol>| {
             for m in c.methods.iter() {
-                let mut locals: Vec<Symbol> = std::iter::once(Symbol::intern("this"))
+                let mut locals: Scope = std::iter::once(Symbol::intern("this"))
                     .chain(m.params.iter().map(|p| p.name))
                     .collect();
                 walk_block(&m.body, top_lets, &mut locals, out);
             }
             for sm in c.static_methods.iter() {
-                let mut locals: Vec<Symbol> =
+                let mut locals: Scope =
                     sm.params.iter().map(|p| p.name).collect();
                 walk_block(&sm.body, top_lets, &mut locals, out);
             }
@@ -48,7 +110,7 @@ pub(crate) fn collect_fn_free_var_refs(
     for item in &prog.items {
         match item {
             Item::Fn(f) => {
-                let mut locals: Vec<Symbol> =
+                let mut locals: Scope =
                     f.params.iter().map(|p| p.name).collect();
                 walk_block(&f.body, top_lets, &mut locals, out);
             }
@@ -63,7 +125,7 @@ pub(crate) fn collect_fn_free_var_refs(
                 for inner in blk.items.iter() {
                     match inner {
                         ilang_ast::ExternCItem::FnDef(f) => {
-                            let mut locals: Vec<Symbol> =
+                            let mut locals: Scope =
                                 f.params.iter().map(|p| p.name).collect();
                             walk_block(&f.body, top_lets, &mut locals, out);
                         }
@@ -112,7 +174,7 @@ fn walk_fnexpr_bodies(
     out: &mut std::collections::HashSet<Symbol>,
 ) {
     if let ExprKind::FnExpr { params, body, .. } = &e.kind {
-        let mut locals: Vec<Symbol> = params.iter().map(|p| p.name).collect();
+        let mut locals: Scope = params.iter().map(|p| p.name).collect();
         walk_block(body, top_lets, &mut locals, out);
         return;
     }
@@ -126,7 +188,7 @@ fn walk_fnexpr_bodies(
 fn walk_block(
     blk: &ilang_ast::Block,
     top_lets: &std::collections::HashSet<Symbol>,
-    locals: &mut Vec<Symbol>,
+    locals: &mut Scope,
     out: &mut std::collections::HashSet<Symbol>,
 ) {
     let saved = locals.len();
@@ -160,7 +222,7 @@ fn walk_block(
 fn walk_expr(
     e: &Expr,
     top_lets: &std::collections::HashSet<Symbol>,
-    locals: &mut Vec<Symbol>,
+    locals: &mut Scope,
     out: &mut std::collections::HashSet<Symbol>,
 ) {
     use ilang_ast::ExprKind as E;
