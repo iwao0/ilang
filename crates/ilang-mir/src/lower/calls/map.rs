@@ -108,11 +108,16 @@ impl<'a> BodyCx<'a> {
             callee: FuncRef::Builtin(Symbol::intern(builtin_name)),
             args: arg_vals.into_boxed_slice(),
         });
-        // `m.set` takes its own +1 share via host_map_set's
-        // retain_by_kind. Mirror the AssignIndex path — for a fresh
-        // value the caller's transient +1 is released here so the
-        // only remaining share is the map's.
+        // `m.set` takes its own +1 share on both key and value via
+        // host_map_set's retains. Mirror the AssignIndex path — for a
+        // fresh key / value the caller's transient +1 is released here
+        // so the only remaining share is the map's.
         if m == "set" {
+            if let Some((is_fresh, kv, kty)) = arg_meta.first() {
+                if *is_fresh && self.is_arc_heap(kty) {
+                    self.fb.push_inst(Inst::Release { value: *kv });
+                }
+            }
             if let Some((is_fresh, vv, vty)) = arg_meta.get(1) {
                 if *is_fresh && self.is_arc_heap(vty) {
                     self.fb.push_inst(Inst::Release { value: *vv });

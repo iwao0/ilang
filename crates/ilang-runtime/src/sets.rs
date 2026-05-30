@@ -1,20 +1,26 @@
-//! Set runtime — `ManagedSet` wraps Rust's `HashSet<SetElem>` with a
-//! refcount and a print-kind tag. The element-kind constraints mirror
-//! `Map`'s keys (string / integer / bool); the type checker enforces
-//! that, the runtime only cares whether the raw cell needs string
-//! handling on insert / iterate.
+//! Set runtime — `ManagedSet` wraps Rust's `HashSet` with a refcount
+//! and a print-kind tag. The element-kind constraints mirror `Map`'s
+//! keys (string / integer / bool); the type checker enforces that, the
+//! runtime only cares whether the raw cell needs string handling on
+//! insert / iterate.
 
-use std::collections::HashSet;
+use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicI64, Ordering, fence};
 
 use crate::arrays::build_i64_array;
 use crate::kind::{KIND_NONE, KIND_STR, PK_STR};
 use crate::strings::{__release_string, __retain_string, cstr_bytes, leak_cstring};
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum SetElem {
-    Int(i64),
-    Str(String),
+/// A set's element kind is fixed for its lifetime, so elements live in
+/// one of two stores rather than a unified enum. Splitting them lets
+/// string lookups probe by `&str` (`Box<str>: Borrow<str>`) instead of
+/// allocating a fresh owned element per `has` / `delete`.
+enum SetStore {
+    /// Integer / float-bits / bool keys — the raw i64 cell is the element.
+    Int(HashSet<i64>),
+    /// String elements, stored canonically (UTF-8-lossy).
+    Str(HashSet<Box<str>>),
 }
 
 pub(crate) struct ManagedSet {
@@ -23,43 +29,42 @@ pub(crate) struct ManagedSet {
     /// from codegen via `$set.setElemPrintKind` right after `$set.new`,
     /// mirroring how `Map` records its key print kind.
     elem_print_kind: i64,
-    inner: HashSet<SetElem>,
+    store: SetStore,
     /// For string-element sets: canonical element → original C-string
     /// pointer the user inserted. Lets follow-up methods (`has`,
     /// `delete`) round-trip without re-allocating registry strings.
-    str_origs: std::collections::HashMap<SetElem, i64>,
+    str_origs: HashMap<Box<str>, i64>,
 }
 
-fn raw_to_set_elem(raw: i64, elem_print_kind: i64) -> SetElem {
-    if elem_print_kind == PK_STR {
-        if raw == 0 {
-            SetElem::Str(String::new())
-        } else {
-            let bytes = unsafe { cstr_bytes(raw) };
-            SetElem::Str(String::from_utf8_lossy(bytes).into_owned())
-        }
+/// Borrow a raw C-string element as `&str` for hash-set probing.
+/// Returns `Cow::Borrowed` for valid UTF-8 (no allocation); only
+/// malformed bytes force an owned, lossy-replaced copy.
+unsafe fn elem_str<'a>(raw: i64) -> Cow<'a, str> {
+    if raw == 0 {
+        Cow::Borrowed("")
     } else {
-        SetElem::Int(raw)
-    }
-}
-
-fn set_elem_to_raw(e: &SetElem) -> i64 {
-    match e {
-        SetElem::Int(n) => *n,
-        SetElem::Str(s) => leak_cstring(s.clone()),
+        String::from_utf8_lossy(unsafe { cstr_bytes(raw) })
     }
 }
 
 impl ManagedSet {
-    /// Return the original raw pointer for `e` if we recorded one at
-    /// insertion time, otherwise mint a fresh C-string. Used by
-    /// iteration methods so emitted strings match what the user
+    /// Return the original raw pointer for string element `e` if we
+    /// recorded one at insertion time, otherwise mint a fresh C-string.
+    /// Used by iteration methods so emitted strings match what the user
     /// passed into `add()`.
-    fn str_orig_or_leak(&self, e: &SetElem) -> i64 {
+    fn str_orig_or_leak(&self, e: &str) -> i64 {
         self.str_origs
             .get(e)
             .copied()
-            .unwrap_or_else(|| set_elem_to_raw(e))
+            .unwrap_or_else(|| leak_cstring(e.to_string()))
+    }
+
+    fn contains_int(&self, e: i64) -> bool {
+        matches!(&self.store, SetStore::Int(t) if t.contains(&e))
+    }
+
+    fn contains_str(&self, e: &str) -> bool {
+        matches!(&self.store, SetStore::Str(t) if t.contains(e))
     }
 }
 
@@ -68,8 +73,8 @@ pub extern "C" fn __set_new() -> i64 {
     let s = Box::new(ManagedSet {
         rc: AtomicI64::new(1),
         elem_print_kind: crate::kind::PK_OTHER,
-        inner: HashSet::new(),
-        str_origs: std::collections::HashMap::new(),
+        store: SetStore::Int(HashSet::new()),
+        str_origs: HashMap::new(),
     });
     Box::into_raw(s) as i64
 }
@@ -81,6 +86,14 @@ pub extern "C" fn __set_set_elem_print_kind(set: i64, kind: i64) {
     }
     let s = unsafe { &mut *(set as *mut ManagedSet) };
     s.elem_print_kind = kind;
+    // Codegen always calls this immediately after `$set.new`, before any
+    // `add`, so the store is still empty here — pick the variant that
+    // matches the (now-known) element kind.
+    match (&s.store, kind == PK_STR) {
+        (SetStore::Int(_), true) => s.store = SetStore::Str(HashSet::new()),
+        (SetStore::Str(_), false) => s.store = SetStore::Int(HashSet::new()),
+        _ => {}
+    }
 }
 
 #[unsafe(export_name = "$set.add")]
@@ -89,18 +102,22 @@ pub extern "C" fn __set_add(set: i64, raw: i64) {
         return;
     }
     let s = unsafe { &mut *(set as *mut ManagedSet) };
-    let elem = raw_to_set_elem(raw, s.elem_print_kind);
-    let is_str = s.elem_print_kind == PK_STR;
-    if s.inner.insert(elem.clone()) {
-        // New entry — the set takes its own +1 on string elements
-        // (mirrors Map's key handling) so subsequent `has` /
-        // iteration can hand the same pointer back.
-        if is_str && raw != 0 {
-            __retain_string(raw);
-            s.str_origs.insert(elem, raw);
+    match &mut s.store {
+        SetStore::Int(t) => {
+            t.insert(raw);
+        }
+        SetStore::Str(t) => {
+            let e: Box<str> = unsafe { elem_str(raw) }.into_owned().into_boxed_str();
+            // New entry — the set takes its own +1 on string elements
+            // (mirrors Map's key handling) so subsequent `has` /
+            // iteration can hand the same pointer back. Duplicate inserts
+            // drop; the set already owns its share.
+            if t.insert(e.clone()) && raw != 0 {
+                __retain_string(raw);
+                s.str_origs.insert(e, raw);
+            }
         }
     }
-    // Duplicate — drop; the set already owns its share.
 }
 
 #[unsafe(export_name = "$set.has")]
@@ -109,8 +126,11 @@ pub extern "C" fn __set_has(set: i64, raw: i64) -> i64 {
         return 0;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
-    let elem = raw_to_set_elem(raw, s.elem_print_kind);
-    if s.inner.contains(&elem) { 1 } else { 0 }
+    let found = match &s.store {
+        SetStore::Int(t) => t.contains(&raw),
+        SetStore::Str(t) => t.contains(&*unsafe { elem_str(raw) }),
+    };
+    if found { 1 } else { 0 }
 }
 
 #[unsafe(export_name = "$set.delete")]
@@ -119,11 +139,13 @@ pub extern "C" fn __set_delete(set: i64, raw: i64) -> i64 {
         return 0;
     }
     let s = unsafe { &mut *(set as *mut ManagedSet) };
-    let elem = raw_to_set_elem(raw, s.elem_print_kind);
-    let is_str = s.elem_print_kind == PK_STR;
-    if s.inner.remove(&elem) {
-        if is_str {
-            if let Some(orig) = s.str_origs.remove(&elem) {
+    let removed = match &mut s.store {
+        SetStore::Int(t) => t.remove(&raw),
+        SetStore::Str(t) => t.remove(&*unsafe { elem_str(raw) }),
+    };
+    if removed {
+        if matches!(&s.store, SetStore::Str(_)) {
+            if let Some(orig) = s.str_origs.remove(&*unsafe { elem_str(raw) }) {
                 __release_string(orig);
             }
         }
@@ -149,7 +171,8 @@ pub extern "C" fn __set_delete(set: i64, raw: i64) -> i64 {
 // distinct NaN bit patterns keeps both entries; inserting the same
 // NaN bit pattern twice keeps one. The runtime tracks identity by
 // HashSet on the bit pattern, mirroring how Rust's own collections
-// would behave if they accepted floats.
+// would behave if they accepted floats. Float sets are never PK_STR,
+// so they always live in the `Int` store.
 
 #[unsafe(export_name = "$set.addF32")]
 pub extern "C" fn __set_add_f32(set: i64, v: f32) {
@@ -157,7 +180,9 @@ pub extern "C" fn __set_add_f32(set: i64, v: f32) {
         return;
     }
     let s = unsafe { &mut *(set as *mut ManagedSet) };
-    s.inner.insert(SetElem::Int(v.to_bits() as i64));
+    if let SetStore::Int(t) = &mut s.store {
+        t.insert(v.to_bits() as i64);
+    }
 }
 
 #[unsafe(export_name = "$set.addF64")]
@@ -166,7 +191,9 @@ pub extern "C" fn __set_add_f64(set: i64, v: f64) {
         return;
     }
     let s = unsafe { &mut *(set as *mut ManagedSet) };
-    s.inner.insert(SetElem::Int(v.to_bits() as i64));
+    if let SetStore::Int(t) = &mut s.store {
+        t.insert(v.to_bits() as i64);
+    }
 }
 
 #[unsafe(export_name = "$set.hasF32")]
@@ -175,7 +202,7 @@ pub extern "C" fn __set_has_f32(set: i64, v: f32) -> i64 {
         return 0;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
-    if s.inner.contains(&SetElem::Int(v.to_bits() as i64)) { 1 } else { 0 }
+    if s.contains_int(v.to_bits() as i64) { 1 } else { 0 }
 }
 
 #[unsafe(export_name = "$set.hasF64")]
@@ -184,7 +211,7 @@ pub extern "C" fn __set_has_f64(set: i64, v: f64) -> i64 {
         return 0;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
-    if s.inner.contains(&SetElem::Int(v.to_bits() as i64)) { 1 } else { 0 }
+    if s.contains_int(v.to_bits() as i64) { 1 } else { 0 }
 }
 
 #[unsafe(export_name = "$set.deleteF32")]
@@ -193,7 +220,12 @@ pub extern "C" fn __set_delete_f32(set: i64, v: f32) -> i64 {
         return 0;
     }
     let s = unsafe { &mut *(set as *mut ManagedSet) };
-    if s.inner.remove(&SetElem::Int(v.to_bits() as i64)) { 1 } else { 0 }
+    let removed = if let SetStore::Int(t) = &mut s.store {
+        t.remove(&(v.to_bits() as i64))
+    } else {
+        false
+    };
+    if removed { 1 } else { 0 }
 }
 
 #[unsafe(export_name = "$set.deleteF64")]
@@ -202,7 +234,12 @@ pub extern "C" fn __set_delete_f64(set: i64, v: f64) -> i64 {
         return 0;
     }
     let s = unsafe { &mut *(set as *mut ManagedSet) };
-    if s.inner.remove(&SetElem::Int(v.to_bits() as i64)) { 1 } else { 0 }
+    let removed = if let SetStore::Int(t) = &mut s.store {
+        t.remove(&(v.to_bits() as i64))
+    } else {
+        false
+    };
+    if removed { 1 } else { 0 }
 }
 
 #[unsafe(export_name = "$set.size")]
@@ -211,7 +248,11 @@ pub extern "C" fn __set_size(set: i64) -> i64 {
         return 0;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
-    s.inner.len() as i64
+    let len = match &s.store {
+        SetStore::Int(t) => t.len(),
+        SetStore::Str(t) => t.len(),
+    };
+    len as i64
 }
 
 #[unsafe(export_name = "$set.clear")]
@@ -226,7 +267,10 @@ pub extern "C" fn __set_clear(set: i64) {
         }
         s.str_origs.clear();
     }
-    s.inner.clear();
+    match &mut s.store {
+        SetStore::Int(t) => t.clear(),
+        SetStore::Str(t) => t.clear(),
+    }
 }
 
 /// `set.values() -> T[]` — snapshot of every element in arbitrary
@@ -241,18 +285,17 @@ pub extern "C" fn __set_values(set: i64) -> i64 {
     }
     let s = unsafe { &*(set as *const ManagedSet) };
     let elem_kind = if s.elem_print_kind == PK_STR { KIND_STR } else { KIND_NONE };
-    let mut values: Vec<i64> = Vec::with_capacity(s.inner.len());
-    if s.elem_print_kind == PK_STR {
-        for e in s.inner.iter() {
-            let orig = s.str_orig_or_leak(e);
-            __retain_string(orig);
-            values.push(orig);
-        }
-    } else {
-        for e in s.inner.iter() {
-            values.push(set_elem_to_raw(e));
-        }
-    }
+    let values: Vec<i64> = match &s.store {
+        SetStore::Int(t) => t.iter().copied().collect(),
+        SetStore::Str(t) => t
+            .iter()
+            .map(|e| {
+                let orig = s.str_orig_or_leak(e);
+                __retain_string(orig);
+                orig
+            })
+            .collect(),
+    };
     build_i64_array(&values, elem_kind)
 }
 
@@ -297,17 +340,17 @@ pub extern "C" fn __set_for_each(set: i64, closure: i64) {
     // Snapshot as raw i64 — for string elements we retain the registry
     // pointer up-front so each entry survives any mutation the
     // callback may perform on the set (e.g. delete during iteration).
-    let args: Vec<i64> = s
-        .inner
-        .iter()
-        .map(|e| {
-            let raw = if is_str { s.str_orig_or_leak(e) } else { set_elem_to_raw(e) };
-            if is_str {
+    let args: Vec<i64> = match &s.store {
+        SetStore::Int(t) => t.iter().copied().collect(),
+        SetStore::Str(t) => t
+            .iter()
+            .map(|e| {
+                let raw = s.str_orig_or_leak(e);
                 __retain_string(raw);
-            }
-            raw
-        })
-        .collect();
+                raw
+            })
+            .collect(),
+    };
     for arg in args {
         unsafe { call_closure_1_i64(closure, arg) };
         if is_str {
@@ -322,11 +365,10 @@ pub extern "C" fn __set_for_each_f32(set: i64, closure: i64) {
         return;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
-    let bits: Vec<i64> = s
-        .inner
-        .iter()
-        .filter_map(|e| if let SetElem::Int(b) = e { Some(*b) } else { None })
-        .collect();
+    let bits: Vec<i64> = match &s.store {
+        SetStore::Int(t) => t.iter().copied().collect(),
+        SetStore::Str(_) => Vec::new(),
+    };
     for b in bits {
         let v = f32::from_bits(b as u32);
         unsafe { call_closure_1_f32(closure, v) };
@@ -339,34 +381,56 @@ pub extern "C" fn __set_for_each_f64(set: i64, closure: i64) {
         return;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
-    let bits: Vec<i64> = s
-        .inner
-        .iter()
-        .filter_map(|e| if let SetElem::Int(b) = e { Some(*b) } else { None })
-        .collect();
+    let bits: Vec<i64> = match &s.store {
+        SetStore::Int(t) => t.iter().copied().collect(),
+        SetStore::Str(_) => Vec::new(),
+    };
     for b in bits {
         let v = f64::from_bits(b as u64);
         unsafe { call_closure_1_f64(closure, v) };
     }
 }
 
-/// Helper: insert `e` into `target`'s inner set, taking ownership of
-/// the matching string registry rc when the element is a PK_STR
-/// pointer. Caller arranges the retain on the original side and we
-/// transfer that share into `str_origs` here.
-fn set_insert_transferred(target: &mut ManagedSet, e: SetElem, orig_str: Option<i64>) {
-    if target.inner.contains(&e) {
-        // Caller already retained — drop the share we'd otherwise
-        // duplicate.
-        if let Some(orig) = orig_str {
+/// Insert an integer element into `out`'s store (no string management).
+fn set_insert_int(out: &mut ManagedSet, e: i64) {
+    if let SetStore::Int(t) = &mut out.store {
+        t.insert(e);
+    }
+}
+
+/// Insert a string element into `out`'s store, taking ownership of the
+/// matching string-registry rc. Caller arranges the retain on the
+/// original side and we transfer that share into `str_origs` here; a
+/// duplicate drops the share we'd otherwise leak.
+fn set_insert_str_transferred(out: &mut ManagedSet, key: Box<str>, orig: i64) {
+    if let SetStore::Str(t) = &mut out.store {
+        if t.contains(&key) {
             __release_string(orig);
+            return;
         }
-        return;
+        out.str_origs.insert(key.clone(), orig);
+        t.insert(key);
+    } else {
+        __release_string(orig);
     }
-    if let Some(orig) = orig_str {
-        target.str_origs.insert(e.clone(), orig);
+}
+
+/// Copy every element of `src` into `out`, retaining string shares.
+fn set_copy_into(out: &mut ManagedSet, src: &ManagedSet) {
+    match &src.store {
+        SetStore::Int(t) => {
+            for &e in t.iter() {
+                set_insert_int(out, e);
+            }
+        }
+        SetStore::Str(t) => {
+            for k in t.iter() {
+                let orig = src.str_orig_or_leak(k);
+                __retain_string(orig);
+                set_insert_str_transferred(out, k.clone(), orig);
+            }
+        }
     }
-    target.inner.insert(e);
 }
 
 #[unsafe(export_name = "$set.union")]
@@ -380,33 +444,12 @@ pub extern "C" fn __set_union(a: i64, b: i64) -> i64 {
         crate::kind::PK_OTHER
     };
     __set_set_elem_print_kind(out, pk);
-    let is_str = pk == PK_STR;
     let out_s = unsafe { &mut *(out as *mut ManagedSet) };
     if a != 0 {
-        let sa = unsafe { &*(a as *const ManagedSet) };
-        for e in sa.inner.iter() {
-            let orig = if is_str {
-                let p = sa.str_origs.get(e).copied().unwrap_or_else(|| set_elem_to_raw(e));
-                __retain_string(p);
-                Some(p)
-            } else {
-                None
-            };
-            set_insert_transferred(out_s, e.clone(), orig);
-        }
+        set_copy_into(out_s, unsafe { &*(a as *const ManagedSet) });
     }
     if b != 0 {
-        let sb = unsafe { &*(b as *const ManagedSet) };
-        for e in sb.inner.iter() {
-            let orig = if is_str {
-                let p = sb.str_origs.get(e).copied().unwrap_or_else(|| set_elem_to_raw(e));
-                __retain_string(p);
-                Some(p)
-            } else {
-                None
-            };
-            set_insert_transferred(out_s, e.clone(), orig);
-        }
+        set_copy_into(out_s, unsafe { &*(b as *const ManagedSet) });
     }
     out
 }
@@ -419,20 +462,24 @@ pub extern "C" fn __set_intersection(a: i64, b: i64) -> i64 {
     }
     let sa = unsafe { &*(a as *const ManagedSet) };
     let sb = unsafe { &*(b as *const ManagedSet) };
-    let pk = sa.elem_print_kind;
-    __set_set_elem_print_kind(out, pk);
-    let is_str = pk == PK_STR;
+    __set_set_elem_print_kind(out, sa.elem_print_kind);
     let out_s = unsafe { &mut *(out as *mut ManagedSet) };
-    for e in sa.inner.iter() {
-        if sb.inner.contains(e) {
-            let orig = if is_str {
-                let p = sa.str_origs.get(e).copied().unwrap_or_else(|| set_elem_to_raw(e));
-                __retain_string(p);
-                Some(p)
-            } else {
-                None
-            };
-            set_insert_transferred(out_s, e.clone(), orig);
+    match &sa.store {
+        SetStore::Int(t) => {
+            for &e in t.iter() {
+                if sb.contains_int(e) {
+                    set_insert_int(out_s, e);
+                }
+            }
+        }
+        SetStore::Str(t) => {
+            for k in t.iter() {
+                if sb.contains_str(k) {
+                    let orig = sa.str_orig_or_leak(k);
+                    __retain_string(orig);
+                    set_insert_str_transferred(out_s, k.clone(), orig);
+                }
+            }
         }
     }
     out
@@ -447,30 +494,39 @@ pub extern "C" fn __set_difference(a: i64, b: i64) -> i64 {
     let sa = unsafe { &*(a as *const ManagedSet) };
     let pk = sa.elem_print_kind;
     __set_set_elem_print_kind(out, pk);
-    let is_str = pk == PK_STR;
     let out_s = unsafe { &mut *(out as *mut ManagedSet) };
     let empty_set;
     let sb_ref: &ManagedSet = if b == 0 {
         empty_set = ManagedSet {
             rc: AtomicI64::new(1),
             elem_print_kind: pk,
-            inner: HashSet::new(),
-            str_origs: std::collections::HashMap::new(),
+            store: if pk == PK_STR {
+                SetStore::Str(HashSet::new())
+            } else {
+                SetStore::Int(HashSet::new())
+            },
+            str_origs: HashMap::new(),
         };
         &empty_set
     } else {
         unsafe { &*(b as *const ManagedSet) }
     };
-    for e in sa.inner.iter() {
-        if !sb_ref.inner.contains(e) {
-            let orig = if is_str {
-                let p = sa.str_origs.get(e).copied().unwrap_or_else(|| set_elem_to_raw(e));
-                __retain_string(p);
-                Some(p)
-            } else {
-                None
-            };
-            set_insert_transferred(out_s, e.clone(), orig);
+    match &sa.store {
+        SetStore::Int(t) => {
+            for &e in t.iter() {
+                if !sb_ref.contains_int(e) {
+                    set_insert_int(out_s, e);
+                }
+            }
+        }
+        SetStore::Str(t) => {
+            for k in t.iter() {
+                if !sb_ref.contains_str(k) {
+                    let orig = sa.str_orig_or_leak(k);
+                    __retain_string(orig);
+                    set_insert_str_transferred(out_s, k.clone(), orig);
+                }
+            }
         }
     }
     out
@@ -482,14 +538,22 @@ pub extern "C" fn __set_is_subset_of(a: i64, b: i64) -> i64 {
         return 1;
     }
     let sa = unsafe { &*(a as *const ManagedSet) };
-    if sa.inner.is_empty() {
+    let empty = match &sa.store {
+        SetStore::Int(t) => t.is_empty(),
+        SetStore::Str(t) => t.is_empty(),
+    };
+    if empty {
         return 1;
     }
     if b == 0 {
         return 0;
     }
     let sb = unsafe { &*(b as *const ManagedSet) };
-    if sa.inner.iter().all(|e| sb.inner.contains(e)) { 1 } else { 0 }
+    let subset = match &sa.store {
+        SetStore::Int(t) => t.iter().all(|&e| sb.contains_int(e)),
+        SetStore::Str(t) => t.iter().all(|k| sb.contains_str(k)),
+    };
+    if subset { 1 } else { 0 }
 }
 
 #[unsafe(export_name = "$set.isSupersetOf")]
@@ -504,7 +568,11 @@ pub extern "C" fn __set_is_disjoint_from(a: i64, b: i64) -> i64 {
     }
     let sa = unsafe { &*(a as *const ManagedSet) };
     let sb = unsafe { &*(b as *const ManagedSet) };
-    if sa.inner.iter().all(|e| !sb.inner.contains(e)) { 1 } else { 0 }
+    let disjoint = match &sa.store {
+        SetStore::Int(t) => t.iter().all(|&e| !sb.contains_int(e)),
+        SetStore::Str(t) => t.iter().all(|k| !sb.contains_str(k)),
+    };
+    if disjoint { 1 } else { 0 }
 }
 
 #[unsafe(export_name = "$set.retain")]
@@ -561,16 +629,25 @@ pub fn format_set_into(out: &mut String, set: i64) {
     // Stable display: pre-render each element once, sort by the
     // formatted text. Same trick `format_map_into` uses to avoid
     // O(n log n) format calls inside the comparator.
-    let mut rendered: Vec<String> = s
-        .inner
-        .iter()
-        .map(|e| {
-            let raw = s.str_orig_or_leak(e);
-            let mut buf = String::new();
-            crate::print_dispatch::format_kind_id(&mut buf, pk, raw);
-            buf
-        })
-        .collect();
+    let mut rendered: Vec<String> = match &s.store {
+        SetStore::Int(t) => t
+            .iter()
+            .map(|&e| {
+                let mut buf = String::new();
+                crate::print_dispatch::format_kind_id(&mut buf, pk, e);
+                buf
+            })
+            .collect(),
+        SetStore::Str(t) => t
+            .iter()
+            .map(|e| {
+                let raw = s.str_orig_or_leak(e);
+                let mut buf = String::new();
+                crate::print_dispatch::format_kind_id(&mut buf, pk, raw);
+                buf
+            })
+            .collect(),
+    };
     rendered.sort();
     out.push_str("Set {");
     for (i, r) in rendered.iter().enumerate() {

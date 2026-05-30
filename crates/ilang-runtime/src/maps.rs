@@ -3,6 +3,7 @@
 //! drop), and per-side print-kind tags (so `__print_map` can
 //! stringify the cells).
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::AtomicI64;
@@ -14,10 +15,17 @@ use crate::kind::{KIND_NONE, KIND_STR, PK_OTHER, PK_STR};
 use crate::print_dispatch::format_kind_id;
 use crate::strings::{__retain_string, cstr_bytes, leak_cstring};
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum MapKey {
-    Int(i64),
-    Str(String),
+/// A map's key kind is fixed for its lifetime (the type checker gives
+/// every `Map<K, V>` a single `K`), so keys live in one of two stores
+/// rather than a unified enum. Splitting them lets string lookups
+/// probe by `&str` (`Box<str>: Borrow<str>`) instead of allocating a
+/// fresh owned key per `get` / `has` / `delete`.
+enum MapStore {
+    /// Integer / float-bits / pointer keys — the raw i64 cell is the key.
+    Int(HashMap<i64, i64>),
+    /// String keys, stored canonically (UTF-8-lossy) so two raw
+    /// pointers with the same bytes collapse to one entry.
+    Str(HashMap<Box<str>, i64>),
 }
 
 pub(crate) struct ManagedMap {
@@ -25,42 +33,33 @@ pub(crate) struct ManagedMap {
     val_kind: i64,
     pub(crate) key_print_kind: i64,
     pub(crate) val_print_kind: i64,
-    inner: HashMap<MapKey, i64>,
+    store: MapStore,
     /// For string-keyed maps: canonical key → original C-string ptr
     /// the user inserted. Lets `keys()` return the original ptrs.
-    str_key_origs: HashMap<MapKey, i64>,
+    str_key_origs: HashMap<Box<str>, i64>,
 }
 
-fn raw_to_map_key(raw: i64, key_print_kind: i64) -> MapKey {
-    if key_print_kind == PK_STR {
-        if raw == 0 {
-            MapKey::Str(String::new())
-        } else {
-            let bytes = unsafe { cstr_bytes(raw) };
-            MapKey::Str(String::from_utf8_lossy(bytes).into_owned())
-        }
+/// Borrow a raw C-string key as `&str` for hash-map probing. Returns
+/// `Cow::Borrowed` for valid UTF-8 (the common case → no allocation);
+/// only malformed bytes force an owned, lossy-replaced copy.
+unsafe fn key_str<'a>(raw: i64) -> Cow<'a, str> {
+    if raw == 0 {
+        Cow::Borrowed("")
     } else {
-        MapKey::Int(raw)
-    }
-}
-
-fn map_key_to_raw(k: &MapKey) -> i64 {
-    match k {
-        MapKey::Int(n) => *n,
-        MapKey::Str(s) => leak_cstring(s.clone()),
+        String::from_utf8_lossy(unsafe { cstr_bytes(raw) })
     }
 }
 
 impl ManagedMap {
-    /// Return the original raw pointer for `k` if we recorded one at
-    /// insertion time, otherwise mint a fresh C-string. Used by
-    /// `keys()` / `entries()` so the strings handed back match what
-    /// the user passed into `set()`.
-    fn str_orig_or_leak(&self, k: &MapKey) -> i64 {
+    /// Return the original raw pointer for string key `k` if we recorded
+    /// one at insertion time, otherwise mint a fresh C-string. Used by
+    /// `keys()` / `entries()` so the strings handed back match what the
+    /// user passed into `set()`.
+    fn str_orig_or_leak(&self, k: &str) -> i64 {
         self.str_key_origs
             .get(k)
             .copied()
-            .unwrap_or_else(|| map_key_to_raw(k))
+            .unwrap_or_else(|| leak_cstring(k.to_string()))
     }
 }
 
@@ -71,7 +70,7 @@ pub extern "C" fn __map_new() -> i64 {
         val_kind: 0,
         key_print_kind: PK_OTHER,
         val_print_kind: PK_OTHER,
-        inner: HashMap::new(),
+        store: MapStore::Int(HashMap::new()),
         str_key_origs: HashMap::new(),
     });
     Box::into_raw(m) as i64
@@ -85,6 +84,14 @@ pub extern "C" fn __map_set_print_kinds(map: i64, key_kind: i64, val_kind: i64) 
     let m = unsafe { &mut *(map as *mut ManagedMap) };
     m.key_print_kind = key_kind;
     m.val_print_kind = val_kind;
+    // Codegen always calls this immediately after `$map.new`, before any
+    // `set`, so the store is still empty here — pick the variant that
+    // matches the (now-known) key kind.
+    match (&m.store, key_kind == PK_STR) {
+        (MapStore::Int(_), true) => m.store = MapStore::Str(HashMap::new()),
+        (MapStore::Str(_), false) => m.store = MapStore::Int(HashMap::new()),
+        _ => {}
+    }
 }
 
 #[unsafe(export_name = "$map.setValueKind")]
@@ -102,8 +109,10 @@ pub extern "C" fn __map_get(map: i64, key: i64) -> i64 {
         return 0;
     }
     let m = unsafe { &*(map as *const ManagedMap) };
-    let mk = raw_to_map_key(key, m.key_print_kind);
-    let v = *m.inner.get(&mk).unwrap_or(&0);
+    let v = match &m.store {
+        MapStore::Int(t) => *t.get(&key).unwrap_or(&0),
+        MapStore::Str(t) => *t.get(&*unsafe { key_str(key) }).unwrap_or(&0),
+    };
     // Heap value-typed maps need a retain on read — the caller
     // gets a `+1` reference whose lifetime is independent of the
     // map's. Without this, `let arr = m["k"]; arr.length` would
@@ -121,9 +130,12 @@ pub extern "C" fn __map_get_optional(map: i64, key: i64) -> i64 {
         return 0;
     }
     let m = unsafe { &*(map as *const ManagedMap) };
-    let mk = raw_to_map_key(key, m.key_print_kind);
-    match m.inner.get(&mk) {
-        Some(&v) => {
+    let found = match &m.store {
+        MapStore::Int(t) => t.get(&key).copied(),
+        MapStore::Str(t) => t.get(&*unsafe { key_str(key) }).copied(),
+    };
+    match found {
+        Some(v) => {
             // See `__map_get`: heap values need a +1 to outlive
             // the map's borrow. The Optional cell that the
             // caller unwraps then owns the strong reference.
@@ -148,15 +160,31 @@ pub extern "C" fn __map_set(map: i64, key: i64, value: i64) {
         return;
     }
     let m = unsafe { &mut *(map as *mut ManagedMap) };
-    let mk = raw_to_map_key(key, m.key_print_kind);
-    if m.key_print_kind == PK_STR && key != 0 {
-        m.str_key_origs.entry(mk.clone()).or_insert(key);
-    }
     let val_kind = m.val_kind;
     if val_kind != KIND_NONE {
         retain_field_by_kind(value, val_kind);
     }
-    let prev = m.inner.insert(mk, value);
+    let prev = match &mut m.store {
+        MapStore::Int(t) => t.insert(key, value),
+        MapStore::Str(t) => {
+            let k: Box<str> = unsafe { key_str(key) }.into_owned().into_boxed_str();
+            t.insert(k, value)
+        }
+    };
+    // Record the original key pointer (first insert wins) so `keys()` /
+    // `entries()` can hand back exactly what the user passed in. The map
+    // adopts its own +1 on that string (mirroring the value retain
+    // above); it is released on delete / clear / map drop. The caller's
+    // transient share is dropped by codegen for fresh keys, or by the
+    // owning binding's scope exit for aliased ones.
+    if m.key_print_kind == PK_STR && key != 0 {
+        use std::collections::hash_map::Entry;
+        let k: Box<str> = unsafe { key_str(key) }.into_owned().into_boxed_str();
+        if let Entry::Vacant(slot) = m.str_key_origs.entry(k) {
+            __retain_string(key);
+            slot.insert(key);
+        }
+    }
     if let Some(old) = prev {
         if val_kind != KIND_NONE {
             release_field_by_kind(old, val_kind);
@@ -170,8 +198,11 @@ pub extern "C" fn __map_has(map: i64, key: i64) -> i64 {
         return 0;
     }
     let m = unsafe { &*(map as *const ManagedMap) };
-    let mk = raw_to_map_key(key, m.key_print_kind);
-    if m.inner.contains_key(&mk) { 1 } else { 0 }
+    let found = match &m.store {
+        MapStore::Int(t) => t.contains_key(&key),
+        MapStore::Str(t) => t.contains_key(&*unsafe { key_str(key) }),
+    };
+    if found { 1 } else { 0 }
 }
 
 #[unsafe(export_name = "$map.size")]
@@ -180,7 +211,11 @@ pub extern "C" fn __map_size(map: i64) -> i64 {
         return 0;
     }
     let m = unsafe { &*(map as *const ManagedMap) };
-    m.inner.len() as i64
+    let len = match &m.store {
+        MapStore::Int(t) => t.len(),
+        MapStore::Str(t) => t.len(),
+    };
+    len as i64
 }
 
 #[unsafe(export_name = "$map.delete")]
@@ -189,12 +224,21 @@ pub extern "C" fn __map_delete(map: i64, key: i64) -> i64 {
         return 0;
     }
     let m = unsafe { &mut *(map as *mut ManagedMap) };
-    let mk = raw_to_map_key(key, m.key_print_kind);
     let val_kind = m.val_kind;
-    match m.inner.remove(&mk) {
+    let removed = match &mut m.store {
+        MapStore::Int(t) => t.remove(&key),
+        MapStore::Str(t) => t.remove(&*unsafe { key_str(key) }),
+    };
+    match removed {
         Some(old) => {
             if val_kind != KIND_NONE {
                 release_field_by_kind(old, val_kind);
+            }
+            // Drop the map's adopted +1 on the key string.
+            if m.key_print_kind == PK_STR {
+                if let Some(orig) = m.str_key_origs.remove(&*unsafe { key_str(key) }) {
+                    crate::strings::__release_string(orig);
+                }
             }
             1
         }
@@ -209,13 +253,9 @@ pub extern "C" fn __map_keys(map: i64) -> i64 {
     }
     let m = unsafe { &*(map as *const ManagedMap) };
     let elem_kind = if m.key_print_kind == PK_STR { KIND_STR } else { KIND_NONE };
-    let keys: Vec<i64> = if m.key_print_kind == PK_STR {
-        m.inner
-            .keys()
-            .map(|k| m.str_orig_or_leak(k))
-            .collect()
-    } else {
-        m.inner.keys().map(map_key_to_raw).collect()
+    let keys: Vec<i64> = match &m.store {
+        MapStore::Int(t) => t.keys().copied().collect(),
+        MapStore::Str(t) => t.keys().map(|k| m.str_orig_or_leak(k)).collect(),
     };
     if elem_kind == KIND_STR {
         for k in &keys {
@@ -232,7 +272,10 @@ pub extern "C" fn __map_values(map: i64) -> i64 {
     }
     let m = unsafe { &*(map as *const ManagedMap) };
     let val_kind = m.val_kind;
-    let values: Vec<i64> = m.inner.values().copied().collect();
+    let values: Vec<i64> = match &m.store {
+        MapStore::Int(t) => t.values().copied().collect(),
+        MapStore::Str(t) => t.values().copied().collect(),
+    };
     if val_kind != KIND_NONE {
         for v in &values {
             retain_field_by_kind(*v, val_kind);
@@ -254,8 +297,17 @@ pub extern "C" fn __map_clear(map: i64) {
     let m = unsafe { &mut *(map as *mut ManagedMap) };
     let val_kind = m.val_kind;
     if val_kind != KIND_NONE {
-        for &v in m.inner.values() {
-            release_field_by_kind(v, val_kind);
+        match &m.store {
+            MapStore::Int(t) => {
+                for &v in t.values() {
+                    release_field_by_kind(v, val_kind);
+                }
+            }
+            MapStore::Str(t) => {
+                for &v in t.values() {
+                    release_field_by_kind(v, val_kind);
+                }
+            }
         }
     }
     if m.key_print_kind == PK_STR {
@@ -267,7 +319,10 @@ pub extern "C" fn __map_clear(map: i64) {
         }
         m.str_key_origs.clear();
     }
-    m.inner.clear();
+    match &mut m.store {
+        MapStore::Int(t) => t.clear(),
+        MapStore::Str(t) => t.clear(),
+    }
 }
 
 /// `map.entries()` — list of `(K, V)` tuples in arbitrary
@@ -285,15 +340,21 @@ pub extern "C" fn __map_entries(map: i64) -> i64 {
     let m = unsafe { &*(map as *const ManagedMap) };
     let key_kind = if m.key_print_kind == PK_STR { KIND_STR } else { KIND_NONE };
     let val_kind = m.val_kind;
-    let mut tuples: Vec<i64> = Vec::with_capacity(m.inner.len());
-    for (k, &v) in m.inner.iter() {
-        let key_raw = if m.key_print_kind == PK_STR {
-            let orig = m.str_orig_or_leak(k);
-            __retain_string(orig);
-            orig
-        } else {
-            map_key_to_raw(k)
-        };
+    // Snapshot (key_raw, value) pairs; string keys take a +1 registry rc
+    // up-front so the tuple array owns its own share.
+    let pairs: Vec<(i64, i64)> = match &m.store {
+        MapStore::Int(t) => t.iter().map(|(&k, &v)| (k, v)).collect(),
+        MapStore::Str(t) => t
+            .iter()
+            .map(|(k, &v)| {
+                let orig = m.str_orig_or_leak(k);
+                __retain_string(orig);
+                (orig, v)
+            })
+            .collect(),
+    };
+    let mut tuples: Vec<i64> = Vec::with_capacity(pairs.len());
+    for (key_raw, v) in pairs {
         if val_kind != KIND_NONE {
             retain_field_by_kind(v, val_kind);
         }
@@ -394,20 +455,17 @@ pub extern "C" fn __map_for_each(map: i64, closure: i64, key_fk: i64, val_fk: i6
     // the map without aliasing our iterator. String keys keep a +1
     // registry rc through the call so mid-iteration `delete` can't
     // free them out from under the callback.
-    let pairs: Vec<(i64, i64)> = m
-        .inner
-        .iter()
-        .map(|(k, &v)| {
-            let key_raw = if key_is_str {
+    let pairs: Vec<(i64, i64)> = match &m.store {
+        MapStore::Int(t) => t.iter().map(|(&k, &v)| (k, v)).collect(),
+        MapStore::Str(t) => t
+            .iter()
+            .map(|(k, &v)| {
                 let orig = m.str_orig_or_leak(k);
                 __retain_string(orig);
-                orig
-            } else {
-                map_key_to_raw(k)
-            };
-            (key_raw, v)
-        })
-        .collect();
+                (orig, v)
+            })
+            .collect(),
+    };
     for (key_raw, v) in pairs {
         unsafe { call_closure_kv(closure, key_raw, v, key_fk, val_fk) };
         if key_is_str {
@@ -435,16 +493,25 @@ pub fn format_map_into(out: &mut String, map_ptr: i64) {
     // Pre-render each key once for stable display ordering. Without
     // caching, `sort_by` would call `format_kind_id` twice per
     // comparison — O(n log n) format calls instead of O(n).
-    let mut entries: Vec<(String, i64, i64)> = m
-        .inner
-        .iter()
-        .map(|(k, &v)| {
-            let raw = m.str_orig_or_leak(k);
-            let mut s = String::new();
-            format_kind_id(&mut s, kk, raw);
-            (s, raw, v)
-        })
-        .collect();
+    let mut entries: Vec<(String, i64, i64)> = match &m.store {
+        MapStore::Int(t) => t
+            .iter()
+            .map(|(&k, &v)| {
+                let mut s = String::new();
+                format_kind_id(&mut s, kk, k);
+                (s, k, v)
+            })
+            .collect(),
+        MapStore::Str(t) => t
+            .iter()
+            .map(|(k, &v)| {
+                let raw = m.str_orig_or_leak(k);
+                let mut s = String::new();
+                format_kind_id(&mut s, kk, raw);
+                (s, raw, v)
+            })
+            .collect(),
+    };
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     out.push('{');
     for (i, (key_str, _raw, v)) in entries.iter().enumerate() {
@@ -482,9 +549,18 @@ pub extern "C" fn __release_map(map: i64) {
     let m_mut = unsafe { &mut *(map as *mut ManagedMap) };
     let val_kind = m_mut.val_kind;
     if val_kind != KIND_NONE {
-        let values: Vec<i64> = m_mut.inner.values().copied().collect();
+        let values: Vec<i64> = match &m_mut.store {
+            MapStore::Int(t) => t.values().copied().collect(),
+            MapStore::Str(t) => t.values().copied().collect(),
+        };
         for v in values {
             release_field_by_kind(v, val_kind);
+        }
+    }
+    // Drop the map's adopted +1 on every string key (mirrors `clear`).
+    if m_mut.key_print_kind == PK_STR {
+        for v in m_mut.str_key_origs.values() {
+            crate::strings::__release_string(*v);
         }
     }
     unsafe {

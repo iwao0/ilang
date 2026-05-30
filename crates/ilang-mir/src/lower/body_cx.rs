@@ -570,6 +570,7 @@ impl<'a> BodyCx<'a> {
             // alloc with rc=1 already in place.
             | ExprKind::Array(_)
             | ExprKind::Tuple(_)
+            | ExprKind::MapLit(_)
             | ExprKind::Some(_)
             | ExprKind::Await(_)
             | ExprKind::None
@@ -622,6 +623,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Optional(_)
                     | MirTy::Tuple(_)
                     | MirTy::Map { .. }
+                    | MirTy::Set { .. }
                     | MirTy::Str
                     | MirTy::Enum(_)
             )

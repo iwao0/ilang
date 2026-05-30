@@ -98,9 +98,15 @@ impl<'a> BodyCx<'a> {
             return Ok((v, ty));
         }
         let mut pairs = Vec::with_capacity(entries.len());
+        // Track fresh heap transients so they can be released after the
+        // map adopts its own +1 (host_map_set retains both key and
+        // value). Without this the literal's per-entry transients leak.
+        let mut fresh_transients: Vec<ValueId> = Vec::new();
         let mut key_ty: Option<MirTy> = None;
         let mut val_ty: Option<MirTy> = None;
         for (k, v) in entries {
+            let key_is_fresh = self.is_fresh_object_expr(k);
+            let val_is_fresh = self.is_fresh_object_expr(v);
             let (kv, kty) = self.lower_expr(k)?;
             let (vv, vty) = self.lower_expr(v)?;
             let ek = key_ty.get_or_insert(kty.clone()).clone();
@@ -115,6 +121,12 @@ impl<'a> BodyCx<'a> {
             } else {
                 self.coerce(vv, &vty, &ev, v.span)?
             };
+            if key_is_fresh && self.is_arc_heap(&ek) {
+                fresh_transients.push(kv);
+            }
+            if val_is_fresh && self.is_arc_heap(&ev) {
+                fresh_transients.push(vv);
+            }
             pairs.push((kv, vv));
         }
         let key = key_ty.unwrap();
@@ -130,6 +142,11 @@ impl<'a> BodyCx<'a> {
             val,
             entries: pairs.into_boxed_slice(),
         });
+        // Drop the caller's transient shares now that the map holds its
+        // own; aliased (non-fresh) entries keep their binding's share.
+        for v in fresh_transients {
+            self.fb.push_inst(Inst::Release { value: v });
+        }
         Ok((dst, ty))
     }
 

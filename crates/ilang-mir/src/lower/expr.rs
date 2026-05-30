@@ -703,8 +703,9 @@ impl<'a> BodyCx<'a> {
             ExprKind::Index { obj, index } => self.lower_index(obj, index),
             ExprKind::AssignIndex { obj, index, value } => {
                 let value_is_fresh = self.is_fresh_object_expr(value);
+                let index_is_fresh = self.is_fresh_object_expr(index);
                 let (av, aty) = self.lower_expr(obj)?;
-                let (iv, _) = self.lower_expr(index)?;
+                let (iv, ity) = self.lower_expr(index)?;
                 let (vv, vty) = self.lower_expr(value)?;
                 match aty {
                     MirTy::Array { ref elem, .. } => {
@@ -744,13 +745,17 @@ impl<'a> BodyCx<'a> {
                     }
                     MirTy::Map { .. } => {
                         self.fb.push_inst(Inst::MapSet { map: av, key: iv, value: vv });
-                        // Map takes its own +1 share via host_map_set's
-                        // retain_by_kind. For a fresh value the caller
-                        // also has a transient +1 from the source
-                        // expression — release it here so the only
-                        // remaining share is the map's. Borrowed values
-                        // (use_local etc.) leave their slot's share to
-                        // be dropped by scope-exit release as usual.
+                        // Map takes its own +1 share on both key and
+                        // value via host_map_set's retains. For a fresh
+                        // key / value the caller also holds a transient
+                        // +1 from the source expression — release it
+                        // here so the only remaining share is the map's.
+                        // Borrowed values (use_local etc.) leave their
+                        // slot's share to be dropped by scope-exit
+                        // release as usual.
+                        if index_is_fresh && self.is_arc_heap(&ity) {
+                            self.fb.push_inst(Inst::Release { value: iv });
+                        }
                         if value_is_fresh && self.is_arc_heap(&vty) {
                             self.fb.push_inst(Inst::Release { value: vv });
                         }

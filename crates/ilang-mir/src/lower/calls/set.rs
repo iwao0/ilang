@@ -58,7 +58,12 @@ impl<'a> BodyCx<'a> {
         // closure or another set — already in native ABI shape.
         let arg_is_elem = matches!(m, "add" | "has" | "delete");
         let mut arg_vals = vec![ov];
-        for a in args {
+        // Track a fresh heap element transient passed to `add`; the set
+        // adopts its own +1 (host_set_add retains string elements), so
+        // the caller's transient is released after the call.
+        let mut fresh_elem: Option<(ValueId, MirTy)> = None;
+        for (idx, a) in args.iter().enumerate() {
+            let arg_is_fresh = self.is_fresh_object_expr(a);
             let (v, vty) = self.lower_expr(a)?;
             let v_ext = if arg_is_elem && elem_is_float {
                 if &vty == &**elem {
@@ -81,6 +86,9 @@ impl<'a> BodyCx<'a> {
             } else {
                 v
             };
+            if m == "add" && idx == 0 && arg_is_fresh && self.is_arc_heap(&vty) {
+                fresh_elem = Some((v_ext, vty.clone()));
+            }
             arg_vals.push(v_ext);
         }
         let dst = if matches!(ret_ty, MirTy::Unit) {
@@ -93,6 +101,9 @@ impl<'a> BodyCx<'a> {
             callee: FuncRef::Builtin(Symbol::intern(builtin_name)),
             args: arg_vals.into_boxed_slice(),
         });
+        if let Some((ev, _)) = fresh_elem {
+            self.fb.push_inst(Inst::Release { value: ev });
+        }
         if obj_is_fresh && !matches!(ret_ty, MirTy::Object(_)) {
             self.fb.push_inst(Inst::Release { value: ov });
         }
