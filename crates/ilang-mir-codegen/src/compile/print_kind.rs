@@ -31,6 +31,8 @@ pub(super) const KIND_CLOSURE: i64 = 6;
 pub(super) const KIND_STR: i64 = 7;
 pub(super) const KIND_ENUM: i64 = 8;
 pub(super) const KIND_PROMISE: i64 = 9;
+pub(super) const KIND_SET: i64 = 10;
+pub(super) const KIND_WEAK: i64 = 11;
 
 // `PK_*` — per-value pretty-print tag.
 pub(super) const PK_I64_SIG: i64 = 0;
@@ -109,6 +111,8 @@ pub(super) fn kind_tag_of(ty: &MirTy, classes: &[ClassLayout]) -> i64 {
         MirTy::Str => KIND_STR,
         MirTy::Enum(_) => KIND_ENUM,
         MirTy::Promise(_) => KIND_PROMISE,
+        MirTy::Set { .. } => KIND_SET,
+        MirTy::Weak(_) => KIND_WEAK,
         _ => KIND_NONE,
     }
 }

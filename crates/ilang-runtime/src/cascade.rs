@@ -6,12 +6,12 @@
 //! turn to release.
 
 use crate::arrays::{__release_array, __retain_array};
-use crate::classes::{__release_object, __retain_object};
+use crate::classes::{__release_object, __release_weak, __retain_object, __retain_weak};
 use crate::closures::{__release_closure, __retain_closure};
 use crate::enums::{__release_enum, __retain_enum};
 use crate::kind::{
     KIND_ARRAY, KIND_CLOSURE, KIND_ENUM, KIND_MAP, KIND_OBJECT,
-    KIND_OPTIONAL, KIND_PROMISE, KIND_SET, KIND_STR, KIND_TUPLE,
+    KIND_OPTIONAL, KIND_PROMISE, KIND_SET, KIND_STR, KIND_TUPLE, KIND_WEAK,
 };
 use crate::maps::{__release_map, __retain_map};
 use crate::sets::{__release_set, __retain_set};
@@ -35,6 +35,7 @@ pub(crate) fn release_field_by_kind(ptr: i64, kind: i64) {
         KIND_STR => __release_string(ptr),
         KIND_ENUM => __release_enum(ptr),
         KIND_PROMISE => __release_promise(ptr),
+        KIND_WEAK => __release_weak(ptr),
         _ => {}
     }
 }
@@ -54,6 +55,7 @@ pub(crate) fn retain_field_by_kind(ptr: i64, kind: i64) {
         KIND_STR => __retain_string(ptr),
         KIND_ENUM => __retain_enum(ptr),
         KIND_PROMISE => __retain_promise(ptr),
+        KIND_WEAK => __retain_weak(ptr),
         _ => {}
     }
 }

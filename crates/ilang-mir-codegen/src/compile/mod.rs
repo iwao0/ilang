@@ -306,6 +306,8 @@ pub(super) struct PanicAux {
     pub(super) drop_dispatch: cranelift_module::FuncId,
     pub(super) release_obj: cranelift_module::FuncId,
     pub(super) retain_obj: cranelift_module::FuncId,
+    pub(super) release_weak: cranelift_module::FuncId,
+    pub(super) retain_weak: cranelift_module::FuncId,
     pub(super) release_closure: cranelift_module::FuncId,
     pub(super) retain_closure: cranelift_module::FuncId,
     pub(super) release_array: cranelift_module::FuncId,
@@ -527,33 +529,6 @@ pub(crate) fn alloc_global_enum_id() -> u32 {
 // Class size table lives in `ilang-runtime` (`__register_class_size`);
 // JIT and AOT funnel through it via `__release_object`.
 
-/// Visit every MirTy reachable from `ty` (recursing through Array
-/// element / Optional inner / Tuple components / Map key+value /
-/// Fn params+ret / RawPtr inner). Used by the weakable-class scan.
-pub(super) fn walk_mir_ty(ty: &MirTy, f: &mut impl FnMut(&MirTy)) {
-    f(ty);
-    match ty {
-        MirTy::Array { elem, .. } => walk_mir_ty(elem, f),
-        MirTy::Optional(inner) => walk_mir_ty(inner, f),
-        MirTy::Tuple(items) => {
-            for t in items.iter() {
-                walk_mir_ty(t, f);
-            }
-        }
-        MirTy::Map { key, val } => {
-            walk_mir_ty(key, f);
-            walk_mir_ty(val, f);
-        }
-        MirTy::Fn(ft) => {
-            for p in ft.params.iter() {
-                walk_mir_ty(p, f);
-            }
-            walk_mir_ty(&ft.ret, f);
-        }
-        MirTy::RawPtr { inner, .. } => walk_mir_ty(inner, f),
-        _ => {}
-    }
-}
 
 
 

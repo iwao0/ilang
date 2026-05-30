@@ -17,6 +17,7 @@ pub const KIND_STR: i64 = 7;
 pub const KIND_ENUM: i64 = 8;
 pub const KIND_PROMISE: i64 = 9;
 pub const KIND_SET: i64 = 10;
+pub const KIND_WEAK: i64 = 11;
 
 /// `PK_*` tags — print kind used by `format_kind_id` and the
 /// per-field registration helpers.

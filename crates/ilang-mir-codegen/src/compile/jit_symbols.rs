@@ -252,6 +252,8 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("$print.fn", ilang_runtime::__print_fn as *const u8);
     jit_builder.symbol("$class.releaseObject", ilang_runtime::__release_object as *const u8);
     jit_builder.symbol("$class.retainObject", ilang_runtime::__retain_object as *const u8);
+    jit_builder.symbol("$weak.release", ilang_runtime::__release_weak as *const u8);
+    jit_builder.symbol("$weak.retain", ilang_runtime::__retain_weak as *const u8);
     jit_builder.symbol("$closure.release", ilang_runtime::__release_closure as *const u8);
     jit_builder.symbol("$closure.retain", ilang_runtime::__retain_closure as *const u8);
     jit_builder.symbol("$array.release", ilang_runtime::__release_array as *const u8);

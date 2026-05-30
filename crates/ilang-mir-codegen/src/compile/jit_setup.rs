@@ -20,8 +20,8 @@ use super::print_kind::{
     print_kind_of, PrintKind, KIND_NONE,
 };
 use super::{
-    alloc_global_class_id, alloc_global_enum_id, lower_program_into, walk_mir_ty, BuiltinDecl,
-    Compiled, CompileError, LoweringOutputs, OBJECT_HEADER_BYTES,
+    alloc_global_class_id, alloc_global_enum_id, lower_program_into, BuiltinDecl, Compiled,
+    CompileError, LoweringOutputs, OBJECT_HEADER_BYTES,
 };
 
 pub fn compile_program(prog: &Program) -> Result<Compiled, CompileError> {
@@ -185,41 +185,6 @@ pub fn compile_with_builtins(
     // Populate Object field table — host_release_object_fields uses
     // it to cascade releases through heap-shaped fields.
     {
-        // Scan the whole program for any MirTy::Weak(C) reference —
-        // classes that appear as a weak target stay OUT of the size
-        // table so release_object's free path skips them. Without
-        // this, a `let w: Node.weak = strong; …; strong = …` flow
-        // (see weak_basic.il) would have the weak peek into freed
-        // memory once the original strong drops. The leak we accept
-        // for those classes is bounded — programs that use weak
-        // refs are usually small fixed graphs.
-        let mut weakable: std::collections::HashSet<u32> =
-            std::collections::HashSet::new();
-        let scan = |ty: &MirTy, set: &mut std::collections::HashSet<u32>| {
-            walk_mir_ty(ty, &mut |t| {
-                if let MirTy::Weak(c) = t {
-                    set.insert(c.0);
-                }
-            });
-        };
-        for class in &prog.classes {
-            for f in &class.fields {
-                scan(&f.ty, &mut weakable);
-            }
-        }
-        for f in &prog.functions {
-            for p in f.params.iter() {
-                scan(&p.ty, &mut weakable);
-            }
-            scan(&f.ret, &mut weakable);
-            for l in f.value_tys.iter() {
-                scan(l, &mut weakable);
-            }
-            for l in f.local_tys.iter() {
-                scan(l, &mut weakable);
-            }
-        }
-
         // Populate the runtime's per-class cascade table so
         // `__release_object_fields` walks heap-shaped fields at
         // rc = 0. Both backends populate the same `ilang-runtime`
@@ -238,14 +203,16 @@ pub fn compile_with_builtins(
             }
             // Mirror NewObject codegen: regular classes alloc
             // header + n_fields*8 bytes. Skip CRepr/packed/union
-            // (different free path) and any class referenced via
-            // Weak (would dangle weak peeks).
+            // (different free path). Weakable classes also register
+            // here — `__release_object` defers the free when any weak
+            // refs are pending, and `__release_weak`'s final decrement
+            // performs the free once the last weak observer is gone.
             let skip_free = matches!(
                 class.repr,
                 ilang_mir::ClassRepr::CRepr
                     | ilang_mir::ClassRepr::CPacked
                     | ilang_mir::ClassRepr::CUnion
-            ) || weakable.contains(&class.id.0);
+            );
             if !skip_free {
                 let size = OBJECT_HEADER_BYTES as i64 + (class.fields.len() as i64) * 8;
                 ilang_runtime::__register_class_size(

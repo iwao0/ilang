@@ -876,12 +876,13 @@ fn emit_aot_init(
             // Skip CRepr / packed / union classes — their lifetime is
             // already tracked at the codegen level via direct
             // `__mir_free(ptr, c_size)` emits.
+            let _ = &weakable_classes;
             let skip_free = matches!(
                 class.repr,
                 ilang_mir::ClassRepr::CRepr
                     | ilang_mir::ClassRepr::CPacked
                     | ilang_mir::ClassRepr::CUnion
-            ) || weakable_classes.contains(&class.id.0);
+            );
             if !skip_free {
                 // 16-byte header (class_id + rc) + 8 bytes per field.
                 let size = 16 + (class.fields.len() as i64) * 8;

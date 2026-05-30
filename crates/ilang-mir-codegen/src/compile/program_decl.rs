@@ -410,6 +410,8 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let print_fn_id = declare_unit_i64(module, "$print.fn")?;
     let release_obj_id = declare_unit_i64(module, "$class.releaseObject")?;
     let retain_obj_id = declare_unit_i64(module, "$class.retainObject")?;
+    let release_weak_id = declare_unit_i64(module, "$weak.release")?;
+    let retain_weak_id = declare_unit_i64(module, "$weak.retain")?;
     let release_closure_id = declare_unit_i64(module, "$closure.release")?;
     let retain_closure_id = declare_unit_i64(module, "$closure.retain")?;
     let release_array_id = declare_unit_i64(module, "$array.release")?;
@@ -844,6 +846,8 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 drop_dispatch: drop_dispatch_id,
                 release_obj: release_obj_id,
                 retain_obj: retain_obj_id,
+                release_weak: release_weak_id,
+                retain_weak: retain_weak_id,
                 release_closure: release_closure_id,
                 retain_closure: retain_closure_id,
                 release_array: release_array_id,

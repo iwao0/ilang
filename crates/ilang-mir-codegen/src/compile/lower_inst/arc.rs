@@ -96,6 +96,9 @@ pub(super) fn lower_arc_inst<M: Module>(
                 MirTy::Enum(_) => {
                     call_unary(fb, module, panic_aux.release_enum, vmap[value]);
                 }
+                MirTy::Weak(_) => {
+                    call_unary(fb, module, panic_aux.release_weak, vmap[value]);
+                }
                 _ => {}
             }
         }
@@ -149,6 +152,9 @@ pub(super) fn lower_arc_inst<M: Module>(
                 }
                 MirTy::Enum(_) => {
                     call_unary(fb, module, panic_aux.retain_enum, vmap[value]);
+                }
+                MirTy::Weak(_) => {
+                    call_unary(fb, module, panic_aux.retain_weak, vmap[value]);
                 }
                 _ => {}
             }

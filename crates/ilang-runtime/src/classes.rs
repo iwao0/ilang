@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::alloc::__mir_free;
@@ -30,12 +31,74 @@ pub extern "C" fn __register_class_size(class_id: i64, size: i64) {
     t.insert(class_id as u32, size);
 }
 
-/// Look up the registered byte size for a class. Returns `None` when
-/// the class was deliberately left out of the table (CRepr / packed /
-/// union, weak-referenced, etc.).
+/// Look up the registered byte size for a class. Returns `None` for
+/// CRepr / packed / union classes (different free path); regular
+/// classes — including those referenced via `.weak` — always register
+/// here so `__release_object` and `__release_weak` can free the box.
 pub fn class_size_for(class_id: i64) -> Option<i64> {
     let t = class_size_table().read().expect("class size table poisoned");
     t.get(&(class_id as u32)).copied()
+}
+
+// --------------------------------------------------------------------
+// Weak-reference counter side-table
+// --------------------------------------------------------------------
+//
+// `ClassName.weak` references share storage with the strong cell — the
+// weak pointer IS the object pointer. To free that storage safely we
+// keep a side-table of "live weak refs per object." `__release_object`
+// (strong → 0) consults the table and skips `__mir_free` if any weak
+// refs are still pending; `__release_weak`'s final decrement then does
+// the free instead. The write-lock serialises the free decision so a
+// concurrent strong / weak release pair can't race past each other.
+//
+// Entry exists only for objects with at least one outstanding weak ref.
+// `WeakUpgrade` reads the object's strong rc field directly (no table
+// lookup) — that's safe as long as the box is alive, which the entry
+// keeps it.
+
+static WEAK_COUNT_TABLE: OnceLock<RwLock<HashMap<i64, AtomicI64>>> = OnceLock::new();
+
+fn weak_count_table() -> &'static RwLock<HashMap<i64, AtomicI64>> {
+    WEAK_COUNT_TABLE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+#[unsafe(export_name = "$weak.retain")]
+pub extern "C" fn __retain_weak(obj_ptr: i64) {
+    if obj_ptr == 0 {
+        return;
+    }
+    let mut t = weak_count_table().write().expect("weak count table poisoned");
+    t.entry(obj_ptr)
+        .or_insert_with(|| AtomicI64::new(0))
+        .fetch_add(1, Ordering::Relaxed);
+}
+
+#[unsafe(export_name = "$weak.release")]
+pub extern "C" fn __release_weak(obj_ptr: i64) {
+    if obj_ptr == 0 {
+        return;
+    }
+    let mut t = weak_count_table().write().expect("weak count table poisoned");
+    let prev = match t.get(&obj_ptr) {
+        Some(entry) => entry.fetch_sub(1, Ordering::Relaxed),
+        None => return,
+    };
+    if prev > 1 {
+        return;
+    }
+    // Final weak release: remove the table entry, then — while still
+    // holding the write lock so `__release_object` can't race — check
+    // strong rc. If it's already 0 the object is "logically dead" and
+    // we own the free.
+    t.remove(&obj_ptr);
+    let strong = unsafe { (*((obj_ptr + 8) as *const AtomicI64)).load(Ordering::Acquire) };
+    if strong == 0 {
+        let class_id = unsafe { *(obj_ptr as *const i64) };
+        if let Some(sz) = class_size_for(class_id) {
+            __mir_free(obj_ptr, sz);
+        }
+    }
 }
 
 // --------------------------------------------------------------------
@@ -148,9 +211,22 @@ pub extern "C" fn __release_object(obj_ptr: i64) {
         f(obj_ptr, 0);
     }
     __release_object_fields(class_id, obj_ptr);
-    if let Some(sz) = class_size_for(class_id) {
-        __mir_free(obj_ptr, sz);
+    // If any weak refs are still outstanding, keep the box alive so
+    // `WeakUpgrade` can safely peek the (now-zero) rc field. The final
+    // `__release_weak` will free it. Hold the write lock across the
+    // check + free so a concurrent weak-release-to-zero can't see no
+    // entry, decide we own the free, and free under us.
+    let t = weak_count_table().write().expect("weak count table poisoned");
+    let has_weaks = t
+        .get(&obj_ptr)
+        .map(|c| c.load(Ordering::Relaxed) > 0)
+        .unwrap_or(false);
+    if !has_weaks {
+        if let Some(sz) = class_size_for(class_id) {
+            __mir_free(obj_ptr, sz);
+        }
     }
+    drop(t);
 }
 
 // --------------------------------------------------------------------

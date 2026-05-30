@@ -397,6 +397,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Optional(_)
                     | MirTy::Fn(_)
                     | MirTy::Promise(_)
+                    | MirTy::Weak(_)
                     | MirTy::Str
                     | MirTy::Enum(_)
             ) {
@@ -504,6 +505,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Map { .. }
                     | MirTy::Set { .. }
                     | MirTy::Promise(_)
+                    | MirTy::Weak(_)
                     | MirTy::Str
                     | MirTy::Enum(_)
             )
@@ -630,6 +632,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Map { .. }
                     | MirTy::Set { .. }
                     | MirTy::Promise(_)
+                    | MirTy::Weak(_)
                     | MirTy::Str
                     | MirTy::Enum(_)
             )

@@ -117,8 +117,16 @@ pub(super) fn lower_new_object<M: Module>(
     use super::super::layout::object_header as oh;
     let cid_v = fb.ins().iconst(types::I64, class_global[class.0 as usize] as i64);
     fb.ins().store(MemFlags::trusted(), cid_v, ptr, oh::CLASS_ID);
-    let one = fb.ins().iconst(types::I64, 1);
-    fb.ins().store(MemFlags::trusted(), one, ptr, oh::RC);
+    // Stack-promoted objects use the `rc <= 0` sentinel so any
+    // retain/release that slips past the codegen-side `stack_local`
+    // check (e.g. a `Release` of a `use_local` re-read of the
+    // promoted SSA, where the re-read isn't itself in the set)
+    // becomes a runtime no-op — `atomic_retain`/`atomic_release`
+    // skip non-positive rc slots — instead of trying to free a
+    // stack address.
+    let rc_init: i64 = if stack_local.contains(dst) { -1 } else { 1 };
+    let rc_v = fb.ins().iconst(types::I64, rc_init);
+    fb.ins().store(MemFlags::trusted(), rc_v, ptr, oh::RC);
 
     if init.0 != u32::MAX {
         let cid = *fn_ids.get(init).ok_or_else(|| {

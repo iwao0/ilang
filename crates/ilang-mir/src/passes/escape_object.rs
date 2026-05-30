@@ -105,11 +105,31 @@ pub fn analyze_function(prog: &Program, fn_idx: usize) -> HashSet<ValueId> {
     // a Call → we have to leak the original NewObject dst).
     let mut local_def_count: HashMap<LocalId, u32> = HashMap::new();
     let mut local_def_value: HashMap<LocalId, ValueId> = HashMap::new();
+    let mut local_def_values: HashMap<LocalId, Vec<ValueId>> = HashMap::new();
     for block in &f.blocks {
         for inst in &block.insts {
             if let Inst::DefLocal { local, value } = inst {
                 *local_def_count.entry(*local).or_insert(0) += 1;
                 local_def_value.entry(*local).or_insert(*value);
+                local_def_values.entry(*local).or_default().push(*value);
+            }
+        }
+    }
+    // Multi-def locals (e.g. `strong = new T(...)` reassigning a slot)
+    // can't be aliased reliably — a `UseLocal` dst could resolve to
+    // any of the prior defs depending on program order, but the alias
+    // table only records the first. Conservatively leak every
+    // candidate bound to a multi-def local so a later escape through
+    // the local doesn't sneak past with the wrong candidate
+    // attribution. Without this a `let w = strong; strong = new T()`
+    // pattern can stack-promote the second `new T()` when the cast on
+    // a subsequent `strong` read actually targets it.
+    for (local, count) in &local_def_count {
+        if *count > 1 {
+            if let Some(vs) = local_def_values.get(local) {
+                for v in vs {
+                    cand_set.remove(v);
+                }
             }
         }
     }
