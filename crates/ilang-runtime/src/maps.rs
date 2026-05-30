@@ -164,10 +164,19 @@ pub extern "C" fn __map_set(map: i64, key: i64, value: i64) {
     if val_kind != KIND_NONE {
         retain_field_by_kind(value, val_kind);
     }
+    // The string key is decoded once (in the `Str` arm below). Both the
+    // store and the `str_key_origs` side table want an owned copy, but
+    // walking the key buffer twice to build them was wasteful — clone the
+    // single decode for the side table instead.
+    let print_str = m.key_print_kind == PK_STR && key != 0;
+    let mut shared_key: Option<Box<str>> = None;
     let prev = match &mut m.store {
         MapStore::Int(t) => t.insert(key, value),
         MapStore::Str(t) => {
             let k: Box<str> = unsafe { key_str(key) }.into_owned().into_boxed_str();
+            if print_str {
+                shared_key = Some(k.clone());
+            }
             t.insert(k, value)
         }
     };
@@ -177,9 +186,10 @@ pub extern "C" fn __map_set(map: i64, key: i64, value: i64) {
     // above); it is released on delete / clear / map drop. The caller's
     // transient share is dropped by codegen for fresh keys, or by the
     // owning binding's scope exit for aliased ones.
-    if m.key_print_kind == PK_STR && key != 0 {
+    if print_str {
         use std::collections::hash_map::Entry;
-        let k: Box<str> = unsafe { key_str(key) }.into_owned().into_boxed_str();
+        let k = shared_key
+            .unwrap_or_else(|| unsafe { key_str(key) }.into_owned().into_boxed_str());
         if let Entry::Vacant(slot) = m.str_key_origs.entry(k) {
             __retain_string(key);
             slot.insert(key);

@@ -148,7 +148,13 @@ pub extern "C" fn __str_concat(a: i64, b: i64) -> i64 {
     let mut out = Vec::with_capacity(sa.len() + sb.len());
     out.extend_from_slice(sa);
     out.extend_from_slice(sb);
-    leak_cstring(String::from_utf8_lossy(&out).into_owned())
+    // Both inputs are valid UTF-8 ilang strings, so `out` is too — the
+    // `Ok` path reuses the buffer with no extra copy or validation scan.
+    // Fall back to lossy replacement (matching the old behaviour) only
+    // on the unreachable invalid-bytes case, never panicking.
+    let s = String::from_utf8(out)
+        .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned());
+    leak_cstring(s)
 }
 
 /// In-place variant of `__str_concat` used by the MIR for the

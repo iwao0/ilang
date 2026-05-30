@@ -154,12 +154,11 @@ pub extern "C" fn fs_read_file_bytes(path: i64) -> i64 {
 pub extern "C" fn fs_write_file(path: i64, contents: i64) {
     clear_error();
     let Some(p) = read_path(path) else { return };
-    let bytes = if contents == 0 {
-        Vec::new()
-    } else {
-        unsafe { cstr_bytes(contents) }.to_vec()
-    };
-    if let Err(e) = fs::write(&p, &bytes) {
+    // `cstr_bytes` already yields `&[]` for a null pointer, so write the
+    // borrowed bytes straight through — `fs::write` takes `&[u8]` and
+    // there's no need to copy the whole payload into an owned `Vec`.
+    let bytes = unsafe { cstr_bytes(contents) };
+    if let Err(e) = fs::write(&p, bytes) {
         record_error(e);
     }
 }
@@ -169,20 +168,20 @@ pub extern "C" fn fs_write_file_bytes(path: i64, arr: i64) {
     clear_error();
     let Some(p) = read_path(path) else { return };
     // u8[] layout: [len | cap | data_ptr | rc | kind]
-    let bytes: Vec<u8> = if arr == 0 {
-        Vec::new()
+    let bytes: &[u8] = if arr == 0 {
+        &[]
     } else {
         unsafe {
             let len = *(arr as *const i64) as usize;
             let data_ptr = *((arr + 16) as *const i64) as *const u8;
             if len == 0 || data_ptr.is_null() {
-                Vec::new()
+                &[]
             } else {
-                std::slice::from_raw_parts(data_ptr, len).to_vec()
+                std::slice::from_raw_parts(data_ptr, len)
             }
         }
     };
-    if let Err(e) = fs::write(&p, &bytes) {
+    if let Err(e) = fs::write(&p, bytes) {
         record_error(e);
     }
 }
@@ -191,16 +190,14 @@ pub extern "C" fn fs_write_file_bytes(path: i64, arr: i64) {
 pub extern "C" fn fs_append_file(path: i64, contents: i64) {
     clear_error();
     let Some(p) = read_path(path) else { return };
-    let bytes = if contents == 0 {
-        Vec::new()
-    } else {
-        unsafe { cstr_bytes(contents) }.to_vec()
-    };
+    // Borrow the payload bytes directly (null → `&[]`); `write_all`
+    // takes `&[u8]`, so there's no need to copy into an owned `Vec`.
+    let bytes = unsafe { cstr_bytes(contents) };
     use std::io::Write;
     let f = fs::OpenOptions::new().create(true).append(true).open(&p);
     match f {
         Ok(mut h) => {
-            if let Err(e) = h.write_all(&bytes) {
+            if let Err(e) = h.write_all(bytes) {
                 record_error(e);
             }
         }
