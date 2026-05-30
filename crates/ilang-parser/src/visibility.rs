@@ -379,21 +379,19 @@ impl<'a> Checker<'a> {
             // against that. Falls back to the regular single-segment
             // lookup below when no deeper prefix matches.
             if rest.contains('.') {
-                let segments: Vec<&str> = s.split('.').collect();
-                for i in (1..segments.len()).rev() {
-                    let module_candidate = segments[i - 1];
+                // Walk each `.`-boundary as a potential module split.
+                // `module_candidate` and `tail` are slices of `s`, and
+                // the catalog / `pubs` lookups borrow `&str` directly
+                // (`Symbol: Borrow<str>`), so no per-probe `Vec` / `join`
+                // / `intern` is needed. Order is irrelevant here — any
+                // matching split returns Ok.
+                let mut seg_start = 0;
+                for (dot, _) in s.match_indices('.') {
+                    let module_candidate = &s[seg_start..dot];
+                    let tail = &s[dot + 1..];
+                    seg_start = dot + 1;
                     if let Some(pubs) = self.catalog.get(module_candidate) {
-                        let tail = segments[i..].join(".");
-                        if pubs.contains(&Symbol::intern(&tail)) {
-                            return Ok(());
-                        }
-                        if let Some((head, _)) = tail.split_once('.') {
-                            if pubs.contains(&Symbol::intern(head)) {
-                                return Ok(());
-                            }
-                        }
-                        let tail_dot = format!("{tail}.");
-                        if pubs.iter().any(|n| n.as_str().starts_with(&tail_dot)) {
+                        if pub_name_matches(pubs, tail) {
                             return Ok(());
                         }
                     }
@@ -406,21 +404,12 @@ impl<'a> Checker<'a> {
                     span,
                 });
             };
-            if pubs.contains(&Symbol::intern(rest)) {
-                return Ok(());
-            }
-            // Multi-level dotted refs: `M.X.Y` (enum-variant access on a
-            // pub enum, or `umbrella.sub.item` against a namespaced
-            // `pub use`). Accept the ref as long as the head of `rest`
-            // is pub, or there exists a deeper pub name under the
-            // `rest.` prefix.
-            if let Some((head, _)) = rest.split_once('.') {
-                if pubs.contains(&Symbol::intern(head)) {
-                    return Ok(());
-                }
-            }
-            let rest_dot = format!("{rest}.");
-            if pubs.iter().any(|n| n.as_str().starts_with(&rest_dot)) {
+            // Direct pub match, plus multi-level dotted refs: `M.X.Y`
+            // (enum-variant access on a pub enum, or `umbrella.sub.item`
+            // against a namespaced `pub use`). Accept the ref when the
+            // head of `rest` is pub, or a deeper pub name lives under the
+            // `rest.` prefix. All checks borrow `&str` — no interning.
+            if pub_name_matches(pubs, rest) {
                 return Ok(());
             }
             return Err(LoadError::PrivateItemRef {
