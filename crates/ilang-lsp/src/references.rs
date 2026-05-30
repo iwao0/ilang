@@ -24,7 +24,7 @@ pub(crate) fn collect_reference_locations(
     target_span: ilang_ast::Span,
     name_len: u32,
     snapshot: &HashMap<Url, crate::types::Doc>,
-    cache: &crate::types::ClosedDocCache,
+    cache: Option<&crate::types::ClosedDocCache>,
 ) -> Vec<Location> {
     let mut out: Vec<Location> = Vec::new();
     let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
@@ -183,7 +183,7 @@ pub(crate) fn handle_references(
     uri: &Url,
     pos: Position,
     include_decl: bool,
-    cache: &crate::types::ClosedDocCache,
+    cache: Option<&crate::types::ClosedDocCache>,
 ) -> Option<Vec<Location>> {
     let doc = docs.get(uri)?;
     // Resolve the cursor to the same (decl_uri, decl_span, name_len,

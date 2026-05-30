@@ -340,7 +340,7 @@ fn ref_target_name(doc: &Doc, entry: &RefEntry) -> Option<String> {
 pub(crate) fn incoming_calls(
     item: &ItemRef,
     open_docs: &HashMap<Url, Doc>,
-    cache: &crate::types::ClosedDocCache,
+    cache: Option<&crate::types::ClosedDocCache>,
 ) -> Vec<CallHierarchyIncomingCall> {
     // Key: (caller_uri, caller_name_span). Value: (caller_uri,
     // FnRange, accumulated call ranges in that caller's body).

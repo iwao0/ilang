@@ -22,7 +22,7 @@ pub(crate) fn handle_rename(
     uri: &Url,
     pos: Position,
     new_name: String,
-    cache: &crate::types::ClosedDocCache,
+    cache: Option<&crate::types::ClosedDocCache>,
 ) -> LspResult<Option<WorkspaceEdit>> {
     // Validate the proposed name before touching any buffers.
     // Reporting an LSP error here lets VSCode show the message

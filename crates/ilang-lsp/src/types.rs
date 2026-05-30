@@ -266,3 +266,12 @@ impl Doc {
 /// the file's mtime when the entry was produced so the next walk
 /// can serve from cache while nothing on disk has moved.
 pub(crate) type ClosedDocCache = Mutex<HashMap<PathBuf, (std::time::SystemTime, Arc<Doc>)>>;
+
+/// Per-`Backend` cache of read-and-parse results for closed `.il`
+/// files. Used by `textDocument/implementation` and other passes
+/// that only need the buffer + AST shape. Unlike `ClosedDocCache`,
+/// a parse depends only on the file's own bytes, so mtime keying
+/// alone is sufficient — no watcher trust required.
+pub(crate) type ClosedParseCache = Mutex<
+    HashMap<PathBuf, (std::time::SystemTime, Arc<(String, ilang_ast::Program)>)>,
+>;

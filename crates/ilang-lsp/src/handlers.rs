@@ -194,6 +194,7 @@ impl LanguageServer for Backend {
         self.workspace_file_cache.lock().unwrap().clear();
         crate::project::clear_umbrella_cache();
         crate::analyse::clear_closed_doc_cache(&self.closed_doc_cache);
+        crate::analyse::clear_closed_parse_cache(&self.closed_parse_cache);
     }
 
     async fn did_open(&self, p: DidOpenTextDocumentParams) {
@@ -467,7 +468,7 @@ impl LanguageServer for Backend {
             &uri,
             pos,
             include_decl,
-            &self.closed_doc_cache,
+            self.closed_doc_cache_if_trusted(),
         ))
     }
 
@@ -529,7 +530,7 @@ impl LanguageServer for Backend {
         let uri = p.text_document_position.text_document.uri;
         let pos = p.text_document_position.position;
         let docs = self.docs();
-        rename::handle_rename(&docs, &uri, pos, p.new_name, &self.closed_doc_cache)
+        rename::handle_rename(&docs, &uri, pos, p.new_name, self.closed_doc_cache_if_trusted())
     }
 
     async fn code_action(
@@ -642,6 +643,7 @@ impl LanguageServer for Backend {
             &anchor,
             &snapshot,
             iface_class.as_deref(),
+            &self.closed_parse_cache,
         );
         if locs.is_empty() {
             Ok(None)
@@ -703,7 +705,7 @@ impl LanguageServer for Backend {
         };
         let snapshot: HashMap<Url, crate::types::Doc> =
             self.docs().clone();
-        let calls = call_hierarchy::incoming_calls(&item, &snapshot, &self.closed_doc_cache);
+        let calls = call_hierarchy::incoming_calls(&item, &snapshot, self.closed_doc_cache_if_trusted());
         if calls.is_empty() { Ok(None) } else { Ok(Some(calls)) }
     }
 
@@ -767,7 +769,7 @@ impl LanguageServer for Backend {
                     ilang_ast::Span::new(decl_line, decl_col),
                     decl_name_len,
                     &snapshot,
-                    &self.closed_doc_cache,
+                    self.closed_doc_cache_if_trusted(),
                 );
                 let pos = text::lsp_position(decl_line, decl_col);
                 lens.command = Some(code_lens::references_command(&uri, pos, locations));
@@ -791,7 +793,13 @@ impl LanguageServer for Backend {
                     Err(_) => return Ok(lens),
                 };
                 let iface_class = if is_interface { Some(name.as_str()) } else { None };
-                let locs = implementation::collect(&target, &anchor, &snapshot, iface_class);
+                let locs = implementation::collect(
+                    &target,
+                    &anchor,
+                    &snapshot,
+                    iface_class,
+                    &self.closed_parse_cache,
+                );
                 let pos = text::lsp_position(decl_line, decl_col);
                 lens.command = Some(code_lens::implementations_command(
                     &uri,

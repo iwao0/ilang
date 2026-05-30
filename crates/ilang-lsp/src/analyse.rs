@@ -190,15 +190,19 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
 /// buffers' canonical paths there so cross-file passes don't
 /// reprocess them off the on-disk version.
 ///
-/// `cache` memoises `analyse_path_to_doc` results across requests:
+/// `cache` memoises `analyse_path_to_doc` results across requests;
 /// each entry is keyed by canonical path with the file's mtime
-/// stored alongside the `Arc<Doc>`. A `didChangeWatchedFiles` event
-/// drops the whole map, so a sibling-file edit can't leave a stale
-/// cross-module `Doc` here.
+/// stored alongside the `Arc<Doc>`. The cache must be `Some(_)`
+/// ONLY when a file watcher is registered — `analyse_path_to_doc`
+/// folds in sibling / import / umbrella state, so an entry can go
+/// stale when the target file's own mtime hasn't moved. The watcher
+/// + `clear_closed_doc_cache` on `didChangeWatchedFiles` is what
+/// catches those external edits. Clients that don't expose file
+/// events pass `None` and we just recompute every request.
 pub(crate) fn for_each_closed_workspace_doc(
     anchor: &Path,
     seen: &HashSet<PathBuf>,
-    cache: &crate::types::ClosedDocCache,
+    cache: Option<&crate::types::ClosedDocCache>,
     mut visit: impl FnMut(Url, &Doc),
 ) {
     for path in collect_workspace_il_files(anchor) {
@@ -207,31 +211,33 @@ pub(crate) fn for_each_closed_workspace_doc(
             continue;
         }
         let Ok(uri) = Url::from_file_path(&path) else { continue };
-        let mtime = std::fs::metadata(&canon)
-            .and_then(|m| m.modified())
-            .ok();
-        // Cache hit when the closed file's mtime hasn't moved since
-        // the last analyse. Cache miss otherwise (or no recorded
-        // mtime), in which case we recompute and refresh the entry.
-        let cached: Option<Arc<Doc>> = {
-            let guard = cache.lock().unwrap();
-            guard.get(&canon).and_then(|(m, d)| {
-                if Some(*m) == mtime {
-                    Some(d.clone())
-                } else {
-                    None
+        let doc_arc: Arc<Doc> = if let Some(cache) = cache {
+            let mtime = std::fs::metadata(&canon)
+                .and_then(|m| m.modified())
+                .ok();
+            let cached: Option<Arc<Doc>> = {
+                let guard = cache.lock().unwrap();
+                guard.get(&canon).and_then(|(m, d)| {
+                    if Some(*m) == mtime {
+                        Some(d.clone())
+                    } else {
+                        None
+                    }
+                })
+            };
+            if let Some(d) = cached {
+                d
+            } else {
+                let Some(d) = analyse_path_to_doc(&path) else { continue };
+                let arc = Arc::new(d);
+                if let Some(m) = mtime {
+                    cache.lock().unwrap().insert(canon, (m, arc.clone()));
                 }
-            })
-        };
-        let doc_arc: Arc<Doc> = if let Some(d) = cached {
-            d
+                arc
+            }
         } else {
             let Some(d) = analyse_path_to_doc(&path) else { continue };
-            let arc = Arc::new(d);
-            if let Some(m) = mtime {
-                cache.lock().unwrap().insert(canon, (m, arc.clone()));
-            }
-            arc
+            Arc::new(d)
         };
         visit(uri, &doc_arc);
     }
@@ -251,9 +257,15 @@ pub(crate) fn clear_closed_doc_cache(cache: &crate::types::ClosedDocCache) {
 /// requests like `textDocument/implementation` (which only reads
 /// `class` / `interface` AST shapes) stay sub-millisecond per file
 /// instead of paying for the full analyse pipeline.
+///
+/// Parses are mtime-cached per canonical path. Unlike the cross-
+/// module `ClosedDocCache`, the value only depends on the file's
+/// own bytes, so the cache is safe even without a file watcher;
+/// the cache argument is required rather than optional.
 pub(crate) fn for_each_closed_workspace_program(
     anchor: &Path,
     seen: &HashSet<PathBuf>,
+    cache: &crate::types::ClosedParseCache,
     mut visit: impl FnMut(Url, &str, &Program),
 ) {
     for path in collect_workspace_il_files(anchor) {
@@ -261,11 +273,41 @@ pub(crate) fn for_each_closed_workspace_program(
         if seen.contains(&canon) {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
-        let Ok(prog) = parse_ok(&text) else { continue };
         let Ok(uri) = Url::from_file_path(&path) else { continue };
-        visit(uri, &text, &prog);
+        let mtime = std::fs::metadata(&canon)
+            .and_then(|m| m.modified())
+            .ok();
+        let cached: Option<Arc<(String, Program)>> = {
+            let guard = cache.lock().unwrap();
+            guard.get(&canon).and_then(|(m, e)| {
+                if Some(*m) == mtime {
+                    Some(e.clone())
+                } else {
+                    None
+                }
+            })
+        };
+        let entry: Arc<(String, Program)> = if let Some(e) = cached {
+            e
+        } else {
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let Ok(prog) = parse_ok(&text) else { continue };
+            let arc = Arc::new((text, prog));
+            if let Some(m) = mtime {
+                cache.lock().unwrap().insert(canon, (m, arc.clone()));
+            }
+            arc
+        };
+        visit(uri, &entry.0, &entry.1);
     }
+}
+
+/// Drop every cached closed-file parse. Called from
+/// `did_change_watched_files` to bound memory; correctness doesn't
+/// require it since the mtime check inside
+/// `for_each_closed_workspace_program` already catches edits.
+pub(crate) fn clear_closed_parse_cache(cache: &crate::types::ClosedParseCache) {
+    cache.lock().unwrap().clear();
 }
 
 /// Walk a workspace looking for every `.il` file. The starting

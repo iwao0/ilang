@@ -61,6 +61,13 @@ pub(crate) struct Backend {
     /// `didChangeWatchedFiles` event drops the whole map so a sibling
     /// file edit can't leave a stale cross-module `Doc` here.
     pub(crate) closed_doc_cache: Arc<crate::types::ClosedDocCache>,
+    /// Read+parse cache for closed `.il` files, keyed by canonical
+    /// path. Lighter than `closed_doc_cache` (no analyse / typecheck)
+    /// and safe to use without a watcher: parsing depends only on
+    /// the file's own bytes, so the mtime check inside
+    /// `for_each_closed_workspace_program` is sufficient to catch
+    /// edits. Dropped on `didChangeWatchedFiles` to bound memory.
+    pub(crate) closed_parse_cache: Arc<crate::types::ClosedParseCache>,
 }
 
 impl Backend {
@@ -76,11 +83,32 @@ impl Backend {
                 false,
             )),
             closed_doc_cache: Arc::new(Mutex::new(HashMap::new())),
+            closed_parse_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     pub(crate) async fn refresh(&self, uri: Url, text: String) {
         refresh_impl(&self.client, &self.docs, uri, text).await
+    }
+
+    /// `Some(&cache)` only when a file watcher is registered. The
+    /// closed-doc cache stores `Doc`s whose value folds in
+    /// cross-module state (siblings / imports / umbrella), so an
+    /// entry can be invalidated by an edit to a DIFFERENT file. We
+    /// rely on `didChangeWatchedFiles` to drop the cache then;
+    /// without a watcher there's no way to learn about that edit,
+    /// so callers must skip the cache entirely.
+    pub(crate) fn closed_doc_cache_if_trusted(
+        &self,
+    ) -> Option<&crate::types::ClosedDocCache> {
+        if self
+            .watch_registered
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            Some(&self.closed_doc_cache)
+        } else {
+            None
+        }
     }
 
     /// Acquire the `docs` map. Wraps the `lock().unwrap()` boilerplate
