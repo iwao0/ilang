@@ -35,6 +35,7 @@ use crate::ParseError;
 mod apply_use;
 mod builtin;
 mod consts;
+mod derive;
 mod dup_pub;
 mod prefix;
 mod prescan;
@@ -340,6 +341,10 @@ pub fn load_program_full(
     // the FFI block themselves. Detection runs against the merged
     // Items, so cross-module `@objc interface` references work.
     let merged = auto_lift_objc_subclasses(merged);
+    // Auto-synthesise `equals` / `hashCode` for classes that carry
+    // `@derive(Eq, Hash)`. Runs after objc auto-lift so the lifted
+    // classes' fields are visible to the derive walk.
+    let merged = derive::expand_derives(merged)?;
     // Inline `const` declarations: collect every Item::Const in the
     // merged Program, then walk all expressions replacing
     // `Var(const_name)` with the literal value. Item::Const entries

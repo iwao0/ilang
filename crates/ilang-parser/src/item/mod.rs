@@ -165,16 +165,25 @@ impl<'a> Parser<'a> {
                 Ok(Item::Fn(fn_decl))
             }
             TokenKind::Class => {
-                if !attrs.is_empty() {
+                // `@derive(Eq, Hash)` is the one attribute classes accept
+                // today (loader's `expand_derives` pass synthesises
+                // matching methods). Anything else still surfaces the
+                // FFI-pointer hint.
+                let non_derive: Vec<&ilang_ast::Attribute> = attrs
+                    .iter()
+                    .filter(|a| a.name.as_str() != "derive")
+                    .collect();
+                if !non_derive.is_empty() {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
                         found: t.kind.clone(),
-                        expected: "no attributes are supported on classes — for FFI types use `@extern(C) { struct Name { ... } }` instead".into(),
+                        expected: "only `@derive(...)` is supported on classes — for FFI types use `@extern(C) { struct Name { ... } }` instead".into(),
                         span: t.span,
                     });
                 }
                 let mut c = self.parse_class_decl()?;
                 c.is_pub = is_pub;
+                c.attrs = attrs.into();
                 Ok(Item::Class(c))
             }
             TokenKind::Interface => {
