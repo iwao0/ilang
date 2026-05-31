@@ -160,6 +160,30 @@ pub(crate) fn array_method_names() -> &'static [&'static str] {
     ]
 }
 
+/// Return type of a built-in `string` method, for hover / inlay
+/// inference on `let x = "...".method(...)`. Mirrors the table in
+/// `string_method_sig` (and the type checker's `encodeUtf16` /
+/// `slice` / ... arms in `checker/expr/calls.rs`); keep them in
+/// sync when new string methods land.
+pub(crate) fn string_method_return_type(method: &str) -> Option<Type> {
+    Some(match method {
+        "charAt" | "toUpper" | "toLower" | "trim" | "replace" | "slice" | "concat" => {
+            Type::Str
+        }
+        "includes" | "startsWith" | "endsWith" => Type::Bool,
+        "indexOf" | "lastIndexOf" => Type::I64,
+        "split" => Type::Array {
+            elem: Box::new(Type::Str),
+            fixed: None,
+        },
+        "encodeUtf16" => Type::Array {
+            elem: Box::new(Type::U16),
+            fixed: None,
+        },
+        _ => return None,
+    })
+}
+
 pub(crate) fn string_method_sig(method: &str) -> Option<String> {
     let body = match method {
         "charAt" => "charAt(i: i64): string",

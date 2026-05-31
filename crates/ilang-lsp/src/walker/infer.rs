@@ -85,11 +85,23 @@ impl<'a> Walker<'a> {
                 Some(ret)
             }
             ExprKind::MethodCall { obj, method, .. } => {
-                if let Some(Type::Generic(g)) = self.infer_expr(obj, scope) {
-                    if let Some(t) = infer_map_method_type(&g, method.as_str()) {
+                let obj_ty = self.infer_expr(obj, scope);
+                if let Some(Type::Generic(g)) = &obj_ty {
+                    if let Some(t) = infer_map_method_type(g, method.as_str()) {
                         return Some(t);
                     }
-                    if let Some(t) = infer_set_method_type(&g, method.as_str()) {
+                    if let Some(t) = infer_set_method_type(g, method.as_str()) {
+                        return Some(t);
+                    }
+                }
+                // Built-in string methods (`"x".encodeUtf16()`,
+                // `s.trim()`, ...) don't live in `classes`, so route
+                // them through the dedicated lookup before falling
+                // through to class resolution.
+                if matches!(obj_ty, Some(Type::Str)) {
+                    if let Some(t) =
+                        crate::builtins::string_method_return_type(method.as_str())
+                    {
                         return Some(t);
                     }
                 }

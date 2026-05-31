@@ -509,6 +509,46 @@ mod tests {
         );
     }
 
+    /// Regression: `let classW = "BUTTON".encodeUtf16()` (and any
+    /// other built-in string method call as the value) used to hover
+    /// untyped because `infer_expr`'s MethodCall arm only consulted
+    /// the `classes` table. String methods aren't registered there;
+    /// route them through the dedicated `string_method_return_type`
+    /// lookup so the binding picks up `u16[]` / `string` / etc.
+    #[test]
+    fn string_method_call_let_has_typed_hover() {
+        let src = "\
+@extern(C) {
+    pub fn run() {
+        let classW = \"BUTTON\".encodeUtf16()
+        let trimmed = \"  x  \".trim()
+        let chars = \"a,b\".split(\",\")
+        let i = \"hello\".indexOf(\"l\")
+    }
+}
+";
+        let tmp = std::env::temp_dir()
+            .join("ilang_lsp_probe_string_method_let.il");
+        std::fs::write(&tmp, src).unwrap();
+        let doc = analyse_path_to_doc(&tmp).expect("doc built");
+        let expect = |name: &str, ty: &str| {
+            let r = doc
+                .refs
+                .iter()
+                .find(|r| r.signature.starts_with(&format!("let {name}")))
+                .unwrap_or_else(|| panic!("no `let {name}` ref"));
+            assert!(
+                r.signature.ends_with(ty),
+                "expected `let {name}` to end with {ty:?}, got {:?}",
+                r.signature,
+            );
+        };
+        expect("classW", ": u16[]");
+        expect("trimmed", ": string");
+        expect("chars", ": string[]");
+        expect("i", ": i64");
+    }
+
     /// Regression: hovering on `parent` at `libs/gui/win32/button.il`
     /// line 50 used to show "let parent" (no type) on macOS because
     /// the cross-target sub-package (`gui_impl` selects cocoa on the
