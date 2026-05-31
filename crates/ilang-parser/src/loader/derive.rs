@@ -252,33 +252,16 @@ fn field_as_i64(
 ) -> Result<Expr, LoadError> {
     use Type::*;
     let field_expr = field_on_this(field, span);
+    // Every primitive (i*/u*/bool/f32/f64), string, and class
+    // routes through the same `.hashCode(): i64` call. Primitives
+    // and string have their `hashCode` baked into the type checker
+    // + MIR lowering; class fields use their own (manual or
+    // `@derive(Hash)`-synthesised) method. The type checker fails
+    // the call when the class doesn't carry `hashCode`, so the
+    // error surfaces at the synthesised method's own call site
+    // rather than during this expansion.
     match ty {
-        I64 => Ok(field_expr),
-        I8 | I16 | I32 | U8 | U16 | U32 | U64 => Ok(Expr::new(
-            ExprKind::Cast {
-                expr: Box::new(field_expr),
-                ty: I64,
-            },
-            span,
-        )),
-        Bool => Ok(Expr::new(
-            ExprKind::If {
-                cond: Box::new(field_expr),
-                then_branch: block_with_tail(Expr::new(ExprKind::Int(1), span), span),
-                else_branch: Some(Box::new(Expr::new(
-                    ExprKind::Block(block_with_tail(Expr::new(ExprKind::Int(0), span), span)),
-                    span,
-                ))),
-            },
-            span,
-        )),
-        Object(_) | Str => {
-            // String fields route through the built-in
-            // `string.hashCode(): i64`; class fields recurse through
-            // their own `hashCode` (manual or `@derive(Hash)`). The
-            // type checker rejects the call if no `hashCode` exists
-            // on a class, surfacing the error at the synthesised
-            // method's own call site rather than this expansion.
+        I8 | I16 | I32 | I64 | U8 | U16 | U32 | U64 | Bool | F32 | F64 | Str | Object(_) => {
             Ok(Expr::new(
                 ExprKind::MethodCall {
                     obj: Box::new(field_expr),
@@ -292,8 +275,8 @@ fn field_as_i64(
             reason: format!(
                 "@derive(Hash) on class {class:?}: field {field:?} has type \
                  {ty} which is not supported by auto-derived `hashCode`. \
-                 Supported field types: i8/i16/i32/i64, u8/u16/u32/u64, \
-                 bool, and classes that derive (or define) `hashCode`. \
+                 Supported field types: every primitive (i*/u*/bool/f32/f64), \
+                 string, and classes that derive (or define) `hashCode`. \
                  Implement `hashCode` manually for this class to handle \
                  the unsupported field type.",
                 class = class_name,

@@ -86,6 +86,23 @@ pub extern "C" fn math_is_nan_f64(x: f64) -> i64 {
     if x.is_nan() { 1 } else { 0 }
 }
 
+/// `f32.hashCode(): i64` — bit pattern of the float value sign-
+/// extended to i64. Distinct NaN payloads stay distinct so the
+/// value lines up with `Set<f32>`'s existing dedup semantics
+/// (host runtime keys floats by bit pattern, NaN ≠ NaN per IEEE).
+#[unsafe(export_name = "$math.hashCode_f32")]
+pub extern "C" fn math_hash_code_f32(x: f32) -> i64 {
+    x.to_bits() as i32 as i64
+}
+
+/// `f64.hashCode(): i64` — bit pattern of the float value
+/// reinterpreted as i64. Same NaN / bit-pattern rationale as the
+/// `f32` variant.
+#[unsafe(export_name = "$math.hashCode_f64")]
+pub extern "C" fn math_hash_code_f64(x: f64) -> i64 {
+    x.to_bits() as i64
+}
+
 /// `math.random()` — uniform `f64` in `[0.0, 1.0)`, matching JS's
 /// `Math.random()`. Delegates to `rand`'s thread-local generator
 /// (`ThreadRng`), which auto-seeds from the OS RNG on first use

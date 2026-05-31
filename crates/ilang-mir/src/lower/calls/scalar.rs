@@ -38,6 +38,37 @@ impl<'a> BodyCx<'a> {
                 return Ok(Some((v, MirTy::Str)));
             }
         }
+        // `.hashCode(): i64` on every numeric / bool. Integer /
+        // bool receivers widen with the source's signedness via
+        // `IntResize` (uextend for u*, sextend for i*); float
+        // receivers route through `$math.hashCode_f{32,64}` so the
+        // bit pattern survives intact (the bare `as i64` cast would
+        // truncate the value rather than reinterpret it).
+        if args.is_empty() && method.as_str() == "hashCode" {
+            if matches!(oty, MirTy::F32 | MirTy::F64) {
+                let builtin = if matches!(oty, MirTy::F32) {
+                    "math_hash_code_f32"
+                } else {
+                    "math_hash_code_f64"
+                };
+                let v = self.fb.new_value(MirTy::I64);
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Builtin(Symbol::intern(builtin)),
+                    args: Box::new([ov]),
+                });
+                return Ok(Some((v, MirTy::I64)));
+            }
+            if oty.is_int() || matches!(oty, MirTy::Bool) {
+                let v = self.fb.new_value(MirTy::I64);
+                self.fb.push_inst(Inst::Cast {
+                    dst: v,
+                    kind: crate::inst::CastKind::IntResize,
+                    src: ov,
+                });
+                return Ok(Some((v, MirTy::I64)));
+            }
+        }
         // `.isFinite()` / `.isNaN()` on f32 / f64. Per-width entry
         // points because cranelift's float-arg ABI distinguishes
         // the two; result is i64 (0/1) reduced to language-level

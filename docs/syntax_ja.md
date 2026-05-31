@@ -231,6 +231,20 @@ n.toString()                // "255"
 
 すべての数値プリミティブ (`i8`〜`u64` / `f32` / `f64`) と `bool` で利用可。浮動小数のフォーマットは `console.log` と同じ。
 
+### 全プリミティブの組み込み `.hashCode(): i64`
+
+```rust
+(42).hashCode()             // 42 (符号拡張)
+(255u8).hashCode()          // 255 (ゼロ拡張)
+(-1i8).hashCode()           // -1 (符号拡張)
+true.hashCode()             // 1
+1.5f32.hashCode()           // 1.5f32 のビットパターンを i64 に符号拡張
+1.5.hashCode()              // 1.5f64 のビットパターンを i64 に再解釈
+"foo".hashCode()            // FNV-1a 64-bit (string メソッド節を参照)
+```
+
+全数値プリミティブ・`bool`・`string` が `hashCode(): i64` を持つ。整数 / bool は宣言された符号性に従って拡張、浮動小数はビットパターンを再解釈するので、別ビットパターンの NaN は別ハッシュになる (`Set<f64>` の dedup と整合)。`@derive(Hash)` のフィールド経路もすべてこのメソッド経由なので、プリミティブと `string` は同じ入り口を通る。
+
 ### 整数の associated 定数
 
 ```rust
@@ -950,12 +964,11 @@ test.expect(s.size(), 1)
 - `@derive(Eq)` / `@derive(Hash)` を単独で書いてもよい。`@derive(Eq, Hash)` は両方の略記
 - 手書きの `equals` / `hashCode` が優先される。合成は「ユーザが書いていない方」だけを埋めるので、手書きと derive の混在も可能
 - 合成 `equals` はフィールド比較を `&&` で連ねる。クラス型のフィールドには `this.field.equals(other.field)` を出し、入れ子の `@derive` 値も構造比較で判定される
-- 合成 `hashCode` は多項式畳み込み: `h_{i+1} = h_i * 31 + (field_i as i64)`。サポート対象のフィールド型:
-  - `i8` / `i16` / `i32` / `i64` / `u8` / `u16` / `u32` / `u64` (`as i64` キャスト)
-  - `bool` (`if field { 1 } else { 0 }`)
-  - `string` (組み込みの `"…".hashCode(): i64` 経由。バイト列の FNV-1a 64-bit、runs をまたいで安定)
-  - 自身が `hashCode` を持つクラスフィールド (手書きまたは `@derive(Hash)`)
-- `f32` / `f64` フィールドは `@derive(Hash)` で **未対応**。展開時に手書き実装への誘導エラーが出る。該当フィールドを持つクラスは当面 `hashCode` を手書きする
+- 合成 `hashCode` は多項式畳み込み: `h_{i+1} = h_i * 31 + field_i.hashCode()`。サポート対象のフィールド型はすべて自身の `hashCode(): i64` を経由する:
+  - `i8` / `i16` / `i32` / `i64` / `u8` / `u16` / `u32` / `u64` / `bool` / `f32` / `f64` — 各プリミティブ組み込みの `hashCode`
+  - `string` — 組み込み FNV-1a (string メソッド節を参照)
+  - クラスフィールド — 各クラスの `hashCode` (手書きまたは `@derive(Hash)`)
+- サポート外のフィールド型 (配列・タプル・Optional・ジェネリクス・クロージャ等) は展開時に手書き実装への誘導エラーが出る。該当フィールドを持つクラスは当面 `hashCode` を手書きする
 
 ---
 

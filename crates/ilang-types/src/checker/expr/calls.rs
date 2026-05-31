@@ -229,6 +229,17 @@ impl TypeChecker {
             check_arity(args.len(), 0, method.clone(), span)?;
             return Ok(Type::Bool);
         }
+        // `.hashCode(): i64` on every numeric primitive and `bool`.
+        // The same protocol `Set<MyClass>` / `Map<MyClass, V>` use
+        // — having it on every primitive lets `@derive(Hash)`
+        // route each field through `field.hashCode()` regardless
+        // of width. Ints widen, bool becomes 0 / 1, floats are
+        // bit-cast (so distinct NaN payloads keep distinct
+        // hashes, matching how Set<f64> already keys them).
+        if (ot.is_numeric() || ot == Type::Bool) && method.as_str() == "hashCode" {
+            check_arity(args.len(), 0, method.clone(), span)?;
+            return Ok(Type::I64);
+        }
         // Primitive numeric / bool receivers reach here only when
         // none of the small built-in method set above matched
         // (`toString`, and for floats `isFinite` / `isNaN`). Emit

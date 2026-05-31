@@ -266,6 +266,26 @@ Available on every numeric primitive (`i8`..`u64`, `f32`, `f64`)
 plus `bool`. Float formatting matches `console.log` (integral
 values print as `N.0`).
 
+### Built-in `.hashCode(): i64` on every primitive
+
+```rust
+(42).hashCode()             // 42 (signed widen)
+(255u8).hashCode()          // 255 (zero-extend)
+(-1i8).hashCode()           // -1 (sign-extend)
+true.hashCode()             // 1
+1.5f32.hashCode()           // bit pattern of 1.5f32 sign-extended to i64
+1.5.hashCode()              // bit pattern of 1.5f64 reinterpreted as i64
+"foo".hashCode()            // FNV-1a 64-bit (see string methods above)
+```
+
+Every numeric primitive, `bool`, and `string` exposes
+`hashCode(): i64`. Integer / bool values widen by their declared
+signedness; floats reinterpret their bit pattern, so distinct NaN
+payloads keep distinct hashes (matching `Set<f64>` dedup
+semantics). `@derive(Hash)` on a class routes every supported
+field through the same method, so every primitive plus `string`
+flows through this entry point.
+
 ### Integer associated constants
 
 ```rust
@@ -1198,15 +1218,14 @@ test.expect(s.size(), 1)
   class-typed field, the synthesis emits `this.field.equals(other.field)`
   so a nested `@derive` value compares structurally too.
 - The synthesised `hashCode` is a polynomial fold:
-  `h_{i+1} = h_i * 31 + (field_i as i64)`. Supported field types:
-  - `i8` / `i16` / `i32` / `i64` / `u8` / `u16` / `u32` / `u64`
-    (cast to `i64`)
-  - `bool` (`if field { 1 } else { 0 }`)
-  - `string` (routes through the built-in `"…".hashCode(): i64`,
-    a stable FNV-1a 64-bit over the bytes)
-  - Class fields with their own `hashCode` (manual or `@derive(Hash)`)
-- `f32` / `f64` field types are **not** yet supported by
-  `@derive(Hash)`. The expansion fails with an actionable error
+  `h_{i+1} = h_i * 31 + field_i.hashCode()`. Every supported field
+  type routes through its own `hashCode(): i64`:
+  - `i8` / `i16` / `i32` / `i64` / `u8` / `u16` / `u32` / `u64`,
+    `bool`, `f32`, `f64` — built-in `hashCode` on every primitive
+  - `string` — built-in FNV-1a (see the string methods section)
+  - Class fields — their own `hashCode` (manual or `@derive(Hash)`)
+- Unsupported field types (arrays, tuples, optionals, generics,
+  closures, etc.) fail the expansion with an actionable error
   pointing at the manual-implementation path. Write `hashCode` by
   hand for now if the class has such a field.
 

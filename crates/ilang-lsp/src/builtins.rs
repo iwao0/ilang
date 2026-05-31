@@ -129,13 +129,14 @@ pub(crate) fn string_method_names() -> &'static [&'static str] {
 /// gates the float-only entries on the receiver type so the
 /// completion list filters them out for ints / bools.
 pub(crate) fn primitive_method_names() -> &'static [&'static str] {
-    &["toString", "isFinite", "isNaN"]
+    &["toString", "hashCode", "isFinite", "isNaN"]
 }
 
 pub(crate) fn primitive_method_sig(method: &str, ty: &Type) -> Option<String> {
     let is_float = matches!(ty, Type::F32 | Type::F64);
     let body = match method {
         "toString" => "toString(): string".to_string(),
+        "hashCode" => "hashCode(): i64".to_string(),
         "isFinite" if is_float => "isFinite(): bool".to_string(),
         "isNaN" if is_float => "isNaN(): bool".to_string(),
         _ => return None,
@@ -146,6 +147,7 @@ pub(crate) fn primitive_method_sig(method: &str, ty: &Type) -> Option<String> {
 pub(crate) fn primitive_method_doc(method: &str) -> Option<&'static str> {
     Some(match method {
         "toString" => "Returns the value's decimal (`123`) or JS-style float (`1.5`) string. `true` / `false` for `bool`.",
+        "hashCode" => "Returns an `i64` suitable as a hash material: integer / bool values widen with their declared signedness; floats bit-cast to the integer with the same width so distinct NaN payloads stay distinct (matching `Set<f64>` dedup semantics).",
         "isFinite" => "Returns `true` when the value is a finite real number (not NaN, not ±Infinity).",
         "isNaN" => "Returns `true` when the value is IEEE-754 NaN. By definition `NaN != NaN`, so `==` can't be used for this check.",
         _ => return None,

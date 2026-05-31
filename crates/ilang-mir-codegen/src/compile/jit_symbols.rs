@@ -461,6 +461,8 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
         ilang_runtime::math_is_finite_f64 as *const u8,
     );
     jit_builder.symbol("$math.isNaN_f32", ilang_runtime::math_is_nan_f32 as *const u8);
+    jit_builder.symbol("$math.hashCode_f32", ilang_runtime::math_hash_code_f32 as *const u8);
+    jit_builder.symbol("$math.hashCode_f64", ilang_runtime::math_hash_code_f64 as *const u8);
     jit_builder.symbol("$math.isNaN_f64", ilang_runtime::math_is_nan_f64 as *const u8);
     // `console.log` is variadic at the language surface, so the
     // codegen splits each argument into a per-type print call.

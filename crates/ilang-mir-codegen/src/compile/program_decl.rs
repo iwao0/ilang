@@ -567,6 +567,14 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         let cid = module.declare_function("$math.isNaN_f64", Linkage::Import, &s_f64)?;
         builtin_ids.insert("math_is_nan_f64".to_string(), (cid, s_f64.clone()));
 
+        // `(f32).hashCode()` / `(f64).hashCode()` — reinterpret the
+        // float's bit pattern as an i64 (sign-extended for f32 so the
+        // result is a stable 64-bit identifier).
+        let cid = module.declare_function("$math.hashCode_f32", Linkage::Import, &s_f32)?;
+        builtin_ids.insert("math_hash_code_f32".to_string(), (cid, s_f32.clone()));
+        let cid = module.declare_function("$math.hashCode_f64", Linkage::Import, &s_f64)?;
+        builtin_ids.insert("math_hash_code_f64".to_string(), (cid, s_f64.clone()));
+
         // `(f32).toString()` / `(f64).toString()` — same per-width split as
         // isFinite / isNaN; result is the ilang string pointer (i64).
         let cid = module.declare_function("$string.fromF32", Linkage::Import, &s_f32)?;
