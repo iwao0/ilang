@@ -202,10 +202,11 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
 pub(crate) fn for_each_closed_workspace_doc(
     anchor: &Path,
     seen: &HashSet<PathBuf>,
+    file_cache: Option<&Mutex<HashMap<PathBuf, Vec<PathBuf>>>>,
     cache: Option<&crate::types::ClosedDocCache>,
     mut visit: impl FnMut(Url, &Doc),
 ) {
-    for path in collect_workspace_il_files(anchor) {
+    for path in workspace_il_files_cached(anchor, file_cache) {
         let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
         if seen.contains(&canon) {
             continue;
@@ -299,10 +300,11 @@ pub(crate) fn analyse_path_to_doc_cached(
 pub(crate) fn for_each_closed_workspace_program(
     anchor: &Path,
     seen: &HashSet<PathBuf>,
+    file_cache: Option<&Mutex<HashMap<PathBuf, Vec<PathBuf>>>>,
     cache: &crate::types::ClosedParseCache,
     mut visit: impl FnMut(Url, &str, &Program),
 ) {
-    for path in collect_workspace_il_files(anchor) {
+    for path in workspace_il_files_cached(anchor, file_cache) {
         let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
         if seen.contains(&canon) {
             continue;
@@ -352,6 +354,31 @@ pub(crate) fn collect_workspace_il_files(anchor: &Path) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = Vec::new();
     walk_il(&workspace_root, &mut out);
     out
+}
+
+/// `collect_workspace_il_files`, optionally backed by `Backend`'s
+/// `workspace_file_cache`. When `Some(file_cache)` is passed, the
+/// walk happens at most once per workspace root for the lifetime
+/// of the cache (cleared on `didChangeWatchedFiles`). When `None`,
+/// every call re-walks. Callers gate on `watch_registered` — see
+/// `Backend::workspace_file_cache_if_trusted`.
+pub(crate) fn workspace_il_files_cached(
+    anchor: &Path,
+    file_cache: Option<&Mutex<HashMap<PathBuf, Vec<PathBuf>>>>,
+) -> Vec<PathBuf> {
+    let Some(fc) = file_cache else {
+        return collect_workspace_il_files(anchor);
+    };
+    let root = workspace_root_for(anchor);
+    let cached = fc.lock().unwrap().get(&root).cloned();
+    match cached {
+        Some(list) => list,
+        None => {
+            let list = collect_workspace_il_files(anchor);
+            fc.lock().unwrap().insert(root, list.clone());
+            list
+        }
+    }
 }
 
 /// Resolve the workspace root for `anchor`: the directory containing the

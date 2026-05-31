@@ -92,6 +92,7 @@ pub(crate) fn collect(
     anchor: &std::path::Path,
     open_docs: &std::collections::HashMap<Url, Doc>,
     iface_class: Option<&str>,
+    file_cache: Option<&std::sync::Mutex<std::collections::HashMap<PathBuf, Vec<PathBuf>>>>,
     parse_cache: &crate::types::ClosedParseCache,
 ) -> Vec<Location> {
     let mut out: Vec<Location> = Vec::new();
@@ -121,7 +122,7 @@ pub(crate) fn collect(
         let Some(prog) = text::try_parse(&doc.text) else { continue };
         gather_from_program(uri, &doc.text, &prog, &effective_target, &mut out);
     }
-    for_each_closed_workspace_program(anchor, &seen, parse_cache, |uri, text, prog| {
+    for_each_closed_workspace_program(anchor, &seen, file_cache, parse_cache, |uri, text, prog| {
         gather_from_program(&uri, text, prog, &effective_target, &mut out);
     });
     out.sort_by(|a, b| {
@@ -313,7 +314,7 @@ run()
         // 1. Interface target → English + Japanese class names.
         let locs = collect(
             &Target::Interface { name: "Greeter".into() },
-            &path, &docs, None, &parse_cache,
+            &path, &docs, None, None, &parse_cache,
         );
         assert_eq!(locs.len(), 2, "Interface target: {locs:?}");
         // 2. InterfaceMethod → English.hello + Japanese.hello.
@@ -322,7 +323,7 @@ run()
                 iface:  "Greeter".into(),
                 method: "hello".into(),
             },
-            &path, &docs, Some("Greeter"), &parse_cache,
+            &path, &docs, Some("Greeter"), None, &parse_cache,
         );
         assert_eq!(locs.len(), 2, "InterfaceMethod target: {locs:?}");
         // 3. ClassMethod target whose `class` is actually an
@@ -333,7 +334,7 @@ run()
                 class:  "Greeter".into(),
                 method: "hello".into(),
             },
-            &path, &docs, Some("Greeter"), &parse_cache,
+            &path, &docs, Some("Greeter"), None, &parse_cache,
         );
         assert_eq!(
             locs.len(),
@@ -372,7 +373,7 @@ run()
         // Cursor on `class Animal` decl — Class target.
         let locs = collect(
             &Target::Class { name: "Animal".into() },
-            &path, &docs, None, &parse_cache,
+            &path, &docs, None, None, &parse_cache,
         );
         assert_eq!(locs.len(), 2, "Animal subclasses: {locs:?}");
     }

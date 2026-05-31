@@ -265,9 +265,13 @@ impl Doc {
 /// validity key. `mtime` alone is insufficient — some filesystems
 /// report mtime at 1-second granularity, and a fast successive
 /// save inside that window would let a stale cache survive. The
-/// file length pins down the remaining ambiguity; we still mostly
-/// see a hit on the common case (no edit since the last walk) and
-/// always miss when the user actually changed bytes.
+/// file length pins down the most common remaining case: edits
+/// that grow or shrink the buffer. A same-length edit inside the
+/// mtime granularity window is the residual hole — `did_change_-
+/// watched_files` clears the cache for clients that supply file
+/// events; clients without them carry the same-length risk.
+/// Content hashing would close the hole but defeats the point of
+/// a metadata-only fingerprint, so we accept the trade.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FileFingerprint {
     pub(crate) mtime: std::time::SystemTime,

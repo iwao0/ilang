@@ -481,6 +481,7 @@ impl LanguageServer for Backend {
             &uri,
             pos,
             include_decl,
+            self.workspace_file_cache_if_trusted(),
             self.closed_doc_cache_if_trusted(),
         ))
     }
@@ -543,7 +544,14 @@ impl LanguageServer for Backend {
         let uri = p.text_document_position.text_document.uri;
         let pos = p.text_document_position.position;
         let docs = self.docs();
-        rename::handle_rename(&docs, &uri, pos, p.new_name, self.closed_doc_cache_if_trusted())
+        rename::handle_rename(
+            &docs,
+            &uri,
+            pos,
+            p.new_name,
+            self.workspace_file_cache_if_trusted(),
+            self.closed_doc_cache_if_trusted(),
+        )
     }
 
     async fn code_action(
@@ -608,16 +616,12 @@ impl LanguageServer for Backend {
                 })
                 .collect()
         };
-        let use_file_cache = self
-            .watch_registered
-            .load(std::sync::atomic::Ordering::Relaxed);
         Ok(workspace_symbol_cache::handle_workspace_symbol(
             &p.query,
             &anchor,
             &open_texts,
             &self.workspace_sym_cache,
-            &self.workspace_file_cache,
-            use_file_cache,
+            self.workspace_file_cache_if_trusted(),
         ))
     }
 
@@ -656,6 +660,7 @@ impl LanguageServer for Backend {
             &anchor,
             &snapshot,
             iface_class.as_deref(),
+            self.workspace_file_cache_if_trusted(),
             &self.closed_parse_cache,
         );
         if locs.is_empty() {
@@ -718,7 +723,12 @@ impl LanguageServer for Backend {
         };
         let snapshot: HashMap<Url, crate::types::Doc> =
             self.docs().clone();
-        let calls = call_hierarchy::incoming_calls(&item, &snapshot, self.closed_doc_cache_if_trusted());
+        let calls = call_hierarchy::incoming_calls(
+            &item,
+            &snapshot,
+            self.workspace_file_cache_if_trusted(),
+            self.closed_doc_cache_if_trusted(),
+        );
         if calls.is_empty() { Ok(None) } else { Ok(Some(calls)) }
     }
 
@@ -788,6 +798,7 @@ impl LanguageServer for Backend {
                     ilang_ast::Span::new(decl_line, decl_col),
                     decl_name_len,
                     &snapshot,
+                    self.workspace_file_cache_if_trusted(),
                     self.closed_doc_cache_if_trusted(),
                 );
                 let pos = text::lsp_position(decl_line, decl_col);
@@ -817,6 +828,7 @@ impl LanguageServer for Backend {
                     &anchor,
                     &snapshot,
                     iface_class,
+                    self.workspace_file_cache_if_trusted(),
                     &self.closed_parse_cache,
                 );
                 let pos = text::lsp_position(decl_line, decl_col);

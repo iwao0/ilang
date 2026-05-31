@@ -243,7 +243,7 @@ use std::sync::Mutex;
 
 use tower_lsp::lsp_types::{Location, SymbolInformation, Url};
 
-use crate::analyse::{collect_workspace_il_files, workspace_root_for};
+use crate::analyse::workspace_il_files_cached;
 use crate::text::subsequence_ci;
 
 /// Cap the response to keep VSCode's quick-pick responsive on large
@@ -261,27 +261,13 @@ pub(crate) fn handle_workspace_symbol(
     anchor: &Path,
     open_texts: &HashMap<PathBuf, String>,
     cache: &Mutex<HashMap<PathBuf, Entry>>,
-    file_cache: &Mutex<HashMap<PathBuf, Vec<PathBuf>>>,
-    use_file_cache: bool,
+    file_cache: Option<&Mutex<HashMap<PathBuf, Vec<PathBuf>>>>,
 ) -> Option<Vec<SymbolInformation>> {
     let q_lower = query.to_lowercase();
     // File-list lookup. When watching is registered the list is cached
     // per workspace root and reused across keystrokes; otherwise re-walk
     // every request so a freshly created file can't be missed.
-    let files = if use_file_cache {
-        let root = workspace_root_for(anchor);
-        let cached = file_cache.lock().unwrap().get(&root).cloned();
-        match cached {
-            Some(list) => list,
-            None => {
-                let list = collect_workspace_il_files(anchor);
-                file_cache.lock().unwrap().insert(root, list.clone());
-                list
-            }
-        }
-    } else {
-        collect_workspace_il_files(anchor)
-    };
+    let files = workspace_il_files_cached(anchor, file_cache);
     let mut out: Vec<SymbolInformation> = Vec::new();
     for path in files {
         if out.len() >= MAX_RESULTS {

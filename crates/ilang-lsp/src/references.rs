@@ -24,6 +24,7 @@ pub(crate) fn collect_reference_locations(
     target_span: ilang_ast::Span,
     name_len: u32,
     snapshot: &HashMap<Url, crate::types::Doc>,
+    file_cache: Option<&std::sync::Mutex<HashMap<PathBuf, Vec<PathBuf>>>>,
     cache: Option<&crate::types::ClosedDocCache>,
 ) -> Vec<Location> {
     let mut out: Vec<Location> = Vec::new();
@@ -57,7 +58,7 @@ pub(crate) fn collect_reference_locations(
         push(&mut out, doc_uri, doc, is_owner);
     }
     if let Ok(anchor) = target_uri.to_file_path() {
-        for_each_closed_workspace_doc(&anchor, &seen, cache, |uri, doc| {
+        for_each_closed_workspace_doc(&anchor, &seen, file_cache, cache, |uri, doc| {
             let is_owner = uri == *target_uri;
             push(&mut out, &uri, doc, is_owner);
         });
@@ -183,6 +184,7 @@ pub(crate) fn handle_references(
     uri: &Url,
     pos: Position,
     include_decl: bool,
+    file_cache: Option<&std::sync::Mutex<HashMap<PathBuf, Vec<PathBuf>>>>,
     cache: Option<&crate::types::ClosedDocCache>,
 ) -> Option<Vec<Location>> {
     let doc = docs.get(uri)?;
@@ -243,7 +245,7 @@ pub(crate) fn handle_references(
         }
     }
     if let Ok(anchor_path) = target_uri.to_file_path() {
-        for_each_closed_workspace_doc(&anchor_path, &opened_paths, cache, |path_uri, d| {
+        for_each_closed_workspace_doc(&anchor_path, &opened_paths, file_cache, cache, |path_uri, d| {
             let is_owner = path_uri == target_uri;
             push_ref_locations(&mut locations, &path_uri, d, &target_uri, target);
             if is_owner && include_decl {

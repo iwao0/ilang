@@ -111,6 +111,24 @@ impl Backend {
         }
     }
 
+    /// Same trust gate, but for the `workspace_file_cache` — the
+    /// `.il` file-list cache shared between workspace-symbol
+    /// requests and the closed-file workspace walks. Watcher must be
+    /// registered, otherwise a freshly created file could go
+    /// unobserved and slip out of the cached list.
+    pub(crate) fn workspace_file_cache_if_trusted(
+        &self,
+    ) -> Option<&Mutex<HashMap<PathBuf, Vec<PathBuf>>>> {
+        if self
+            .watch_registered
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            Some(&self.workspace_file_cache)
+        } else {
+            None
+        }
+    }
+
     /// Acquire the `docs` map. Wraps the `lock().unwrap()` boilerplate
     /// — the mutex is only poisoned if a holder panicked, which we
     /// treat as unrecoverable.
