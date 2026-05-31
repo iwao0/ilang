@@ -510,7 +510,20 @@ impl<'a> Walker<'a> {
         }
         if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
             if let Some(info) = self.classes.get(&AstSymbol::intern(&class)) {
-                if let Some(m) = info.methods.get(&AstSymbol::intern(method.as_str())) {
+                let key = AstSymbol::intern(method.as_str());
+                // Method lookup first; fall back to an fn-typed
+                // instance field so a callback-style field call like
+                // `slot.onClick(x, y, b)` (where `pub onClick:
+                // fn(f64, f64, i32)`) still produces a hover entry.
+                // Without the fallback the class registry doesn't
+                // expose the field at all on the call site and the
+                // identifier renders untyped.
+                let member = info.methods.get(&key).or_else(|| {
+                    info.fields
+                        .get(&key)
+                        .filter(|m| matches!(m.ret_ty, Some(Type::Fn(_))))
+                });
+                if let Some(m) = member {
                     if let Some((line, col)) = text::locate_dot_name_at(self.line_starts, self.text, obj.span, method.as_str()) {
                         let (target, no_def, uri) = member_target(
                             m,

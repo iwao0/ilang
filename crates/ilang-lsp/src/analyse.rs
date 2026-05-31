@@ -509,6 +509,43 @@ mod tests {
         );
     }
 
+    /// Regression: `slot.onClick(...)` where `onClick: fn(...)` is
+    /// a fn-typed instance field used to produce no hover entry at
+    /// all — `walk_expr_method_call` only looked at
+    /// `info.methods.get(...)` and bailed. Falling back to
+    /// `info.fields` for fn-typed members gives callback-style
+    /// fields the same hover treatment as methods.
+    #[test]
+    fn fn_typed_field_call_has_hover() {
+        let src = "\
+class Slot {
+    pub onClick: fn(f64, f64, i32)
+    pub init() { this.onClick = fn(x: f64, y: f64, b: i32) {} }
+}
+fn run() {
+    let s = new Slot()
+    s.onClick(0.0, 0.0, 0)
+}
+run()
+";
+        let tmp = std::env::temp_dir()
+            .join("ilang_lsp_probe_fn_field_call.il");
+        std::fs::write(&tmp, src).unwrap();
+        let doc = analyse_path_to_doc(&tmp).expect("doc built");
+        let on_click = doc
+            .refs
+            .iter()
+            .find(|r| {
+                r.signature.contains("onClick") && r.signature.contains("fn(")
+            })
+            .unwrap_or_else(|| panic!("no `onClick` ref with fn signature; got {:#?}", doc.refs));
+        assert!(
+            on_click.signature.contains("(property)"),
+            "expected onClick hover to render as a property hover, got {:?}",
+            on_click.signature,
+        );
+    }
+
     /// Regression: `let classW = "BUTTON".encodeUtf16()` (and any
     /// other built-in string method call as the value) used to hover
     /// untyped because `infer_expr`'s MethodCall arm only consulted
