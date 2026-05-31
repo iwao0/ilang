@@ -1181,22 +1181,38 @@ impl TypeChecker {
         // f64 round-trip cleanly (NaN compares unequal to itself,
         // matching the IEEE rule but with the consequence that a
         // NaN inserted twice keeps two entries).
+        if class.as_str() == "Map" && type_args.len() == 2 {
+            let k = &type_args[0];
+            if !super::super::sigs::is_valid_map_key_type(k, Some(&self.classes)) {
+                let hint = match k {
+                    Type::Object(c) => format!(
+                        "map key type {k} — class {c:?} must declare \
+                         `pub fn equals(other: {c:?}): bool` and \
+                         `pub fn hashCode(): i64` (or carry `@derive(Eq, Hash)`)"
+                    ),
+                    _ => format!(
+                        "map key type {k} (primitives, strings, or classes \
+                         with `equals` + `hashCode` are supported)"
+                    ),
+                };
+                return Err(TypeError::Unsupported { what: hint, span });
+            }
+        }
         if class.as_str() == "Set" && type_args.len() == 1 {
             let t = &type_args[0];
-            let ok = matches!(
-                t,
-                Type::Str | Type::Bool
-                    | Type::I8 | Type::I16 | Type::I32 | Type::I64
-                    | Type::U8 | Type::U16 | Type::U32 | Type::U64
-                    | Type::F32 | Type::F64
-            );
-            if !ok {
-                return Err(TypeError::Unsupported {
-                    what: format!(
-                        "set element type {t} (only primitive / string elements are supported)"
+            if !super::super::sigs::is_valid_set_element_type(t, &self.classes) {
+                let hint = match t {
+                    Type::Object(c) => format!(
+                        "set element type {t} — class {c:?} must declare \
+                         `pub fn equals(other: {c:?}): bool` and \
+                         `pub fn hashCode(): i64` (or carry `@derive(Eq, Hash)`)"
                     ),
-                    span,
-                });
+                    _ => format!(
+                        "set element type {t} (primitives, strings, or classes \
+                         with `equals` + `hashCode` are supported)"
+                    ),
+                };
+                return Err(TypeError::Unsupported { what: hint, span });
             }
         }
         // Rewrite the user-supplied type args so any reference to

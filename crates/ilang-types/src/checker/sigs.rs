@@ -87,14 +87,88 @@ pub(super) fn collect_type_var_bindings(
 }
 
 /// Map keys are constrained to types with stable structural equality.
-/// Floats are excluded (NaN), as are heap objects and arrays.
-pub(super) fn is_valid_map_key_type(t: &Type) -> bool {
-    matches!(
-        t,
+/// Floats are excluded (NaN), as are arrays. Heap objects are allowed
+/// when the class supplies `equals(other: Class): bool` and
+/// `hashCode(): i64` — see `class_has_value_equality`. `classes` is
+/// optional so callers without a full checker context (e.g. literal
+/// type sniffing) still get the conservative primitive-only answer.
+pub(super) fn is_valid_map_key_type(
+    t: &Type,
+    classes: Option<&std::collections::HashMap<Symbol, super::ClassSig>>,
+) -> bool {
+    match t {
         Type::Str | Type::Bool
-            | Type::I8 | Type::I16 | Type::I32 | Type::I64
-            | Type::U8 | Type::U16 | Type::U32 | Type::U64
-    )
+        | Type::I8 | Type::I16 | Type::I32 | Type::I64
+        | Type::U8 | Type::U16 | Type::U32 | Type::U64 => true,
+        Type::Object(c) => classes
+            .map(|m| class_has_value_equality(*c, m))
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+/// `Set<T>` / `Map<T, _>` accept primitive `T`s by built-in hashing
+/// rules (see `is_valid_set_element_type` / `is_valid_map_key_type`),
+/// and `Object(Class)` when the user has supplied the matching
+/// equality + hashing protocol on the class. The protocol is:
+///
+///   pub fn equals(other: Class): bool
+///   pub fn hashCode(): i64
+///
+/// Both must be present (an `equals` without a hash, or vice versa,
+/// is rejected so the runtime can rely on consistent dispatch).
+/// `@derive(Eq, Hash)` synthesises matching methods in a loader pass
+/// — by the time we get here the class already has them.
+pub(super) fn class_has_value_equality(
+    class_name: Symbol,
+    classes: &std::collections::HashMap<Symbol, super::ClassSig>,
+) -> bool {
+    let Some(sig) = classes.get(&class_name) else {
+        return false;
+    };
+    let has_equals = sig
+        .methods
+        .get(&Symbol::intern("equals"))
+        .map(|sigs| {
+            sigs.iter().any(|s| {
+                s.params.len() == 1
+                    && matches!(&s.params[0], Type::Object(c) if *c == class_name)
+                    && matches!(s.ret, Type::Bool)
+                    && s.type_params.is_empty()
+            })
+        })
+        .unwrap_or(false);
+    let has_hash = sig
+        .methods
+        .get(&Symbol::intern("hashCode"))
+        .map(|sigs| {
+            sigs.iter().any(|s| {
+                s.params.is_empty()
+                    && matches!(s.ret, Type::I64)
+                    && s.type_params.is_empty()
+            })
+        })
+        .unwrap_or(false);
+    has_equals && has_hash
+}
+
+/// `Set<T>` accepts every type Map accepts as a key, plus floats
+/// (the runtime hashes them by bit pattern; NaN ≠ NaN follows IEEE
+/// semantics). Object element types are accepted when the class
+/// satisfies the value-equality protocol — see
+/// `class_has_value_equality`.
+pub(super) fn is_valid_set_element_type(
+    t: &Type,
+    classes: &std::collections::HashMap<Symbol, super::ClassSig>,
+) -> bool {
+    match t {
+        Type::Str | Type::Bool
+        | Type::I8 | Type::I16 | Type::I32 | Type::I64
+        | Type::U8 | Type::U16 | Type::U32 | Type::U64
+        | Type::F32 | Type::F64 => true,
+        Type::Object(c) => class_has_value_equality(*c, classes),
+        _ => false,
+    }
 }
 
 pub(super) fn is_reserved_class(name: &str) -> bool {

@@ -428,11 +428,20 @@ impl TypeChecker {
         // one `key: value` entry; `{}` parses as an empty block.
         let (k0, v0) = &entries[0];
         let k_ty = self.check_expr(k0, env, ret_ty, in_class, loop_depth)?;
-        if !is_valid_map_key_type(&k_ty) {
-            return Err(TypeError::Unsupported {
-                what: format!(
-                    "map key type {k_ty} (only string / int / bool keys are supported)"
+        if !is_valid_map_key_type(&k_ty, Some(&self.classes)) {
+            let hint = match &k_ty {
+                Type::Object(c) => format!(
+                    "map key type {k_ty} — class {c:?} must declare \
+                     `pub fn equals(other: {c:?}): bool` and \
+                     `pub fn hashCode(): i64` (or carry `@derive(Eq, Hash)`)"
                 ),
+                _ => format!(
+                    "map key type {k_ty} (primitives, strings, or classes \
+                     with `equals` + `hashCode` are supported)"
+                ),
+            };
+            return Err(TypeError::Unsupported {
+                what: hint,
                 span: k0.span,
             });
         }

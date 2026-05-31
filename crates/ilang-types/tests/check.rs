@@ -798,3 +798,87 @@ fn com_interface_unknown_parent_is_rejected() {
         "expected an unknown-interface error, got {errs:?}",
     );
 }
+
+/// Set/Map<MyClass> requires the class to declare both
+/// `equals(other: MyClass): bool` and `hashCode(): i64`. Missing
+/// either method must fail the constructor type-check with a
+/// targeted "value equality protocol" error.
+#[test]
+fn set_of_class_requires_equals_and_hash() {
+    let with_methods = "\
+class Point {
+    pub x: i64
+    pub init(x: i64) { this.x = x }
+    pub equals(other: Point): bool { this.x == other.x }
+    pub hashCode(): i64 { this.x }
+}
+let s = new Set<Point>()
+";
+    assert!(ty(with_methods).is_ok(), "got {:?}", ty(with_methods));
+
+    let missing_hash = "\
+class Point {
+    pub x: i64
+    pub init(x: i64) { this.x = x }
+    pub equals(other: Point): bool { this.x == other.x }
+}
+let s = new Set<Point>()
+";
+    let errs = errors(missing_hash);
+    assert!(
+        errs.iter().any(|e| matches!(
+            e,
+            TypeError::Unsupported { what, .. } if what.contains("equals") && what.contains("hashCode")
+        )),
+        "expected value-equality-protocol error, got {errs:?}",
+    );
+
+    let missing_equals = "\
+class Point {
+    pub x: i64
+    pub init(x: i64) { this.x = x }
+    pub hashCode(): i64 { this.x }
+}
+let s = new Set<Point>()
+";
+    let errs = errors(missing_equals);
+    assert!(
+        errs.iter().any(|e| matches!(
+            e,
+            TypeError::Unsupported { what, .. } if what.contains("equals") && what.contains("hashCode")
+        )),
+        "expected value-equality-protocol error, got {errs:?}",
+    );
+}
+
+/// `new Map<MyClass, V>()` follows the same protocol as Set —
+/// classes used as map keys need equals + hashCode.
+#[test]
+fn map_of_class_key_requires_equals_and_hash() {
+    let with_methods = "\
+class Key {
+    pub n: i64
+    pub init(n: i64) { this.n = n }
+    pub equals(other: Key): bool { this.n == other.n }
+    pub hashCode(): i64 { this.n }
+}
+let m = new Map<Key, string>()
+";
+    assert!(ty(with_methods).is_ok(), "got {:?}", ty(with_methods));
+
+    let missing = "\
+class Key {
+    pub n: i64
+    pub init(n: i64) { this.n = n }
+}
+let m = new Map<Key, string>()
+";
+    let errs = errors(missing);
+    assert!(
+        errs.iter().any(|e| matches!(
+            e,
+            TypeError::Unsupported { what, .. } if what.contains("equals") && what.contains("hashCode")
+        )),
+        "expected map-key protocol error, got {errs:?}",
+    );
+}
