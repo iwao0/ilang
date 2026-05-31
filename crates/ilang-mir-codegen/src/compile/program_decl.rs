@@ -120,6 +120,15 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     // Set runtime imports — mirror Map's shape but every entry-side
     // op is a 2-arg `(set, raw_elem)` instead of `(set, key, value)`.
     let set_new_id = declare_returns_i64(module, "$set.new")?;
+    // `$set.newObject(eq_fn, hash_fn) -> i64` — two i64 fn-pointer args,
+    // returns the set ptr. Used by `new Set<MyClass>()` lowering.
+    let set_new_object_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("$set.newObject", Linkage::Import, &sig)?
+    };
     let set_add_id = declare_binary_i64_void(module, "$set.add")?;
     let set_has_id = declare_binary_i64(module, "$set.has")?;
     let set_delete_id = declare_binary_i64(module, "$set.delete")?;
@@ -805,6 +814,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             };
             let set_ids = SetIds {
                 new: set_new_id,
+                new_object: set_new_object_id,
                 add: set_add_id,
                 has: set_has_id,
                 delete: set_delete_id,

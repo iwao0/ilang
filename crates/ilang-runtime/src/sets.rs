@@ -25,8 +25,8 @@ enum SetStore {
     /// every element is identified by `(hash_fn(obj), eq_fn(obj, other))`
     /// pairs supplied by the class. Buckets are keyed by the i64 hash;
     /// equality walks the bucket via the user's `equals`. The set owns
-    /// a `retain_fn`-bumped share of every stored pointer and drops
-    /// the share via `release_fn` on delete / clear / drop.
+    /// an `__retain_object`-bumped share of every stored pointer and
+    /// drops the share via `__release_object` on delete / clear / drop.
     Object(ObjectStore),
 }
 
@@ -40,10 +40,12 @@ enum SetStore {
 struct ObjectStore {
     eq_fn: extern "C" fn(i64, i64) -> i64,
     hash_fn: extern "C" fn(i64) -> i64,
-    retain_fn: extern "C" fn(i64),
-    release_fn: extern "C" fn(i64),
     /// `hash → vector of object pointers that hashed there`. Bucket
     /// length is the only thing the size counter needs to know about.
+    /// Stored pointers carry the set's +1 ARC share — `__retain_object`
+    /// / `__release_object` are called directly here rather than going
+    /// through extra user-supplied hooks; the value-eq protocol only
+    /// asks the class to provide `equals` + `hashCode`.
     buckets: HashMap<i64, Vec<i64>>,
     count: usize,
 }
@@ -53,8 +55,6 @@ impl ObjectStore {
         ObjectStore {
             eq_fn: self.eq_fn,
             hash_fn: self.hash_fn,
-            retain_fn: self.retain_fn,
-            release_fn: self.release_fn,
             buckets: HashMap::new(),
             count: 0,
         }
@@ -89,7 +89,7 @@ impl ObjectStore {
                 return false;
             }
         }
-        (self.retain_fn)(obj);
+        crate::classes::__retain_object(obj);
         bucket.push(obj);
         self.count += 1;
         true
@@ -111,7 +111,7 @@ impl ObjectStore {
                     self.buckets.remove(&hash);
                 }
                 self.count -= 1;
-                (self.release_fn)(removed);
+                crate::classes::__release_object(removed);
                 return true;
             }
         }
@@ -121,7 +121,7 @@ impl ObjectStore {
     fn clear(&mut self) {
         for bucket in self.buckets.values_mut() {
             for &obj in bucket.iter() {
-                (self.release_fn)(obj);
+                crate::classes::__release_object(obj);
             }
         }
         self.buckets.clear();
@@ -193,26 +193,22 @@ pub extern "C" fn __set_new() -> i64 {
     Box::into_raw(s) as i64
 }
 
-/// Object-element set constructor. Takes four function pointers
-/// (`equals` / `hashCode` / object retain / object release) as raw
-/// i64s — codegen materialises them at the `new Set<Class>()` site.
+/// Object-element set constructor. Takes the class's `equals` and
+/// `hashCode` method addresses as raw i64s — codegen materialises
+/// them at the `new Set<Class>()` site via `Inst::FuncAddr`.
 /// `elem_print_kind` defaults to `PK_OBJECT` so `console.log` on
-/// the set formats elements as object refs.
+/// the set formats elements as object refs. ARC bookkeeping reuses
+/// the global `$class.retainObject` / `$class.releaseObject` hooks
+/// directly, so the user-side protocol stays the two-method
+/// `equals` + `hashCode`.
 #[unsafe(export_name = "$set.newObject")]
-pub extern "C" fn __set_new_object(
-    eq_fn: i64,
-    hash_fn: i64,
-    retain_fn: i64,
-    release_fn: i64,
-) -> i64 {
+pub extern "C" fn __set_new_object(eq_fn: i64, hash_fn: i64) -> i64 {
     let s = Box::new(ManagedSet {
         rc: AtomicI64::new(1),
         elem_print_kind: crate::kind::PK_OBJECT,
         store: SetStore::Object(ObjectStore {
             eq_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64, i64) -> i64>(eq_fn) },
             hash_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64) -> i64>(hash_fn) },
-            retain_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64)>(retain_fn) },
-            release_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64)>(release_fn) },
             buckets: HashMap::new(),
             count: 0,
         }),
@@ -473,7 +469,7 @@ pub extern "C" fn __set_values(set: i64) -> i64 {
             .map(|obj| {
                 // Array element takes its own +1 share; the set
                 // retains a separate share that stays put.
-                (t.retain_fn)(obj);
+                crate::classes::__retain_object(obj);
                 obj
             })
             .collect(),
@@ -519,13 +515,11 @@ pub extern "C" fn __set_for_each(set: i64, closure: i64) {
     }
     let s = unsafe { &*(set as *const ManagedSet) };
     let is_str = s.elem_print_kind == PK_STR;
-    let object_release = match &s.store {
-        SetStore::Object(t) => Some(t.release_fn),
-        _ => None,
-    };
-    // Snapshot as raw i64 — for string elements we retain the registry
-    // pointer up-front so each entry survives any mutation the
-    // callback may perform on the set (e.g. delete during iteration).
+    let is_object = matches!(&s.store, SetStore::Object(_));
+    // Snapshot as raw i64 — for string and object elements we retain
+    // the corresponding share up-front so each entry survives any
+    // mutation the callback may perform on the set (e.g. delete
+    // during iteration).
     let args: Vec<i64> = match &s.store {
         SetStore::Int(t) => t.iter().copied().collect(),
         SetStore::Str(t) => t
@@ -539,10 +533,7 @@ pub extern "C" fn __set_for_each(set: i64, closure: i64) {
         SetStore::Object(t) => t
             .iter()
             .map(|obj| {
-                // Same pattern as the string path: pre-retain so the
-                // callback sees a stable share even if it deletes the
-                // entry from the set during iteration.
-                (t.retain_fn)(obj);
+                crate::classes::__retain_object(obj);
                 obj
             })
             .collect(),
@@ -551,8 +542,8 @@ pub extern "C" fn __set_for_each(set: i64, closure: i64) {
         unsafe { call_closure_1_i64(closure, arg) };
         if is_str {
             __release_string(arg);
-        } else if let Some(release_fn) = object_release {
-            release_fn(arg);
+        } else if is_object {
+            crate::classes::__release_object(arg);
         }
     }
 }

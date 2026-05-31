@@ -193,6 +193,50 @@ impl<'a> BodyCx<'a> {
                     let elem = self.resolve_ty(&type_args[0])?;
                     let ty = MirTy::Set { elem: Box::new(elem.clone()) };
                     let set_ptr = self.fb.new_value(ty.clone());
+                    // Object element: route through `$set.newObject`
+                    // with the class's `equals` / `hashCode` method
+                    // addresses. ARC retain / release on stored
+                    // elements is handled inside the runtime via
+                    // `__retain_object` / `__release_object`, so the
+                    // user-side protocol stays the two-method
+                    // `equals` + `hashCode` pair.
+                    if let MirTy::Object(class_id) = &elem {
+                        let meta = self
+                            .class_meta
+                            .get(class_id)
+                            .expect("Set<MyClass>: missing class meta — type-check should have caught this");
+                        let eq_id = meta
+                            .method_ids
+                            .get(&Symbol::intern("equals"))
+                            .copied()
+                            .expect("Set<MyClass>: missing `equals` method id");
+                        let hash_id = meta
+                            .method_ids
+                            .get(&Symbol::intern("hashCode"))
+                            .copied()
+                            .expect("Set<MyClass>: missing `hashCode` method id");
+                        let eq_addr = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::FuncAddr {
+                            dst: eq_addr,
+                            func: eq_id,
+                        });
+                        let hash_addr = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::FuncAddr {
+                            dst: hash_addr,
+                            func: hash_id,
+                        });
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(set_ptr),
+                            callee: FuncRef::Builtin(Symbol::intern("set_new_object")),
+                            args: Box::new([eq_addr, hash_addr]),
+                        });
+                        // Object sets carry PK_OBJECT internally and
+                        // ignore the `setElemPrintKind` call (see the
+                        // runtime guard in `__set_set_elem_print_kind`);
+                        // skip the call so we don't add a useless
+                        // instruction here.
+                        return Ok((set_ptr, ty));
+                    }
                     self.fb.push_inst(Inst::Call {
                         dst: Some(set_ptr),
                         callee: FuncRef::Builtin(Symbol::intern("set_new")),

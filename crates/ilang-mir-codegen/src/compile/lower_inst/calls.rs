@@ -398,6 +398,7 @@ pub(super) fn lower_call<M: Module>(
                 "map_entries" => Some(map_ids.entries),
                 "map_for_each" => Some(map_ids.for_each),
                 "set_new" => Some(set_ids.new),
+                "set_new_object" => Some(set_ids.new_object),
                 "set_add" => Some(set_ids.add),
                 "set_has" => Some(set_ids.has),
                 "set_delete" => Some(set_ids.delete),

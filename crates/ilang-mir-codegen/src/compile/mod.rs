@@ -59,6 +59,7 @@ pub(super) struct MapIds {
 #[derive(Clone, Copy)]
 pub(super) struct SetIds {
     pub(super) new: cranelift_module::FuncId,
+    pub(super) new_object: cranelift_module::FuncId,
     pub(super) add: cranelift_module::FuncId,
     pub(super) has: cranelift_module::FuncId,
     pub(super) delete: cranelift_module::FuncId,
