@@ -98,6 +98,13 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let free_id = declare_binary_i64_void(module, "$alloc.free")?;
     // Map runtime imports.
     let map_new_id = declare_returns_i64(module, "$map.new")?;
+    let map_new_object_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("$map.newObject", Linkage::Import, &sig)?
+    };
     let map_get_id = declare_binary_i64(module, "$map.get")?;
     let map_get_optional_id = declare_binary_i64(module, "$map.getOptional")?;
     let map_set_id = declare_ternary_i64_void(module, "$map.set")?;
@@ -800,6 +807,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             let mut fb = ClifFnBuilder::new(&mut ctx.func, &mut fb_ctx);
             let map_ids = MapIds {
                 new: map_new_id,
+                new_object: map_new_object_id,
                 get: map_get_id,
                 get_optional: map_get_optional_id,
                 set: map_set_id,

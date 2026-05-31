@@ -26,6 +26,114 @@ enum MapStore {
     /// String keys, stored canonically (UTF-8-lossy) so two raw
     /// pointers with the same bytes collapse to one entry.
     Str(HashMap<Box<str>, i64>),
+    /// Class-instance keys driven by user-supplied `equals` /
+    /// `hashCode` — `Set<MyClass>` uses the parallel `ObjectStore`
+    /// in `sets.rs`. The set's +1 ARC share is taken via
+    /// `__retain_object` (and released via `__release_object`),
+    /// mirroring how the string store retains string-registry keys.
+    Object(ObjectMapStore),
+}
+
+struct ObjectMapStore {
+    eq_fn: extern "C" fn(i64, i64) -> i64,
+    hash_fn: extern "C" fn(i64) -> i64,
+    /// `hash → Vec of (key_ptr, value_cell)`. Bucket walks compare
+    /// with the user's `eq_fn`.
+    buckets: HashMap<i64, Vec<(i64, i64)>>,
+    count: usize,
+}
+
+impl ObjectMapStore {
+    fn empty_like(&self) -> Self {
+        ObjectMapStore {
+            eq_fn: self.eq_fn,
+            hash_fn: self.hash_fn,
+            buckets: HashMap::new(),
+            count: 0,
+        }
+    }
+
+    /// `(value, replaced_previous)` on insertion. The caller handles
+    /// the value's kind-based retain/release around this; key
+    /// retention happens here on a genuinely new entry.
+    fn insert(&mut self, key: i64, value: i64) -> Option<i64> {
+        if key == 0 {
+            return None;
+        }
+        let hash = (self.hash_fn)(key);
+        let bucket = self.buckets.entry(hash).or_default();
+        for slot in bucket.iter_mut() {
+            if (self.eq_fn)(slot.0, key) != 0 {
+                let prev = std::mem::replace(&mut slot.1, value);
+                return Some(prev);
+            }
+        }
+        crate::classes::__retain_object(key);
+        bucket.push((key, value));
+        self.count += 1;
+        None
+    }
+
+    fn get(&self, key: i64) -> Option<i64> {
+        if key == 0 {
+            return None;
+        }
+        let hash = (self.hash_fn)(key);
+        let bucket = self.buckets.get(&hash)?;
+        for (k, v) in bucket {
+            if (self.eq_fn)(*k, key) != 0 {
+                return Some(*v);
+            }
+        }
+        None
+    }
+
+    fn remove(&mut self, key: i64) -> Option<i64> {
+        if key == 0 {
+            return None;
+        }
+        let hash = (self.hash_fn)(key);
+        let bucket = self.buckets.get_mut(&hash)?;
+        for i in 0..bucket.len() {
+            if (self.eq_fn)(bucket[i].0, key) != 0 {
+                let (k, v) = bucket.swap_remove(i);
+                if bucket.is_empty() {
+                    self.buckets.remove(&hash);
+                }
+                self.count -= 1;
+                crate::classes::__release_object(k);
+                return Some(v);
+            }
+        }
+        None
+    }
+
+    /// Drop every entry's key share. Caller releases values
+    /// separately because that needs the map's `val_kind`.
+    fn clear_keys(&mut self) -> Vec<i64> {
+        let mut values: Vec<i64> = Vec::with_capacity(self.count);
+        for bucket in self.buckets.values_mut() {
+            for &(k, v) in bucket.iter() {
+                crate::classes::__release_object(k);
+                values.push(v);
+            }
+        }
+        self.buckets.clear();
+        self.count = 0;
+        values
+    }
+
+    fn iter_keys(&self) -> impl Iterator<Item = i64> + '_ {
+        self.buckets.values().flat_map(|b| b.iter().map(|(k, _)| *k))
+    }
+
+    fn iter_values(&self) -> impl Iterator<Item = i64> + '_ {
+        self.buckets.values().flat_map(|b| b.iter().map(|(_, v)| *v))
+    }
+
+    fn iter_entries(&self) -> impl Iterator<Item = (i64, i64)> + '_ {
+        self.buckets.values().flat_map(|b| b.iter().copied())
+    }
 }
 
 pub(crate) struct ManagedMap {
@@ -76,12 +184,43 @@ pub extern "C" fn __map_new() -> i64 {
     Box::into_raw(m) as i64
 }
 
+/// Object-key map constructor. Counterpart to `$set.newObject` —
+/// takes the class's `equals` / `hashCode` method addresses as raw
+/// i64s and routes future inserts through the bucketed
+/// `ObjectMapStore`. `key_print_kind` starts at `PK_OBJECT` so
+/// `console.log` formats keys as object refs; `$map.setPrintKinds`
+/// is a no-op on this variant.
+#[unsafe(export_name = "$map.newObject")]
+pub extern "C" fn __map_new_object(eq_fn: i64, hash_fn: i64) -> i64 {
+    let m = Box::new(ManagedMap {
+        rc: AtomicI64::new(1),
+        val_kind: 0,
+        key_print_kind: crate::kind::PK_OBJECT,
+        val_print_kind: PK_OTHER,
+        store: MapStore::Object(ObjectMapStore {
+            eq_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64, i64) -> i64>(eq_fn) },
+            hash_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64) -> i64>(hash_fn) },
+            buckets: HashMap::new(),
+            count: 0,
+        }),
+        str_key_origs: HashMap::new(),
+    });
+    Box::into_raw(m) as i64
+}
+
 #[unsafe(export_name = "$map.setPrintKinds")]
 pub extern "C" fn __map_set_print_kinds(map: i64, key_kind: i64, val_kind: i64) {
     if map == 0 {
         return;
     }
     let m = unsafe { &mut *(map as *mut ManagedMap) };
+    // Object-key maps carry PK_OBJECT internally and never need the
+    // Int↔Str swap; codegen still emits the call for symmetry but the
+    // Object arm leaves the bucket store untouched.
+    if matches!(m.store, MapStore::Object(_)) {
+        m.val_print_kind = val_kind;
+        return;
+    }
     m.key_print_kind = key_kind;
     m.val_print_kind = val_kind;
     // Codegen always calls this immediately after `$map.new`, before any
@@ -112,6 +251,7 @@ pub extern "C" fn __map_get(map: i64, key: i64) -> i64 {
     let v = match &m.store {
         MapStore::Int(t) => *t.get(&key).unwrap_or(&0),
         MapStore::Str(t) => *t.get(&*unsafe { key_str(key) }).unwrap_or(&0),
+        MapStore::Object(t) => t.get(key).unwrap_or(0),
     };
     // Heap value-typed maps need a retain on read — the caller
     // gets a `+1` reference whose lifetime is independent of the
@@ -133,6 +273,7 @@ pub extern "C" fn __map_get_optional(map: i64, key: i64) -> i64 {
     let found = match &m.store {
         MapStore::Int(t) => t.get(&key).copied(),
         MapStore::Str(t) => t.get(&*unsafe { key_str(key) }).copied(),
+        MapStore::Object(t) => t.get(key),
     };
     match found {
         Some(v) => {
@@ -171,6 +312,7 @@ pub extern "C" fn __map_set(map: i64, key: i64, value: i64) {
     let print_str = m.key_print_kind == PK_STR && key != 0;
     let mut shared_key: Option<Box<str>> = None;
     let prev = match &mut m.store {
+        MapStore::Object(t) => t.insert(key, value),
         MapStore::Int(t) => t.insert(key, value),
         MapStore::Str(t) => {
             let k: Box<str> = unsafe { key_str(key) }.into_owned().into_boxed_str();
@@ -211,6 +353,7 @@ pub extern "C" fn __map_has(map: i64, key: i64) -> i64 {
     let found = match &m.store {
         MapStore::Int(t) => t.contains_key(&key),
         MapStore::Str(t) => t.contains_key(&*unsafe { key_str(key) }),
+        MapStore::Object(t) => t.get(key).is_some(),
     };
     if found { 1 } else { 0 }
 }
@@ -224,6 +367,7 @@ pub extern "C" fn __map_size(map: i64) -> i64 {
     let len = match &m.store {
         MapStore::Int(t) => t.len(),
         MapStore::Str(t) => t.len(),
+        MapStore::Object(t) => t.count,
     };
     len as i64
 }
@@ -238,6 +382,7 @@ pub extern "C" fn __map_delete(map: i64, key: i64) -> i64 {
     let removed = match &mut m.store {
         MapStore::Int(t) => t.remove(&key),
         MapStore::Str(t) => t.remove(&*unsafe { key_str(key) }),
+        MapStore::Object(t) => t.remove(key),
     };
     match removed {
         Some(old) => {
@@ -262,14 +407,25 @@ pub extern "C" fn __map_keys(map: i64) -> i64 {
         return build_i64_array(&[], KIND_NONE);
     }
     let m = unsafe { &*(map as *const ManagedMap) };
-    let elem_kind = if m.key_print_kind == PK_STR { KIND_STR } else { KIND_NONE };
+    let elem_kind = if m.key_print_kind == PK_STR {
+        KIND_STR
+    } else if m.key_print_kind == crate::kind::PK_OBJECT {
+        crate::kind::KIND_OBJECT
+    } else {
+        KIND_NONE
+    };
     let keys: Vec<i64> = match &m.store {
         MapStore::Int(t) => t.keys().copied().collect(),
         MapStore::Str(t) => t.keys().map(|k| m.str_orig_or_leak(k)).collect(),
+        MapStore::Object(t) => t.iter_keys().collect(),
     };
     if elem_kind == KIND_STR {
         for k in &keys {
             __retain_string(*k);
+        }
+    } else if elem_kind == crate::kind::KIND_OBJECT {
+        for k in &keys {
+            crate::classes::__retain_object(*k);
         }
     }
     build_i64_array(&keys, elem_kind)
@@ -285,6 +441,7 @@ pub extern "C" fn __map_values(map: i64) -> i64 {
     let values: Vec<i64> = match &m.store {
         MapStore::Int(t) => t.values().copied().collect(),
         MapStore::Str(t) => t.values().copied().collect(),
+        MapStore::Object(t) => t.iter_values().collect(),
     };
     if val_kind != KIND_NONE {
         for v in &values {
@@ -318,7 +475,19 @@ pub extern "C" fn __map_clear(map: i64) {
                     release_field_by_kind(v, val_kind);
                 }
             }
+            MapStore::Object(t) => {
+                for v in t.iter_values() {
+                    release_field_by_kind(v, val_kind);
+                }
+            }
         }
+    }
+    if let MapStore::Object(t) = &mut m.store {
+        // `clear_keys` releases every object key share and resets
+        // the bucket store. Returned values are already released
+        // above (when `val_kind != KIND_NONE`).
+        let _ = t.clear_keys();
+        return;
     }
     if m.key_print_kind == PK_STR {
         // Release the canonical key pointers we handed out via
@@ -332,6 +501,8 @@ pub extern "C" fn __map_clear(map: i64) {
     match &mut m.store {
         MapStore::Int(t) => t.clear(),
         MapStore::Str(t) => t.clear(),
+        // Object handled above with `clear_keys`.
+        MapStore::Object(_) => {}
     }
 }
 
@@ -348,10 +519,17 @@ pub extern "C" fn __map_entries(map: i64) -> i64 {
         return build_i64_array(&[], crate::kind::KIND_TUPLE);
     }
     let m = unsafe { &*(map as *const ManagedMap) };
-    let key_kind = if m.key_print_kind == PK_STR { KIND_STR } else { KIND_NONE };
+    let key_kind = if m.key_print_kind == PK_STR {
+        KIND_STR
+    } else if m.key_print_kind == crate::kind::PK_OBJECT {
+        crate::kind::KIND_OBJECT
+    } else {
+        KIND_NONE
+    };
     let val_kind = m.val_kind;
     // Snapshot (key_raw, value) pairs; string keys take a +1 registry rc
-    // up-front so the tuple array owns its own share.
+    // up-front so the tuple array owns its own share. Object keys
+    // mirror the same pattern via `__retain_object`.
     let pairs: Vec<(i64, i64)> = match &m.store {
         MapStore::Int(t) => t.iter().map(|(&k, &v)| (k, v)).collect(),
         MapStore::Str(t) => t
@@ -360,6 +538,13 @@ pub extern "C" fn __map_entries(map: i64) -> i64 {
                 let orig = m.str_orig_or_leak(k);
                 __retain_string(orig);
                 (orig, v)
+            })
+            .collect(),
+        MapStore::Object(t) => t
+            .iter_entries()
+            .map(|(k, v)| {
+                crate::classes::__retain_object(k);
+                (k, v)
             })
             .collect(),
     };
@@ -461,9 +646,10 @@ pub extern "C" fn __map_for_each(map: i64, closure: i64, key_fk: i64, val_fk: i6
     }
     let m = unsafe { &*(map as *const ManagedMap) };
     let key_is_str = m.key_print_kind == PK_STR;
+    let key_is_object = matches!(&m.store, MapStore::Object(_));
     // Snapshot as raw (key, value) pairs so the callback can mutate
-    // the map without aliasing our iterator. String keys keep a +1
-    // registry rc through the call so mid-iteration `delete` can't
+    // the map without aliasing our iterator. String / object keys
+    // keep a +1 rc through the call so mid-iteration `delete` can't
     // free them out from under the callback.
     let pairs: Vec<(i64, i64)> = match &m.store {
         MapStore::Int(t) => t.iter().map(|(&k, &v)| (k, v)).collect(),
@@ -475,11 +661,20 @@ pub extern "C" fn __map_for_each(map: i64, closure: i64, key_fk: i64, val_fk: i6
                 (orig, v)
             })
             .collect(),
+        MapStore::Object(t) => t
+            .iter_entries()
+            .map(|(k, v)| {
+                crate::classes::__retain_object(k);
+                (k, v)
+            })
+            .collect(),
     };
     for (key_raw, v) in pairs {
         unsafe { call_closure_kv(closure, key_raw, v, key_fk, val_fk) };
         if key_is_str {
             crate::strings::__release_string(key_raw);
+        } else if key_is_object {
+            crate::classes::__release_object(key_raw);
         }
     }
 }
@@ -519,6 +714,14 @@ pub fn format_map_into(out: &mut String, map_ptr: i64) {
                 let mut s = String::new();
                 format_kind_id(&mut s, kk, raw);
                 (s, raw, v)
+            })
+            .collect(),
+        MapStore::Object(t) => t
+            .iter_entries()
+            .map(|(k, v)| {
+                let mut s = String::new();
+                format_kind_id(&mut s, kk, k);
+                (s, k, v)
             })
             .collect(),
     };
@@ -562,10 +765,15 @@ pub extern "C" fn __release_map(map: i64) {
         let values: Vec<i64> = match &m_mut.store {
             MapStore::Int(t) => t.values().copied().collect(),
             MapStore::Str(t) => t.values().copied().collect(),
+            MapStore::Object(t) => t.iter_values().collect(),
         };
         for v in values {
             release_field_by_kind(v, val_kind);
         }
+    }
+    // Object keys: drop the map's adopted +1 on every key.
+    if let MapStore::Object(t) = &mut m_mut.store {
+        let _ = t.clear_keys();
     }
     // Drop the map's adopted +1 on every string key (mirrors `clear`).
     if m_mut.key_print_kind == PK_STR {

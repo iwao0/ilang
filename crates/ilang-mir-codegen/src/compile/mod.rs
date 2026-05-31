@@ -40,6 +40,7 @@ use ilang_mir::{ClassId, MirTy, Program};
 #[derive(Clone, Copy)]
 pub(super) struct MapIds {
     pub(super) new: cranelift_module::FuncId,
+    pub(super) new_object: cranelift_module::FuncId,
     pub(super) get: cranelift_module::FuncId,
     pub(super) get_optional: cranelift_module::FuncId,
     pub(super) set: cranelift_module::FuncId,

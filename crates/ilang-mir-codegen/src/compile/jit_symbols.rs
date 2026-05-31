@@ -36,6 +36,7 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     // Set runtime.
     jit_builder.symbol("$set.new", ilang_runtime::__set_new as *const u8);
     jit_builder.symbol("$set.newObject", ilang_runtime::__set_new_object as *const u8);
+    jit_builder.symbol("$map.newObject", ilang_runtime::__map_new_object as *const u8);
     jit_builder.symbol("$set.add", ilang_runtime::__set_add as *const u8);
     jit_builder.symbol("$set.has", ilang_runtime::__set_has as *const u8);
     jit_builder.symbol("$set.delete", ilang_runtime::__set_delete as *const u8);
