@@ -593,7 +593,9 @@ fn download(url: string, path: string) { ... }
 `@name(args)` form (TS / Java / Python decorator-style). Multiple
 attributes each start with their own `@`. The argument list is not
 optional (`@x` without parens is a parse error). Attributes attach
-to methods too, but not to the class itself.
+to methods too. Only `@derive(...)` is currently accepted on the
+class declaration itself; other attributes on a class are rejected
+by the parser.
 
 The attributes that actually carry meaning today are:
 
@@ -604,6 +606,7 @@ The attributes that actually carry meaning today are:
 - `@flags` on `enum` declarations (bitset semantics)
 - `@embed("path/to/file")` on `const` declarations (compile-time file inclusion)
 - `@target("os")` on `fn` / `class` / methods — host-OS filter (details below)
+- `@derive(Eq, Hash)` on `class` declarations — auto-synthesise `equals` / `hashCode` for value-equality use in `Set<MyClass>` / `Map<MyClass, V>` (details in the Maps / Sets section)
 
 Everything else parses successfully but is silently dropped.
 
@@ -1125,15 +1128,17 @@ s.isSupersetOf(other)               // bool
 s.isDisjointFrom(other)             // bool
 ```
 
-- Element types: `string` / `i*` / `u*` / `bool` / `f32` / `f64`.
+- Element types: `string` / `i*` / `u*` / `bool` / `f32` / `f64`,
+  plus classes that satisfy the value-equality protocol (see below).
   Floats compare by bit pattern, so distinct NaN payloads stay as
   separate entries.
 - No literal syntax yet (`{1, 2, 3}` is reserved for a future
   extension). Empty / pre-populated sets always use `new Set<T>()`
   followed by `add` calls.
 
-- Key types: `string` / `i*` / `u*` / `bool`. Floats and objects
-  are rejected (Eq / Hash consistency).
+- Key types: `string` / `i*` / `u*` / `bool`, plus classes that
+  satisfy the value-equality protocol (see below). Floats are
+  rejected (NaN ≠ NaN breaks the `Eq` contract).
 - `K` is inferred from the first key, `V` from the first value in
   the literal.
 - Empty maps need `new Map<K, V>()` — `{}` is parsed as an empty
@@ -1143,6 +1148,64 @@ s.isDisjointFrom(other)             // bool
   by `:`) is a map.
 - Literals, basic ops, and the `get` / `keys` / `values` family
   are all supported.
+
+### Value-equality protocol for class keys / elements
+
+`Set<MyClass>` and `Map<MyClass, V>` accept a class type when the
+class declares both:
+
+```rust
+pub fn equals(other: MyClass): bool   // structural compare
+pub fn hashCode(): i64                // stable hash
+```
+
+Both methods are required (an `equals` without a `hashCode`, or
+vice versa, fails the `new Set<MyClass>()` / `new Map<MyClass, V>()`
+type-check). Two instances are considered "the same" inside the
+container exactly when `equals` returns `true`; the container keeps
+exactly one of them.
+
+> Note: the `==` operator on class references is still reference
+> equality. The value-equality protocol only affects Set / Map
+> membership and dedup.
+
+#### `@derive(Eq, Hash)` shorthand
+
+Adding `@derive(Eq, Hash)` to the class declaration tells the
+loader to synthesise both methods structurally:
+
+```rust
+@derive(Eq, Hash)
+class Point {
+    pub x: i64
+    pub y: i64
+    pub init(x: i64, y: i64) { this.x = x; this.y = y }
+}
+
+let s = new Set<Point>()
+s.add(new Point(1, 2))
+s.add(new Point(1, 2))    // structural duplicate → set keeps one
+test.expect(s.size(), 1)
+```
+
+- `@derive(Eq)` and `@derive(Hash)` can each be used on their own.
+  `@derive(Eq, Hash)` is shorthand for both.
+- Hand-written `equals` / `hashCode` always win — the synthesis
+  only fills in methods the class is missing. Mixing manual and
+  derived sides is supported.
+- The synthesised `equals` is an `&&`-chain over the fields. For a
+  class-typed field, the synthesis emits `this.field.equals(other.field)`
+  so a nested `@derive` value compares structurally too.
+- The synthesised `hashCode` is a polynomial fold:
+  `h_{i+1} = h_i * 31 + (field_i as i64)`. Supported field types:
+  - `i8` / `i16` / `i32` / `i64` / `u8` / `u16` / `u32` / `u64`
+    (cast to `i64`)
+  - `bool` (`if field { 1 } else { 0 }`)
+  - Class fields with their own `hashCode` (manual or `@derive(Hash)`)
+- `string` / `f32` / `f64` field types are **not** yet supported by
+  `@derive(Hash)`. The expansion fails with an actionable error
+  pointing at the manual-implementation path. Write `hashCode` by
+  hand for now if the class has such a field.
 
 ---
 

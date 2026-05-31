@@ -476,7 +476,7 @@ fn fetch(url: string): string { ... }
 fn download(url: string, path: string) { ... }
 ```
 
-`@name(args)` 形式 (TS / Java / Python のデコレータ風)。複数並べる場合はそれぞれ `@` から始める。引数リストは省略不可 (`@x` 単独はパースエラー)。属性はメソッドにも付けられるが、クラス自体への付与は未対応。
+`@name(args)` 形式 (TS / Java / Python のデコレータ風)。複数並べる場合はそれぞれ `@` から始める。引数リストは省略不可 (`@x` 単独はパースエラー)。属性はメソッドにも付けられる。クラス宣言自身に付与できるのは `@derive(...)` のみで、他の属性はパーサが弾く。
 
 現状で意味を持つ属性は以下:
 
@@ -487,6 +487,7 @@ fn download(url: string, path: string) { ... }
 - `enum` 宣言に付ける `@flags` (ビットセット意味付け)
 - `const` 宣言に付ける `@embed("path/to/file")` (コンパイル時ファイル取り込み)
 - `fn` / `class` / メソッドに付ける `@target("os")` — ホスト OS フィルタ (詳細は次節)
+- `class` 宣言に付ける `@derive(Eq, Hash)` — `Set<MyClass>` / `Map<MyClass, V>` の値等価プロトコル用に `equals` / `hashCode` を自動合成 (詳細は Map / Set 節)
 
 それ以外はパースは通るが黙って捨てられる。
 
@@ -905,14 +906,54 @@ s.isSupersetOf(other)               // bool
 s.isDisjointFrom(other)             // bool
 ```
 
-- 要素型は `string` / `i*` / `u*` / `bool` / `f32` / `f64`。浮動小数はビットパターン比較なので、別ビットパターンの NaN は別エントリとして残る
+- 要素型は `string` / `i*` / `u*` / `bool` / `f32` / `f64`、および値等価プロトコルを実装したクラス (下記参照)。浮動小数はビットパターン比較なので、別ビットパターンの NaN は別エントリとして残る
 - リテラル構文は未提供 (`{1, 2, 3}` は将来の拡張用として予約)。空 / 初期値付きの Set は `new Set<T>()` + `add` で作る
 
-- キー型は `string` / `i*` / `u*` / `bool` のみ (float / オブジェクト不可 — `Eq`/`Hash` の整合性確保のため)
+- キー型は `string` / `i*` / `u*` / `bool`、および値等価プロトコルを実装したクラス (下記参照)。float は不可 (NaN ≠ NaN が `Eq` 契約を壊す)
 - リテラル `{ key: value, ... }` の最初のキーから K を、最初の値から V を推論
 - 空マップは `new Map<K, V>()` で構築 (`{}` は空ブロック扱い)
 - パーサは `{<key-token> :` の 2 トークン先読みで map literal とブロックを区別 (ID/Str/Int/Bool + `:` で map)
 - 基本演算 + `get` / `keys` / `values` / リテラルすべて対応
+
+### クラスを Set/Map に入れるための値等価プロトコル
+
+`Set<MyClass>` / `Map<MyClass, V>` は、クラスが以下の 2 メソッドを宣言しているとき要素・キーとして受け入れる:
+
+```rust
+pub fn equals(other: MyClass): bool   // 構造比較
+pub fn hashCode(): i64                // 安定したハッシュ
+```
+
+両方必須。`equals` だけ / `hashCode` だけだと `new Set<MyClass>()` / `new Map<MyClass, V>()` の型チェックで弾かれる。コンテナ内では `equals` が `true` を返す 2 インスタンスを「同じ」と見なし、片方だけを保持する。
+
+> 注: クラス参照に対する `==` 演算子は依然として参照等価のまま。値等価は Set / Map の重複判定にのみ影響する。
+
+#### `@derive(Eq, Hash)` で自動合成
+
+`class` 宣言の頭に `@derive(Eq, Hash)` を付けると、loader が両メソッドをフィールドベースで合成する:
+
+```rust
+@derive(Eq, Hash)
+class Point {
+    pub x: i64
+    pub y: i64
+    pub init(x: i64, y: i64) { this.x = x; this.y = y }
+}
+
+let s = new Set<Point>()
+s.add(new Point(1, 2))
+s.add(new Point(1, 2))    // 構造的に重複 → Set は 1 つだけ保持
+test.expect(s.size(), 1)
+```
+
+- `@derive(Eq)` / `@derive(Hash)` を単独で書いてもよい。`@derive(Eq, Hash)` は両方の略記
+- 手書きの `equals` / `hashCode` が優先される。合成は「ユーザが書いていない方」だけを埋めるので、手書きと derive の混在も可能
+- 合成 `equals` はフィールド比較を `&&` で連ねる。クラス型のフィールドには `this.field.equals(other.field)` を出し、入れ子の `@derive` 値も構造比較で判定される
+- 合成 `hashCode` は多項式畳み込み: `h_{i+1} = h_i * 31 + (field_i as i64)`。サポート対象のフィールド型:
+  - `i8` / `i16` / `i32` / `i64` / `u8` / `u16` / `u32` / `u64` (`as i64` キャスト)
+  - `bool` (`if field { 1 } else { 0 }`)
+  - 自身が `hashCode` を持つクラスフィールド (手書きまたは `@derive(Hash)`)
+- `string` / `f32` / `f64` フィールドは `@derive(Hash)` で **未対応**。展開時に手書き実装への誘導エラーが出る。該当フィールドを持つクラスは当面 `hashCode` を手書きする
 
 ---
 
