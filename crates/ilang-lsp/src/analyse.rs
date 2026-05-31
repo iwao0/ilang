@@ -546,6 +546,48 @@ run()
         );
     }
 
+    /// Symmetric coverage for built-in array methods. `let mapped =
+    /// xs.map(...)` should hover with the substituted element type;
+    /// every other listed method should land on its declared return
+    /// shape from `array_method_return_type`. Without this the
+    /// MethodCall arm of `infer_expr` could silently regress arrays
+    /// even after the string-method fix.
+    #[test]
+    fn array_method_call_let_has_typed_hover() {
+        let src = "\
+fn run() {
+    let xs: i64[] = [1, 2, 3]
+    let head = xs.pop()
+    let i = xs.indexOf(2)
+    let hit = xs.includes(2)
+    let rev = xs.reverse()
+    let mapped = xs.map(fn(x: i64): i64 { x + 1 })
+}
+run()
+";
+        let tmp = std::env::temp_dir()
+            .join("ilang_lsp_probe_array_method_let.il");
+        std::fs::write(&tmp, src).unwrap();
+        let doc = analyse_path_to_doc(&tmp).expect("doc built");
+        let expect = |name: &str, ty: &str| {
+            let r = doc
+                .refs
+                .iter()
+                .find(|r| r.signature.starts_with(&format!("let {name}")))
+                .unwrap_or_else(|| panic!("no `let {name}` ref"));
+            assert!(
+                r.signature.ends_with(ty),
+                "expected `let {name}` to end with {ty:?}, got {:?}",
+                r.signature,
+            );
+        };
+        expect("head", ": i64?");
+        expect("i", ": i64");
+        expect("hit", ": bool");
+        expect("rev", ": i64[]");
+        expect("mapped", ": i64[]");
+    }
+
     /// Regression: `let classW = "BUTTON".encodeUtf16()` (and any
     /// other built-in string method call as the value) used to hover
     /// untyped because `infer_expr`'s MethodCall arm only consulted

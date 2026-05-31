@@ -151,6 +151,33 @@ pub(crate) fn primitive_method_doc(method: &str) -> Option<&'static str> {
     })
 }
 
+/// Return type of a built-in array method, given the element type.
+/// Mirrors `array_method_sig`'s shape table; keep them in sync when
+/// new array methods land. Generic `map<U>` falls back to the
+/// element-type (the user's closure-return) lookup at the call site —
+/// this table only covers the cases whose return type is a function
+/// of `elem` alone.
+pub(crate) fn array_method_return_type(method: &str, elem: &Type) -> Option<Type> {
+    let elem_box = || Box::new(elem.clone());
+    let array_of_elem = || Type::Array {
+        elem: elem_box(),
+        fixed: None,
+    };
+    Some(match method {
+        "push" | "unshift" | "fill" | "forEach" => Type::Unit,
+        "pop" | "shift" | "removeAt" => Type::Optional(elem_box()),
+        "find" => Type::Optional(elem_box()),
+        "remove" | "includes" | "every" | "some" => Type::Bool,
+        "indexOf" | "findIndex" => Type::I64,
+        "slice" | "reverse" | "concat" | "sort" | "filter" => array_of_elem(),
+        // `join` is only valid on `string[]` per the type checker;
+        // mirror that gate so we don't surface a phantom return type
+        // for a numeric array.
+        "join" if matches!(elem, Type::Str) => Type::Str,
+        _ => return None,
+    })
+}
+
 pub(crate) fn array_method_names() -> &'static [&'static str] {
     &[
         "push", "pop", "shift", "unshift", "remove", "removeAt",

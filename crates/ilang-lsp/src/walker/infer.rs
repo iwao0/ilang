@@ -84,7 +84,7 @@ impl<'a> Walker<'a> {
                 }
                 Some(ret)
             }
-            ExprKind::MethodCall { obj, method, .. } => {
+            ExprKind::MethodCall { obj, method, args } => {
                 let obj_ty = self.infer_expr(obj, scope);
                 if let Some(Type::Generic(g)) = &obj_ty {
                     if let Some(t) = infer_map_method_type(g, method.as_str()) {
@@ -102,6 +102,30 @@ impl<'a> Walker<'a> {
                     if let Some(t) =
                         crate::builtins::string_method_return_type(method.as_str())
                     {
+                        return Some(t);
+                    }
+                }
+                // Built-in array methods (`xs.pop()`, `xs.map(...)`,
+                // ...) — same story as string above. `map<U>(f:
+                // fn(T): U): U[]` is generic in `U`: substitute it
+                // from the closure arg's return type when present.
+                if let Some(Type::Array { elem, .. }) = &obj_ty {
+                    if method.as_str() == "map" {
+                        if let Some(arg) = args.first() {
+                            if let Some(Type::Fn(ft)) =
+                                self.infer_expr(arg, scope)
+                            {
+                                return Some(Type::Array {
+                                    elem: Box::new(ft.ret.clone()),
+                                    fixed: None,
+                                });
+                            }
+                        }
+                    }
+                    if let Some(t) = crate::builtins::array_method_return_type(
+                        method.as_str(),
+                        elem,
+                    ) {
                         return Some(t);
                     }
                 }
