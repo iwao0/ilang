@@ -87,9 +87,9 @@ fn synth_equals(c: &ClassDecl) -> Result<FnDecl, LoadError> {
         // tree, which is the cheap-fail shape we want.
         let mut iter = c.fields.iter().rev();
         let last = iter.next().expect("non-empty fields");
-        let mut acc = field_eq_expr(c.name, last.name, other_sym, span);
+        let mut acc = field_eq_expr(c.name, last.name, &last.ty, other_sym, span);
         for f in iter {
-            let lhs = field_eq_expr(c.name, f.name, other_sym, span);
+            let lhs = field_eq_expr(c.name, f.name, &f.ty, other_sym, span);
             acc = Expr::new(
                 ExprKind::Logical {
                     op: LogicalOp::And,
@@ -122,16 +122,39 @@ fn synth_equals(c: &ClassDecl) -> Result<FnDecl, LoadError> {
     })
 }
 
-fn field_eq_expr(class_name: Symbol, field: Symbol, other: Symbol, span: Span) -> Expr {
+fn field_eq_expr(
+    class_name: Symbol,
+    field: Symbol,
+    field_ty: &Type,
+    other: Symbol,
+    span: Span,
+) -> Expr {
     let _ = class_name;
-    Expr::new(
-        ExprKind::Binary {
-            op: BinOp::Eq,
-            lhs: Box::new(field_on_this(field, span)),
-            rhs: Box::new(field_on_var(other, field, span)),
-        },
-        span,
-    )
+    // Class-typed fields go through the field's own `equals` so a
+    // nested `@derive(Eq, Hash)` value compares structurally
+    // instead of by reference. Primitive / string fields fall
+    // back to the language's `==` (string is structural, ints /
+    // bool / floats are value-compare). `equals` returns bool, so
+    // the resulting expression slots into the `&&` chain
+    // unchanged.
+    match field_ty {
+        Type::Object(_) => Expr::new(
+            ExprKind::MethodCall {
+                obj: Box::new(field_on_this(field, span)),
+                method: Symbol::intern("equals"),
+                args: Box::new([field_on_var(other, field, span)]),
+            },
+            span,
+        ),
+        _ => Expr::new(
+            ExprKind::Binary {
+                op: BinOp::Eq,
+                lhs: Box::new(field_on_this(field, span)),
+                rhs: Box::new(field_on_var(other, field, span)),
+            },
+            span,
+        ),
+    }
 }
 
 fn field_on_this(field: Symbol, span: Span) -> Expr {
