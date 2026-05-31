@@ -21,6 +21,116 @@ enum SetStore {
     Int(HashSet<i64>),
     /// String elements, stored canonically (UTF-8-lossy).
     Str(HashSet<Box<str>>),
+    /// Class instances under the user-supplied value-equality protocol:
+    /// every element is identified by `(hash_fn(obj), eq_fn(obj, other))`
+    /// pairs supplied by the class. Buckets are keyed by the i64 hash;
+    /// equality walks the bucket via the user's `equals`. The set owns
+    /// a `retain_fn`-bumped share of every stored pointer and drops
+    /// the share via `release_fn` on delete / clear / drop.
+    Object(ObjectStore),
+}
+
+/// Object-element set storage. The four function pointers come from
+/// the class's `equals` / `hashCode` methods and the runtime ARC
+/// hooks; `new Set<Class>()` lowering binds them at construction.
+/// The bucketed `HashMap<i64, Vec<i64>>` is a chaining hashtable on
+/// top of the user's hash function — Rust's HashMap has no
+/// "dynamic equality" hook, so we keep the user's eq isolated to
+/// our walk rather than impl PartialEq for a wrapper type.
+struct ObjectStore {
+    eq_fn: extern "C" fn(i64, i64) -> i64,
+    hash_fn: extern "C" fn(i64) -> i64,
+    retain_fn: extern "C" fn(i64),
+    release_fn: extern "C" fn(i64),
+    /// `hash → vector of object pointers that hashed there`. Bucket
+    /// length is the only thing the size counter needs to know about.
+    buckets: HashMap<i64, Vec<i64>>,
+    count: usize,
+}
+
+impl ObjectStore {
+    fn empty_like(&self) -> Self {
+        ObjectStore {
+            eq_fn: self.eq_fn,
+            hash_fn: self.hash_fn,
+            retain_fn: self.retain_fn,
+            release_fn: self.release_fn,
+            buckets: HashMap::new(),
+            count: 0,
+        }
+    }
+
+    fn contains(&self, obj: i64) -> bool {
+        if obj == 0 {
+            return false;
+        }
+        let hash = (self.hash_fn)(obj);
+        if let Some(bucket) = self.buckets.get(&hash) {
+            for &existing in bucket {
+                if (self.eq_fn)(existing, obj) != 0 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Insert `obj`, retaining a +1 share on success. Returns `true`
+    /// when the element was actually added (i.e. no existing equal
+    /// element was found).
+    fn insert(&mut self, obj: i64) -> bool {
+        if obj == 0 {
+            return false;
+        }
+        let hash = (self.hash_fn)(obj);
+        let bucket = self.buckets.entry(hash).or_default();
+        for &existing in bucket.iter() {
+            if (self.eq_fn)(existing, obj) != 0 {
+                return false;
+            }
+        }
+        (self.retain_fn)(obj);
+        bucket.push(obj);
+        self.count += 1;
+        true
+    }
+
+    /// Remove an element equal to `obj`, releasing the set's share.
+    fn remove(&mut self, obj: i64) -> bool {
+        if obj == 0 {
+            return false;
+        }
+        let hash = (self.hash_fn)(obj);
+        let Some(bucket) = self.buckets.get_mut(&hash) else {
+            return false;
+        };
+        for i in 0..bucket.len() {
+            if (self.eq_fn)(bucket[i], obj) != 0 {
+                let removed = bucket.swap_remove(i);
+                if bucket.is_empty() {
+                    self.buckets.remove(&hash);
+                }
+                self.count -= 1;
+                (self.release_fn)(removed);
+                return true;
+            }
+        }
+        false
+    }
+
+    fn clear(&mut self) {
+        for bucket in self.buckets.values_mut() {
+            for &obj in bucket.iter() {
+                (self.release_fn)(obj);
+            }
+        }
+        self.buckets.clear();
+        self.count = 0;
+    }
+
+    fn iter(&self) -> impl Iterator<Item = i64> + '_ {
+        self.buckets.values().flat_map(|b| b.iter().copied())
+    }
 }
 
 pub(crate) struct ManagedSet {
@@ -66,6 +176,10 @@ impl ManagedSet {
     fn contains_str(&self, e: &str) -> bool {
         matches!(&self.store, SetStore::Str(t) if t.contains(e))
     }
+
+    fn contains_obj(&self, obj: i64) -> bool {
+        matches!(&self.store, SetStore::Object(t) if t.contains(obj))
+    }
 }
 
 #[unsafe(export_name = "$set.new")]
@@ -79,12 +193,46 @@ pub extern "C" fn __set_new() -> i64 {
     Box::into_raw(s) as i64
 }
 
+/// Object-element set constructor. Takes four function pointers
+/// (`equals` / `hashCode` / object retain / object release) as raw
+/// i64s — codegen materialises them at the `new Set<Class>()` site.
+/// `elem_print_kind` defaults to `PK_OBJECT` so `console.log` on
+/// the set formats elements as object refs.
+#[unsafe(export_name = "$set.newObject")]
+pub extern "C" fn __set_new_object(
+    eq_fn: i64,
+    hash_fn: i64,
+    retain_fn: i64,
+    release_fn: i64,
+) -> i64 {
+    let s = Box::new(ManagedSet {
+        rc: AtomicI64::new(1),
+        elem_print_kind: crate::kind::PK_OBJECT,
+        store: SetStore::Object(ObjectStore {
+            eq_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64, i64) -> i64>(eq_fn) },
+            hash_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64) -> i64>(hash_fn) },
+            retain_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64)>(retain_fn) },
+            release_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64)>(release_fn) },
+            buckets: HashMap::new(),
+            count: 0,
+        }),
+        str_origs: HashMap::new(),
+    });
+    Box::into_raw(s) as i64
+}
+
 #[unsafe(export_name = "$set.setElemPrintKind")]
 pub extern "C" fn __set_set_elem_print_kind(set: i64, kind: i64) {
     if set == 0 {
         return;
     }
     let s = unsafe { &mut *(set as *mut ManagedSet) };
+    // Object sets carry their own elem_print_kind = PK_OBJECT and
+    // never need this swap — codegen still emits the call for symmetry
+    // with primitive sets, but we leave their Object store untouched.
+    if matches!(s.store, SetStore::Object(_)) {
+        return;
+    }
     s.elem_print_kind = kind;
     // Codegen always calls this immediately after `$set.new`, before any
     // `add`, so the store is still empty here — pick the variant that
@@ -103,6 +251,10 @@ pub extern "C" fn __set_add(set: i64, raw: i64) {
     }
     let s = unsafe { &mut *(set as *mut ManagedSet) };
     match &mut s.store {
+        SetStore::Object(t) => {
+            t.insert(raw);
+            return;
+        }
         SetStore::Int(t) => {
             t.insert(raw);
         }
@@ -135,6 +287,7 @@ pub extern "C" fn __set_has(set: i64, raw: i64) -> i64 {
     let found = match &s.store {
         SetStore::Int(t) => t.contains(&raw),
         SetStore::Str(t) => t.contains(&*unsafe { elem_str(raw) }),
+        SetStore::Object(t) => t.contains(raw),
     };
     if found { 1 } else { 0 }
 }
@@ -145,9 +298,15 @@ pub extern "C" fn __set_delete(set: i64, raw: i64) -> i64 {
         return 0;
     }
     let s = unsafe { &mut *(set as *mut ManagedSet) };
+    // Object delete fast-pathed: bucket walk + release happens inside
+    // ObjectStore::remove, so no follow-up str_origs maintenance.
+    if let SetStore::Object(t) = &mut s.store {
+        return if t.remove(raw) { 1 } else { 0 };
+    }
     let removed = match &mut s.store {
         SetStore::Int(t) => t.remove(&raw),
         SetStore::Str(t) => t.remove(&*unsafe { elem_str(raw) }),
+        SetStore::Object(_) => unreachable!("handled above"),
     };
     if removed {
         if matches!(&s.store, SetStore::Str(_)) {
@@ -257,6 +416,7 @@ pub extern "C" fn __set_size(set: i64) -> i64 {
     let len = match &s.store {
         SetStore::Int(t) => t.len(),
         SetStore::Str(t) => t.len(),
+        SetStore::Object(t) => t.count,
     };
     len as i64
 }
@@ -276,6 +436,7 @@ pub extern "C" fn __set_clear(set: i64) {
     match &mut s.store {
         SetStore::Int(t) => t.clear(),
         SetStore::Str(t) => t.clear(),
+        SetStore::Object(t) => t.clear(),
     }
 }
 
@@ -290,7 +451,13 @@ pub extern "C" fn __set_values(set: i64) -> i64 {
         return build_i64_array(&[], KIND_NONE);
     }
     let s = unsafe { &*(set as *const ManagedSet) };
-    let elem_kind = if s.elem_print_kind == PK_STR { KIND_STR } else { KIND_NONE };
+    let elem_kind = if s.elem_print_kind == PK_STR {
+        KIND_STR
+    } else if s.elem_print_kind == crate::kind::PK_OBJECT {
+        crate::kind::KIND_OBJECT
+    } else {
+        KIND_NONE
+    };
     let values: Vec<i64> = match &s.store {
         SetStore::Int(t) => t.iter().copied().collect(),
         SetStore::Str(t) => t
@@ -299,6 +466,15 @@ pub extern "C" fn __set_values(set: i64) -> i64 {
                 let orig = s.str_orig_or_leak(e);
                 __retain_string(orig);
                 orig
+            })
+            .collect(),
+        SetStore::Object(t) => t
+            .iter()
+            .map(|obj| {
+                // Array element takes its own +1 share; the set
+                // retains a separate share that stays put.
+                (t.retain_fn)(obj);
+                obj
             })
             .collect(),
     };
@@ -343,6 +519,10 @@ pub extern "C" fn __set_for_each(set: i64, closure: i64) {
     }
     let s = unsafe { &*(set as *const ManagedSet) };
     let is_str = s.elem_print_kind == PK_STR;
+    let object_release = match &s.store {
+        SetStore::Object(t) => Some(t.release_fn),
+        _ => None,
+    };
     // Snapshot as raw i64 — for string elements we retain the registry
     // pointer up-front so each entry survives any mutation the
     // callback may perform on the set (e.g. delete during iteration).
@@ -356,11 +536,23 @@ pub extern "C" fn __set_for_each(set: i64, closure: i64) {
                 raw
             })
             .collect(),
+        SetStore::Object(t) => t
+            .iter()
+            .map(|obj| {
+                // Same pattern as the string path: pre-retain so the
+                // callback sees a stable share even if it deletes the
+                // entry from the set during iteration.
+                (t.retain_fn)(obj);
+                obj
+            })
+            .collect(),
     };
     for arg in args {
         unsafe { call_closure_1_i64(closure, arg) };
         if is_str {
             __release_string(arg);
+        } else if let Some(release_fn) = object_release {
+            release_fn(arg);
         }
     }
 }
@@ -373,7 +565,7 @@ pub extern "C" fn __set_for_each_f32(set: i64, closure: i64) {
     let s = unsafe { &*(set as *const ManagedSet) };
     let bits: Vec<i64> = match &s.store {
         SetStore::Int(t) => t.iter().copied().collect(),
-        SetStore::Str(_) => Vec::new(),
+        SetStore::Str(_) | SetStore::Object(_) => Vec::new(),
     };
     for b in bits {
         let v = f32::from_bits(b as u32);
@@ -389,12 +581,33 @@ pub extern "C" fn __set_for_each_f64(set: i64, closure: i64) {
     let s = unsafe { &*(set as *const ManagedSet) };
     let bits: Vec<i64> = match &s.store {
         SetStore::Int(t) => t.iter().copied().collect(),
-        SetStore::Str(_) => Vec::new(),
+        SetStore::Str(_) | SetStore::Object(_) => Vec::new(),
     };
     for b in bits {
         let v = f64::from_bits(b as u64);
         unsafe { call_closure_1_f64(closure, v) };
     }
+}
+
+/// Allocate an empty `ManagedSet` whose Object store inherits the
+/// fn-pointer hooks from `src`. Used by union / intersection /
+/// difference so the output set drives elements through the same
+/// equals / hash / retain / release callbacks as the inputs.
+fn make_object_set_like(src: &ManagedSet) -> i64 {
+    let SetStore::Object(ot) = &src.store else {
+        return __set_new();
+    };
+    let s = Box::new(ManagedSet {
+        rc: AtomicI64::new(1),
+        elem_print_kind: crate::kind::PK_OBJECT,
+        store: SetStore::Object(ot.empty_like()),
+        str_origs: HashMap::new(),
+    });
+    Box::into_raw(s) as i64
+}
+
+fn is_object_set(s: &ManagedSet) -> bool {
+    matches!(s.store, SetStore::Object(_))
 }
 
 /// Insert an integer element into `out`'s store (no string management).
@@ -421,27 +634,49 @@ fn set_insert_str_transferred(out: &mut ManagedSet, key: Box<str>, orig: i64) {
     }
 }
 
-/// Copy every element of `src` into `out`, retaining string shares.
+/// Copy every element of `src` into `out`, retaining string / object
+/// shares. Mixing element kinds (e.g. Object src into an Int out)
+/// is a codegen bug — type-check guarantees both sides have the same
+/// element shape, so the mismatched arms become no-ops here.
 fn set_copy_into(out: &mut ManagedSet, src: &ManagedSet) {
-    match &src.store {
-        SetStore::Int(t) => {
+    match (&src.store, &mut out.store) {
+        (SetStore::Int(t), _) => {
             for &e in t.iter() {
                 set_insert_int(out, e);
             }
         }
-        SetStore::Str(t) => {
+        (SetStore::Str(t), _) => {
             for k in t.iter() {
                 let orig = src.str_orig_or_leak(k);
                 __retain_string(orig);
                 set_insert_str_transferred(out, k.clone(), orig);
             }
         }
+        (SetStore::Object(s_obj), SetStore::Object(o_obj)) => {
+            for obj in s_obj.iter() {
+                o_obj.insert(obj); // handles retain
+            }
+        }
+        (SetStore::Object(_), _) => {}
     }
 }
 
 #[unsafe(export_name = "$set.union")]
 pub extern "C" fn __set_union(a: i64, b: i64) -> i64 {
-    let out = __set_new();
+    // Output's storage shape mirrors whichever input is Object (if any);
+    // otherwise fall through to the generic Int / Str ctor + the
+    // elem-print-kind nudge below.
+    let template = if a != 0 && is_object_set(unsafe { &*(a as *const ManagedSet) }) {
+        Some(a)
+    } else if b != 0 && is_object_set(unsafe { &*(b as *const ManagedSet) }) {
+        Some(b)
+    } else {
+        None
+    };
+    let out = match template {
+        Some(src) => make_object_set_like(unsafe { &*(src as *const ManagedSet) }),
+        None => __set_new(),
+    };
     let pk = if a != 0 {
         unsafe { &*(a as *const ManagedSet) }.elem_print_kind
     } else if b != 0 {
@@ -462,7 +697,11 @@ pub extern "C" fn __set_union(a: i64, b: i64) -> i64 {
 
 #[unsafe(export_name = "$set.intersection")]
 pub extern "C" fn __set_intersection(a: i64, b: i64) -> i64 {
-    let out = __set_new();
+    let out = if a != 0 && is_object_set(unsafe { &*(a as *const ManagedSet) }) {
+        make_object_set_like(unsafe { &*(a as *const ManagedSet) })
+    } else {
+        __set_new()
+    };
     if a == 0 || b == 0 {
         return out;
     }
@@ -487,13 +726,26 @@ pub extern "C" fn __set_intersection(a: i64, b: i64) -> i64 {
                 }
             }
         }
+        SetStore::Object(t) => {
+            if let SetStore::Object(o_obj) = &mut out_s.store {
+                for obj in t.iter() {
+                    if sb.contains_obj(obj) {
+                        o_obj.insert(obj);
+                    }
+                }
+            }
+        }
     }
     out
 }
 
 #[unsafe(export_name = "$set.difference")]
 pub extern "C" fn __set_difference(a: i64, b: i64) -> i64 {
-    let out = __set_new();
+    let out = if a != 0 && is_object_set(unsafe { &*(a as *const ManagedSet) }) {
+        make_object_set_like(unsafe { &*(a as *const ManagedSet) })
+    } else {
+        __set_new()
+    };
     if a == 0 {
         return out;
     }
@@ -501,36 +753,37 @@ pub extern "C" fn __set_difference(a: i64, b: i64) -> i64 {
     let pk = sa.elem_print_kind;
     __set_set_elem_print_kind(out, pk);
     let out_s = unsafe { &mut *(out as *mut ManagedSet) };
-    let empty_set;
-    let sb_ref: &ManagedSet = if b == 0 {
-        empty_set = ManagedSet {
-            rc: AtomicI64::new(1),
-            elem_print_kind: pk,
-            store: if pk == PK_STR {
-                SetStore::Str(HashSet::new())
-            } else {
-                SetStore::Int(HashSet::new())
-            },
-            str_origs: HashMap::new(),
-        };
-        &empty_set
+    // For an absent `b` we treat the diff target as empty — no
+    // membership checks fire below.
+    let sb_opt: Option<&ManagedSet> = if b == 0 {
+        None
     } else {
-        unsafe { &*(b as *const ManagedSet) }
+        Some(unsafe { &*(b as *const ManagedSet) })
     };
     match &sa.store {
         SetStore::Int(t) => {
             for &e in t.iter() {
-                if !sb_ref.contains_int(e) {
+                if !sb_opt.map(|s| s.contains_int(e)).unwrap_or(false) {
                     set_insert_int(out_s, e);
                 }
             }
         }
         SetStore::Str(t) => {
             for k in t.iter() {
-                if !sb_ref.contains_str(k) {
+                if !sb_opt.map(|s| s.contains_str(k)).unwrap_or(false) {
                     let orig = sa.str_orig_or_leak(k);
                     __retain_string(orig);
                     set_insert_str_transferred(out_s, k.clone(), orig);
+                }
+            }
+        }
+        SetStore::Object(t) => {
+            if let SetStore::Object(o_obj) = &mut out_s.store {
+                for obj in t.iter() {
+                    let skip = sb_opt.map(|s| s.contains_obj(obj)).unwrap_or(false);
+                    if !skip {
+                        o_obj.insert(obj);
+                    }
                 }
             }
         }
@@ -547,6 +800,7 @@ pub extern "C" fn __set_is_subset_of(a: i64, b: i64) -> i64 {
     let empty = match &sa.store {
         SetStore::Int(t) => t.is_empty(),
         SetStore::Str(t) => t.is_empty(),
+        SetStore::Object(t) => t.count == 0,
     };
     if empty {
         return 1;
@@ -558,6 +812,7 @@ pub extern "C" fn __set_is_subset_of(a: i64, b: i64) -> i64 {
     let subset = match &sa.store {
         SetStore::Int(t) => t.iter().all(|&e| sb.contains_int(e)),
         SetStore::Str(t) => t.iter().all(|k| sb.contains_str(k)),
+        SetStore::Object(t) => t.iter().all(|obj| sb.contains_obj(obj)),
     };
     if subset { 1 } else { 0 }
 }
@@ -577,6 +832,7 @@ pub extern "C" fn __set_is_disjoint_from(a: i64, b: i64) -> i64 {
     let disjoint = match &sa.store {
         SetStore::Int(t) => t.iter().all(|&e| !sb.contains_int(e)),
         SetStore::Str(t) => t.iter().all(|k| !sb.contains_str(k)),
+        SetStore::Object(t) => t.iter().all(|obj| !sb.contains_obj(obj)),
     };
     if disjoint { 1 } else { 0 }
 }
@@ -611,6 +867,12 @@ pub extern "C" fn __release_set(set: i64) {
             for v in s.str_origs.values() {
                 __release_string(*v);
             }
+        }
+        // Object elements own a +1 share each; clearing the store
+        // drops them through the registered release_fn before we
+        // free the Box backing the set.
+        if let SetStore::Object(t) = &mut s.store {
+            t.clear();
         }
         let _ = Box::from_raw(set as *mut ManagedSet);
     }
@@ -650,6 +912,14 @@ pub fn format_set_into(out: &mut String, set: i64) {
                 let raw = s.str_orig_or_leak(e);
                 let mut buf = String::new();
                 crate::print_dispatch::format_kind_id(&mut buf, pk, raw);
+                buf
+            })
+            .collect(),
+        SetStore::Object(t) => t
+            .iter()
+            .map(|obj| {
+                let mut buf = String::new();
+                crate::print_dispatch::format_kind_id(&mut buf, pk, obj);
                 buf
             })
             .collect(),
