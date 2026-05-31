@@ -95,16 +95,45 @@ pub(super) fn collect_type_var_bindings(
 pub(super) fn is_valid_map_key_type(
     t: &Type,
     classes: Option<&std::collections::HashMap<Symbol, super::ClassSig>>,
+    enums: Option<&std::collections::HashMap<Symbol, super::EnumSig>>,
 ) -> bool {
     match t {
         Type::Str | Type::Bool
         | Type::I8 | Type::I16 | Type::I32 | Type::I64
         | Type::U8 | Type::U16 | Type::U32 | Type::U64 => true,
-        Type::Object(c) => classes
-            .map(|m| class_has_value_equality(*c, m))
-            .unwrap_or(false),
+        Type::Object(n) => {
+            if let Some(em) = enums {
+                if em.contains_key(n) {
+                    return enum_is_value_keyable(*n, em);
+                }
+            }
+            classes
+                .map(|m| class_has_value_equality(*n, m))
+                .unwrap_or(false)
+        }
         _ => false,
     }
+}
+
+/// `Set<MyEnum>` / `Map<MyEnum, _>` are supported when every
+/// variant is unit-payload (or the whole enum is `@flags`). Those
+/// variants compile to a single i64 tag, so the existing Int store
+/// + tag-equality semantics give consistent dedup. Payload-carrying
+/// variants would need structural comparison through a hashCode /
+/// equals protocol the language doesn't yet offer for enums.
+pub(super) fn enum_is_value_keyable(
+    enum_name: Symbol,
+    enums: &std::collections::HashMap<Symbol, super::EnumSig>,
+) -> bool {
+    let Some(sig) = enums.get(&enum_name) else {
+        return false;
+    };
+    if sig.flags {
+        return true;
+    }
+    sig.variants
+        .iter()
+        .all(|v| matches!(v.payload, super::VariantPayloadSig::Unit))
 }
 
 /// `Set<T>` / `Map<T, _>` accept primitive `T`s by built-in hashing
@@ -156,17 +185,30 @@ pub(super) fn class_has_value_equality(
 /// (the runtime hashes them by bit pattern; NaN ≠ NaN follows IEEE
 /// semantics). Object element types are accepted when the class
 /// satisfies the value-equality protocol — see
-/// `class_has_value_equality`.
+/// `class_has_value_equality`. Unit-variant (or `@flags`) enums
+/// reuse the primitive i64 store.
 pub(super) fn is_valid_set_element_type(
     t: &Type,
     classes: &std::collections::HashMap<Symbol, super::ClassSig>,
+    enums: &std::collections::HashMap<Symbol, super::EnumSig>,
 ) -> bool {
     match t {
         Type::Str | Type::Bool
         | Type::I8 | Type::I16 | Type::I32 | Type::I64
         | Type::U8 | Type::U16 | Type::U32 | Type::U64
         | Type::F32 | Type::F64 => true,
-        Type::Object(c) => class_has_value_equality(*c, classes),
+        // Enums share `Type::Object(name)` representation with
+        // classes — the loader resolves the name into either the
+        // `enums` or `classes` map. Try the enum side first so a
+        // unit-variant enum picks the i64-tag store; fall through
+        // to the class protocol otherwise.
+        Type::Object(n) => {
+            if enums.contains_key(n) {
+                enum_is_value_keyable(*n, enums)
+            } else {
+                class_has_value_equality(*n, classes)
+            }
+        }
         _ => false,
     }
 }

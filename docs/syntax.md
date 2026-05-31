@@ -1150,15 +1150,19 @@ s.isDisjointFrom(other)             // bool
 ```
 
 - Element types: `string` / `i*` / `u*` / `bool` / `f32` / `f64`,
-  plus classes that satisfy the value-equality protocol (see below).
-  Floats compare by bit pattern, so distinct NaN payloads stay as
-  separate entries.
+  plus classes that satisfy the value-equality protocol (see below)
+  and `enum`s whose variants are all unit-payload (or the whole
+  enum is `@flags`). Floats compare by bit pattern, so distinct
+  NaN payloads stay as separate entries. Enum equality / hashing
+  is over the discriminant tag, so unit-variant / `@flags` enums
+  fit the existing primitive store without extra machinery.
 - No literal syntax yet (`{1, 2, 3}` is reserved for a future
   extension). Empty / pre-populated sets always use `new Set<T>()`
   followed by `add` calls.
 
 - Key types: `string` / `i*` / `u*` / `bool`, plus classes that
-  satisfy the value-equality protocol (see below). Floats are
+  satisfy the value-equality protocol (see below) and unit-variant
+  (or `@flags`) `enum`s — same gate as Set elements. Floats are
   rejected (NaN ≠ NaN breaks the `Eq` contract).
 - `K` is inferred from the first key, `V` from the first value in
   the literal.

@@ -1211,7 +1211,11 @@ impl TypeChecker {
         // NaN inserted twice keeps two entries).
         if class.as_str() == "Map" && type_args.len() == 2 {
             let k = &type_args[0];
-            if !super::super::sigs::is_valid_map_key_type(k, Some(&self.classes)) {
+            if !super::super::sigs::is_valid_map_key_type(
+                k,
+                Some(&self.classes),
+                Some(&self.enums),
+            ) {
                 let hint = match k {
                     Type::Object(c) => format!(
                         "map key type {k} — class {c:?} must declare \
@@ -1228,7 +1232,7 @@ impl TypeChecker {
         }
         if class.as_str() == "Set" && type_args.len() == 1 {
             let t = &type_args[0];
-            if !super::super::sigs::is_valid_set_element_type(t, &self.classes) {
+            if !super::super::sigs::is_valid_set_element_type(t, &self.classes, &self.enums) {
                 let hint = match t {
                     Type::Object(c) => format!(
                         "set element type {t} — class {c:?} must declare \
