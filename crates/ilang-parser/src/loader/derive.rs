@@ -272,12 +272,13 @@ fn field_as_i64(
             },
             span,
         )),
-        Object(_inner) => {
-            // Defer to the field's own `hashCode` — works for nested
-            // classes that also have `@derive(Hash)` (or a manual
-            // method). The type checker will reject the call if no
-            // `hashCode` exists, which surfaces a clear error at the
-            // synthesised method's own call site.
+        Object(_) | Str => {
+            // String fields route through the built-in
+            // `string.hashCode(): i64`; class fields recurse through
+            // their own `hashCode` (manual or `@derive(Hash)`). The
+            // type checker rejects the call if no `hashCode` exists
+            // on a class, surfacing the error at the synthesised
+            // method's own call site rather than this expansion.
             Ok(Expr::new(
                 ExprKind::MethodCall {
                     obj: Box::new(field_expr),

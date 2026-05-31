@@ -120,6 +120,7 @@ pub(crate) fn string_method_names() -> &'static [&'static str] {
         "indexOf",
         "lastIndexOf",
         "encodeUtf16",
+        "hashCode",
     ]
 }
 
@@ -198,7 +199,7 @@ pub(crate) fn string_method_return_type(method: &str) -> Option<Type> {
             Type::Str
         }
         "includes" | "startsWith" | "endsWith" => Type::Bool,
-        "indexOf" | "lastIndexOf" => Type::I64,
+        "indexOf" | "lastIndexOf" | "hashCode" => Type::I64,
         "split" => Type::Array {
             elem: Box::new(Type::Str),
             fixed: None,
@@ -227,6 +228,7 @@ pub(crate) fn string_method_sig(method: &str) -> Option<String> {
         "indexOf" => "indexOf(needle: string, fromIndex?: i64): i64",
         "lastIndexOf" => "lastIndexOf(needle: string, fromIndex?: i64): i64",
         "encodeUtf16" => "encodeUtf16(nulTerminated: bool = true): u16[]",
+        "hashCode" => "hashCode(): i64",
         _ => return None,
     };
     Some(format!("(method) string.{body}"))
@@ -251,6 +253,7 @@ pub(crate) fn string_method_doc(method: &str) -> Option<&'static str> {
         "indexOf" => "Returns the code-point index of the first occurrence of `needle` at or after `fromIndex` (default 0). Returns `-1` if not found.",
         "lastIndexOf" => "Returns the code-point index of the last occurrence of `needle` at or before `fromIndex` (default: end of string). Returns `-1` if not found.",
         "encodeUtf16" => "Encodes this string as UTF-16 code units and returns a fresh `u16[]`. With `nulTerminated = true` (the default) the buffer ends with `0x0000` so it can be passed straight to Win32 W-suffix APIs via the implicit `u16[] → *const u16` coercion.",
+        "hashCode" => "Returns an `i64` FNV-1a 64-bit hash of the string's bytes. Stable across runs, so it can drive `@derive(Hash)` on classes with string fields or seed user-defined hash structures.",
         _ => return None,
     })
 }

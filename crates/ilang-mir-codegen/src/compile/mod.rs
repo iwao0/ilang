@@ -123,6 +123,7 @@ pub(super) struct StrIds {
     pub(super) index_of: cranelift_module::FuncId,
     pub(super) last_index_of: cranelift_module::FuncId,
     pub(super) encode_utf16: cranelift_module::FuncId,
+    pub(super) hash_code: cranelift_module::FuncId,
     pub(super) from_utf16: cranelift_module::FuncId,
     pub(super) array_index_of: cranelift_module::FuncId,
     pub(super) array_includes: cranelift_module::FuncId,

@@ -176,6 +176,7 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
         "$string.encodeUtf16",
         ilang_runtime::__str_encode_utf16 as *const u8,
     );
+    jit_builder.symbol("$string.hashCode", ilang_runtime::__str_hash_code as *const u8);
     jit_builder.symbol(
         "$string.fromUtf16",
         ilang_runtime::__str_from_utf16 as *const u8,

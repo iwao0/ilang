@@ -153,6 +153,25 @@ pub extern "C" fn __str_length(p: i64) -> i64 {
         .unwrap_or(bytes.len() as i64)
 }
 
+/// `"foo".hashCode(): i64` — FNV-1a 64-bit over the string's bytes.
+/// Stable across runs (no per-process seed), so `@derive(Hash)` on a
+/// class with a string field can rely on the value for equality
+/// bucketing. Empty / null strings hash to the FNV offset basis.
+#[unsafe(export_name = "$string.hashCode")]
+pub extern "C" fn __str_hash_code(p: i64) -> i64 {
+    let bytes = if p == 0 {
+        &[][..]
+    } else {
+        unsafe { cstr_bytes(p) }
+    };
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h as i64
+}
+
 #[unsafe(export_name = "$string.concat")]
 pub extern "C" fn __str_concat(a: i64, b: i64) -> i64 {
     let sa = unsafe { cstr_bytes(a) };

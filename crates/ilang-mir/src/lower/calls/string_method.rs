@@ -41,6 +41,7 @@ impl<'a> BodyCx<'a> {
                 "str_encode_utf16",
                 MirTy::Array { elem: Box::new(MirTy::U16), len: None },
             ),
+            "hashCode" => ("str_hash_code", MirTy::I64),
             other => {
                 return Err(LowerError::Other(format!(
                     "unknown string method `{other}`"

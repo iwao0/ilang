@@ -176,6 +176,7 @@ let Point { x, y } = p                  // x: f64, y: f64
 "abcabc".lastIndexOf("b", 2)// i64       ─ 省略時 fromIndex は文字列末尾
 "hi".encodeUtf16()          // u16[]     ─ UTF-16 コードユニット、末尾に 0x0000 を含む (既定)
 "hi".encodeUtf16(false)     // u16[]     ─ 終端 0x0000 を含まない、コードユニットのみ
+"hello".hashCode()          // i64       ─ FNV-1a 64-bit (バイト列ベース、runs をまたいで安定)
 string.fromUtf16([104, 105])// string    ─ "hi" (UTF-16 コードユニット → UTF-8 文字列)
 ```
 
@@ -952,8 +953,9 @@ test.expect(s.size(), 1)
 - 合成 `hashCode` は多項式畳み込み: `h_{i+1} = h_i * 31 + (field_i as i64)`。サポート対象のフィールド型:
   - `i8` / `i16` / `i32` / `i64` / `u8` / `u16` / `u32` / `u64` (`as i64` キャスト)
   - `bool` (`if field { 1 } else { 0 }`)
+  - `string` (組み込みの `"…".hashCode(): i64` 経由。バイト列の FNV-1a 64-bit、runs をまたいで安定)
   - 自身が `hashCode` を持つクラスフィールド (手書きまたは `@derive(Hash)`)
-- `string` / `f32` / `f64` フィールドは `@derive(Hash)` で **未対応**。展開時に手書き実装への誘導エラーが出る。該当フィールドを持つクラスは当面 `hashCode` を手書きする
+- `f32` / `f64` フィールドは `@derive(Hash)` で **未対応**。展開時に手書き実装への誘導エラーが出る。該当フィールドを持つクラスは当面 `hashCode` を手書きする
 
 ---
 

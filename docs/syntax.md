@@ -207,6 +207,7 @@ distinct `let f = fn(...)` bindings always compare unequal).
 "abcabc".lastIndexOf("b", 2)// i64       ─ optional fromIndex defaults to end of string
 "hi".encodeUtf16()          // u16[]     ─ UTF-16 code units, NUL-terminated (default)
 "hi".encodeUtf16(false)     // u16[]     ─ code units only, no trailing 0x0000
+"hello".hashCode()          // i64       ─ FNV-1a 64-bit over the bytes, stable across runs
 string.fromUtf16([104, 105])// string    ─ "hi" (UTF-16 code units → UTF-8 string)
 ```
 
@@ -1201,8 +1202,10 @@ test.expect(s.size(), 1)
   - `i8` / `i16` / `i32` / `i64` / `u8` / `u16` / `u32` / `u64`
     (cast to `i64`)
   - `bool` (`if field { 1 } else { 0 }`)
+  - `string` (routes through the built-in `"…".hashCode(): i64`,
+    a stable FNV-1a 64-bit over the bytes)
   - Class fields with their own `hashCode` (manual or `@derive(Hash)`)
-- `string` / `f32` / `f64` field types are **not** yet supported by
+- `f32` / `f64` field types are **not** yet supported by
   `@derive(Hash)`. The expansion fails with an actionable error
   pointing at the manual-implementation path. Write `hashCode` by
   hand for now if the class has such a field.

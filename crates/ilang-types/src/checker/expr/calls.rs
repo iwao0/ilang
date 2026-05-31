@@ -409,6 +409,23 @@ impl TypeChecker {
                         fixed: None,
                     });
                 }
+                "hashCode" => {
+                    // Zero-arg, returns i64. Stable FNV-1a hash over
+                    // the string's bytes — the runtime call lives in
+                    // `crates/ilang-runtime/src/strings.rs`. Lets
+                    // `@derive(Hash)` recurse through string fields
+                    // and lets user code key its own data structures
+                    // off `"foo".hashCode()`.
+                    if !args.is_empty() {
+                        return Err(TypeError::ArityMismatch {
+                            name: method.clone(),
+                            expected: 0,
+                            got: args.len(),
+                            span,
+                        });
+                    }
+                    return Ok(Type::I64);
+                }
                 _ => {
                     return Err(TypeError::UnknownMethod {
                         class: "string".into(),
