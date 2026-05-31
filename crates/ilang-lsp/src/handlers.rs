@@ -150,14 +150,27 @@ impl LanguageServer for Backend {
             .client_supports_dynamic_watch
             .load(std::sync::atomic::Ordering::Relaxed)
         {
+            // Watch both `.il` sources and `ilang.toml`. The closed-doc
+            // and umbrella caches fold in `collect_dep_tree`'s view of
+            // the project manifest, so a `ilang.toml` edit (e.g. adding
+            // / dropping a dep) must drop those caches too — otherwise
+            // closed Docs keep resolving against the old dep set.
             let registration = Registration {
                 id: "ilang-watch-il-files".to_string(),
                 method: "workspace/didChangeWatchedFiles".to_string(),
                 register_options: serde_json::to_value(DidChangeWatchedFilesRegistrationOptions {
-                    watchers: vec![FileSystemWatcher {
-                        glob_pattern: GlobPattern::String("**/*.il".to_string()),
-                        kind: None, // default: Create | Change | Delete
-                    }],
+                    watchers: vec![
+                        FileSystemWatcher {
+                            glob_pattern: GlobPattern::String("**/*.il".to_string()),
+                            kind: None, // default: Create | Change | Delete
+                        },
+                        FileSystemWatcher {
+                            glob_pattern: GlobPattern::String(
+                                "**/ilang.toml".to_string(),
+                            ),
+                            kind: None,
+                        },
+                    ],
                 })
                 .ok(),
             };
@@ -718,17 +731,23 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         // Outgoing analysis runs against the item's home file. Prefer
-        // the live buffer when open, else load from disk.
+        // the live buffer when open, else fetch via the closed-doc
+        // cache (gated on watcher trust like the workspace walks) so
+        // repeated expansions on the same file don't re-run the full
+        // analyse pipeline.
         let live = self.docs().get(&item.uri).cloned();
-        let doc = match live {
-            Some(d) => d,
-            None => {
-                let Ok(p) = item.uri.to_file_path() else { return Ok(None) };
-                let Some(d) = analyse_path_to_doc(&p) else { return Ok(None) };
-                d
-            }
+        let calls = if let Some(d) = live {
+            call_hierarchy::outgoing_calls(&item, &d)
+        } else {
+            let Ok(p) = item.uri.to_file_path() else { return Ok(None) };
+            let Some(d) = crate::analyse::analyse_path_to_doc_cached(
+                &p,
+                self.closed_doc_cache_if_trusted(),
+            ) else {
+                return Ok(None);
+            };
+            call_hierarchy::outgoing_calls(&item, &d)
         };
-        let calls = call_hierarchy::outgoing_calls(&item, &doc);
         if calls.is_empty() { Ok(None) } else { Ok(Some(calls)) }
     }
 

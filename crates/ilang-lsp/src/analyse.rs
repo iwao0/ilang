@@ -212,13 +212,11 @@ pub(crate) fn for_each_closed_workspace_doc(
         }
         let Ok(uri) = Url::from_file_path(&path) else { continue };
         let doc_arc: Arc<Doc> = if let Some(cache) = cache {
-            let mtime = std::fs::metadata(&canon)
-                .and_then(|m| m.modified())
-                .ok();
+            let fp = crate::types::FileFingerprint::for_path(&canon);
             let cached: Option<Arc<Doc>> = {
                 let guard = cache.lock().unwrap();
-                guard.get(&canon).and_then(|(m, d)| {
-                    if Some(*m) == mtime {
+                guard.get(&canon).and_then(|(f, d)| {
+                    if Some(*f) == fp {
                         Some(d.clone())
                     } else {
                         None
@@ -230,8 +228,8 @@ pub(crate) fn for_each_closed_workspace_doc(
             } else {
                 let Some(d) = analyse_path_to_doc(&path) else { continue };
                 let arc = Arc::new(d);
-                if let Some(m) = mtime {
-                    cache.lock().unwrap().insert(canon, (m, arc.clone()));
+                if let Some(f) = fp {
+                    cache.lock().unwrap().insert(canon, (f, arc.clone()));
                 }
                 arc
             }
@@ -249,6 +247,42 @@ pub(crate) fn for_each_closed_workspace_doc(
 /// call-hierarchy request.
 pub(crate) fn clear_closed_doc_cache(cache: &crate::types::ClosedDocCache) {
     cache.lock().unwrap().clear();
+}
+
+/// Single-file variant of the closed-doc cache lookup. Used by
+/// handlers that resolve one closed file at a time (e.g. outgoing
+/// call hierarchy on a closed home file) instead of walking the
+/// workspace. Same trust contract as `for_each_closed_workspace_doc`:
+/// the cache is only consulted when the file watcher is registered
+/// — pass `None` from `closed_doc_cache_if_trusted()` otherwise.
+pub(crate) fn analyse_path_to_doc_cached(
+    path: &Path,
+    cache: Option<&crate::types::ClosedDocCache>,
+) -> Option<Arc<Doc>> {
+    let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if let Some(cache) = cache {
+        let fp = crate::types::FileFingerprint::for_path(&canon);
+        let cached: Option<Arc<Doc>> = {
+            let guard = cache.lock().unwrap();
+            guard.get(&canon).and_then(|(f, d)| {
+                if Some(*f) == fp {
+                    Some(d.clone())
+                } else {
+                    None
+                }
+            })
+        };
+        if let Some(d) = cached {
+            return Some(d);
+        }
+        let arc = Arc::new(analyse_path_to_doc(path)?);
+        if let Some(f) = fp {
+            cache.lock().unwrap().insert(canon, (f, arc.clone()));
+        }
+        Some(arc)
+    } else {
+        Some(Arc::new(analyse_path_to_doc(path)?))
+    }
 }
 
 /// Lightweight workspace walk for consumers that only need the
@@ -274,13 +308,11 @@ pub(crate) fn for_each_closed_workspace_program(
             continue;
         }
         let Ok(uri) = Url::from_file_path(&path) else { continue };
-        let mtime = std::fs::metadata(&canon)
-            .and_then(|m| m.modified())
-            .ok();
+        let fp = crate::types::FileFingerprint::for_path(&canon);
         let cached: Option<Arc<(String, Program)>> = {
             let guard = cache.lock().unwrap();
-            guard.get(&canon).and_then(|(m, e)| {
-                if Some(*m) == mtime {
+            guard.get(&canon).and_then(|(f, e)| {
+                if Some(*f) == fp {
                     Some(e.clone())
                 } else {
                     None
@@ -293,8 +325,8 @@ pub(crate) fn for_each_closed_workspace_program(
             let Ok(text) = std::fs::read_to_string(&path) else { continue };
             let Ok(prog) = parse_ok(&text) else { continue };
             let arc = Arc::new((text, prog));
-            if let Some(m) = mtime {
-                cache.lock().unwrap().insert(canon, (m, arc.clone()));
+            if let Some(f) = fp {
+                cache.lock().unwrap().insert(canon, (f, arc.clone()));
             }
             arc
         };

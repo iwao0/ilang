@@ -261,17 +261,40 @@ impl Doc {
     }
 }
 
+/// Cheap fingerprint of an on-disk `.il` file used as the cache
+/// validity key. `mtime` alone is insufficient — some filesystems
+/// report mtime at 1-second granularity, and a fast successive
+/// save inside that window would let a stale cache survive. The
+/// file length pins down the remaining ambiguity; we still mostly
+/// see a hit on the common case (no edit since the last walk) and
+/// always miss when the user actually changed bytes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FileFingerprint {
+    pub(crate) mtime: std::time::SystemTime,
+    pub(crate) len: u64,
+}
+
+impl FileFingerprint {
+    pub(crate) fn for_path(p: &std::path::Path) -> Option<Self> {
+        let md = std::fs::metadata(p).ok()?;
+        Some(Self {
+            mtime: md.modified().ok()?,
+            len: md.len(),
+        })
+    }
+}
+
 /// Per-`Backend` cache of `analyse_path_to_doc` results for closed
-/// `.il` files. Keyed by canonical path; the `SystemTime` records
-/// the file's mtime when the entry was produced so the next walk
-/// can serve from cache while nothing on disk has moved.
-pub(crate) type ClosedDocCache = Mutex<HashMap<PathBuf, (std::time::SystemTime, Arc<Doc>)>>;
+/// `.il` files. Keyed by canonical path; `FileFingerprint` is
+/// stored alongside the `Arc<Doc>` so a future walk can reuse the
+/// entry only while the file's bytes appear unchanged.
+pub(crate) type ClosedDocCache = Mutex<HashMap<PathBuf, (FileFingerprint, Arc<Doc>)>>;
 
 /// Per-`Backend` cache of read-and-parse results for closed `.il`
 /// files. Used by `textDocument/implementation` and other passes
 /// that only need the buffer + AST shape. Unlike `ClosedDocCache`,
-/// a parse depends only on the file's own bytes, so mtime keying
-/// alone is sufficient — no watcher trust required.
+/// a parse depends only on the file's own bytes, so the fingerprint
+/// check is sufficient — no watcher trust required.
 pub(crate) type ClosedParseCache = Mutex<
-    HashMap<PathBuf, (std::time::SystemTime, Arc<(String, ilang_ast::Program)>)>,
+    HashMap<PathBuf, (FileFingerprint, Arc<(String, ilang_ast::Program)>)>,
 >;
