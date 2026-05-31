@@ -588,6 +588,43 @@ run()
         expect("mapped", ": i64[]");
     }
 
+    /// Hover on primitive associated constants (`i32.Max`, `f64.NaN`,
+    /// …). The receiver `i32` isn't a binding/symbol, so
+    /// `walk_expr_var` produced no entry and hover on the `.Max` part
+    /// fell off the lookup. `walk_expr_field` now emits a `(constant)`
+    /// entry for the known int / float const table.
+    #[test]
+    fn primitive_const_field_has_hover() {
+        let src = "\
+fn run() {
+    let a = i32.Max
+    let b = u8.Min
+    let c = f64.NaN
+    let d = f32.MinPositive
+}
+run()
+";
+        let tmp = std::env::temp_dir()
+            .join("ilang_lsp_probe_prim_const_hover.il");
+        std::fs::write(&tmp, src).unwrap();
+        let doc = analyse_path_to_doc(&tmp).expect("doc built");
+        let expect = |recv: &str, member: &str, ty: &str| {
+            let want = format!("(constant) {recv}.{member}: {ty}");
+            assert!(
+                doc.refs.iter().any(|r| r.signature == want),
+                "expected ref with signature {want:?}; got {:#?}",
+                doc.refs
+                    .iter()
+                    .map(|r| &r.signature)
+                    .collect::<Vec<_>>(),
+            );
+        };
+        expect("i32", "Max", "i32");
+        expect("u8", "Min", "u8");
+        expect("f64", "NaN", "f64");
+        expect("f32", "MinPositive", "f32");
+    }
+
     /// Regression: `let classW = "BUTTON".encodeUtf16()` (and any
     /// other built-in string method call as the value) used to hover
     /// untyped because `infer_expr`'s MethodCall arm only consulted

@@ -368,7 +368,7 @@ fn infer_map_method_type(g: &GenericTy, method: &str) -> Option<Type> {
 /// to `f32` / `f64`; names mirror Rust's `f32::*` constants in
 /// CamelCase. Returns the constant's static type, which is the
 /// receiver type itself.
-fn float_prim_const_ty(receiver: &str, name: &str) -> Option<Type> {
+pub(super) fn float_prim_const_ty(receiver: &str, name: &str) -> Option<Type> {
     let is_const = matches!(
         name,
         "NaN" | "Infinity" | "NegInfinity"
@@ -386,7 +386,7 @@ fn float_prim_const_ty(receiver: &str, name: &str) -> Option<Type> {
 
 /// `i32.Min` / `u8.Max` etc. — the per-integer bounds. Hover
 /// renders as the receiver's own type.
-fn int_prim_const_ty(receiver: &str, name: &str) -> Option<Type> {
+pub(super) fn int_prim_const_ty(receiver: &str, name: &str) -> Option<Type> {
     if !matches!(name, "Min" | "Max") {
         return None;
     }

@@ -362,6 +362,32 @@ impl<'a> Walker<'a> {
         this_class: Option<&str>,
     ) {
         self.walk_expr(obj, scope, this_class);
+        // Primitive associated constants — `i32.Max`, `f64.NaN`, etc.
+        // `walk_expr_var` doesn't fire for a primitive type name
+        // (`i32` isn't a binding/symbol), so without an entry here
+        // hover on the `.Max` part lands on nothing.
+        if let ExprKind::Var(recv) = &obj.kind {
+            let ty = super::infer::int_prim_const_ty(recv.as_str(), name.as_str())
+                .or_else(|| super::infer::float_prim_const_ty(recv.as_str(), name.as_str()));
+            if let Some(ty) = ty {
+                if let Some((line, col)) =
+                    text::locate_dot_name_at(self.line_starts, self.text, obj.span, name.as_str())
+                {
+                    self.refs.push(RefEntry {
+                        line,
+                        start_col: col,
+                        end_col: col + name.as_str().len() as u32,
+                        target_span: obj.span,
+                        target_name_len: name.as_str().len() as u32,
+                        signature: format!("(constant) {recv}.{name}: {ty}"),
+                        no_definition: true,
+                        target_uri: None,
+                        doc: None,
+                    });
+                    return;
+                }
+            }
+        }
         // Built-in `.length` on string / array.
         if name == "length" {
             let prefix = match self.infer_expr(obj, scope) {
