@@ -134,6 +134,10 @@ pub(crate) fn collect_dep_tree(entry: &Path) -> Result<DepTree, String> {
     // (and `super.M` resolution) should be built from.
     let host = current_os();
     let mut best_tree: Option<DepTree> = None;
+    // Innermost covering manifest's package dir, remembered across
+    // outer iterations so we can attach a filesystem-based parent
+    // edge below.
+    let mut innermost_covering_pf_dir: Option<PathBuf> = None;
     let mut search = entry_dir.clone();
     loop {
         if let Some(pf) = find_project_file(&search) {
@@ -171,7 +175,29 @@ pub(crate) fn collect_dep_tree(entry: &Path) -> Result<DepTree, String> {
                     out.dirs.iter().any(|d| entry_canon.starts_with(d))
                 };
                 if covers {
+                    if innermost_covering_pf_dir.is_none() {
+                        innermost_covering_pf_dir = Some(pf_dir.clone());
+                    }
                     best_tree = Some(out);
+                } else if let (Some(inner), Some(tree)) =
+                    (innermost_covering_pf_dir.as_ref(), best_tree.as_mut())
+                {
+                    // Outer (filesystem) ancestor of the inner
+                    // package. The outer's host-resolved deps
+                    // don't include `inner` here — typical on a
+                    // workstation editing a different-target
+                    // sub-package (e.g. macOS user opens
+                    // `libs/gui/win32/button.il`, libs/gui's
+                    // `gui_impl` selects cocoa). Without this
+                    // edge, `use super.events` in any win32 file
+                    // fails the loader and the merged program is
+                    // dropped, so every `let x = importedFn(...)`
+                    // in the file hovers untyped.
+                    if pf_dir != *inner && inner.starts_with(&pf_dir) {
+                        tree.parents
+                            .entry(inner.clone())
+                            .or_insert_with(|| pf_dir.clone());
+                    }
                 }
             }
             // Move search one directory above this manifest to

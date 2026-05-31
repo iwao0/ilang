@@ -509,6 +509,106 @@ mod tests {
         );
     }
 
+    /// Regression: hovering on `parent` at `libs/gui/win32/button.il`
+    /// line 50 used to show "let parent" (no type) on macOS because
+    /// the cross-target sub-package (`gui_impl` selects cocoa on the
+    /// host, so win32 isn't walked as a dep of `libs/gui`) had no
+    /// parent edge recorded in the LSP's dep tree. Loading the
+    /// merged program then failed on win32's `use super.events`,
+    /// `external_returns` stayed empty, and every imported call
+    /// inferred to no type. We now add a filesystem-based parent
+    /// edge during dep-tree collection, so the merge succeeds and
+    /// `let parent` resolves to its HWND return type.
+    #[test]
+    fn button_il_parent_has_typed_hover() {
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.pop();
+        p.pop();
+        p.push("libs/gui/win32/button.il");
+        if !p.exists() {
+            eprintln!("skip: {} missing", p.display());
+            return;
+        }
+        let doc = analyse_path_to_doc(&p).expect("doc built");
+        let parent_decl = doc
+            .refs
+            .iter()
+            .find(|r| r.signature.starts_with("let parent"))
+            .unwrap_or_else(|| panic!("no `let parent` ref; got: {:#?}", doc.refs));
+        assert!(
+            parent_decl.signature.contains(": "),
+            "expected `parent` hover to include an inferred type, got {:?}",
+            parent_decl.signature,
+        );
+    }
+
+    /// Regression: in a submodule whose umbrella re-exports a sibling
+    /// (`pub use core.*`), a single-segment selective import from that
+    /// sibling (`use core { windowHwnd }`) must still mirror the
+    /// dotted return type into the bare name so a `let parent =
+    /// windowHwnd(...)` hover renders with its inferred type.
+    #[test]
+    fn submodule_sibling_selective_import_mirrors_ret_type() {
+        let tmp = std::env::temp_dir()
+            .join(format!("ilang_lsp_probe_submod_sibling_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("ilang.toml"), "[package]\nname = \"t\"\n").unwrap();
+        // The field bug surfaced when the fn returned `HWND` — a
+        // struct declared in a THIRD module that `core` itself
+        // selectively imports. Mirror that shape.
+        std::fs::write(
+            tmp.join("windows.il"),
+            "\
+@extern(C) {
+    pub struct HWND {}
+}
+",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.join("core.il"),
+            "\
+use windows { HWND }
+pub fn windowHwnd(h: i64): HWND { 0 as HWND }
+",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.join("gui_impl.il"),
+            "pub use windows.*\npub use core.*\npub use button.*\n",
+        )
+        .unwrap();
+        let button = tmp.join("button.il");
+        std::fs::write(
+            &button,
+            "\
+use windows { HWND }
+use core { windowHwnd }
+
+@extern(C) {
+    pub fn createNativeButton(handle: i64): i64 {
+        let parent = windowHwnd(handle)
+        0
+    }
+}
+",
+        )
+        .unwrap();
+        let doc = analyse_path_to_doc(&button).expect("doc built");
+        let parent_decl = doc
+            .refs
+            .iter()
+            .find(|r| r.signature.starts_with("let parent"))
+            .unwrap_or_else(|| panic!("no `let parent` ref; got: {:#?}", doc.refs));
+        assert!(
+            parent_decl.signature.contains(": "),
+            "expected `parent` hover to include an inferred type, got {:?}",
+            parent_decl.signature,
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     /// Multi-segment selective imports (`use std.ffi { arrayFromCArray }`)
     /// must mirror the dotted ret-type entry to the bare name so
     /// `let x = arrayFromCArray(...)` hovers with a type. The buggy
