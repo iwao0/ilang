@@ -32,3 +32,16 @@ test.expectStr(parts[3], "d")
 let chars = "abc".split("")
 test.expect(chars.length, 3)
 test.expectStr(chars[1], "b")
+
+// concat — method form, same result as `+`.
+test.expectStr("ab".concat("cd"), "abcd")
+test.expectStr("hello".concat(""), "hello")
+
+// indexOf / lastIndexOf — byte offsets of the first / last match,
+// `-1` for misses. Optional `fromIndex` starts the search later.
+test.expect("hello".indexOf("l"), 2)
+test.expect("hello".indexOf("z"), -1)
+test.expect("hello".indexOf("l", 3), 3)        // start past the first match
+test.expect("hello".lastIndexOf("l"), 3)
+test.expect("hello".lastIndexOf("z"), -1)
+test.expect("hello".lastIndexOf("l", 2), 2)    // search backward from index 2
