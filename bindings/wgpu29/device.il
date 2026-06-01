@@ -18,8 +18,20 @@ use pipeline {
     WGPUVertexState, WGPUFragmentState, WGPUColorTargetState,
     WGPUPrimitiveState, WGPUMultisampleState,
     ColorWriteMask, IndexFormat,
-    wgpuDeviceCreateRenderPipeline,
+    WGPUComputePipeline, WGPUComputePipelineDescriptor,
+    wgpuDeviceCreateRenderPipeline, wgpuDeviceCreateComputePipeline,
 }
+use buffer { WGPUBuffer, WGPUBufferDescriptor, BufferUsage, wgpuDeviceCreateBuffer }
+use texture { WGPUTexture, WGPUTextureDescriptor, wgpuDeviceCreateTexture }
+use bind_group {
+    WGPUBindGroup, WGPUBindGroupLayout, WGPUPipelineLayout, WGPUSampler,
+    WGPUBindGroupDescriptor, WGPUBindGroupLayoutDescriptor,
+    WGPUPipelineLayoutDescriptor, WGPUSamplerDescriptor,
+    wgpuDeviceCreateBindGroup, wgpuDeviceCreateBindGroupLayout,
+    wgpuDeviceCreatePipelineLayout, wgpuDeviceCreateSampler,
+}
+use command { WGPUCommandEncoder, wgpuDeviceCreateCommandEncoder }
+use query { WGPUQuerySet, WGPUQuerySetDescriptor, wgpuDeviceCreateQuerySet }
 use std.ffi { cstrFromString }
 
 pub enum CompilationInfoRequestStatus: u32 {
@@ -245,6 +257,45 @@ pub enum PopErrorScopeStatus: u32 {
                 fragment: &fragState,
             }
             new Pipeline(wgpuDeviceCreateRenderPipeline(this.handle as WGPUDevice, &desc))
+        }
+
+        // ─── plain resource factories ────────────────────────
+        //
+        // ilang friendly-class methods can't take parameters
+        // whose type transitively exposes `*void` (every
+        // `WGPUFooDescriptor.nextInChain` triggers it). For
+        // resources whose descriptor has many user-set fields
+        // (texture / bindGroup / pipelineLayout / querySet /
+        // computePipeline / sampler-with-options) callers build
+        // the struct themselves and invoke the raw
+        // `wgpuDeviceCreate*` from the top-level umbrella.
+        //
+        // The methods below cover the no-arg / single-arg cases
+        // that fit through the signature rule.
+
+        /// Default-config sampler (ClampToEdge / Nearest / no
+        /// compare) — same as `wgpuDeviceCreateSampler(d, null)`.
+        pub createDefaultSampler(): WGPUSampler {
+            wgpuDeviceCreateSampler(this.handle as WGPUDevice, 0 as *WGPUSamplerDescriptor)
+        }
+        /// `WGPUCommandEncoderDescriptor` only carries an
+        /// optional label; this no-arg overload skips it.
+        pub createCommandEncoder(): WGPUCommandEncoder {
+            wgpuDeviceCreateCommandEncoder(this.handle as WGPUDevice, 0 as *void)
+        }
+        /// Simple-buffer convenience — no label, no
+        /// mapped-at-creation. For mapped / labelled buffers
+        /// build the `WGPUBufferDescriptor` and call
+        /// `wgpuDeviceCreateBuffer` directly.
+        pub createBuffer(usage: BufferUsage, size: u64): WGPUBuffer {
+            let desc = WGPUBufferDescriptor {
+                nextInChain:      0 as *void,
+                label:            WGPUStringView { data: 0 as *void, length: 0 as u64 },
+                usage:            usage,
+                size:             size,
+                mappedAtCreation: 0 as u32,
+            }
+            wgpuDeviceCreateBuffer(this.handle as WGPUDevice, &desc)
         }
     }
 }

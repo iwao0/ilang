@@ -146,5 +146,25 @@ pub enum SurfaceGetCurrentTextureStatus: u32 {
         pub init(handle: WGPUSurface) {
             this.handle = handle as i64
         }
+
+        // `configure` / `getCurrentTexture` / `getCapabilities`
+        // can't be exposed as friendly methods — every
+        // descriptor / out-struct on the API carries a
+        // `nextInChain: *void` slot and the gate rejects
+        // pointer-bearing parameters. Use the raw
+        // `wgpuSurfaceConfigure(s.handle as WGPUSurface, &cfg)`
+        // / `wgpuSurfaceGetCurrentTexture(...)` /
+        // `wgpuSurfaceGetCapabilities(...)` exported through
+        // the umbrella for those.
+
+        /// Drop the configured swap chain without releasing the
+        /// surface — useful before re-configuring with a new
+        /// size / format.
+        pub unconfigure() {
+            wgpuSurfaceUnconfigure(this.handle as WGPUSurface)
+        }
+        pub present() {
+            wgpuSurfacePresent(this.handle as WGPUSurface)
+        }
     }
 }

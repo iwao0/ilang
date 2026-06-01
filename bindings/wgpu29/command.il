@@ -336,5 +336,114 @@ pub enum StoreOp: u32 {
                 firstVertex as u32, firstInstance as u32
             )
         }
+        pub drawIndexed(
+            indexCount:    i64, instanceCount: i64,
+            firstIndex:    i64, baseVertex:    i64,
+            firstInstance: i64
+        ) {
+            wgpuRenderPassEncoderDrawIndexed(
+                this.handle as WGPURenderPassEncoder,
+                indexCount as u32, instanceCount as u32,
+                firstIndex as u32, baseVertex as i32,
+                firstInstance as u32
+            )
+        }
+        /// Indirect draw — params read from `indirectBuffer` at
+        /// `indirectOffset` (4 × u32 for `draw`, 5 × u32 for
+        /// `drawIndexed`).
+        pub drawIndirect(buffer: WGPUBuffer, offset: u64) {
+            wgpuRenderPassEncoderDrawIndirect(
+                this.handle as WGPURenderPassEncoder, buffer, offset
+            )
+        }
+        pub drawIndexedIndirect(buffer: WGPUBuffer, offset: u64) {
+            wgpuRenderPassEncoderDrawIndexedIndirect(
+                this.handle as WGPURenderPassEncoder, buffer, offset
+            )
+        }
+
+        /// Bind a vertex buffer to `slot` (matches the index in
+        /// the pipeline's `vertex.buffers[]`). `size` =
+        /// `0xFFFFFFFFFFFFFFFF` means "to end of buffer".
+        pub setVertexBuffer(slot: i64, buffer: WGPUBuffer, offset: u64, size: u64) {
+            wgpuRenderPassEncoderSetVertexBuffer(
+                this.handle as WGPURenderPassEncoder, slot as u32,
+                buffer, offset, size
+            )
+        }
+        pub setIndexBuffer(
+            buffer: WGPUBuffer, format: IndexFormat,
+            offset: u64, size: u64
+        ) {
+            wgpuRenderPassEncoderSetIndexBuffer(
+                this.handle as WGPURenderPassEncoder, buffer,
+                format, offset, size
+            )
+        }
+        // The dynamic-offset overload of `setBindGroup` would
+        // need a `*const u32` parameter that the friendly gate
+        // rejects. Call the raw
+        // `wgpuRenderPassEncoderSetBindGroup(pass.handle as
+        // WGPURenderPassEncoder, group, …, &offsets)` for that
+        // case.
+
+        /// Bind a `WGPUBindGroup` to `groupIndex` (matches
+        /// `@group(N)` in WGSL). No dynamic offsets — the
+        /// common case.
+        pub setBindGroup(groupIndex: i64, group: WGPUBindGroup) {
+            wgpuRenderPassEncoderSetBindGroup(
+                this.handle as WGPURenderPassEncoder,
+                groupIndex as u32, group,
+                0 as u64, 0 as *const u32
+            )
+        }
+
+
+        pub setViewport(
+            x: f32, y: f32, width: f32, height: f32,
+            minDepth: f32, maxDepth: f32
+        ) {
+            wgpuRenderPassEncoderSetViewport(
+                this.handle as WGPURenderPassEncoder,
+                x, y, width, height, minDepth, maxDepth
+            )
+        }
+        pub setScissorRect(x: i64, y: i64, width: i64, height: i64) {
+            wgpuRenderPassEncoderSetScissorRect(
+                this.handle as WGPURenderPassEncoder,
+                x as u32, y as u32, width as u32, height as u32
+            )
+        }
+        /// Updates the constant-blend colour used by pipelines
+        /// whose blend state references `ConstantColor` /
+        /// `OneMinusConstantColor`.
+        pub setBlendConstant(color: WGPUColor) {
+            wgpuRenderPassEncoderSetBlendConstant(
+                this.handle as WGPURenderPassEncoder, &color
+            )
+        }
+        /// Updates the stencil-test reference value (the integer
+        /// `ref` slot in the depth-stencil state).
+        pub setStencilReference(reference: i64) {
+            wgpuRenderPassEncoderSetStencilReference(
+                this.handle as WGPURenderPassEncoder, reference as u32
+            )
+        }
+
+        // `executeBundles` lives in render_bundle.il (which
+        // imports `command.WGPURenderPassEncoder`); for the
+        // friendly method we'd need a back-edge that would cycle
+        // the module graph. Callers use the raw
+        // `wgpuRenderPassEncoderExecuteBundles(this.handle as
+        // WGPURenderPassEncoder, count, bundles)`.
+
+        /// Ends the pass — every recording verb after this is an
+        /// error. The encoder lifecycle (begin → end → submit →
+        /// present) typically runs inside gui-core; call `end()`
+        /// directly only when you're driving an off-screen pass
+        /// yourself.
+        pub end() {
+            wgpuRenderPassEncoderEnd(this.handle as WGPURenderPassEncoder)
+        }
     }
 }

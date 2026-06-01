@@ -92,5 +92,30 @@ pub enum QueueWorkDoneStatus: u32 {
         pub init(handle: WGPUQueue) {
             this.handle = handle as i64
         }
+
+        /// Submit a list of pre-recorded command buffers.
+        /// `cmds[0]` is presented first.
+        pub submit(cmds: WGPUCommandBuffer[]) {
+            wgpuQueueSubmit(this.handle as WGPUQueue, cmds.length as u64, cmds)
+        }
+        /// Single-buffer convenience for the common case.
+        pub submitOne(cmd: WGPUCommandBuffer) {
+            let cmds: WGPUCommandBuffer[] = [cmd]
+            wgpuQueueSubmit(this.handle as WGPUQueue, 1 as u64, cmds)
+        }
+        // `writeBuffer` / `writeTexture` take `*const void`
+        // data (and `writeTexture` a `WGPUTexelCopyTextureInfo`
+        // with chained pointers); ilang's friendly-method gate
+        // rejects pointer-bearing parameters. Use the raw
+        // `wgpuQueueWriteBuffer(q.handle as WGPUQueue, …)` /
+        // `wgpuQueueWriteTexture(…)` exported through the
+        // umbrella for those.
+
+        /// ns per timestamp tick — multiply each u64 sample
+        /// resolved out of a Timestamp QuerySet by this. 0.0 if
+        /// the timestamp feature isn't enabled on the device.
+        pub getTimestampPeriod(): f32 {
+            wgpuQueueGetTimestampPeriod(this.handle as WGPUQueue)
+        }
     }
 }
