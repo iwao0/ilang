@@ -18,7 +18,7 @@
 //     cargo run -p ilang -- run examples/libs/gui/gpuview/main.il
 
 use gui
-use wgpu { Pipeline, RenderPass, RenderPipelineOptions }
+use wgpu29 { Pipeline, RenderPass, RenderPipelineOptions }
 
 // WGSL: positions hardcoded in the vertex shader, indexed by
 // @builtin(vertex_index). No vertex buffers needed.

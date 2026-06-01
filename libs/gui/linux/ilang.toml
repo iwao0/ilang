@@ -4,5 +4,5 @@ name = "gui-linux"
 [deps]
 gtk = "../../../bindings/gtk4"
 cairo = "../../../bindings/cairo"
-wgpu = "../../../bindings/wgpu"
+wgpu29 = "../../../bindings/wgpu29"
 libc = "../../../bindings/libc"

@@ -2,7 +2,7 @@
 name = "gui"
 
 [deps]
-wgpu = "../../bindings/wgpu"
+wgpu29 = "../../bindings/wgpu29"
 
 [[deps.gui_impl]]
 path = "cocoa"

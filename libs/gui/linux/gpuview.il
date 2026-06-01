@@ -34,7 +34,7 @@ use cairo {
     cairo_set_source_surface, cairo_paint,
 }
 use core { WINDOWS }
-use wgpu {
+use wgpu29 {
     WGPUInstance, WGPUAdapter, WGPUDevice, WGPUQueue, WGPUSurface,
     WGPUTexture, WGPUTextureView, WGPUBuffer,
     WGPUCommandBuffer, WGPURenderPassEncoder,

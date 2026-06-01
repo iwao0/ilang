@@ -2,5 +2,5 @@
 name = "wgpu_triangle"
 
 [deps]
-wgpu = "../../bindings/wgpu"
+wgpu29 = "../../bindings/wgpu29"
 sdl2 = "../../bindings/sdl2"

@@ -30,7 +30,7 @@
 use window { Window, Control }
 use events { EventTarget, Event }
 use std.events { Signal }
-use wgpu {
+use wgpu29 {
     WGPUSurface, WGPUDevice, WGPUQueue, WGPURenderPassEncoder,
     Device, Surface, Queue, TextureFormat,
 }

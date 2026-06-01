@@ -41,7 +41,7 @@ use windows {
 }
 use dwmapi { DwmFlush }
 use core { WINDOWS, windowHwnd }
-use wgpu {
+use wgpu29 {
     WGPUInstance, WGPUAdapter, WGPUDevice, WGPUQueue, WGPUSurface,
     WGPUTexture, WGPUTextureView, WGPUCommandBuffer, WGPURenderPassEncoder,
     WGPUStringView, WGPUChainedStruct, WGPUColor,

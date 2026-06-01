@@ -29,7 +29,7 @@ use sdl2 {
     SDL_ShowWindow, SDL_RaiseWindow, SDL_GetWindowSizeInPixels,
     SDL_Metal_CreateView, SDL_Metal_GetLayer, SDL_Metal_DestroyView,
 }
-use wgpu {
+use wgpu29 {
     WGPUInstance, WGPUAdapter, WGPUDevice, WGPUQueue, WGPUSurface,
     WGPUTexture, WGPUTextureView, WGPUCommandEncoder, WGPUCommandBuffer,
     WGPURenderPassEncoder,

@@ -37,7 +37,7 @@ use cocoa {
     makeRect, makeSize, nsstr, selectorPtr, nil,
 }
 use core { WINDOWS }
-use wgpu {
+use wgpu29 {
     WGPUInstance, WGPUAdapter, WGPUDevice, WGPUQueue, WGPUSurface,
     WGPUTexture, WGPUTextureView, WGPUCommandBuffer, WGPURenderPassEncoder,
     WGPUStringView, WGPUChainedStruct, WGPUColor,
