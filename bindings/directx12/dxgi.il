@@ -583,7 +583,10 @@ use ole32 { IUnknown }
     }
 
     @com pub interface IDXGIFactory1 : IDXGIFactory {
-        _slot12_EnumAdapters1()
+        /// `Adapter` is the zero-based index; `ppAdapter` receives
+        /// an `IDXGIAdapter1*`. Returns `DXGI_ERROR_NOT_FOUND`
+        /// when the index is past the last installed adapter.
+        EnumAdapters1(Adapter: u32, ppAdapter: **void): i32
         _slot13_IsCurrent()
     }
 
