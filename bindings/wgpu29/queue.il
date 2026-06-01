@@ -56,6 +56,24 @@ use command { WGPUCommandBuffer }
     @lib pub fn wgpuQueueAddRef(queue: WGPUQueue)
     @lib pub fn wgpuQueueRelease(queue: WGPUQueue)
 
+    // wgpu-native extension. Same shape as `wgpuQueueSubmit` but
+    // returns a `WGPUSubmissionIndex` (u64) that can be passed
+    // to `wgpuDevicePoll(..., submissionIndex)` to wait on that
+    // specific submission rather than every queued one.
+    @lib pub fn wgpuQueueSubmitForIndex(
+        queue: WGPUQueue, commandCount: u64, commands: *WGPUCommandBuffer
+    ): u64
+
+    // wgpu-native extension. Conversion factor (ns per timestamp
+    // tick) for samples written by `WriteTimestamp` /
+    // `ResolveQuerySet` on a Timestamp QuerySet. Multiply each
+    // u64 sample by this to get nanoseconds. Returns 0.0 when
+    // the timestamp feature isn't enabled.
+    @lib pub fn wgpuQueueGetTimestampPeriod(queue: WGPUQueue): f32
+    // wgpu-native macOS extension. Returns the underlying Metal
+    // `id<MTLCommandQueue>`; null on non-Metal backends.
+    @lib pub fn wgpuQueueGetNativeMetalCommandQueue(queue: WGPUQueue): *void
+
     // ─── friendly wrapper ─────────────────────────────────────
 
     /// Wraps `WGPUQueue`. The queue is owned by the underlying

@@ -162,6 +162,37 @@ use bind_group { WGPUBindGroup }
         encoder: WGPURenderPassEncoder,
         x: u32, y: u32, width: u32, height: u32
     )
+    // Indirect draws read the (vertexCount, instanceCount,
+    // firstVertex, firstInstance) tuple — or for indexed,
+    // (indexCount, instanceCount, firstIndex, baseVertex,
+    // firstInstance) — out of `indirectBuffer` at
+    // `indirectOffset`. Useful when the draw parameters are
+    // computed on the GPU and you don't want to round-trip.
+    @lib pub fn wgpuRenderPassEncoderDrawIndirect(
+        encoder: WGPURenderPassEncoder,
+        indirectBuffer: WGPUBuffer, indirectOffset: u64
+    )
+    @lib pub fn wgpuRenderPassEncoderDrawIndexedIndirect(
+        encoder: WGPURenderPassEncoder,
+        indirectBuffer: WGPUBuffer, indirectOffset: u64
+    )
+    // Pair these around any draw calls whose visibility you want
+    // to sample into a QuerySet of type `Occlusion`. Slot index
+    // matches an entry in `WGPURenderPassDescriptor.occlusionQuerySet`.
+    @lib pub fn wgpuRenderPassEncoderBeginOcclusionQuery(
+        encoder: WGPURenderPassEncoder, queryIndex: u32
+    )
+    @lib pub fn wgpuRenderPassEncoderEndOcclusionQuery(encoder: WGPURenderPassEncoder)
+    // Updates the constant-blend colour used by pipelines whose
+    // blend state references `ConstantColor` / `OneMinusConstantColor`.
+    @lib pub fn wgpuRenderPassEncoderSetBlendConstant(
+        encoder: WGPURenderPassEncoder, color: *WGPUColor
+    )
+    // Updates the stencil-test reference value (the integer
+    // `ref` slot in the depth-stencil state).
+    @lib pub fn wgpuRenderPassEncoderSetStencilReference(
+        encoder: WGPURenderPassEncoder, reference: u32
+    )
     // `group` may be null to unbind. `dynamicOffsetCount` / -s
     // are zero / null unless any binding in `group`'s layout was
     // declared `hasDynamicOffset = true`.
@@ -197,6 +228,46 @@ use bind_group { WGPUBindGroup }
         indirectBuffer: WGPUBuffer, indirectOffset: u64
     )
     @lib pub fn wgpuComputePassEncoderEnd(encoder: WGPUComputePassEncoder)
+
+    // ─── wgpu-native multi-draw extension ─────────────────────
+    //
+    // Records `count` indirect draws back-to-back from
+    // `buffer[offset .. offset + count*stride]`. The Count
+    // variants instead read the actual draw count from
+    // `count_buffer[count_buffer_offset]` (capped to
+    // `max_count`) — useful when the GPU computes the draw count.
+    @lib pub fn wgpuRenderPassEncoderMultiDrawIndirect(
+        encoder: WGPURenderPassEncoder, buffer: WGPUBuffer,
+        offset: u64, count: u32
+    )
+    @lib pub fn wgpuRenderPassEncoderMultiDrawIndexedIndirect(
+        encoder: WGPURenderPassEncoder, buffer: WGPUBuffer,
+        offset: u64, count: u32
+    )
+    @lib pub fn wgpuRenderPassEncoderMultiDrawIndirectCount(
+        encoder: WGPURenderPassEncoder, buffer: WGPUBuffer, offset: u64,
+        countBuffer: WGPUBuffer, countBufferOffset: u64, maxCount: u32
+    )
+    @lib pub fn wgpuRenderPassEncoderMultiDrawIndexedIndirectCount(
+        encoder: WGPURenderPassEncoder, buffer: WGPUBuffer, offset: u64,
+        countBuffer: WGPUBuffer, countBufferOffset: u64, maxCount: u32
+    )
+
+    // ─── wgpu-native immediate (push-constant) data ───────────
+    //
+    // Direct CPU → shader constant write inside a pass; no
+    // backing buffer needed. `offset` / `sizeBytes` index into
+    // the pipeline's immediate-data range (declared via
+    // `var<push_constant>` in WGSL when the
+    // PushConstants/Immediates feature is enabled).
+    @lib pub fn wgpuRenderPassEncoderSetImmediates(
+        encoder: WGPURenderPassEncoder,
+        offset: u32, sizeBytes: u32, data: *const void
+    )
+    @lib pub fn wgpuComputePassEncoderSetImmediates(
+        encoder: WGPUComputePassEncoder,
+        offset: u32, sizeBytes: u32, data: *const void
+    )
 
     // ─── labels + ref counts ──────────────────────────────────
     @lib pub fn wgpuRenderPassEncoderSetLabel(encoder: WGPURenderPassEncoder, label: WGPUStringView)

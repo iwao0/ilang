@@ -126,8 +126,18 @@ use command { WGPURenderPassEncoder }
     )
     @lib pub fn wgpuRenderBundleEncoderAddRef(encoder: WGPURenderBundleEncoder)
     @lib pub fn wgpuRenderBundleEncoderRelease(encoder: WGPURenderBundleEncoder)
+    @lib pub fn wgpuRenderBundleSetLabel(bundle: WGPURenderBundle, label: WGPUStringView)
     @lib pub fn wgpuRenderBundleAddRef(bundle: WGPURenderBundle)
     @lib pub fn wgpuRenderBundleRelease(bundle: WGPURenderBundle)
+
+    // wgpu-native extension. Push-constant style immediate data
+    // for `RenderBundleEncoder` — visibility / offset / size /
+    // pointer; matches the parent RenderPassEncoder variant in
+    // command.il.
+    @lib pub fn wgpuRenderBundleEncoderSetImmediates(
+        encoder: WGPURenderBundleEncoder,
+        offset: u32, sizeBytes: u32, data: *const void
+    )
 
     // ─── render-pass execution ────────────────────────────────
     //

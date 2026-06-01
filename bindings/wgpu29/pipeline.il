@@ -128,6 +128,41 @@ use bind_group { WGPUBindGroupLayout }
     @lib pub fn wgpuComputePipelineAddRef(pipeline: WGPUComputePipeline)
     @lib pub fn wgpuComputePipelineRelease(pipeline: WGPUComputePipeline)
 
+    // ─── async pipeline creation ──────────────────────────────
+    //
+    // Async variants return a `WGPUFuture` (u64 id) immediately
+    // and resolve the supplied callback when the driver finishes
+    // compiling. Callback shape:
+    //   void(WGPUCreatePipelineAsyncStatus status,
+    //        WGPU{Render,Compute}Pipeline pipeline,
+    //        WGPUStringView message, void* ud1, void* ud2)
+    // → (status: i32, pipeline: i64, msg.data: i64, msg.len: i64,
+    //    ud1: i64, ud2: i64).
+    pub struct WGPUCreateRenderPipelineAsyncCallbackInfo {
+        nextInChain: *void
+        mode:        u32                            // WGPUCallbackMode
+        callback:    fn(i32, i64, i64, i64, i64, i64)
+        userdata1:   *void
+        userdata2:   *void
+    }
+    pub struct WGPUCreateComputePipelineAsyncCallbackInfo {
+        nextInChain: *void
+        mode:        u32                            // WGPUCallbackMode
+        callback:    fn(i32, i64, i64, i64, i64, i64)
+        userdata1:   *void
+        userdata2:   *void
+    }
+    @lib pub fn wgpuDeviceCreateRenderPipelineAsync(
+        device:       WGPUDevice,
+        descriptor:   *WGPURenderPipelineDescriptor,
+        callbackInfo: WGPUCreateRenderPipelineAsyncCallbackInfo
+    ): u64                                          // WGPUFuture
+    @lib pub fn wgpuDeviceCreateComputePipelineAsync(
+        device:       WGPUDevice,
+        descriptor:   *WGPUComputePipelineDescriptor,
+        callbackInfo: WGPUCreateComputePipelineAsyncCallbackInfo
+    ): u64                                          // WGPUFuture
+
     // ═══════════════════════════════════════════════════════════
     //  Friendly wrapper layer
     // ═══════════════════════════════════════════════════════════

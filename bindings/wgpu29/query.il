@@ -71,3 +71,39 @@ use command { WGPUCommandEncoder }
         destinationOffset: u64
     )
 }
+
+// ─── pass-encoder timestamp + pipeline-statistics queries ─────
+//
+// `WriteTimestamp` is also exposed inside the pass encoders so
+// you can sample timing between specific draw / dispatch calls
+// without ending the pass. Pipeline statistics queries record
+// per-stage counters (vertex invocations, primitive count, etc.)
+// over the bracketed region.
+
+use command { WGPURenderPassEncoder, WGPUComputePassEncoder }
+
+@extern(C, "wgpu_native") {
+    @lib pub fn wgpuRenderPassEncoderWriteTimestamp(
+        encoder: WGPURenderPassEncoder,
+        querySet: WGPUQuerySet, queryIndex: u32
+    )
+    @lib pub fn wgpuComputePassEncoderWriteTimestamp(
+        encoder: WGPUComputePassEncoder,
+        querySet: WGPUQuerySet, queryIndex: u32
+    )
+
+    @lib pub fn wgpuRenderPassEncoderBeginPipelineStatisticsQuery(
+        encoder: WGPURenderPassEncoder,
+        querySet: WGPUQuerySet, queryIndex: u32
+    )
+    @lib pub fn wgpuRenderPassEncoderEndPipelineStatisticsQuery(
+        encoder: WGPURenderPassEncoder
+    )
+    @lib pub fn wgpuComputePassEncoderBeginPipelineStatisticsQuery(
+        encoder: WGPUComputePassEncoder,
+        querySet: WGPUQuerySet, queryIndex: u32
+    )
+    @lib pub fn wgpuComputePassEncoderEndPipelineStatisticsQuery(
+        encoder: WGPUComputePassEncoder
+    )
+}

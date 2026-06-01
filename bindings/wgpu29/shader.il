@@ -28,6 +28,40 @@ use core { WGPUStringView, WGPUChainedStruct, WGPUDevice }
     @lib pub fn wgpuShaderModuleAddRef(shaderModule: WGPUShaderModule)
     @lib pub fn wgpuShaderModuleRelease(shaderModule: WGPUShaderModule)
 
+    // ─── compilation info (async) ─────────────────────────────
+    //
+    // Callback shape:
+    //   void(WGPUCompilationInfoRequestStatus status,
+    //        WGPUCompilationInfo const* info, void* ud1, void* ud2)
+    // → (status: i32, info: i64, ud1: i64, ud2: i64). Dereference
+    // `info` via std.ffi readers to walk the WGPUCompilationMessage
+    // array (line / column / type / message).
+    pub struct WGPUCompilationInfoCallbackInfo {
+        nextInChain: *void
+        mode:        u32                            // WGPUCallbackMode
+        callback:    fn(i32, i64, i64, i64)
+        userdata1:   *void
+        userdata2:   *void
+    }
+    @lib pub fn wgpuShaderModuleGetCompilationInfo(
+        shaderModule: WGPUShaderModule,
+        callbackInfo: WGPUCompilationInfoCallbackInfo
+    ): u64                                          // WGPUFuture
+
+    // ─── SPIR-V shader module (wgpu-native extension) ─────────
+    //
+    // For when you'd rather compile to SPIR-V offline than ship
+    // WGSL. `source` is a flat u32 array; `sourceSize` is the
+    // word count (not byte count).
+    pub struct WGPUShaderModuleDescriptorSpirV {
+        label:      WGPUStringView
+        sourceSize: u32
+        source:     *const u32
+    }
+    @lib pub fn wgpuDeviceCreateShaderModuleSpirV(
+        device: WGPUDevice, descriptor: *WGPUShaderModuleDescriptorSpirV
+    ): WGPUShaderModule
+
     // ─── friendly wrapper ─────────────────────────────────────
 
     /// Compiled WGSL shader module. Wraps `WGPUShaderModule`.

@@ -97,6 +97,20 @@ use std.ffi { cstrFromString }
     @lib pub fn wgpuDeviceAddRef(device: WGPUDevice)
     @lib pub fn wgpuDeviceRelease(device: WGPUDevice)
 
+    // wgpu-native extension. Start / Stop the platform GPU
+    // debugger capture (RenderDoc on Windows/Linux, Xcode-frame-
+    // debugger on macOS) for diagnostic profiling. Start returns
+    // false if no debugger is attached or the capture failed to
+    // start; Stop has no return.
+    @lib pub fn wgpuDeviceStartGraphicsDebuggerCapture(device: WGPUDevice): u32
+    @lib pub fn wgpuDeviceStopGraphicsDebuggerCapture(device: WGPUDevice)
+
+    // wgpu-native macOS extension. Returns the underlying Metal
+    // `id<MTLDevice>` for interop with native Metal code (cast
+    // the `*void` to NSObject* on the call site). No-op + null
+    // on other backends.
+    @lib pub fn wgpuDeviceGetNativeMetalDevice(device: WGPUDevice): *void
+
     // ─── friendly wrapper ─────────────────────────────────────
 
     /// Wraps `WGPUDevice`. Construct from the device a `GpuView`

@@ -85,6 +85,12 @@ use buffer { WGPUBuffer }
     @lib pub fn wgpuTextureGetDimension(texture: WGPUTexture): u32     // WGPUTextureDimension
     @lib pub fn wgpuTextureGetFormat(texture: WGPUTexture): u32        // WGPUTextureFormat
     @lib pub fn wgpuTextureGetUsage(texture: WGPUTexture): u64         // WGPUTextureUsage flags
+    // Defaulting rule that depends on the texture's dimension
+    // + array layer count, so it's a method (not just `Get`).
+    @lib pub fn wgpuTextureGetTextureBindingViewDimension(texture: WGPUTexture): u32
+    // wgpu-native macOS extension. Returns the underlying Metal
+    // `id<MTLTexture>`; null on non-Metal backends.
+    @lib pub fn wgpuTextureGetNativeMetalTexture(texture: WGPUTexture): *void
 
     // Drop the GPU-side storage eagerly (same caveat as
     // BufferDestroy — any in-flight command referencing the
