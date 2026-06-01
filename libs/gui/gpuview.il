@@ -32,6 +32,7 @@ use events { EventTarget, Event }
 use std.events { Signal }
 use wgpu {
     WGPUSurface, WGPUDevice, WGPUQueue, WGPURenderPassEncoder,
+    Device, Surface, Queue, TextureFormat,
 }
 use gui_impl {
     createNativeGpuView, setGpuViewFrame, setGpuViewVisible,
@@ -60,6 +61,13 @@ pub class GpuView : Control {
     _height:      f64
     _isVisible:   bool
 
+    // Friendly wrappers, built once in attachTo. Starting
+    // sentinels (handle == 0) so reads before realisation are
+    // well-defined.
+    _surface:    Surface
+    _device:     Device
+    _queue:      Queue
+
     /// Fires once per display refresh while the loop is running
     /// (`startLoop` → `stopLoop`), or once per `requestFrame`
     /// call. Multiple listeners run in registration order on the
@@ -74,6 +82,9 @@ pub class GpuView : Control {
         this._width     = 400.0
         this._height    = 300.0
         this._isVisible = true
+        this._surface   = new Surface(0 as WGPUSurface)
+        this._device    = new Device(0 as WGPUDevice)
+        this._queue     = new Queue(0 as WGPUQueue)
         this.onRender   = new Signal<RenderEvent>()
     }
 
@@ -114,17 +125,19 @@ pub class GpuView : Control {
 
     // ─── low-level escape hatches ──────────────────────────────
     //
-    // Populated by attachTo and read straight from the backing
-    // GpuViewSlot — no caching, so they always reflect the
-    // current configuration even after a resize.
+    // Wrappers are constructed once in `attachTo` and re-used on
+    // every getter call (no allocation per render-loop tick).
+    // Before realisation each wrapper holds a null handle, which
+    // user code can check via `v.device.handle == 0`.
 
-    pub get surface(): WGPUSurface { getGpuViewSurface(this.handle) }
-    pub get device():  WGPUDevice  { getGpuViewDevice(this.handle) }
-    pub get queue():   WGPUQueue   { getGpuViewQueue(this.handle) }
-    /// Surface texture format picked at configure time
-    /// (`WGPUTextureFormat` discriminant). Match this when
-    /// building the render pipeline's colour target.
-    pub get format():  u32         { getGpuViewFormat(this.handle) }
+    pub get surface(): Surface       { this._surface }
+    pub get device():  Device        { this._device }
+    pub get queue():   Queue         { this._queue }
+    /// Surface texture format picked at configure time. The
+    /// underlying `WGPUTextureFormat` discriminant cast into the
+    /// `wgpu.TextureFormat` enum so user code can match against
+    /// named variants (`v.format == TextureFormat.bgra8UnormSrgb`).
+    pub get format():  TextureFormat { getGpuViewFormat(this.handle) as TextureFormat }
 
     /// Start the CADisplayLink-driven render loop on macOS — the
     /// `onRender` signal fires once per display refresh until
@@ -149,6 +162,11 @@ pub class GpuView : Control {
             this._isVisible
         )
         if this.handle >= 0 {
+            // Cache the friendly wrappers once — getters return
+            // these without allocating.
+            this._surface = new Surface(getGpuViewSurface(this.handle))
+            this._device  = new Device(getGpuViewDevice(this.handle))
+            this._queue   = new Queue(getGpuViewQueue(this.handle))
             // Bridge the bare-fn render callback into the
             // Signal<RenderEvent>. One subscription per native
             // view; user-side `onRender.add` fan-out happens

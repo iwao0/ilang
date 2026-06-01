@@ -18,7 +18,7 @@
 //     cargo run -p ilang -- run examples/libs/gui/gpuview/main.il
 
 use gui
-use wgpu { Device, Pipeline, RenderPass, RenderPipelineOptions }
+use wgpu { Pipeline, RenderPass, RenderPipelineOptions }
 
 // WGSL: positions hardcoded in the vertex shader, indexed by
 // @builtin(vertex_index). No vertex buffers needed.
@@ -50,14 +50,13 @@ fn run(): i64 {
     v.height = 480.0
     w.addChild(v)            // attachTo runs → v.device / v.format valid
 
-    if (v.device as i64) == 0 {
+    if v.device.handle == 0 {
         console.log("GpuView unavailable on this platform")
         return 1
     }
 
-    let device   = new Device(v.device)
-    let shader   = device.createWgslShader(WGSL)
-    let pipeline = device.createRenderPipeline(
+    let shader   = v.device.createWgslShader(WGSL)
+    let pipeline = v.device.createRenderPipeline(
         new RenderPipelineOptions(shader, shader, v.format)
     )
     if pipeline.handle == 0 {
