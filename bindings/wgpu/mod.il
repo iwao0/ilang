@@ -842,6 +842,63 @@ pub enum TextureFormat: u32 {
     @lib pub fn wgpuComputePipelineRelease(pipeline: WGPUComputePipeline)
     @lib pub fn wgpuComputePassEncoderRelease(encoder: WGPUComputePassEncoder)
 
+    // ─── command encoder copy ops + buffer clear ──────────────
+    @lib pub fn wgpuCommandEncoderCopyBufferToBuffer(
+        encoder: WGPUCommandEncoder,
+        source:      WGPUBuffer, sourceOffset:      u64,
+        destination: WGPUBuffer, destinationOffset: u64,
+        size: u64
+    )
+    @lib pub fn wgpuCommandEncoderCopyBufferToTexture(
+        encoder: WGPUCommandEncoder,
+        source:      *WGPUTexelCopyBufferInfo,
+        destination: *WGPUTexelCopyTextureInfo,
+        copySize:    *WGPUExtent3D
+    )
+    @lib pub fn wgpuCommandEncoderCopyTextureToTexture(
+        encoder: WGPUCommandEncoder,
+        source:      *WGPUTexelCopyTextureInfo,
+        destination: *WGPUTexelCopyTextureInfo,
+        copySize:    *WGPUExtent3D
+    )
+    // Zero-fill a buffer range — useful before append-style use
+    // of CopyDst buffers when wgpu's debug validation chokes on
+    // uninitialised reads.
+    @lib pub fn wgpuCommandEncoderClearBuffer(
+        encoder: WGPUCommandEncoder,
+        buffer:  WGPUBuffer,
+        offset:  u64,
+        size:    u64
+    )
+
+    // ─── texture descriptor + introspection ───────────────────
+    //
+    // `wgpuTextureCreateView` already takes `descriptor: *void`
+    // (above); cast `(&desc) as *void` at the call site to pass
+    // one. WGPUTextureAspect: All=0, StencilOnly=1, DepthOnly=2.
+    // WGPUTextureDimension: _1D=1, _2D=2, _3D=3.
+    pub struct WGPUTextureViewDescriptor {
+        nextInChain:     *void
+        label:           WGPUStringView
+        format:          u32       // WGPUTextureFormat
+        dimension:       u32       // WGPUTextureViewDimension
+        baseMipLevel:    u32
+        mipLevelCount:   u32
+        baseArrayLayer:  u32
+        arrayLayerCount: u32
+        aspect:          u32       // WGPUTextureAspect
+        usage:           u64       // WGPUTextureUsage flags
+    }
+
+    @lib pub fn wgpuTextureGetWidth(texture: WGPUTexture): u32
+    @lib pub fn wgpuTextureGetHeight(texture: WGPUTexture): u32
+    @lib pub fn wgpuTextureGetDepthOrArrayLayers(texture: WGPUTexture): u32
+    @lib pub fn wgpuTextureGetMipLevelCount(texture: WGPUTexture): u32
+    @lib pub fn wgpuTextureGetSampleCount(texture: WGPUTexture): u32
+    @lib pub fn wgpuTextureGetDimension(texture: WGPUTexture): u32        // WGPUTextureDimension
+    @lib pub fn wgpuTextureGetFormat(texture: WGPUTexture): u32           // WGPUTextureFormat
+    @lib pub fn wgpuTextureGetUsage(texture: WGPUTexture): u64            // WGPUTextureUsage flags
+
     // ─── release (avoid leaks across frames) ──────────────────
     @lib pub fn wgpuTextureViewRelease(view: WGPUTextureView)
     @lib pub fn wgpuTextureRelease(texture: WGPUTexture)
