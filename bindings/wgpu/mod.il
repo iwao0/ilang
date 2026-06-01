@@ -532,6 +532,91 @@ pub enum TextureFormat: u32 {
         device: WGPUDevice, wait: u32, submissionIndex: *const u64
     ): u32
 
+    // ─── buffer reads / writes / introspection ────────────────
+    //
+    // `wgpuQueueWriteBuffer` is the no-staging fast path for small
+    // / single-shot uploads (uniform writes, per-frame transform
+    // matrices). For larger data prefer mapAsync + a CopyDst buffer.
+    @lib pub fn wgpuQueueWriteBuffer(
+        queue: WGPUQueue, buffer: WGPUBuffer, bufferOffset: u64,
+        data: *const void, size: u64
+    )
+    // CPU → texture upload. `dataLayout.bytesPerRow` must be a
+    // multiple of 256 (same WebGPU spec rule as
+    // CopyTextureToBuffer); pad rows before calling.
+    @lib pub fn wgpuQueueWriteTexture(
+        queue:       WGPUQueue,
+        destination: *WGPUTexelCopyTextureInfo,
+        data:        *const void,
+        dataSize:    u64,
+        dataLayout:  *WGPUTexelCopyBufferLayout,
+        writeSize:   *WGPUExtent3D
+    )
+    @lib pub fn wgpuBufferGetSize(buffer: WGPUBuffer): u64
+    // WGPUBufferMapState: Unmapped=1, Pending=2, Mapped=3.
+    @lib pub fn wgpuBufferGetMapState(buffer: WGPUBuffer): u32
+    // Same flag set as WGPUBufferDescriptor.usage.
+    @lib pub fn wgpuBufferGetUsage(buffer: WGPUBuffer): u64
+    // Releases GPU resources eagerly without dropping the host-side
+    // wrapper. Subsequent operations on the buffer fail (validation
+    // error in wgpu) — call only when you know no in-flight command
+    // can still reference it.
+    @lib pub fn wgpuBufferDestroy(buffer: WGPUBuffer)
+
+    // ─── vertex / index buffer plumbing ───────────────────────
+    //
+    // `WGPUVertexFormat` discriminants (raw u32): Uint8x2=0x01,
+    // Uint8x4=0x03, Sint8x2=0x05, Snorm8x4=0x0A, Unorm16x2=0x10,
+    // Float32=0x1C, Float32x2=0x1D, Float32x3=0x1E, Float32x4=0x1F.
+    // `WGPUVertexStepMode`: Undefined=0, Vertex=1, Instance=2.
+    pub struct WGPUVertexAttribute {
+        nextInChain:    *void
+        format:         u32        // WGPUVertexFormat
+        offset:         u64
+        shaderLocation: u32
+    }
+    pub struct WGPUVertexBufferLayout {
+        nextInChain:    *void
+        stepMode:       u32        // WGPUVertexStepMode
+        arrayStride:    u64
+        attributeCount: u64
+        attributes:     *WGPUVertexAttribute
+    }
+
+    // `slot` = vertex-buffer binding index in the pipeline's
+    // `vertex.buffers[]`. `buffer` may be null to unbind. `size`
+    // = WGPU_WHOLE_SIZE (= u64::MAX) means "use the rest of the
+    // buffer from `offset`".
+    @lib pub fn wgpuRenderPassEncoderSetVertexBuffer(
+        encoder: WGPURenderPassEncoder, slot: u32,
+        buffer:  WGPUBuffer, offset: u64, size: u64
+    )
+    // WGPUIndexFormat: Undefined=0, Uint16=1, Uint32=2.
+    @lib pub fn wgpuRenderPassEncoderSetIndexBuffer(
+        encoder: WGPURenderPassEncoder, buffer: WGPUBuffer,
+        format: u32, offset: u64, size: u64
+    )
+    // `baseVertex` is signed — lets you reuse an index buffer
+    // across geometry sub-ranges by shifting the per-vertex
+    // lookup.
+    @lib pub fn wgpuRenderPassEncoderDrawIndexed(
+        encoder:       WGPURenderPassEncoder,
+        indexCount:    u32, instanceCount: u32,
+        firstIndex:    u32, baseVertex:    i32,
+        firstInstance: u32
+    )
+
+    // ─── render-pass viewport / scissor ───────────────────────
+    @lib pub fn wgpuRenderPassEncoderSetViewport(
+        encoder: WGPURenderPassEncoder,
+        x: f32, y: f32, width: f32, height: f32,
+        minDepth: f32, maxDepth: f32
+    )
+    @lib pub fn wgpuRenderPassEncoderSetScissorRect(
+        encoder: WGPURenderPassEncoder,
+        x: u32, y: u32, width: u32, height: u32
+    )
+
     // ─── release (avoid leaks across frames) ──────────────────
     @lib pub fn wgpuTextureViewRelease(view: WGPUTextureView)
     @lib pub fn wgpuTextureRelease(texture: WGPUTexture)
