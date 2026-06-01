@@ -7,7 +7,7 @@
 // Setup (once): third_party/wgpu/fetch.sh
 // Run (macOS):
 //   DYLD_LIBRARY_PATH=third_party/wgpu/macos-aarch64/lib \
-//     cargo run -p ilang -- run examples/wgpu_gui_triangle/main.il
+//     cargo run -p ilang -- run examples/libs/gui/gpuview/main.il
 
 use gui
 use wgpu {
