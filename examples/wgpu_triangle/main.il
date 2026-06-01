@@ -30,19 +30,16 @@ use sdl2 {
     SDL_Metal_CreateView, SDL_Metal_GetLayer, SDL_Metal_DestroyView,
 }
 use wgpu29 {
-    Instance, Queue, Surface, SurfaceConfig, RenderPass,
-    RenderPipelineOptions,
+    Instance, Queue, Surface, SurfaceConfig,
+    ColorAttachmentOption, RenderPassOptions, RenderPipelineOptions,
     WGPUInstance, WGPUSurface, WGPUDevice, WGPUColor,
-    WGPUTextureView, WGPUCommandEncoder,
     WGPUStringView, WGPUChainedStruct,
     WGPUSurfaceSourceMetalLayer, WGPUSurfaceSourceWindowsHWND,
     WGPUSurfaceSourceXlibWindow, WGPUSurfaceSourceWaylandSurface,
     WGPUSurfaceDescriptor,
-    WGPURenderPassColorAttachment, WGPURenderPassDescriptor,
     requestAdapter,
     wgpuSetLogLevel, wgpuSetLogCallback,
     wgpuCreateInstance, wgpuInstanceCreateSurface, wgpuDeviceGetQueue,
-    wgpuCommandEncoderBeginRenderPass,
     SType, LoadOp, StoreOp, LogLevel,
     PowerPreference, BackendType,
 }
@@ -262,33 +259,11 @@ fn run(): i64 {
         let tv = st.texture.createView()
         let enc = dev.createCommandEncoder()
 
-        // NOTE: bypassing CommandEncoder.beginRenderPass /
-        // ColorAttachmentOption — passing a WGPUColor by-value
-        // through a class init's positional arg trips the
-        // codegen ABI (it splats the 4×f64 struct into 4 slots
-        // while the caller supplies 1). See the rewrite report.
-        let att = WGPURenderPassColorAttachment {
-            nextInChain: 0 as *void,
-            view: tv.handle as WGPUTextureView,
-            depthSlice: 0xFFFFFFFF as u32,
-            resolveTarget: 0 as WGPUTextureView,
-            loadOp: LoadOp.clear,
-            storeOp: StoreOp.store,
-            clearValue: WGPUColor { r: 0.10, g: 0.20, b: 0.55, a: 1.0 },
-        }
-        let rp = WGPURenderPassDescriptor {
-            nextInChain: 0 as *void,
-            label: WGPUStringView { data: 0 as *void, length: 0 as u64 },
-            colorAttachmentCount: 1 as u64,
-            colorAttachments: &att,
-            depthStencilAttachment: 0 as *void,
-            occlusionQuerySet: 0 as *void,
-            timestampWrites: 0 as *void,
-        }
-        let passH = wgpuCommandEncoderBeginRenderPass(
-            enc.handle as WGPUCommandEncoder, &rp
+        let att = new ColorAttachmentOption(
+            tv, LoadOp.clear, StoreOp.store,
+            WGPUColor { r: 0.10, g: 0.20, b: 0.55, a: 1.0 }
         )
-        let pass = new RenderPass(passH)
+        let pass = enc.beginRenderPass(new RenderPassOptions([att]))
         pass.setPipeline(pipeline)
         pass.draw(3, 1, 0, 0)
         pass.end()
