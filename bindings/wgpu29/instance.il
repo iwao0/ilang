@@ -91,4 +91,59 @@ use core { WGPUStringView }
     // wgpu-native extension. Returns the loaded library's
     // version as a packed u32 (major / minor / patch / build).
     @lib pub fn wgpuGetVersion(): u32
+
+    // ─── wgpu-native diagnostic report ────────────────────────
+    //
+    // Pre-fill `report = new WGPUGlobalReport()` and pass `&report`;
+    // wgpu fills in per-resource registry counters across every
+    // backend hub. Useful for spotting leaks (`numAllocated -
+    // numReleasedFromUser` should converge).
+    pub struct WGPURegistryReport {
+        numAllocated:        u64
+        numKeptFromUser:     u64
+        numReleasedFromUser: u64
+        elementSize:         u64
+    }
+    pub struct WGPUHubReport {
+        adapters:          WGPURegistryReport
+        devices:           WGPURegistryReport
+        queues:            WGPURegistryReport
+        pipelineLayouts:   WGPURegistryReport
+        shaderModules:     WGPURegistryReport
+        bindGroupLayouts:  WGPURegistryReport
+        bindGroups:        WGPURegistryReport
+        commandBuffers:    WGPURegistryReport
+        renderBundles:     WGPURegistryReport
+        renderPipelines:   WGPURegistryReport
+        computePipelines:  WGPURegistryReport
+        pipelineCaches:    WGPURegistryReport
+        querySets:         WGPURegistryReport
+        buffers:           WGPURegistryReport
+        textures:          WGPURegistryReport
+        textureViews:      WGPURegistryReport
+        samplers:          WGPURegistryReport
+    }
+    pub struct WGPUGlobalReport {
+        surfaces: WGPURegistryReport
+        hub:      WGPUHubReport
+    }
+    @lib pub fn wgpuGenerateReport(instance: WGPUInstance, report: *WGPUGlobalReport)
+
+    // ─── wgpu-native synchronous adapter enumeration ─────────
+    //
+    // Synchronous alternative to `wgpuInstanceRequestAdapter`.
+    // Pass `adapters = 0 as *WGPUAdapter` (null) to count first,
+    // then allocate and call again to fill. `backends` is a
+    // bitmask of `WGPUInstanceBackend` (BrowserWebGPU=0x10,
+    // Vulkan=0x01, Metal=0x02, DX12=0x04, OpenGL=0x40, etc.) —
+    // pass 0 for "all".
+    pub struct WGPUInstanceEnumerateAdapterOptions {
+        nextInChain: *const void
+        backends:    u64                      // WGPUInstanceBackend flags
+    }
+    @lib pub fn wgpuInstanceEnumerateAdapters(
+        instance: WGPUInstance,
+        options:  *WGPUInstanceEnumerateAdapterOptions,
+        adapters: *void                       // out: *WGPUAdapter array; null to count
+    ): u64
 }
