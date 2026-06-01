@@ -5,10 +5,55 @@
 /// pass `surface.handle as *void` (or `0 as *void` to skip the
 /// surface compatibility check).
 
+use core { WGPUStringView, WGPULimits }
 use instance { WGPUInstance }
 
 @extern(C, "wgpu_native") {
     @handle pub struct WGPUAdapter {}
+
+    // ─── introspection ────────────────────────────────────────
+    //
+    // WGPUAdapterType: DiscreteGPU=1, IntegratedGPU=2, CPU=3,
+    //                  Unknown=4.
+    // WGPUBackendType: Undefined=0, Null=1, WebGPU=2, D3D11=3,
+    //                  D3D12=4, Metal=5, Vulkan=6, OpenGL=7,
+    //                  OpenGLES=8.
+    // `wgpuAdapterInfoFreeMembers` must be called on the value
+    // returned by GetInfo to release the StringView allocations.
+    pub struct WGPUAdapterInfo {
+        nextInChain:     *void
+        vendor:          WGPUStringView
+        architecture:    WGPUStringView
+        device:          WGPUStringView
+        description:     WGPUStringView
+        backendType:     u32
+        adapterType:     u32
+        vendorID:        u32
+        deviceID:        u32
+        subgroupMinSize: u32
+        subgroupMaxSize: u32
+    }
+    /// Wgpu-allocated array; `features` is owned by the adapter
+    /// info struct it came in, no separate free is required.
+    pub struct WGPUSupportedFeatures {
+        featureCount: u64
+        features:     *void          // WGPUFeatureName const*
+    }
+    // WGPUStatus: Success=1, Error=2.
+    @lib pub fn wgpuAdapterGetInfo(
+        adapter: WGPUAdapter, info: *WGPUAdapterInfo
+    ): u32
+    @lib pub fn wgpuAdapterGetLimits(
+        adapter: WGPUAdapter, limits: *WGPULimits
+    ): u32
+    @lib pub fn wgpuAdapterGetFeatures(
+        adapter: WGPUAdapter, features: *WGPUSupportedFeatures
+    )
+    @lib pub fn wgpuAdapterHasFeature(
+        adapter: WGPUAdapter, feature: u32         // WGPUFeatureName
+    ): u32                                          // WGPUBool
+    @lib pub fn wgpuAdapterInfoFreeMembers(info: WGPUAdapterInfo)
+    @lib pub fn wgpuAdapterRelease(adapter: WGPUAdapter)
 
     // WGPUCallbackMode: WaitAnyOnly=1, AllowProcessEvents=2,
     // AllowSpontaneous=3.

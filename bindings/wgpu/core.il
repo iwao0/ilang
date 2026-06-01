@@ -162,4 +162,47 @@ pub enum TextureFormat: u32 {
         y: u32
         z: u32
     }
+
+    /// Capability limits shared by `Adapter.GetLimits` /
+    /// `Device.GetLimits`. Every field is an out-param —
+    /// pre-fill `nextInChain = 0 as *void` and pass `&limits`;
+    /// wgpu sets the rest. `u32` fields default to
+    /// `WGPU_LIMIT_U32_UNDEFINED` (0xFFFFFFFF) when not
+    /// applicable, `u64` to `WGPU_LIMIT_U64_UNDEFINED`
+    /// (0xFFFFFFFFFFFFFFFF).
+    pub struct WGPULimits {
+        nextInChain:                                  *void
+        maxTextureDimension1D:                        u32
+        maxTextureDimension2D:                        u32
+        maxTextureDimension3D:                        u32
+        maxTextureArrayLayers:                        u32
+        maxBindGroups:                                u32
+        maxBindGroupsPlusVertexBuffers:               u32
+        maxBindingsPerBindGroup:                      u32
+        maxDynamicUniformBuffersPerPipelineLayout:    u32
+        maxDynamicStorageBuffersPerPipelineLayout:    u32
+        maxSampledTexturesPerShaderStage:             u32
+        maxSamplersPerShaderStage:                    u32
+        maxStorageBuffersPerShaderStage:              u32
+        maxStorageTexturesPerShaderStage:             u32
+        maxUniformBuffersPerShaderStage:              u32
+        maxUniformBufferBindingSize:                  u64
+        maxStorageBufferBindingSize:                  u64
+        minUniformBufferOffsetAlignment:              u32
+        minStorageBufferOffsetAlignment:              u32
+        maxVertexBuffers:                             u32
+        maxBufferSize:                                u64
+        maxVertexAttributes:                          u32
+        maxVertexBufferArrayStride:                   u32
+        maxInterStageShaderVariables:                 u32
+        maxColorAttachments:                          u32
+        maxColorAttachmentBytesPerSample:             u32
+        maxComputeWorkgroupStorageSize:               u32
+        maxComputeInvocationsPerWorkgroup:            u32
+        maxComputeWorkgroupSizeX:                     u32
+        maxComputeWorkgroupSizeY:                     u32
+        maxComputeWorkgroupSizeZ:                     u32
+        maxComputeWorkgroupsPerDimension:             u32
+        maxImmediateSize:                             u32
+    }
 }

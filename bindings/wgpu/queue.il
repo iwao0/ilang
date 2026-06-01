@@ -35,6 +35,25 @@ use command { WGPUCommandBuffer }
         writeSize:   *WGPUExtent3D
     )
 
+    // ─── completion signal + lifetime ─────────────────────────
+    //
+    // `onSubmittedWorkDone` resolves when every previously
+    // submitted command buffer has finished executing. Callback
+    //   void(WGPUQueueWorkDoneStatus status, WGPUStringView msg,
+    //        void* ud1, void* ud2)
+    // → (status: i32, msg.data: i64, msg.len: i64, ud1: i64, ud2: i64).
+    pub struct WGPUQueueWorkDoneCallbackInfo {
+        nextInChain: *void
+        mode:        u32                       // WGPUCallbackMode
+        callback:    fn(i32, i64, i64, i64, i64)
+        userdata1:   *void
+        userdata2:   *void
+    }
+    @lib pub fn wgpuQueueOnSubmittedWorkDone(
+        queue: WGPUQueue, callbackInfo: WGPUQueueWorkDoneCallbackInfo
+    ): u64                                     // WGPUFuture
+    @lib pub fn wgpuQueueRelease(queue: WGPUQueue)
+
     // ─── friendly wrapper ─────────────────────────────────────
 
     /// Wraps `WGPUQueue`. The queue is owned by the underlying

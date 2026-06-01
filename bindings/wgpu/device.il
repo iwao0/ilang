@@ -6,8 +6,8 @@
 /// downstream feature files can declare `wgpuDeviceCreate*(...)`
 /// without cycling back through this file's Device class).
 
-use core { WGPUDevice, WGPUQueue, WGPUStringView, WGPUChainedStruct, TextureFormat }
-use adapter { WGPUAdapter }
+use core { WGPUDevice, WGPUQueue, WGPUStringView, WGPUChainedStruct, WGPULimits, TextureFormat }
+use adapter { WGPUAdapter, WGPUAdapterInfo, WGPUSupportedFeatures }
 use shader {
     Shader, WGPUShaderModule, WGPUShaderSourceWGSL,
     WGPUShaderModuleDescriptor, wgpuDeviceCreateShaderModule,
@@ -47,6 +47,53 @@ use std.ffi { cstrFromString }
     @lib pub fn wgpuDevicePoll(
         device: WGPUDevice, wait: u32, submissionIndex: *const u64
     ): u32
+
+    // ─── introspection ────────────────────────────────────────
+    @lib pub fn wgpuDeviceGetLimits(
+        device: WGPUDevice, limits: *WGPULimits
+    ): u32                                          // WGPUStatus
+    @lib pub fn wgpuDeviceGetFeatures(
+        device: WGPUDevice, features: *WGPUSupportedFeatures
+    )
+    @lib pub fn wgpuDeviceHasFeature(
+        device: WGPUDevice, feature: u32            // WGPUFeatureName
+    ): u32                                          // WGPUBool
+    @lib pub fn wgpuDeviceGetAdapterInfo(
+        device: WGPUDevice, adapterInfo: *WGPUAdapterInfo
+    ): u32                                          // WGPUStatus
+    // Returns a WGPUFuture (u64 id). The associated callback
+    // fires via the lost-future awaiter; see the wgpu_native
+    // examples for the WaitAny + ProcessEvents pattern.
+    @lib pub fn wgpuDeviceGetLostFuture(device: WGPUDevice): u64
+
+    // ─── error scopes ─────────────────────────────────────────
+    //
+    // Push at the start of a block of suspicious work, pop with
+    // a callback that receives the first error (if any) that
+    // matched `filter`. WGPUErrorFilter: Validation=1,
+    // OutOfMemory=2, Internal=3. The pop callback receives
+    //   (WGPUPopErrorScopeStatus status, WGPUErrorType type,
+    //    WGPUStringView message, void* ud1, void* ud2)
+    // with the message splayed to (data, len) i64s.
+    pub struct WGPUPopErrorScopeCallbackInfo {
+        nextInChain: *void
+        mode:        u32                            // CallbackMode
+        callback:    fn(i32, i32, i64, i64, i64, i64)
+        userdata1:   *void
+        userdata2:   *void
+    }
+    @lib pub fn wgpuDevicePushErrorScope(
+        device: WGPUDevice, filter: u32             // WGPUErrorFilter
+    )
+    @lib pub fn wgpuDevicePopErrorScope(
+        device: WGPUDevice, callbackInfo: WGPUPopErrorScopeCallbackInfo
+    ): u64                                          // WGPUFuture
+
+    // Drop GPU resources eagerly without releasing the host-side
+    // wrapper. Same caveat as wgpuBufferDestroy — any in-flight
+    // command referencing the device will fail validation.
+    @lib pub fn wgpuDeviceDestroy(device: WGPUDevice)
+    @lib pub fn wgpuDeviceRelease(device: WGPUDevice)
 
     // ─── friendly wrapper ─────────────────────────────────────
 

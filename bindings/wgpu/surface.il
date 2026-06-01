@@ -97,6 +97,15 @@ use texture { WGPUTexture }
         surface: WGPUSurface, surfaceTexture: *WGPUSurfaceTexture
     )
     @lib pub fn wgpuSurfacePresent(surface: WGPUSurface)
+    // Drop the configured swap chain without releasing the
+    // surface itself — useful before reconfiguring with a new
+    // size / format.
+    @lib pub fn wgpuSurfaceUnconfigure(surface: WGPUSurface)
+    // Free the wgpu-allocated `formats` / `presentModes` /
+    // `alphaModes` arrays inside a populated capabilities
+    // struct. Call after copying out the values you need.
+    @lib pub fn wgpuSurfaceCapabilitiesFreeMembers(capabilities: WGPUSurfaceCapabilities)
+    @lib pub fn wgpuSurfaceRelease(surface: WGPUSurface)
 
     // ─── friendly wrapper ─────────────────────────────────────
 
