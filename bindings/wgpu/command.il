@@ -2,8 +2,7 @@
 /// every `RenderPassEncoder*` / `ComputePassEncoder*` op.
 /// Friendly `RenderPass` wrapper lives here too.
 
-use core { WGPUStringView, WGPUColor, WGPUExtent3D }
-use device { WGPUDevice }
+use core { WGPUStringView, WGPUColor, WGPUExtent3D, WGPUDevice }
 use buffer { WGPUBuffer }
 use texture { WGPUTextureView, WGPUTexelCopyTextureInfo, WGPUTexelCopyBufferInfo }
 use pipeline { WGPURenderPipeline, WGPUComputePipeline, Pipeline }

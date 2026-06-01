@@ -11,8 +11,7 @@
 ///   Uniform  = 0x40,  Storage  = 0x80,
 ///   Indirect = 0x100, QueryResolve = 0x200.
 
-use core { WGPUStringView }
-use device { WGPUDevice }
+use core { WGPUStringView, WGPUDevice }
 
 @extern(C, "wgpu_native") {
     @handle pub struct WGPUBuffer {}

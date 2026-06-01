@@ -30,8 +30,7 @@
 ///   WGPUShaderStage flags:    None=0, Vertex=1, Fragment=2,
 ///                             Compute=4
 
-use core { WGPUStringView }
-use device { WGPUDevice }
+use core { WGPUStringView, WGPUDevice }
 use buffer { WGPUBuffer }
 use texture { WGPUTextureView }
 

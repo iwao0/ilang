@@ -2,11 +2,10 @@
 /// friendly `Queue` wrapper class. The `WGPUQueue` handle itself
 /// lives in `device.il` next to `WGPUDevice`.
 
-use device { WGPUQueue }
+use core { WGPUQueue, WGPUExtent3D }
 use buffer { WGPUBuffer }
 use texture { WGPUTexelCopyTextureInfo, WGPUTexelCopyBufferLayout }
 use command { WGPUCommandBuffer }
-use core { WGPUExtent3D }
 
 @extern(C, "wgpu_native") {
     // `commands` is a `WGPUCommandBuffer const*` (array). Pass a

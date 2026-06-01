@@ -9,10 +9,9 @@
 /// into the adapter-request module cycle; cast
 /// `surface.handle as *void` at the call site.
 
-use core { WGPUStringView, WGPUChainedStruct }
+use core { WGPUStringView, WGPUChainedStruct, WGPUDevice }
 use instance { WGPUInstance }
 use adapter { WGPUAdapter }
-use device { WGPUDevice }
 use texture { WGPUTexture }
 
 @extern(C, "wgpu_native") {

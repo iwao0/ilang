@@ -4,8 +4,7 @@
 /// `WGPUDevice` import is one-way (this file uses Device; Device
 /// doesn't import Shader directly).
 
-use core { WGPUStringView, WGPUChainedStruct }
-use device { WGPUDevice }
+use core { WGPUStringView, WGPUChainedStruct, WGPUDevice }
 
 @extern(C, "wgpu_native") {
     @handle pub struct WGPUShaderModule {}

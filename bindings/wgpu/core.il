@@ -118,6 +118,17 @@ pub enum TextureFormat: u32 {
 }
 
 @extern(C, "wgpu_native") {
+    // ─── fundamental handles ──────────────────────────────────
+    //
+    // `WGPUDevice` and `WGPUQueue` live in core (not their own
+    // `device.il`) so the per-resource files — `shader.il`,
+    // `buffer.il`, `pipeline.il`, … — can declare
+    // `wgpuDeviceCreate*(device: WGPUDevice, …)` without
+    // importing `device.il`, which would otherwise cycle back
+    // through the friendly `Device` class hosted there.
+    @handle pub struct WGPUDevice {}
+    @handle pub struct WGPUQueue {}
+
     /// `const char* data + size_t length`. Empty label = `{ 0, 0 }`;
     /// `length = WGPU_STRLEN` (= u64::MAX) means "wgpu strlen the
     /// data".

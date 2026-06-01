@@ -12,8 +12,7 @@
 ///   TextureBinding=0x04, StorageBinding=0x08,
 ///   RenderAttachment=0x10.
 
-use core { WGPUStringView, WGPUExtent3D, WGPUOrigin3D }
-use device { WGPUDevice }
+use core { WGPUStringView, WGPUExtent3D, WGPUOrigin3D, WGPUDevice }
 use buffer { WGPUBuffer }
 
 @extern(C, "wgpu_native") {
