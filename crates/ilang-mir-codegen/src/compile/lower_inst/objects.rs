@@ -274,7 +274,11 @@ pub(super) fn lower_load_field<M: Module>(
         // proper heap-box pointer. The lookup aborts if the
         // value the C side wrote isn't a declared variant —
         // matches the `repr(C)` panic-on-unknown contract
-        // discussed in the language design notes.
+        // discussed in the language design notes. `@flags`
+        // enums are the exception: any OR-combined bit pattern
+        // of the underlying integer is a valid value, so the
+        // check is skipped and the unchecked unit-cell lookup
+        // is used directly.
         if let MirTy::Enum(eid) = &dst_ty_mir {
             let layout = &prog.enums[eid.0 as usize];
             let unit_only = layout
@@ -293,10 +297,12 @@ pub(super) fn lower_load_field<M: Module>(
                 };
                 let global = enum_global[eid.0 as usize] as i64;
                 let global_v = fb.ins().iconst(types::I64, global);
-                let f = module.declare_func_in_func(
-                    panic_aux.enum_unit_get_checked,
-                    fb.func,
-                );
+                let helper = if layout.is_flags {
+                    panic_aux.enum_unit_get
+                } else {
+                    panic_aux.enum_unit_get_checked
+                };
+                let f = module.declare_func_in_func(helper, fb.func);
                 let call = fb.ins().call(f, &[global_v, disc_i64]);
                 let v = fb.inst_results(call)[0];
                 vmap.insert(*dst, v);
