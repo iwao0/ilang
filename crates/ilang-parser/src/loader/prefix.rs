@@ -772,11 +772,19 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
         | ExprKind::This
         | ExprKind::None
         | ExprKind::Continue) => other,
-        // Struct literals are desugared by `normalize` before the
-        // loader walks anything; reaching this arm means a module
-        // skipped that pass.
+        // Same qualification rule as `New`: bare type names get
+        // the module prefix so a `Foo { … }` literal inside a dep
+        // resolves to `<prefix>.Foo` once the merged program is
+        // type-checked. Without this, the type-checker looks up
+        // bare `Foo` and emits `undefined class "Foo"` — only
+        // when the file is consumed via `use`, since standalone
+        // runs skip the prefix pass.
         ExprKind::StructLit { class, fields, field_name_spans } => ExprKind::StructLit {
-            class,
+            class: if class.as_str().contains('.') || is_builtin_type(class.as_str()) {
+                class
+            } else {
+                format!("{prefix}.{}", class).into()
+            },
             fields: fields
                 .into_iter()
                 .map(|(n, e)| (n, prefix_expr(e, prefix)))
