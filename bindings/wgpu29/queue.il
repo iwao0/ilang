@@ -2,7 +2,10 @@
 /// friendly `Queue` wrapper class. The `WGPUQueue` handle itself
 /// lives in `device.il` next to `WGPUDevice`.
 
-use core { WGPUQueue, WGPUExtent3D, WGPUStringView }
+use core {
+    WGPUQueue, WGPUExtent3D, WGPUStringView, WGPUInstance,
+    wgpuInstanceProcessEvents, CallbackMode,
+}
 use buffer { WGPUBuffer }
 use texture { WGPUTexelCopyTextureInfo, WGPUTexelCopyBufferLayout }
 use command { WGPUCommandBuffer, CommandBuffer }
@@ -11,6 +14,21 @@ pub enum QueueWorkDoneStatus: u32 {
     success           = 0x01
     callbackCancelled = 0x02
     error             = 0x03
+}
+
+// ─── sync wrapper — module-level OUT slot + C callback ───────
+//
+// Backs `Queue.onSubmittedWorkDone`. Slot starts at `-1` (no
+// valid `WGPUQueueWorkDoneStatus` is negative), gets overwritten
+// by the wgpu callback.
+let _wgpuQueueWorkDoneOut: i32[] = [-1]
+
+@extern(C) {
+    pub fn _wgpuOnQueueWorkDone(
+        status: i32, msgData: i64, msgLen: i64, ud1: i64, ud2: i64
+    ) {
+        _wgpuQueueWorkDoneOut[0] = status
+    }
 }
 
 @extern(C, "wgpu_native") {
@@ -122,6 +140,32 @@ pub enum QueueWorkDoneStatus: u32 {
         /// the timestamp feature isn't enabled on the device.
         pub getTimestampPeriod(): f32 {
             wgpuQueueGetTimestampPeriod(this.handle as WGPUQueue)
+        }
+
+        /// Synchronously wait for every previously submitted
+        /// command buffer to finish executing. Internally pumps
+        /// `wgpuInstanceProcessEvents` until the wgpu callback
+        /// fires, then returns the resulting status.
+        ///
+        /// `instHandle` is the owning `WGPUInstance` (used to
+        /// pump events). Passed as a raw handle for symmetry
+        /// with `Buffer.mapAsync` / `Adapter.requestDevice`.
+        pub onSubmittedWorkDone(instHandle: WGPUInstance): QueueWorkDoneStatus {
+            let info = WGPUQueueWorkDoneCallbackInfo {
+                nextInChain: 0 as *void,
+                mode:        CallbackMode.allowProcessEvents,
+                callback:    _wgpuOnQueueWorkDone,
+                userdata1:   0 as *void,
+                userdata2:   0 as *void,
+            }
+            _wgpuQueueWorkDoneOut[0] = -1
+            wgpuQueueOnSubmittedWorkDone(this.handle as WGPUQueue, info)
+            let i: i64 = 0
+            while _wgpuQueueWorkDoneOut[0] == -1 && i < 256 {
+                wgpuInstanceProcessEvents(instHandle)
+                i = i + 1
+            }
+            _wgpuQueueWorkDoneOut[0] as QueueWorkDoneStatus
         }
     }
 }

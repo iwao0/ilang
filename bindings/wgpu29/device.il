@@ -6,8 +6,9 @@
 /// downstream feature files can declare `wgpuDeviceCreate*(...)`
 /// without cycling back through this file's Device class).
 
-use core { WGPUDevice, WGPUQueue, WGPUStringView, WGPUChainedStruct, WGPULimits, TextureFormat, SType }
-use adapter {
+use core {
+    WGPUDevice, WGPUQueue, WGPUStringView, WGPUChainedStruct,
+    WGPULimits, TextureFormat, SType,
     WGPUAdapter, WGPUAdapterInfo, WGPUSupportedFeatures,
     BackendType, AdapterType,
     wgpuAdapterInfoFreeMembers,

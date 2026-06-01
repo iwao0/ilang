@@ -11,7 +11,10 @@
 ///   Uniform  = 0x40,  Storage  = 0x80,
 ///   Indirect = 0x100, QueryResolve = 0x200.
 
-use core { WGPUStringView, WGPUDevice }
+use core {
+    WGPUStringView, WGPUDevice, WGPUInstance,
+    wgpuInstanceProcessEvents, CallbackMode, MapAsyncStatus,
+}
 use std.ffi { cstrFromString }
 
 pub enum BufferMapState: u32 {
@@ -40,6 +43,21 @@ pub enum MapMode: u64 {
     none  = 0x00
     read  = 0x01
     write = 0x02
+}
+
+// ─── sync wrapper — module-level OUT slot + C callback ───────
+//
+// Backs `Buffer.mapAsync`. The slot starts at `-1` (no valid
+// `WGPUMapAsyncStatus` is negative), gets overwritten with the
+// real status when the wgpu callback fires.
+let _wgpuBufferMapOut: i32[] = [-1]
+
+@extern(C) {
+    pub fn _wgpuOnBufferMap(
+        status: i32, msgData: i64, msgLen: i64, ud1: i64, ud2: i64
+    ) {
+        _wgpuBufferMapOut[0] = status
+    }
 }
 
 @extern(C, "wgpu_native") {
@@ -146,6 +164,38 @@ pub enum MapMode: u64 {
         }
         pub getMapState(): BufferMapState {
             wgpuBufferGetMapState(this.handle as WGPUBuffer) as BufferMapState
+        }
+
+        /// Synchronously map a buffer range. Internally pumps
+        /// `wgpuInstanceProcessEvents` until the wgpu callback
+        /// fires, then returns the resulting status. Use
+        /// `getConstMappedRange` / `getMappedRange` afterwards.
+        ///
+        /// `instHandle` is the owning `WGPUInstance` (used to
+        /// pump events). Passed as a raw handle to avoid
+        /// `buffer.il → instance.il`, which would cycle through
+        /// `instance.il → adapter.il → device.il → buffer.il`.
+        pub mapAsync(
+            instHandle: WGPUInstance, mode: MapMode,
+            offset: u64, size: u64
+        ): MapAsyncStatus {
+            let info = WGPUBufferMapCallbackInfo {
+                nextInChain: 0 as *void,
+                mode:        CallbackMode.allowProcessEvents,
+                callback:    _wgpuOnBufferMap,
+                userdata1:   0 as *void,
+                userdata2:   0 as *void,
+            }
+            _wgpuBufferMapOut[0] = -1
+            wgpuBufferMapAsync(
+                this.handle as WGPUBuffer, mode as u64, offset, size, info
+            )
+            let i: i64 = 0
+            while _wgpuBufferMapOut[0] == -1 && i < 256 {
+                wgpuInstanceProcessEvents(instHandle)
+                i = i + 1
+            }
+            _wgpuBufferMapOut[0] as MapAsyncStatus
         }
     }
 

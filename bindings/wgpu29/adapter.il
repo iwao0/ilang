@@ -5,28 +5,18 @@
 /// pass `surface.handle as *void` (or `0 as *void` to skip the
 /// surface compatibility check).
 
-use core { WGPUStringView, WGPULimits, FeatureName }
-use instance { WGPUInstance }
+use core {
+    WGPUStringView, WGPULimits, FeatureName,
+    WGPUInstance, WGPUAdapter, WGPUDevice,
+    WGPUAdapterInfo, WGPUSupportedFeatures,
+    AdapterType, BackendType,
+    wgpuAdapterInfoFreeMembers, wgpuInstanceProcessEvents,
+    CallbackMode,
+}
+use device {
+    Device, WGPURequestDeviceCallbackInfo, wgpuAdapterRequestDevice,
+}
 use std.ffi { cstrFromString }
-
-pub enum AdapterType: u32 {
-    discreteGPU   = 0x01
-    integratedGPU = 0x02
-    cpu           = 0x03
-    unknown       = 0x04
-}
-
-pub enum BackendType: u32 {
-    undefined = 0x00
-    null      = 0x01
-    webgpu    = 0x02
-    d3d11     = 0x03
-    d3d12     = 0x04
-    metal     = 0x05
-    vulkan    = 0x06
-    opengl    = 0x07
-    opengles  = 0x08
-}
 
 pub enum FeatureLevel: u32 {
     undefined     = 0x00
@@ -53,37 +43,28 @@ pub enum RequestDeviceStatus: u32 {
     error             = 0x03
 }
 
-@extern(C, "wgpu_native") {
-    @handle pub struct WGPUAdapter {}
+// ─── sync wrapper — module-level OUT slot + C callback ───────
+//
+// Backs `Adapter.requestDevice`. Same pattern as the
+// `requestAdapter` slot in `instance.il`: reset, post, pump
+// `wgpuInstanceProcessEvents` until the slot is filled, return.
+let _wgpuRequestDeviceOut: i64[] = [0]
 
-    // ─── introspection ────────────────────────────────────────
-    //
-    // WGPUAdapterType: DiscreteGPU=1, IntegratedGPU=2, CPU=3,
-    //                  Unknown=4.
-    // WGPUBackendType: Undefined=0, Null=1, WebGPU=2, D3D11=3,
-    //                  D3D12=4, Metal=5, Vulkan=6, OpenGL=7,
-    //                  OpenGLES=8.
-    // `wgpuAdapterInfoFreeMembers` must be called on the value
-    // returned by GetInfo to release the StringView allocations.
-    pub struct WGPUAdapterInfo {
-        nextInChain:     *void
-        vendor:          WGPUStringView
-        architecture:    WGPUStringView
-        device:          WGPUStringView
-        description:     WGPUStringView
-        backendType:     BackendType
-        adapterType:     AdapterType
-        vendorID:        u32
-        deviceID:        u32
-        subgroupMinSize: u32
-        subgroupMaxSize: u32
+@extern(C) {
+    pub fn _wgpuOnRequestDevice(
+        status: i32, device: i64, msgData: i64, msgLen: i64,
+        ud1: i64, ud2: i64
+    ) {
+        _wgpuRequestDeviceOut[0] = device
     }
-    /// Wgpu-allocated array; `features` is owned by the adapter
-    /// info struct it came in, no separate free is required.
-    pub struct WGPUSupportedFeatures {
-        featureCount: u64
-        features:     *void          // WGPUFeatureName const*
-    }
+}
+
+@extern(C, "wgpu_native") {
+    // `WGPUAdapter`, `WGPUAdapterInfo`, `WGPUSupportedFeatures`,
+    // `AdapterType`, `BackendType`, and `wgpuAdapterInfoFreeMembers`
+    // live in core.il — see the rationale next to their
+    // declarations there.
+
     // WGPUStatus: Success=1, Error=2.
     @lib pub fn wgpuAdapterGetInfo(
         adapter: WGPUAdapter, info: *WGPUAdapterInfo
@@ -97,7 +78,7 @@ pub enum RequestDeviceStatus: u32 {
     @lib pub fn wgpuAdapterHasFeature(
         adapter: WGPUAdapter, feature: u32         // WGPUFeatureName
     ): u32                                          // WGPUBool
-    @lib pub fn wgpuAdapterInfoFreeMembers(info: WGPUAdapterInfo)
+    // `wgpuAdapterInfoFreeMembers` is declared in core.il.
     @lib pub fn wgpuAdapterAddRef(adapter: WGPUAdapter)
     @lib pub fn wgpuAdapterRelease(adapter: WGPUAdapter)
     // Free the wgpu-allocated `features` array inside a
@@ -160,6 +141,34 @@ pub enum RequestDeviceStatus: u32 {
         /// this method casts to plain `bool` for the caller.
         pub hasFeature(feature: FeatureName): bool {
             wgpuAdapterHasFeature(this.handle as WGPUAdapter, feature as u32) != 0
+        }
+
+        /// Synchronously request the default device for this
+        /// adapter. Internally pumps `wgpuInstanceProcessEvents`
+        /// until the wgpu callback fires. Returns a friendly
+        /// `Device`; check `result.handle == 0` for failure.
+        ///
+        /// `instHandle` is the owning `WGPUInstance` (used to
+        /// pump events). Passed as a raw handle to avoid
+        /// `adapter.il → instance.il`, which would cycle back
+        /// through the new `instance.il → adapter.il` edge for
+        /// `Instance.requestAdapter`.
+        pub requestDevice(instHandle: WGPUInstance): Device {
+            let dInfo = WGPURequestDeviceCallbackInfo {
+                nextInChain: 0 as *void,
+                mode:        CallbackMode.allowProcessEvents,
+                callback:    _wgpuOnRequestDevice,
+                userdata1:   0 as *void,
+                userdata2:   0 as *void,
+            }
+            _wgpuRequestDeviceOut[0] = 0
+            wgpuAdapterRequestDevice(this.handle as WGPUAdapter, 0 as *void, dInfo)
+            let i: i64 = 0
+            while _wgpuRequestDeviceOut[0] == 0 && i < 256 {
+                wgpuInstanceProcessEvents(instHandle)
+                i = i + 1
+            }
+            new Device(_wgpuRequestDeviceOut[0] as WGPUDevice)
         }
     }
 }

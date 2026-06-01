@@ -9,9 +9,8 @@
 /// into the adapter-request module cycle; cast
 /// `surface.handle as *void` at the call site.
 
-use core { WGPUStringView, WGPUChainedStruct, WGPUDevice }
-use instance { WGPUInstance }
-use adapter { WGPUAdapter, Adapter }
+use core { WGPUStringView, WGPUChainedStruct, WGPUDevice, WGPUInstance, WGPUAdapter }
+use adapter { Adapter }
 use texture { WGPUTexture, Texture, TextureUsage }
 use device { Device }
 use std.ffi { readU32 }

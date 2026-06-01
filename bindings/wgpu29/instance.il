@@ -3,7 +3,16 @@
 /// every other wgpu resource hangs off; create exactly one per
 /// process and reuse it across surfaces / devices.
 
-use core { WGPUStringView }
+use core {
+    WGPUStringView, WGPUInstance, WGPUAdapter,
+    wgpuInstanceProcessEvents, CallbackMode, BackendType,
+}
+use adapter {
+    Adapter,
+    PowerPreference, FeatureLevel,
+    WGPURequestAdapterOptions, WGPURequestAdapterCallbackInfo,
+    wgpuInstanceRequestAdapter,
+}
 use std.ffi { cstrFromString }
 
 pub enum InstanceFeatureName: u32 {
@@ -161,8 +170,28 @@ pub enum InstanceFlag: u64 {
     withEnv                            = 0x08000000
 }
 
+// ─── sync wrappers — module-level OUT slot + C callback ──────
+//
+// `Instance.requestAdapter` is callback-based at the wgpu level.
+// The friendly sync wrapper resets the slot to 0 (null handle),
+// posts the request, then pumps `wgpuInstanceProcessEvents` until
+// the slot is filled. The `_wgpuOnRequestAdapter` callback is an
+// `@extern(C)` bare fn — wgpu's CallbackInfo holds a raw C
+// function pointer, no closure capture is available.
+let _wgpuRequestAdapterOut: i64[] = [0]
+
+@extern(C) {
+    pub fn _wgpuOnRequestAdapter(
+        status: i32, adapter: i64, msgData: i64, msgLen: i64,
+        ud1: i64, ud2: i64
+    ) {
+        _wgpuRequestAdapterOut[0] = adapter
+    }
+}
+
 @extern(C, "wgpu_native") {
-    @handle pub struct WGPUInstance {}
+    // `WGPUInstance` lives in core.il — see the rationale next to
+    // its declaration there.
 
     // ─── logging (wgpu.h native extension) ────────────────────
     // WGPULogLevel: Off=0 Error=1 Warn=2 Info=3 Debug=4 Trace=5.
@@ -177,10 +206,9 @@ pub enum InstanceFlag: u64 {
     // default `WGPUInstanceDescriptor`.
     @lib pub fn wgpuCreateInstance(descriptor: *void): WGPUInstance
 
-    // Drive any pending callbacks registered via
-    // `AllowProcessEvents` mode. Call between request* and
-    // reading the callback's output cell.
-    @lib pub fn wgpuInstanceProcessEvents(instance: WGPUInstance)
+    // `wgpuInstanceProcessEvents` lives in core.il (so
+    // `buffer.il` / `queue.il` can call it without cycling back
+    // through this file).
     @lib pub fn wgpuInstanceAddRef(instance: WGPUInstance)
     @lib pub fn wgpuInstanceRelease(instance: WGPUInstance)
 
@@ -326,6 +354,54 @@ pub enum InstanceFlag: u64 {
         /// reading the callback's output cell.
         pub processEvents() {
             wgpuInstanceProcessEvents(this.handle as WGPUInstance)
+        }
+
+        /// Synchronously request an adapter. Internally pumps
+        /// `wgpuInstanceProcessEvents` in a loop until the wgpu
+        /// callback fires and writes the adapter handle into a
+        /// module-static slot. Returns a friendly `Adapter`;
+        /// check `result.handle == 0` for failure (the wgpu
+        /// callback either never fired or reported an error).
+        ///
+        /// `surfaceHandle` is the `WGPUSurface` the chosen
+        /// adapter must be able to present to; pass
+        /// `surface.handle as i64` (or `0` to skip the surface
+        /// compatibility check). Taking a raw `i64` instead of
+        /// `Surface` avoids `instance.il → surface.il` (which
+        /// would cycle back through `surface.il → adapter.il →
+        /// device.il`).
+        pub requestAdapter(
+            surfaceHandle: i64,
+            powerPref:     PowerPreference,
+            backend:       BackendType
+        ): Adapter {
+            let inst = this.handle as WGPUInstance
+            let opts = WGPURequestAdapterOptions {
+                nextInChain:          0 as *void,
+                featureLevel:         FeatureLevel.undefined,
+                powerPreference:      powerPref,
+                forceFallbackAdapter: 0 as u32,
+                backendType:          backend,
+                compatibleSurface:    surfaceHandle as *void,
+            }
+            let info = WGPURequestAdapterCallbackInfo {
+                nextInChain: 0 as *void,
+                mode:        CallbackMode.allowProcessEvents,
+                callback:    _wgpuOnRequestAdapter,
+                userdata1:   0 as *void,
+                userdata2:   0 as *void,
+            }
+            _wgpuRequestAdapterOut[0] = 0
+            wgpuInstanceRequestAdapter(inst, (&opts) as *void, info)
+            // Bounded spin — wgpu typically fires on the first
+            // pump; cap at 256 iterations so a stuck callback
+            // can't deadlock the caller.
+            let i: i64 = 0
+            while _wgpuRequestAdapterOut[0] == 0 && i < 256 {
+                wgpuInstanceProcessEvents(inst)
+                i = i + 1
+            }
+            new Adapter(_wgpuRequestAdapterOut[0] as WGPUAdapter)
         }
     }
 }

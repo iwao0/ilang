@@ -123,6 +123,32 @@ pub enum CallbackMode: u32 {
     allowSpontaneous    = 0x03
 }
 
+/// `WGPUAdapterType` — adapter classification returned by
+/// `wgpuAdapterGetInfo`. Lives in core (not `adapter.il`) so the
+/// friendly `Device.getAdapterInfo` in `device.il` can name the
+/// type without importing `adapter.il`.
+pub enum AdapterType: u32 {
+    discreteGPU   = 0x01
+    integratedGPU = 0x02
+    cpu           = 0x03
+    unknown       = 0x04
+}
+
+/// `WGPUBackendType`. Same rationale as `AdapterType` — referenced
+/// by both `adapter.il` (RequestAdapterOptions) and `device.il`
+/// (getAdapterInfo / AdapterInfo value wrapper).
+pub enum BackendType: u32 {
+    undefined = 0x00
+    null      = 0x01
+    webgpu    = 0x02
+    d3d11     = 0x03
+    d3d12     = 0x04
+    metal     = 0x05
+    vulkan    = 0x06
+    opengl    = 0x07
+    opengles  = 0x08
+}
+
 pub enum ComponentSwizzle: u32 {
     undefined = 0x00
     zero      = 0x01
@@ -223,6 +249,15 @@ pub enum WaitStatus: u32 {
     @handle pub struct WGPUDevice {}
     @handle pub struct WGPUQueue {}
 
+    // `WGPUInstance` and `WGPUAdapter` also live in core so the
+    // friendly `Instance.requestAdapter` / `Adapter.requestDevice`
+    // / `Buffer.mapAsync` / `Queue.onSubmittedWorkDone` callback-
+    // pump helpers can name the handle types without forming
+    // cycles between `instance.il` ↔ `adapter.il` ↔ `device.il`
+    // ↔ `buffer.il` ↔ `queue.il`.
+    @handle pub struct WGPUInstance {}
+    @handle pub struct WGPUAdapter {}
+
     /// `const char* data + size_t length`. Empty label = `{ 0, 0 }`;
     /// `length = WGPU_STRLEN` (= u64::MAX) means "wgpu strlen the
     /// data".
@@ -299,4 +334,46 @@ pub enum WaitStatus: u32 {
         maxComputeWorkgroupsPerDimension:             u32
         maxImmediateSize:                             u32
     }
+
+    // ─── adapter info + supported features ───────────────────
+    //
+    // Live in core (not `adapter.il`) so `device.il`'s
+    // `getAdapterInfo` and the friendly `AdapterInfo` value
+    // wrapper there don't need to import `adapter.il` — which
+    // would otherwise cycle via `adapter.il → device.il`
+    // (`Adapter.requestDevice` returns the friendly `Device`).
+    //
+    // `wgpuAdapterInfoFreeMembers` must be called on the value
+    // returned by `wgpuAdapterGetInfo` / `wgpuDeviceGetAdapterInfo`
+    // to release the `WGPUStringView` payload allocations.
+    pub struct WGPUAdapterInfo {
+        nextInChain:     *void
+        vendor:          WGPUStringView
+        architecture:    WGPUStringView
+        device:          WGPUStringView
+        description:     WGPUStringView
+        backendType:     BackendType
+        adapterType:     AdapterType
+        vendorID:        u32
+        deviceID:        u32
+        subgroupMinSize: u32
+        subgroupMaxSize: u32
+    }
+    /// Wgpu-allocated array; free with
+    /// `wgpuSupportedFeaturesFreeMembers` (declared in
+    /// `adapter.il`).
+    pub struct WGPUSupportedFeatures {
+        featureCount: u64
+        features:     *void          // WGPUFeatureName const*
+    }
+    @lib pub fn wgpuAdapterInfoFreeMembers(info: WGPUAdapterInfo)
+
+    // ─── instance event pump ─────────────────────────────────
+    //
+    // Lives in core so `buffer.il` / `queue.il` can drive the
+    // callback dispatcher inside their `mapAsync` /
+    // `onSubmittedWorkDone` sync helpers without importing
+    // `instance.il` (which would form a cycle through
+    // `instance.il → adapter.il → device.il → buffer.il`).
+    @lib pub fn wgpuInstanceProcessEvents(instance: WGPUInstance)
 }

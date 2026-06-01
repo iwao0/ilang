@@ -12,26 +12,32 @@
 /// `PATH` (Windows) when running the JIT.
 ///
 /// Dependency order between siblings (importer → imported):
-///   core
-///   instance      → core
-///   adapter       → instance
-///   device        → adapter
-///   buffer        → core, device
-///   texture       → core, device, buffer
-///   surface       → core, instance, adapter, device, texture
-///   shader        → core, device
-///   bind_group    → core, device, buffer, texture
-///   pipeline      → core, device, shader, bind_group
-///   command       → core, device, buffer, texture, pipeline, bind_group
-///   queue         → core, device, buffer, texture, command
-///   render_bundle → core, device, buffer, bind_group, pipeline, command
-///   query         → core, device, buffer, command
+///   core             (holds WGPUInstance / WGPUAdapter /
+///                     WGPUDevice / WGPUQueue handles + the
+///                     adapter-info types so per-feature files
+///                     don't form cycles via friendly methods)
 ///   external_texture → core
+///   device           → core, shader, pipeline, buffer, texture,
+///                       bind_group, command, query
+///   adapter          → core, device         (requestDevice)
+///   instance         → core, adapter        (requestAdapter)
+///   buffer           → core
+///   texture          → core, buffer
+///   surface          → core, adapter, texture, device
+///   shader           → core
+///   bind_group       → core, buffer, texture
+///   pipeline         → core, shader, bind_group
+///   command          → core, buffer, texture, pipeline, bind_group
+///   queue            → core, buffer, texture, command
+///   render_bundle    → core, buffer, bind_group, pipeline, command
+///   query            → core, buffer, command
 ///
 /// The `adapter → surface` reverse edge (RequestAdapterOptions'
 /// `compatibleSurface`) is broken by typing that field as `*void`
 /// in `adapter.il`; cast `surface.handle as *void` at the call
-/// site.
+/// site. The `buffer / queue → instance` edge for
+/// `wgpuInstanceProcessEvents` is broken by hoisting that decl
+/// (and `WGPUInstance`) into `core.il`.
 
 pub use core.*
 pub use instance.*
