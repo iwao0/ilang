@@ -548,12 +548,6 @@ pub enum TextureFormat: u32 {
     // SDL2-style: the raw @lib decls + struct types above are still
     // available for power users, but the classes / fns below let
     // callers skip their own `@extern(C) { ... }` block.
-    //
-    // Implementation note: across the module-import boundary, ilang
-    // fails to resolve struct-literal syntax (`Foo { … }`) for
-    // structs declared in the same file. The helpers therefore use
-    // `new Foo()` + per-field assignment — verbose but it works
-    // both standalone and when re-exported through `use wgpu`.
 
     // ─── Shader ────────────────────────────────────────────────
 
@@ -669,26 +663,17 @@ pub enum TextureFormat: u32 {
 
         /// Compile a WGSL source string into a shader module.
         pub createWgslShader(wgsl: string): Shader {
-            let chain = new WGPUChainedStruct()
-            chain.next = 0 as *void
-            chain.sType = 2 as u32                  // ShaderSourceWGSL
-
-            let code = new WGPUStringView()
-            code.data = cstrFromString(wgsl) as *void
-            code.length = 0xFFFFFFFFFFFFFFFF as u64 // WGPU_STRLEN
-
-            let src = new WGPUShaderSourceWGSL()
-            src.chain = chain
-            src.code = code
-
-            let label = new WGPUStringView()
-            label.data = 0 as *void
-            label.length = 0 as u64
-
-            let desc = new WGPUShaderModuleDescriptor()
-            desc.nextInChain = (&src) as *void
-            desc.label = label
-
+            let src = WGPUShaderSourceWGSL {
+                chain: WGPUChainedStruct { next: 0 as *void, sType: 2 as u32 },
+                code:  WGPUStringView {
+                    data:   cstrFromString(wgsl) as *void,
+                    length: 0xFFFFFFFFFFFFFFFF as u64,    // WGPU_STRLEN
+                },
+            }
+            let desc = WGPUShaderModuleDescriptor {
+                nextInChain: (&src) as *void,
+                label:       WGPUStringView { data: 0 as *void, length: 0 as u64 },
+            }
             new Shader(wgpuDeviceCreateShaderModule(this.handle as WGPUDevice, &desc))
         }
 
@@ -697,66 +682,57 @@ pub enum TextureFormat: u32 {
         /// pipeline runs against `opts.colorFormat` with a single
         /// opaque write-mask = All and no depth attachment.
         pub createRenderPipeline(opts: RenderPipelineOptions): Pipeline {
-            let target = new WGPUColorTargetState()
-            target.nextInChain = 0 as *void
-            target.format = opts.colorFormat as u32
-            target.blend = 0 as *void
-            target.writeMask = 0xF as u64
-
-            let fsEntry = new WGPUStringView()
-            fsEntry.data = cstrFromString(opts.fragmentEntry) as *void
-            fsEntry.length = 0xFFFFFFFFFFFFFFFF as u64
-
-            let fragState = new WGPUFragmentState()
-            fragState.nextInChain = 0 as *void
-            fragState.module = opts.fragmentShader.handle as WGPUShaderModule
-            fragState.entryPoint = fsEntry
-            fragState.constantCount = 0 as u64
-            fragState.constants = 0 as *void
-            fragState.targetCount = 1 as u64
-            fragState.targets = &target
-
-            let vsEntry = new WGPUStringView()
-            vsEntry.data = cstrFromString(opts.vertexEntry) as *void
-            vsEntry.length = 0xFFFFFFFFFFFFFFFF as u64
-
-            let vertex = new WGPUVertexState()
-            vertex.nextInChain = 0 as *void
-            vertex.module = opts.vertexShader.handle as WGPUShaderModule
-            vertex.entryPoint = vsEntry
-            vertex.constantCount = 0 as u64
-            vertex.constants = 0 as *void
-            vertex.bufferCount = 0 as u64
-            vertex.buffers = 0 as *void
-
-            let primitive = new WGPUPrimitiveState()
-            primitive.nextInChain = 0 as *void
-            primitive.topology = opts.topology
-            primitive.stripIndexFormat = 0 as u32
-            primitive.frontFace = opts.frontFace
-            primitive.cullMode = opts.cullMode
-            primitive.unclippedDepth = 0 as u32
-
-            let multisample = new WGPUMultisampleState()
-            multisample.nextInChain = 0 as *void
-            multisample.count = 1 as u32
-            multisample.mask = 0xFFFFFFFF as u32
-            multisample.alphaToCoverageEnabled = 0 as u32
-
-            let label = new WGPUStringView()
-            label.data = 0 as *void
-            label.length = 0 as u64
-
-            let desc = new WGPURenderPipelineDescriptor()
-            desc.nextInChain = 0 as *void
-            desc.label = label
-            desc.layout = 0 as *void
-            desc.vertex = vertex
-            desc.primitive = primitive
-            desc.depthStencil = 0 as *void
-            desc.multisample = multisample
-            desc.fragment = &fragState
-
+            let target = WGPUColorTargetState {
+                nextInChain: 0 as *void,
+                format:      opts.colorFormat as u32,
+                blend:       0 as *void,
+                writeMask:   0xF as u64,
+            }
+            let fragState = WGPUFragmentState {
+                nextInChain:   0 as *void,
+                module:        opts.fragmentShader.handle as WGPUShaderModule,
+                entryPoint:    WGPUStringView {
+                    data:   cstrFromString(opts.fragmentEntry) as *void,
+                    length: 0xFFFFFFFFFFFFFFFF as u64,
+                },
+                constantCount: 0 as u64,
+                constants:     0 as *void,
+                targetCount:   1 as u64,
+                targets:       &target,
+            }
+            let desc = WGPURenderPipelineDescriptor {
+                nextInChain: 0 as *void,
+                label:       WGPUStringView { data: 0 as *void, length: 0 as u64 },
+                layout:      0 as *void,
+                vertex: WGPUVertexState {
+                    nextInChain:   0 as *void,
+                    module:        opts.vertexShader.handle as WGPUShaderModule,
+                    entryPoint:    WGPUStringView {
+                        data:   cstrFromString(opts.vertexEntry) as *void,
+                        length: 0xFFFFFFFFFFFFFFFF as u64,
+                    },
+                    constantCount: 0 as u64,
+                    constants:     0 as *void,
+                    bufferCount:   0 as u64,
+                    buffers:       0 as *void,
+                },
+                primitive: WGPUPrimitiveState {
+                    nextInChain:      0 as *void,
+                    topology:         opts.topology,
+                    stripIndexFormat: 0 as u32,
+                    frontFace:        opts.frontFace,
+                    cullMode:         opts.cullMode,
+                    unclippedDepth:   0 as u32,
+                },
+                depthStencil: 0 as *void,
+                multisample: WGPUMultisampleState {
+                    nextInChain:            0 as *void,
+                    count:                  1 as u32,
+                    mask:                   0xFFFFFFFF as u32,
+                    alphaToCoverageEnabled: 0 as u32,
+                },
+                fragment: &fragState,
+            }
             new Pipeline(wgpuDeviceCreateRenderPipeline(this.handle as WGPUDevice, &desc))
         }
     }
