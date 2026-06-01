@@ -13,8 +13,9 @@ use cranelift_module::Module;
 use ilang_mir::{MirTy, ValueId};
 
 use super::super::abi::{
-    celem_clif_type_with_enum, elem_byte_stride, elem_clif_type, extend_to_i64,
-    ireduce_or_pass, reduce_from_i64,
+    celem_clif_type_with_enum, chunk_max_for, elem_byte_stride, elem_clif_type, extend_to_i64,
+    ireduce_or_pass, reduce_from_i64, struct_byval_size_with_max, struct_chunks_with_max,
+    struct_hfa,
 };
 use super::super::{CompileError, OBJECT_HEADER_BYTES};
 
@@ -36,7 +37,7 @@ pub(super) fn lower_new_object<M: Module>(
         class_global,
         ..
     } = *prog_ctx;
-    let super::super::FnCtx { stack_local, .. } = *fn_ctx;
+    let super::super::FnCtx { stack_local, func, .. } = *fn_ctx;
     let layout = &prog.classes[class.0 as usize];
     // `@extern(C) struct` lives flat with no header / rc:
     // alloc exactly c_size bytes (zero-init by host_mir_alloc)
@@ -135,8 +136,77 @@ pub(super) fn lower_new_object<M: Module>(
         let local_ref = module.declare_func_in_func(cid, fb.func);
         let mut args: Vec<Value> = Vec::with_capacity(init_args.len() + 2);
         args.push(ptr);
+        // Match `lower_call`'s CRepr by-value expansion so the
+        // declared init signature (HFA-spread / i64-chunked CRepr
+        // params built by `clif_signature_for`) lines up with the
+        // call site. Without this, a `Quad { r,g,b,a: f64 }` init
+        // param expands to 4 f64 AbiParams on the callee side while
+        // the caller pushed a single i64 pointer, blowing up the
+        // verifier with "got 3, expected 6" / "arg has type i64,
+        // expected f64".
+        let init_func = &prog.functions[init.0 as usize];
+        let callee_chunk_max = chunk_max_for(init_func);
+        let hfa_ok = fb.func.signature.call_conv
+            != cranelift_codegen::isa::CallConv::WindowsFastcall;
         for a in init_args.iter() {
-            args.push(vmap[a]);
+            let av = vmap[a];
+            let aty = func.ty_of(*a);
+            let mut expanded = false;
+            if hfa_ok {
+                if let Some((elem_ct, count)) = struct_hfa(aty, prog) {
+                    let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
+                    for c in 0..count {
+                        let v = fb.ins().load(
+                            elem_ct,
+                            MemFlags::trusted(),
+                            av,
+                            (c as i32) * elem_size,
+                        );
+                        args.push(v);
+                    }
+                    expanded = true;
+                }
+            }
+            if !expanded {
+                if let Some(chunks) = struct_chunks_with_max(aty, prog, callee_chunk_max) {
+                    for c in 0..chunks {
+                        let cell = fb.ins().load(
+                            types::I64,
+                            MemFlags::trusted(),
+                            av,
+                            (c as i32) * 8,
+                        );
+                        args.push(cell);
+                    }
+                    expanded = true;
+                }
+            }
+            if !expanded {
+                if let Some(size) =
+                    struct_byval_size_with_max(aty, prog, callee_chunk_max)
+                {
+                    let slot = fb.create_sized_stack_slot(
+                        cranelift_codegen::ir::StackSlotData::new(
+                            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                            size as u32,
+                            3,
+                        ),
+                    );
+                    let copy_ptr = fb.ins().stack_addr(types::I64, slot, 0);
+                    let mut off: i32 = 0;
+                    while (off as i64) < size {
+                        let cell =
+                            fb.ins().load(types::I64, MemFlags::trusted(), av, off);
+                        fb.ins().store(MemFlags::trusted(), cell, copy_ptr, off);
+                        off += 8;
+                    }
+                    args.push(copy_ptr);
+                    expanded = true;
+                }
+            }
+            if !expanded {
+                args.push(av);
+            }
         }
         // Trailing env-ptr (unused by init).
         let zero = fb.ins().iconst(types::I64, 0);
