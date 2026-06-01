@@ -61,23 +61,6 @@ use core { WGPUStringView, WGPUChainedStruct, WGPUDevice }
     @lib pub fn wgpuDeviceCreateShaderModuleSpirV(
         device: WGPUDevice, descriptor: *WGPUShaderModuleDescriptorSpirV
     ): WGPUShaderModule
-
-    // ─── friendly wrapper ─────────────────────────────────────
-
-    /// Compiled WGSL shader module. Wraps `WGPUShaderModule`.
-    /// `Device.createWgslShader(code)` (pipeline.il) returns
-    /// one; `release()` frees the underlying module.
-    pub class Shader {
-        pub handle: i64
-
-        pub init(handle: WGPUShaderModule) {
-            this.handle = handle as i64
-        }
-        pub release() {
-            if this.handle != 0 {
-                wgpuShaderModuleRelease(this.handle as WGPUShaderModule)
-                this.handle = 0
-            }
-        }
-    }
 }
+
+// `Shader` wrapper class lives in `shader_class.il`.

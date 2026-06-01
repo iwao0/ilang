@@ -11,11 +11,7 @@
 ///   Uniform  = 0x40,  Storage  = 0x80,
 ///   Indirect = 0x100, QueryResolve = 0x200.
 
-use core {
-    WGPUStringView, WGPUDevice, WGPUInstance,
-    wgpuInstanceProcessEvents, CallbackMode, MapAsyncStatus,
-}
-use std.ffi { cstrFromString }
+use core { WGPUStringView, WGPUDevice, CallbackMode }
 
 pub enum BufferMapState: u32 {
     unmapped = 0x01
@@ -45,20 +41,8 @@ pub enum MapMode: u64 {
     write = 0x02
 }
 
-// ─── sync wrapper — module-level OUT slot + C callback ───────
-//
-// Backs `Buffer.mapAsync`. The slot starts at `-1` (no valid
-// `WGPUMapAsyncStatus` is negative), gets overwritten with the
-// real status when the wgpu callback fires.
-let _wgpuBufferMapOut: i32[] = [-1]
-
-@extern(C) {
-    pub fn _wgpuOnBufferMap(
-        status: i32, msgData: i64, msgLen: i64, ud1: i64, ud2: i64
-    ) {
-        _wgpuBufferMapOut[0] = status
-    }
-}
+// The `Buffer.mapAsync` sync slot + `_wgpuOnBufferMap` callback
+// live in `buffer_class.il` next to the friendly `Buffer` class.
 
 @extern(C, "wgpu_native") {
     @handle pub struct WGPUBuffer {}
@@ -129,90 +113,7 @@ let _wgpuBufferMapOut: i32[] = [-1]
     @lib pub fn wgpuBufferSetLabel(buffer: WGPUBuffer, label: WGPUStringView)
     @lib pub fn wgpuBufferAddRef(buffer: WGPUBuffer)
     @lib pub fn wgpuBufferRelease(buffer: WGPUBuffer)
-
-    // ─── friendly wrapper ─────────────────────────────────────
-
-    /// GPU memory region. Wraps `WGPUBuffer`. Built via
-    /// `Device.createBuffer`; `release()` drops the host-side
-    /// refcount, `destroy()` drops the GPU-side storage eagerly.
-    pub class Buffer {
-        pub handle: i64
-
-        pub init(handle: WGPUBuffer) {
-            this.handle = handle as i64
-        }
-        pub release() {
-            if this.handle != 0 {
-                wgpuBufferRelease(this.handle as WGPUBuffer)
-                this.handle = 0
-            }
-        }
-        pub destroy() {
-            if this.handle != 0 {
-                wgpuBufferDestroy(this.handle as WGPUBuffer)
-            }
-        }
-        pub setLabel(label: string) {
-            wgpuBufferSetLabel(this.handle as WGPUBuffer, WGPUStringView {
-                data:   cstrFromString(label) as *void,
-                length: 0xFFFFFFFFFFFFFFFF as u64,
-            })
-        }
-        pub getSize(): u64 { wgpuBufferGetSize(this.handle as WGPUBuffer) }
-        pub getUsage(): BufferUsage {
-            wgpuBufferGetUsage(this.handle as WGPUBuffer) as BufferUsage
-        }
-        pub getMapState(): BufferMapState {
-            wgpuBufferGetMapState(this.handle as WGPUBuffer) as BufferMapState
-        }
-
-        /// Synchronously map a buffer range. Internally pumps
-        /// `wgpuInstanceProcessEvents` until the wgpu callback
-        /// fires, then returns the resulting status. Use
-        /// `getConstMappedRange` / `getMappedRange` afterwards.
-        ///
-        /// `instHandle` is the owning `WGPUInstance` (used to
-        /// pump events). Passed as a raw handle to avoid
-        /// `buffer.il → instance.il`, which would cycle through
-        /// `instance.il → adapter.il → device.il → buffer.il`.
-        pub mapAsync(
-            instHandle: WGPUInstance, mode: MapMode,
-            offset: u64, size: u64
-        ): MapAsyncStatus {
-            let info = WGPUBufferMapCallbackInfo {
-                nextInChain: 0 as *void,
-                mode:        CallbackMode.allowProcessEvents,
-                callback:    _wgpuOnBufferMap,
-                userdata1:   0 as *void,
-                userdata2:   0 as *void,
-            }
-            _wgpuBufferMapOut[0] = -1
-            wgpuBufferMapAsync(
-                this.handle as WGPUBuffer, mode as u64, offset, size, info
-            )
-            let i: i64 = 0
-            while _wgpuBufferMapOut[0] == -1 && i < 256 {
-                wgpuInstanceProcessEvents(instHandle)
-                i = i + 1
-            }
-            _wgpuBufferMapOut[0] as MapAsyncStatus
-        }
-    }
-
-    /// Configuration for `Device.createBuffer`. `mappedAtCreation`
-    /// returns the buffer pre-mapped — call `GetMappedRange`,
-    /// fill the bytes, then `Unmap` before the first GPU read.
-    pub class BufferOptions {
-        pub label:            string
-        pub usage:            BufferUsage
-        pub size:             u64
-        pub mappedAtCreation: bool
-
-        pub init(usage: BufferUsage, size: u64) {
-            this.label            = ""
-            this.usage            = usage
-            this.size             = size
-            this.mappedAtCreation = false
-        }
-    }
 }
+
+// `Buffer` and `BufferOptions` wrapper classes live in
+// `buffer_class.il`.

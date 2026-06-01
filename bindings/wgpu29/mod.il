@@ -11,33 +11,50 @@
 /// `DYLD_LIBRARY_PATH` (macOS), `LD_LIBRARY_PATH` (Linux), or
 /// `PATH` (Windows) when running the JIT.
 ///
-/// Dependency order between siblings (importer → imported):
-///   core             (holds WGPUInstance / WGPUAdapter /
-///                     WGPUDevice / WGPUQueue handles + the
-///                     adapter-info types so per-feature files
-///                     don't form cycles via friendly methods)
-///   external_texture → core
-///   device           → core, shader, pipeline, buffer, texture,
-///                       bind_group, command, query
-///   adapter          → core, device         (requestDevice)
-///   instance         → core, adapter        (requestAdapter)
-///   buffer           → core
-///   texture          → core, buffer
-///   surface          → core, adapter, texture, device
-///   shader           → core
-///   bind_group       → core, buffer, texture
-///   pipeline         → core, shader, bind_group
-///   command          → core, buffer, texture, pipeline, bind_group
-///   queue            → core, buffer, texture, command
-///   render_bundle    → core, buffer, bind_group, pipeline, command
-///   query            → core, buffer, command
+/// File layout per feature:
+///   <feature>.il         — raw C-ABI declarations only
+///                          (`@handle`, structs, `@lib pub fn`,
+///                          enums). No friendly wrapper classes.
+///   <feature>_class.il   — the friendly wrapper class(es) that
+///                          wrap a handle from `<feature>.il`.
+///                          Hosts the synchronous callback pump
+///                          helpers as `pub class` methods so
+///                          they can take the friendly `Instance`
+///                          / `Adapter` / `Buffer` / `Queue`
+///                          types instead of raw handles.
 ///
-/// The `adapter → surface` reverse edge (RequestAdapterOptions'
-/// `compatibleSurface`) is broken by typing that field as `*void`
-/// in `adapter.il`; cast `surface.handle as *void` at the call
-/// site. The `buffer / queue → instance` edge for
-/// `wgpuInstanceProcessEvents` is broken by hoisting that decl
-/// (and `WGPUInstance`) into `core.il`.
+/// Class-level DAG (importer → importee), acyclic:
+///   instance_class       (Instance) — base
+///   shader_class         (Shader)
+///   buffer_class         (Buffer, BufferOptions) → instance_class
+///   texture_class        (Texture, TextureView, TextureOptions)
+///   query_class          (QuerySet, QuerySetOptions)
+///   bind_group_class     → buffer_class, texture_class
+///   pipeline_class       → shader_class
+///   command_class        → buffer_class, texture_class,
+///                          pipeline_class, bind_group_class
+///   render_bundle_class  → buffer_class, bind_group_class,
+///                          pipeline_class
+///   queue_class          → command_class, instance_class
+///   device_class         → shader_class, pipeline_class,
+///                          buffer_class, texture_class,
+///                          bind_group_class, command_class,
+///                          query_class
+///   adapter_class        → device_class, instance_class
+///   surface_class        → device_class, adapter_class,
+///                          texture_class
+///
+/// `Instance.requestAdapter` lives in `adapter_class.il` as a
+/// top-level free function `requestAdapter(inst, ...)` — NOT a
+/// method on `Instance` — because hosting it on `Instance` would
+/// close the DAG into the cycle
+///   instance_class → adapter_class → device_class
+///                  → buffer_class → instance_class.
+///
+/// `requestAdapter` keeps a raw `surfaceHandle: i64` (not
+/// `Surface`) so that `adapter_class.il` doesn't need to import
+/// `surface_class.il`; `surface_class.il` imports `adapter_class`
+/// for its `Surface.getCapabilities(adapter: Adapter)` method.
 
 pub use core.*
 pub use instance.*
@@ -54,3 +71,17 @@ pub use queue.*
 pub use render_bundle.*
 pub use query.*
 pub use external_texture.*
+
+pub use instance_class.*
+pub use adapter_class.*
+pub use device_class.*
+pub use buffer_class.*
+pub use texture_class.*
+pub use surface_class.*
+pub use shader_class.*
+pub use bind_group_class.*
+pub use pipeline_class.*
+pub use command_class.*
+pub use queue_class.*
+pub use render_bundle_class.*
+pub use query_class.*
