@@ -3,3 +3,4 @@ name = "gui-cocoa"
 
 [deps]
 cocoa = "../../../bindings/cocoa"
+wgpu  = "../../../bindings/wgpu"

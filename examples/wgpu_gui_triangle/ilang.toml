@@ -1,0 +1,6 @@
+[package]
+name = "wgpu_gui_triangle"
+
+[deps]
+gui  = "../../libs/gui"
+wgpu = "../../bindings/wgpu"

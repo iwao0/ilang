@@ -17,3 +17,4 @@ pub use table.*
 pub use toolbar.*
 pub use drawing.*
 pub use gestures.*
+pub use quartz.*

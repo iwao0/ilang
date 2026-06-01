@@ -1,6 +1,9 @@
 [package]
 name = "gui"
 
+[deps]
+wgpu = "../../bindings/wgpu"
+
 [[deps.gui_impl]]
 path = "cocoa"
 target = "macos"

@@ -119,6 +119,15 @@ pub enum NSApplicationActivationPolicy: i64 {
         /// `drawRect:` callback on the next main-loop iteration.
         @objc("setNeedsDisplay:")
         pub setNeedsDisplay(flag: bool)
+        /// Layer-hosting setup. Call `setLayer:` *before*
+        /// `setWantsLayer:` to take the layer-hosting path (where
+        /// the view forwards drawing to your own CALayer subtree
+        /// rather than letting AppKit allocate one). Used by GPU
+        /// backends that need a CAMetalLayer.
+        @objc("setLayer:")
+        pub setLayer(layer: NSObject)
+        @objc("setWantsLayer:")
+        pub setWantsLayer(flag: bool)
     }
 
     /// NSWindow. The two-step `alloc + initWithContentRect:...`
@@ -154,6 +163,11 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub get contentView(): NSView
         @objc("setContentView:")
         pub setContentView(v: NSView)
+        /// Hi-DPI backing scale (`1.0` on @1x, `2.0` on retina).
+        /// Multiply the view's point dimensions by this to get the
+        /// pixel dimensions GPU layers / drawables expect.
+        @objc("backingScaleFactor")
+        pub get backingScaleFactor(): f64
         /// `acceptsMouseMovedEvents` opt-in for `mouseMoved:` —
         /// AppKit suppresses motion events on windows that didn't
         /// flip it on, so a custom NSView won't see drag-free

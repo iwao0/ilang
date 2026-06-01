@@ -43,6 +43,7 @@ pub use combobox.*
 pub use listbox.*
 pub use groupbox.*
 pub use canvas.*
+pub use gpuview.*
 
 /// Run the platform event loop until every window has closed
 /// (macOS: `NSApp.run()` until `terminate:`; Windows:
