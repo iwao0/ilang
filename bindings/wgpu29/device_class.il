@@ -5,16 +5,21 @@
 /// `Adapter.requestDevice(): Device`) and `surface_class.il`.
 
 use core {
-    WGPUDevice, WGPUStringView, WGPUChainedStruct,
+    WGPUDevice, WGPUInstance, WGPUStringView, WGPUChainedStruct,
     WGPULimits, TextureFormat, SType,
     WGPUExtent3D,
     WGPUAdapterInfo,
     BackendType, AdapterType,
     wgpuAdapterInfoFreeMembers,
+    wgpuInstanceProcessEvents, CallbackMode,
 }
 use device {
     wgpuDeviceGetLimits, wgpuDeviceGetAdapterInfo,
+    wgpuDevicePushErrorScope, wgpuDevicePopErrorScope,
+    WGPUPopErrorScopeCallbackInfo,
+    ErrorFilter, ErrorType, PopErrorScopeStatus,
 }
+use instance_class { Instance }
 use shader {
     WGPUShaderModule, WGPUShaderSourceWGSL,
     WGPUShaderModuleDescriptor, wgpuDeviceCreateShaderModule,
@@ -69,7 +74,29 @@ use query {
     WGPUQuerySet, WGPUQuerySetDescriptor, QueryType, wgpuDeviceCreateQuerySet,
 }
 use query_class { QuerySet, QuerySetOptions }
-use std.ffi { cstrFromString, stringFromCstr }
+use std.ffi { cstrFromString, stringFromCstr, stringFromBytes }
+
+// ─── sync wrapper — module-level OUT slots + C callback ──────
+//
+// Backs `Device.popErrorScope`. Status starts at `-1` (sentinel
+// — no valid `WGPUPopErrorScopeStatus` is negative); the wgpu
+// callback overwrites all four cells in one shot.
+let _wgpuPopErrStatusOut:  i32[] = [-1]
+let _wgpuPopErrTypeOut:    i32[] = [0]
+let _wgpuPopErrMsgDataOut: i64[] = [0]
+let _wgpuPopErrMsgLenOut:  i64[] = [0]
+
+@extern(C) {
+    pub fn _wgpuOnPopErrorScope(
+        status: i32, type: i32, msgData: i64, msgLen: i64,
+        ud1: i64, ud2: i64
+    ) {
+        _wgpuPopErrTypeOut[0]    = type
+        _wgpuPopErrMsgDataOut[0] = msgData
+        _wgpuPopErrMsgLenOut[0]  = msgLen
+        _wgpuPopErrStatusOut[0]  = status
+    }
+}
 
 @extern(C, "wgpu_native") {
 /// Wraps `WGPUDevice`. Construct from the device a `GpuView`
@@ -544,6 +571,90 @@ pub class Device {
         out.subgroupMaxSize = info.subgroupMaxSize as i64
         wgpuAdapterInfoFreeMembers(info)
         out
+    }
+
+    /// Mark the start of a `filter`-typed error scope. Pair with
+    /// `popErrorScope` to capture the first matching error (if
+    /// any) emitted by the bracketed work. Thin friendly wrapper
+    /// over `wgpuDevicePushErrorScope`.
+    pub pushErrorScope(filter: ErrorFilter) {
+        wgpuDevicePushErrorScope(this.handle as WGPUDevice, filter as u32)
+    }
+
+    /// Synchronously pop the matching error scope opened by the
+    /// last `pushErrorScope`. Internally pumps
+    /// `wgpuInstanceProcessEvents` until the wgpu callback fires,
+    /// then builds an `ErrorInfo` from the splayed
+    /// `(status, type, message-data, message-length)` payload.
+    /// `info.type == ErrorType.noError` means "scope closed with
+    /// no captured error".
+    pub popErrorScope(inst: Instance): ErrorInfo {
+        let instHandle = inst.handle as WGPUInstance
+        let cbInfo = WGPUPopErrorScopeCallbackInfo {
+            nextInChain: 0 as *void,
+            mode:        CallbackMode.allowProcessEvents,
+            callback:    _wgpuOnPopErrorScope,
+            userdata1:   0 as *void,
+            userdata2:   0 as *void,
+        }
+        _wgpuPopErrStatusOut[0]  = -1
+        _wgpuPopErrTypeOut[0]    = 0
+        _wgpuPopErrMsgDataOut[0] = 0
+        _wgpuPopErrMsgLenOut[0]  = 0
+        wgpuDevicePopErrorScope(this.handle as WGPUDevice, cbInfo)
+        let i: i64 = 0
+        while _wgpuPopErrStatusOut[0] == -1 && i < 256 {
+            wgpuInstanceProcessEvents(instHandle)
+            i = i + 1
+        }
+        let out = new ErrorInfo()
+        out.status = _wgpuPopErrStatusOut[0] as PopErrorScopeStatus
+        out.type   = _wgpuPopErrTypeOut[0]   as ErrorType
+        let dataPtr = _wgpuPopErrMsgDataOut[0]
+        let lenRaw  = _wgpuPopErrMsgLenOut[0]
+        if dataPtr != 0 && lenRaw > 0 {
+            // WGPU_STRLEN sentinel (-1 cast through size_t) means
+            // "NUL-terminated"; any real positive length is a
+            // byte count. The pop-error-scope callback in wgpu
+            // always sends a real length, but treat the sentinel
+            // defensively rather than read 2^63 bytes.
+            if lenRaw == 0xFFFFFFFFFFFFFFFF as i64 {
+                out.message = stringFromCstr(dataPtr as *const char)
+            } else {
+                out.message = stringFromBytes(dataPtr as *const void, lenRaw)
+            }
+        }
+        out
+    }
+
+    // ─── device-lost notifications ────────────────────────────
+    //
+    // The lost-device callback is registered when the device is
+    // *created* (via `WGPUDeviceDescriptor.deviceLostCallbackInfo`),
+    // not after the fact. The `wgpuDeviceGetLostFuture` raw fn
+    // returns an awaitable `WGPUFuture` for the same notification,
+    // but waiting on it without `wgpuInstanceWaitAny` (not yet
+    // bound) requires the lost callback to already be plumbed in
+    // at creation time. The friendly `Adapter.requestDevice`
+    // doesn't expose that yet, so a sync `Device.getLostInfo` is
+    // intentionally NOT provided — see `device.il` for the raw
+    // declarations if you need to drive this yourself.
+}
+
+/// Captured error from `Device.popErrorScope`. `status` is the
+/// raw wgpu callback status (`success` / `error` / cancelled);
+/// `type` distinguishes which error category surfaced
+/// (`noError` if the scope closed cleanly); `message` is the
+/// wgpu-side diagnostic copied into an owned ilang `string`.
+pub class ErrorInfo {
+    pub status:  PopErrorScopeStatus
+    pub type:    ErrorType
+    pub message: string
+
+    pub init() {
+        this.status  = PopErrorScopeStatus.success
+        this.type    = ErrorType.noError
+        this.message = ""
     }
 }
 

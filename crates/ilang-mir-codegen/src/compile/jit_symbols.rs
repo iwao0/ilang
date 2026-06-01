@@ -298,6 +298,7 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("$array.dataPtr", ilang_runtime::__array_data_ptr as *const u8);
     jit_builder.symbol("$ffi.cstrFromString", ilang_runtime::cstr_from_string as *const u8);
     jit_builder.symbol("$ffi.stringFromCstr", ilang_runtime::string_from_cstr as *const u8);
+    jit_builder.symbol("$ffi.stringFromBytes", ilang_runtime::string_from_bytes as *const u8);
     jit_builder.symbol("$ffi.cstrArrayToStrings", ilang_runtime::cstr_array_to_strings as *const u8);
     jit_builder.symbol("$ffi.freeCstr", ilang_runtime::free_cstr as *const u8);
     jit_builder.symbol("$ffi.errnoCheck", ilang_runtime::errno_check_i32 as *const u8);

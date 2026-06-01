@@ -532,6 +532,21 @@ pub extern "C" fn string_from_cstr(p: i64) -> i64 {
     leak_cstring(String::from_utf8_lossy(bytes).into_owned())
 }
 
+/// `stringFromBytes(p, n)` — copy `n` bytes from `p` into a fresh
+/// owned ilang `string`. Lossily decodes as UTF-8. Companion to
+/// `stringFromCstr` for the WebGPU-style `(const char *, size_t)`
+/// pairs (e.g. `WGPUStringView`) where the length is a real count
+/// (not a `WGPU_STRLEN` sentinel). `p == 0` or `n <= 0` returns an
+/// empty string.
+#[unsafe(export_name = "$ffi.stringFromBytes")]
+pub extern "C" fn string_from_bytes(p: i64, n: i64) -> i64 {
+    if p == 0 || n <= 0 {
+        return leak_cstring(String::new());
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(p as *const u8, n as usize) };
+    leak_cstring(String::from_utf8_lossy(bytes).into_owned())
+}
+
 #[unsafe(export_name = "$ffi.cstrArrayToStrings")]
 pub extern "C" fn cstr_array_to_strings(ptrs: i64) -> i64 {
     let mut elems: Vec<i64> = Vec::new();

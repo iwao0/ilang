@@ -43,6 +43,25 @@ use core { WGPUStringView, WGPUChainedStruct, WGPUDevice }
         userdata1:   *void
         userdata2:   *void
     }
+    // Layout reference for manual `std.ffi.readU64` / `readU32` walking
+    // (the callback hands us a `WGPUCompilationInfo const *` not a
+    // by-value struct, so these aren't called directly — see
+    // `shader_class.il` `Shader.getCompilationInfo` for the offsets).
+    pub struct WGPUCompilationInfo {
+        nextInChain:  *void
+        messageCount: u64                           // size_t
+        messages:     *void                         // WGPUCompilationMessage const*
+    }
+    pub struct WGPUCompilationMessage {
+        nextInChain: *void
+        message:     WGPUStringView
+        type:        u32                            // WGPUCompilationMessageType
+        // 4-byte tail padding before the u64 fields below
+        lineNum:     u64
+        linePos:     u64
+        offset:      u64
+        length:      u64
+    }
     @lib pub fn wgpuShaderModuleGetCompilationInfo(
         shaderModule: WGPUShaderModule,
         callbackInfo: WGPUCompilationInfoCallbackInfo

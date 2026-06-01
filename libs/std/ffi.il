@@ -27,6 +27,14 @@
     @intrinsic("ffi.stringFromCstr")
     pub fn stringFromCstr(p: *const char): string
 
+    /// Copy `n` bytes from `p` into a fresh owned ilang `string`
+    /// (UTF-8, lossily decoded). Companion to `stringFromCstr` for
+    /// `(const char *, size_t)` pairs (e.g. `WGPUStringView` payloads
+    /// whose length is a real count, not a `WGPU_STRLEN` sentinel).
+    /// `p == 0` or `n <= 0` returns `""`.
+    @intrinsic("ffi.stringFromBytes")
+    pub fn stringFromBytes(p: *const void, n: i64): string
+
     /// No-op counterpart of `cstrFromString`. Kept so call sites
     /// read symmetrically; the runtime doesn't actually free
     /// anything (ilang owns the buffer).
