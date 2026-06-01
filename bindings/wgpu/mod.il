@@ -441,6 +441,8 @@ pub enum TextureFormat: u32 {
     @handle pub struct WGPUBindGroupLayout {}
     @handle pub struct WGPUPipelineLayout {}
     @handle pub struct WGPUSampler {}
+    @handle pub struct WGPUComputePipeline {}
+    @handle pub struct WGPUComputePassEncoder {}
 
     pub struct WGPUExtent3D {
         width:              u32
@@ -768,6 +770,77 @@ pub enum TextureFormat: u32 {
     @lib pub fn wgpuBindGroupLayoutRelease(layout: WGPUBindGroupLayout)
     @lib pub fn wgpuPipelineLayoutRelease(layout: WGPUPipelineLayout)
     @lib pub fn wgpuSamplerRelease(sampler: WGPUSampler)
+
+    // ─── compute pipeline + compute pass ──────────────────────
+    //
+    // Symmetric with the render pipeline / render pass shape:
+    //   create pipeline → begin pass → set pipeline → set bind
+    //   groups → dispatchWorkgroups (×N) → end → submit.
+    //
+    // `WGPUComputeState` mirrors `WGPUVertexState` (one shader
+    // module + entry point + override constants); compute
+    // pipelines carry exactly one stage so there's no fragment
+    // counterpart.
+
+    pub struct WGPUComputeState {
+        nextInChain:   *void
+        module:        WGPUShaderModule
+        entryPoint:    WGPUStringView
+        constantCount: u64
+        constants:     *void          // WGPUConstantEntry const*; null = none
+    }
+    pub struct WGPUComputePipelineDescriptor {
+        nextInChain: *void
+        label:       WGPUStringView
+        // `layout` may be null — wgpu auto-derives a pipeline
+        // layout from the shader module's reflection just like
+        // the render-pipeline path.
+        layout:      WGPUPipelineLayout
+        compute:     WGPUComputeState
+    }
+    pub struct WGPUComputePassDescriptor {
+        nextInChain:     *void
+        label:           WGPUStringView
+        timestampWrites: *void        // WGPUPassTimestampWrites const*
+    }
+
+    @lib pub fn wgpuDeviceCreateComputePipeline(
+        device: WGPUDevice, descriptor: *WGPUComputePipelineDescriptor
+    ): WGPUComputePipeline
+    @lib pub fn wgpuComputePipelineGetBindGroupLayout(
+        pipeline: WGPUComputePipeline, groupIndex: u32
+    ): WGPUBindGroupLayout
+
+    // `descriptor` may be null for a plain pass with no
+    // timestamp queries.
+    @lib pub fn wgpuCommandEncoderBeginComputePass(
+        encoder: WGPUCommandEncoder, descriptor: *WGPUComputePassDescriptor
+    ): WGPUComputePassEncoder
+    @lib pub fn wgpuComputePassEncoderSetPipeline(
+        encoder: WGPUComputePassEncoder, pipeline: WGPUComputePipeline
+    )
+    @lib pub fn wgpuComputePassEncoderSetBindGroup(
+        encoder:            WGPUComputePassEncoder,
+        groupIndex:         u32,
+        group:              WGPUBindGroup,
+        dynamicOffsetCount: u64,
+        dynamicOffsets:     *const u32
+    )
+    @lib pub fn wgpuComputePassEncoderDispatchWorkgroups(
+        encoder: WGPUComputePassEncoder,
+        workgroupCountX: u32, workgroupCountY: u32, workgroupCountZ: u32
+    )
+    // Indirect dispatch reads `[x, y, z]` u32 triples out of
+    // `indirectBuffer` at `indirectOffset` — useful when the
+    // workgroup count is itself computed on the GPU.
+    @lib pub fn wgpuComputePassEncoderDispatchWorkgroupsIndirect(
+        encoder: WGPUComputePassEncoder,
+        indirectBuffer: WGPUBuffer, indirectOffset: u64
+    )
+    @lib pub fn wgpuComputePassEncoderEnd(encoder: WGPUComputePassEncoder)
+
+    @lib pub fn wgpuComputePipelineRelease(pipeline: WGPUComputePipeline)
+    @lib pub fn wgpuComputePassEncoderRelease(encoder: WGPUComputePassEncoder)
 
     // ─── release (avoid leaks across frames) ──────────────────
     @lib pub fn wgpuTextureViewRelease(view: WGPUTextureView)
