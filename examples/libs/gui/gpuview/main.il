@@ -11,6 +11,9 @@
 // Run (macOS):
 //   DYLD_LIBRARY_PATH=third_party/wgpu/macos-aarch64/lib \
 //     cargo run -p ilang -- run examples/libs/gui/gpuview/main.il
+// Run (Linux, X11 or Wayland — needs GTK 4 + libwgpu_native):
+//   LD_LIBRARY_PATH=third_party/wgpu/linux-x86_64/lib \
+//     cargo run -p ilang -- run examples/libs/gui/gpuview/main.il
 
 use gui
 use wgpu {

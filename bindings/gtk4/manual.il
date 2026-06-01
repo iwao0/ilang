@@ -30,6 +30,7 @@
 use generated.gobject { GObject }
 use generated.glib { GMainLoop }
 use generated.gtk { GtkWidget, GtkEntry, GtkDrawingArea }
+use generated.gdk { GdkDisplay, GdkSurface, GdkFrameClock }
 
 // ─── Gdk keyvals ─────────────────────────────────────────────
 // Subset libs/gui maps to W3C `KeyboardEvent.code`. Values from
@@ -183,4 +184,44 @@ pub enum Keyval: u32 {
         c_handler: fn(i64, u32, u32, u32, i64): i32,
         data: *void, destroy_data: i64, flags: u32
     ): u64
+
+    // ─── GtkNative + GdkSurface accessors ─────────────────────
+    // Needed by libs/gui/linux GpuView to extract the GdkSurface
+    // backing a GtkWindow and, beneath it, the platform-native X11
+    // Window / wl_surface that wgpu wraps. `GtkNative` is a GIR
+    // <interface> the generator's first pass skips.
+    @handle pub struct GtkNative {}
+
+    @lib pub fn gtk_widget_get_native(widget: GtkWidget): GtkNative
+    @lib pub fn gtk_native_get_surface(self: GtkNative): GdkSurface
+
+    // ─── Frame-clock tick callback ────────────────────────────
+    // `gboolean(GtkWidget*, GdkFrameClock*, gpointer)`. Return 1
+    // (G_SOURCE_CONTINUE) to keep ticking, 0 (G_SOURCE_REMOVE) to
+    // stop. Fires once per frame from the surface's GdkFrameClock —
+    // GTK's CADisplayLink / DwmFlush equivalent.
+    @lib pub fn gtk_widget_add_tick_callback(
+        widget: GtkWidget,
+        callback: fn(i64, i64, i64): i32,
+        user_data: *void,
+        notify: i64
+    ): u32
+    // `gtk_widget_remove_tick_callback` is already in generated/gtk.il.
+
+    // ─── X11 backend extras ───────────────────────────────────
+    // Exported from libgtk-4.so on systems built with the X11
+    // backend. `gdk_x11_surface_get_xid` returns `Window`
+    // (unsigned long, 8 bytes on Linux x86_64); cast to u64 for
+    // `WGPUSurfaceSourceXlibWindow.window`. `gdk_x11_display_get_xdisplay`
+    // returns the `Display*` — the value wgpu's surface source
+    // wants verbatim.
+    @lib pub fn gdk_x11_surface_get_xid(surface: GdkSurface): u64
+    @lib pub fn gdk_x11_display_get_xdisplay(display: GdkDisplay): *void
+
+    // ─── Wayland backend extras ───────────────────────────────
+    // `gdk_wayland_surface_get_wl_surface` returns the `wl_surface*`;
+    // `gdk_wayland_display_get_wl_display` returns the `wl_display*`.
+    // Both go straight into `WGPUSurfaceSourceWaylandSurface`.
+    @lib pub fn gdk_wayland_surface_get_wl_surface(surface: GdkSurface): *void
+    @lib pub fn gdk_wayland_display_get_wl_display(display: GdkDisplay): *void
 }
