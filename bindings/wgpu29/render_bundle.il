@@ -40,7 +40,7 @@ use command { WGPURenderPassEncoder }
         colorFormats:       *void
         // `WGPUTextureFormat_Undefined` (0) when no depth-stencil
         // attachment is in use.
-        depthStencilFormat: u32
+        depthStencilFormat: TextureFormat
         sampleCount:        u32
         depthReadOnly:      u32     // WGPUBool
         stencilReadOnly:    u32     // WGPUBool

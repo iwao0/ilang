@@ -7,6 +7,12 @@ use buffer { WGPUBuffer }
 use texture { WGPUTexelCopyTextureInfo, WGPUTexelCopyBufferLayout }
 use command { WGPUCommandBuffer }
 
+pub enum QueueWorkDoneStatus: u32 {
+    success           = 0x01
+    callbackCancelled = 0x02
+    error             = 0x03
+}
+
 @extern(C, "wgpu_native") {
     // `commands` is a `WGPUCommandBuffer const*` (array). Pass a
     // 1-element `WGPUCommandBuffer[]` (the array → pointer
@@ -44,7 +50,7 @@ use command { WGPUCommandBuffer }
     // → (status: i32, msg.data: i64, msg.len: i64, ud1: i64, ud2: i64).
     pub struct WGPUQueueWorkDoneCallbackInfo {
         nextInChain: *void
-        mode:        u32                       // WGPUCallbackMode
+        mode:        CallbackMode
         callback:    fn(i32, i64, i64, i64, i64)
         userdata1:   *void
         userdata2:   *void

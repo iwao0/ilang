@@ -6,7 +6,7 @@
 /// downstream feature files can declare `wgpuDeviceCreate*(...)`
 /// without cycling back through this file's Device class).
 
-use core { WGPUDevice, WGPUQueue, WGPUStringView, WGPUChainedStruct, WGPULimits, TextureFormat }
+use core { WGPUDevice, WGPUQueue, WGPUStringView, WGPUChainedStruct, WGPULimits, TextureFormat, SType }
 use adapter { WGPUAdapter, WGPUAdapterInfo, WGPUSupportedFeatures }
 use shader {
     Shader, WGPUShaderModule, WGPUShaderSourceWGSL,
@@ -17,9 +17,55 @@ use pipeline {
     WGPURenderPipelineDescriptor,
     WGPUVertexState, WGPUFragmentState, WGPUColorTargetState,
     WGPUPrimitiveState, WGPUMultisampleState,
+    ColorWriteMask, IndexFormat,
     wgpuDeviceCreateRenderPipeline,
 }
 use std.ffi { cstrFromString }
+
+pub enum CompilationInfoRequestStatus: u32 {
+    success           = 0x01
+    callbackCancelled = 0x02
+}
+
+pub enum CompilationMessageType: u32 {
+    error   = 0x01
+    warning = 0x02
+    info    = 0x03
+}
+
+pub enum CreatePipelineAsyncStatus: u32 {
+    success           = 0x01
+    callbackCancelled = 0x02
+    validationError   = 0x03
+    internalError     = 0x04
+}
+
+pub enum DeviceLostReason: u32 {
+    unknown           = 0x01
+    destroyed         = 0x02
+    callbackCancelled = 0x03
+    failedCreation    = 0x04
+}
+
+pub enum ErrorFilter: u32 {
+    validation  = 0x01
+    outOfMemory = 0x02
+    internal    = 0x03
+}
+
+pub enum ErrorType: u32 {
+    noError     = 0x01
+    validation  = 0x02
+    outOfMemory = 0x03
+    internal    = 0x04
+    unknown     = 0x05
+}
+
+pub enum PopErrorScopeStatus: u32 {
+    success           = 0x01
+    callbackCancelled = 0x02
+    error             = 0x03
+}
 
 @extern(C, "wgpu_native") {
     // Same layout as RequestAdapterCallbackInfo; callback is
@@ -27,7 +73,7 @@ use std.ffi { cstrFromString }
     //        void*, void*)
     pub struct WGPURequestDeviceCallbackInfo {
         nextInChain: *void
-        mode:        u32
+        mode:        CallbackMode
         callback:    fn(i32, i64, i64, i64, i64, i64)
         userdata1:   *void
         userdata2:   *void
@@ -77,7 +123,7 @@ use std.ffi { cstrFromString }
     // with the message splayed to (data, len) i64s.
     pub struct WGPUPopErrorScopeCallbackInfo {
         nextInChain: *void
-        mode:        u32                            // CallbackMode
+        mode:        CallbackMode
         callback:    fn(i32, i32, i64, i64, i64, i64)
         userdata1:   *void
         userdata2:   *void
@@ -129,7 +175,7 @@ use std.ffi { cstrFromString }
         /// Compile a WGSL source string into a shader module.
         pub createWgslShader(wgsl: string): Shader {
             let src = WGPUShaderSourceWGSL {
-                chain: WGPUChainedStruct { next: 0 as *void, sType: 2 as u32 },
+                chain: WGPUChainedStruct { next: 0 as *void, sType: SType.shaderSourceWGSL },
                 code:  WGPUStringView {
                     data:   cstrFromString(wgsl) as *void,
                     length: 0xFFFFFFFFFFFFFFFF as u64,    // WGPU_STRLEN
@@ -149,9 +195,9 @@ use std.ffi { cstrFromString }
         pub createRenderPipeline(opts: RenderPipelineOptions): Pipeline {
             let target = WGPUColorTargetState {
                 nextInChain: 0 as *void,
-                format:      opts.colorFormat as u32,
+                format:      opts.colorFormat,
                 blend:       0 as *void,
-                writeMask:   0xF as u64,
+                writeMask:   ColorWriteMask.all,
             }
             let fragState = WGPUFragmentState {
                 nextInChain:   0 as *void,
@@ -184,7 +230,7 @@ use std.ffi { cstrFromString }
                 primitive: WGPUPrimitiveState {
                     nextInChain:      0 as *void,
                     topology:         opts.topology,
-                    stripIndexFormat: 0 as u32,
+                    stripIndexFormat: IndexFormat.undefined,
                     frontFace:        opts.frontFace,
                     cullMode:         opts.cullMode,
                     unclippedDepth:   0 as u32,

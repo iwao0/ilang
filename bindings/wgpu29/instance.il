@@ -5,6 +5,161 @@
 
 use core { WGPUStringView }
 
+pub enum InstanceFeatureName: u32 {
+    timedWaitAny              = 0x01
+    shaderSourceSPIRV         = 0x02
+    multipleDevicesPerAdapter = 0x03
+}
+
+pub enum WGSLLanguageFeatureName: u32 {
+    readonlyAndReadwriteStorageTextures = 0x01
+    packed4x8IntegerDotProduct          = 0x02
+    unrestrictedPointerParameters       = 0x03
+    pointerCompositeAccess              = 0x04
+    uniformBufferStandardLayout         = 0x05
+    subgroupId                          = 0x06
+    textureAndSamplerLet                = 0x07
+    subgroupUniformity                  = 0x08
+    textureFormatsTier1                 = 0x09
+}
+
+pub enum NativeSType: u32 {
+    deviceExtras                = 0x00030001
+    nativeLimits                = 0x00030002
+    pipelineLayoutExtras        = 0x00030003
+    shaderSourceGLSL            = 0x00030004
+    instanceExtras              = 0x00030006
+    bindGroupEntryExtras        = 0x00030007
+    bindGroupLayoutEntryExtras  = 0x00030008
+    querySetDescriptorExtras    = 0x00030009
+    surfaceConfigurationExtras  = 0x0003000A
+    surfaceSourceSwapChainPanel = 0x0003000B
+    primitiveStateExtras        = 0x0003000C
+}
+
+pub enum NativeFeature: u64 {
+    immediates                                            = 0x00030001
+    textureAdapterSpecificFormatFeatures                  = 0x00030002
+    multiDrawIndirectCount                                = 0x00030004
+    vertexWritableStorage                                 = 0x00030005
+    textureBindingArray                                   = 0x00030006
+    sampledTextureAndStorageBufferArrayNonUniformIndexing = 0x00030007
+    pipelineStatisticsQuery                               = 0x00030008
+    storageResourceBindingArray                           = 0x00030009
+    partiallyBoundBindingArray                            = 0x0003000A
+    textureFormat16bitNorm                                = 0x0003000B
+    textureCompressionAstcHdr                             = 0x0003000C
+    mappablePrimaryBuffers                                = 0x0003000E
+    bufferBindingArray                                    = 0x0003000F
+    uniformBufferAndStorageTextureArrayNonUniformIndexing = 0x00030010
+    polygonModeLine                                       = 0x00030013
+    polygonModePoint                                      = 0x00030014
+    conservativeRasterization                             = 0x00030015
+    spirvShaderPassthrough                                = 0x00030017
+    vertexAttribute64bit                                  = 0x00030019
+    textureFormatNv12                                     = 0x0003001A
+    rayQuery                                              = 0x0003001C
+    shaderF64                                             = 0x0003001D
+    shaderI16                                             = 0x0003001E
+    shaderEarlyDepthTest                                  = 0x00030020
+    subgroup                                              = 0x00030021
+    subgroupVertex                                        = 0x00030022
+    subgroupBarrier                                       = 0x00030023
+    timestampQueryInsideEncoders                          = 0x00030024
+    timestampQueryInsidePasses                            = 0x00030025
+    shaderInt64                                           = 0x00030026
+}
+
+pub enum LogLevel: u32 {
+    off   = 0x00
+    error = 0x01
+    warn  = 0x02
+    info  = 0x03
+    debug = 0x04
+    trace = 0x05
+}
+
+pub enum Dx12Compiler: u32 {
+    undefined = 0x00
+    fxc       = 0x01
+    dxc       = 0x02
+}
+
+pub enum Gles3MinorVersion: u32 {
+    automatic = 0x00
+    version0  = 0x01
+    version1  = 0x02
+    version2  = 0x03
+}
+
+pub enum DxcMaxShaderModel: u32 {
+    v6_0 = 0x00
+    v6_1 = 0x01
+    v6_2 = 0x02
+    v6_3 = 0x03
+    v6_4 = 0x04
+    v6_5 = 0x05
+    v6_6 = 0x06
+    v6_7 = 0x07
+}
+
+pub enum GLFenceBehaviour: u32 {
+    normal     = 0x00
+    autoFinish = 0x01
+}
+
+pub enum Dx12SwapchainKind: u32 {
+    undefined       = 0x00
+    dxgiFromHwnd    = 0x01
+    dxgiFromVisual  = 0x02
+}
+
+pub enum NativeDisplayHandleType: u32 {
+    none    = 0x00
+    xlib    = 0x01
+    xcb     = 0x02
+    wayland = 0x03
+}
+
+pub enum NativeTextureFormat: u32 {
+    r16Unorm    = 0x00030001
+    r16Snorm    = 0x00030002
+    rg16Unorm   = 0x00030003
+    rg16Snorm   = 0x00030004
+    rgba16Unorm = 0x00030005
+    rgba16Snorm = 0x00030006
+    nV12        = 0x00030007
+    p010        = 0x00030008
+}
+
+@flags
+pub enum InstanceBackend: u64 {
+    all           = 0x00
+    vulkan        = 0x01
+    gl            = 0x02
+    metal         = 0x04
+    dX12          = 0x08
+    browserWebGPU = 0x20
+    primary       = 0x2D
+    secondary     = 0x02
+}
+
+@flags
+pub enum InstanceFlag: u64 {
+    empty                              = 0x00
+    debug                              = 0x01
+    validation                         = 0x02
+    discardHalLabels                   = 0x04
+    allowUnderlyingNoncompliantAdapter = 0x08
+    gPUBasedValidation                 = 0x10
+    validationIndirectCall             = 0x20
+    automaticTimestampNormalization    = 0x40
+    default                            = 0x01000000
+    debugging                          = 0x02000000
+    advancedDebugging                  = 0x04000000
+    withEnv                            = 0x08000000
+}
+
 @extern(C, "wgpu_native") {
     @handle pub struct WGPUInstance {}
 
@@ -139,7 +294,7 @@ use core { WGPUStringView }
     // pass 0 for "all".
     pub struct WGPUInstanceEnumerateAdapterOptions {
         nextInChain: *const void
-        backends:    u64                      // WGPUInstanceBackend flags
+        backends:    InstanceBackend
     }
     @lib pub fn wgpuInstanceEnumerateAdapters(
         instance: WGPUInstance,

@@ -38,7 +38,7 @@ use core { WGPUStringView, WGPUChainedStruct, WGPUDevice }
     // array (line / column / type / message).
     pub struct WGPUCompilationInfoCallbackInfo {
         nextInChain: *void
-        mode:        u32                            // WGPUCallbackMode
+        mode:        CallbackMode
         callback:    fn(i32, i64, i64, i64)
         userdata1:   *void
         userdata2:   *void

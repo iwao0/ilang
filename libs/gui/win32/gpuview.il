@@ -51,6 +51,9 @@ use wgpu29 {
     WGPUSurfaceDescriptor,
     WGPUSurfaceConfiguration, WGPUSurfaceTexture, WGPUSurfaceCapabilities,
     WGPURenderPassColorAttachment, WGPURenderPassDescriptor,
+    TextureFormat, TextureUsage, FeatureLevel, PowerPreference, BackendType,
+    CallbackMode, SType, LoadOp, StoreOp, LogLevel, PresentMode,
+    CompositeAlphaMode,
     wgpuSetLogLevel, wgpuSetLogCallback,
     wgpuCreateInstance, wgpuInstanceRequestAdapter, wgpuInstanceProcessEvents,
     wgpuAdapterRequestDevice, wgpuDeviceGetQueue,
@@ -136,15 +139,15 @@ let CLASS_INITED: bool[] = [false]
 
         let aOpts = WGPURequestAdapterOptions {
             nextInChain:          0 as *void,
-            featureLevel:         0 as u32,
-            powerPreference:      0 as u32,
-            forceFallbackAdapter: 0 as u32,
-            backendType:          0 as u32,
+            featureLevel:         FeatureLevel.undefined,
+            powerPreference:      PowerPreference.undefined,
+            forceFallbackAdapter: 0 as u32,            // WGPUBool
+            backendType:          BackendType.undefined,
             compatibleSurface:    surface,
         }
         let aInfo = WGPURequestAdapterCallbackInfo {
             nextInChain: 0 as *void,
-            mode:        2 as u32,        // AllowProcessEvents
+            mode:        CallbackMode.allowProcessEvents,        // AllowProcessEvents
             callback:    _gpuOnAdapter,
             userdata1:   0 as *void,
             userdata2:   0 as *void,
@@ -161,7 +164,7 @@ let CLASS_INITED: bool[] = [false]
 
         let dInfo = WGPURequestDeviceCallbackInfo {
             nextInChain: 0 as *void,
-            mode:        2 as u32,
+            mode:        CallbackMode.allowProcessEvents,
             callback:    _gpuOnDevice,
             userdata1:   0 as *void,
             userdata2:   0 as *void,
@@ -186,12 +189,12 @@ let CLASS_INITED: bool[] = [false]
     fn makeSurfaceForHwnd(hwnd: HWND, hInst: HINSTANCE): i64 {
         if WGPU_INST[0] == 0 {
             wgpuSetLogCallback(_gpuOnLog, 0 as *void)
-            wgpuSetLogLevel(2 as u32)         // Warn
+            wgpuSetLogLevel(LogLevel.warn as u32)
             let inst = wgpuCreateInstance(0 as *void)
             WGPU_INST[0] = inst as i64
         }
         let winSrc = WGPUSurfaceSourceWindowsHWND {
-            chain:     WGPUChainedStruct { next: 0 as *void, sType: 5 as u32 },
+            chain:     WGPUChainedStruct { next: 0 as *void, sType: SType.surfaceSourceWindowsHWND },
             hinstance: hInst as *void,
             hwnd:      hwnd as *void,
         }
@@ -222,14 +225,14 @@ let CLASS_INITED: bool[] = [false]
         let cfg = WGPUSurfaceConfiguration {
             nextInChain:     0 as *void,
             device:          WGPU_DEVICE[0] as WGPUDevice,
-            format:          fmt,
-            usage:           0x10 as u64,    // RenderAttachment
+            format:          fmt as TextureFormat,
+            usage:           TextureUsage.renderAttachment,
             width:           pxW,
             height:          pxH,
             viewFormatCount: 0 as u64,
             viewFormats:     0 as *void,
-            alphaMode:       alpha,
-            presentMode:     present,
+            alphaMode:       alpha as CompositeAlphaMode,
+            presentMode:     present as PresentMode,
         }
         wgpuSurfaceConfigure(surface, &cfg)
         fmt
@@ -259,8 +262,8 @@ let CLASS_INITED: bool[] = [false]
             view:          tv,
             depthSlice:    0xFFFFFFFF as u32,
             resolveTarget: 0 as WGPUTextureView,
-            loadOp:        2 as u32,        // Clear
-            storeOp:       1 as u32,        // Store
+            loadOp:        LoadOp.clear,
+            storeOp:       StoreOp.store,
             clearValue:    WGPUColor { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
         }
         let rp = WGPURenderPassDescriptor {

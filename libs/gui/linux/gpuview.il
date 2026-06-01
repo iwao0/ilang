@@ -45,6 +45,9 @@ use wgpu29 {
     WGPUTextureDescriptor, WGPUBufferDescriptor,
     WGPUTexelCopyTextureInfo, WGPUTexelCopyBufferInfo, WGPUTexelCopyBufferLayout,
     WGPURenderPassColorAttachment, WGPURenderPassDescriptor,
+    TextureFormat, TextureUsage, BufferUsage, TextureDimension, TextureAspect,
+    FeatureLevel, PowerPreference, BackendType,
+    CallbackMode, LoadOp, StoreOp, LogLevel,
     wgpuSetLogLevel, wgpuSetLogCallback,
     wgpuCreateInstance, wgpuInstanceRequestAdapter, wgpuInstanceProcessEvents,
     wgpuAdapterRequestDevice, wgpuDeviceGetQueue,
@@ -65,7 +68,7 @@ use std.ffi { stringFromCstr }
 // Cairo ARGB32 (BGRA byte order on little-endian) — matches
 // `WGPUTextureFormat_BGRA8Unorm = 0x1B`.
 const CAIRO_FORMAT_ARGB32: i32 = 0
-const BGRA8_UNORM:         u32 = 0x1B as u32
+const BGRA8_UNORM:         TextureFormat = TextureFormat.bgra8Unorm
 
 // ─── per-view state ────────────────────────────────────────────
 
@@ -154,7 +157,7 @@ let MAP_STATUS:   i64[] = [-1]
     fn initWgpuDevice(): bool {
         if WGPU_INST[0] == 0 {
             wgpuSetLogCallback(_gpuOnLog, 0 as *void)
-            wgpuSetLogLevel(2 as u32)
+            wgpuSetLogLevel(LogLevel.warn as u32)
             let inst = wgpuCreateInstance(0 as *void)
             WGPU_INST[0] = inst as i64
         }
@@ -162,15 +165,15 @@ let MAP_STATUS:   i64[] = [-1]
 
         let aOpts = WGPURequestAdapterOptions {
             nextInChain:          0 as *void,
-            featureLevel:         0 as u32,
-            powerPreference:      0 as u32,
-            forceFallbackAdapter: 0 as u32,
-            backendType:          0 as u32,
+            featureLevel:         FeatureLevel.undefined,
+            powerPreference:      PowerPreference.undefined,
+            forceFallbackAdapter: 0 as u32,            // WGPUBool
+            backendType:          BackendType.undefined,
             compatibleSurface:    0 as WGPUSurface,
         }
         let aInfo = WGPURequestAdapterCallbackInfo {
             nextInChain: 0 as *void,
-            mode:        2 as u32,
+            mode:        CallbackMode.allowProcessEvents,
             callback:    _gpuOnAdapter,
             userdata1:   0 as *void,
             userdata2:   0 as *void,
@@ -186,7 +189,7 @@ let MAP_STATUS:   i64[] = [-1]
 
         let dInfo = WGPURequestDeviceCallbackInfo {
             nextInChain: 0 as *void,
-            mode:        2 as u32,
+            mode:        CallbackMode.allowProcessEvents,
             callback:    _gpuOnDevice,
             userdata1:   0 as *void,
             userdata2:   0 as *void,
@@ -230,8 +233,8 @@ let MAP_STATUS:   i64[] = [-1]
             view:          tv,
             depthSlice:    0xFFFFFFFF as u32,
             resolveTarget: 0 as WGPUTextureView,
-            loadOp:        2 as u32,        // Clear
-            storeOp:       1 as u32,        // Store
+            loadOp:        LoadOp.clear,
+            storeOp:       StoreOp.store,
             clearValue:    WGPUColor { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
         }
         let rp = WGPURenderPassDescriptor {
@@ -254,7 +257,7 @@ let MAP_STATUS:   i64[] = [-1]
             texture:  slot.texture as WGPUTexture,
             mipLevel: 0 as u32,
             origin:   WGPUOrigin3D { x: 0 as u32, y: 0 as u32, z: 0 as u32 },
-            aspect:   1 as u32,            // All
+            aspect:   TextureAspect.all,
         }
         let dst = WGPUTexelCopyBufferInfo {
             layout: WGPUTexelCopyBufferLayout {
@@ -280,7 +283,7 @@ let MAP_STATUS:   i64[] = [-1]
         // queue is drained, which is when the map callback fires.
         let mInfo = WGPUBufferMapCallbackInfo {
             nextInChain: 0 as *void,
-            mode:        2 as u32,         // AllowProcessEvents
+            mode:        CallbackMode.allowProcessEvents,         // AllowProcessEvents
             callback:    _gpuOnMap,
             userdata1:   0 as *void,
             userdata2:   0 as *void,
@@ -377,8 +380,8 @@ pub fn createNativeGpuView(
     let texDesc = WGPUTextureDescriptor {
         nextInChain:     0 as *void,
         label:           WGPUStringView { data: 0 as *void, length: 0 as u64 },
-        usage:           0x11 as u64,         // RenderAttachment | CopySrc
-        dimension:       2 as u32,            // 2D
+        usage:           TextureUsage.renderAttachment | TextureUsage.copySrc,
+        dimension:       TextureDimension._2D,
         size:            WGPUExtent3D {
             width:              pxW as u32,
             height:             pxH as u32,
@@ -405,7 +408,7 @@ pub fn createNativeGpuView(
     let bufDesc = WGPUBufferDescriptor {
         nextInChain:      0 as *void,
         label:            WGPUStringView { data: 0 as *void, length: 0 as u64 },
-        usage:            0x09 as u64,        // MapRead | CopyDst
+        usage:            BufferUsage.mapRead | BufferUsage.copyDst,
         size:             bufSize,
         mappedAtCreation: 0 as u32,
     }

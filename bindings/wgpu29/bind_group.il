@@ -34,6 +34,79 @@ use core { WGPUStringView, WGPUDevice }
 use buffer { WGPUBuffer }
 use texture { WGPUTextureView }
 
+pub enum AddressMode: u32 {
+    undefined    = 0x00
+    clampToEdge  = 0x01
+    repeat       = 0x02
+    mirrorRepeat = 0x03
+}
+
+pub enum BufferBindingType: u32 {
+    bindingNotUsed   = 0x00
+    undefined        = 0x01
+    uniform          = 0x02
+    storage          = 0x03
+    readOnlyStorage  = 0x04
+}
+
+pub enum CompareFunction: u32 {
+    undefined    = 0x00
+    never        = 0x01
+    less         = 0x02
+    equal        = 0x03
+    lessEqual    = 0x04
+    greater      = 0x05
+    notEqual     = 0x06
+    greaterEqual = 0x07
+    always       = 0x08
+}
+
+pub enum FilterMode: u32 {
+    undefined = 0x00
+    nearest   = 0x01
+    linear    = 0x02
+}
+
+pub enum MipmapFilterMode: u32 {
+    undefined = 0x00
+    nearest   = 0x01
+    linear    = 0x02
+}
+
+pub enum SamplerBindingType: u32 {
+    bindingNotUsed = 0x00
+    undefined      = 0x01
+    filtering      = 0x02
+    nonFiltering   = 0x03
+    comparison     = 0x04
+}
+
+pub enum StorageTextureAccess: u32 {
+    bindingNotUsed = 0x00
+    undefined      = 0x01
+    writeOnly      = 0x02
+    readOnly       = 0x03
+    readWrite      = 0x04
+}
+
+pub enum TextureSampleType: u32 {
+    bindingNotUsed    = 0x00
+    undefined         = 0x01
+    float             = 0x02
+    unfilterableFloat = 0x03
+    depth             = 0x04
+    sint              = 0x05
+    uint              = 0x06
+}
+
+@flags
+pub enum ShaderStage: u64 {
+    none     = 0x00
+    vertex   = 0x01
+    fragment = 0x02
+    compute  = 0x04
+}
+
 @extern(C, "wgpu_native") {
     @handle pub struct WGPUBindGroup {}
     @handle pub struct WGPUBindGroupLayout {}
@@ -42,30 +115,30 @@ use texture { WGPUTextureView }
 
     pub struct WGPUBufferBindingLayout {
         nextInChain:      *void
-        type:             u32      // WGPUBufferBindingType
+        type:             BufferBindingType
         hasDynamicOffset: u32      // WGPUBool
         minBindingSize:   u64
     }
     pub struct WGPUSamplerBindingLayout {
         nextInChain: *void
-        type:        u32           // WGPUSamplerBindingType
+        type:        SamplerBindingType
     }
     pub struct WGPUTextureBindingLayout {
         nextInChain:   *void
-        sampleType:    u32         // WGPUTextureSampleType
-        viewDimension: u32         // WGPUTextureViewDimension
+        sampleType:    TextureSampleType
+        viewDimension: TextureViewDimension
         multisampled:  u32         // WGPUBool
     }
     pub struct WGPUStorageTextureBindingLayout {
         nextInChain:   *void
-        access:        u32         // WGPUStorageTextureAccess
-        format:        u32         // WGPUTextureFormat
-        viewDimension: u32         // WGPUTextureViewDimension
+        access:        StorageTextureAccess
+        format:        TextureFormat
+        viewDimension: TextureViewDimension
     }
     pub struct WGPUBindGroupLayoutEntry {
         nextInChain:      *void
         binding:          u32
-        visibility:       u64      // WGPUShaderStage flag set
+        visibility:       ShaderStage
         bindingArraySize: u32      // 0 = scalar; >0 = array binding
         buffer:           WGPUBufferBindingLayout
         sampler:          WGPUSamplerBindingLayout
@@ -109,15 +182,15 @@ use texture { WGPUTextureView }
     pub struct WGPUSamplerDescriptor {
         nextInChain:   *void
         label:         WGPUStringView
-        addressModeU:  u32     // WGPUAddressMode
-        addressModeV:  u32
-        addressModeW:  u32
-        magFilter:     u32     // WGPUFilterMode
-        minFilter:     u32
-        mipmapFilter:  u32     // WGPUMipmapFilterMode
+        addressModeU:  AddressMode
+        addressModeV:  AddressMode
+        addressModeW:  AddressMode
+        magFilter:     FilterMode
+        minFilter:     FilterMode
+        mipmapFilter:  MipmapFilterMode
         lodMinClamp:   f32
         lodMaxClamp:   f32
-        compare:       u32     // WGPUCompareFunction
+        compare:       CompareFunction
         maxAnisotropy: u16
     }
 

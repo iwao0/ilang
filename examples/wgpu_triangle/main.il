@@ -57,6 +57,10 @@ use wgpu29 {
     wgpuTextureViewRelease, wgpuTextureRelease, wgpuRenderPassEncoderRelease,
     wgpuCommandEncoderRelease, wgpuCommandBufferRelease,
     wgpuShaderModuleRelease, wgpuRenderPipelineRelease,
+    TextureFormat, TextureUsage, FeatureLevel, PowerPreference, BackendType,
+    CallbackMode, SType, LoadOp, StoreOp, LogLevel,
+    CompositeAlphaMode, PresentMode,
+    PrimitiveTopology, FrontFace, CullMode, IndexFormat, ColorWriteMask,
 }
 
 // WGSL: hardcoded triangle (no vertex buffers — positions indexed by
@@ -130,7 +134,7 @@ const WIN_H: i32 = 480
         // ── wgpu instance + surface (surface first, so the adapter
         //    can be requested compatible with it) ───────────────
         wgpuSetLogCallback(onLog, 0 as *void)
-        wgpuSetLogLevel(2 as u32)        // Warn
+        wgpuSetLogLevel(LogLevel.warn as u32)        // Warn
         let inst = wgpuCreateInstance(0 as *void)
 
         // The OS-specific SurfaceSource chains off the descriptor's
@@ -143,7 +147,7 @@ const WIN_H: i32 = 480
             let layer = SDL_Metal_GetLayer(view)
             if (layer as i64) == 0 { console.log("FAIL: metal layer") }
             let metalSrc = WGPUSurfaceSourceMetalLayer {
-                chain: WGPUChainedStruct { next: 0 as *void, sType: 4 as u32 },
+                chain: WGPUChainedStruct { next: 0 as *void, sType: SType.surfaceSourceMetalLayer },
                 layer: layer,
             }
             let sdesc = WGPUSurfaceDescriptor {
@@ -160,7 +164,7 @@ const WIN_H: i32 = 480
             info.versionPatch = 0 as u8
             SDL_GetWindowWMInfo(win, &info)
             let winSrc = WGPUSurfaceSourceWindowsHWND {
-                chain: WGPUChainedStruct { next: 0 as *void, sType: 5 as u32 },
+                chain: WGPUChainedStruct { next: 0 as *void, sType: SType.surfaceSourceWindowsHWND },
                 hinstance: info.handle3 as *void,    // HINSTANCE
                 hwnd: info.handle1 as *void,         // HWND
             }
@@ -179,7 +183,7 @@ const WIN_H: i32 = 480
             SDL_GetWindowWMInfo(win, &info)
             if info.subsystem == 6 as u32 {          // SDL_SYSWM_WAYLAND
                 let wlSrc = WGPUSurfaceSourceWaylandSurface {
-                    chain: WGPUChainedStruct { next: 0 as *void, sType: 7 as u32 },
+                    chain: WGPUChainedStruct { next: 0 as *void, sType: SType.surfaceSourceWaylandSurface },
                     display: info.handle1 as *void,  // wl_display*
                     surface: info.handle2 as *void,  // wl_surface*
                 }
@@ -190,7 +194,7 @@ const WIN_H: i32 = 480
                 wgpuInstanceCreateSurface(inst, &sdesc)
             } else {                                 // SDL_SYSWM_X11 (2)
                 let x11Src = WGPUSurfaceSourceXlibWindow {
-                    chain: WGPUChainedStruct { next: 0 as *void, sType: 6 as u32 },
+                    chain: WGPUChainedStruct { next: 0 as *void, sType: SType.surfaceSourceXlibWindow },
                     display: info.handle1 as *void,  // Display*
                     window: info.handle2 as u64,     // X Window XID
                 }
@@ -209,14 +213,14 @@ const WIN_H: i32 = 480
         // ── adapter (compatible with the surface) / device / queue ─
         let aOpts = WGPURequestAdapterOptions {
             nextInChain: 0 as *void,
-            featureLevel: 0 as u32,
-            powerPreference: 0 as u32,
+            featureLevel: FeatureLevel.undefined,
+            powerPreference: PowerPreference.undefined,
             forceFallbackAdapter: 0 as u32,
-            backendType: 0 as u32,
+            backendType: BackendType.undefined,
             compatibleSurface: surface,
         }
         let aInfo = WGPURequestAdapterCallbackInfo {
-            nextInChain: 0 as *void, mode: 2 as u32,
+            nextInChain: 0 as *void, mode: CallbackMode.allowProcessEvents,
             callback: onAdapter, userdata1: 0 as *void, userdata2: 0 as *void,
         }
         wgpuInstanceRequestAdapter(inst, (&aOpts) as *void, aInfo)
@@ -224,7 +228,7 @@ const WIN_H: i32 = 480
         if ADAPTER[0] == 0 { console.log("FAIL: adapter"); return 4 }
 
         let dInfo = WGPURequestDeviceCallbackInfo {
-            nextInChain: 0 as *void, mode: 2 as u32,
+            nextInChain: 0 as *void, mode: CallbackMode.allowProcessEvents,
             callback: onDevice, userdata1: 0 as *void, userdata2: 0 as *void,
         }
         wgpuAdapterRequestDevice(ADAPTER[0] as WGPUAdapter, 0 as *void, dInfo)
@@ -249,21 +253,21 @@ const WIN_H: i32 = 480
         let cfg = WGPUSurfaceConfiguration {
             nextInChain: 0 as *void,
             device: dev,
-            format: fmt,
-            usage: 0x10 as u64,         // RenderAttachment
+            format: fmt as TextureFormat,
+            usage: TextureUsage.renderAttachment,
             width: WIN_W as u32,
             height: WIN_H as u32,
             viewFormatCount: 0 as u64,
             viewFormats: 0 as *void,
-            alphaMode: alpha,
-            presentMode: present,
+            alphaMode: alpha as CompositeAlphaMode,
+            presentMode: present as PresentMode,
         }
         wgpuSurfaceConfigure(surface, &cfg)
         console.log("surface configured")
 
         // ── WGSL shader module + render pipeline ──────────────
         let wgslSrc = WGPUShaderSourceWGSL {
-            chain: WGPUChainedStruct { next: 0 as *void, sType: 2 as u32 }, // ShaderSourceWGSL
+            chain: WGPUChainedStruct { next: 0 as *void, sType: SType.shaderSourceWGSL }, // ShaderSourceWGSL
             code: WGPUStringView {
                 data: cstrFromString(WGSL) as *void,
                 length: 0xFFFFFFFFFFFFFFFF as u64,   // WGPU_STRLEN → strlen
@@ -278,9 +282,9 @@ const WIN_H: i32 = 480
 
         let target = WGPUColorTargetState {
             nextInChain: 0 as *void,
-            format: fmt,
+            format: fmt as TextureFormat,
             blend: 0 as *void,
-            writeMask: 0xF as u64,        // All
+            writeMask: ColorWriteMask.all,
         }
         let fragState = WGPUFragmentState {
             nextInChain: 0 as *void,
@@ -310,10 +314,10 @@ const WIN_H: i32 = 480
             },
             primitive: WGPUPrimitiveState {
                 nextInChain: 0 as *void,
-                topology: 4 as u32,        // TriangleList
-                stripIndexFormat: 0 as u32,
-                frontFace: 1 as u32,       // CCW
-                cullMode: 1 as u32,        // None
+                topology: PrimitiveTopology.triangleList,        // TriangleList
+                stripIndexFormat: IndexFormat.undefined,
+                frontFace: FrontFace.ccw,       // CCW
+                cullMode: CullMode.none,        // None
                 unclippedDepth: 0 as u32,
             },
             depthStencil: 0 as *void,
@@ -358,8 +362,8 @@ const WIN_H: i32 = 480
                 view: tv,
                 depthSlice: 0xFFFFFFFF as u32,    // UNDEFINED
                 resolveTarget: 0 as WGPUTextureView,
-                loadOp: 2 as u32,                 // Clear
-                storeOp: 1 as u32,                // Store
+                loadOp: LoadOp.clear,                 // Clear
+                storeOp: StoreOp.store,                // Store
                 clearValue: WGPUColor { r: 0.10, g: 0.20, b: 0.55, a: 1.0 },
             }
             let rp = WGPURenderPassDescriptor {

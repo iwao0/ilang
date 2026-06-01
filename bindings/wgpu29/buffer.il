@@ -13,6 +13,34 @@
 
 use core { WGPUStringView, WGPUDevice }
 
+pub enum BufferMapState: u32 {
+    unmapped = 0x01
+    pending  = 0x02
+    mapped   = 0x03
+}
+
+@flags
+pub enum BufferUsage: u64 {
+    none         = 0x00
+    mapRead      = 0x01
+    mapWrite     = 0x02
+    copySrc      = 0x04
+    copyDst      = 0x08
+    index        = 0x10
+    vertex       = 0x20
+    uniform      = 0x40
+    storage      = 0x80
+    indirect     = 0x100
+    queryResolve = 0x200
+}
+
+@flags
+pub enum MapMode: u64 {
+    none  = 0x00
+    read  = 0x01
+    write = 0x02
+}
+
 @extern(C, "wgpu_native") {
     @handle pub struct WGPUBuffer {}
 
@@ -23,7 +51,7 @@ use core { WGPUStringView, WGPUDevice }
     pub struct WGPUBufferDescriptor {
         nextInChain:      *void
         label:            WGPUStringView
-        usage:            u64
+        usage:            BufferUsage   // flag set
         size:             u64
         mappedAtCreation: u32
     }
@@ -37,7 +65,7 @@ use core { WGPUStringView, WGPUDevice }
     // → (status: i32, msg.data: i64, msg.len: i64, ud1: i64, ud2: i64).
     pub struct WGPUBufferMapCallbackInfo {
         nextInChain: *void
-        mode:        u32                            // CallbackMode
+        mode:        CallbackMode
         callback:    fn(i32, i64, i64, i64, i64)
         userdata1:   *void
         userdata2:   *void

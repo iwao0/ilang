@@ -14,6 +14,31 @@ use instance { WGPUInstance }
 use adapter { WGPUAdapter }
 use texture { WGPUTexture }
 
+pub enum CompositeAlphaMode: u32 {
+    auto            = 0x00
+    opaque          = 0x01
+    premultiplied   = 0x02
+    unpremultiplied = 0x03
+    inherit         = 0x04
+}
+
+pub enum PresentMode: u32 {
+    undefined   = 0x00
+    fifo        = 0x01
+    fifoRelaxed = 0x02
+    immediate   = 0x03
+    mailbox     = 0x04
+}
+
+pub enum SurfaceGetCurrentTextureStatus: u32 {
+    successOptimal    = 0x01
+    successSuboptimal = 0x02
+    timeout           = 0x03
+    outdated          = 0x04
+    lost              = 0x05
+    error             = 0x06
+}
+
 @extern(C, "wgpu_native") {
     @handle pub struct WGPUSurface {}
 
@@ -55,26 +80,26 @@ use texture { WGPUTexture }
     pub struct WGPUSurfaceConfiguration {
         nextInChain:     *void
         device:          WGPUDevice
-        format:          u32
-        usage:           u64
+        format:          TextureFormat
+        usage:           TextureUsage
         width:           u32
         height:          u32
         viewFormatCount: u64
         viewFormats:     *void
-        alphaMode:       u32
-        presentMode:     u32
+        alphaMode:       CompositeAlphaMode
+        presentMode:     PresentMode
     }
     pub struct WGPUSurfaceTexture {
         nextInChain: *void
         texture:     WGPUTexture
-        status:      u32          // SuccessOptimal = 1
+        status:      SurfaceGetCurrentTextureStatus
     }
 
     // Out-param: wgpu fills the arrays. The element pointers are
     // owned by wgpu (free with `wgpuSurfaceCapabilitiesFreeMembers`).
     pub struct WGPUSurfaceCapabilities {
         nextInChain:      *void
-        usages:           u64
+        usages:           TextureUsage
         formatCount:      u64
         formats:          *void    // WGPUTextureFormat const*
         presentModeCount: u64

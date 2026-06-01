@@ -8,6 +8,18 @@ use texture { WGPUTextureView, WGPUTexelCopyTextureInfo, WGPUTexelCopyBufferInfo
 use pipeline { WGPURenderPipeline, WGPUComputePipeline, Pipeline }
 use bind_group { WGPUBindGroup }
 
+pub enum LoadOp: u32 {
+    undefined = 0x00
+    load      = 0x01
+    clear     = 0x02
+}
+
+pub enum StoreOp: u32 {
+    undefined = 0x00
+    store     = 0x01
+    discard   = 0x02
+}
+
 @extern(C, "wgpu_native") {
     @handle pub struct WGPUCommandEncoder {}
     @handle pub struct WGPUCommandBuffer {}
@@ -21,8 +33,8 @@ use bind_group { WGPUBindGroup }
         view:          WGPUTextureView
         depthSlice:    u32        // WGPU_DEPTH_SLICE_UNDEFINED = 0xFFFFFFFF
         resolveTarget: WGPUTextureView   // nullable
-        loadOp:        u32
-        storeOp:       u32
+        loadOp:        LoadOp
+        storeOp:       StoreOp
         clearValue:    WGPUColor
     }
     pub struct WGPURenderPassDescriptor {

@@ -42,10 +42,10 @@ pub enum TextureFormat: u32 {
     rgba8Sint            = 0x1A
     bgra8Unorm           = 0x1B
     bgra8UnormSrgb       = 0x1C
-    rgb10a2Uint          = 0x1D
-    rgb10a2Unorm         = 0x1E
-    rg11b10Ufloat        = 0x1F
-    rgb9e5Ufloat         = 0x20
+    rgb10A2Uint          = 0x1D
+    rgb10A2Unorm         = 0x1E
+    rg11B10Ufloat        = 0x1F
+    rgb9E5Ufloat         = 0x20
     rg32Float            = 0x21
     rg32Uint             = 0x22
     rg32Sint             = 0x23
@@ -63,30 +63,30 @@ pub enum TextureFormat: u32 {
     depth24PlusStencil8  = 0x2F
     depth32Float         = 0x30
     depth32FloatStencil8 = 0x31
-    bc1RgbaUnorm         = 0x32
-    bc1RgbaUnormSrgb     = 0x33
-    bc2RgbaUnorm         = 0x34
-    bc2RgbaUnormSrgb     = 0x35
-    bc3RgbaUnorm         = 0x36
-    bc3RgbaUnormSrgb     = 0x37
+    bc1RGBAUnorm         = 0x32
+    bc1RGBAUnormSrgb     = 0x33
+    bc2RGBAUnorm         = 0x34
+    bc2RGBAUnormSrgb     = 0x35
+    bc3RGBAUnorm         = 0x36
+    bc3RGBAUnormSrgb     = 0x37
     bc4RUnorm            = 0x38
     bc4RSnorm            = 0x39
-    bc5RgUnorm           = 0x3A
-    bc5RgSnorm           = 0x3B
-    bc6hRgbUfloat        = 0x3C
-    bc6hRgbFloat         = 0x3D
-    bc7RgbaUnorm         = 0x3E
-    bc7RgbaUnormSrgb     = 0x3F
-    etc2Rgb8Unorm        = 0x40
-    etc2Rgb8UnormSrgb    = 0x41
-    etc2Rgb8a1Unorm      = 0x42
-    etc2Rgb8a1UnormSrgb  = 0x43
-    etc2Rgba8Unorm       = 0x44
-    etc2Rgba8UnormSrgb   = 0x45
+    bc5RGUnorm           = 0x3A
+    bc5RGSnorm           = 0x3B
+    bc6HRGBUfloat        = 0x3C
+    bc6HRGBFloat         = 0x3D
+    bc7RGBAUnorm         = 0x3E
+    bc7RGBAUnormSrgb     = 0x3F
+    etc2RGB8Unorm        = 0x40
+    etc2RGB8UnormSrgb    = 0x41
+    etc2RGB8A1Unorm      = 0x42
+    etc2RGB8A1UnormSrgb  = 0x43
+    etc2RGBA8Unorm       = 0x44
+    etc2RGBA8UnormSrgb   = 0x45
     eacR11Unorm          = 0x46
     eacR11Snorm          = 0x47
-    eacRg11Unorm         = 0x48
-    eacRg11Snorm         = 0x49
+    eacRG11Unorm         = 0x48
+    eacRG11Snorm         = 0x49
     astc4x4Unorm         = 0x4A
     astc4x4UnormSrgb     = 0x4B
     astc5x4Unorm         = 0x4C
@@ -117,6 +117,100 @@ pub enum TextureFormat: u32 {
     astc12x12UnormSrgb   = 0x65
 }
 
+pub enum CallbackMode: u32 {
+    waitAnyOnly         = 0x01
+    allowProcessEvents  = 0x02
+    allowSpontaneous    = 0x03
+}
+
+pub enum ComponentSwizzle: u32 {
+    undefined = 0x00
+    zero      = 0x01
+    one       = 0x02
+    r         = 0x03
+    g         = 0x04
+    b         = 0x05
+    a         = 0x06
+}
+
+pub enum FeatureName: u32 {
+    coreFeaturesAndLimits         = 0x01
+    depthClipControl              = 0x02
+    depth32FloatStencil8          = 0x03
+    textureCompressionBC          = 0x04
+    textureCompressionBCSliced3D  = 0x05
+    textureCompressionETC2        = 0x06
+    textureCompressionASTC        = 0x07
+    textureCompressionASTCSliced3D = 0x08
+    timestampQuery                = 0x09
+    indirectFirstInstance         = 0x0A
+    shaderF16                     = 0x0B
+    rG11B10UfloatRenderable       = 0x0C
+    bGRA8UnormStorage             = 0x0D
+    float32Filterable             = 0x0E
+    float32Blendable              = 0x0F
+    clipDistances                 = 0x10
+    dualSourceBlending            = 0x11
+    subgroups                     = 0x12
+    textureFormatsTier1           = 0x13
+    textureFormatsTier2           = 0x14
+    primitiveIndex                = 0x15
+    textureComponentSwizzle       = 0x16
+}
+
+pub enum MapAsyncStatus: u32 {
+    success           = 0x01
+    callbackCancelled = 0x02
+    error             = 0x03
+    aborted           = 0x04
+}
+
+pub enum OptionalBool: u32 {
+    false_    = 0x00
+    true_     = 0x01
+    undefined = 0x02
+}
+
+pub enum PredefinedColorSpace: u32 {
+    sRGB      = 0x01
+    displayP3 = 0x02
+}
+
+pub enum Status: u32 {
+    success = 0x01
+    error   = 0x02
+}
+
+pub enum SType: u32 {
+    shaderSourceSPIRV                = 0x01
+    shaderSourceWGSL                 = 0x02
+    renderPassMaxDrawCount           = 0x03
+    surfaceSourceMetalLayer          = 0x04
+    surfaceSourceWindowsHWND         = 0x05
+    surfaceSourceXlibWindow          = 0x06
+    surfaceSourceWaylandSurface      = 0x07
+    surfaceSourceAndroidNativeWindow = 0x08
+    surfaceSourceXCBWindow           = 0x09
+    surfaceColorManagement           = 0x0A
+    requestAdapterWebXROptions       = 0x0B
+    textureComponentSwizzleDescriptor = 0x0C
+    externalTextureBindingLayout     = 0x0D
+    externalTextureBindingEntry      = 0x0E
+    compatibilityModeLimits          = 0x0F
+    textureBindingViewDimension      = 0x10
+}
+
+pub enum ToneMappingMode: u32 {
+    standard = 0x01
+    extended = 0x02
+}
+
+pub enum WaitStatus: u32 {
+    success  = 0x01
+    timedOut = 0x02
+    error    = 0x03
+}
+
 @extern(C, "wgpu_native") {
     // ─── fundamental handles ──────────────────────────────────
     //
@@ -141,7 +235,7 @@ pub enum TextureFormat: u32 {
     /// supports extension chains.
     pub struct WGPUChainedStruct {
         next:  *void
-        sType: u32
+        sType: SType
     }
     /// Clear-colour / blend-constant RGBA in 0..1.
     pub struct WGPUColor {

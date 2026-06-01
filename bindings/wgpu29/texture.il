@@ -15,6 +15,45 @@
 use core { WGPUStringView, WGPUExtent3D, WGPUOrigin3D, WGPUDevice }
 use buffer { WGPUBuffer }
 
+pub enum TextureAspect: u32 {
+    undefined   = 0x00
+    all         = 0x01
+    stencilOnly = 0x02
+    depthOnly   = 0x03
+}
+
+pub enum TextureDimension: u32 {
+    undefined = 0x00
+    _1D       = 0x01
+    _2D       = 0x02
+    _3D       = 0x03
+}
+
+pub enum TextureViewDimension: u32 {
+    undefined = 0x00
+    _1D       = 0x01
+    _2D       = 0x02
+    _2DArray  = 0x03
+    cube      = 0x04
+    cubeArray = 0x05
+    _3D       = 0x06
+}
+
+@flags
+pub enum TextureUsage: u64 {
+    none                = 0x00
+    copySrc             = 0x01
+    copyDst             = 0x02
+    textureBinding      = 0x04
+    storageBinding      = 0x08
+    renderAttachment    = 0x10
+    transientAttachment = 0x20
+}
+
+pub enum NativeSurfaceGetCurrentTextureStatus: u32 {
+    occluded = 0x00030001
+}
+
 @extern(C, "wgpu_native") {
     @handle pub struct WGPUTexture {}
     @handle pub struct WGPUTextureView {}
@@ -22,10 +61,10 @@ use buffer { WGPUBuffer }
     pub struct WGPUTextureDescriptor {
         nextInChain:     *void
         label:           WGPUStringView
-        usage:           u64
-        dimension:       u32
+        usage:           TextureUsage
+        dimension:       TextureDimension
         size:            WGPUExtent3D
-        format:          u32          // WGPUTextureFormat
+        format:          TextureFormat
         mipLevelCount:   u32
         sampleCount:     u32
         viewFormatCount: u64
@@ -38,14 +77,14 @@ use buffer { WGPUBuffer }
     pub struct WGPUTextureViewDescriptor {
         nextInChain:     *void
         label:           WGPUStringView
-        format:          u32       // WGPUTextureFormat
-        dimension:       u32       // WGPUTextureViewDimension
+        format:          TextureFormat
+        dimension:       TextureViewDimension
         baseMipLevel:    u32
         mipLevelCount:   u32
         baseArrayLayer:  u32
         arrayLayerCount: u32
-        aspect:          u32       // WGPUTextureAspect
-        usage:           u64       // WGPUTextureUsage flags
+        aspect:          TextureAspect
+        usage:           TextureUsage
     }
     // `descriptor` may be `0 as *void` for the auto-derived
     // view (same format / single mip / all aspects). Cast a
@@ -69,7 +108,7 @@ use buffer { WGPUBuffer }
         texture:  WGPUTexture
         mipLevel: u32
         origin:   WGPUOrigin3D
-        aspect:   u32             // WGPUTextureAspect_All = 0
+        aspect:   TextureAspect
     }
     pub struct WGPUTexelCopyBufferInfo {
         layout: WGPUTexelCopyBufferLayout

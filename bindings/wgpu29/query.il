@@ -15,6 +15,23 @@ use core { WGPUStringView, WGPUDevice }
 use buffer { WGPUBuffer }
 use command { WGPUCommandEncoder }
 
+pub enum QueryType: u32 {
+    occlusion = 0x01
+    timestamp = 0x02
+}
+
+pub enum PipelineStatisticName: u32 {
+    vertexShaderInvocations   = 0x00
+    clipperInvocations        = 0x01
+    clipperPrimitivesOut      = 0x02
+    fragmentShaderInvocations = 0x03
+    computeShaderInvocations  = 0x04
+}
+
+pub enum NativeQueryType: u32 {
+    pipelineStatistics = 0x00030000
+}
+
 @extern(C, "wgpu_native") {
     @handle pub struct WGPUQuerySet {}
 
@@ -22,7 +39,7 @@ use command { WGPUCommandEncoder }
     pub struct WGPUQuerySetDescriptor {
         nextInChain: *void
         label:       WGPUStringView
-        type:        u32           // WGPUQueryType
+        type:        QueryType
         count:       u32
     }
 

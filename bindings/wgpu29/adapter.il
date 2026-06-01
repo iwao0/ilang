@@ -8,6 +8,50 @@
 use core { WGPUStringView, WGPULimits }
 use instance { WGPUInstance }
 
+pub enum AdapterType: u32 {
+    discreteGPU   = 0x01
+    integratedGPU = 0x02
+    cpu           = 0x03
+    unknown       = 0x04
+}
+
+pub enum BackendType: u32 {
+    undefined = 0x00
+    null      = 0x01
+    webgpu    = 0x02
+    d3d11     = 0x03
+    d3d12     = 0x04
+    metal     = 0x05
+    vulkan    = 0x06
+    opengl    = 0x07
+    opengles  = 0x08
+}
+
+pub enum FeatureLevel: u32 {
+    undefined     = 0x00
+    compatibility = 0x01
+    core          = 0x02
+}
+
+pub enum PowerPreference: u32 {
+    undefined       = 0x00
+    lowPower        = 0x01
+    highPerformance = 0x02
+}
+
+pub enum RequestAdapterStatus: u32 {
+    success           = 0x01
+    callbackCancelled = 0x02
+    unavailable       = 0x03
+    error             = 0x04
+}
+
+pub enum RequestDeviceStatus: u32 {
+    success           = 0x01
+    callbackCancelled = 0x02
+    error             = 0x03
+}
+
 @extern(C, "wgpu_native") {
     @handle pub struct WGPUAdapter {}
 
@@ -26,8 +70,8 @@ use instance { WGPUInstance }
         architecture:    WGPUStringView
         device:          WGPUStringView
         description:     WGPUStringView
-        backendType:     u32
-        adapterType:     u32
+        backendType:     BackendType
+        adapterType:     AdapterType
         vendorID:        u32
         deviceID:        u32
         subgroupMinSize: u32
@@ -60,16 +104,13 @@ use instance { WGPUInstance }
     // the values you need.
     @lib pub fn wgpuSupportedFeaturesFreeMembers(features: WGPUSupportedFeatures)
 
-    // WGPUCallbackMode: WaitAnyOnly=1, AllowProcessEvents=2,
-    // AllowSpontaneous=3.
-    //
     // `callback` shape mirrors
     //   void(WGPURequestAdapterStatus status, WGPUAdapter adapter,
     //        WGPUStringView message, void* ud1, void* ud2)
     // with `message` splayed into (data, len) i64s.
     pub struct WGPURequestAdapterCallbackInfo {
         nextInChain: *void
-        mode:        u32
+        mode:        CallbackMode
         callback:    fn(i32, i64, i64, i64, i64, i64)
         userdata1:   *void
         userdata2:   *void
@@ -82,10 +123,10 @@ use instance { WGPUInstance }
     // featureLevel / powerPreference / backendType Undefined = 0.
     pub struct WGPURequestAdapterOptions {
         nextInChain:          *void
-        featureLevel:         u32
-        powerPreference:      u32
+        featureLevel:         FeatureLevel
+        powerPreference:      PowerPreference
         forceFallbackAdapter: u32     // WGPUBool
-        backendType:          u32
+        backendType:          BackendType
         compatibleSurface:    *void   // WGPUSurface or null
     }
 
