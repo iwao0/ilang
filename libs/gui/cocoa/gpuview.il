@@ -449,14 +449,22 @@ pub fn startGpuViewLoop(handle: i64) {
         let link = CADisplayLink.displayLinkWithTarget(
             target as NSObject, selectorPtr("tick:")
         )
-        // `kCFRunLoopDefaultMode` (NOT `kCFRunLoopCommonModes`).
-        // `commonModes` is a CFRunLoop GROUP alias, not a real
-        // mode — CADisplayLink's `addToRunLoop:forMode:` silently
-        // refuses to fire when handed it. Pass real modes (default
-        // / event-tracking / modal-panel) individually if the
-        // link should keep ticking during window-drag or menu
-        // tracking; default-only is fine for the PoC.
-        link.addToRunLoop(NSRunLoop.main() as NSObject, nsstr("kCFRunLoopDefaultMode"))
+        // Real run-loop modes, individually. `kCFRunLoopCommonModes`
+        // looks like the obvious answer but it's a CFRunLoop GROUP
+        // ALIAS, not a real mode — CADisplayLink's
+        // `addToRunLoop:forMode:` silently refuses to fire when
+        // handed it. So we register against each concrete mode the
+        // app might be in:
+        //   * `kCFRunLoopDefaultMode`        — normal event-loop idle
+        //   * `NSEventTrackingRunLoopMode`   — window drag, scroll,
+        //                                      mouse-down tracking
+        //   * `NSModalPanelRunLoopMode`      — modal sheets / panels
+        // Note: only the default mode is CFRunLoop-prefixed; AppKit's
+        // own modes carry their raw NSString value as the constant.
+        let runloop = NSRunLoop.main() as NSObject
+        link.addToRunLoop(runloop, nsstr("kCFRunLoopDefaultMode"))
+        link.addToRunLoop(runloop, nsstr("NSEventTrackingRunLoopMode"))
+        link.addToRunLoop(runloop, nsstr("NSModalPanelRunLoopMode"))
 
         slot.link       = link.handle
         slot.linkTarget = target
