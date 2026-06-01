@@ -92,6 +92,8 @@ use bind_group { WGPUBindGroupLayout }
     @lib pub fn wgpuRenderPipelineGetBindGroupLayout(
         pipeline: WGPURenderPipeline, groupIndex: u32
     ): WGPUBindGroupLayout
+    @lib pub fn wgpuRenderPipelineSetLabel(pipeline: WGPURenderPipeline, label: WGPUStringView)
+    @lib pub fn wgpuRenderPipelineAddRef(pipeline: WGPURenderPipeline)
     @lib pub fn wgpuRenderPipelineRelease(pipeline: WGPURenderPipeline)
 
     // ─── compute pipeline ─────────────────────────────────────
@@ -122,6 +124,8 @@ use bind_group { WGPUBindGroupLayout }
     @lib pub fn wgpuComputePipelineGetBindGroupLayout(
         pipeline: WGPUComputePipeline, groupIndex: u32
     ): WGPUBindGroupLayout
+    @lib pub fn wgpuComputePipelineSetLabel(pipeline: WGPUComputePipeline, label: WGPUStringView)
+    @lib pub fn wgpuComputePipelineAddRef(pipeline: WGPUComputePipeline)
     @lib pub fn wgpuComputePipelineRelease(pipeline: WGPUComputePipeline)
 
     // ═══════════════════════════════════════════════════════════

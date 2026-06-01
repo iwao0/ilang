@@ -24,6 +24,8 @@ use core { WGPUStringView, WGPUChainedStruct, WGPUDevice }
     @lib pub fn wgpuDeviceCreateShaderModule(
         device: WGPUDevice, descriptor: *WGPUShaderModuleDescriptor
     ): WGPUShaderModule
+    @lib pub fn wgpuShaderModuleSetLabel(shaderModule: WGPUShaderModule, label: WGPUStringView)
+    @lib pub fn wgpuShaderModuleAddRef(shaderModule: WGPUShaderModule)
     @lib pub fn wgpuShaderModuleRelease(shaderModule: WGPUShaderModule)
 
     // ─── friendly wrapper ─────────────────────────────────────

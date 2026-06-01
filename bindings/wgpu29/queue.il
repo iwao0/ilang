@@ -2,7 +2,7 @@
 /// friendly `Queue` wrapper class. The `WGPUQueue` handle itself
 /// lives in `device.il` next to `WGPUDevice`.
 
-use core { WGPUQueue, WGPUExtent3D }
+use core { WGPUQueue, WGPUExtent3D, WGPUStringView }
 use buffer { WGPUBuffer }
 use texture { WGPUTexelCopyTextureInfo, WGPUTexelCopyBufferLayout }
 use command { WGPUCommandBuffer }
@@ -52,6 +52,8 @@ use command { WGPUCommandBuffer }
     @lib pub fn wgpuQueueOnSubmittedWorkDone(
         queue: WGPUQueue, callbackInfo: WGPUQueueWorkDoneCallbackInfo
     ): u64                                     // WGPUFuture
+    @lib pub fn wgpuQueueSetLabel(queue: WGPUQueue, label: WGPUStringView)
+    @lib pub fn wgpuQueueAddRef(queue: WGPUQueue)
     @lib pub fn wgpuQueueRelease(queue: WGPUQueue)
 
     // ─── friendly wrapper ─────────────────────────────────────

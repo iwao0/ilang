@@ -79,5 +79,7 @@ use core { WGPUStringView, WGPUDevice }
     // validation — call only when you know no in-flight command
     // can still reference the buffer.
     @lib pub fn wgpuBufferDestroy(buffer: WGPUBuffer)
+    @lib pub fn wgpuBufferSetLabel(buffer: WGPUBuffer, label: WGPUStringView)
+    @lib pub fn wgpuBufferAddRef(buffer: WGPUBuffer)
     @lib pub fn wgpuBufferRelease(buffer: WGPUBuffer)
 }

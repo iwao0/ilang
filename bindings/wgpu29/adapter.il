@@ -53,7 +53,12 @@ use instance { WGPUInstance }
         adapter: WGPUAdapter, feature: u32         // WGPUFeatureName
     ): u32                                          // WGPUBool
     @lib pub fn wgpuAdapterInfoFreeMembers(info: WGPUAdapterInfo)
+    @lib pub fn wgpuAdapterAddRef(adapter: WGPUAdapter)
     @lib pub fn wgpuAdapterRelease(adapter: WGPUAdapter)
+    // Free the wgpu-allocated `features` array inside a
+    // populated SupportedFeatures struct. Call after copying out
+    // the values you need.
+    @lib pub fn wgpuSupportedFeaturesFreeMembers(features: WGPUSupportedFeatures)
 
     // WGPUCallbackMode: WaitAnyOnly=1, AllowProcessEvents=2,
     // AllowSpontaneous=3.

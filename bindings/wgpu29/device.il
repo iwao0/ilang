@@ -93,6 +93,8 @@ use std.ffi { cstrFromString }
     // wrapper. Same caveat as wgpuBufferDestroy — any in-flight
     // command referencing the device will fail validation.
     @lib pub fn wgpuDeviceDestroy(device: WGPUDevice)
+    @lib pub fn wgpuDeviceSetLabel(device: WGPUDevice, label: WGPUStringView)
+    @lib pub fn wgpuDeviceAddRef(device: WGPUDevice)
     @lib pub fn wgpuDeviceRelease(device: WGPUDevice)
 
     // ─── friendly wrapper ─────────────────────────────────────

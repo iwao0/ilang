@@ -105,6 +105,8 @@ use texture { WGPUTexture }
     // `alphaModes` arrays inside a populated capabilities
     // struct. Call after copying out the values you need.
     @lib pub fn wgpuSurfaceCapabilitiesFreeMembers(capabilities: WGPUSurfaceCapabilities)
+    @lib pub fn wgpuSurfaceSetLabel(surface: WGPUSurface, label: WGPUStringView)
+    @lib pub fn wgpuSurfaceAddRef(surface: WGPUSurface)
     @lib pub fn wgpuSurfaceRelease(surface: WGPUSurface)
 
     // ─── friendly wrapper ─────────────────────────────────────

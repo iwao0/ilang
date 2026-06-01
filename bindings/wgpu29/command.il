@@ -198,10 +198,21 @@ use bind_group { WGPUBindGroup }
     )
     @lib pub fn wgpuComputePassEncoderEnd(encoder: WGPUComputePassEncoder)
 
-    // ─── releases ─────────────────────────────────────────────
+    // ─── labels + ref counts ──────────────────────────────────
+    @lib pub fn wgpuRenderPassEncoderSetLabel(encoder: WGPURenderPassEncoder, label: WGPUStringView)
+    @lib pub fn wgpuRenderPassEncoderAddRef(encoder: WGPURenderPassEncoder)
     @lib pub fn wgpuRenderPassEncoderRelease(encoder: WGPURenderPassEncoder)
+
+    @lib pub fn wgpuComputePassEncoderSetLabel(encoder: WGPUComputePassEncoder, label: WGPUStringView)
+    @lib pub fn wgpuComputePassEncoderAddRef(encoder: WGPUComputePassEncoder)
     @lib pub fn wgpuComputePassEncoderRelease(encoder: WGPUComputePassEncoder)
+
+    @lib pub fn wgpuCommandEncoderSetLabel(encoder: WGPUCommandEncoder, label: WGPUStringView)
+    @lib pub fn wgpuCommandEncoderAddRef(encoder: WGPUCommandEncoder)
     @lib pub fn wgpuCommandEncoderRelease(encoder: WGPUCommandEncoder)
+
+    @lib pub fn wgpuCommandBufferSetLabel(commandBuffer: WGPUCommandBuffer, label: WGPUStringView)
+    @lib pub fn wgpuCommandBufferAddRef(commandBuffer: WGPUCommandBuffer)
     @lib pub fn wgpuCommandBufferRelease(commandBuffer: WGPUCommandBuffer)
 
     // ─── friendly wrapper ─────────────────────────────────────

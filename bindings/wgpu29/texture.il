@@ -86,6 +86,15 @@ use buffer { WGPUBuffer }
     @lib pub fn wgpuTextureGetFormat(texture: WGPUTexture): u32        // WGPUTextureFormat
     @lib pub fn wgpuTextureGetUsage(texture: WGPUTexture): u64         // WGPUTextureUsage flags
 
-    @lib pub fn wgpuTextureViewRelease(view: WGPUTextureView)
+    // Drop the GPU-side storage eagerly (same caveat as
+    // BufferDestroy — any in-flight command referencing the
+    // texture fails validation).
+    @lib pub fn wgpuTextureDestroy(texture: WGPUTexture)
+    @lib pub fn wgpuTextureSetLabel(texture: WGPUTexture, label: WGPUStringView)
+    @lib pub fn wgpuTextureAddRef(texture: WGPUTexture)
     @lib pub fn wgpuTextureRelease(texture: WGPUTexture)
+
+    @lib pub fn wgpuTextureViewSetLabel(view: WGPUTextureView, label: WGPUStringView)
+    @lib pub fn wgpuTextureViewAddRef(view: WGPUTextureView)
+    @lib pub fn wgpuTextureViewRelease(view: WGPUTextureView)
 }

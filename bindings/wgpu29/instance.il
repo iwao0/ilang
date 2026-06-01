@@ -23,5 +23,6 @@
     // `AllowProcessEvents` mode. Call between request* and
     // reading the callback's output cell.
     @lib pub fn wgpuInstanceProcessEvents(instance: WGPUInstance)
+    @lib pub fn wgpuInstanceAddRef(instance: WGPUInstance)
     @lib pub fn wgpuInstanceRelease(instance: WGPUInstance)
 }

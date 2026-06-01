@@ -126,6 +126,7 @@ use command { WGPURenderPassEncoder }
     )
     @lib pub fn wgpuRenderBundleEncoderAddRef(encoder: WGPURenderBundleEncoder)
     @lib pub fn wgpuRenderBundleEncoderRelease(encoder: WGPURenderBundleEncoder)
+    @lib pub fn wgpuRenderBundleAddRef(bundle: WGPURenderBundle)
     @lib pub fn wgpuRenderBundleRelease(bundle: WGPURenderBundle)
 
     // ─── render-pass execution ────────────────────────────────

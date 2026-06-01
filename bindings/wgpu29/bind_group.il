@@ -136,8 +136,19 @@ use texture { WGPUTextureView }
         device: WGPUDevice, descriptor: *WGPUSamplerDescriptor
     ): WGPUSampler
 
+    @lib pub fn wgpuBindGroupSetLabel(bindGroup: WGPUBindGroup, label: WGPUStringView)
+    @lib pub fn wgpuBindGroupAddRef(bindGroup: WGPUBindGroup)
     @lib pub fn wgpuBindGroupRelease(bindGroup: WGPUBindGroup)
+
+    @lib pub fn wgpuBindGroupLayoutSetLabel(layout: WGPUBindGroupLayout, label: WGPUStringView)
+    @lib pub fn wgpuBindGroupLayoutAddRef(layout: WGPUBindGroupLayout)
     @lib pub fn wgpuBindGroupLayoutRelease(layout: WGPUBindGroupLayout)
+
+    @lib pub fn wgpuPipelineLayoutSetLabel(layout: WGPUPipelineLayout, label: WGPUStringView)
+    @lib pub fn wgpuPipelineLayoutAddRef(layout: WGPUPipelineLayout)
     @lib pub fn wgpuPipelineLayoutRelease(layout: WGPUPipelineLayout)
+
+    @lib pub fn wgpuSamplerSetLabel(sampler: WGPUSampler, label: WGPUStringView)
+    @lib pub fn wgpuSamplerAddRef(sampler: WGPUSampler)
     @lib pub fn wgpuSamplerRelease(sampler: WGPUSampler)
 }
