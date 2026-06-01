@@ -395,6 +395,28 @@ pub(super) fn elem_byte_stride(t: &MirTy) -> i64 {
     t.elem_byte_stride()
 }
 
+/// `Some(c_size)` if `t` is a CRepr / CPacked / CUnion class
+/// (`@extern(C) struct` and plain top-level `struct` both count —
+/// `ClassLayout::repr` is the discriminator). Used by array
+/// codegen to pick an inline stride and a no-ARC kind tag, so
+/// dynamic `T[]` arrays of CRepr structs match the byte layout
+/// C expects for `Elem buf[N]`.
+pub(super) fn crepr_struct_c_size(t: &MirTy, classes: &[ilang_mir::ClassLayout]) -> Option<i64> {
+    if let MirTy::Object(cid) = t {
+        let layout = &classes[cid.0 as usize];
+        if matches!(
+            layout.repr,
+            ilang_mir::ClassRepr::CRepr
+                | ilang_mir::ClassRepr::CPacked
+                | ilang_mir::ClassRepr::CUnion
+        ) && layout.c_size > 0
+        {
+            return Some(layout.c_size);
+        }
+    }
+    None
+}
+
 
 /// Cranelift type to use for a packed array load/store of `t`. Only
 /// the small numeric types get tight packing; everything else uses

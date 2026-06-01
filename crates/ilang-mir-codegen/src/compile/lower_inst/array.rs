@@ -16,7 +16,8 @@ use ilang_mir::{Inst, MirTy, ValueId};
 use crate::ty::mir_to_clif;
 
 use super::super::abi::{
-    elem_byte_stride, elem_clif_type, extend_to_i64, ireduce_or_pass, reduce_from_i64,
+    crepr_struct_c_size, elem_byte_stride, elem_clif_type, extend_to_i64, ireduce_or_pass,
+    reduce_from_i64,
 };
 use super::super::print_emit::emit_panic_if;
 use super::super::print_kind::kind_tag_of;
@@ -40,25 +41,11 @@ pub(super) fn lower_array_inst<M: Module>(
     let super::super::FnCtx { func, .. } = *fn_ctx;
     match inst {
         Inst::NewArray { dst, elem, items } => {
-            // Detect `@extern(C) struct` elements: those need to be
-            // copied inline so the resulting buffer matches the C
-            // layout `Elem buf[N]` byte-for-byte (rather than
+            // Detect CRepr / CPacked / CUnion struct elements: those
+            // need to be copied inline so the resulting buffer matches
+            // the C layout `Elem buf[N]` byte-for-byte (rather than
             // degenerating to an array of heap pointers).
-            let crepr_struct_elem_size: Option<i64> = if let MirTy::Object(cid) = elem {
-                let cls = &prog.classes[cid.0 as usize];
-                use ilang_mir::ClassRepr;
-                if matches!(
-                    cls.repr,
-                    ClassRepr::CRepr | ClassRepr::CPacked | ClassRepr::CUnion
-                ) && cls.c_size > 0
-                {
-                    Some(cls.c_size)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            let crepr_struct_elem_size: Option<i64> = crepr_struct_c_size(elem, &prog.classes);
             // Inline fixed-length output (when the dst MirTy carries
             // `len: Some(n)`): allocate `n*stride` bytes with no
             // header, store elements directly at `data + i*stride`.
@@ -145,7 +132,14 @@ pub(super) fn lower_array_inst<M: Module>(
         }
         Inst::NewArrayEmpty { dst, elem, fixed_len } => {
             use super::super::layout::array_header as ah;
-            let stride_bytes = elem_byte_stride(elem);
+            // CRepr / CPacked / CUnion: pack the cells inline at
+            // `c_size` stride so subsequent push / index operations
+            // produce a buffer C can read as `Elem buf[N]`. Falling
+            // through to `elem_byte_stride` (which returns 8 for any
+            // Object) builds a heap-pointer array instead, then a
+            // later C-side `Elem*` deref reads garbage.
+            let stride_bytes =
+                crepr_struct_c_size(elem, &prog.classes).unwrap_or_else(|| elem_byte_stride(elem));
             let n = fixed_len.unwrap_or(0) as i64;
             let header_bytes = fb.ins().iconst(types::I64, ah::SIZE);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
@@ -218,26 +212,14 @@ pub(super) fn lower_array_inst<M: Module>(
             let i_raw = vmap[idx];
             let i = extend_to_i64(fb, i_raw);
             let arr_ty = func.ty_of(*arr).clone();
-            let crepr_elem_size: Option<i64> = if let MirTy::Array {
-                elem,
-                len: Some(_),
-            } = &arr_ty
-            {
-                if let MirTy::Object(cid) = &**elem {
-                    let cls = &prog.classes[cid.0 as usize];
-                    use ilang_mir::ClassRepr;
-                    if matches!(
-                        cls.repr,
-                        ClassRepr::CRepr | ClassRepr::CPacked | ClassRepr::CUnion
-                    ) && cls.c_size > 0
-                    {
-                        Some(cls.c_size)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+            // CRepr struct cells live inline at stride `c_size`. The
+            // ArrayLoad result for these is the *address* of the cell
+            // (not a load), matching how a CRepr struct value is
+            // already represented elsewhere — `LoadField` / call args
+            // all work off that address. Applies to both fixed-length
+            // (`T[N]`) and dynamic (`T[]`) arrays.
+            let crepr_elem_size: Option<i64> = if let MirTy::Array { elem, .. } = &arr_ty {
+                crepr_struct_c_size(elem, &prog.classes)
             } else {
                 None
             };
@@ -302,10 +284,20 @@ pub(super) fn lower_array_inst<M: Module>(
             let i_raw = vmap[idx];
             let i = extend_to_i64(fb, i_raw);
             let arr_ty = func.ty_of(*arr).clone();
+            // Pull the element type out so we can decide CRepr (memcpy
+            // path) vs scalar (single store).
+            let elem_ty = match &arr_ty {
+                MirTy::Array { elem, .. } => Some((**elem).clone()),
+                _ => None,
+            };
+            let crepr_elem_size: Option<i64> = elem_ty
+                .as_ref()
+                .and_then(|e| crepr_struct_c_size(e, &prog.classes));
             let inline_info = match &arr_ty {
-                MirTy::Array { elem, len: Some(n) } => {
-                    Some((elem_byte_stride(elem), *n as i64))
-                }
+                MirTy::Array { elem, len: Some(n) } => Some((
+                    crepr_elem_size.unwrap_or_else(|| elem_byte_stride(elem)),
+                    *n as i64,
+                )),
                 _ => None,
             };
             let (data_ptr, stride) = if let Some((s, n)) = inline_info {
@@ -329,16 +321,23 @@ pub(super) fn lower_array_inst<M: Module>(
             };
             let off = fb.ins().imul(i, stride);
             let addr = fb.ins().iadd(data_ptr, off);
-            let val_ty_mir = func.ty_of(*value);
             let raw = vmap[value];
-            match elem_clif_type(val_ty_mir) {
-                Some(elem_ct) if elem_ct != types::I64 => {
-                    let truncated = ireduce_or_pass(fb, raw, elem_ct);
-                    fb.ins().store(MemFlags::trusted(), truncated, addr, 0);
-                }
-                _ => {
-                    let v_ext = extend_to_i64(fb, raw);
-                    fb.ins().store(MemFlags::trusted(), v_ext, addr, 0);
+            if let Some(total) = crepr_elem_size {
+                // `raw` is the source struct's address; copy the
+                // c_size bytes into the cell so the array's buffer
+                // stays inline-struct-shaped.
+                crepr_struct_copy(fb, raw, addr, total);
+            } else {
+                let val_ty_mir = func.ty_of(*value);
+                match elem_clif_type(val_ty_mir) {
+                    Some(elem_ct) if elem_ct != types::I64 => {
+                        let truncated = ireduce_or_pass(fb, raw, elem_ct);
+                        fb.ins().store(MemFlags::trusted(), truncated, addr, 0);
+                    }
+                    _ => {
+                        let v_ext = extend_to_i64(fb, raw);
+                        fb.ins().store(MemFlags::trusted(), v_ext, addr, 0);
+                    }
                 }
             }
         }

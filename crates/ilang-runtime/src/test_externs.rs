@@ -198,3 +198,70 @@ pub extern "C" fn pkt_byte_at(ptr: i64, offset: i64) -> i32 {
     }
     unsafe { *((ptr + offset) as *const u8) as i32 }
 }
+
+// Inspect a `T[]` that has crossed into C as `*T` for a CRepr
+// struct element. Reads the first two `{ a: i32, b: i32 }` pairs
+// from the pointer and packs them into a single i64 so the
+// fixture can assert the C side really saw the element payload
+// and not the ilang array header. Used by
+// `04_modules/struct_array_to_c_ptr.il`.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct PairI32 { pub a: i32, pub b: i32 }
+
+#[unsafe(export_name = "pair_first_a")]
+pub extern "C" fn pair_first_a(p: *const PairI32) -> i32 {
+    unsafe { (*p).a }
+}
+#[unsafe(export_name = "pair_first_b")]
+pub extern "C" fn pair_first_b(p: *const PairI32) -> i32 {
+    unsafe { (*p).b }
+}
+#[unsafe(export_name = "pair_nth_a")]
+pub extern "C" fn pair_nth_a(p: *const PairI32, n: i64) -> i32 {
+    unsafe { (*p.offset(n as isize)).a }
+}
+#[unsafe(export_name = "pair_nth_b")]
+pub extern "C" fn pair_nth_b(p: *const PairI32, n: i64) -> i32 {
+    unsafe { (*p.offset(n as isize)).b }
+}
+
+// Mirrors the wgpu descriptor / attachment shape: a descriptor
+// struct holding a `*T` field where T is a multi-field CRepr
+// struct. Used by `04_modules/struct_array_to_c_ptr.il` to
+// confirm the field assignment extracts the array's element
+// data pointer (not the array header).
+#[repr(C)]
+pub struct BigPair {
+    pub next: *const std::ffi::c_void,
+    pub view: i64,
+    pub depth_slice: u32,
+    pub resolve_target: i64,
+    pub load_op: u32,
+    pub store_op: u32,
+    pub clear_value: f64,
+}
+
+#[repr(C)]
+pub struct PairDesc {
+    pub next: *const std::ffi::c_void,
+    pub count: u64,
+    pub items: *const BigPair,
+}
+
+#[unsafe(export_name = "desc_first_depth")]
+pub extern "C" fn desc_first_depth(d: *const PairDesc) -> u32 {
+    unsafe { (*(*d).items).depth_slice }
+}
+#[unsafe(export_name = "desc_first_view")]
+pub extern "C" fn desc_first_view(d: *const PairDesc) -> i64 {
+    unsafe { (*(*d).items).view }
+}
+#[unsafe(export_name = "desc_first_load_op")]
+pub extern "C" fn desc_first_load_op(d: *const PairDesc) -> u32 {
+    unsafe { (*(*d).items).load_op }
+}
+#[unsafe(export_name = "bp_depth_slice")]
+pub extern "C" fn bp_depth_slice(p: *const BigPair) -> u32 {
+    unsafe { (*p).depth_slice }
+}

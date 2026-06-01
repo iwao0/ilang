@@ -50,7 +50,12 @@ unsafe fn store_packed(data: i64, idx: i64, stride: i64, value: i64) {
             1 => *(addr as *mut u8) = value as u8,
             2 => *(addr as *mut u16) = value as u16,
             4 => *(addr as *mut u32) = value as u32,
-            _ => *(addr as *mut i64) = value,
+            8 => *(addr as *mut i64) = value,
+            // stride > 8 ⇒ inline CRepr struct cell. `value` is the
+            // source struct's address; memcpy its `stride` bytes into
+            // the cell so the array's buffer matches the C layout
+            // `Elem buf[N]` byte-for-byte.
+            _ => std::ptr::copy_nonoverlapping(value as *const u8, addr, stride as usize),
         }
     }
 }
@@ -63,9 +68,34 @@ unsafe fn load_packed(data: i64, idx: i64, stride: i64) -> i64 {
             1 => *(addr as *const u8) as i64,
             2 => *(addr as *const u16) as i64,
             4 => *(addr as *const u32) as i64,
-            _ => *(addr as *const i64),
+            8 => *(addr as *const i64),
+            // stride > 8 ⇒ inline CRepr struct cell. Return the cell
+            // *address*; CRepr struct values are passed around as
+            // pointers everywhere else (LoadField, call args), so the
+            // caller can treat the result the same as any other CRepr
+            // value handle.
+            _ => addr as i64,
         }
     }
+}
+
+/// Pull a cell out of the array and hand back an *owned* heap
+/// copy of it (for stride > 8 / CRepr struct cells). `load_packed`
+/// returns the cell's in-buffer address, which would dangle the
+/// instant the array reallocs or releases. `pop` / `removeAt` /
+/// `shift` need a stable pointer that survives the array
+/// shrinking down by one slot.
+#[inline]
+unsafe fn load_owned_cell(data: i64, idx: i64, stride: i64) -> i64 {
+    if stride <= 8 {
+        return unsafe { load_packed(data, idx, stride) };
+    }
+    let copy = __mir_alloc(stride);
+    unsafe {
+        let src = (data + idx * stride) as *const u8;
+        std::ptr::copy_nonoverlapping(src, copy as *mut u8, stride as usize);
+    }
+    copy
 }
 
 /// `load_packed` zero-extends a packed cell to i64, so an equality
@@ -133,7 +163,10 @@ pub extern "C" fn __array_pop(arr: i64) -> i64 {
         let data = *h.add(2);
         let stride = *h.add(5);
         let idx = len - 1;
-        let value = load_packed(data, idx, stride);
+        // Owned copy so the returned Optional survives the array's
+        // forthcoming slot deletion (and any later release that
+        // would free the data buffer).
+        let value = load_owned_cell(data, idx, stride);
         *h = idx;
         let elem_tag = *h.add(4);
         box_optional_cell_transferred(value, elem_tag)
@@ -175,7 +208,9 @@ pub extern "C" fn __array_remove_at(arr: i64, index: i64) -> i64 {
         }
         let data = *h.add(2);
         let stride = *h.add(5);
-        let value = load_packed(data, index, stride);
+        // CRepr cells live inline; copy the bytes out before the
+        // shift overwrites the slot.
+        let value = load_owned_cell(data, index, stride);
         shift_left_one(data, index + 1, len, stride);
         *h = len - 1;
         let elem_tag = *h.add(4);
@@ -736,7 +771,8 @@ pub extern "C" fn __array_shift(arr: i64) -> i64 {
         }
         let data = *h.add(2);
         let stride = *h.add(5);
-        let value = load_packed(data, 0, stride);
+        // CRepr cells: copy out before the shift overwrites slot 0.
+        let value = load_owned_cell(data, 0, stride);
         shift_left_one(data, 1, len, stride);
         *h = len - 1;
         let elem_tag = *h.add(4);

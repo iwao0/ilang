@@ -88,6 +88,19 @@ pub(super) fn kind_tag_of(ty: &MirTy, classes: &[ClassLayout]) -> i64 {
             let layout = &classes[cid.0 as usize];
             if layout.is_handle {
                 KIND_NONE
+            } else if matches!(
+                layout.repr,
+                ilang_mir::ClassRepr::CRepr
+                    | ilang_mir::ClassRepr::CPacked
+                    | ilang_mir::ClassRepr::CUnion
+            ) {
+                // CRepr structs sit inline in their container cell — the
+                // cell holds value bytes, not an ARC heap pointer — so
+                // the release cascade must NOT reinterpret it as a heap
+                // object header (= misaligned-pointer crash on the rc
+                // load). The struct's container owns the bytes; there's
+                // no per-cell rc to maintain.
+                KIND_NONE
             } else {
                 KIND_OBJECT
             }
