@@ -5,6 +5,9 @@
 // to exit.
 //
 // Setup (once): third_party/wgpu/fetch.sh
+// Run (Windows, PowerShell):
+//   $env:PATH = "$PWD\third_party\wgpu\windows-x86_64\lib;$env:PATH"
+//   cargo run -p ilang -- run examples/libs/gui/gpuview/main.il
 // Run (macOS):
 //   DYLD_LIBRARY_PATH=third_party/wgpu/macos-aarch64/lib \
 //     cargo run -p ilang -- run examples/libs/gui/gpuview/main.il

@@ -3,25 +3,31 @@
 /// window; its WGPUSurface comes from `WGPUSurfaceSourceWindowsHWND`.
 ///
 /// Frame ticking is VSync-locked via a dedicated render thread
-/// that loops on `IDXGIOutput::WaitForVBlank()` and posts a
-/// custom `GPU_REDRAW` message back to the main thread. All wgpu
-/// calls stay on the main (GUI) thread — the render thread only
-/// touches the (free-threaded) IDXGIOutput and PostMessageW.
+/// that loops on `DwmFlush()` (reliable under desktop compositing,
+/// unlike `IDXGIOutput::WaitForVBlank`) and posts a custom
+/// `GPU_REDRAW` to the main thread. All wgpu calls stay on the
+/// main (GUI) thread — the render thread only touches the
+/// free-threaded `DwmFlush` and `PostMessageW`.
+///
+/// A 1-cell `pending` flag coalesces posts: the render thread
+/// posts at most one GPU_REDRAW until the wnd-proc has drained
+/// the previous one. That way, when the main thread is busy in
+/// a modal move / drag / resize loop, the render thread spins
+/// silently on `DwmFlush` instead of flooding the message queue
+/// and starving real input.
 ///
 /// Lifecycle:
 ///   gui-core `attachTo` → `createNativeGpuView`
 ///     → lazy-init app-wide WGPUInstance / Adapter / Device
 ///       (first call only; adapter requested with
 ///       `compatibleSurface` = this view's surface)
-///     → lazy-init DXGI factory / adapter[0] / output[0] so we
-///       have a global IDXGIOutput for VBlank waits
 ///     → register window class + create child HWND
 ///     → create + configure WGPUSurface
 ///     → return HWND-as-i64
 ///   user → `setOnGpuViewRender` to stash the render callback
-///   user → `startGpuViewLoop` spawns the render thread; ticks
-///     post `GPU_REDRAW` to the wnd-proc which calls
-///     `renderOneFrame`.
+///   user → `startGpuViewLoop` spawns the render thread; each
+///     `DwmFlush` wake-up posts `GPU_REDRAW` to the wnd-proc,
+///     which clears `pending` before calling `renderOneFrame`.
 
 use windows {
     HWND, HINSTANCE, HMENU, HANDLE,
@@ -33,10 +39,7 @@ use windows {
     GetClientRect, PostMessageW,
     CreateThread, WaitForSingleObject, CloseHandle,
 }
-use directx12 {
-    IDXGIFactory1, IDXGIAdapter1, IDXGIOutput,
-    IID_IDXGIFactory1, CreateDXGIFactory1,
-}
+use dwmapi { DwmFlush }
 use core { WINDOWS, windowHwnd }
 use wgpu {
     WGPUInstance, WGPUAdapter, WGPUDevice, WGPUQueue, WGPUSurface,
@@ -65,11 +68,11 @@ use std.ffi { readU32, stringFromCstr }
 // ─── per-view state ────────────────────────────────────────────
 //
 // `surface` / `thread` kept as raw `i64` so the slot can live
-// outside `@extern(C)`. `stop` is a 1-element `bool[]` so the
-// render thread and main thread share a stable cell — ilang
-// arrays are heap-allocated, so the slot reference and the
-// thread's captured `slot.stop` reference both point at the same
-// backing storage.
+// outside `@extern(C)`. `stop` and `pending` are 1-element
+// `bool[]` so the render thread and main thread share a stable
+// backing cell — ilang arrays are heap-allocated, so the slot's
+// reference and the thread's captured reference both alias the
+// same storage.
 
 class GpuViewSlot {
     pub hwnd:     HWND
@@ -79,6 +82,7 @@ class GpuViewSlot {
     pub height:   f64
     pub thread:   i64           // HANDLE, 0 = no thread
     pub stop:     bool[]        // [0] = render thread should stop
+    pub pending:  bool[]        // [0] = a GPU_REDRAW is in flight
     pub onRender: fn(WGPURenderPassEncoder)
 
     pub init(hwnd: HWND, surface: i64, format: u32, w: f64, h: f64) {
@@ -89,6 +93,7 @@ class GpuViewSlot {
         this.height   = h
         this.thread   = 0
         this.stop     = [false]
+        this.pending  = [false]
         this.onRender = noOpRender
     }
 }
@@ -106,12 +111,6 @@ let WGPU_QUEUE:   i64[]  = [0]
 let WGPU_READY:   bool[] = [false]
 let ADAPTER_OUT:  i64[]  = [0]
 let DEVICE_OUT:   i64[]  = [0]
-
-/// DXGI output pointer for `WaitForVBlank`. Picked from
-/// adapter[0].output[0] on first GpuView; null on systems without
-/// any DXGI output (headless / virtual display), in which case
-/// the loop is silently disabled.
-let DXGI_OUTPUT: i64[] = [0]
 
 /// `WM_USER + 1` — VBlank wake-up posted by the render thread.
 const GPU_REDRAW: u32 = 0x0401
@@ -236,40 +235,6 @@ let CLASS_INITED: bool[] = [false]
         fmt
     }
 
-    /// DXGI bring-up — factory → adapter[0] → output[0]. Cached
-    /// in `DXGI_OUTPUT` for the render thread to call
-    /// `WaitForVBlank()` on. Returns `true` if we have a usable
-    /// IDXGIOutput; `false` keeps the GpuView functional but
-    /// without a VBlank tick (startGpuViewLoop becomes a no-op).
-    fn initDxgiOutput(): bool {
-        if DXGI_OUTPUT[0] != 0 { return true }
-        let rawFactory: *void = 0 as *void
-        let rcF = CreateDXGIFactory1(
-            (&IID_IDXGIFactory1) as *const void, &rawFactory
-        )
-        if rcF != 0 {
-            console.log("GpuView: CreateDXGIFactory1 failed rc=", rcF)
-            return false
-        }
-        let factory = rawFactory as IDXGIFactory1
-        let rawAdapter: *void = 0 as *void
-        let rcA = factory.EnumAdapters1(0 as u32, &rawAdapter)
-        if rcA != 0 {
-            console.log("GpuView: EnumAdapters1 failed rc=", rcA)
-            return false
-        }
-        let adapter = rawAdapter as IDXGIAdapter1
-        let rawOutput: *void = 0 as *void
-        let rcO = adapter.EnumOutputs(0 as u32, &rawOutput)
-        if rcO != 0 {
-            console.log("GpuView: EnumOutputs failed rc=", rcO,
-                        " (no monitor attached?)")
-            return false
-        }
-        DXGI_OUTPUT[0] = rawOutput as i64
-        true
-    }
-
     fn renderOneFrame(hwndI64: i64) {
         if !WGPU_READY[0] { return }
         let slot = match GPUVIEWS.get(hwndI64) {
@@ -325,12 +290,15 @@ let CLASS_INITED: bool[] = [false]
         wgpuTextureRelease(st.texture)
     }
 
-    /// Window procedure. Handles only `GPU_REDRAW` (the VBlank
-    /// wake-up from the render thread) and `WM_SIZE` (surface
-    /// reconfigure on resize). Everything else falls through to
-    /// `DefWindowProcW`.
+    /// Window procedure. Handles `GPU_REDRAW` (the vsync wake-up
+    /// from the render thread) and `WM_SIZE` (surface reconfigure
+    /// on resize). Everything else falls through to `DefWindowProcW`.
     pub fn gpuViewWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         if msg == GPU_REDRAW {
+            // Clear `pending` BEFORE the render so the next DwmFlush
+            // wake-up can already be queuing while present blocks —
+            // otherwise we'd skip every other vblank.
+            if let some(slot) = GPUVIEWS.get(hwnd) { slot.pending[0] = false }
             renderOneFrame(hwnd)
             return 0
         }
@@ -360,28 +328,29 @@ let CLASS_INITED: bool[] = [false]
         DefWindowProcW(hwnd as HWND, msg, wParam, lParam)
     }
 
-    /// Render thread body. Captures (hwnd, slot.stop, dxgiOut)
-    /// before the loop; the loop reads slot.stop[0] (a heap-
-    /// allocated bool cell so the write from stopGpuViewLoop is
-    /// observed eventually) and calls IDXGIOutput::WaitForVBlank
-    /// → PostMessageW. No wgpu, no map / class access in the loop
-    /// body — all wgpu calls stay on the main thread inside
-    /// gpuViewWndProc.
+    /// Render thread body. Blocks on `DwmFlush` (~vsync, reliable
+    /// under DWM unlike `IDXGIOutput::WaitForVBlank`), then posts
+    /// at most one `GPU_REDRAW` to the wnd-proc — the `pending`
+    /// flag is set here and cleared on the main thread inside
+    /// `gpuViewWndProc`, coalescing posts whenever the main thread
+    /// is busy (e.g. inside a modal move loop).
     pub fn gpuRenderThread(param: i64): u32 {
         let hwnd = param
-        let dxgiOut = DXGI_OUTPUT[0] as IDXGIOutput
         let slot = match GPUVIEWS.get(hwnd) {
             some(s) { s }
             none    { return 1 }
         }
-        let stop = slot.stop
+        let stop    = slot.stop
+        let pending = slot.pending
         while !stop[0] {
-            dxgiOut.WaitForVBlank()
-            PostMessageW(hwnd as HWND, GPU_REDRAW, 0 as u64, 0 as i64)
+            DwmFlush()
+            if !pending[0] {
+                pending[0] = true
+                PostMessageW(hwnd as HWND, GPU_REDRAW, 0 as u64, 0 as i64)
+            }
         }
         0 as u32
     }
-}
 
 fn registerGpuViewClass() {
     if CLASS_INITED[0] { return }
@@ -446,8 +415,6 @@ pub fn createNativeGpuView(
             return -1
         }
     }
-    initDxgiOutput()    // best-effort; loop is no-op if it fails
-
     let fmt = configureSurfaceFor(surfacePtr, width as u32, height as u32)
     if fmt == (0 as u32) {
         DestroyWindow(hwnd)
@@ -506,11 +473,8 @@ pub fn getGpuViewFormat(handle: i64): u32 {
 pub fn startGpuViewLoop(handle: i64) {
     if let some(slot) = GPUVIEWS.get(handle) {
         if slot.thread != 0 { return }    // already running
-        if DXGI_OUTPUT[0] == 0 {
-            console.log("GpuView: no DXGI output — VBlank loop disabled")
-            return
-        }
-        slot.stop[0] = false
+        slot.stop[0]    = false
+        slot.pending[0] = false
         let t = CreateThread(
             0 as *void,
             0 as u64,
@@ -527,7 +491,7 @@ pub fn stopGpuViewLoop(handle: i64) {
     if let some(slot) = GPUVIEWS.get(handle) {
         if slot.thread == 0 { return }
         slot.stop[0] = true
-        // Render thread exits after at most one more VBlank
+        // Render thread exits after at most one more DwmFlush
         // (~16ms). 250ms is plenty of slack.
         let t = slot.thread as HANDLE
         WaitForSingleObject(t, 250 as u32)
@@ -539,3 +503,5 @@ pub fn stopGpuViewLoop(handle: i64) {
 pub fn requestGpuViewFrame(handle: i64) {
     renderOneFrame(handle)
 }
+
+} // @extern(C)

@@ -4,4 +4,3 @@ name = "gui-win32"
 [deps]
 windows = "../../../bindings/windows"
 wgpu    = "../../../bindings/wgpu"
-directx12 = "../../../bindings/directx12"
