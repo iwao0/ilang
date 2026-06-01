@@ -24,6 +24,7 @@
 ///   pipeline      → core, device, shader, bind_group
 ///   command       → core, device, buffer, texture, pipeline, bind_group
 ///   queue         → core, device, buffer, texture, command
+///   render_bundle → core, device, buffer, bind_group, pipeline, command
 ///
 /// The `adapter → surface` reverse edge (RequestAdapterOptions'
 /// `compatibleSurface`) is broken by typing that field as `*void`
@@ -42,3 +43,4 @@ pub use bind_group.*
 pub use pipeline.*
 pub use command.*
 pub use queue.*
+pub use render_bundle.*
