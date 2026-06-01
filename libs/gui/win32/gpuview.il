@@ -295,11 +295,14 @@ let CLASS_INITED: bool[] = [false]
     /// on resize). Everything else falls through to `DefWindowProcW`.
     pub fn gpuViewWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         if msg == GPU_REDRAW {
-            // Clear `pending` BEFORE the render so the next DwmFlush
-            // wake-up can already be queuing while present blocks —
-            // otherwise we'd skip every other vblank.
-            if let some(slot) = GPUVIEWS.get(hwnd) { slot.pending[0] = false }
             renderOneFrame(hwnd)
+            // Clear `pending` AFTER the render so the render thread
+            // can't queue another GPU_REDRAW while we're still here.
+            // GetMessage prioritises posted messages over real
+            // input — clearing too early lets a fresh GPU_REDRAW
+            // re-enter ahead of every WM_MOUSEMOVE / WM_NCLBUTTON*
+            // and the title bar effectively becomes undraggable.
+            if let some(slot) = GPUVIEWS.get(hwnd) { slot.pending[0] = false }
             return 0
         }
         match msg as WindowMessage {
