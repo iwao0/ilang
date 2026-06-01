@@ -51,6 +51,22 @@ use core { WGPUStringView, WGPUDevice }
         buffer: WGPUBuffer, offset: u64, size: u64
     ): *const void
     @lib pub fn wgpuBufferUnmap(buffer: WGPUBuffer)
+    // Mutable mapped range — for buffers created with `MapWrite`
+    // or `mappedAtCreation: true`. Cast the returned pointer to
+    // the per-byte / per-struct view the caller needs, write,
+    // then `Unmap`.
+    @lib pub fn wgpuBufferGetMappedRange(
+        buffer: WGPUBuffer, offset: u64, size: u64
+    ): *void
+    // `Read` / `Write` copy through the host-side view of a
+    // mapped buffer in one call; same address-space discipline as
+    // memcpy. Both return `WGPUStatus` (Success=1, Error=2).
+    @lib pub fn wgpuBufferReadMappedRange(
+        buffer: WGPUBuffer, offset: u64, data: *void, size: u64
+    ): u32
+    @lib pub fn wgpuBufferWriteMappedRange(
+        buffer: WGPUBuffer, offset: u64, data: *const void, size: u64
+    ): u32
 
     @lib pub fn wgpuBufferGetSize(buffer: WGPUBuffer): u64
     // WGPUBufferMapState: Unmapped=1, Pending=2, Mapped=3.

@@ -92,6 +92,36 @@ use bind_group { WGPUBindGroup }
         size:    u64
     )
 
+    // ─── debug groups on command / pass encoders ──────────────
+    //
+    // Push / Pop nest a label; Insert drops a single marker. All
+    // show up as named regions in PIX / RenderDoc / Xcode-frame-
+    // debugger captures. `markerLabel` / `groupLabel` use the
+    // standard `WGPUStringView` shape (data + length).
+    @lib pub fn wgpuCommandEncoderInsertDebugMarker(
+        encoder: WGPUCommandEncoder, markerLabel: WGPUStringView
+    )
+    @lib pub fn wgpuCommandEncoderPushDebugGroup(
+        encoder: WGPUCommandEncoder, groupLabel: WGPUStringView
+    )
+    @lib pub fn wgpuCommandEncoderPopDebugGroup(encoder: WGPUCommandEncoder)
+
+    @lib pub fn wgpuRenderPassEncoderInsertDebugMarker(
+        encoder: WGPURenderPassEncoder, markerLabel: WGPUStringView
+    )
+    @lib pub fn wgpuRenderPassEncoderPushDebugGroup(
+        encoder: WGPURenderPassEncoder, groupLabel: WGPUStringView
+    )
+    @lib pub fn wgpuRenderPassEncoderPopDebugGroup(encoder: WGPURenderPassEncoder)
+
+    @lib pub fn wgpuComputePassEncoderInsertDebugMarker(
+        encoder: WGPUComputePassEncoder, markerLabel: WGPUStringView
+    )
+    @lib pub fn wgpuComputePassEncoderPushDebugGroup(
+        encoder: WGPUComputePassEncoder, groupLabel: WGPUStringView
+    )
+    @lib pub fn wgpuComputePassEncoderPopDebugGroup(encoder: WGPUComputePassEncoder)
+
     // ─── render-pass encoder ops ──────────────────────────────
     @lib pub fn wgpuRenderPassEncoderSetPipeline(
         encoder: WGPURenderPassEncoder, pipeline: WGPURenderPipeline
