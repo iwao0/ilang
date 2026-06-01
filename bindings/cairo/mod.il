@@ -18,6 +18,18 @@
     @lib pub fn cairo_image_surface_create(
         format: i32, width: i32, height: i32
     ): cairo_surface_t
+    // Wrap an existing pixel buffer as a cairo image surface — the
+    // caller owns the storage; cairo only borrows it. `stride` MUST
+    // match `cairo_format_stride_for_width(format, width)` for that
+    // (format, width) pair, else cairo asserts / draws garbage.
+    @lib pub fn cairo_image_surface_create_for_data(
+        data: *void, format: i32, width: i32, height: i32, stride: i32
+    ): cairo_surface_t
+    @lib pub fn cairo_format_stride_for_width(format: i32, width: i32): i32
+    // After mutating the underlying pixel buffer behind cairo's
+    // back (e.g. memcpy from a wgpu staging buffer), call this so
+    // cairo invalidates its render cache.
+    @lib pub fn cairo_surface_mark_dirty(surface: cairo_surface_t)
     @lib pub fn cairo_surface_destroy(surface: cairo_surface_t)
 
     // ─── contexts ─────────────────────────────────────────────

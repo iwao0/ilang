@@ -319,6 +319,109 @@
         firstVertex: u32, firstInstance: u32
     )
 
+    // ─── offscreen textures + buffer readback ─────────────────
+    //
+    // The libs/gui/linux GpuView path renders into a texture
+    // (rather than a surface) and copies the pixels back to the
+    // CPU so GTK / Cairo can composite the result inside the
+    // window's content area. Same primitives also work for any
+    // other "render to image" use case.
+    @handle pub struct WGPUBuffer {}
+
+    pub struct WGPUExtent3D {
+        width:              u32
+        height:             u32
+        depthOrArrayLayers: u32
+    }
+    pub struct WGPUOrigin3D {
+        x: u32
+        y: u32
+        z: u32
+    }
+    // WGPUTextureDimension: _1D=1, _2D=2, _3D=3. Usage is a 64-bit
+    // bitfield (RenderAttachment = 0x10, CopySrc = 0x01, …).
+    pub struct WGPUTextureDescriptor {
+        nextInChain:     *void
+        label:           WGPUStringView
+        usage:           u64
+        dimension:       u32
+        size:            WGPUExtent3D
+        format:          u32
+        mipLevelCount:   u32
+        sampleCount:     u32
+        viewFormatCount: u64
+        viewFormats:     *void
+    }
+    @lib pub fn wgpuDeviceCreateTexture(
+        device: WGPUDevice, descriptor: *WGPUTextureDescriptor
+    ): WGPUTexture
+
+    // Buffer usage flags (u64): MapRead = 0x01, MapWrite = 0x02,
+    // CopySrc = 0x04, CopyDst = 0x08. mappedAtCreation is WGPUBool.
+    pub struct WGPUBufferDescriptor {
+        nextInChain:      *void
+        label:            WGPUStringView
+        usage:            u64
+        size:             u64
+        mappedAtCreation: u32
+    }
+    @lib pub fn wgpuDeviceCreateBuffer(
+        device: WGPUDevice, descriptor: *WGPUBufferDescriptor
+    ): WGPUBuffer
+
+    // Texture→buffer copy plumbing. bytesPerRow MUST be a multiple
+    // of 256 (WebGPU spec); pad the row stride if needed.
+    pub struct WGPUTexelCopyBufferLayout {
+        offset:       u64
+        bytesPerRow:  u32
+        rowsPerImage: u32
+    }
+    pub struct WGPUTexelCopyTextureInfo {
+        texture:  WGPUTexture
+        mipLevel: u32
+        origin:   WGPUOrigin3D
+        aspect:   u32             // WGPUTextureAspect_All = 1
+    }
+    pub struct WGPUTexelCopyBufferInfo {
+        layout: WGPUTexelCopyBufferLayout
+        buffer: WGPUBuffer
+    }
+    @lib pub fn wgpuCommandEncoderCopyTextureToBuffer(
+        encoder:     WGPUCommandEncoder,
+        source:      *WGPUTexelCopyTextureInfo,
+        destination: *WGPUTexelCopyBufferInfo,
+        copySize:    *WGPUExtent3D
+    )
+
+    // Async map. Callback shape:
+    //   void(WGPUMapAsyncStatus status, WGPUStringView message,
+    //        void* userdata1, void* userdata2)
+    // → (status: i32, msg.data: i64, msg.len: i64, ud1: i64, ud2: i64).
+    pub struct WGPUBufferMapCallbackInfo {
+        nextInChain: *void
+        mode:        u32                            // CallbackMode
+        callback:    fn(i32, i64, i64, i64, i64)
+        userdata1:   *void
+        userdata2:   *void
+    }
+    @lib pub fn wgpuBufferMapAsync(
+        buffer: WGPUBuffer, mode: u64, offset: u64, size: u64,
+        callbackInfo: WGPUBufferMapCallbackInfo
+    ): u64
+    // Mapped pointer is owned by wgpu until the matching unmap.
+    @lib pub fn wgpuBufferGetConstMappedRange(
+        buffer: WGPUBuffer, offset: u64, size: u64
+    ): *const void
+    @lib pub fn wgpuBufferUnmap(buffer: WGPUBuffer)
+    @lib pub fn wgpuBufferRelease(buffer: WGPUBuffer)
+
+    // wgpu-native extension. `wait` = 1 blocks until pending work
+    // and any registered map callbacks complete; pass null for the
+    // submission-index pointer to poll on every queued submit.
+    @lib pub fn wgpuDevicePoll(
+        device: WGPUDevice, wait: u32, submissionIndex: *const u64
+    ): u32
+
     // ─── release (avoid leaks across frames) ──────────────────
     @lib pub fn wgpuTextureViewRelease(view: WGPUTextureView)
     @lib pub fn wgpuTextureRelease(texture: WGPUTexture)
