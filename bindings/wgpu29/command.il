@@ -3,10 +3,11 @@
 /// Friendly `RenderPass` wrapper lives here too.
 
 use core { WGPUStringView, WGPUColor, WGPUExtent3D, WGPUDevice }
-use buffer { WGPUBuffer }
-use texture { WGPUTextureView, WGPUTexelCopyTextureInfo, WGPUTexelCopyBufferInfo }
-use pipeline { WGPURenderPipeline, WGPUComputePipeline, Pipeline }
-use bind_group { WGPUBindGroup }
+use buffer { WGPUBuffer, Buffer }
+use texture { WGPUTextureView, TextureView, WGPUTexelCopyTextureInfo, WGPUTexelCopyBufferInfo }
+use pipeline { WGPURenderPipeline, WGPUComputePipeline, Pipeline, ComputePipeline }
+use bind_group { WGPUBindGroup, BindGroup }
+use std.ffi { cstrFromString }
 
 pub enum LoadOp: u32 {
     undefined = 0x00
@@ -36,6 +37,17 @@ pub enum StoreOp: u32 {
         loadOp:        LoadOp
         storeOp:       StoreOp
         clearValue:    WGPUColor
+    }
+    pub struct WGPURenderPassDepthStencilAttachment {
+        view:              WGPUTextureView
+        depthLoadOp:       LoadOp
+        depthStoreOp:      StoreOp
+        depthClearValue:   f32
+        depthReadOnly:     u32      // WGPUBool
+        stencilLoadOp:     LoadOp
+        stencilStoreOp:    StoreOp
+        stencilClearValue: u32
+        stencilReadOnly:   u32      // WGPUBool
     }
     pub struct WGPURenderPassDescriptor {
         nextInChain:            *void
@@ -351,32 +363,35 @@ pub enum StoreOp: u32 {
         /// Indirect draw — params read from `indirectBuffer` at
         /// `indirectOffset` (4 × u32 for `draw`, 5 × u32 for
         /// `drawIndexed`).
-        pub drawIndirect(buffer: WGPUBuffer, offset: u64) {
+        pub drawIndirect(buffer: Buffer, offset: u64) {
             wgpuRenderPassEncoderDrawIndirect(
-                this.handle as WGPURenderPassEncoder, buffer, offset
+                this.handle as WGPURenderPassEncoder,
+                buffer.handle as WGPUBuffer, offset
             )
         }
-        pub drawIndexedIndirect(buffer: WGPUBuffer, offset: u64) {
+        pub drawIndexedIndirect(buffer: Buffer, offset: u64) {
             wgpuRenderPassEncoderDrawIndexedIndirect(
-                this.handle as WGPURenderPassEncoder, buffer, offset
+                this.handle as WGPURenderPassEncoder,
+                buffer.handle as WGPUBuffer, offset
             )
         }
 
         /// Bind a vertex buffer to `slot` (matches the index in
         /// the pipeline's `vertex.buffers[]`). `size` =
         /// `0xFFFFFFFFFFFFFFFF` means "to end of buffer".
-        pub setVertexBuffer(slot: i64, buffer: WGPUBuffer, offset: u64, size: u64) {
+        pub setVertexBuffer(slot: i64, buffer: Buffer, offset: u64, size: u64) {
             wgpuRenderPassEncoderSetVertexBuffer(
                 this.handle as WGPURenderPassEncoder, slot as u32,
-                buffer, offset, size
+                buffer.handle as WGPUBuffer, offset, size
             )
         }
         pub setIndexBuffer(
-            buffer: WGPUBuffer, format: IndexFormat,
+            buffer: Buffer, format: IndexFormat,
             offset: u64, size: u64
         ) {
             wgpuRenderPassEncoderSetIndexBuffer(
-                this.handle as WGPURenderPassEncoder, buffer,
+                this.handle as WGPURenderPassEncoder,
+                buffer.handle as WGPUBuffer,
                 format, offset, size
             )
         }
@@ -387,13 +402,14 @@ pub enum StoreOp: u32 {
         // WGPURenderPassEncoder, group, …, &offsets)` for that
         // case.
 
-        /// Bind a `WGPUBindGroup` to `groupIndex` (matches
+        /// Bind a `BindGroup` to `groupIndex` (matches
         /// `@group(N)` in WGSL). No dynamic offsets — the
         /// common case.
-        pub setBindGroup(groupIndex: i64, group: WGPUBindGroup) {
+        pub setBindGroup(groupIndex: i64, group: BindGroup) {
             wgpuRenderPassEncoderSetBindGroup(
                 this.handle as WGPURenderPassEncoder,
-                groupIndex as u32, group,
+                groupIndex as u32,
+                group.handle as WGPUBindGroup,
                 0 as u64, 0 as *const u32
             )
         }
@@ -444,6 +460,302 @@ pub enum StoreOp: u32 {
         /// yourself.
         pub end() {
             wgpuRenderPassEncoderEnd(this.handle as WGPURenderPassEncoder)
+        }
+    }
+
+    /// Wraps `WGPUCommandBuffer` — the immutable output of a
+    /// `CommandEncoder.finish()` ready for `Queue.submit`.
+    pub class CommandBuffer {
+        pub handle: i64
+
+        pub init(handle: WGPUCommandBuffer) {
+            this.handle = handle as i64
+        }
+        pub release() {
+            if this.handle != 0 {
+                wgpuCommandBufferRelease(this.handle as WGPUCommandBuffer)
+                this.handle = 0
+            }
+        }
+        pub setLabel(label: string) {
+            wgpuCommandBufferSetLabel(this.handle as WGPUCommandBuffer, WGPUStringView {
+                data:   cstrFromString(label) as *void,
+                length: 0xFFFFFFFFFFFFFFFF as u64,
+            })
+        }
+    }
+
+    /// Wraps `WGPUComputePassEncoder`. Built via
+    /// `CommandEncoder.beginComputePass`.
+    pub class ComputePass {
+        pub handle: i64
+
+        pub init(handle: WGPUComputePassEncoder) {
+            this.handle = handle as i64
+        }
+        pub release() {
+            if this.handle != 0 {
+                wgpuComputePassEncoderRelease(this.handle as WGPUComputePassEncoder)
+                this.handle = 0
+            }
+        }
+        pub setLabel(label: string) {
+            wgpuComputePassEncoderSetLabel(this.handle as WGPUComputePassEncoder, WGPUStringView {
+                data:   cstrFromString(label) as *void,
+                length: 0xFFFFFFFFFFFFFFFF as u64,
+            })
+        }
+        pub setPipeline(pipeline: ComputePipeline) {
+            wgpuComputePassEncoderSetPipeline(
+                this.handle as WGPUComputePassEncoder,
+                pipeline.handle as WGPUComputePipeline
+            )
+        }
+        pub setBindGroup(groupIndex: i64, group: BindGroup) {
+            wgpuComputePassEncoderSetBindGroup(
+                this.handle as WGPUComputePassEncoder,
+                groupIndex as u32,
+                group.handle as WGPUBindGroup,
+                0 as u64, 0 as *const u32
+            )
+        }
+        pub dispatchWorkgroups(x: i64, y: i64, z: i64) {
+            wgpuComputePassEncoderDispatchWorkgroups(
+                this.handle as WGPUComputePassEncoder,
+                x as u32, y as u32, z as u32
+            )
+        }
+        pub dispatchWorkgroupsIndirect(buffer: Buffer, offset: u64) {
+            wgpuComputePassEncoderDispatchWorkgroupsIndirect(
+                this.handle as WGPUComputePassEncoder,
+                buffer.handle as WGPUBuffer, offset
+            )
+        }
+        pub end() {
+            wgpuComputePassEncoderEnd(this.handle as WGPUComputePassEncoder)
+        }
+    }
+
+    /// Wraps `WGPUCommandEncoder`. Built via
+    /// `Device.createCommandEncoder`; record copy / debug / pass
+    /// verbs, then `finish()` to obtain the submittable buffer.
+    pub class CommandEncoder {
+        pub handle: i64
+
+        pub init(handle: WGPUCommandEncoder) {
+            this.handle = handle as i64
+        }
+        pub release() {
+            if this.handle != 0 {
+                wgpuCommandEncoderRelease(this.handle as WGPUCommandEncoder)
+                this.handle = 0
+            }
+        }
+        pub setLabel(label: string) {
+            wgpuCommandEncoderSetLabel(this.handle as WGPUCommandEncoder, WGPUStringView {
+                data:   cstrFromString(label) as *void,
+                length: 0xFFFFFFFFFFFFFFFF as u64,
+            })
+        }
+
+        /// Begin a render pass from the supplied options.
+        /// Supports multiple colour attachments + optional
+        /// depth-stencil. For occlusion / timestamp slots drive
+        /// the raw `wgpuCommandEncoderBeginRenderPass(enc, &desc)`
+        /// directly.
+        pub beginRenderPass(opts: RenderPassOptions): RenderPass {
+            let attachments: WGPURenderPassColorAttachment[] = []
+            let i: i64 = 0
+            while i < opts.colors.length {
+                let c = opts.colors[i]
+                attachments.push(WGPURenderPassColorAttachment {
+                    nextInChain:   0 as *void,
+                    view:          c.view.handle as WGPUTextureView,
+                    depthSlice:    c.depthSlice as u32,
+                    resolveTarget: c.resolveTarget.handle as WGPUTextureView,
+                    loadOp:        c.loadOp,
+                    storeOp:       c.storeOp,
+                    clearValue:    c.clearValue,
+                })
+                i = i + 1
+            }
+            let ds = WGPURenderPassDepthStencilAttachment {
+                view:              0 as WGPUTextureView,
+                depthLoadOp:       LoadOp.undefined,
+                depthStoreOp:      StoreOp.undefined,
+                depthClearValue:   0.0,
+                depthReadOnly:     0 as u32,
+                stencilLoadOp:     LoadOp.undefined,
+                stencilStoreOp:    StoreOp.undefined,
+                stencilClearValue: 0 as u32,
+                stencilReadOnly:   0 as u32,
+            }
+            let dsPtr: *void = 0 as *void
+            if opts.hasDepth {
+                let d = opts.depthStencil
+                let dRO: u32 = 0 as u32
+                let sRO: u32 = 0 as u32
+                if d.depthReadOnly   { dRO = 1 as u32 }
+                if d.stencilReadOnly { sRO = 1 as u32 }
+                ds = WGPURenderPassDepthStencilAttachment {
+                    view:              d.view.handle as WGPUTextureView,
+                    depthLoadOp:       d.depthLoadOp,
+                    depthStoreOp:      d.depthStoreOp,
+                    depthClearValue:   d.depthClearValue,
+                    depthReadOnly:     dRO,
+                    stencilLoadOp:     d.stencilLoadOp,
+                    stencilStoreOp:    d.stencilStoreOp,
+                    stencilClearValue: d.stencilClearValue as u32,
+                    stencilReadOnly:   sRO,
+                }
+                dsPtr = (&ds) as *void
+            }
+            let desc = WGPURenderPassDescriptor {
+                nextInChain:            0 as *void,
+                label:                  WGPUStringView {
+                    data:   cstrFromString(opts.label) as *void,
+                    length: 0xFFFFFFFFFFFFFFFF as u64,
+                },
+                colorAttachmentCount:   attachments.length as u64,
+                colorAttachments:       attachments,
+                depthStencilAttachment: dsPtr,
+                occlusionQuerySet:      0 as *void,
+                timestampWrites:        0 as *void,
+            }
+            new RenderPass(wgpuCommandEncoderBeginRenderPass(
+                this.handle as WGPUCommandEncoder, &desc
+            ))
+        }
+        /// Begin a compute pass without timestamp writes — pass
+        /// `0 as *void` for the descriptor.
+        pub beginComputePass(): ComputePass {
+            new ComputePass(wgpuCommandEncoderBeginComputePass(
+                this.handle as WGPUCommandEncoder, 0 as *WGPUComputePassDescriptor
+            ))
+        }
+        pub copyBufferToBuffer(
+            src: Buffer, srcOffset: u64,
+            dst: Buffer, dstOffset: u64, size: u64
+        ) {
+            wgpuCommandEncoderCopyBufferToBuffer(
+                this.handle as WGPUCommandEncoder,
+                src.handle as WGPUBuffer, srcOffset,
+                dst.handle as WGPUBuffer, dstOffset, size
+            )
+        }
+        pub clearBuffer(buf: Buffer, offset: u64, size: u64) {
+            wgpuCommandEncoderClearBuffer(
+                this.handle as WGPUCommandEncoder,
+                buf.handle as WGPUBuffer, offset, size
+            )
+        }
+        pub insertDebugMarker(label: string) {
+            wgpuCommandEncoderInsertDebugMarker(
+                this.handle as WGPUCommandEncoder,
+                WGPUStringView {
+                    data:   cstrFromString(label) as *void,
+                    length: 0xFFFFFFFFFFFFFFFF as u64,
+                }
+            )
+        }
+        pub pushDebugGroup(label: string) {
+            wgpuCommandEncoderPushDebugGroup(
+                this.handle as WGPUCommandEncoder,
+                WGPUStringView {
+                    data:   cstrFromString(label) as *void,
+                    length: 0xFFFFFFFFFFFFFFFF as u64,
+                }
+            )
+        }
+        pub popDebugGroup() {
+            wgpuCommandEncoderPopDebugGroup(this.handle as WGPUCommandEncoder)
+        }
+        /// Finish recording and produce the submittable
+        /// `CommandBuffer`. The encoder is consumed — using it
+        /// after `finish` is an error.
+        pub finish(): CommandBuffer {
+            new CommandBuffer(wgpuCommandEncoderFinish(
+                this.handle as WGPUCommandEncoder, 0 as *void
+            ))
+        }
+    }
+
+    /// One colour attachment for `RenderPassOptions`.
+    /// Mirrors `WGPURenderPassColorAttachment`. Construct with
+    /// `(view, loadOp, storeOp, clearValue)`; `resolveTarget`
+    /// defaults to null (no MSAA resolve) and `depthSlice` to
+    /// `WGPU_DEPTH_SLICE_UNDEFINED` (0xFFFFFFFF).
+    pub class ColorAttachmentOption {
+        pub view:          TextureView
+        pub resolveTarget: TextureView   // nullable; TextureView(0) = none
+        pub loadOp:        LoadOp
+        pub storeOp:       StoreOp
+        pub clearValue:    WGPUColor
+        pub depthSlice:    u32
+
+        pub init(view: TextureView, loadOp: LoadOp, storeOp: StoreOp, clearValue: WGPUColor) {
+            this.view          = view
+            this.resolveTarget = new TextureView(0 as WGPUTextureView)
+            this.loadOp        = loadOp
+            this.storeOp       = storeOp
+            this.clearValue    = clearValue
+            this.depthSlice    = 0xFFFFFFFF as u32
+        }
+    }
+
+    /// Optional depth-stencil attachment for `RenderPassOptions`.
+    /// Mirrors `WGPURenderPassDepthStencilAttachment`. Construct
+    /// with `(view)` then assign the relevant load/store/clear
+    /// fields before calling
+    /// `RenderPassOptions.setDepthStencil(...)`.
+    pub class DepthStencilAttachmentOption {
+        pub view:              TextureView
+        pub depthLoadOp:       LoadOp
+        pub depthStoreOp:      StoreOp
+        pub depthClearValue:   f32
+        pub depthReadOnly:     bool
+        pub stencilLoadOp:     LoadOp
+        pub stencilStoreOp:    StoreOp
+        pub stencilClearValue: i64
+        pub stencilReadOnly:   bool
+
+        pub init(view: TextureView) {
+            this.view              = view
+            this.depthLoadOp       = LoadOp.undefined
+            this.depthStoreOp      = StoreOp.undefined
+            this.depthClearValue   = 1.0
+            this.depthReadOnly     = false
+            this.stencilLoadOp     = LoadOp.undefined
+            this.stencilStoreOp    = StoreOp.undefined
+            this.stencilClearValue = 0
+            this.stencilReadOnly   = false
+        }
+    }
+
+    /// Configuration for `CommandEncoder.beginRenderPass`.
+    /// Holds an array of colour attachments and an optional
+    /// depth-stencil attachment (selected by `hasDepth`).
+    /// For occlusion / timestamp passes drive
+    /// `wgpuCommandEncoderBeginRenderPass` directly.
+    pub class RenderPassOptions {
+        pub label:        string
+        pub colors:       ColorAttachmentOption[]
+        pub depthStencil: DepthStencilAttachmentOption
+        pub hasDepth:     bool
+
+        pub init(colors: ColorAttachmentOption[]) {
+            this.label        = ""
+            this.colors       = colors
+            this.hasDepth     = false
+            this.depthStencil = new DepthStencilAttachmentOption(
+                new TextureView(0 as WGPUTextureView)
+            )
+        }
+
+        /// Attach a depth-stencil view to this pass.
+        pub setDepthStencil(d: DepthStencilAttachmentOption) {
+            this.depthStencil = d
+            this.hasDepth     = true
         }
     }
 }

@@ -5,7 +5,7 @@
 use core { WGPUQueue, WGPUExtent3D, WGPUStringView }
 use buffer { WGPUBuffer }
 use texture { WGPUTexelCopyTextureInfo, WGPUTexelCopyBufferLayout }
-use command { WGPUCommandBuffer }
+use command { WGPUCommandBuffer, CommandBuffer }
 
 pub enum QueueWorkDoneStatus: u32 {
     success           = 0x01
@@ -95,12 +95,18 @@ pub enum QueueWorkDoneStatus: u32 {
 
         /// Submit a list of pre-recorded command buffers.
         /// `cmds[0]` is presented first.
-        pub submit(cmds: WGPUCommandBuffer[]) {
-            wgpuQueueSubmit(this.handle as WGPUQueue, cmds.length as u64, cmds)
+        pub submit(cmds: CommandBuffer[]) {
+            let raw: WGPUCommandBuffer[] = []
+            let i: i64 = 0
+            while i < cmds.length {
+                raw.push(cmds[i].handle as WGPUCommandBuffer)
+                i = i + 1
+            }
+            wgpuQueueSubmit(this.handle as WGPUQueue, raw.length as u64, raw)
         }
         /// Single-buffer convenience for the common case.
-        pub submitOne(cmd: WGPUCommandBuffer) {
-            let cmds: WGPUCommandBuffer[] = [cmd]
+        pub submitOne(cmd: CommandBuffer) {
+            let cmds: WGPUCommandBuffer[] = [cmd.handle as WGPUCommandBuffer]
             wgpuQueueSubmit(this.handle as WGPUQueue, 1 as u64, cmds)
         }
         // `writeBuffer` / `writeTexture` take `*const void`

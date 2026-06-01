@@ -12,6 +12,7 @@
 ///   Indirect = 0x100, QueryResolve = 0x200.
 
 use core { WGPUStringView, WGPUDevice }
+use std.ffi { cstrFromString }
 
 pub enum BufferMapState: u32 {
     unmapped = 0x01
@@ -110,4 +111,58 @@ pub enum MapMode: u64 {
     @lib pub fn wgpuBufferSetLabel(buffer: WGPUBuffer, label: WGPUStringView)
     @lib pub fn wgpuBufferAddRef(buffer: WGPUBuffer)
     @lib pub fn wgpuBufferRelease(buffer: WGPUBuffer)
+
+    // ─── friendly wrapper ─────────────────────────────────────
+
+    /// GPU memory region. Wraps `WGPUBuffer`. Built via
+    /// `Device.createBuffer`; `release()` drops the host-side
+    /// refcount, `destroy()` drops the GPU-side storage eagerly.
+    pub class Buffer {
+        pub handle: i64
+
+        pub init(handle: WGPUBuffer) {
+            this.handle = handle as i64
+        }
+        pub release() {
+            if this.handle != 0 {
+                wgpuBufferRelease(this.handle as WGPUBuffer)
+                this.handle = 0
+            }
+        }
+        pub destroy() {
+            if this.handle != 0 {
+                wgpuBufferDestroy(this.handle as WGPUBuffer)
+            }
+        }
+        pub setLabel(label: string) {
+            wgpuBufferSetLabel(this.handle as WGPUBuffer, WGPUStringView {
+                data:   cstrFromString(label) as *void,
+                length: 0xFFFFFFFFFFFFFFFF as u64,
+            })
+        }
+        pub getSize(): u64 { wgpuBufferGetSize(this.handle as WGPUBuffer) }
+        pub getUsage(): BufferUsage {
+            wgpuBufferGetUsage(this.handle as WGPUBuffer) as BufferUsage
+        }
+        pub getMapState(): BufferMapState {
+            wgpuBufferGetMapState(this.handle as WGPUBuffer) as BufferMapState
+        }
+    }
+
+    /// Configuration for `Device.createBuffer`. `mappedAtCreation`
+    /// returns the buffer pre-mapped — call `GetMappedRange`,
+    /// fill the bytes, then `Unmap` before the first GPU read.
+    pub class BufferOptions {
+        pub label:            string
+        pub usage:            BufferUsage
+        pub size:             u64
+        pub mappedAtCreation: bool
+
+        pub init(usage: BufferUsage, size: u64) {
+            this.label            = ""
+            this.usage            = usage
+            this.size             = size
+            this.mappedAtCreation = false
+        }
+    }
 }

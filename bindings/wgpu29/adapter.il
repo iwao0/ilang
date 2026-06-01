@@ -5,8 +5,9 @@
 /// pass `surface.handle as *void` (or `0 as *void` to skip the
 /// surface compatibility check).
 
-use core { WGPUStringView, WGPULimits }
+use core { WGPUStringView, WGPULimits, FeatureName }
 use instance { WGPUInstance }
+use std.ffi { cstrFromString }
 
 pub enum AdapterType: u32 {
     discreteGPU   = 0x01
@@ -135,4 +136,30 @@ pub enum RequestDeviceStatus: u32 {
         options:      *void,
         callbackInfo: WGPURequestAdapterCallbackInfo
     ): u64
+
+    // ─── friendly wrapper ─────────────────────────────────────
+
+    /// Wraps `WGPUAdapter`. `requestDevice` is callback-based;
+    /// use the raw `wgpuAdapterRequestDevice` directly. `getInfo`
+    /// / `getLimits` / `getFeatures` need the value-wrapper
+    /// classes from device.il — call them through the umbrella's
+    /// `AdapterInfo` / `Limits` helpers.
+    pub class Adapter {
+        pub handle: i64
+
+        pub init(handle: WGPUAdapter) {
+            this.handle = handle as i64
+        }
+        pub release() {
+            if this.handle != 0 {
+                wgpuAdapterRelease(this.handle as WGPUAdapter)
+                this.handle = 0
+            }
+        }
+        /// `wgpuAdapterHasFeature` returns `WGPUBool` (u32 0/1);
+        /// this method casts to plain `bool` for the caller.
+        pub hasFeature(feature: FeatureName): bool {
+            wgpuAdapterHasFeature(this.handle as WGPUAdapter, feature as u32) != 0
+        }
+    }
 }

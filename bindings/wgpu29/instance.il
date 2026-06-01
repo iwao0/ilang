@@ -4,6 +4,7 @@
 /// process and reuse it across surfaces / devices.
 
 use core { WGPUStringView }
+use std.ffi { cstrFromString }
 
 pub enum InstanceFeatureName: u32 {
     timedWaitAny              = 0x01
@@ -301,4 +302,30 @@ pub enum InstanceFlag: u64 {
         options:  *WGPUInstanceEnumerateAdapterOptions,
         adapters: *void                       // out: *WGPUAdapter array; null to count
     ): u64
+
+    // ─── friendly wrapper ─────────────────────────────────────
+
+    /// Wraps `WGPUInstance` — the root object every other wgpu
+    /// resource hangs off. Build via `wgpuCreateInstance(0 as *void)`
+    /// and reuse one per process. `requestAdapter` is callback-
+    /// based; use the raw `wgpuInstanceRequestAdapter` directly.
+    pub class Instance {
+        pub handle: i64
+
+        pub init(handle: WGPUInstance) {
+            this.handle = handle as i64
+        }
+        pub release() {
+            if this.handle != 0 {
+                wgpuInstanceRelease(this.handle as WGPUInstance)
+                this.handle = 0
+            }
+        }
+        /// Drive any pending callbacks registered via
+        /// `AllowProcessEvents` mode. Call between request* and
+        /// reading the callback's output cell.
+        pub processEvents() {
+            wgpuInstanceProcessEvents(this.handle as WGPUInstance)
+        }
+    }
 }

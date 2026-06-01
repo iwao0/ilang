@@ -8,6 +8,7 @@
 use core { WGPUStringView, WGPUDevice, TextureFormat }
 use shader { WGPUShaderModule, Shader }
 use bind_group { WGPUBindGroupLayout }
+use std.ffi { cstrFromString }
 
 pub enum BlendFactor: u32 {
     undefined          = 0x00
@@ -315,6 +316,49 @@ pub enum ColorWriteMask: u64 {
                 wgpuRenderPipelineRelease(this.handle as WGPURenderPipeline)
                 this.handle = 0
             }
+        }
+        pub setLabel(label: string) {
+            wgpuRenderPipelineSetLabel(this.handle as WGPURenderPipeline, WGPUStringView {
+                data:   cstrFromString(label) as *void,
+                length: 0xFFFFFFFFFFFFFFFF as u64,
+            })
+        }
+    }
+
+    /// Compute pipeline. Built via `Device.createComputePipeline`.
+    pub class ComputePipeline {
+        pub handle: i64
+
+        pub init(handle: WGPUComputePipeline) {
+            this.handle = handle as i64
+        }
+        pub release() {
+            if this.handle != 0 {
+                wgpuComputePipelineRelease(this.handle as WGPUComputePipeline)
+                this.handle = 0
+            }
+        }
+        pub setLabel(label: string) {
+            wgpuComputePipelineSetLabel(this.handle as WGPUComputePipeline, WGPUStringView {
+                data:   cstrFromString(label) as *void,
+                length: 0xFFFFFFFFFFFFFFFF as u64,
+            })
+        }
+    }
+
+    /// Configuration for `Device.createComputePipeline`. The
+    /// pipeline layout is auto-derived from the shader module's
+    /// reflection (pass a layout-bearing variant by calling
+    /// `wgpuDeviceCreateComputePipeline` directly).
+    pub class ComputePipelineOptions {
+        pub label:      string
+        pub shader:     Shader
+        pub entryPoint: string
+
+        pub init(shader: Shader, entryPoint: string) {
+            this.label      = ""
+            this.shader     = shader
+            this.entryPoint = entryPoint
         }
     }
 
