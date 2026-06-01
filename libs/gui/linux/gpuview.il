@@ -30,7 +30,7 @@ use gtk {
 use cairo {
     cairo_t, cairo_surface_t,
     cairo_image_surface_create_for_data, cairo_format_stride_for_width,
-    cairo_surface_mark_dirty, cairo_surface_destroy,
+    cairo_surface_flush, cairo_surface_mark_dirty, cairo_surface_destroy,
     cairo_set_source_surface, cairo_paint,
 }
 use core { WINDOWS }
@@ -306,6 +306,11 @@ let MAP_STATUS:   i64[] = [-1]
         let mapped = wgpuBufferGetConstMappedRange(
             slot.buffer as WGPUBuffer, 0 as u64, bufSize
         )
+        // Detach any snapshot cairo took when the surface was used
+        // as a draw source in `gpuDraw` last frame. Without this,
+        // `mark_dirty` below aborts on the
+        // `! _cairo_surface_has_snapshots` assertion.
+        cairo_surface_flush(slot.cairoSurf as cairo_surface_t)
         // Row-by-row copy: wgpu's stride is padded to 256 bytes,
         // cairo's may not match. Identical strides reduce to a
         // single memcpy but the loop costs nothing on top.

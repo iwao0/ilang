@@ -26,9 +26,16 @@
         data: *void, format: i32, width: i32, height: i32, stride: i32
     ): cairo_surface_t
     @lib pub fn cairo_format_stride_for_width(format: i32, width: i32): i32
+    // Call BEFORE mutating the pixel buffer behind cairo's back.
+    // Detaches any snapshots cairo holds (e.g. ones attached when
+    // the surface was used as a source in a previous draw); without
+    // this, the following `mark_dirty` aborts with
+    // `! _cairo_surface_has_snapshots (surface)`.
+    @lib pub fn cairo_surface_flush(surface: cairo_surface_t)
     // After mutating the underlying pixel buffer behind cairo's
     // back (e.g. memcpy from a wgpu staging buffer), call this so
-    // cairo invalidates its render cache.
+    // cairo invalidates its render cache. Must be preceded by
+    // `cairo_surface_flush` if the surface was used as a source.
     @lib pub fn cairo_surface_mark_dirty(surface: cairo_surface_t)
     @lib pub fn cairo_surface_destroy(surface: cairo_surface_t)
 
