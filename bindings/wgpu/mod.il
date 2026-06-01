@@ -18,6 +18,8 @@
 ///   the loader at it via `DYLD_LIBRARY_PATH` (PoC) — a real build
 ///   would resolve a bundled copy per OS.
 
+use std.ffi { cstrFromString }
+
 @extern(C, "wgpu_native") {
     // ─── opaque object handles ────────────────────────────────
     @handle pub struct WGPUInstance {}
@@ -430,4 +432,234 @@
     @lib pub fn wgpuCommandBufferRelease(commandBuffer: WGPUCommandBuffer)
     @lib pub fn wgpuShaderModuleRelease(shaderModule: WGPUShaderModule)
     @lib pub fn wgpuRenderPipelineRelease(pipeline: WGPURenderPipeline)
+
+    // ═══════════════════════════════════════════════════════════
+    //  Friendly wrapper layer
+    // ═══════════════════════════════════════════════════════════
+    //
+    // SDL2-style: the raw @lib decls + struct types above are still
+    // available for power users, but the classes / fns below let
+    // callers skip their own `@extern(C) { ... }` block.
+    //
+    // Implementation note: across the module-import boundary, ilang
+    // fails to resolve struct-literal syntax (`Foo { … }`) for
+    // structs declared in the same file. The helpers therefore use
+    // `new Foo()` + per-field assignment — verbose but it works
+    // both standalone and when re-exported through `use wgpu`.
+
+    // ─── Shader ────────────────────────────────────────────────
+
+    /// Compiled WGSL shader module. Wraps a `WGPUShaderModule`
+    /// handle. `Device.createWgslShader(code)` returns one;
+    /// `release()` frees the underlying module.
+    pub class Shader {
+        pub handle: i64
+
+        pub init(handle: WGPUShaderModule) {
+            this.handle = handle as i64
+        }
+        pub release() {
+            if this.handle != 0 {
+                wgpuShaderModuleRelease(this.handle as WGPUShaderModule)
+                this.handle = 0
+            }
+        }
+    }
+
+    // ─── Pipeline ──────────────────────────────────────────────
+
+    /// Render pipeline. Built via `Device.createRenderPipeline`.
+    pub class Pipeline {
+        pub handle: i64
+
+        pub init(handle: WGPURenderPipeline) {
+            this.handle = handle as i64
+        }
+        pub release() {
+            if this.handle != 0 {
+                wgpuRenderPipelineRelease(this.handle as WGPURenderPipeline)
+                this.handle = 0
+            }
+        }
+    }
+
+    /// Configuration for `Device.createRenderPipeline`. Defaults
+    /// cover the "draw a single coloured triangle list against the
+    /// surface format" path; tweak fields before passing in.
+    pub class RenderPipelineOptions {
+        pub vertexShader:   Shader
+        pub vertexEntry:    string
+        pub fragmentShader: Shader
+        pub fragmentEntry:  string
+        /// `WGPUTextureFormat` of the colour target. Use the value
+        /// `GpuView.format` reports so the pipeline matches the
+        /// surface.
+        pub colorFormat:    u32
+        pub topology:       u32     // PrimitiveTopology
+        pub cullMode:       u32     // CullMode
+        pub frontFace:      u32     // FrontFace
+
+        /// Same shader module for vertex + fragment is the common
+        /// case (one WGSL file with `vs_main` + `fs_main`).
+        pub init(vertex: Shader, fragment: Shader, colorFormat: u32) {
+            this.vertexShader   = vertex
+            this.vertexEntry    = "vs_main"
+            this.fragmentShader = fragment
+            this.fragmentEntry  = "fs_main"
+            this.colorFormat    = colorFormat
+            this.topology       = 4 as u32    // TriangleList
+            this.cullMode       = 1 as u32    // None
+            this.frontFace      = 1 as u32    // CCW
+        }
+    }
+
+    // ─── Device ────────────────────────────────────────────────
+
+    /// Friendly wrapper around `WGPUDevice`. Construct from the
+    /// device a `GpuView` (or other surface owner) exposes:
+    ///   `let d = new wgpu.Device(view.device)`
+    ///
+    /// The underlying handle is NOT released on deinit — the
+    /// gui-side surface owner owns it across the program.
+    pub class Device {
+        pub handle: i64
+
+        pub init(handle: WGPUDevice) {
+            this.handle = handle as i64
+        }
+
+        /// Compile a WGSL source string into a shader module.
+        pub createWgslShader(wgsl: string): Shader {
+            let chain = new WGPUChainedStruct()
+            chain.next = 0 as *void
+            chain.sType = 2 as u32                  // ShaderSourceWGSL
+
+            let code = new WGPUStringView()
+            code.data = cstrFromString(wgsl) as *void
+            code.length = 0xFFFFFFFFFFFFFFFF as u64 // WGPU_STRLEN
+
+            let src = new WGPUShaderSourceWGSL()
+            src.chain = chain
+            src.code = code
+
+            let label = new WGPUStringView()
+            label.data = 0 as *void
+            label.length = 0 as u64
+
+            let desc = new WGPUShaderModuleDescriptor()
+            desc.nextInChain = (&src) as *void
+            desc.label = label
+
+            new Shader(wgpuDeviceCreateShaderModule(this.handle as WGPUDevice, &desc))
+        }
+
+        /// Build a render pipeline from the supplied options. No
+        /// blend / depth-stencil / MSAA in this overload — the
+        /// pipeline runs against `opts.colorFormat` with a single
+        /// opaque write-mask = All and no depth attachment.
+        pub createRenderPipeline(opts: RenderPipelineOptions): Pipeline {
+            let target = new WGPUColorTargetState()
+            target.nextInChain = 0 as *void
+            target.format = opts.colorFormat
+            target.blend = 0 as *void
+            target.writeMask = 0xF as u64
+
+            let fsEntry = new WGPUStringView()
+            fsEntry.data = cstrFromString(opts.fragmentEntry) as *void
+            fsEntry.length = 0xFFFFFFFFFFFFFFFF as u64
+
+            let fragState = new WGPUFragmentState()
+            fragState.nextInChain = 0 as *void
+            fragState.module = opts.fragmentShader.handle as WGPUShaderModule
+            fragState.entryPoint = fsEntry
+            fragState.constantCount = 0 as u64
+            fragState.constants = 0 as *void
+            fragState.targetCount = 1 as u64
+            fragState.targets = &target
+
+            let vsEntry = new WGPUStringView()
+            vsEntry.data = cstrFromString(opts.vertexEntry) as *void
+            vsEntry.length = 0xFFFFFFFFFFFFFFFF as u64
+
+            let vertex = new WGPUVertexState()
+            vertex.nextInChain = 0 as *void
+            vertex.module = opts.vertexShader.handle as WGPUShaderModule
+            vertex.entryPoint = vsEntry
+            vertex.constantCount = 0 as u64
+            vertex.constants = 0 as *void
+            vertex.bufferCount = 0 as u64
+            vertex.buffers = 0 as *void
+
+            let primitive = new WGPUPrimitiveState()
+            primitive.nextInChain = 0 as *void
+            primitive.topology = opts.topology
+            primitive.stripIndexFormat = 0 as u32
+            primitive.frontFace = opts.frontFace
+            primitive.cullMode = opts.cullMode
+            primitive.unclippedDepth = 0 as u32
+
+            let multisample = new WGPUMultisampleState()
+            multisample.nextInChain = 0 as *void
+            multisample.count = 1 as u32
+            multisample.mask = 0xFFFFFFFF as u32
+            multisample.alphaToCoverageEnabled = 0 as u32
+
+            let label = new WGPUStringView()
+            label.data = 0 as *void
+            label.length = 0 as u64
+
+            let desc = new WGPURenderPipelineDescriptor()
+            desc.nextInChain = 0 as *void
+            desc.label = label
+            desc.layout = 0 as *void
+            desc.vertex = vertex
+            desc.primitive = primitive
+            desc.depthStencil = 0 as *void
+            desc.multisample = multisample
+            desc.fragment = &fragState
+
+            new Pipeline(wgpuDeviceCreateRenderPipeline(this.handle as WGPUDevice, &desc))
+        }
+    }
+
+    // ─── RenderPass ────────────────────────────────────────────
+
+    /// Friendly wrapper around a `WGPURenderPassEncoder` that the
+    /// gui-side `onRender` callback hands to user code. The
+    /// underlying encoder's lifecycle (begin / end / submit /
+    /// present) is owned by gui-core; this wrapper exposes only
+    /// the recording verbs.
+    pub class RenderPass {
+        pub handle: i64
+
+        pub init(handle: WGPURenderPassEncoder) {
+            this.handle = handle as i64
+        }
+
+        pub setPipeline(pipeline: Pipeline) {
+            wgpuRenderPassEncoderSetPipeline(
+                this.handle as WGPURenderPassEncoder,
+                pipeline.handle as WGPURenderPipeline
+            )
+        }
+
+        /// Record a draw of `vertexCount` vertices into
+        /// `instanceCount` instances, starting at
+        /// `firstVertex` / `firstInstance`. For the hello-triangle
+        /// case use `draw(3, 1, 0, 0)`.
+        ///
+        /// Counts are i64 here so call sites don't need `as u32`
+        /// casts on integer literals; the wgpu C ABI gets the
+        /// expected u32 inside.
+        pub draw(
+            vertexCount: i64, instanceCount: i64,
+            firstVertex: i64, firstInstance: i64
+        ) {
+            wgpuRenderPassEncoderDraw(
+                this.handle as WGPURenderPassEncoder,
+                vertexCount as u32, instanceCount as u32,
+                firstVertex as u32, firstInstance as u32
+            )
+        }
+    }
 }
