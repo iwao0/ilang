@@ -12,7 +12,8 @@ use buffer {
     BufferMapState,
     wgpuBufferRelease, wgpuBufferDestroy, wgpuBufferSetLabel,
     wgpuBufferGetSize, wgpuBufferGetUsage, wgpuBufferGetMapState,
-    wgpuBufferMapAsync,
+    wgpuBufferMapAsync, wgpuBufferUnmap,
+    wgpuBufferGetMappedRange, wgpuBufferGetConstMappedRange,
 }
 use instance_class { Instance }
 use std.ffi { cstrFromString }
@@ -92,6 +93,35 @@ pub class Buffer {
             i = i + 1
         }
         _wgpuBufferMapOut[0] as MapAsyncStatus
+    }
+
+    /// Release the host-side mapped range obtained via
+    /// `mapAsync` + `getMappedRangeRaw` / `getConstMappedRangeRaw`,
+    /// or via a buffer created with `mappedAtCreation: true`. The
+    /// raw pointer becomes invalid after this call.
+    pub unmap() {
+        wgpuBufferUnmap(this.handle as WGPUBuffer)
+    }
+
+    /// Writable mapped range as a raw pointer (i64). Use
+    /// `std.ffi.writeU32` / `writeF32` / `writeI32` / `writeU8`
+    /// etc. to fill the bytes. Valid until `unmap()` (or the next
+    /// `release()` / `destroy()`). For buffers created with
+    /// `MapWrite` or `mappedAtCreation: true`.
+    ///
+    /// The raw pointer is returned as `i64` because friendly
+    /// methods can't surface `*void` to caller code — pass the
+    /// `i64` straight to the `std.ffi.read*` / `write*` helpers
+    /// (they take `*void` / `*const void`, so cast at the call
+    /// site).
+    pub getMappedRangeRaw(offset: u64, size: u64): i64 {
+        wgpuBufferGetMappedRange(this.handle as WGPUBuffer, offset, size) as i64
+    }
+    /// Read-only mapped range as a raw pointer (i64). Pairs with
+    /// `MapMode.read` after `mapAsync`. Same lifetime rules as
+    /// `getMappedRangeRaw`.
+    pub getConstMappedRangeRaw(offset: u64, size: u64): i64 {
+        wgpuBufferGetConstMappedRange(this.handle as WGPUBuffer, offset, size) as i64
     }
 }
 

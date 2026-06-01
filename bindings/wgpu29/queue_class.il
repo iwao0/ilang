@@ -3,14 +3,22 @@
 /// (possible now that `instance_class.il` has no class-file deps).
 
 use core {
-    WGPUQueue, WGPUInstance,
+    WGPUQueue, WGPUInstance, WGPUExtent3D, WGPUOrigin3D,
     wgpuInstanceProcessEvents, CallbackMode,
 }
 use queue {
     QueueWorkDoneStatus, WGPUQueueWorkDoneCallbackInfo,
     wgpuQueueSubmit, wgpuQueueGetTimestampPeriod,
     wgpuQueueOnSubmittedWorkDone,
+    wgpuQueueWriteBuffer, wgpuQueueWriteTexture,
 }
+use buffer { WGPUBuffer }
+use buffer_class { Buffer }
+use texture {
+    WGPUTexture, TextureAspect,
+    WGPUTexelCopyTextureInfo, WGPUTexelCopyBufferLayout,
+}
+use texture_class { Texture }
 use command { WGPUCommandBuffer }
 use command_class { CommandBuffer }
 use instance_class { Instance }
@@ -57,6 +65,66 @@ pub class Queue {
     pub submitOne(cmd: CommandBuffer) {
         let cmds: WGPUCommandBuffer[] = [cmd.handle as WGPUCommandBuffer]
         wgpuQueueSubmit(this.handle as WGPUQueue, 1 as u64, cmds)
+    }
+
+    /// Upload bytes (u8) to `buf` at `bufferOffset`. Thin wrapper
+    /// around `wgpuQueueWriteBuffer`; the typed-element variants
+    /// below compute the byte size for you.
+    pub writeBufferBytes(buf: Buffer, bufferOffset: u64, data: u8[]) {
+        wgpuQueueWriteBuffer(
+            this.handle as WGPUQueue, buf.handle as WGPUBuffer,
+            bufferOffset, data, data.length as u64
+        )
+    }
+    /// Upload an `i32[]` (4 bytes/elt).
+    pub writeBufferI32(buf: Buffer, bufferOffset: u64, data: i32[]) {
+        wgpuQueueWriteBuffer(
+            this.handle as WGPUQueue, buf.handle as WGPUBuffer,
+            bufferOffset, data, (data.length * 4) as u64
+        )
+    }
+    /// Upload a `u32[]` (4 bytes/elt). Typical for index buffers.
+    pub writeBufferU32(buf: Buffer, bufferOffset: u64, data: u32[]) {
+        wgpuQueueWriteBuffer(
+            this.handle as WGPUQueue, buf.handle as WGPUBuffer,
+            bufferOffset, data, (data.length * 4) as u64
+        )
+    }
+    /// Upload an `f32[]` (4 bytes/elt). Typical for vertex / uniform
+    /// data.
+    pub writeBufferF32(buf: Buffer, bufferOffset: u64, data: f32[]) {
+        wgpuQueueWriteBuffer(
+            this.handle as WGPUQueue, buf.handle as WGPUBuffer,
+            bufferOffset, data, (data.length * 4) as u64
+        )
+    }
+
+    /// CPU → texture upload. Builds the `WGPUTexelCopyTextureInfo`
+    /// + `WGPUTexelCopyBufferLayout` from the friendly args, then
+    /// calls `wgpuQueueWriteTexture`. `bytesPerRow` must be a
+    /// multiple of 256 (WebGPU spec) — pad rows before calling.
+    pub writeTexture(
+        destTexture: Texture, mipLevel: i64,
+        origin: WGPUOrigin3D, aspect: TextureAspect,
+        data: u8[], bytesPerRow: u32, rowsPerImage: u32,
+        writeSize: WGPUExtent3D
+    ) {
+        let dest = WGPUTexelCopyTextureInfo {
+            texture:  destTexture.handle as WGPUTexture,
+            mipLevel: mipLevel as u32,
+            origin:   origin,
+            aspect:   aspect,
+        }
+        let layout = WGPUTexelCopyBufferLayout {
+            offset:       0 as u64,
+            bytesPerRow:  bytesPerRow,
+            rowsPerImage: rowsPerImage,
+        }
+        let size = writeSize
+        wgpuQueueWriteTexture(
+            this.handle as WGPUQueue, &dest, data, data.length as u64,
+            &layout, &size
+        )
     }
 
     /// ns per timestamp tick — multiply each u64 sample
