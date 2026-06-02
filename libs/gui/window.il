@@ -45,6 +45,7 @@ use gui_impl {
     focusNativeWindow, blurNativeWindow, isNativeWindowFocused,
     setNativeWindowAlwaysOnTop, isNativeWindowAlwaysOnTop,
     moveTopNativeWindow,
+    setNativeWindowOpacity, getNativeWindowOpacity,
     setOnClose,
     setOnResize,
     setOnKeyDown,
@@ -446,6 +447,15 @@ pub class Window : Container {
     /// `gtk_window_present` (which may also focus, depending on
     /// the WM).
     pub moveTop() { moveTopNativeWindow(this.handle) }
+
+    /// Per-window opacity in `[0.0, 1.0]`. `1.0` is fully opaque
+    /// (default); `0.0` is invisible. macOS drives
+    /// `NSWindow.alphaValue`; Win32 enables `WS_EX_LAYERED` on
+    /// the first call and routes through
+    /// `SetLayeredWindowAttributes`; GTK4 uses
+    /// `gtk_widget_set_opacity`.
+    pub setOpacity(v: f64)  { setNativeWindowOpacity(this.handle, v) }
+    pub getOpacity(): f64   { getNativeWindowOpacity(this.handle) }
 
     /// Re-run the dock / margin layout pass over every direct
     /// child. Called automatically on `addChild` (inherited from

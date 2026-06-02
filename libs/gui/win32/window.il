@@ -22,6 +22,7 @@ use windows {
     GetSystemMetrics, GetSystemMenu, EnableMenuItem,
     SetForegroundWindow, GetForegroundWindow,
     BringWindowToTop, SetActiveWindow,
+    SetLayeredWindowAttributes, WindowStyleEx, LayeredWindowFlags,
 }
 use util { enableComctl32V6 }
 use core { WindowSlot, WINDOWS }
@@ -327,6 +328,37 @@ pub fn isNativeWindowAlwaysOnTop(handle: i64): bool {
 pub fn moveTopNativeWindow(handle: i64) {
     if let some(slot) = WINDOWS.get(handle) {
         BringWindowToTop(slot.hwnd)
+    }
+}
+
+/// Per-window opacity in [0.0, 1.0]. Win32 needs the
+/// `WS_EX_LAYERED` extended-style bit before
+/// `SetLayeredWindowAttributes` will apply the alpha; we toggle
+/// it in lazily on the first non-trivial opacity call. The
+/// current value is cached on the slot so `getOpacity` doesn't
+/// have to round-trip the `GetLayeredWindowAttributes` byte.
+pub fn setNativeWindowOpacity(handle: i64, v: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let ex = GetWindowLongPtrW(slot.hwnd, WindowLongIndex.exstyle as i32) as u64
+        let layeredBit = WindowStyleEx.layered as u64
+        if (ex & layeredBit) == 0 as u64 {
+            SetWindowLongPtrW(
+                slot.hwnd, WindowLongIndex.exstyle as i32,
+                (ex | layeredBit) as i64
+            )
+        }
+        let alpha = (v * 255.0) as u8
+        SetLayeredWindowAttributes(
+            slot.hwnd, 0 as u32, alpha, LayeredWindowFlags.alpha as u32
+        )
+        slot.opacity = v
+    }
+}
+pub fn getNativeWindowOpacity(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.opacity
+    } else {
+        1.0
     }
 }
 

@@ -49,6 +49,7 @@ pub class WindowSlot {
     pub isClosable:        bool
     pub isMovable:         bool
     pub isAlwaysOnTop:     bool
+    pub opacity:           f64
     pub preFullScreenStyle:     i64
     pub preFullScreenPlacement: WINDOWPLACEMENT
 
@@ -75,6 +76,7 @@ pub class WindowSlot {
         this.isClosable        = true
         this.isMovable         = true
         this.isAlwaysOnTop     = false
+        this.opacity           = 1.0
         this.preFullScreenStyle     = 0 as i64
         this.preFullScreenPlacement = WINDOWPLACEMENT {
             length:           44 as u32,

@@ -23,6 +23,7 @@ use gtk {
     gtk_window_is_active,
     gtk_widget_set_visible, gtk_widget_set_size_request,
     gtk_widget_get_width, gtk_widget_get_height,
+    gtk_widget_set_opacity, gtk_widget_get_opacity,
     gtk_widget_add_controller,
     gtk_fixed_new,
     gtk_event_controller_key_new, gtk_event_controller_motion_new,
@@ -533,6 +534,19 @@ pub fn isNativeWindowAlwaysOnTop(handle: i64): bool {
 pub fn moveTopNativeWindow(handle: i64) {
     if let some(slot) = WINDOWS.get(handle) {
         gtk_window_present(slot.win)
+    }
+}
+
+pub fn setNativeWindowOpacity(handle: i64, v: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_widget_set_opacity(slot.win as GtkWidget, v)
+    }
+}
+pub fn getNativeWindowOpacity(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_widget_get_opacity(slot.win as GtkWidget)
+    } else {
+        1.0
     }
 }
 

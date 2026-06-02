@@ -258,3 +258,16 @@ pub fn moveTopNativeWindow(handle: i64) {
         slot.win.orderFront(nil)
     }
 }
+
+pub fn setNativeWindowOpacity(handle: i64, v: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.setAlphaValue(v)
+    }
+}
+pub fn getNativeWindowOpacity(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.alphaValue
+    } else {
+        1.0
+    }
+}

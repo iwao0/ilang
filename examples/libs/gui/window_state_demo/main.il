@@ -134,6 +134,20 @@ fn run(): i64 {
     bMoveTop.onClick.add(fn(e: gui.MouseEvent) { w.moveTop() })
     zorder.addChild(bMoveTop)
 
+    // Opacity toggle. Reads `getOpacity()` and flips between fully
+    // opaque (1.0) and half-transparent (0.5) — same idea as the
+    // boolean trait toggles above, just on a continuous knob.
+    let bOpacity = new gui.Button()
+    bOpacity.text   = "Opacity: 1.0"
+    bOpacity.flex   = 1.0
+    bOpacity.margin = new gui.Margin(4.0)
+    bOpacity.onClick.add(fn(e: gui.MouseEvent) {
+        let next = if w.getOpacity() > 0.75 { 0.5 } else { 1.0 }
+        w.setOpacity(next)
+        bOpacity.text = if next < 0.75 { "Opacity: 0.5" } else { "Opacity: 1.0" }
+    })
+    zorder.addChild(bOpacity)
+
     let status = new gui.Label()
     status.text   = "(no state event yet)"
     status.flex   = 1.0

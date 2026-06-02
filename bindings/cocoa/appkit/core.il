@@ -269,6 +269,14 @@ pub enum NSApplicationActivationPolicy: i64 {
         /// have to invert against the screen's `frame.height`.
         @objc("frame")
         pub get frame(): NSRect
+        /// Per-window opacity in the [0.0, 1.0] range. `1.0` is
+        /// fully opaque (default); `0.0` is invisible. Drives the
+        /// window's overall alpha at the compositor — both the
+        /// frame chrome and the content view get scaled.
+        @objc("alphaValue")
+        pub get alphaValue(): f64
+        @objc("setAlphaValue:")
+        pub setAlphaValue(v: f64)
     }
 
     /// `NSScreen` — physical display. `mainScreen` is the one
