@@ -50,10 +50,6 @@ pub enum TextureUsage: u64 {
     transientAttachment = 0x20
 }
 
-pub enum NativeSurfaceGetCurrentTextureStatus: u32 {
-    occluded = 0x00030001
-}
-
 @extern(C, "wgpu_native") {
     @handle pub struct WGPUTexture {}
     @handle pub struct WGPUTextureView {}

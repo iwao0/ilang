@@ -35,6 +35,10 @@ pub enum SurfaceGetCurrentTextureStatus: u32 {
     outdated          = 0x04
     lost              = 0x05
     error             = 0x06
+    // wgpu-native extension: returned when the surface is currently
+    // hidden (e.g. another window in front on macOS). Frame can be
+    // skipped without reconfiguring.
+    occluded          = 0x00030001
 }
 
 @extern(C, "wgpu_native") {
