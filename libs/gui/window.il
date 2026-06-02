@@ -30,7 +30,7 @@ use events {
     FocusEvent, BlurEvent,
     ShowEvent, HideEvent, MoveEvent,
 }
-use layout { Dock, Margin }
+use layout { Dock, Margin, Point, Size, Rect }
 use gui_impl {
     createNativeWindow,
     setWindowTitle, setWindowSize,
@@ -46,6 +46,13 @@ use gui_impl {
     setNativeWindowAlwaysOnTop, isNativeWindowAlwaysOnTop,
     moveTopNativeWindow,
     setNativeWindowOpacity, getNativeWindowOpacity,
+    centerNativeWindow,
+    setNativeWindowPosition, getNativeWindowX, getNativeWindowY,
+    setNativeWindowBounds,
+    setNativeWindowMinSize,
+    getNativeWindowMinWidth, getNativeWindowMinHeight,
+    setNativeWindowMaxSize,
+    getNativeWindowMaxWidth, getNativeWindowMaxHeight,
     setOnClose,
     setOnResize,
     setOnKeyDown,
@@ -456,6 +463,83 @@ pub class Window : Container {
     /// `gtk_widget_set_opacity`.
     pub setOpacity(v: f64)  { setNativeWindowOpacity(this.handle, v) }
     pub getOpacity(): f64   { getNativeWindowOpacity(this.handle) }
+
+    // ─── geometry / position / bounds ─────────────────────────
+    //
+    // All inputs / outputs use CONTENT-area dimensions and
+    // W3C-style top-left screen coordinates. The underlying
+    // platforms vary widely in what they expose (especially GTK4,
+    // which dropped per-window positioning) — see each native
+    // function's comments for what's honoured vs. recorded-only.
+
+    /// Centre the window on the primary screen.
+    pub center() { centerNativeWindow(this.handle) }
+
+    /// Move the window's top-left frame corner to `(x, y)` in
+    /// screen coordinates. No-op on GTK4 (the WM owns placement
+    /// on Wayland); the value is recorded for `getPosition` so
+    /// the round-trip still works.
+    pub setPosition(x: f64, y: f64) {
+        setNativeWindowPosition(this.handle, x, y)
+    }
+    pub getPosition(): Point {
+        new Point(
+            getNativeWindowX(this.handle),
+            getNativeWindowY(this.handle)
+        )
+    }
+
+    /// Set position + content size atomically. `(x, y)` is the
+    /// frame top-left in screen coords; `(w, h)` is the content
+    /// area (excluding the title bar). The atomic form avoids
+    /// the flicker a setPosition + width / height pair would
+    /// produce on Win32.
+    pub setBounds(x: f64, y: f64, w: f64, h: f64) {
+        setNativeWindowBounds(this.handle, x, y, w, h)
+    }
+    pub getBounds(): Rect {
+        new Rect(
+            getNativeWindowX(this.handle),
+            getNativeWindowY(this.handle),
+            this._w,
+            this._h
+        )
+    }
+
+    /// Content-size lower bound — the OS clamps user-drag resize
+    /// against this. macOS / Win32 honour it natively; GTK4
+    /// translates to `gtk_widget_set_size_request`.
+    pub setMinimumSize(w: f64, h: f64) {
+        setNativeWindowMinSize(this.handle, w, h)
+    }
+    pub getMinimumSize(): Size {
+        new Size(
+            getNativeWindowMinWidth(this.handle),
+            getNativeWindowMinHeight(this.handle)
+        )
+    }
+
+    /// Content-size upper bound. macOS / Win32 honour it
+    /// natively; GTK4 records the value but the WM ignores it
+    /// (GTK4 has no maximum-size primitive).
+    pub setMaximumSize(w: f64, h: f64) {
+        setNativeWindowMaxSize(this.handle, w, h)
+    }
+    pub getMaximumSize(): Size {
+        new Size(
+            getNativeWindowMaxWidth(this.handle),
+            getNativeWindowMaxHeight(this.handle)
+        )
+    }
+
+    /// Resize the content area to `(w, h)`. Convenience over
+    /// writing the `width` / `height` getter-setter pair when the
+    /// caller wants to update both axes in one call.
+    pub setContentSize(w: f64, h: f64) {
+        this._w = w
+        this._h = h
+        setWindowSize(this.handle, w, h)
+    }
 
     /// Re-run the dock / margin layout pass over every direct
     /// child. Called automatically on `addChild` (inherited from

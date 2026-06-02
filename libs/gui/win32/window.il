@@ -9,7 +9,7 @@
 use windows {
     GetModuleHandleA,
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU,
-    WNDCLASSEXA, MSG, POINT, WINDOWPLACEMENT,
+    WNDCLASSEXA, MSG, POINT, RECT, WINDOWPLACEMENT,
     ClassStyle, WindowStyle, ShowCmd, SystemMetric, WindowLongIndex, MenuFlags,
     RegisterClassExW, CreateWindowExW,
     SetWindowTextW, SetWindowPos,
@@ -19,13 +19,14 @@ use windows {
     IsIconic, IsZoomed,
     GetWindowLongPtrW, SetWindowLongPtrW,
     GetWindowPlacement, SetWindowPlacement,
+    GetWindowRect, AdjustWindowRectEx, GetMenu,
     GetSystemMetrics, GetSystemMenu, EnableMenuItem,
     SetForegroundWindow, GetForegroundWindow,
     BringWindowToTop, SetActiveWindow,
     SetLayeredWindowAttributes, WindowStyleEx, LayeredWindowFlags,
 }
 use util { enableComctl32V6 }
-use core { WindowSlot, WINDOWS }
+use core { WindowSlot, WINDOWS, contentToFrameSize }
 use wnd_proc { guiWndProc }
 
 const WS_OVERLAPPEDWINDOW: u64 = WindowStyle.overlappedWindow as u64
@@ -107,14 +108,18 @@ pub fn setWindowTitle(handle: i64, title: string) {
 
 pub fn setWindowSize(handle: i64, width: f64, height: f64) {
     if let some(slot) = WINDOWS.get(handle) {
-        // SWP_NOMOVE | SWP_NOZORDER — resize without changing the
-        // window's screen position or Z-order siblings.
+        // The public API treats `width` / `height` as the CONTENT
+        // size on every backend. Win32 `SetWindowPos` measures the
+        // full window (content + chrome), so translate via
+        // `AdjustWindowRectEx` using the current style + extended
+        // style + menu state.
+        let f = contentToFrameSize(slot.hwnd, width, height)
         let flags = (SetWindowPosFlags.noMove as u32)
                   | (SetWindowPosFlags.noZOrder as u32)
-        SetWindowPos(slot.hwnd, 0 as HWND,
-                             0, 0, width as i32, height as i32, flags)
+        SetWindowPos(slot.hwnd, 0 as HWND, 0, 0, f.fw as i32, f.fh as i32, flags)
     }
 }
+
 
 pub fn showNativeWindow(handle: i64) {
     if let some(slot) = WINDOWS.get(handle) {
@@ -359,6 +364,99 @@ pub fn getNativeWindowOpacity(handle: i64): f64 {
         slot.opacity
     } else {
         1.0
+    }
+}
+
+// ─── geometry / position / bounds ──────────────────────────────
+
+pub fn centerNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let cx = GetSystemMetrics(SystemMetric.cxScreen as i32)
+        let cy = GetSystemMetrics(SystemMetric.cyScreen as i32)
+        let rect = RECT { left: 0, top: 0, right: 0, bottom: 0 }
+        GetWindowRect(slot.hwnd, &rect)
+        let w = rect.right - rect.left
+        let h = rect.bottom - rect.top
+        let x = (cx - w) / 2
+        let y = (cy - h) / 2
+        let flags = (SetWindowPosFlags.noSize as u32)
+                  | (SetWindowPosFlags.noZOrder as u32)
+        SetWindowPos(slot.hwnd, 0 as HWND, x, y, 0, 0, flags)
+    }
+}
+
+pub fn setNativeWindowPosition(handle: i64, x: f64, y: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let flags = (SetWindowPosFlags.noSize as u32)
+                  | (SetWindowPosFlags.noZOrder as u32)
+        SetWindowPos(slot.hwnd, 0 as HWND, x as i32, y as i32, 0, 0, flags)
+    }
+}
+pub fn getNativeWindowX(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        let rect = RECT { left: 0, top: 0, right: 0, bottom: 0 }
+        GetWindowRect(slot.hwnd, &rect)
+        rect.left as f64
+    } else {
+        0.0
+    }
+}
+pub fn getNativeWindowY(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        let rect = RECT { left: 0, top: 0, right: 0, bottom: 0 }
+        GetWindowRect(slot.hwnd, &rect)
+        rect.top as f64
+    } else {
+        0.0
+    }
+}
+
+/// `(x, y)` is the frame top-left in screen coords; `(w, h)` is
+/// the CONTENT size. Translate to frame size and slam the whole
+/// thing in one `SetWindowPos` call.
+pub fn setNativeWindowBounds(handle: i64, x: f64, y: f64, w: f64, h: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let f = contentToFrameSize(slot.hwnd, w, h)
+        SetWindowPos(
+            slot.hwnd, 0 as HWND,
+            x as i32, y as i32,
+            f.fw as i32, f.fh as i32,
+            (SetWindowPosFlags.noZOrder as u32)
+        )
+    }
+}
+
+pub fn setNativeWindowMinSize(handle: i64, w: f64, h: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.minW = w
+        slot.minH = h
+    }
+}
+pub fn getNativeWindowMinWidth(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) { slot.minW } else { 0.0 }
+}
+pub fn getNativeWindowMinHeight(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) { slot.minH } else { 0.0 }
+}
+pub fn setNativeWindowMaxSize(handle: i64, w: f64, h: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.maxW = w
+        slot.maxH = h
+        slot.hasMaxSize = true
+    }
+}
+pub fn getNativeWindowMaxWidth(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        if slot.hasMaxSize { slot.maxW } else { 0.0 }
+    } else {
+        0.0
+    }
+}
+pub fn getNativeWindowMaxHeight(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        if slot.hasMaxSize { slot.maxH } else { 0.0 }
+    } else {
+        0.0
     }
 }
 

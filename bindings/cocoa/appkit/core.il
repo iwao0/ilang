@@ -277,6 +277,40 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub get alphaValue(): f64
         @objc("setAlphaValue:")
         pub setAlphaValue(v: f64)
+        /// Move the frame's origin (bottom-left in screen
+        /// coordinates) to `p` without changing the size.
+        @objc("setFrameOrigin:")
+        pub setFrameOrigin(p: NSPoint)
+        /// Set the frame (position + size) atomically. `display`
+        /// asks AppKit to redraw immediately.
+        @objc("setFrame:display:")
+        pub setFrame(frame: NSRect, display: bool)
+        /// Set the frame and animate the transition. The
+        /// `animate` flag is the difference vs. the 2-arg form.
+        @objc("setFrame:display:animate:")
+        pub setFrameAnimated(frame: NSRect, display: bool, animate: bool)
+        /// User-resize lower / upper bounds for the WINDOW frame
+        /// (content + chrome). Both axes default to `(0, 0)` /
+        /// huge respectively; AppKit clamps user drag
+        /// against these.
+        @objc("minSize")
+        pub get minSize(): NSSize
+        @objc("setMinSize:")
+        pub setMinSize(s: NSSize)
+        @objc("maxSize")
+        pub get maxSize(): NSSize
+        @objc("setMaxSize:")
+        pub setMaxSize(s: NSSize)
+        /// `contentRectForFrameRect:` / `frameRectForContentRect:`
+        /// translate between the user-visible content area and
+        /// the OS-visible frame (which includes the title bar).
+        /// Needed when the public API takes content sizes but the
+        /// underlying AppKit call wants frame sizes (`setMinSize:`
+        /// / `setMaxSize:` measure the frame).
+        @objc("contentRectForFrameRect:")
+        pub contentRectForFrameRect(frame: NSRect): NSRect
+        @objc("frameRectForContentRect:")
+        pub frameRectForContentRect(content: NSRect): NSRect
     }
 
     /// `NSScreen` — physical display. `mainScreen` is the one

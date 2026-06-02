@@ -43,6 +43,18 @@ pub class WindowSlot {
     pub wasActive:     bool
     pub isMovable:     bool
     pub isAlwaysOnTop: bool
+    /// Geometry / position state. GTK4 dropped the per-window
+    /// position APIs (no `gtk_window_move`, no
+    /// `gtk_window_get_position`), and has no built-in upper
+    /// resize bound, so most of this is informational only —
+    /// stored so the `Window` getters have something to return.
+    pub posX: f64
+    pub posY: f64
+    pub minW: f64
+    pub minH: f64
+    pub maxW: f64
+    pub maxH: f64
+    pub hasMaxSize: bool
 
     pub init(win: GtkWindow, fixed: GtkFixed) {
         this.win               = win
@@ -69,6 +81,13 @@ pub class WindowSlot {
         this.wasActive         = false
         this.isMovable         = true
         this.isAlwaysOnTop     = false
+        this.posX              = 0.0
+        this.posY              = 0.0
+        this.minW              = 0.0
+        this.minH              = 0.0
+        this.maxW              = 0.0
+        this.maxH              = 0.0
+        this.hasMaxSize        = false
     }
 }
 

@@ -1,9 +1,10 @@
 // libs/gui — `Window` state-action / state-event / trait-flag /
-// focus / Z-order demo.
+// focus / Z-order / geometry demo.
 //
 // Row 1: `minimize()`, `maximize()`, `unmaximize()`, `setFullScreen()` toggle.
 // Row 2: `setResizable` / `setMovable` / `setClosable` toggles.
-// Row 3: `blur()`, `setAlwaysOnTop()` toggle, `moveTop()`.
+// Row 3: `blur()`, `setAlwaysOnTop()` toggle, `moveTop()`, opacity toggle.
+// Row 4: `center()`, `setPosition(100,100)`, `setMinimumSize(400,200)`.
 // Status label below reflects the most recent fired event.
 //
 // (`Restore` has no button — once iconified, none of its own
@@ -18,7 +19,7 @@ fn run(): i64 {
     let w = new gui.Window()
     w.title  = "ilang gui × window state"
     w.width  = 600.0
-    w.height = 280.0
+    w.height = 320.0
 
     let v = new gui.VBox()
     v.dock = gui.Dock.fill
@@ -147,6 +148,35 @@ fn run(): i64 {
         bOpacity.text = if next < 0.75 { "Opacity: 0.5" } else { "Opacity: 1.0" }
     })
     zorder.addChild(bOpacity)
+
+    // Geometry row — `center()`, fixed-position move, min-size set.
+    let geom = new gui.HBox()
+    geom.height = 36.0
+    geom.margin = new gui.Margin(4.0)
+    v.addChild(geom)
+
+    let bCenter = new gui.Button()
+    bCenter.text   = "Center"
+    bCenter.flex   = 1.0
+    bCenter.margin = new gui.Margin(4.0)
+    bCenter.onClick.add(fn(e: gui.MouseEvent) { w.center() })
+    geom.addChild(bCenter)
+
+    let bPos = new gui.Button()
+    bPos.text   = "Position (100, 100)"
+    bPos.flex   = 1.0
+    bPos.margin = new gui.Margin(4.0)
+    bPos.onClick.add(fn(e: gui.MouseEvent) { w.setPosition(100.0, 100.0) })
+    geom.addChild(bPos)
+
+    let bMinSize = new gui.Button()
+    bMinSize.text   = "MinSize 400x200"
+    bMinSize.flex   = 1.0
+    bMinSize.margin = new gui.Margin(4.0)
+    bMinSize.onClick.add(fn(e: gui.MouseEvent) {
+        w.setMinimumSize(400.0, 200.0)
+    })
+    geom.addChild(bMinSize)
 
     let status = new gui.Label()
     status.text   = "(no state event yet)"

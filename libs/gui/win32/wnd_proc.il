@@ -22,13 +22,15 @@ use windows {
     WindowMessage, VirtualKey, ActivateCode,
     GetKeyState,
     LoadCursorA, SetCursor, SystemCursor,
-    HDC, RECT, GetClientRect, FillRect, GetSysColorBrush,
+    HDC, RECT, POINT, MINMAXINFO,
+    GetClientRect, FillRect, GetSysColorBrush,
 }
 use core {
     dispatchClose, dispatchSize,
     dispatchKeyDown, dispatchKeyUp,
     dispatchMouseMove, dispatchMouseDown, dispatchMouseUp,
     dispatchFocus, dispatchBlur, dispatchMove,
+    contentToFrameSize,
     WINDOWS,
 }
 
@@ -272,6 +274,25 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                     if !slot.isMovable { return 0 }
                 }
             }
+        }
+        WindowMessage.getMinMaxInfo {
+            // `lParam` is a `MINMAXINFO*` Win32 expects us to write
+            // tracking bounds into. The user's `setMinimumSize` /
+            // `setMaximumSize` are CONTENT sizes; translate via
+            // `contentToFrameSize` before stamping the struct so the
+            // OS clamps the drag against the right number.
+            if let some(slot) = WINDOWS.get(hwnd) {
+                let mmi = lParam as *MINMAXINFO
+                if slot.minW > 0.0 || slot.minH > 0.0 {
+                    let f = contentToFrameSize(hwnd as HWND, slot.minW, slot.minH)
+                    (*mmi).ptMinTrackSize = POINT { x: f.fw as i32, y: f.fh as i32 }
+                }
+                if slot.hasMaxSize {
+                    let f = contentToFrameSize(hwnd as HWND, slot.maxW, slot.maxH)
+                    (*mmi).ptMaxTrackSize = POINT { x: f.fw as i32, y: f.fh as i32 }
+                }
+            }
+            return 0
         }
         WindowMessage.activate {
             // wParam low-word: ActivateCode (`inactive` / `active`

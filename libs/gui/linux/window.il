@@ -537,6 +537,77 @@ pub fn moveTopNativeWindow(handle: i64) {
     }
 }
 
+// ─── geometry / position / bounds ──────────────────────────────
+//
+// GTK4 dropped per-window positioning (no `gtk_window_move`, no
+// `gtk_window_get_position`) and never had a built-in maximum
+// resize bound. We track everything on the slot for API parity
+// and apply what GTK4 *can* honour:
+//   * setContentSize / setBounds → `gtk_window_set_default_size`
+//   * setMinimumSize             → `gtk_widget_set_size_request`
+// Position and maximum size are recorded but visually no-op.
+
+/// GTK4 has no `gtk_window_set_position(CENTER_ALWAYS)` and no
+/// `gtk_window_move` — the WM owns placement. We do nothing
+/// visible but keep the entry point for cross-platform parity.
+pub fn centerNativeWindow(handle: i64) {}
+
+pub fn setNativeWindowPosition(handle: i64, x: f64, y: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.posX = x
+        slot.posY = y
+    }
+}
+pub fn getNativeWindowX(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) { slot.posX } else { 0.0 }
+}
+pub fn getNativeWindowY(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) { slot.posY } else { 0.0 }
+}
+
+pub fn setNativeWindowBounds(handle: i64, x: f64, y: f64, w: f64, h: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.posX = x
+        slot.posY = y
+        gtk_window_set_default_size(slot.win, w as i32, h as i32)
+    }
+}
+
+pub fn setNativeWindowMinSize(handle: i64, w: f64, h: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.minW = w
+        slot.minH = h
+        gtk_widget_set_size_request(slot.win as GtkWidget, w as i32, h as i32)
+    }
+}
+pub fn getNativeWindowMinWidth(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) { slot.minW } else { 0.0 }
+}
+pub fn getNativeWindowMinHeight(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) { slot.minH } else { 0.0 }
+}
+pub fn setNativeWindowMaxSize(handle: i64, w: f64, h: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.maxW = w
+        slot.maxH = h
+        slot.hasMaxSize = true
+    }
+}
+pub fn getNativeWindowMaxWidth(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        if slot.hasMaxSize { slot.maxW } else { 0.0 }
+    } else {
+        0.0
+    }
+}
+pub fn getNativeWindowMaxHeight(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        if slot.hasMaxSize { slot.maxH } else { 0.0 }
+    } else {
+        0.0
+    }
+}
+
 pub fn setNativeWindowOpacity(handle: i64, v: f64) {
     if let some(slot) = WINDOWS.get(handle) {
         gtk_widget_set_opacity(slot.win as GtkWidget, v)

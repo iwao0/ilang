@@ -8,7 +8,10 @@
 /// `createNativeWindow` and depends on the wnd-proc + every
 /// widget's `tryXxx` helper).
 
-use windows { HWND, WINDOWPLACEMENT, POINT, RECT }
+use windows {
+    HWND, WINDOWPLACEMENT, POINT, RECT,
+    WindowLongIndex, GetWindowLongPtrW, GetMenu, AdjustWindowRectEx,
+}
 
 /// `lastSizeWParam` is the wParam value (SIZE_* code) of the most
 /// recent `WM_SIZE` we delivered, used by `dispatchSize` to
@@ -50,6 +53,15 @@ pub class WindowSlot {
     pub isMovable:         bool
     pub isAlwaysOnTop:     bool
     pub opacity:           f64
+    /// User-supplied content-size constraints. `minW/H` of `0`
+    /// = "no minimum"; `hasMaxSize == false` = "no maximum".
+    /// `WM_GETMINMAXINFO` reads these and translates content
+    /// size → frame size before writing the MINMAXINFO struct.
+    pub minW:          f64
+    pub minH:          f64
+    pub maxW:          f64
+    pub maxH:          f64
+    pub hasMaxSize:    bool
     pub preFullScreenStyle:     i64
     pub preFullScreenPlacement: WINDOWPLACEMENT
 
@@ -77,6 +89,11 @@ pub class WindowSlot {
         this.isMovable         = true
         this.isAlwaysOnTop     = false
         this.opacity           = 1.0
+        this.minW              = 0.0
+        this.minH              = 0.0
+        this.maxW              = 0.0
+        this.maxH              = 0.0
+        this.hasMaxSize        = false
         this.preFullScreenStyle     = 0 as i64
         this.preFullScreenPlacement = WINDOWPLACEMENT {
             length:           44 as u32,
@@ -110,6 +127,31 @@ pub fn windowHwnd(handle: i64): HWND {
 
 /// Number of currently-registered top-level windows.
 pub fn windowCount(): i64 { WINDOWS.size() }
+
+/// Return type for `contentToFrameSize` — the Win32 paths convert
+/// the public content-size pair into the frame-size pair needed
+/// for `SetWindowPos` / `MINMAXINFO`.
+pub class FrameSize {
+    pub fw: f64
+    pub fh: f64
+    pub init(fw: f64, fh: f64) { this.fw = fw; this.fh = fh }
+}
+
+/// Compute the frame size (content + chrome) for a given content
+/// size by asking Win32 via `AdjustWindowRectEx`. Reads style /
+/// extended style / menu state straight off the HWND so callers
+/// never have to mirror them.
+pub fn contentToFrameSize(hwnd: HWND, contentW: f64, contentH: f64): FrameSize {
+    let rect = RECT { left: 0, top: 0, right: contentW as i32, bottom: contentH as i32 }
+    let style   = GetWindowLongPtrW(hwnd, WindowLongIndex.style   as i32) as u32
+    let exStyle = GetWindowLongPtrW(hwnd, WindowLongIndex.exstyle as i32) as u32
+    let hasMenu: i32 = if (GetMenu(hwnd) as i64) != 0 as i64 { 1 } else { 0 }
+    AdjustWindowRectEx(&rect, style, hasMenu, exStyle)
+    new FrameSize(
+        (rect.right - rect.left) as f64,
+        (rect.bottom - rect.top) as f64
+    )
+}
 
 // ─── setters (`gui-core` calls these via gui_impl re-exports) ─
 

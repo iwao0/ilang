@@ -6,9 +6,10 @@
 /// start firing.
 
 use cocoa {
-    NSObject, NSApplication, NSWindow, NSView,
+    NSObject, NSApplication, NSWindow, NSView, NSScreen,
     NSWindowStyleMask, NSApplicationActivationPolicy,
-    nsstr, makeSize, nil,
+    NSPoint, NSRect, NSSize,
+    nsstr, makePoint, makeRect, makeSize, nil,
     sharedApplication, makeWindow,
 }
 /// `NSFloatingWindowLevel` raw value (NSWindow.Level.floating).
@@ -269,5 +270,120 @@ pub fn getNativeWindowOpacity(handle: i64): f64 {
         slot.win.alphaValue
     } else {
         1.0
+    }
+}
+
+// ─── geometry / position / bounds ──────────────────────────────
+//
+// The public Window API works in W3C-style top-left screen
+// coordinates with content-sized rectangles. AppKit uses
+// bottom-left screen coordinates and frame-sized rectangles (the
+// frame includes the title bar / shadow). Both transformations
+// happen here so the rest of the codebase doesn't have to think
+// about it.
+
+fn screenHeight(): f64 {
+    NSScreen.mainScreen().frame.size.height
+}
+
+/// Top-left → AppKit's bottom-left `frame.origin.y` for a frame
+/// of height `frameH`. Inverse on getter.
+fn frameOriginYFromTopLeftY(topY: f64, frameH: f64): f64 {
+    screenHeight() - (topY + frameH)
+}
+
+pub fn centerNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.center()
+    }
+}
+
+pub fn setNativeWindowPosition(handle: i64, x: f64, y: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let frameH = slot.win.frame.size.height
+        slot.win.setFrameOrigin(makePoint(x, frameOriginYFromTopLeftY(y, frameH)))
+    }
+}
+pub fn getNativeWindowX(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.frame.origin.x
+    } else {
+        0.0
+    }
+}
+pub fn getNativeWindowY(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        let f = slot.win.frame
+        screenHeight() - (f.origin.y + f.size.height)
+    } else {
+        0.0
+    }
+}
+
+/// `(x, y)` is the frame top-left in W3C screen coordinates;
+/// `(w, h)` is the CONTENT size. Translate content size → frame
+/// size, invert y, write the whole frame in one call.
+pub fn setNativeWindowBounds(handle: i64, x: f64, y: f64, w: f64, h: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let frameRect = slot.win.frameRectForContentRect(makeRect(0.0, 0.0, w, h))
+        let frameW = frameRect.size.width
+        let frameH = frameRect.size.height
+        slot.win.setFrame(
+            makeRect(x, frameOriginYFromTopLeftY(y, frameH), frameW, frameH),
+            true
+        )
+    }
+}
+
+/// AppKit's `setMinSize:` / `setMaxSize:` measure the FRAME
+/// (title bar + content). The public API takes content sizes, so
+/// we translate via `frameRectForContentRect:` on the way in and
+/// `contentRectForFrameRect:` on the way out.
+pub fn setNativeWindowMinSize(handle: i64, w: f64, h: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let frameRect = slot.win.frameRectForContentRect(makeRect(0.0, 0.0, w, h))
+        slot.win.setMinSize(frameRect.size)
+    }
+}
+pub fn getNativeWindowMinWidth(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        let s = slot.win.minSize
+        slot.win.contentRectForFrameRect(makeRect(0.0, 0.0, s.width, s.height))
+            .size.width
+    } else {
+        0.0
+    }
+}
+pub fn getNativeWindowMinHeight(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        let s = slot.win.minSize
+        slot.win.contentRectForFrameRect(makeRect(0.0, 0.0, s.width, s.height))
+            .size.height
+    } else {
+        0.0
+    }
+}
+pub fn setNativeWindowMaxSize(handle: i64, w: f64, h: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let frameRect = slot.win.frameRectForContentRect(makeRect(0.0, 0.0, w, h))
+        slot.win.setMaxSize(frameRect.size)
+    }
+}
+pub fn getNativeWindowMaxWidth(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        let s = slot.win.maxSize
+        slot.win.contentRectForFrameRect(makeRect(0.0, 0.0, s.width, s.height))
+            .size.width
+    } else {
+        0.0
+    }
+}
+pub fn getNativeWindowMaxHeight(handle: i64): f64 {
+    if let some(slot) = WINDOWS.get(handle) {
+        let s = slot.win.maxSize
+        slot.win.contentRectForFrameRect(makeRect(0.0, 0.0, s.width, s.height))
+            .size.height
+    } else {
+        0.0
     }
 }

@@ -1,7 +1,7 @@
-/// Layout primitives used by `Control` / `Window` to track docking
-/// and edge margins. Phase A: `Dock` enum + `Margin` value class
-/// only; future container widgets (VBox / HBox / Grid) will reuse
-/// the same `Margin` type.
+/// Layout primitives used by `Control` / `Window`. Holds the
+/// `Dock` enum, the `Margin` value class, and the geometry value
+/// classes (`Point` / `Size` / `Rect`) `Window`'s position /
+/// bounds / min-max-size accessors return.
 ///
 ///   use gui
 ///   let btn = new gui.Button()
@@ -58,5 +58,43 @@ pub class Margin {
         this.right  = right
         this.bottom = bottom
         this.left   = left
+    }
+}
+
+/// 2D point in logical pixels — the unit `Window`'s
+/// `getPosition()` and the move-event handlers use.
+pub class Point {
+    pub x: f64
+    pub y: f64
+    pub init(x: f64, y: f64) {
+        this.x = x
+        this.y = y
+    }
+}
+
+/// 2D size in logical pixels. Returned from `getMinimumSize` /
+/// `getMaximumSize`; carried by the geometry events.
+pub class Size {
+    pub width:  f64
+    pub height: f64
+    pub init(width: f64, height: f64) {
+        this.width  = width
+        this.height = height
+    }
+}
+
+/// Axis-aligned rectangle in logical pixels. `getBounds()`
+/// returns one; `setBounds` takes the four components inline so
+/// callers don't have to allocate a `Rect` to set them.
+pub class Rect {
+    pub x:      f64
+    pub y:      f64
+    pub width:  f64
+    pub height: f64
+    pub init(x: f64, y: f64, width: f64, height: f64) {
+        this.x      = x
+        this.y      = y
+        this.width  = width
+        this.height = height
     }
 }
