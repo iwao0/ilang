@@ -208,6 +208,26 @@ impl LanguageServer for Backend {
         crate::project::clear_umbrella_cache();
         crate::analyse::clear_closed_doc_cache(&self.closed_doc_cache);
         crate::analyse::clear_closed_parse_cache(&self.closed_parse_cache);
+        // Re-diagnose every open .il document. A change to a CLOSED
+        // dependency (e.g. A.il edited by external tooling) silently
+        // invalidates diagnostics in every open consumer that does
+        // `use A`. The `did_change` fan-out only fires when an OPEN
+        // file is edited, so without this pass the consumer keeps
+        // stale red squiggles until the user touches it (or restarts
+        // the server). Cost is one full type-check per open file per
+        // watcher event — acceptable: the alternative is silently
+        // wrong diagnostics.
+        let client = self.client.clone();
+        let docs = self.docs.clone();
+        tokio::spawn(async move {
+            let open: Vec<(Url, String)> = {
+                let lock = docs.lock().unwrap();
+                lock.iter().map(|(u, d)| (u.clone(), d.text.clone())).collect()
+            };
+            for (uri, text) in open {
+                refresh_impl(&client, &docs, uri, text).await;
+            }
+        });
     }
 
     async fn did_open(&self, p: DidOpenTextDocumentParams) {
