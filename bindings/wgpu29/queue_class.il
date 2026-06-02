@@ -67,35 +67,15 @@ pub class Queue {
         wgpuQueueSubmit(this.handle as WGPUQueue, 1 as u64, cmds)
     }
 
-    /// Upload bytes (u8) to `buf` at `bufferOffset`. Thin wrapper
-    /// around `wgpuQueueWriteBuffer`; the typed-element variants
-    /// below compute the byte size for you.
-    pub writeBufferBytes(buf: Buffer, bufferOffset: u64, data: u8[]) {
+    /// Upload a typed array to `buf` at `bufferOffset`. `elemSize` is
+    /// the per-element byte width (1 for `u8`, 4 for `i32`/`u32`/`f32`,
+    /// etc.) — generic methods can't yet introspect `sizeof<T>`, so the
+    /// caller passes it explicitly. Once we add a `sizeof<T>` intrinsic
+    /// the parameter can go away.
+    pub writeBuffer<T>(buf: Buffer, bufferOffset: u64, data: T[], elemSize: i64) {
         wgpuQueueWriteBuffer(
             this.handle as WGPUQueue, buf.handle as WGPUBuffer,
-            bufferOffset, data, data.length as u64
-        )
-    }
-    /// Upload an `i32[]` (4 bytes/elt).
-    pub writeBufferI32(buf: Buffer, bufferOffset: u64, data: i32[]) {
-        wgpuQueueWriteBuffer(
-            this.handle as WGPUQueue, buf.handle as WGPUBuffer,
-            bufferOffset, data, (data.length * 4) as u64
-        )
-    }
-    /// Upload a `u32[]` (4 bytes/elt). Typical for index buffers.
-    pub writeBufferU32(buf: Buffer, bufferOffset: u64, data: u32[]) {
-        wgpuQueueWriteBuffer(
-            this.handle as WGPUQueue, buf.handle as WGPUBuffer,
-            bufferOffset, data, (data.length * 4) as u64
-        )
-    }
-    /// Upload an `f32[]` (4 bytes/elt). Typical for vertex / uniform
-    /// data.
-    pub writeBufferF32(buf: Buffer, bufferOffset: u64, data: f32[]) {
-        wgpuQueueWriteBuffer(
-            this.handle as WGPUQueue, buf.handle as WGPUBuffer,
-            bufferOffset, data, (data.length * 4) as u64
+            bufferOffset, data, (data.length * elemSize) as u64
         )
     }
 
