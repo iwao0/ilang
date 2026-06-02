@@ -28,7 +28,7 @@ use core {
     dispatchClose, dispatchSize,
     dispatchKeyDown, dispatchKeyUp,
     dispatchMouseMove, dispatchMouseDown, dispatchMouseUp,
-    dispatchFocus, dispatchBlur,
+    dispatchFocus, dispatchBlur, dispatchMove,
     WINDOWS,
 }
 
@@ -175,6 +175,13 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         }
         WindowMessage.size {
             dispatchSize(hwnd, wParam as i32, lo, hi)
+            return 0
+        }
+        WindowMessage.move {
+            // `lParam` packs the new client-area top-left in
+            // screen coordinates (lo = x, hi = y) — same shape
+            // `lo` / `hi` already split.
+            dispatchMove(hwnd, lo, hi)
             return 0
         }
         WindowMessage.keydown {

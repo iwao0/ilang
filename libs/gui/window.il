@@ -28,6 +28,7 @@ use events {
     MaximizeEvent, UnmaximizeEvent,
     EnterFullScreenEvent, LeaveFullScreenEvent,
     FocusEvent, BlurEvent,
+    ShowEvent, HideEvent, MoveEvent,
 }
 use layout { Dock, Margin }
 use gui_impl {
@@ -55,6 +56,7 @@ use gui_impl {
     setOnWindowMaximize, setOnWindowUnmaximize,
     setOnWindowEnterFullScreen, setOnWindowLeaveFullScreen,
     setOnWindowFocus, setOnWindowBlur,
+    setOnWindowMove,
     setWindowMenuBar,
 }
 use menubar { Menu }
@@ -232,6 +234,9 @@ pub class Window : Container {
     pub onLeaveFullScreen:  Signal<LeaveFullScreenEvent>
     pub onFocus:            Signal<FocusEvent>
     pub onBlur:             Signal<BlurEvent>
+    pub onShow:             Signal<ShowEvent>
+    pub onHide:             Signal<HideEvent>
+    pub onMove:             Signal<MoveEvent>
 
     pub init() {
         super()
@@ -258,6 +263,9 @@ pub class Window : Container {
         this.onLeaveFullScreen  = new Signal<LeaveFullScreenEvent>()
         this.onFocus            = new Signal<FocusEvent>()
         this.onBlur             = new Signal<BlurEvent>()
+        this.onShow             = new Signal<ShowEvent>()
+        this.onHide             = new Signal<HideEvent>()
+        this.onMove             = new Signal<MoveEvent>()
         // Forward native callbacks to each Signal. The closures
         // capture `this` so the same Window flows through as
         // `event.sender`.
@@ -317,6 +325,9 @@ pub class Window : Container {
         setOnWindowBlur(this.handle, fn() {
             this.onBlur.emit(new BlurEvent(this))
         })
+        setOnWindowMove(this.handle, fn(x: f64, y: f64) {
+            this.onMove.emit(new MoveEvent(this, x, y))
+        })
     }
 
     pub get title(): string { this._title }
@@ -338,13 +349,24 @@ pub class Window : Container {
 
     /// Display the window. First call brings the hidden native
     /// window on screen and activates the app; subsequent calls
-    /// re-show after a `hide()`.
-    pub show() { showNativeWindow(this.handle) }
+    /// re-show after a `hide()`. `onShow` fires synchronously
+    /// after the native call returns — there's no OS hook for
+    /// "the window became visible", so external means (e.g. the
+    /// user clicking the Dock icon) won't trigger it.
+    pub show() {
+        showNativeWindow(this.handle)
+        this.onShow.emit(new ShowEvent(this))
+    }
 
     /// Hide the window without destroying it. The HWND / NSWindow
     /// stays alive so a later `show()` brings the same instance
-    /// (with its current children + state) back.
-    pub hide() { hideNativeWindow(this.handle) }
+    /// (with its current children + state) back. `onHide` fires
+    /// synchronously, matching the `onShow` symmetry described
+    /// above.
+    pub hide() {
+        hideNativeWindow(this.handle)
+        this.onHide.emit(new HideEvent(this))
+    }
 
     /// Collapse the window to the OS task-bar / Dock without
     /// destroying it. Fires `onMinimize` once the platform has

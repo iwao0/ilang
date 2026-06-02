@@ -43,6 +43,7 @@ pub class WindowSlot {
     pub onLeaveFullScreen: fn()
     pub onFocus:           fn()
     pub onBlur:            fn()
+    pub onMove:            fn(f64, f64)
     pub lastSizeWParam:    i32
     pub isFullScreen:      bool
     pub isClosable:        bool
@@ -68,6 +69,7 @@ pub class WindowSlot {
         this.onLeaveFullScreen = noOp1
         this.onFocus           = noOp1
         this.onBlur            = noOp1
+        this.onMove            = noOp2
         this.lastSizeWParam    = SIZE_RESTORED
         this.isFullScreen      = false
         this.isClosable        = true
@@ -154,6 +156,9 @@ pub fn setOnWindowFocus(handle: i64, cb: fn()) {
 pub fn setOnWindowBlur(handle: i64, cb: fn()) {
     if let some(slot) = WINDOWS.get(handle) { slot.onBlur = cb }
 }
+pub fn setOnWindowMove(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMove = cb }
+}
 
 // ─── dispatch entry points — called by `wnd_proc.guiWndProc` ─
 
@@ -231,4 +236,7 @@ pub fn dispatchFocus(handle: i64) {
 }
 pub fn dispatchBlur(handle: i64) {
     if let some(slot) = WINDOWS.get(handle) { slot.onBlur() }
+}
+pub fn dispatchMove(handle: i64, x: f64, y: f64) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMove(x, y) }
 }

@@ -6,7 +6,8 @@
 /// the widget was created against.
 
 use cocoa {
-    NSObject, NSApplication, NSWindow, NSView, NSNotification, NSEvent,
+    NSObject, NSApplication, NSWindow, NSView, NSScreen,
+    NSNotification, NSEvent,
     NSEventModifierFlags, KeyCode, nil,
 }
 use super.events
@@ -43,6 +44,7 @@ pub class WindowSlot {
     pub onLeaveFullScreen: fn()
     pub onFocus:           fn()
     pub onBlur:            fn()
+    pub onMove:            fn(f64, f64)
     pub wasZoomed:         bool
 
     pub init(win: NSWindow, delegate: NSObject, view: NSObject, viewHandle: i64) {
@@ -65,6 +67,7 @@ pub class WindowSlot {
         this.onLeaveFullScreen = noOp1
         this.onFocus           = noOp1
         this.onBlur            = noOp1
+        this.onMove            = noOp2
         this.wasZoomed         = false
     }
 }
@@ -242,6 +245,20 @@ pub class GuiDelegate : NSObject {
             cb()
         }
     }
+
+    /// `windowDidMove:` fires after every screen-position change.
+    /// AppKit's NSWindow.frame.origin is bottom-left in screen
+    /// coordinates, so we invert against the primary screen's
+    /// height to hand callers a W3C-style top-left position.
+    pub windowDidMove(n: NSNotification) {
+        if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
+            let wf = slot.win.frame
+            let sf = NSScreen.mainScreen().frame
+            let topLeftY = sf.size.height - (wf.origin.y + wf.size.height)
+            let cb = slot.onMove
+            cb(wf.origin.x, topLeftY)
+        }
+    }
 }
 
 /// `applicationShouldTerminateAfterLastWindowClosed:` returns true
@@ -384,4 +401,7 @@ pub fn setOnWindowFocus(handle: i64, cb: fn()) {
 }
 pub fn setOnWindowBlur(handle: i64, cb: fn()) {
     if let some(slot) = WINDOWS.get(handle) { slot.onBlur = cb }
+}
+pub fn setOnWindowMove(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMove = cb }
 }

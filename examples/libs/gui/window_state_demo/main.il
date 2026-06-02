@@ -164,6 +164,22 @@ fn run(): i64 {
     w.onBlur.add(fn(e: gui.BlurEvent) {
         status.text = "onBlur fired"
     })
+    // `onShow` fires synchronously from inside `w.show()` below —
+    // so this listener writes the initial status text. `onHide`
+    // has no trigger in this demo (the only way to hide would
+    // wedge the user out of the window) but the listener is
+    // wired up for completeness.
+    w.onShow.add(fn(e: gui.ShowEvent) {
+        status.text = "onShow fired"
+    })
+    w.onHide.add(fn(e: gui.HideEvent) {
+        status.text = "onHide fired"
+    })
+    // Drag the title bar to fire `onMove`. The payload is the
+    // new top-left of the window in screen coordinates.
+    w.onMove.add(fn(e: gui.MoveEvent) {
+        status.text = "onMove fired (x=" + (e.x as i64).toString() + ", y=" + (e.y as i64).toString() + ")"
+    })
 
     w.show()
     gui.run()

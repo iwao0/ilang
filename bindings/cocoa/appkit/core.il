@@ -262,6 +262,13 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub get level(): i64
         @objc("setLevel:")
         pub setLevel(level: i64)
+        /// `frame` is the window's content + chrome rect in
+        /// screen coordinates. AppKit's screen Y axis grows up
+        /// from the bottom of the primary screen, NOT from the
+        /// top — callers that want a W3C-style top-left position
+        /// have to invert against the screen's `frame.height`.
+        @objc("frame")
+        pub get frame(): NSRect
     }
 
     /// `NSScreen` — physical display. `mainScreen` is the one

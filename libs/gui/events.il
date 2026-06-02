@@ -72,6 +72,32 @@ pub class BlurEvent : Event {
     pub init(sender: EventTarget) { super(sender) }
 }
 
+/// Fired when `Window.show()` / `Window.hide()` flips the
+/// window's visibility (programmatic only — there is no OS hook
+/// for "user revealed the window", so external means like the
+/// Dock icon don't fire these). 0-payload.
+pub class ShowEvent : Event {
+    pub init(sender: EventTarget) { super(sender) }
+}
+pub class HideEvent : Event {
+    pub init(sender: EventTarget) { super(sender) }
+}
+
+/// Fired when the window is moved on screen. `x` / `y` are the
+/// new top-left position in screen coordinates (top-left origin
+/// on Win32 and on macOS after AppKit-to-W3C y-inversion). GTK4
+/// has no portable position API and never fires this event on
+/// Linux.
+pub class MoveEvent : Event {
+    pub x: f64
+    pub y: f64
+    pub init(sender: EventTarget, x: f64, y: f64) {
+        super(sender)
+        this.x = x
+        this.y = y
+    }
+}
+
 /// Fired when the window's drawable content area changes size.
 /// `width` / `height` are the new client-area dimensions in
 /// device-independent points.

@@ -32,6 +32,7 @@ pub class WindowSlot {
     pub onLeaveFullScreen: fn()
     pub onFocus:           fn()
     pub onBlur:            fn()
+    pub onMove:            fn(f64, f64)
     /// Previous `maximized` / `fullscreened` / `minimized` bits,
     /// used by the `notify::` callbacks in window.il to detect
     /// edge transitions (GTK fires `notify` for both rising and
@@ -61,6 +62,7 @@ pub class WindowSlot {
         this.onLeaveFullScreen = noOpClose
         this.onFocus           = noOpClose
         this.onBlur            = noOpClose
+        this.onMove            = noOpResize
         this.wasMaximized      = false
         this.wasFullScreen     = false
         this.wasMinimized      = false
@@ -142,4 +144,11 @@ pub fn setOnWindowFocus(handle: i64, cb: fn()) {
 }
 pub fn setOnWindowBlur(handle: i64, cb: fn()) {
     if let some(slot) = WINDOWS.get(handle) { slot.onBlur = cb }
+}
+/// GTK4 has no portable per-window position API, so the
+/// callback is stored on the slot for API parity but never
+/// fires on Linux. The `onMove` Signal on `Window` is silent
+/// here by design.
+pub fn setOnWindowMove(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMove = cb }
 }
