@@ -1016,6 +1016,43 @@ pub enum SubSystem: u32 {
         }
     }
 
+    // ─── Metal helpers (friendly free fns) ───────────────────────
+    //
+    // The `SDL_Metal_*` raw fns return / take `*void` (the opaque
+    // `SDL_MetalView` cookie + the `CAMetalLayer*` it wraps). User
+    // code passes the cookie / layer around as `i64`; these
+    // wrappers perform the pointer cast so the call sites can live
+    // outside `@extern(C)`. macOS only — other platforms get
+    // `0` / a no-op.
+
+    /// Create a `SDL_MetalView` for `window`. The window must have
+    /// been created with `WindowFlag.metal`. Returns the opaque
+    /// view cookie cast to `i64` (`0` on failure / non-macOS).
+    /// Pair with `metalGetLayer(view)` to fetch the backing
+    /// `CAMetalLayer*` for wgpu surface creation, and
+    /// `metalDestroyView(view)` to release it.
+    pub fn metalCreateView(window: Window): i64 {
+        if window.handle == 0 { return 0 }
+        SDL_Metal_CreateView(window.handle as *SDL_Window) as i64
+    }
+
+    /// Fetch the `CAMetalLayer*` backing a `SDL_MetalView`. Pass
+    /// the `i64` returned by `metalCreateView`. Returns `0` on
+    /// failure / non-macOS.
+    pub fn metalGetLayer(view: i64): i64 {
+        if view == 0 { return 0 }
+        SDL_Metal_GetLayer(view as *void) as i64
+    }
+
+    /// Destroy a `SDL_MetalView` previously returned by
+    /// `metalCreateView`. Safe to call with `0`. Friendly wrapper
+    /// over `SDL_Metal_DestroyView`.
+    pub fn metalDestroyView(view: i64) {
+        if view != 0 {
+            SDL_Metal_DestroyView(view as *void)
+        }
+    }
+
     /// Reference to a single display (monitor) by its `0`-based
     /// index. Construct via `new Display(idx)` after checking
     /// `Display.count()`. Methods here wrap the per-display SDL

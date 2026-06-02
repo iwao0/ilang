@@ -2,12 +2,16 @@
 /// `SurfaceCaps` wrappers pulled out of `surface.il`.
 
 use core {
-    WGPUStringView, WGPUDevice, WGPUAdapter,
+    WGPUStringView, WGPUChainedStruct, WGPUInstance, WGPUDevice, WGPUAdapter,
+    SType,
 }
 use surface {
-    WGPUSurface,
+    WGPUSurface, WGPUSurfaceDescriptor,
+    WGPUSurfaceSourceMetalLayer, WGPUSurfaceSourceWindowsHWND,
+    WGPUSurfaceSourceXlibWindow, WGPUSurfaceSourceWaylandSurface,
     WGPUSurfaceConfiguration, WGPUSurfaceTexture, WGPUSurfaceCapabilities,
     CompositeAlphaMode, PresentMode, SurfaceGetCurrentTextureStatus,
+    wgpuInstanceCreateSurface,
     wgpuSurfaceUnconfigure, wgpuSurfacePresent,
     wgpuSurfaceConfigure, wgpuSurfaceGetCurrentTexture,
     wgpuSurfaceGetCapabilities, wgpuSurfaceCapabilitiesFreeMembers,
@@ -16,9 +20,87 @@ use texture { WGPUTexture, TextureUsage }
 use texture_class { Texture }
 use device_class { Device }
 use adapter_class { Adapter }
+use instance_class { Instance }
 use std.ffi { readU32 }
 
 @extern(C, "wgpu_native") {
+/// Build a `Surface` from a macOS `CAMetalLayer*` (typically
+/// fetched via `SDL_Metal_GetLayer(view)`). Chains
+/// `WGPUSurfaceSourceMetalLayer` off the descriptor's
+/// `nextInChain` and calls `wgpuInstanceCreateSurface`.
+pub fn createMetalSurface(inst: Instance, layer: i64): Surface {
+    let src = WGPUSurfaceSourceMetalLayer {
+        chain: WGPUChainedStruct {
+            next:  0 as *void,
+            sType: SType.surfaceSourceMetalLayer,
+        },
+        layer: layer as *void,
+    }
+    let desc = WGPUSurfaceDescriptor {
+        nextInChain: (&src) as *void,
+        label:       WGPUStringView { data: 0 as *void, length: 0 as u64 },
+    }
+    new Surface(wgpuInstanceCreateSurface(inst.handle as WGPUInstance, &desc))
+}
+
+/// Build a `Surface` from a Win32 `HINSTANCE` + `HWND` pair
+/// (read from `SysWMinfo.handle3` / `handle1` after
+/// `Window.wmInfo()`).
+pub fn createHwndSurface(inst: Instance, hinstance: i64, hwnd: i64): Surface {
+    let src = WGPUSurfaceSourceWindowsHWND {
+        chain: WGPUChainedStruct {
+            next:  0 as *void,
+            sType: SType.surfaceSourceWindowsHWND,
+        },
+        hinstance: hinstance as *void,
+        hwnd:      hwnd as *void,
+    }
+    let desc = WGPUSurfaceDescriptor {
+        nextInChain: (&src) as *void,
+        label:       WGPUStringView { data: 0 as *void, length: 0 as u64 },
+    }
+    new Surface(wgpuInstanceCreateSurface(inst.handle as WGPUInstance, &desc))
+}
+
+/// Build a `Surface` from an X11 `Display*` and `Window` XID
+/// (read from `SysWMinfo.handle1` / `handle2` after
+/// `Window.wmInfo()` when `subsystem == SubSystem.x11`).
+pub fn createXlibSurface(inst: Instance, display: i64, window: u64): Surface {
+    let src = WGPUSurfaceSourceXlibWindow {
+        chain: WGPUChainedStruct {
+            next:  0 as *void,
+            sType: SType.surfaceSourceXlibWindow,
+        },
+        display: display as *void,
+        window:  window,
+    }
+    let desc = WGPUSurfaceDescriptor {
+        nextInChain: (&src) as *void,
+        label:       WGPUStringView { data: 0 as *void, length: 0 as u64 },
+    }
+    new Surface(wgpuInstanceCreateSurface(inst.handle as WGPUInstance, &desc))
+}
+
+/// Build a `Surface` from a Wayland `wl_display*` /
+/// `wl_surface*` pair (read from `SysWMinfo.handle1` /
+/// `handle2` after `Window.wmInfo()` when
+/// `subsystem == SubSystem.wayland`).
+pub fn createWaylandSurface(inst: Instance, display: i64, surface: i64): Surface {
+    let src = WGPUSurfaceSourceWaylandSurface {
+        chain: WGPUChainedStruct {
+            next:  0 as *void,
+            sType: SType.surfaceSourceWaylandSurface,
+        },
+        display: display as *void,
+        surface: surface as *void,
+    }
+    let desc = WGPUSurfaceDescriptor {
+        nextInChain: (&src) as *void,
+        label:       WGPUStringView { data: 0 as *void, length: 0 as u64 },
+    }
+    new Surface(wgpuInstanceCreateSurface(inst.handle as WGPUInstance, &desc))
+}
+
 /// Wraps `WGPUSurface`. Owned by the gui-side surface host
 /// (`GpuView`); not released by this wrapper. User code
 /// rarely touches it directly — the surface lifecycle
