@@ -13,27 +13,34 @@
 use window { Window, Control }
 use gui_impl {
     createNativeLabel,
-    setLabelText, setLabelFrame, setLabelVisible,
+    setLabelText, setLabelFrame, setLabelVisible, setLabelSelectable,
 }
 
 pub class Label : Control {
     handle: i64
-    _text:      string
-    _x:         f64
-    _y:         f64
-    _width:     f64
-    _height:    f64
-    _isVisible: bool
+    _text:       string
+    _x:          f64
+    _y:          f64
+    _width:      f64
+    _height:     f64
+    _isVisible:  bool
+    /// macOS NSTextField hangs an I-beam cursor rect off any
+    /// selectable label, which reads as "this is editable text"
+    /// even on a plain caption. Default `false` keeps the arrow
+    /// cursor; flip to `true` only when the label genuinely
+    /// presents user-copyable content.
+    _selectable: bool
 
     pub init() {
         super()
-        this.handle     = -1
-        this._text      = ""
-        this._x         = 0.0
-        this._y         = 0.0
-        this._width     = 80.0
-        this._height    = 20.0
-        this._isVisible = true
+        this.handle      = -1
+        this._text       = ""
+        this._x          = 0.0
+        this._y          = 0.0
+        this._width      = 80.0
+        this._height     = 20.0
+        this._isVisible  = true
+        this._selectable = false
     }
 
     pub get text(): string { this._text }
@@ -77,12 +84,18 @@ pub class Label : Control {
         if this.handle >= 0 { setLabelVisible(this.handle, v) }
     }
 
+    pub get selectable(): bool { this._selectable }
+    pub set selectable(v: bool) {
+        this._selectable = v
+        if this.handle >= 0 { setLabelSelectable(this.handle, v) }
+    }
+
     pub override attachTo(window: Window) {
         if this.handle >= 0 { return }
         this.handle = createNativeLabel(
             window.handle,
             this._text, this._x, this._y, this._width, this._height,
-            this._isVisible
+            this._isVisible, this._selectable
         )
     }
 

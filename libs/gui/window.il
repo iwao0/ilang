@@ -1,7 +1,16 @@
-/// Top-level OS window + `Control` base class.
+/// Top-level OS window + `Control` / `Container` base classes.
+///
+/// `Control` is the leaf-widget base every concrete widget
+/// (`Button` / `Label` / `TextField` / …) inherits from.
+///
+/// `Container : Control` adds child management (`_children`,
+/// `addChild`) and a virtual `relayout()` for layout containers
+/// (`VBox` / `HBox` / `Grid` — see `box.il`). `Window` extends
+/// `Container` so the root window is itself a container and the
+/// same `_children` / dock-loop machinery applies to it.
 ///
 /// `Control` and `Window` share a file because they reference
-/// each other (`Window.addChild(child: Control)` and
+/// each other (`Container.addChild(c: Control)` and
 /// `Control.attachTo(window: Window)`) — splitting them into
 /// separate modules would form an import cycle.
 ///
@@ -32,6 +41,139 @@ use gui_impl {
 }
 use menubar { Menu }
 
+/// Base class for every gui widget that lives inside a `Window`.
+/// Subclasses override `attachTo` to allocate / parent the native
+/// peer; the default is a no-op so a forgotten override
+/// fails-soft (the control simply never appears).
+///
+/// Layout support: `dock` + `margin` are honoured by the parent
+/// `Window`'s relayout pass. Default `dock = Dock.none` keeps the
+/// child at the absolute coordinates its own `x` / `y` setters
+/// wrote — same behaviour as before the layout layer existed.
+/// `flex` is consumed by `VBox` / `HBox` only: `0.0` (default)
+/// makes the child use its preferred `frameWidth` / `frameHeight`;
+/// `> 0` makes the child stretch and absorb a share of the
+/// remaining main-axis space proportional to its `flex`.
+///
+/// `setFrame` is the single batched geometry setter the layout
+/// pass invokes (vs. four per-property assignments that would
+/// each trigger a native `set*Frame` call and flicker). Each
+/// concrete `Control` subclass overrides it to update its cached
+/// `_x` / `_y` / `_width` / `_height` and forward to its native
+/// `set*Frame`. `frameWidth` / `frameHeight` are read-back hooks
+/// so the layout pass can size top / bottom / left / right docks
+/// using the child's own preferred extent.
+pub class Control : EventTarget {
+    pub dock:   Dock
+    pub margin: Margin
+    pub flex:   f64
+    pub init() {
+        super()
+        this.dock   = Dock.none
+        this.margin = new Margin()
+        this.flex   = 0.0
+    }
+    pub attachTo(window: Window) {}
+    /// Default no-op. Concrete subclasses override.
+    pub setFrame(x: f64, y: f64, w: f64, h: f64) {}
+    /// Subclass-supplied current width for layout. Default 0.0.
+    pub frameWidth():  f64 { 0.0 }
+    pub frameHeight(): f64 { 0.0 }
+}
+
+/// Base class for widgets that themselves host child controls.
+/// Owns the `_children` array, propagates `attachTo` to children
+/// once a root `Window` is known, and exposes a virtual `relayout`
+/// every concrete container overrides (Window: dock loop; VBox:
+/// flex vertical; HBox: flex horizontal; future Grid: row/col).
+///
+/// `Container` does not have a native peer of its own — child
+/// controls are realised as direct subviews of the root
+/// `Window`'s contentView and placed in absolute window
+/// coordinates by the container's relayout pass. The container's
+/// allocated `_x` / `_y` / `_w` / `_h` (set by its own parent's
+/// relayout via `setFrame`) is therefore an absolute rectangle
+/// inside the window, and the container translates child-local
+/// offsets through that rectangle when calling `child.setFrame`.
+pub class Container : Control {
+    /// Direct children, in `addChild` order. Each entry is a
+    /// `Control` (subclass) so the layout pass can call its
+    /// virtual `setFrame` to write geometry through one native
+    /// call.
+    pub _children: Control[]
+    /// Root `Window` this container belongs to, populated the
+    /// moment the container itself is attached (Window: at
+    /// construction, sets `_root = some(this)`). Children added
+    /// before attachment are buffered in `_children`; the
+    /// `attachTo` override below realises them in order once
+    /// `_root` becomes known.
+    pub _root: Window?
+    /// Absolute window-coordinate rectangle assigned to this
+    /// container by its parent's relayout pass. Used by VBox /
+    /// HBox / etc. to place children with `child.setFrame(_x +
+    /// child_local_x, _y + child_local_y, ..., ...)`.
+    pub _x: f64
+    pub _y: f64
+    pub _w: f64
+    pub _h: f64
+
+    pub init() {
+        super()
+        this._children = []
+        this._root     = none
+        this._x        = 0.0
+        this._y        = 0.0
+        this._w        = 0.0
+        this._h        = 0.0
+    }
+
+    /// When the container is itself attached to a window, every
+    /// already-buffered child is realised against that window in
+    /// declaration order. Subsequent `addChild` calls realise
+    /// immediately (the `_root` branch in `addChild`).
+    pub override attachTo(window: Window) {
+        this._root = some(window)
+        let n = this._children.length
+        let i = 0
+        while i < n {
+            this._children[i].attachTo(window)
+            i = i + 1
+        }
+    }
+
+    /// Register a child for layout. If the container already
+    /// knows its root window, the child's native peer is realised
+    /// straight away; otherwise the realisation is deferred to
+    /// `attachTo` (above). A single `relayout` pass runs after so
+    /// a child added with a dock or flex setting snaps into the
+    /// right rectangle on its first paint.
+    pub addChild(child: Control) {
+        this._children.push(child)
+        if let some(w) = this._root {
+            child.attachTo(w)
+        }
+        this.relayout()
+    }
+
+    /// Parent's relayout calls this to tell us where (and how
+    /// large) we get to be. Subclasses override `relayout` (not
+    /// `setFrame`) — this default cascades the new rectangle into
+    /// the container's children automatically.
+    pub override setFrame(x: f64, y: f64, w: f64, h: f64) {
+        this._x = x
+        this._y = y
+        this._w = w
+        this._h = h
+        this.relayout()
+    }
+    pub override frameWidth():  f64 { this._w }
+    pub override frameHeight(): f64 { this._h }
+
+    /// Concrete subclasses override. Default no-op so a forgotten
+    /// override fails-soft (children just stay where they were).
+    pub relayout() {}
+}
+
 /// A top-level OS window. Construct with `new Window()`, then
 /// configure (`title` / `width` / `height` / `addChild`) before
 /// calling `show()` to display it.
@@ -41,19 +183,22 @@ use menubar { Menu }
 /// rectangle. The first `show()` brings it on screen; later
 /// `show()` / `hide()` toggle visibility.
 ///
+/// `Window` inherits from `Container`, which inherits from
+/// `Control`. The `Control` slots (`dock`, `margin`, `flex`,
+/// `setFrame`, `frameWidth/Height`) are present but unused at
+/// the root — the window has no parent to dock into. The
+/// `Container` slots (`_children`, `addChild`, `_w / _h`,
+/// `relayout`) ARE used: the dock layout for direct children
+/// lives in `Window.relayout` below, and `_w / _h` track the
+/// window's current content size (kept in sync with the OS by
+/// the `setOnResize` callback installed in `init`).
+///
 /// Each `on*` field is a `Signal<T>` users register on with
 /// `w.onClose.add(fn(e) { ... })`. Listeners fire on the main
 /// thread synchronously from inside `gui.run()`.
-pub class Window : EventTarget {
+pub class Window : Container {
     pub handle: i64
     _title:  string
-    _width:  f64
-    _height: f64
-    /// Direct children, in `addChild` order. Used by the dock /
-    /// margin layout pass on resize. Each entry is a `Control`
-    /// (subclass) so the layout pass can call its virtual
-    /// `setFrame` to write geometry through one native call.
-    _children: Control[]
     pub onClose:     Signal<CloseEvent>
     pub onResize:    Signal<SizeEvent>
     pub onKeyDown:   Signal<KeyEvent>
@@ -65,10 +210,13 @@ pub class Window : EventTarget {
     pub init() {
         super()
         this._title  = ""
-        this._width  = 480.0
-        this._height = 320.0
-        this._children = []
-        this.handle  = createNativeWindow(this._title, this._width, this._height)
+        this._w      = 480.0
+        this._h      = 320.0
+        this.handle  = createNativeWindow(this._title, this._w, this._h)
+        // The root container's `_root` is itself — so any child
+        // added via `addChild` (inherited from Container) gets
+        // `attachTo(this)` called immediately rather than buffered.
+        this._root   = some(this)
         this.onClose     = new Signal<CloseEvent>()
         this.onResize    = new Signal<SizeEvent>()
         this.onKeyDown   = new Signal<KeyEvent>()
@@ -83,8 +231,8 @@ pub class Window : EventTarget {
             this.onClose.emit(new CloseEvent(this))
         })
         setOnResize(this.handle, fn(w: f64, h: f64) {
-            this._width  = w
-            this._height = h
+            this._w = w
+            this._h = h
             // Re-flow docked children before user listeners observe
             // the new size, so any onResize handler that inspects
             // child geometry sees the post-layout values.
@@ -119,15 +267,15 @@ pub class Window : EventTarget {
         setWindowTitle(this.handle, v)
     }
 
-    pub get width(): f64 { this._width }
+    pub get width(): f64 { this._w }
     pub set width(v: f64) {
-        this._width = v
-        setWindowSize(this.handle, this._width, this._height)
+        this._w = v
+        setWindowSize(this.handle, this._w, this._h)
     }
-    pub get height(): f64 { this._height }
+    pub get height(): f64 { this._h }
     pub set height(v: f64) {
-        this._height = v
-        setWindowSize(this.handle, this._width, this._height)
+        this._h = v
+        setWindowSize(this.handle, this._w, this._h)
     }
 
     /// Display the window. First call brings the hidden native
@@ -140,32 +288,17 @@ pub class Window : EventTarget {
     /// (with its current children + state) back.
     pub hide() { hideNativeWindow(this.handle) }
 
-    /// Attach a child control. The native OS control is realized
-    /// on this call; property setters invoked before `addChild`
-    /// apply on realization, those invoked after propagate
-    /// immediately. Dispatches polymorphically through
-    /// `Control.attachTo`.
-    ///
-    /// The child is recorded for later dock / margin layout
-    /// passes. After realisation a single `relayout()` runs so a
-    /// child added with `dock = fill` (or any non-`none` dock)
-    /// snaps into the right rectangle on its first paint.
-    pub addChild(child: Control) {
-        child.attachTo(this)
-        this._children.push(child)
-        this.relayout()
-    }
-
     /// Re-run the dock / margin layout pass over every direct
-    /// child. Called automatically on `addChild` and on native
-    /// window resize; user code can also call it after toggling a
-    /// child's `dock` or `margin` to re-flow without resizing the
-    /// window.
-    pub relayout() {
+    /// child. Called automatically on `addChild` (inherited from
+    /// Container) and on native window resize (the `setOnResize`
+    /// callback installed in `init`); user code can also call it
+    /// after toggling a child's `dock` or `margin` to re-flow
+    /// without resizing the window.
+    pub override relayout() {
         let availX: f64 = 0.0
         let availY: f64 = 0.0
-        let availW: f64 = this._width
-        let availH: f64 = this._height
+        let availW: f64 = this._w
+        let availH: f64 = this._h
         let n = this._children.length
         let i = 0
         while i < n {
@@ -225,38 +358,4 @@ pub class Window : EventTarget {
         }
         setWindowMenuBar(this.handle, handles)
     }
-}
-
-/// Base class for every gui widget that lives inside a `Window`.
-/// Subclasses override `attachTo` to allocate / parent the native
-/// peer; the default is a no-op so a forgotten override
-/// fails-soft (the control simply never appears).
-///
-/// Layout support: `dock` + `margin` are honoured by the parent
-/// `Window`'s relayout pass. Default `dock = Dock.none` keeps the
-/// child at the absolute coordinates its own `x` / `y` setters
-/// wrote — same behaviour as before the layout layer existed.
-///
-/// `setFrame` is the single batched geometry setter the layout
-/// pass invokes (vs. four per-property assignments that would
-/// each trigger a native `set*Frame` call and flicker). Each
-/// concrete `Control` subclass overrides it to update its cached
-/// `_x` / `_y` / `_width` / `_height` and forward to its native
-/// `set*Frame`. `frameWidth` / `frameHeight` are read-back hooks
-/// so the layout pass can size top / bottom / left / right docks
-/// using the child's own preferred extent.
-pub class Control : EventTarget {
-    pub dock:   Dock
-    pub margin: Margin
-    pub init() {
-        super()
-        this.dock   = Dock.none
-        this.margin = new Margin()
-    }
-    pub attachTo(window: Window) {}
-    /// Default no-op. Concrete subclasses override.
-    pub setFrame(x: f64, y: f64, w: f64, h: f64) {}
-    /// Subclass-supplied current width for layout. Default 0.0.
-    pub frameWidth():  f64 { 0.0 }
-    pub frameHeight(): f64 { 0.0 }
 }

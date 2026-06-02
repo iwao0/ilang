@@ -15,13 +15,13 @@ let LABELS = new Map<i64, LabelSlot>()
 pub fn createNativeLabel(
     windowHandle: i64,
     text: string, x: f64, y: f64, width: f64, height: f64,
-    visible: bool
+    visible: bool, selectable: bool
 ): i64 {
     let winSlot = match WINDOWS.get(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
-    let lbl = makeLabel(text, x, y, width, height)
+    let lbl = makeLabel(text, x, y, width, height, selectable)
     lbl.setHidden(!visible)
     winSlot.win.contentView.addSubview(lbl as NSView)
     let handle = (lbl as NSView).handle
@@ -39,4 +39,7 @@ pub fn setLabelFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
 }
 pub fn setLabelVisible(handle: i64, visible: bool) {
     if let some(slot) = LABELS.get(handle) { slot.label.setHidden(!visible) }
+}
+pub fn setLabelSelectable(handle: i64, selectable: bool) {
+    if let some(slot) = LABELS.get(handle) { slot.label.setSelectable(selectable) }
 }

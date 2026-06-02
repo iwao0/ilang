@@ -99,9 +99,9 @@ win.center()
 let stack = makeStackView(NSUserInterfaceLayoutOrientation.vertical, 8.0)
 stack.setFrame(makeRect(20.0, 20.0, 320.0, 200.0))
 
-stack.addArrangedSubview(makeLabel("Name:", 0.0, 0.0, 0.0, 20.0))
+stack.addArrangedSubview(makeLabel("Name:", 0.0, 0.0, 0.0, 20.0, true))
 stack.addArrangedSubview(textField)
-stack.addArrangedSubview(makeLabel("Volume:", 0.0, 0.0, 0.0, 20.0))
+stack.addArrangedSubview(makeLabel("Volume:", 0.0, 0.0, 0.0, 20.0, true))
 stack.addArrangedSubview(slider)
 
 let submit = makeButton("Submit", 0.0, 0.0, 0.0, 28.0)

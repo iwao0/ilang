@@ -21,8 +21,10 @@ let LABELS = new Map<i64, LabelSlot>()
 pub fn createNativeLabel(
     windowHandle: i64,
     text: string, x: f64, y: f64, width: f64, height: f64,
-    visible: bool
+    visible: bool, selectable: bool
 ): i64 {
+    // `selectable` is honoured on macOS (NSTextField), no-op here:
+    // Win32 STATIC controls don't carry a selection state.
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
     let classW = "STATIC".encodeUtf16()
@@ -67,6 +69,9 @@ pub fn setLabelVisible(handle: i64, visible: bool) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(slot.hwnd, cmd)
     }
+}
+pub fn setLabelSelectable(handle: i64, selectable: bool) {
+    // No-op on Win32 — STATIC controls don't carry a selection state.
 }
 
 } // @extern(C)

@@ -384,9 +384,15 @@ pub enum NSDatePickerStyle: u64 {
     /// Plain non-editable label backed by an `NSTextField`. Flips
     /// off `editable` / `bordered` / `bezeled` / `drawsBackground`
     /// so it reads as static text rather than an input.
+    ///
+    /// `selectable` toggles `NSTextField.setSelectable`. AppKit
+    /// hangs an I-beam cursor rect off any selectable field, so
+    /// passing `false` keeps the arrow cursor over labels at the
+    /// cost of disabling text selection / copy.
     pub fn makeLabel(
         text: string,
-        x: f64, y: f64, w: f64, h: f64
+        x: f64, y: f64, w: f64, h: f64,
+        selectable: bool
     ): NSTextField {
         let f = NSTextField.alloc().init(makeRect(x, y, w, h))
         f.stringValue = nsstr(text)
@@ -394,7 +400,7 @@ pub enum NSDatePickerStyle: u64 {
         f.setBordered(false)
         f.setBezeled(false)
         f.setDrawsBackground(false)
-        f.setSelectable(true)
+        f.setSelectable(selectable)
         f
     }
 

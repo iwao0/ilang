@@ -25,8 +25,11 @@ let LABELS = new Map<i64, LabelSlot>()
 pub fn createNativeLabel(
     windowHandle: i64,
     text: string, x: f64, y: f64, width: f64, height: f64,
-    visible: bool
+    visible: bool, selectable: bool
 ): i64 {
+    // `selectable` is honoured on macOS (NSTextField). GtkLabel
+    // can expose `set_selectable` too, but we don't bind it yet
+    // and the cursor stays as the default arrow regardless.
     let winSlot = match WINDOWS.get(windowHandle) {
         some(s) { s }
         none    { return -1 }
@@ -63,6 +66,9 @@ pub fn setLabelVisible(handle: i64, visible: bool) {
             if visible { 1 as i32 } else { 0 as i32 }
         )
     }
+}
+pub fn setLabelSelectable(handle: i64, selectable: bool) {
+    // No-op for now — gtk_label_set_selectable isn't bound yet.
 }
 
 } // @extern(C)

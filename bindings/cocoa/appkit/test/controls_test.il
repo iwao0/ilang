@@ -24,7 +24,7 @@ test.expectStr(ilstr(tf.stringValue), "world")
 
 // makeLabel sets editable=false; round-trip a value through it
 // to confirm the underlying string slot still works.
-let lbl = makeLabel("static", 0.0, 0.0, 200.0, 22.0)
+let lbl = makeLabel("static", 0.0, 0.0, 200.0, 22.0, true)
 test.expectStr(ilstr(lbl.stringValue), "static")
 
 // NSSlider — min / max / value round-trip.

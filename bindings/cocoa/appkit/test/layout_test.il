@@ -14,12 +14,12 @@ let _ = sharedApplication()
 // NSStackView with two arranged subviews.
 let stack = makeStackView(NSUserInterfaceLayoutOrientation.vertical, 8.0)
 test.expectFalse(stack.handle == 0)
-stack.addArrangedSubview(makeLabel("first", 0.0, 0.0, 100.0, 20.0))
-stack.addArrangedSubview(makeLabel("second", 0.0, 0.0, 100.0, 20.0))
+stack.addArrangedSubview(makeLabel("first", 0.0, 0.0, 100.0, 20.0, true))
+stack.addArrangedSubview(makeLabel("second", 0.0, 0.0, 100.0, 20.0, true))
 
 // NSScrollView via convenience helper — wraps a label as its
 // document view.
-let doc = makeLabel("scrolled content", 0.0, 0.0, 400.0, 200.0)
+let doc = makeLabel("scrolled content", 0.0, 0.0, 400.0, 200.0, true)
 let sv = makeScrollView(doc, 0.0, 0.0, 200.0, 100.0)
 test.expectFalse(sv.handle == 0)
 let cs = sv.contentSize
@@ -39,8 +39,8 @@ let grid = NSGridView.alloc().init(makeRect(0.0, 0.0, 200.0, 100.0))
 test.expect(grid.numberOfRows, 0)
 test.expect(grid.numberOfColumns, 0)
 let cells = NSMutableArray.alloc().init()
-cells.addObject(makeLabel("a", 0.0, 0.0, 50.0, 20.0))
-cells.addObject(makeLabel("b", 0.0, 0.0, 50.0, 20.0))
+cells.addObject(makeLabel("a", 0.0, 0.0, 50.0, 20.0, true))
+cells.addObject(makeLabel("b", 0.0, 0.0, 50.0, 20.0, true))
 let _ = grid.addRowWithViews(cells)
 test.expect(grid.numberOfRows, 1)
 test.expect(grid.numberOfColumns, 2)
