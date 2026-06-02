@@ -256,8 +256,14 @@ impl Lower {
         }
 
         for m in cd.methods.iter() {
+            // Generic methods are specialized by the AST
+            // `monomorphize_methods` pass before MIR lowering — by
+            // the time we get here, any surviving generic method
+            // template is unreachable (no concrete call site
+            // refers to its original name) and would just bloat
+            // the MIR. Skip the template silently.
             if !m.type_params.is_empty() {
-                return Err(LowerError::Unsupported("generic methods"));
+                continue;
             }
             // Mangled name: `Class.method` (init included). This is the
             // post-overload-resolution name; until overloading is wired,
@@ -332,8 +338,10 @@ impl Lower {
         // Static methods — registered as top-level fns under
         // `Class.method`.
         for sm in cd.static_methods.iter() {
+            // See the instance-method branch above — generic static
+            // methods are likewise specialized at the AST level.
             if !sm.type_params.is_empty() {
-                return Err(LowerError::Unsupported("generic static methods"));
+                continue;
             }
             let mangled = Symbol::intern(&format!("{}.{}", cd.name, sm.name));
             let id = FuncId(self.funcs.len() as u32);

@@ -542,6 +542,23 @@ pub(super) fn class_signature(
                 span: m.span,
             });
         }
+        // Generic methods don't compose with virtual dispatch — each
+        // specialization is its own concrete function, so a vtable slot
+        // would have to pick one specialization per receiver type, which
+        // makes no sense. Reject the combination here with a clear
+        // message; users who need polymorphism via vtable should use a
+        // generic class instead.
+        if m.is_override && !m.type_params.is_empty() {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "method {:?} in class {:?} cannot be both `override` and \
+                     generic — generic methods are monomorphized per call \
+                     site, which is incompatible with virtual dispatch",
+                    m.name, c.name
+                ),
+                span: m.span,
+            });
+        }
         if inherited && !m.is_override {
             return Err(TypeError::Unsupported {
                 what: format!(

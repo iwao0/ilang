@@ -67,6 +67,13 @@ impl TypeChecker {
                     .iter()
                     .map(|p| bindings.get(p).cloned().unwrap_or(Type::Any))
                     .collect();
+                // Stash the inferred type args so the AST
+                // monomorphizer (`monomorphize_methods`) can specialize
+                // the method body and rewrite this call's method
+                // symbol to the mangled name.
+                self.method_call_type_args
+                    .borrow_mut()
+                    .insert(span, (class_name, method, inferred_args.clone()));
                 for ((param_ty, arg), at) in
                     sig.params.iter().zip(args.iter()).zip(arg_tys.iter())
                 {

@@ -273,10 +273,28 @@ fn prefix_class_decl(c: &mut ilang_ast::ClassDecl, prefix: &str) {
     // accidentally turned them into `prefix.T`; sweep the body
     // and roll those back. Doing it as a post-pass avoids
     // threading an exclusion set through every recursive
-    // `prefix_*` helper.
-    if !c.type_params.is_empty() {
-        let type_params: HashSet<Symbol> = c.type_params.iter().cloned().collect();
-        unprefix_type_params_in_class(c, prefix, &type_params);
+    // `prefix_*` helper. Also unprefix each method's *own*
+    // type parameters (e.g. `pub instCount<T>(xs: T[])`) so
+    // they survive the qualification pass on non-generic classes.
+    let class_params: HashSet<Symbol> = c.type_params.iter().cloned().collect();
+    if !class_params.is_empty() {
+        unprefix_type_params_in_class(c, prefix, &class_params);
+    }
+    for m in c.methods.iter_mut().chain(c.static_methods.iter_mut()) {
+        if m.type_params.is_empty() {
+            continue;
+        }
+        let mut combined = class_params.clone();
+        for tp in m.type_params.iter() {
+            combined.insert(tp.clone());
+        }
+        for p in m.params.iter_mut() {
+            unprefix_type_params(&mut p.ty, prefix, &combined);
+        }
+        if let Some(t) = m.ret.as_mut() {
+            unprefix_type_params(t, prefix, &combined);
+        }
+        unprefix_type_params_in_block(&mut m.body, prefix, &combined);
     }
 }
 

@@ -22,10 +22,19 @@ impl Lower {
     pub(in crate::lower) fn lower_class_methods(&mut self, cd: &ast::ClassDecl) -> Result<(), LowerError> {
         let class_id = *self.class_ids.get(&cd.name).expect("class registered");
         for m in cd.methods.iter() {
+            // Generic-method templates are skipped at registration
+            // (see `decl/class.rs`); they have no `method_ids` slot,
+            // so don't try to lower their body here either.
+            if !m.type_params.is_empty() {
+                continue;
+            }
             self.lower_method(class_id, cd.name, m)?;
         }
         // Static methods → lower like a free fn (no `this` injection).
         for sm in cd.static_methods.iter() {
+            if !sm.type_params.is_empty() {
+                continue;
+            }
             self.lower_static_method(class_id, cd.name, sm)?;
         }
         // Property getters/setters — lowered like instance methods,

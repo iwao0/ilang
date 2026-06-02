@@ -219,7 +219,7 @@ impl<'a> Parser<'a> {
                             continue;
                         }
                         match self.tokens.get(self.pos + 2).map(|t| &t.kind) {
-                            Some(TokenKind::LParen) => {
+                            Some(TokenKind::LParen) | Some(TokenKind::Lt) => {
                                 self.bump(); // consume `static`
                                 let mut m = self.parse_method(Vec::new())?;
                                 m.is_pub = member_is_pub;
@@ -245,7 +245,7 @@ impl<'a> Parser<'a> {
                             f.is_pub = member_is_pub;
                             fields.push(f);
                         }
-                        TokenKind::LParen => {
+                        TokenKind::LParen | TokenKind::Lt => {
                             let mut m = self.parse_method(Vec::new())?;
                             m.is_pub = member_is_pub;
                             methods.push(m);
@@ -621,9 +621,14 @@ impl<'a> Parser<'a> {
         span: ilang_ast::Span,
         attrs: Vec<Attribute>,
     ) -> Result<FnDecl, ParseError> {
-        // Methods don't take their own type params — they inherit
-        // the class's. Always empty here.
-        let type_params: Vec<Symbol> = Vec::new();
+        // Optional `<T, U>` method-level type parameters. Stack on top
+        // of any class-level params; the checker merges both lists into
+        // `current_type_params` when checking the body.
+        let type_params = if matches!(self.peek().kind, TokenKind::Lt) {
+            self.parse_type_param_list()?
+        } else {
+            Vec::new()
+        };
         self.expect(&TokenKind::LParen, "'('")?;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen, "')'")?;

@@ -222,6 +222,14 @@ fn monomorphize_with_template_reattach(
         &tc.fn_call_type_args(),
         &tc.enum_ctor_type_args(),
     );
+    // Specialize generic class methods (instance + static). Runs
+    // after fn-spec so that generic methods called from inside a
+    // specialized free fn are also picked up. The pass mirrors the
+    // fn-spec strategy at the class level.
+    let prog = ilang_mir::monomorphize::monomorphize_methods(
+        &prog,
+        &tc.method_call_type_args(),
+    );
     // Second round: specialized generic fn bodies (e.g. `make<i64>`
     // synthesized from `fn make<T>(v: T): Box<T> { new Box<T>(v) }`)
     // can contain previously-unseen class / enum instantiations.
@@ -822,6 +830,10 @@ impl ReplSession {
                 &self.tc.fn_call_type_args(),
                 &self.tc.enum_ctor_type_args(),
             );
+        let prog = ilang_mir::monomorphize::monomorphize_methods(
+            &prog,
+            &self.tc.method_call_type_args(),
+        );
         let mut mir = ilang_mir::lower_program_with_slots(&prog, &self.slot_table)
             .map_err(|e| format!("<repl> mir: {e}"))?;
         ilang_mir::passes::promote_locals::run_program(&mut mir);

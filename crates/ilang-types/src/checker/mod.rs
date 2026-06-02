@@ -462,6 +462,14 @@ pub struct TypeChecker {
     /// `(class_name, method_name, sig_idx)`. Includes both regular
     /// MethodCall sites and the `init` resolved at `new C(args)`.
     pub(super) method_overload_pick: std::cell::RefCell<HashMap<Span, (Symbol, Symbol, usize)>>,
+    /// Inferred type-argument vector for each generic-method call
+    /// site, keyed by the call expression's span. Mirrors
+    /// `fn_call_type_args` but for class methods (both instance and
+    /// static). Values: `(class_name, method_name, inferred_args)`.
+    /// Consumed by the AST monomorphizer to specialize the method
+    /// per call site and rewrite the MethodCall's method symbol.
+    pub(super) method_call_type_args:
+        std::cell::RefCell<HashMap<Span, (Symbol, Symbol, Vec<Type>)>>,
     /// Per-MethodCall-span set marking `block.invoke(...)` calls
     /// whose receiver is `ObjCBlock<fn(...): id>` (i.e. returns
     /// an i64). The mangler rewrites the method symbol on these
@@ -695,6 +703,18 @@ impl TypeChecker {
     /// rewrite `MethodCall.method` and `New.init_method`.
     pub fn method_overload_picks(&self) -> HashMap<Span, (Symbol, Symbol, usize)> {
         self.method_overload_pick.borrow().clone()
+    }
+
+    /// Map of generic-method call site → (class, method, inferred
+    /// type args). Filled in `resolve_method_call` whenever the
+    /// chosen signature has at least one type parameter. Consumed by
+    /// the AST monomorphizer (`monomorphize_methods`) which specializes
+    /// each `(class, method, args)` triple into a dedicated concrete
+    /// method and rewrites the call's method symbol to the mangled name.
+    pub fn method_call_type_args(
+        &self,
+    ) -> HashMap<Span, (Symbol, Symbol, Vec<Type>)> {
+        self.method_call_type_args.borrow().clone()
     }
 
     /// Set of `block.invoke(...)` call-site spans whose receiver is
