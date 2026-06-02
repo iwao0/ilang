@@ -40,7 +40,7 @@ use menu     { tryMenuClick }
 use super.events
 // ─── VirtualKey → W3C KeyboardEvent.code ──────────────────────
 
-fn vkToString(vk: VirtualKey): string {
+pub fn vkToString(vk: VirtualKey): string {
     vkToEnum(vk) as string
 }
 

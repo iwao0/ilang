@@ -31,12 +31,17 @@
 /// is also where every `wgpu*` call has to be made).
 
 use cocoa {
-    NSObject, NSView, NSString, NSRunLoop,
+    NSObject, NSView, NSString, NSRunLoop, NSEvent,
+    NSEventModifierFlags, KeyCode,
     CAMetalLayer, CADisplayLink,
     NSPoint, NSRect, NSSize,
     makeRect, makeSize, nsstr, selectorPtr, nil,
 }
-use core { WINDOWS }
+use core {
+    WINDOWS,
+    keyCodeToString, modShift, modCtrl, modAlt, modMeta,
+}
+use std.time { monotonicNs }
 use wgpu29 {
     WGPUInstance, WGPUAdapter, WGPUDevice, WGPUQueue, WGPUSurface,
     WGPUTexture, WGPUTextureView, WGPUCommandBuffer, WGPURenderPassEncoder,
@@ -64,12 +69,17 @@ use wgpu29 {
 }
 use std.ffi { readU32, stringFromCstr }
 
-// ─── ObjC subclass: NSView + tick: selector ────────────────────
+// ─── ObjC subclass: NSView + tick: selector + input ───────────
 //
 // The CADisplayLink target receives `-(void)tick:(CADisplayLink*)
 // link` on the main thread; we use `this.handle` to dispatch back
 // into the matching GpuViewSlot. Making the view itself the link
 // target avoids a separate helper class (and an extra map lookup).
+//
+// The keyboard / mouse overrides marshal each NSEvent into a
+// per-slot callback the public-class bridge installed. Coords
+// are converted to view-local pixels (top-left origin — the view
+// is `isFlipped`).
 
 class GpuViewNSView : NSView {
     /// Top-left origin to match the rest of gui-core's coordinate
@@ -77,6 +87,86 @@ class GpuViewNSView : NSView {
     /// the ObjC class registration emit — an empty subclass body
     /// wouldn't generate `.register()`.
     pub isFlipped(): bool { true }
+
+    /// Take first responder so keyDown:/keyUp: arrive at this view
+    /// instead of falling back to the window's content view.
+    pub acceptsFirstResponder(): bool { true }
+
+    pub keyDown(event: NSEvent) {
+        if let some(slot) = GPUVIEWS.get(this.handle) {
+            let flags = event.modifierFlags as u64
+            let cb = slot.onKeyDown
+            cb(keyCodeToString(event.keyCode),
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+    }
+    pub keyUp(event: NSEvent) {
+        if let some(slot) = GPUVIEWS.get(this.handle) {
+            let flags = event.modifierFlags as u64
+            let cb = slot.onKeyUp
+            cb(keyCodeToString(event.keyCode),
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+    }
+    pub mouseMoved(event: NSEvent)     { this.dispatchMouse(event, 0, 0) }
+    pub mouseDragged(event: NSEvent)   { this.dispatchMouse(event, 0, 0) }
+    pub mouseDown(event: NSEvent)      { this.dispatchMouse(event, 1, 0) }
+    pub mouseUp(event: NSEvent)        { this.dispatchMouse(event, 2, 0) }
+    pub rightMouseDown(event: NSEvent) { this.dispatchMouse(event, 1, 2) }
+    pub rightMouseUp(event: NSEvent)   { this.dispatchMouse(event, 2, 2) }
+    pub rightMouseDragged(event: NSEvent) { this.dispatchMouse(event, 0, 2) }
+    pub otherMouseDown(event: NSEvent) { this.dispatchMouse(event, 1, 1) }
+    pub otherMouseUp(event: NSEvent)   { this.dispatchMouse(event, 2, 1) }
+    pub otherMouseDragged(event: NSEvent) { this.dispatchMouse(event, 0, 1) }
+
+    pub scrollWheel(event: NSEvent) {
+        if let some(slot) = GPUVIEWS.get(this.handle) {
+            let p = this.convertPointFromView(event.locationInWindow, nil)
+            let flags = event.modifierFlags as u64
+            let cb = slot.onMouseWheel
+            cb(event.deltaX, event.deltaY, p.x, p.y,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+    }
+
+    /// `kind`: 0=move, 1=down, 2=up. `button`: W3C MouseEvent.button.
+    dispatchMouse(event: NSEvent, kind: i32, button: i32) {
+        if let some(slot) = GPUVIEWS.get(this.handle) {
+            let p = this.convertPointFromView(event.locationInWindow, nil)
+            let flags = event.modifierFlags as u64
+            // Note: NSWindow's `setAcceptsMouseMovedEvents(true)` is
+            // already on for the parent — that delivers global motion
+            // even when the cursor strays outside the view. AppKit
+            // sends `mouseMoved:` straight to the firstResponder
+            // (window's content view), not subviews, so this
+            // override only fires once the user clicks into the view
+            // and we install ourselves as firstResponder — for now,
+            // motion outside the view simply doesn't fire here, no
+            // clip is required.
+            match kind {
+                0 {
+                    let cb = slot.onMouseMove
+                    // For move events the button parameter is the
+                    // current button bitfield encoded by the caller;
+                    // we pass 0 here and let the public class merge
+                    // with its own snapshot. Pass as u32.
+                    cb(p.x, p.y, 0 as u32,
+                       modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+                }
+                1 {
+                    let cb = slot.onMouseDown
+                    cb(p.x, p.y, button,
+                       modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+                }
+                2 {
+                    let cb = slot.onMouseUp
+                    cb(p.x, p.y, button,
+                       modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+                }
+                _ {}
+            }
+        }
+    }
 }
 
 /// Per-view CADisplayLink callback target. Plain NSObject
@@ -123,25 +213,54 @@ class GpuViewSlot {
     pub link:       i64           // CADisplayLink ObjC ptr, 0 = stopped
     pub linkTarget: GpuViewLink   // keeps the tick: target alive
                                   // (CADisplayLink doesn't retain it)
-    pub onRender:   fn(WGPURenderPassEncoder)
+    pub onRender:   fn(WGPURenderPassEncoder, f64, f64)
+    // Input bridges installed by the public class. Each takes the
+    // shape the matching `setOnGpuViewXxx` declares.
+    pub onKeyDown:    fn(string, bool, bool, bool, bool)
+    pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseMove:  fn(f64, f64, u32, bool, bool, bool, bool)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub onResize:     fn(f64, f64)
+    // Frame-time bookkeeping. All in monotonic nanoseconds so the
+    // delta is robust across NTP slew / DST. `startNs == 0` flags
+    // "no frame yet" — first frame sets it to the current ns and
+    // reports `time=0, dt=0`.
+    pub startNs:    i64
+    pub lastNs:     i64
 
     pub init(view: GpuViewNSView, layer: CAMetalLayer,
              surface: i64, format: u32, w: f64, h: f64) {
-        this.view       = view
-        this.layer      = layer
-        this.surface    = surface
-        this.format     = format
-        this.width      = w
-        this.height     = h
-        this.link       = 0
-        this.linkTarget = GpuViewLink.__wrap_handle(0)
-        this.onRender   = noOpRender
+        this.view         = view
+        this.layer        = layer
+        this.surface      = surface
+        this.format       = format
+        this.width        = w
+        this.height       = h
+        this.link         = 0
+        this.linkTarget   = GpuViewLink.__wrap_handle(0)
+        this.onRender     = gpuNoOpRender
+        this.onKeyDown    = gpuNoOpKey
+        this.onKeyUp      = gpuNoOpKey
+        this.onMouseMove  = gpuNoOpMove
+        this.onMouseDown  = gpuNoOpButton
+        this.onMouseUp    = gpuNoOpButton
+        this.onMouseWheel = gpuNoOpWheel
+        this.onResize     = gpuNoOpResize
+        this.startNs      = 0 as i64
+        this.lastNs       = 0 as i64
     }
 }
 
 let GPUVIEWS = new Map<i64, GpuViewSlot>()
 
-fn noOpRender(pass: WGPURenderPassEncoder) {}
+fn gpuNoOpRender(pass: WGPURenderPassEncoder, t: f64, dt: f64) {}
+fn gpuNoOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn gpuNoOpMove(x: f64, y: f64, b: u32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn gpuNoOpButton(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn gpuNoOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn gpuNoOpResize(w: f64, h: f64) {}
 
 // ─── app-wide wgpu state ───────────────────────────────────────
 //
@@ -327,8 +446,21 @@ let DEVICE_OUT:   i64[]  = [0]
         }
         let pass = wgpuCommandEncoderBeginRenderPass(enc, &rp)
 
+        // Sample the monotonic clock once per frame. First-frame
+        // semantics: `time=0, dt=0`. Computed here (native side)
+        // rather than ilang-side so multi-listener fan-out sees a
+        // single consistent value.
+        let nowNs = monotonicNs()
+        if slot.startNs == 0 as i64 {
+            slot.startNs = nowNs
+            slot.lastNs  = nowNs
+        }
+        let time = ((nowNs - slot.startNs) as f64) / 1.0e9
+        let dt   = ((nowNs - slot.lastNs) as f64) / 1.0e9
+        slot.lastNs = nowNs
+
         let cb = slot.onRender
-        cb(pass)
+        cb(pass, time, dt)
 
         wgpuRenderPassEncoderEnd(pass)
         let cmd = wgpuCommandEncoderFinish(enc, 0 as *void)
@@ -374,6 +506,11 @@ pub fn createNativeGpuView(
     view.setLayer(layer as NSObject)
     view.setWantsLayer(true)
     winSlot.win.contentView.addSubview(view as NSView)
+    // Steal first responder so keyDown:/keyUp: go straight to
+    // the GpuView. Users who want the surrounding window to keep
+    // keyboard focus can flip this back themselves via the
+    // public `Window.handle` afterwards.
+    winSlot.win.makeFirstResponder(view as NSObject)
 
     let surfacePtr = makeSurfaceForLayer(layer.handle)
     if surfacePtr == 0 {
@@ -406,6 +543,8 @@ pub fn setGpuViewFrame(handle: i64, x: f64, y: f64, w: f64, h: f64) {
             if WGPU_READY[0] {
                 configureSurfaceFor(slot.surface, (w * scale) as u32, (h * scale) as u32)
             }
+            let cb = slot.onResize
+            cb(w, h)
         }
     }
 }
@@ -416,10 +555,32 @@ pub fn setGpuViewVisible(handle: i64, visible: bool) {
     }
 }
 
-pub fn setOnGpuViewRender(handle: i64, cb: fn(WGPURenderPassEncoder)) {
+pub fn setOnGpuViewRender(handle: i64, cb: fn(WGPURenderPassEncoder, f64, f64)) {
     if let some(slot) = GPUVIEWS.get(handle) {
         slot.onRender = cb
     }
+}
+
+pub fn setOnGpuViewKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnGpuViewKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnGpuViewMouseMove(handle: i64, cb: fn(f64, f64, u32, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseMove = cb }
+}
+pub fn setOnGpuViewMouseDown(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnGpuViewMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnGpuViewMouseWheel(handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn setOnGpuViewResize(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onResize = cb }
 }
 
 pub fn getGpuViewSurface(handle: i64): WGPUSurface {

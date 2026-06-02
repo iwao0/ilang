@@ -20,13 +20,29 @@
 /// to verify the readback path or frame pacing.
 
 use gtk {
-    GtkWidget, GtkWindow, GtkFixed, GtkDrawingArea,
+    GtkWidget, GtkWindow, GtkFixed, GtkDrawingArea, GObject,
+    GtkEventController, GtkEventControllerKey, GtkEventControllerMotion,
+    GtkEventControllerScroll, GtkEventControllerScrollFlags,
+    GtkGestureClick, GtkGestureSingle, Keyval,
     gtk_drawing_area_new, gtk_fixed_put,
     gtk_widget_set_size_request, gtk_widget_set_visible,
     gtk_widget_queue_draw,
     gtk_widget_add_tick_callback, gtk_widget_remove_tick_callback,
     gtk_drawing_area_set_draw_func,
+    gtk_widget_add_controller, gtk_widget_set_focusable, gtk_widget_grab_focus,
+    gtk_event_controller_key_new, gtk_event_controller_motion_new,
+    gtk_event_controller_scroll_new,
+    gtk_gesture_click_new, gtk_gesture_single_set_button,
+    gtk_gesture_single_get_current_button,
+    gtk_event_controller_get_current_event_state,
+    gdk_keyval_to_lower,
+    g_signal_connect_data, g_signal_connect_key,
+    g_signal_connect_motion, g_signal_connect_click,
+    g_signal_connect_scroll, g_signal_connect_resize,
 }
+use std.time { monotonicNs }
+use super.events
+use window { keyvalToCode }
 use cairo {
     cairo_t, cairo_surface_t,
     cairo_image_surface_create_for_data, cairo_format_stride_for_width,
@@ -63,7 +79,7 @@ use wgpu29 {
     wgpuCommandBufferRelease,
 }
 use libc { calloc, memcpy }
-use std.ffi { stringFromCstr }
+use std.ffi { stringFromCstr, cstrFromString }
 
 // Cairo ARGB32 (BGRA byte order on little-endian) — matches
 // `WGPUTextureFormat_BGRA8Unorm = 0x1B`.
@@ -84,7 +100,16 @@ class GpuViewSlot {
     pub wgpuStride: i32           // padded to a multiple of 256
     pub cairoStride: i32          // from cairo_format_stride_for_width
     pub tickId:     u32           // 0 = no tick callback
-    pub onRender:   fn(WGPURenderPassEncoder)
+    pub onRender:   fn(WGPURenderPassEncoder, f64, f64)
+    pub onKeyDown:    fn(string, bool, bool, bool, bool)
+    pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseMove:  fn(f64, f64, u32, bool, bool, bool, bool)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub onResize:     fn(f64, f64)
+    pub startNs:    i64
+    pub lastNs:     i64
 
     pub init(
         area: GtkDrawingArea,
@@ -103,13 +128,43 @@ class GpuViewSlot {
         this.wgpuStride  = wgpuStride
         this.cairoStride = cairoStride
         this.tickId      = 0
-        this.onRender    = noOpRender
+        this.onRender     = gpuNoOpRender
+        this.onKeyDown    = gpuNoOpKey
+        this.onKeyUp      = gpuNoOpKey
+        this.onMouseMove  = gpuNoOpMove
+        this.onMouseDown  = gpuNoOpButton
+        this.onMouseUp    = gpuNoOpButton
+        this.onMouseWheel = gpuNoOpWheel
+        this.onResize     = gpuNoOpResize
+        this.startNs      = 0 as i64
+        this.lastNs       = 0 as i64
     }
 }
 
 let GPUVIEWS = new Map<i64, GpuViewSlot>()
 
-fn noOpRender(pass: WGPURenderPassEncoder) {}
+fn gpuNoOpRender(pass: WGPURenderPassEncoder, t: f64, dt: f64) {}
+fn gpuNoOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn gpuNoOpMove(x: f64, y: f64, b: u32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn gpuNoOpButton(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn gpuNoOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn gpuNoOpResize(w: f64, h: f64) {}
+
+// GdkModifierType bits. Mirror the values used in window.il so
+// the keyboard / mouse callbacks can map state→ctrl/shift/alt/meta
+// without going through the bindings' enum (the helpers in
+// window.il live in an `@extern(C)` block as non-pub fns).
+const GDK_MOD_SHIFT: u32 = 0x00000001 as u32
+const GDK_MOD_CTRL:  u32 = 0x00000004 as u32
+const GDK_MOD_ALT:   u32 = 0x00000008 as u32
+const GDK_MOD_META:  u32 = 0x10000000 as u32
+fn gpuHasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
+fn gpuButtonToW3C(b: u32): i32 {
+    if      b == 1 as u32 { 0 as i32 }
+    elif    b == 2 as u32 { 1 as i32 }
+    elif    b == 3 as u32 { 2 as i32 }
+    else                  { 0 as i32 }
+}
 
 // Unique handle counter — GtkDrawingArea pointers double as keys
 // but we also want to stash one on a slot.
@@ -247,8 +302,16 @@ let MAP_STATUS:   i64[] = [-1]
             timestampWrites:        0 as *void,
         }
         let pass = wgpuCommandEncoderBeginRenderPass(enc, &rp)
+        let nowNs = monotonicNs()
+        if slot.startNs == 0 as i64 {
+            slot.startNs = nowNs
+            slot.lastNs  = nowNs
+        }
+        let time = ((nowNs - slot.startNs) as f64) / 1.0e9
+        let dt   = ((nowNs - slot.lastNs) as f64) / 1.0e9
+        slot.lastNs = nowNs
         let cb = slot.onRender
-        cb(pass)
+        cb(pass, time, dt)
         wgpuRenderPassEncoderEnd(pass)
 
         // Encode the texture → staging buffer copy in the same
@@ -357,6 +420,107 @@ let MAP_STATUS:   i64[] = [-1]
         }
     }
 
+    // ─── input bridge ──────────────────────────────────────────
+    //
+    // Each signal handler looks up its GpuViewSlot via the
+    // user_data pointer (= the slot's i64 handle) and forwards
+    // to the per-slot callback the public class installed.
+    // GTK4 controllers are attached to the GtkDrawingArea itself,
+    // so coordinates arrive already in view-local pixels.
+
+    pub fn gpuLinuxKeyPressed(
+        ctrl: i64, keyval: u32, keycode: u32, state: u32, data: i64
+    ): i32 {
+        if let some(slot) = GPUVIEWS.get(data) {
+            let code = keyvalToCode(gdk_keyval_to_lower(keyval))
+            let cb = slot.onKeyDown
+            cb(code,
+               gpuHasMod(state, GDK_MOD_CTRL), gpuHasMod(state, GDK_MOD_SHIFT),
+               gpuHasMod(state, GDK_MOD_ALT),  gpuHasMod(state, GDK_MOD_META))
+        }
+        0 as i32
+    }
+    pub fn gpuLinuxKeyReleased(
+        ctrl: i64, keyval: u32, keycode: u32, state: u32, data: i64
+    ): i32 {
+        if let some(slot) = GPUVIEWS.get(data) {
+            let code = keyvalToCode(gdk_keyval_to_lower(keyval))
+            let cb = slot.onKeyUp
+            cb(code,
+               gpuHasMod(state, GDK_MOD_CTRL), gpuHasMod(state, GDK_MOD_SHIFT),
+               gpuHasMod(state, GDK_MOD_ALT),  gpuHasMod(state, GDK_MOD_META))
+        }
+        0 as i32
+    }
+    pub fn gpuLinuxMotion(ctrl: i64, x: f64, y: f64, data: i64) {
+        if let some(slot) = GPUVIEWS.get(data) {
+            let st = gtk_event_controller_get_current_event_state(
+                ctrl as GtkEventController
+            )
+            let cb = slot.onMouseMove
+            // GTK gives us motion through GtkEventControllerMotion,
+            // which doesn't expose the held-button bitfield directly.
+            // Pass 0 for now — the public class merges with its own
+            // down/up snapshot anyway.
+            cb(x, y, 0 as u32,
+               gpuHasMod(st, GDK_MOD_CTRL), gpuHasMod(st, GDK_MOD_SHIFT),
+               gpuHasMod(st, GDK_MOD_ALT),  gpuHasMod(st, GDK_MOD_META))
+        }
+    }
+    pub fn gpuLinuxPressed(
+        gesture: i64, n_press: i32, x: f64, y: f64, data: i64
+    ) {
+        if let some(slot) = GPUVIEWS.get(data) {
+            let btn = gpuButtonToW3C(
+                gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
+            )
+            let st = gtk_event_controller_get_current_event_state(
+                gesture as GtkEventController
+            )
+            let cb = slot.onMouseDown
+            cb(x, y, btn,
+               gpuHasMod(st, GDK_MOD_CTRL), gpuHasMod(st, GDK_MOD_SHIFT),
+               gpuHasMod(st, GDK_MOD_ALT),  gpuHasMod(st, GDK_MOD_META))
+        }
+    }
+    pub fn gpuLinuxReleased(
+        gesture: i64, n_press: i32, x: f64, y: f64, data: i64
+    ) {
+        if let some(slot) = GPUVIEWS.get(data) {
+            let btn = gpuButtonToW3C(
+                gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
+            )
+            let st = gtk_event_controller_get_current_event_state(
+                gesture as GtkEventController
+            )
+            let cb = slot.onMouseUp
+            cb(x, y, btn,
+               gpuHasMod(st, GDK_MOD_CTRL), gpuHasMod(st, GDK_MOD_SHIFT),
+               gpuHasMod(st, GDK_MOD_ALT),  gpuHasMod(st, GDK_MOD_META))
+        }
+    }
+    pub fn gpuLinuxScroll(ctrl: i64, dx: f64, dy: f64, data: i64): i32 {
+        if let some(slot) = GPUVIEWS.get(data) {
+            let st = gtk_event_controller_get_current_event_state(
+                ctrl as GtkEventController
+            )
+            let cb = slot.onMouseWheel
+            // GtkEventControllerScroll doesn't report cursor pos —
+            // pass 0.0 for x / y. Game code can read mouseX / mouseY
+            // from the public class snapshot if it needs the cursor.
+            cb(dx, dy, 0.0, 0.0,
+               gpuHasMod(st, GDK_MOD_CTRL), gpuHasMod(st, GDK_MOD_SHIFT),
+               gpuHasMod(st, GDK_MOD_ALT),  gpuHasMod(st, GDK_MOD_META))
+        }
+        0 as i32
+    }
+    pub fn gpuLinuxResize(area: i64, w: i32, h: i32, data: i64) {
+        if let some(slot) = GPUVIEWS.get(data) {
+            let cb = slot.onResize
+            cb(w as f64, h as f64)
+        }
+    }
+
 // ─── public bridge API ─────────────────────────────────────────
 
 pub fn createNativeGpuView(
@@ -452,6 +616,66 @@ pub fn createNativeGpuView(
         pxW, pxH, wgpuStride, cairoStride
     )
     GPUVIEWS[handle] = view
+
+    // ─── input controllers ────────────────────────────────────
+    // Attached to the drawing area itself so coords are already
+    // view-local. `gtk_widget_set_focusable` lets keyboard events
+    // arrive once the user clicks into the view (GTK4 mirrors
+    // AppKit's first-responder model here).
+
+    gtk_widget_set_focusable(area as GtkWidget, 1 as i32)
+
+    let keyCtrl = gtk_event_controller_key_new() as GtkEventControllerKey
+    g_signal_connect_key(
+        keyCtrl as GObject, cstrFromString("key-pressed"),
+        gpuLinuxKeyPressed, handle as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_key(
+        keyCtrl as GObject, cstrFromString("key-released"),
+        gpuLinuxKeyReleased, handle as *void, 0 as i64, 0 as u32
+    )
+    gtk_widget_add_controller(area as GtkWidget, keyCtrl as GtkEventController)
+
+    let motionCtrl = gtk_event_controller_motion_new() as GtkEventControllerMotion
+    g_signal_connect_motion(
+        motionCtrl as GObject, cstrFromString("motion"),
+        gpuLinuxMotion, handle as *void, 0 as i64, 0 as u32
+    )
+    gtk_widget_add_controller(area as GtkWidget, motionCtrl as GtkEventController)
+
+    let click = gtk_gesture_click_new() as GtkGestureClick
+    // `button=0` listens to every button; the handler reads the
+    // actual one via gtk_gesture_single_get_current_button.
+    gtk_gesture_single_set_button(click as GtkGestureSingle, 0 as u32)
+    g_signal_connect_click(
+        click as GObject, cstrFromString("pressed"),
+        gpuLinuxPressed, handle as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_click(
+        click as GObject, cstrFromString("released"),
+        gpuLinuxReleased, handle as *void, 0 as i64, 0 as u32
+    )
+    gtk_widget_add_controller(area as GtkWidget, click as GtkEventController)
+
+    let scrollCtrl = gtk_event_controller_scroll_new(
+        GtkEventControllerScrollFlags.vertical | GtkEventControllerScrollFlags.horizontal
+    ) as GtkEventControllerScroll
+    g_signal_connect_scroll(
+        scrollCtrl as GObject, cstrFromString("scroll"),
+        gpuLinuxScroll, handle as *void, 0 as i64, 0 as u32
+    )
+    gtk_widget_add_controller(area as GtkWidget, scrollCtrl as GtkEventController)
+
+    // GtkDrawingArea's `resize` signal fires whenever its
+    // allocation changes — this currently only fires for our
+    // initial allocation since `setGpuViewFrame` is a no-op below
+    // (size changes would require texture / buffer reallocation),
+    // but the wiring is in place for when that lands.
+    g_signal_connect_resize(
+        area as GObject, cstrFromString("resize"),
+        gpuLinuxResize, handle as *void, 0 as i64, 0 as u32
+    )
+
     handle
 }
 
@@ -471,10 +695,32 @@ pub fn setGpuViewVisible(handle: i64, visible: bool) {
     }
 }
 
-pub fn setOnGpuViewRender(handle: i64, cb: fn(WGPURenderPassEncoder)) {
+pub fn setOnGpuViewRender(handle: i64, cb: fn(WGPURenderPassEncoder, f64, f64)) {
     if let some(slot) = GPUVIEWS.get(handle) {
         slot.onRender = cb
     }
+}
+
+pub fn setOnGpuViewKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnGpuViewKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnGpuViewMouseMove(handle: i64, cb: fn(f64, f64, u32, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseMove = cb }
+}
+pub fn setOnGpuViewMouseDown(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnGpuViewMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnGpuViewMouseWheel(handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn setOnGpuViewResize(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onResize = cb }
 }
 
 pub fn getGpuViewSurface(handle: i64): WGPUSurface {

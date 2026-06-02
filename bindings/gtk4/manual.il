@@ -185,6 +185,26 @@ pub enum Keyval: u32 {
         data: *void, destroy_data: i64, flags: u32
     ): u64
 
+    /// `gboolean(GtkEventControllerScroll*, gdouble dx, gdouble dy,
+    /// gpointer)` — `scroll` signal on `GtkEventControllerScroll`.
+    /// Returning nonzero consumes the event.
+    @symbol("g_signal_connect_data")
+    @lib pub fn g_signal_connect_scroll(
+        instance: GObject, signal_name: *const char,
+        c_handler: fn(i64, f64, f64, i64): i32,
+        data: *void, destroy_data: i64, flags: u32
+    ): u64
+
+    /// `void(GtkDrawingArea*, int width, int height, gpointer)` —
+    /// `resize` signal on `GtkDrawingArea`. Fires whenever the
+    /// drawing area's allocated size changes.
+    @symbol("g_signal_connect_data")
+    @lib pub fn g_signal_connect_resize(
+        instance: GObject, signal_name: *const char,
+        c_handler: fn(i64, i32, i32, i64),
+        data: *void, destroy_data: i64, flags: u32
+    ): u64
+
     // ─── GtkNative + GdkSurface accessors ─────────────────────
     // Needed by libs/gui/linux GpuView to extract the GdkSurface
     // backing a GtkWindow and, beneath it, the platform-native X11

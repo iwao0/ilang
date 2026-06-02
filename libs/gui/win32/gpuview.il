@@ -38,9 +38,12 @@ use windows {
     DestroyWindow, ShowWindow, MoveWindow,
     GetClientRect, PostMessageW,
     CreateThread, WaitForSingleObject, CloseHandle,
+    VirtualKey, GetKeyState,
 }
 use dwmapi { DwmFlush }
 use core { WINDOWS, windowHwnd }
+use wnd_proc { vkToString }
+use std.time { monotonicNs }
 use wgpu29 {
     WGPUInstance, WGPUAdapter, WGPUDevice, WGPUQueue, WGPUSurface,
     WGPUTexture, WGPUTextureView, WGPUCommandBuffer, WGPURenderPassEncoder,
@@ -86,24 +89,47 @@ class GpuViewSlot {
     pub thread:   i64           // HANDLE, 0 = no thread
     pub stop:     bool[]        // [0] = render thread should stop
     pub pending:  bool[]        // [0] = a GPU_REDRAW is in flight
-    pub onRender: fn(WGPURenderPassEncoder)
+    pub onRender: fn(WGPURenderPassEncoder, f64, f64)
+    pub onKeyDown:    fn(string, bool, bool, bool, bool)
+    pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseMove:  fn(f64, f64, u32, bool, bool, bool, bool)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub onResize:     fn(f64, f64)
+    pub startNs:  i64
+    pub lastNs:   i64
 
     pub init(hwnd: HWND, surface: i64, format: u32, w: f64, h: f64) {
-        this.hwnd     = hwnd
-        this.surface  = surface
-        this.format   = format
-        this.width    = w
-        this.height   = h
-        this.thread   = 0
-        this.stop     = [false]
-        this.pending  = [false]
-        this.onRender = noOpRender
+        this.hwnd         = hwnd
+        this.surface      = surface
+        this.format       = format
+        this.width        = w
+        this.height       = h
+        this.thread       = 0
+        this.stop         = [false]
+        this.pending      = [false]
+        this.onRender     = gpuNoOpRender
+        this.onKeyDown    = gpuNoOpKey
+        this.onKeyUp      = gpuNoOpKey
+        this.onMouseMove  = gpuNoOpMove
+        this.onMouseDown  = gpuNoOpButton
+        this.onMouseUp    = gpuNoOpButton
+        this.onMouseWheel = gpuNoOpWheel
+        this.onResize     = gpuNoOpResize
+        this.startNs      = 0 as i64
+        this.lastNs       = 0 as i64
     }
 }
 
 let GPUVIEWS = new Map<i64, GpuViewSlot>()
 
-fn noOpRender(pass: WGPURenderPassEncoder) {}
+fn gpuNoOpRender(pass: WGPURenderPassEncoder, t: f64, dt: f64) {}
+fn gpuNoOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn gpuNoOpMove(x: f64, y: f64, b: u32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn gpuNoOpButton(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn gpuNoOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn gpuNoOpResize(w: f64, h: f64) {}
 
 // ─── app-wide state ────────────────────────────────────────────
 
@@ -277,8 +303,17 @@ let CLASS_INITED: bool[] = [false]
         }
         let pass = wgpuCommandEncoderBeginRenderPass(enc, &rp)
 
+        let nowNs = monotonicNs()
+        if slot.startNs == 0 as i64 {
+            slot.startNs = nowNs
+            slot.lastNs  = nowNs
+        }
+        let time = ((nowNs - slot.startNs) as f64) / 1.0e9
+        let dt   = ((nowNs - slot.lastNs) as f64) / 1.0e9
+        slot.lastNs = nowNs
+
         let cb = slot.onRender
-        cb(pass)
+        cb(pass, time, dt)
 
         wgpuRenderPassEncoderEnd(pass)
         let cmd = wgpuCommandEncoderFinish(enc, 0 as *void)
@@ -308,18 +343,23 @@ let CLASS_INITED: bool[] = [false]
             if let some(slot) = GPUVIEWS.get(hwnd) { slot.pending[0] = false }
             return 0
         }
+        // lParam packs (x, y) for mouse messages — extract once.
+        let lo = (lParam & 0xFFFF) as f64
+        let hi = ((lParam >> 16) & 0xFFFF) as f64
         match msg as WindowMessage {
             WindowMessage.size {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
                     // lParam low word = new width, high word = height
-                    let w = (lParam & 0xFFFF) as f64
-                    let h = ((lParam >> 16) & 0xFFFF) as f64
+                    let w = lo
+                    let h = hi
                     if w > 0.0 && h > 0.0 && (w != slot.width || h != slot.height) {
                         slot.width  = w
                         slot.height = h
                         if WGPU_READY[0] {
                             configureSurfaceFor(slot.surface, w as u32, h as u32)
                         }
+                        let cb = slot.onResize
+                        cb(w, h)
                     }
                 }
                 return 0
@@ -329,10 +369,117 @@ let CLASS_INITED: bool[] = [false]
                 // avoid flicker before the first present lands.
                 return 1
             }
+            WindowMessage.keydown {
+                if let some(slot) = GPUVIEWS.get(hwnd) {
+                    let cb = slot.onKeyDown
+                    cb(vkToString(wParam as u32 as VirtualKey),
+                       gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                }
+                return 0
+            }
+            WindowMessage.keyup {
+                if let some(slot) = GPUVIEWS.get(hwnd) {
+                    let cb = slot.onKeyUp
+                    cb(vkToString(wParam as u32 as VirtualKey),
+                       gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                }
+                return 0
+            }
+            WindowMessage.mouseMove {
+                if let some(slot) = GPUVIEWS.get(hwnd) {
+                    // wParam holds the MK_* bitfield (bit0=L, 1=R, 4=middle).
+                    // Pack into the (L=bit0, R=bit1, M=bit2) layout the
+                    // public class exposes.
+                    let mk = wParam as u32
+                    let buttons =
+                        (if (mk & 0x1 as u32) != 0 as u32 { 0x1 as u32 } else { 0 as u32 }) |
+                        (if (mk & 0x2 as u32) != 0 as u32 { 0x2 as u32 } else { 0 as u32 }) |
+                        (if (mk & 0x10 as u32) != 0 as u32 { 0x4 as u32 } else { 0 as u32 })
+                    let cb = slot.onMouseMove
+                    cb(lo, hi, buttons,
+                       gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                }
+                return 0
+            }
+            WindowMessage.lbuttondown {
+                if let some(slot) = GPUVIEWS.get(hwnd) {
+                    let cb = slot.onMouseDown
+                    cb(lo, hi, 0 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                }
+                return 0
+            }
+            WindowMessage.lbuttonup {
+                if let some(slot) = GPUVIEWS.get(hwnd) {
+                    let cb = slot.onMouseUp
+                    cb(lo, hi, 0 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                }
+                return 0
+            }
+            WindowMessage.rButtonDown {
+                if let some(slot) = GPUVIEWS.get(hwnd) {
+                    let cb = slot.onMouseDown
+                    cb(lo, hi, 2 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                }
+                return 0
+            }
+            WindowMessage.rButtonUp {
+                if let some(slot) = GPUVIEWS.get(hwnd) {
+                    let cb = slot.onMouseUp
+                    cb(lo, hi, 2 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                }
+                return 0
+            }
+            WindowMessage.mButtonDown {
+                if let some(slot) = GPUVIEWS.get(hwnd) {
+                    let cb = slot.onMouseDown
+                    cb(lo, hi, 1 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                }
+                return 0
+            }
+            WindowMessage.mButtonUp {
+                if let some(slot) = GPUVIEWS.get(hwnd) {
+                    let cb = slot.onMouseUp
+                    cb(lo, hi, 1 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                }
+                return 0
+            }
+            WindowMessage.mouseWheel {
+                if let some(slot) = GPUVIEWS.get(hwnd) {
+                    // HIWORD(wParam) holds a signed 16-bit delta in
+                    // multiples of WHEEL_DELTA (120). Normalise to
+                    // ±1 per detent so the cross-platform shape is
+                    // stable (matches NSEvent.deltaY conventions).
+                    let raw = ((wParam >> 16) & 0xFFFF) as i32
+                    let signed = if raw >= 0x8000 as i32 { raw - 0x10000 as i32 } else { raw }
+                    let dy = (signed as f64) / 120.0
+                    // For WM_MOUSEWHEEL, lParam coords are screen-space
+                    // (not client). For the first batch we ship the
+                    // raw values — most game code treats wheel as a
+                    // discrete delta and ignores cursor pos anyway.
+                    // TODO: ScreenToClient(hwnd, &pt) for a faithful
+                    // local point.
+                    let cb = slot.onMouseWheel
+                    cb(0.0, dy, lo, hi,
+                       gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                }
+                return 0
+            }
             _ {}
         }
         DefWindowProcW(hwnd as HWND, msg, wParam, lParam)
     }
+
+    /// Modifier-key polling for the GpuView wnd-proc. Duplicates
+    /// the helpers in `wnd_proc.il` (which live inside that file's
+    /// `@extern(C)` block as non-pub fns) so the GpuView class can
+    /// stand alone.
+    fn gpuKeyDown(vk: i32): bool {
+        (GetKeyState(vk) as i32 & 0x8000) != 0
+    }
+    fn gpuModShift(): bool { gpuKeyDown(VirtualKey.shift as i32) }
+    fn gpuModCtrl():  bool { gpuKeyDown(VirtualKey.control as i32) }
+    fn gpuModAlt():   bool { gpuKeyDown(VirtualKey.alt as i32) }
+    fn gpuModMeta():  bool { gpuKeyDown(VirtualKey.lWin as i32) || gpuKeyDown(VirtualKey.rWin as i32) }
 
     /// Render thread body. Blocks on `DwmFlush` (~vsync, reliable
     /// under DWM unlike `IDXGIOutput::WaitForVBlank`), then posts
@@ -451,10 +598,32 @@ pub fn setGpuViewVisible(handle: i64, visible: bool) {
     }
 }
 
-pub fn setOnGpuViewRender(handle: i64, cb: fn(WGPURenderPassEncoder)) {
+pub fn setOnGpuViewRender(handle: i64, cb: fn(WGPURenderPassEncoder, f64, f64)) {
     if let some(slot) = GPUVIEWS.get(handle) {
         slot.onRender = cb
     }
+}
+
+pub fn setOnGpuViewKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnGpuViewKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnGpuViewMouseMove(handle: i64, cb: fn(f64, f64, u32, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseMove = cb }
+}
+pub fn setOnGpuViewMouseDown(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnGpuViewMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnGpuViewMouseWheel(handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn setOnGpuViewResize(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onResize = cb }
 }
 
 pub fn getGpuViewSurface(handle: i64): WGPUSurface {

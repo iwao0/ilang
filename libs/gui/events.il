@@ -133,10 +133,15 @@ pub class KeyEvent : Event {
     }
 }
 
-/// Mouse event. `x` / `y` are in the window's client area, with
-/// the origin at the top-left (W3C convention). `button` matches
-/// `MouseEvent.button`: `0 = left`, `1 = middle`, `2 = right`,
-/// `3 = back`, `4 = forward`. Modifier flags as in `KeyEvent`.
+/// Mouse event. `x` / `y` are in the source widget's local
+/// coordinates (window client area for `Window`; view-local for
+/// `GpuView`), with the origin at the top-left (W3C convention).
+/// `button` matches `MouseEvent.button`: `0 = left`, `1 = middle`,
+/// `2 = right`, `3 = back`, `4 = forward`. Modifier flags as in
+/// `KeyEvent`. `wheelDx` / `wheelDy` carry the scroll delta for
+/// wheel events (units are "lines" in the W3C sense — backends
+/// normalise to roughly ±1 per detent); both are `0.0` for
+/// non-wheel events.
 pub class MouseEvent : Event {
     pub x: f64
     pub y: f64
@@ -145,6 +150,8 @@ pub class MouseEvent : Event {
     pub shiftKey: bool
     pub altKey: bool
     pub metaKey: bool
+    pub wheelDx: f64
+    pub wheelDy: f64
     pub init(
         sender: EventTarget, x: f64, y: f64, button: i32,
         ctrlKey: bool, shiftKey: bool, altKey: bool, metaKey: bool
@@ -157,6 +164,8 @@ pub class MouseEvent : Event {
         this.shiftKey = shiftKey
         this.altKey = altKey
         this.metaKey = metaKey
+        this.wheelDx = 0.0
+        this.wheelDy = 0.0
     }
 }
 
