@@ -192,6 +192,32 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub setDelegate(d: NSWindowDelegate)
         @objc("setDelegate:")
         pub setDelegate(d: NSObject)
+        /// Window state actions. `miniaturize:` collapses to the
+        /// Dock; `deminiaturize:` restores. `zoom:` toggles between
+        /// the user frame and the standard ("zoomed") frame — i.e.
+        /// the Cocoa equivalent of maximize / unmaximize, but a
+        /// single action that flips depending on the current state
+        /// (callers check `isZoomed` to disambiguate).
+        /// `toggleFullScreen:` is the user-facing full-screen
+        /// transition that animates the window onto its own Space
+        /// (and back).
+        @objc("miniaturize:")
+        pub miniaturize(sender: NSObject)
+        @objc("deminiaturize:")
+        pub deminiaturize(sender: NSObject)
+        @objc("zoom:")
+        pub zoom(sender: NSObject)
+        @objc("toggleFullScreen:")
+        pub toggleFullScreen(sender: NSObject)
+        @objc("isMiniaturized")
+        pub get isMiniaturized(): bool
+        @objc("isZoomed")
+        pub get isZoomed(): bool
+        /// `styleMask` carries `NSWindowStyleMask.fullScreen`
+        /// while the window is in full-screen mode; mask against
+        /// that bit to query full-screen state.
+        @objc("styleMask")
+        pub get styleMask(): NSWindowStyleMask
     }
 
     /// `NSScreen` — physical display. `mainScreen` is the one

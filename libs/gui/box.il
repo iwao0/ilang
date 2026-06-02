@@ -36,6 +36,21 @@ use window { Window, Container, Control }
 pub class VBox : Container {
     pub init() { super() }
 
+    /// Preferred extent for the dock layout of an outer `Window`
+    /// (or `HBox` / `VBox`) when this box is sized with `flex = 0`.
+    /// Writing the property re-runs `relayout()` so any children
+    /// already added re-flow against the new bounds.
+    pub get width():  f64 { this._w }
+    pub set width(v: f64) {
+        this._w = v
+        this.relayout()
+    }
+    pub get height(): f64 { this._h }
+    pub set height(v: f64) {
+        this._h = v
+        this.relayout()
+    }
+
     pub override relayout() {
         let n = this._children.length
         if n == 0 { return }
@@ -108,6 +123,17 @@ pub class VBox : Container {
 /// Horizontal linear container — stacks children left → right.
 pub class HBox : Container {
     pub init() { super() }
+
+    pub get width():  f64 { this._w }
+    pub set width(v: f64) {
+        this._w = v
+        this.relayout()
+    }
+    pub get height(): f64 { this._h }
+    pub set height(v: f64) {
+        this._h = v
+        this.relayout()
+    }
 
     pub override relayout() {
         let n = this._children.length

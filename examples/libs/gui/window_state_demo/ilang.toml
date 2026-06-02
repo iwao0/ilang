@@ -1,0 +1,5 @@
+[package]
+name = "gui_window_state_demo_example"
+
+[deps]
+gui = "../../../../libs/gui"

@@ -163,7 +163,7 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             }
         }
         WindowMessage.size {
-            dispatchSize(hwnd, lo, hi)
+            dispatchSize(hwnd, wParam as i32, lo, hi)
             return 0
         }
         WindowMessage.keydown {

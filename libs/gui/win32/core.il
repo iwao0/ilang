@@ -8,7 +8,19 @@
 /// `createNativeWindow` and depends on the wnd-proc + every
 /// widget's `tryXxx` helper).
 
-use windows { HWND }
+use windows { HWND, WINDOWPLACEMENT, POINT, RECT }
+
+/// `lastSizeWParam` is the wParam value (SIZE_* code) of the most
+/// recent `WM_SIZE` we delivered, used by `dispatchSize` to
+/// disambiguate `SIZE_RESTORED` events that follow a minimise vs.
+/// a maximise. `isFullScreen` + `preFullScreenPlacement` +
+/// `preFullScreenStyle` together let `setNativeWindowFullScreen`
+/// borrow and later restore the window's style + placement when
+/// flipping to / from a borderless monitor-cover (Win32 has no
+/// native full-screen mode, so we synthesise it).
+const SIZE_RESTORED:  i32 = 0
+const SIZE_MINIMIZED: i32 = 1
+const SIZE_MAXIMIZED: i32 = 2
 
 /// One callback bundle per top-level window. Stored in `WINDOWS`
 /// keyed by the window's HWND (`hwnd as i64`) — same key gui-core
@@ -23,16 +35,43 @@ pub class WindowSlot {
     pub onMouseMove:  fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMinimize:        fn()
+    pub onRestore:         fn()
+    pub onMaximize:        fn()
+    pub onUnmaximize:      fn()
+    pub onEnterFullScreen: fn()
+    pub onLeaveFullScreen: fn()
+    pub lastSizeWParam:    i32
+    pub isFullScreen:      bool
+    pub preFullScreenStyle:     i64
+    pub preFullScreenPlacement: WINDOWPLACEMENT
 
     pub init(hwnd: HWND) {
         this.hwnd = hwnd
-        this.onClose     = noOp1
-        this.onResize    = noOp2
-        this.onKeyDown   = noOpKey
-        this.onKeyUp     = noOpKey
-        this.onMouseMove = noOpMouse
-        this.onMouseDown = noOpMouse
-        this.onMouseUp   = noOpMouse
+        this.onClose           = noOp1
+        this.onResize          = noOp2
+        this.onKeyDown         = noOpKey
+        this.onKeyUp           = noOpKey
+        this.onMouseMove       = noOpMouse
+        this.onMouseDown       = noOpMouse
+        this.onMouseUp         = noOpMouse
+        this.onMinimize        = noOp1
+        this.onRestore         = noOp1
+        this.onMaximize        = noOp1
+        this.onUnmaximize      = noOp1
+        this.onEnterFullScreen = noOp1
+        this.onLeaveFullScreen = noOp1
+        this.lastSizeWParam    = SIZE_RESTORED
+        this.isFullScreen      = false
+        this.preFullScreenStyle     = 0 as i64
+        this.preFullScreenPlacement = WINDOWPLACEMENT {
+            length:           44 as u32,
+            flags:            0 as u32,
+            showCmd:          0 as u32,
+            ptMinPosition:    POINT { x: 0 as i32, y: 0 as i32 },
+            ptMaxPosition:    POINT { x: 0 as i32, y: 0 as i32 },
+            rcNormalPosition: RECT { left: 0, top: 0, right: 0, bottom: 0 },
+        }
     }
 }
 
@@ -81,6 +120,24 @@ pub fn setOnMouseDown(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 pub fn setOnMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if let some(slot) = WINDOWS.get(handle) { slot.onMouseUp = cb }
 }
+pub fn setOnWindowMinimize(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMinimize = cb }
+}
+pub fn setOnWindowRestore(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onRestore = cb }
+}
+pub fn setOnWindowMaximize(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMaximize = cb }
+}
+pub fn setOnWindowUnmaximize(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onUnmaximize = cb }
+}
+pub fn setOnWindowEnterFullScreen(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onEnterFullScreen = cb }
+}
+pub fn setOnWindowLeaveFullScreen(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onLeaveFullScreen = cb }
+}
 
 // ─── dispatch entry points — called by `wnd_proc.guiWndProc` ─
 
@@ -89,9 +146,30 @@ pub fn dispatchClose(handle: i64) {
         slot.onClose()
     }
 }
-pub fn dispatchSize(handle: i64, w: f64, h: f64) {
+/// Win32 packs the new size-state into `wParam` of every `WM_SIZE`
+/// (`SIZE_MAXIMIZED` / `SIZE_MINIMIZED` / `SIZE_RESTORED`). The
+/// wnd-proc forwards both: `wParam` (as `state`) and the new
+/// dimensions. We always dispatch `onResize`, then synthesise the
+/// matching transition event whenever `state` differs from the
+/// previous `WM_SIZE`'s wParam. `SIZE_RESTORED` after
+/// `SIZE_MINIMIZED` is `onRestore`; after `SIZE_MAXIMIZED` is
+/// `onUnmaximize`; user-dragged ordinary resizes (restored →
+/// restored) emit no transition event.
+pub fn dispatchSize(handle: i64, state: i32, w: f64, h: f64) {
     if let some(slot) = WINDOWS.get(handle) {
         slot.onResize(w, h)
+        if state != slot.lastSizeWParam {
+            let prev = slot.lastSizeWParam
+            slot.lastSizeWParam = state
+            if state == SIZE_MINIMIZED {
+                slot.onMinimize()
+            } elif state == SIZE_MAXIMIZED {
+                slot.onMaximize()
+            } elif state == SIZE_RESTORED {
+                if prev == SIZE_MINIMIZED { slot.onRestore() }
+                elif prev == SIZE_MAXIMIZED { slot.onUnmaximize() }
+            }
+        }
     }
 }
 pub fn dispatchKeyDown(

@@ -28,19 +28,40 @@ pub class WindowSlot {
     pub onMouseMove: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseDown: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:   fn(f64, f64, i32, bool, bool, bool, bool)
+    /// Window-state event hooks. AppKit fires distinct delegate
+    /// callbacks for miniaturize / deminiaturize / enter-full-
+    /// screen / exit-full-screen, but NOT for `zoom:` — there's
+    /// no `windowDidZoom:`. We track the previous `isZoomed`
+    /// state in `wasZoomed` and synthesise `onMaximize` /
+    /// `onUnmaximize` whenever a `windowDidResize` notification
+    /// flips the bit.
+    pub onMinimize:        fn()
+    pub onRestore:         fn()
+    pub onMaximize:        fn()
+    pub onUnmaximize:      fn()
+    pub onEnterFullScreen: fn()
+    pub onLeaveFullScreen: fn()
+    pub wasZoomed:         bool
 
     pub init(win: NSWindow, delegate: NSObject, view: NSObject, viewHandle: i64) {
-        this.win         = win
-        this.delegate    = delegate
-        this.view        = view
-        this.viewHandle  = viewHandle
-        this.onClose     = noOp1
-        this.onResize    = noOp2
-        this.onKeyDown   = noOpKey
-        this.onKeyUp     = noOpKey
-        this.onMouseMove = noOpMouse
-        this.onMouseDown = noOpMouse
-        this.onMouseUp   = noOpMouse
+        this.win               = win
+        this.delegate          = delegate
+        this.view              = view
+        this.viewHandle        = viewHandle
+        this.onClose           = noOp1
+        this.onResize          = noOp2
+        this.onKeyDown         = noOpKey
+        this.onKeyUp           = noOpKey
+        this.onMouseMove       = noOpMouse
+        this.onMouseDown       = noOpMouse
+        this.onMouseUp         = noOpMouse
+        this.onMinimize        = noOp1
+        this.onRestore         = noOp1
+        this.onMaximize        = noOp1
+        this.onUnmaximize      = noOp1
+        this.onEnterFullScreen = noOp1
+        this.onLeaveFullScreen = noOp1
+        this.wasZoomed         = false
     }
 }
 
@@ -159,6 +180,49 @@ pub class GuiDelegate : NSObject {
             let frame = slot.win.contentView.frame
             let cb = slot.onResize
             cb(frame.size.width, frame.size.height)
+            // AppKit has no `windowDidZoom:` delegate hook — the only
+            // signal for a zoom transition is a `windowDidResize`
+            // that flips `isZoomed`. Track the previous bit and
+            // synthesise the matching callback.
+            let nowZoomed = slot.win.isZoomed
+            if nowZoomed != slot.wasZoomed {
+                slot.wasZoomed = nowZoomed
+                if nowZoomed {
+                    let mcb = slot.onMaximize
+                    mcb()
+                } else {
+                    let ucb = slot.onUnmaximize
+                    ucb()
+                }
+            }
+        }
+    }
+
+    pub windowDidMiniaturize(n: NSNotification) {
+        if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
+            let cb = slot.onMinimize
+            cb()
+        }
+    }
+
+    pub windowDidDeminiaturize(n: NSNotification) {
+        if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
+            let cb = slot.onRestore
+            cb()
+        }
+    }
+
+    pub windowDidEnterFullScreen(n: NSNotification) {
+        if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
+            let cb = slot.onEnterFullScreen
+            cb()
+        }
+    }
+
+    pub windowDidExitFullScreen(n: NSNotification) {
+        if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
+            let cb = slot.onLeaveFullScreen
+            cb()
         }
     }
 }
@@ -279,4 +343,22 @@ pub fn setOnMouseDown(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 }
 pub fn setOnMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if let some(slot) = WINDOWS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnWindowMinimize(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMinimize = cb }
+}
+pub fn setOnWindowRestore(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onRestore = cb }
+}
+pub fn setOnWindowMaximize(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMaximize = cb }
+}
+pub fn setOnWindowUnmaximize(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onUnmaximize = cb }
+}
+pub fn setOnWindowEnterFullScreen(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onEnterFullScreen = cb }
+}
+pub fn setOnWindowLeaveFullScreen(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onLeaveFullScreen = cb }
 }

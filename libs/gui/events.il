@@ -33,6 +33,35 @@ pub class CloseEvent : Event {
     pub init(sender: EventTarget) { super(sender) }
 }
 
+/// Window state-transition events. Each fires once per
+/// transition (entering, not staying); no extra payload beyond
+/// the inherited `sender` (the source `Window`).
+///
+///   * `MinimizeEvent`        — collapsed to the OS task-bar / Dock
+///   * `RestoreEvent`         — un-minimised back to the normal frame
+///   * `MaximizeEvent`        — zoomed / maximised to the screen
+///   * `UnmaximizeEvent`      — un-zoomed back to the user frame
+///   * `EnterFullScreenEvent` — entered native full-screen mode
+///   * `LeaveFullScreenEvent` — exited native full-screen mode
+pub class MinimizeEvent : Event {
+    pub init(sender: EventTarget) { super(sender) }
+}
+pub class RestoreEvent : Event {
+    pub init(sender: EventTarget) { super(sender) }
+}
+pub class MaximizeEvent : Event {
+    pub init(sender: EventTarget) { super(sender) }
+}
+pub class UnmaximizeEvent : Event {
+    pub init(sender: EventTarget) { super(sender) }
+}
+pub class EnterFullScreenEvent : Event {
+    pub init(sender: EventTarget) { super(sender) }
+}
+pub class LeaveFullScreenEvent : Event {
+    pub init(sender: EventTarget) { super(sender) }
+}
+
 /// Fired when the window's drawable content area changes size.
 /// `width` / `height` are the new client-area dimensions in
 /// device-independent points.

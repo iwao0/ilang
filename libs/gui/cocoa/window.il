@@ -11,6 +11,7 @@ use cocoa {
     nsstr, makeSize, nil,
     sharedApplication, makeWindow,
 }
+const FULLSCREEN_BIT: u64 = NSWindowStyleMask.fullScreen as u64
 use core { WINDOWS, WindowSlot, GuiDelegate, GuiAppDelegate, GuiView, registerView }
 
 /// `app.setDelegate(...)` only needs to fire once per process. The
@@ -78,4 +79,68 @@ pub fn hideNativeWindow(handle: i64) {
 pub fn runEventLoop() {
     let app = NSApplication.sharedApplication()
     app.run()
+}
+
+// ─── window state actions ──────────────────────────────────────
+
+pub fn minimizeNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.miniaturize(nil)
+    }
+}
+pub fn restoreNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.deminiaturize(nil)
+    }
+}
+
+/// `zoom:` is a TOGGLE on Cocoa (no separate maximize / unmaximize
+/// actions). Guard the call on the current `isZoomed` bit so
+/// `maximizeNativeWindow` is idempotent: calling it on an already
+/// zoomed window is a no-op rather than an "un-zoom".
+pub fn maximizeNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        if !slot.win.isZoomed {
+            slot.win.zoom(nil)
+        }
+    }
+}
+pub fn unmaximizeNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        if slot.win.isZoomed {
+            slot.win.zoom(nil)
+        }
+    }
+}
+
+/// Full-screen via `toggleFullScreen:` — also a TOGGLE, so we
+/// check the `fullScreen` style-mask bit and only flip when the
+/// current state disagrees with `on`.
+pub fn setNativeWindowFullScreen(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let isFs = (slot.win.styleMask as u64 & FULLSCREEN_BIT) != 0 as u64
+        if isFs != on { slot.win.toggleFullScreen(nil) }
+    }
+}
+
+pub fn isNativeWindowMinimized(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.isMiniaturized
+    } else {
+        false
+    }
+}
+pub fn isNativeWindowMaximized(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.isZoomed
+    } else {
+        false
+    }
+}
+pub fn isNativeWindowFullScreen(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        (slot.win.styleMask as u64 & FULLSCREEN_BIT) != 0 as u64
+    } else {
+        false
+    }
 }

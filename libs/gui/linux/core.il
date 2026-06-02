@@ -24,17 +24,39 @@ pub class WindowSlot {
     pub onMouseMove: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseDown: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:   fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMinimize:        fn()
+    pub onRestore:         fn()
+    pub onMaximize:        fn()
+    pub onUnmaximize:      fn()
+    pub onEnterFullScreen: fn()
+    pub onLeaveFullScreen: fn()
+    /// Previous `maximized` / `fullscreened` / `minimized` bits,
+    /// used by the `notify::` callbacks in window.il to detect
+    /// edge transitions (GTK fires `notify` for both rising and
+    /// falling edges).
+    pub wasMaximized:  bool
+    pub wasFullScreen: bool
+    pub wasMinimized:  bool
 
     pub init(win: GtkWindow, fixed: GtkFixed) {
-        this.win         = win
-        this.fixed       = fixed
-        this.onClose     = noOpClose
-        this.onResize    = noOpResize
-        this.onKeyDown   = noOpKey
-        this.onKeyUp     = noOpKey
-        this.onMouseMove = noOpMouse
-        this.onMouseDown = noOpMouse
-        this.onMouseUp   = noOpMouse
+        this.win               = win
+        this.fixed             = fixed
+        this.onClose           = noOpClose
+        this.onResize          = noOpResize
+        this.onKeyDown         = noOpKey
+        this.onKeyUp           = noOpKey
+        this.onMouseMove       = noOpMouse
+        this.onMouseDown       = noOpMouse
+        this.onMouseUp         = noOpMouse
+        this.onMinimize        = noOpClose
+        this.onRestore         = noOpClose
+        this.onMaximize        = noOpClose
+        this.onUnmaximize      = noOpClose
+        this.onEnterFullScreen = noOpClose
+        this.onLeaveFullScreen = noOpClose
+        this.wasMaximized      = false
+        this.wasFullScreen     = false
+        this.wasMinimized      = false
     }
 }
 
@@ -86,4 +108,22 @@ pub fn setOnMouseDown(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 }
 pub fn setOnMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if let some(slot) = WINDOWS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnWindowMinimize(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMinimize = cb }
+}
+pub fn setOnWindowRestore(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onRestore = cb }
+}
+pub fn setOnWindowMaximize(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMaximize = cb }
+}
+pub fn setOnWindowUnmaximize(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onUnmaximize = cb }
+}
+pub fn setOnWindowEnterFullScreen(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onEnterFullScreen = cb }
+}
+pub fn setOnWindowLeaveFullScreen(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onLeaveFullScreen = cb }
 }

@@ -24,12 +24,19 @@ use std.events { Signal }
 use events {
     EventTarget,
     CloseEvent, SizeEvent, KeyEvent, MouseEvent,
+    MinimizeEvent, RestoreEvent,
+    MaximizeEvent, UnmaximizeEvent,
+    EnterFullScreenEvent, LeaveFullScreenEvent,
 }
 use layout { Dock, Margin }
 use gui_impl {
     createNativeWindow,
     setWindowTitle, setWindowSize,
     showNativeWindow, hideNativeWindow,
+    minimizeNativeWindow, restoreNativeWindow,
+    maximizeNativeWindow, unmaximizeNativeWindow,
+    setNativeWindowFullScreen,
+    isNativeWindowMinimized, isNativeWindowMaximized, isNativeWindowFullScreen,
     setOnClose,
     setOnResize,
     setOnKeyDown,
@@ -37,6 +44,9 @@ use gui_impl {
     setOnMouseMove,
     setOnMouseDown,
     setOnMouseUp,
+    setOnWindowMinimize, setOnWindowRestore,
+    setOnWindowMaximize, setOnWindowUnmaximize,
+    setOnWindowEnterFullScreen, setOnWindowLeaveFullScreen,
     setWindowMenuBar,
 }
 use menubar { Menu }
@@ -199,13 +209,19 @@ pub class Container : Control {
 pub class Window : Container {
     pub handle: i64
     _title:  string
-    pub onClose:     Signal<CloseEvent>
-    pub onResize:    Signal<SizeEvent>
-    pub onKeyDown:   Signal<KeyEvent>
-    pub onKeyUp:     Signal<KeyEvent>
-    pub onMouseMove: Signal<MouseEvent>
-    pub onMouseDown: Signal<MouseEvent>
-    pub onMouseUp:   Signal<MouseEvent>
+    pub onClose:            Signal<CloseEvent>
+    pub onResize:           Signal<SizeEvent>
+    pub onKeyDown:          Signal<KeyEvent>
+    pub onKeyUp:            Signal<KeyEvent>
+    pub onMouseMove:        Signal<MouseEvent>
+    pub onMouseDown:        Signal<MouseEvent>
+    pub onMouseUp:          Signal<MouseEvent>
+    pub onMinimize:         Signal<MinimizeEvent>
+    pub onRestore:          Signal<RestoreEvent>
+    pub onMaximize:         Signal<MaximizeEvent>
+    pub onUnmaximize:       Signal<UnmaximizeEvent>
+    pub onEnterFullScreen:  Signal<EnterFullScreenEvent>
+    pub onLeaveFullScreen:  Signal<LeaveFullScreenEvent>
 
     pub init() {
         super()
@@ -217,13 +233,19 @@ pub class Window : Container {
         // added via `addChild` (inherited from Container) gets
         // `attachTo(this)` called immediately rather than buffered.
         this._root   = some(this)
-        this.onClose     = new Signal<CloseEvent>()
-        this.onResize    = new Signal<SizeEvent>()
-        this.onKeyDown   = new Signal<KeyEvent>()
-        this.onKeyUp     = new Signal<KeyEvent>()
-        this.onMouseMove = new Signal<MouseEvent>()
-        this.onMouseDown = new Signal<MouseEvent>()
-        this.onMouseUp   = new Signal<MouseEvent>()
+        this.onClose            = new Signal<CloseEvent>()
+        this.onResize           = new Signal<SizeEvent>()
+        this.onKeyDown          = new Signal<KeyEvent>()
+        this.onKeyUp            = new Signal<KeyEvent>()
+        this.onMouseMove        = new Signal<MouseEvent>()
+        this.onMouseDown        = new Signal<MouseEvent>()
+        this.onMouseUp          = new Signal<MouseEvent>()
+        this.onMinimize         = new Signal<MinimizeEvent>()
+        this.onRestore          = new Signal<RestoreEvent>()
+        this.onMaximize         = new Signal<MaximizeEvent>()
+        this.onUnmaximize       = new Signal<UnmaximizeEvent>()
+        this.onEnterFullScreen  = new Signal<EnterFullScreenEvent>()
+        this.onLeaveFullScreen  = new Signal<LeaveFullScreenEvent>()
         // Forward native callbacks to each Signal. The closures
         // capture `this` so the same Window flows through as
         // `event.sender`.
@@ -259,6 +281,24 @@ pub class Window : Container {
             fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
                 this.onMouseUp.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
             })
+        setOnWindowMinimize(this.handle, fn() {
+            this.onMinimize.emit(new MinimizeEvent(this))
+        })
+        setOnWindowRestore(this.handle, fn() {
+            this.onRestore.emit(new RestoreEvent(this))
+        })
+        setOnWindowMaximize(this.handle, fn() {
+            this.onMaximize.emit(new MaximizeEvent(this))
+        })
+        setOnWindowUnmaximize(this.handle, fn() {
+            this.onUnmaximize.emit(new UnmaximizeEvent(this))
+        })
+        setOnWindowEnterFullScreen(this.handle, fn() {
+            this.onEnterFullScreen.emit(new EnterFullScreenEvent(this))
+        })
+        setOnWindowLeaveFullScreen(this.handle, fn() {
+            this.onLeaveFullScreen.emit(new LeaveFullScreenEvent(this))
+        })
     }
 
     pub get title(): string { this._title }
@@ -287,6 +327,38 @@ pub class Window : Container {
     /// stays alive so a later `show()` brings the same instance
     /// (with its current children + state) back.
     pub hide() { hideNativeWindow(this.handle) }
+
+    /// Collapse the window to the OS task-bar / Dock without
+    /// destroying it. Fires `onMinimize` once the platform has
+    /// committed the transition; pair with `restore()` to bring
+    /// the window back to its previous frame.
+    pub minimize() { minimizeNativeWindow(this.handle) }
+    /// Un-minimise back to the normal frame. No-op if the window
+    /// isn't currently minimised. Fires `onRestore` once the
+    /// platform has committed the transition.
+    pub restore()  { restoreNativeWindow(this.handle) }
+
+    /// Maximise / "zoom" to the standard frame for the window's
+    /// screen. Idempotent — already-maximised windows stay
+    /// maximised (callers can disambiguate with `isMaximized()`).
+    /// Fires `onMaximize` on the transition.
+    pub maximize()   { maximizeNativeWindow(this.handle) }
+    /// Reverse of `maximize()`. Fires `onUnmaximize` on the
+    /// transition.
+    pub unmaximize() { unmaximizeNativeWindow(this.handle) }
+
+    /// Enter (`on = true`) or leave (`on = false`) native
+    /// full-screen mode. On macOS the window animates onto its
+    /// own Space and back. Fires `onEnterFullScreen` /
+    /// `onLeaveFullScreen` on the transition; idempotent when
+    /// `on` matches the current state.
+    pub setFullScreen(on: bool) {
+        setNativeWindowFullScreen(this.handle, on)
+    }
+
+    pub isMinimized():  bool { isNativeWindowMinimized(this.handle) }
+    pub isMaximized():  bool { isNativeWindowMaximized(this.handle) }
+    pub isFullScreen(): bool { isNativeWindowFullScreen(this.handle) }
 
     /// Re-run the dock / margin layout pass over every direct
     /// child. Called automatically on `addChild` (inherited from

@@ -14,6 +14,10 @@ use gtk {
     gtk_init, gtk_window_new,
     gtk_window_set_title, gtk_window_set_default_size,
     gtk_window_present, gtk_window_set_child, gtk_window_destroy,
+    gtk_window_minimize, gtk_window_unminimize,
+    gtk_window_maximize, gtk_window_unmaximize,
+    gtk_window_fullscreen, gtk_window_unfullscreen,
+    gtk_window_is_maximized, gtk_window_is_fullscreen,
     gtk_widget_set_visible, gtk_widget_set_size_request,
     gtk_widget_get_width, gtk_widget_get_height,
     gtk_widget_add_controller,
@@ -125,6 +129,30 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
             let h = gtk_widget_get_height(slot.win as GtkWidget)
             let cb = slot.onResize
             cb(w as f64, h as f64)
+        }
+    }
+
+    /// `void(GObject* window, GParamSpec*, gpointer)` — fired on
+    /// every change of the corresponding GtkWindow property. Both
+    /// the rising and falling edge fire `notify::`, so we compare
+    /// the current value against the stashed `wasXxx` bit to pick
+    /// between `onMaximize` / `onUnmaximize` (and full-screen).
+    pub fn linux_window_maximized_notify(win: i64, pspec: i64, data: i64) {
+        if let some(slot) = WINDOWS.get(data) {
+            let now = gtk_window_is_maximized(slot.win) != 0 as i32
+            if now != slot.wasMaximized {
+                slot.wasMaximized = now
+                if now { slot.onMaximize() } else { slot.onUnmaximize() }
+            }
+        }
+    }
+    pub fn linux_window_fullscreened_notify(win: i64, pspec: i64, data: i64) {
+        if let some(slot) = WINDOWS.get(data) {
+            let now = gtk_window_is_fullscreen(slot.win) != 0 as i32
+            if now != slot.wasFullScreen {
+                slot.wasFullScreen = now
+                if now { slot.onEnterFullScreen() } else { slot.onLeaveFullScreen() }
+            }
         }
     }
 
@@ -251,6 +279,21 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         linux_window_resize, handle as *void, 0 as i64, 0 as u32
     )
 
+    // Window-state notify hooks — GTK 4 exposes `maximized` and
+    // `fullscreened` boolean properties on GtkWindow; `notify::` on
+    // either fires whenever the property flips. GTK 4 does NOT
+    // expose a minimised property (Wayland-era simplification), so
+    // `onMinimize` / `onRestore` are driven by the `minimize` /
+    // `restore` action paths directly (see below).
+    g_signal_connect_data2(
+        win as GObject, cstrFromString("notify::maximized"),
+        linux_window_maximized_notify, handle as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data2(
+        win as GObject, cstrFromString("notify::fullscreened"),
+        linux_window_fullscreened_notify, handle as *void, 0 as i64, 0 as u32
+    )
+
     // Key controller — emits "key-pressed" / "key-released" on
     // every keystroke while the window has focus.
     let keyCtrl = gtk_event_controller_key_new() as GtkEventControllerKey
@@ -326,6 +369,69 @@ pub fn runEventLoop() {
         LOOP_HOLDER.push(g_main_loop_new(0 as *void, 0 as i32))
     }
     g_main_loop_run(LOOP_HOLDER[0])
+}
+
+// ─── window state actions ──────────────────────────────────────
+
+/// GTK 4 has no `is_minimized` query and no `notify::minimized`,
+/// so we synthesise the `onMinimize` / `onRestore` events
+/// synchronously from the action paths and track the boolean
+/// ourselves via `slot.wasMinimized`.
+pub fn minimizeNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_window_minimize(slot.win)
+        if !slot.wasMinimized {
+            slot.wasMinimized = true
+            slot.onMinimize()
+        }
+    }
+}
+pub fn restoreNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_window_unminimize(slot.win)
+        if slot.wasMinimized {
+            slot.wasMinimized = false
+            slot.onRestore()
+        }
+    }
+}
+pub fn maximizeNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_window_maximize(slot.win)
+    }
+}
+pub fn unmaximizeNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_window_unmaximize(slot.win)
+    }
+}
+pub fn setNativeWindowFullScreen(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        if on { gtk_window_fullscreen(slot.win) }
+        else  { gtk_window_unfullscreen(slot.win) }
+    }
+}
+
+pub fn isNativeWindowMinimized(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.wasMinimized
+    } else {
+        false
+    }
+}
+pub fn isNativeWindowMaximized(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_window_is_maximized(slot.win) != 0 as i32
+    } else {
+        false
+    }
+}
+pub fn isNativeWindowFullScreen(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_window_is_fullscreen(slot.win) != 0 as i32
+    } else {
+        false
+    }
 }
 
 } // @extern(C)

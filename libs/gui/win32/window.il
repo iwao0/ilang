@@ -9,17 +9,23 @@
 use windows {
     GetModuleHandleA,
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU,
-    WNDCLASSEXA, MSG, POINT,
-    ClassStyle, WindowStyle, ShowCmd,
+    WNDCLASSEXA, MSG, POINT, WINDOWPLACEMENT,
+    ClassStyle, WindowStyle, ShowCmd, SystemMetric, WindowLongIndex,
     RegisterClassExW, CreateWindowExW,
     SetWindowTextW, SetWindowPos,
     SetWindowPosFlags,
     GetMessageW, DispatchMessageW, TranslateMessage,
     ShowWindow, UpdateWindow,
+    IsIconic, IsZoomed,
+    GetWindowLongPtrW, SetWindowLongPtrW,
+    GetWindowPlacement, SetWindowPlacement,
+    GetSystemMetrics,
 }
 use util { enableComctl32V6 }
 use core { WindowSlot, WINDOWS }
 use wnd_proc { guiWndProc }
+
+const WS_OVERLAPPEDWINDOW: u64 = WindowStyle.overlappedWindow as u64
 
 @extern(C) {
 
@@ -104,6 +110,88 @@ pub fn showNativeWindow(handle: i64) {
 pub fn hideNativeWindow(handle: i64) {
     if let some(slot) = WINDOWS.get(handle) {
         ShowWindow(slot.hwnd, ShowCmd.hide as i32)
+    }
+}
+
+// ─── window state actions ──────────────────────────────────────
+
+pub fn minimizeNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        ShowWindow(slot.hwnd, ShowCmd.minimize as i32)
+    }
+}
+pub fn restoreNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        ShowWindow(slot.hwnd, ShowCmd.restore as i32)
+    }
+}
+pub fn maximizeNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        if IsZoomed(slot.hwnd) == 0 as i32 {
+            ShowWindow(slot.hwnd, ShowCmd.showMaximized as i32)
+        }
+    }
+}
+pub fn unmaximizeNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        if IsZoomed(slot.hwnd) != 0 as i32 {
+            ShowWindow(slot.hwnd, ShowCmd.restore as i32)
+        }
+    }
+}
+
+/// Win32 has no native full-screen mode — synthesise it by
+/// stripping the `WS_OVERLAPPEDWINDOW` decoration bits and
+/// covering the primary monitor with `SetWindowPos`. The pre-
+/// transition style + placement are stashed in the `WindowSlot`
+/// so the leave path can restore both faithfully.
+pub fn setNativeWindowFullScreen(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        if on == slot.isFullScreen { return }
+        if on {
+            slot.preFullScreenStyle = GetWindowLongPtrW(
+                slot.hwnd, WindowLongIndex.style as i32
+            )
+            GetWindowPlacement(slot.hwnd, &slot.preFullScreenPlacement)
+            let stripped = (slot.preFullScreenStyle as u64) & ~WS_OVERLAPPEDWINDOW
+            SetWindowLongPtrW(slot.hwnd, WindowLongIndex.style as i32, stripped as i64)
+            let cx = GetSystemMetrics(SystemMetric.cxScreen as i32)
+            let cy = GetSystemMetrics(SystemMetric.cyScreen as i32)
+            let flags = (SetWindowPosFlags.noZOrder as u32)
+                      | (SetWindowPosFlags.frameChanged as u32)
+            SetWindowPos(slot.hwnd, 0 as HWND, 0, 0, cx, cy, flags)
+            slot.isFullScreen = true
+            slot.onEnterFullScreen()
+        } else {
+            SetWindowLongPtrW(
+                slot.hwnd, WindowLongIndex.style as i32, slot.preFullScreenStyle
+            )
+            SetWindowPlacement(slot.hwnd, &slot.preFullScreenPlacement)
+            slot.isFullScreen = false
+            slot.onLeaveFullScreen()
+        }
+    }
+}
+
+pub fn isNativeWindowMinimized(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        IsIconic(slot.hwnd) != 0 as i32
+    } else {
+        false
+    }
+}
+pub fn isNativeWindowMaximized(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        IsZoomed(slot.hwnd) != 0 as i32
+    } else {
+        false
+    }
+}
+pub fn isNativeWindowFullScreen(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.isFullScreen
+    } else {
+        false
     }
 }
 
