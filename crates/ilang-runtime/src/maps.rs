@@ -44,15 +44,6 @@ struct ObjectMapStore {
 }
 
 impl ObjectMapStore {
-    fn empty_like(&self) -> Self {
-        ObjectMapStore {
-            eq_fn: self.eq_fn,
-            hash_fn: self.hash_fn,
-            buckets: HashMap::new(),
-            count: 0,
-        }
-    }
-
     /// `(value, replaced_previous)` on insertion. The caller handles
     /// the value's kind-based retain/release around this; key
     /// retention happens here on a genuinely new entry.
