@@ -498,6 +498,12 @@ pub fn createNativeGpuView(
 
     let scale = winSlot.win.backingScaleFactor
     let layer = CAMetalLayer.alloc().init()
+    // Pin layer contents to top-left so AppKit clips (instead of
+    // stretching the last-drawn frame) when bounds change between
+    // our redraws during live window-resize. Default
+    // kCAGravityResize would visibly stretch the GpuView upward as
+    // the window grows, overlapping sibling controls.
+    layer.setContentsGravity(nsstr("topLeft"))
     layer.setFrame(makeRect(0.0, 0.0, width, height))
     layer.setContentsScale(scale)
     layer.setDrawableSize(makeSize(width * scale, height * scale))
@@ -505,7 +511,14 @@ pub fn createNativeGpuView(
 
     view.setLayer(layer as NSObject)
     view.setWantsLayer(true)
-    winSlot.win.contentView.addSubview(view as NSView)
+    // Place the GpuView UNDER any sibling controls (NSWindowBelow
+    // = -1, relativeTo nil = "below all siblings"). Without this,
+    // GpuView lands on top because it's added last, and during
+    // live window resize AppKit visibly slides / stretches the
+    // CAMetalLayer over the Label widgets that should be above
+    // it. Keeping it at the bottom makes Label / Button / etc.
+    // always overdraw it.
+    winSlot.win.contentView.addSubviewPositioned(view as NSView, -1 as i64, NSView.__wrap_handle(0))
     // Steal first responder so keyDown:/keyUp: go straight to
     // the GpuView. Users who want the surrounding window to keep
     // keyboard focus can flip this back themselves via the
@@ -538,7 +551,13 @@ pub fn setGpuViewFrame(handle: i64, x: f64, y: f64, w: f64, h: f64) {
             slot.width  = w
             slot.height = h
             let scale = slot.view.window.backingScaleFactor
-            slot.layer.setFrame(makeRect(0.0, 0.0, w, h))
+            // Don't touch `layer.frame`. The NSView is layer-hosting,
+            // so AppKit syncs `view.frame` → hosted layer's frame
+            // automatically. Overriding `layer.setFrame(0, 0, w, h)`
+            // here would race against that sync during live resize
+            // and visibly push the CAMetalLayer to the parent's
+            // top-left (overlapping sibling controls). Only the
+            // metal drawable size has to be updated explicitly.
             slot.layer.setDrawableSize(makeSize(w * scale, h * scale))
             if WGPU_READY[0] {
                 configureSurfaceFor(slot.surface, (w * scale) as u32, (h * scale) as u32)

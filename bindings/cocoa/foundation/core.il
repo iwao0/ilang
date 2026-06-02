@@ -583,6 +583,10 @@ pub enum NSBinarySearchingOptions: u64 {
 
     /// `NSDictionary` — immutable id→id map.
     @objc pub class NSDictionary : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSDictionary
+        @objc("init")
+        pub init(): NSDictionary
         @objc("count")
         pub get count(): i64
         @objc("objectForKey:")

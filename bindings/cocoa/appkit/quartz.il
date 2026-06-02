@@ -47,7 +47,29 @@ use foundation { NSObject, NSString, NSSize, NSRect }
         /// region.
         @objc("setOpaque:")
         pub setOpaque(flag: bool)
+        /// `actions` is a `{ "bounds": NSNull, "position": NSNull, ... }`
+        /// dictionary. Setting it to an empty `NSDictionary` makes
+        /// the layer skip ALL implicit animations on every geometry
+        /// / appearance property — necessary for layer-hosting views
+        /// inside live-resize, where CATransaction doesn't suppress
+        /// the AppKit-internal animation transaction.
+        ///
+        /// Typed as `NSObject` (not `NSDictionary`) so callers outside
+        /// the `cocoa.foundation` reexport reach can still invoke it.
+        @objc("setActions:")
+        pub setActions(actions: NSObject)
+        /// Layer contents gravity — how the existing layer image
+        /// is mapped onto the layer's bounds when bounds change
+        /// without a redraw. Default is `kCAGravityResize` (=
+        /// "resize") which STRETCHES the last frame to the new
+        /// bounds during live window-resize. Pass `nsstr("topLeft")`
+        /// to pin to the top-left corner so AppKit clips instead of
+        /// stretching, avoiding the visible "slide upward" on grow
+        /// and "compress" on shrink.
+        @objc("setContentsGravity:")
+        pub setContentsGravity(gravity: NSString)
     }
+
 
     /// `CADisplayLink` — display-refresh-locked timer. The target
     /// method gets `-(void)tick:(CADisplayLink*)link` on the run
@@ -83,5 +105,24 @@ use foundation { NSObject, NSString, NSSize, NSRect }
         /// is unusable afterwards.
         @objc("invalidate")
         pub invalidate()
+    }
+
+    /// `CATransaction` — groups CALayer geometry / property
+    /// mutations into one commit. The class-method-only API is
+    /// the easiest way to suppress CALayer's default 0.25 s
+    /// implicit animation on geometry changes — wrap the mutation
+    /// in `begin()` / `setDisableActions(true)` / `commit()` so
+    /// `setFrame:` / `setDrawableSize:` apply instantly. Critical
+    /// during live window resize: without this, each
+    /// `windowDidResize` re-fires `setFrame:` while the previous
+    /// implicit animation is still interpolating, producing
+    /// visible sliding / shrinking of layer-backed views.
+    @objc pub class CATransaction : NSObject {
+        @objc("begin")
+        pub static begin()
+        @objc("setDisableActions:")
+        pub static setDisableActions(flag: bool)
+        @objc("commit")
+        pub static commit()
     }
 }

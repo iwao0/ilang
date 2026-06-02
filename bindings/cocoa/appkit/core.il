@@ -93,6 +93,12 @@ pub enum NSApplicationActivationPolicy: i64 {
     @objc pub class NSView : NSObject {
         @objc("addSubview:")
         pub addSubview(v: NSView)
+        /// `addSubview:positioned:relativeTo:` — explicit z-order.
+        /// `place` is `NSWindowOrderingMode` (`-1 = below`,
+        /// `+1 = above`). Pass `nil` (cast to `NSView`) for
+        /// `relativeTo` to position relative to ALL siblings.
+        @objc("addSubview:positioned:relativeTo:")
+        pub addSubviewPositioned(v: NSView, place: i64, relativeTo: NSView)
         /// Coordinate conversion. The `fromView` / `toView` slot
         /// is typed `NSObject` so `cocoa.nil` can be passed to
         /// mean "convert from / to window coordinates" — the
