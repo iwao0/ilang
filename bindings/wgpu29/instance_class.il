@@ -13,7 +13,10 @@
 /// `adapter_class.il` instead.
 
 use core { WGPUInstance, wgpuInstanceProcessEvents }
-use instance { wgpuInstanceRelease }
+use instance {
+    wgpuInstanceRelease, wgpuCreateInstance,
+    wgpuSetLogLevel, wgpuSetLogCallback, LogLevel,
+}
 
 @extern(C, "wgpu_native") {
     /// Wraps `WGPUInstance` — the root object every other wgpu
@@ -37,5 +40,30 @@ use instance { wgpuInstanceRelease }
         pub processEvents() {
             wgpuInstanceProcessEvents(this.handle as WGPUInstance)
         }
+    }
+
+    /// Construct a default `Instance`. Equivalent to
+    /// `new Instance(wgpuCreateInstance(0 as *void))` but lets the
+    /// caller stay out of `@extern(C)`. ilang doesn't yet allow
+    /// static methods on classes, so this is a free function.
+    pub fn createInstance(): Instance {
+        new Instance(wgpuCreateInstance(0 as *void))
+    }
+
+    /// Set the global wgpu log level. Friendly wrapper over
+    /// `wgpuSetLogLevel` that accepts the `LogLevel` enum and
+    /// performs the `u32` cast itself.
+    pub fn setLogLevel(level: LogLevel) {
+        wgpuSetLogLevel(level as u32)
+    }
+
+    /// Register a global wgpu log callback. `callback` must be an
+    /// `@extern(C)`-defined function — the wgpu logger calls it
+    /// from its own thread. The 4th callback arg receives
+    /// `userdata` (treat as `i64`; defaults to 0). Friendly
+    /// pass-through over `wgpuSetLogCallback`; lets callers stay
+    /// outside `@extern(C)` for the registration call itself.
+    pub fn setLogCallback(callback: fn(i32, i64, i64, i64), userdata: i64) {
+        wgpuSetLogCallback(callback, userdata as *void)
     }
 }

@@ -5,7 +5,7 @@
 /// `Adapter.requestDevice(): Device`) and `surface_class.il`.
 
 use core {
-    WGPUDevice, WGPUInstance, WGPUStringView, WGPUChainedStruct,
+    WGPUDevice, WGPUInstance, WGPUQueue, WGPUStringView, WGPUChainedStruct,
     WGPULimits, TextureFormat, SType,
     WGPUExtent3D,
     WGPUAdapterInfo,
@@ -16,6 +16,7 @@ use core {
 use device {
     wgpuDeviceGetLimits, wgpuDeviceGetAdapterInfo,
     wgpuDevicePushErrorScope, wgpuDevicePopErrorScope,
+    wgpuDeviceGetQueue,
     WGPUPopErrorScopeCallbackInfo,
     ErrorFilter, ErrorType, PopErrorScopeStatus,
 }
@@ -74,6 +75,7 @@ use query {
     WGPUQuerySet, WGPUQuerySetDescriptor, QueryType, wgpuDeviceCreateQuerySet,
 }
 use query_class { QuerySet, QuerySetOptions }
+use queue_class { Queue }
 use std.ffi { cstrFromString, stringFromCstr, stringFromBytes }
 
 // ─── sync wrapper — module-level OUT slots + C callback ──────
@@ -461,6 +463,14 @@ pub class Device {
         new ComputePipeline(wgpuDeviceCreateComputePipeline(
             this.handle as WGPUDevice, &desc
         ))
+    }
+
+    /// The default queue for this device. wgpu-native creates a
+    /// single queue per device; this returns the friendly wrapper
+    /// around that handle. The queue's lifetime is tied to the
+    /// device — do NOT release it explicitly.
+    pub getQueue(): Queue {
+        new Queue(wgpuDeviceGetQueue(this.handle as WGPUDevice))
     }
 
     /// Capability limits for this device. Value-copy of
