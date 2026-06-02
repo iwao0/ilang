@@ -265,3 +265,17 @@ pub extern "C" fn desc_first_load_op(d: *const PairDesc) -> u32 {
 pub extern "C" fn bp_depth_slice(p: *const BigPair) -> u32 {
     unsafe { (*p).depth_slice }
 }
+
+// Callback re-forwarding fixture
+// (`04_modules/fn_value_callback_pass_through.il`). The C side
+// calls the supplied function pointer once with a fixed argument
+// pattern. If the ilang side hands in the address of its
+// closure box instead of the underlying fn pointer, this
+// invocation jumps into the bytes of a heap allocation and
+// crashes — exactly the wgpu setLogCallback failure shape.
+type ReforwardCallback = unsafe extern "C" fn(i32, i64, i64, i64) -> i64;
+
+#[unsafe(export_name = "register_and_invoke")]
+pub extern "C" fn register_and_invoke(cb: ReforwardCallback) -> i64 {
+    unsafe { cb(42, 100, 200, 300) }
+}

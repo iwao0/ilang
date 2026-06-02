@@ -294,6 +294,20 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.returns.push(AbiParam::new(types::I64));
         module.declare_function("$ffi.cstrFromString", Linkage::Import, &sig)?;
     }
+    // `$ffi.readU64` — used by MIR codegen to extract the raw
+    // fn pointer (offset 0) from an ilang closure box when an
+    // `@extern(C)` callee is handed an `fn(...)` value that's
+    // already shaped as a closure (a re-forwarded callback).
+    // Always declared so the lookup in `lower_inst/calls.rs`
+    // resolves whether or not user code imported
+    // `std.ffi { readU64 }`.
+    {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("$ffi.readU64", Linkage::Import, &sig)?;
+    }
     // REPL slot accessors. Loaded as imports so chunk-level
     // compilations don't need a fresh declaration; the host symbol
     // table provides the bodies via `JITBuilder::symbol`.

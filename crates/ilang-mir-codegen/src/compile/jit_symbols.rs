@@ -415,6 +415,15 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     // `ilang-runtime` now; the explicit `jit_builder.symbol(...)`
     // bindings below pick them up.
     jit_builder.symbol("$test.applyI32Cb", ilang_runtime::test_apply_i32_cb as *const u8);
+    // Fixture-only helper for `fn_value_callback_pass_through.il`:
+    // invokes the supplied callback once with a fixed argument
+    // pattern so the fixture can compare a direct call against a
+    // re-forwarded one. The MIR call site uses the bare C name
+    // `register_and_invoke`, so register it with that exact key.
+    jit_builder.symbol(
+        "register_and_invoke",
+        ilang_runtime::test_externs::register_and_invoke as *const u8,
+    );
     jit_builder.symbol("$test.expect", ilang_runtime::test_expect as *const u8);
     jit_builder.symbol("$test.expectStr", ilang_runtime::test_expect_str as *const u8);
     jit_builder.symbol("$test.expectBool", ilang_runtime::test_expect_bool as *const u8);

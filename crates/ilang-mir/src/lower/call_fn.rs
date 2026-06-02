@@ -274,6 +274,28 @@ impl<'a> BodyCx<'a> {
                 let want_func_ptr = is_extern
                     && i < sig.params.len()
                     && matches!(sig.params[i], MirTy::Fn(_));
+                // The slow-path closure→fn-ptr extract (below) is
+                // only correct for genuine C ABI callees, which
+                // dereference the argument as a C function pointer.
+                // `@intrinsic` callees go through ilang-runtime
+                // helpers that expect a closure box so they can
+                // read captures + invoke the ilang trampoline; for
+                // those, leave the closure box intact. c_symbol
+                // convention: intrinsics begin with `$`, real C
+                // symbols don't. The bare-fn-name fast path above
+                // intentionally keeps firing regardless — passing
+                // a top-level fn (no captures) by raw addr to an
+                // intrinsic is the historical contract the
+                // host-side helpers rely on (e.g.
+                // `$test.applyI32Cb` transmutes the ptr to a raw
+                // 3-arg `extern "C" fn`).
+                let callee_is_c_abi = is_extern && {
+                    let csym = self.funcs[id.0 as usize].c_symbol;
+                    match csym {
+                        Some(s) => !s.as_str().starts_with('$'),
+                        None => true,
+                    }
+                };
                 if want_func_ptr {
                     if let ExprKind::Var(name) = &a.kind {
                         if let Some(&fid) = self.fn_ids.get(name) {
@@ -295,6 +317,34 @@ impl<'a> BodyCx<'a> {
                 };
                 if arg_is_fresh && matches!(vty, MirTy::Object(_) | MirTy::Str) {
                     fresh_obj_args.push(coerced);
+                }
+                // Re-forwarding an ilang `fn(...)` value to an
+                // `@extern(C)` callee that expects a C function
+                // pointer: the value is a closure box pointer
+                // `[fn_addr | rc | captures…]`, but C will treat
+                // the supplied argument as the function pointer
+                // itself and call it. Extract the fn_addr (offset
+                // 0) so the C side receives the raw code address.
+                // The bare-fn-name fast path above hands in a
+                // FuncAddr already; this slow path covers locals
+                // / captures / parameters whose MIR type is still
+                // `MirTy::Fn`.
+                if want_func_ptr && callee_is_c_abi && matches!(vty, MirTy::Fn(_)) {
+                    let box_addr = self.fb.new_value(MirTy::I64);
+                    self.fb.push_inst(Inst::Cast {
+                        dst: box_addr,
+                        kind: crate::inst::CastKind::PtrIntCast,
+                        src: coerced,
+                    });
+                    let zero = self.const_int(MirTy::I64, 0);
+                    let raw = self.fb.new_value(MirTy::I64);
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(raw),
+                        callee: FuncRef::Builtin(Symbol::intern("$ffi.readU64")),
+                        args: Box::new([box_addr, zero]),
+                    });
+                    arg_vals.push(raw);
+                    continue;
                 }
                 arg_vals.push(coerced);
             }

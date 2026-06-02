@@ -328,6 +328,7 @@ pub(super) fn lower_call<M: Module>(
                     | "os.errno"
                     | "os.setErrno"
                     | "$ffi.cstrFromString"
+                    | "$ffi.readU64"
             ) {
                 let cid = module
                     .declarations()
