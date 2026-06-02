@@ -18,6 +18,7 @@
 //     cargo run -p ilang -- run examples/libs/gui/gpuview/main.il
 
 use gui
+use gui.gpuview { GpuView, RenderEvent }
 use wgpu29 { Pipeline, RenderPass, RenderPipelineOptions }
 
 // WGSL: positions hardcoded in the vertex shader, indexed by
@@ -30,7 +31,7 @@ fn run(): i64 {
     w.width  = 640.0
     w.height = 480.0
 
-    let v = new gui.GpuView()
+    let v = new GpuView()
     // Dock = fill → the view tracks the window: addChild runs the
     // first layout pass, and every later `onResize` re-runs it so
     // the surface always covers the client area.
@@ -51,7 +52,7 @@ fn run(): i64 {
         return 2
     }
 
-    v.onRender.add(fn(e: gui.RenderEvent) {
+    v.onRender.add(fn(e: RenderEvent) {
         let pass = new RenderPass(e.pass)
         pass.setPipeline(pipeline)
         pass.draw(3, 1, 0, 0)

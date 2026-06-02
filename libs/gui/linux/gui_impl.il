@@ -17,4 +17,10 @@ pub use list.*
 pub use groupbox.*
 pub use menu.*
 pub use canvas.*
-pub use gpuview.*
+// `gpuview` is intentionally NOT re-exported here. Its `wgpu29`
+// dependency pulls in `libwgpu_native.so` at JIT-link time,
+// which fails unless `LD_LIBRARY_PATH` is configured. Keeping
+// the export out of the umbrella means `use gui_impl { ... }`
+// stays wgpu-free; the public `libs/gui/gpuview.il` imports
+// straight from `gui_impl.gpuview { ... }` so callers who do
+// `use gui.gpuview` opt into the dylib requirement explicitly.

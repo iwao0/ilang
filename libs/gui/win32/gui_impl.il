@@ -24,6 +24,13 @@ pub use list.*
 pub use groupbox.*
 pub use menu.*
 pub use canvas.*
-pub use gpuview.*
+// `gpuview` is intentionally NOT re-exported here. Its `wgpu29`
+// dependency pulls in `wgpu_native.dll` at JIT-link time, which
+// fails unless the dll is on `PATH` (or next to the binary).
+// Keeping the export out of the umbrella means `use gui_impl
+// { ... }` stays wgpu-free; the public `libs/gui/gpuview.il`
+// imports straight from `gui_impl.gpuview { ... }` so callers
+// who do `use gui.gpuview` opt into the dll requirement
+// explicitly.
 pub use wnd_proc.*
 pub use window.*

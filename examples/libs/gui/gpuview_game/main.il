@@ -11,6 +11,7 @@
 // once per second.
 
 use gui
+use gui.gpuview { GpuView, RenderEvent }
 
 fn run(): i64 {
     let w = new gui.Window()
@@ -18,7 +19,7 @@ fn run(): i64 {
     w.width  = 640.0
     w.height = 480.0
 
-    let v = new gui.GpuView()
+    let v = new GpuView()
     v.x = 0.0; v.y = 0.0
     v.width  = 640.0
     v.height = 480.0
@@ -50,7 +51,7 @@ fn run(): i64 {
 
     // Heartbeat — log time / dt + snapshot once a second.
     let lastReport: f64[] = [0.0]
-    v.onRender.add(fn(e: gui.RenderEvent) {
+    v.onRender.add(fn(e: RenderEvent) {
         if e.time - lastReport[0] >= 1.0 {
             lastReport[0] = e.time
             let wHeld = v.isKeyDown(gui.KeyCode.keyW as string)

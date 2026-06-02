@@ -45,7 +45,14 @@ pub use combobox.*
 pub use listbox.*
 pub use groupbox.*
 pub use canvas.*
-pub use gpuview.*
+// `gpuview` is intentionally NOT re-exported. Its `wgpu29`
+// dependency pulls in `libwgpu_native.dylib` / `wgpu_native.dll`,
+// which fails the JIT's symbol-resolution step at startup unless
+// the loader path is configured (DYLD_LIBRARY_PATH / LD_LIBRARY_
+// PATH / PATH). Apps that don't need GPU rendering can
+// `use gui` alone and stay wgpu-free; apps that do need it
+// import `use gui.gpuview { GpuView, RenderEvent }` explicitly
+// and accept the dylib requirement.
 
 /// Run the platform event loop until every window has closed
 /// (macOS: `NSApp.run()` until `terminate:`; Windows:

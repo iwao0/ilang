@@ -5,22 +5,37 @@
 /// records draw commands into a `WGPURenderPassEncoder` inside
 /// the `onRender` callback.
 ///
+/// `GpuView` is NOT re-exported from `gui` — `use gui` alone
+/// stays wgpu-free so apps that don't render GPU content avoid
+/// the dylib requirement below. Import it explicitly:
+///
 ///   use gui
+///   use gui.gpuview { GpuView, RenderEvent }
 ///   use wgpu { wgpuRenderPassEncoderSetPipeline, wgpuRenderPassEncoderDraw }
 ///
 ///   let w = new gui.Window("triangle", 640.0, 480.0)
-///   let v = new gui.GpuView()
+///   let v = new GpuView()
 ///   v.x = 0.0; v.y = 0.0; v.width = 640.0; v.height = 480.0
 ///   w.addChild(v)                            // attachTo runs;
 ///                                            // v.device / v.format
 ///                                            // are now valid.
 ///   let pipeline = ...                       // build with v.device
-///   v.onRender.add(fn(e: gui.RenderEvent) {
+///   v.onRender.add(fn(e: RenderEvent) {
 ///       wgpuRenderPassEncoderSetPipeline(e.pass, pipeline)
 ///       wgpuRenderPassEncoderDraw(e.pass, 3, 1, 0, 0)
 ///   })
 ///   v.startLoop()                            // CADisplayLink @ 60Hz
 ///   gui.run()
+///
+/// Setup (once): third_party/wgpu/fetch.sh   (downloads libwgpu_native)
+/// Run (macOS):
+///   DYLD_LIBRARY_PATH=third_party/wgpu/macos-aarch64/lib \
+///     cargo run -p ilang -- run examples/libs/gui/gpuview/main.il
+/// Run (Linux):
+///   LD_LIBRARY_PATH=third_party/wgpu/linux-x86_64/lib \
+///     cargo run -p ilang -- run examples/libs/gui/gpuview/main.il
+/// Run (Windows): put wgpu_native.dll on PATH (or next to the entry),
+///   then: cargo run -p ilang -- run examples/libs/gui/gpuview/main.il
 ///
 /// On platforms without a `GpuView` backend (Windows / Linux),
 /// `attachTo` returns a `-1` handle and every method / property
@@ -40,7 +55,11 @@ use wgpu29 {
     WGPUSurface, WGPUDevice, WGPUQueue, WGPURenderPassEncoder,
     Device, Surface, Queue, TextureFormat,
 }
-use gui_impl {
+// Direct import from the platform-specific `gpuview` module —
+// bypasses the `gui_impl` umbrella so apps that import only
+// `use gui` don't drag in wgpu's `libwgpu_native` at JIT-link
+// time.
+use gui_impl.gpuview {
     createNativeGpuView, setGpuViewFrame, setGpuViewVisible,
     setOnGpuViewRender,
     getGpuViewSurface, getGpuViewDevice, getGpuViewQueue, getGpuViewFormat,
