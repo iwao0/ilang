@@ -57,12 +57,10 @@ use instance {
         wgpuSetLogLevel(level as u32)
     }
 
-    /// Register a global wgpu log callback. `callback` must be an
-    /// `@extern(C)`-defined function — the wgpu logger calls it
-    /// from its own thread. The 4th callback arg receives
-    /// `userdata` (treat as `i64`; defaults to 0). Friendly
-    /// pass-through over `wgpuSetLogCallback`; lets callers stay
-    /// outside `@extern(C)` for the registration call itself.
+    /// Register a global log callback. Friendly wrapper over
+    /// `wgpuSetLogCallback`: takes the same `fn(level, msgData,
+    /// msgLen, ud)` signature wgpu expects and forwards the C
+    /// function pointer + userdata as-is.
     pub fn setLogCallback(callback: fn(i32, i64, i64, i64), userdata: i64) {
         wgpuSetLogCallback(callback, userdata as *void)
     }

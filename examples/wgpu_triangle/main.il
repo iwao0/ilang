@@ -20,7 +20,7 @@
 // Run (Windows): put wgpu_native.dll on PATH (or next to the entry),
 //   then: cargo run -p ilang -- run examples/wgpu_triangle/main.il
 
-use std.ffi { stringFromCstr }
+use std.ffi { stringFromBytes }
 use std.os as os
 use sdl2 {
     Window, WindowFlag, InitFlag, SubSystem,
@@ -47,8 +47,11 @@ const WIN_H: i32 = 480
 
 @extern(C) {
     pub fn onLog(level: i32, msgData: i64, msgLen: i64, ud: i64) {
+        // WGPUStringView is (data, length) — length is the real
+        // count, NOT a NUL-terminated cstring. Use stringFromBytes
+        // (not stringFromCstr) to avoid reading past the buffer.
         console.log("WGPU[", level as i64, "] len=", msgLen,
-                    " : ", stringFromCstr(msgData as *const char))
+                    " : ", stringFromBytes(msgData as *const void, msgLen))
     }
 }
 
