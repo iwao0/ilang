@@ -28,7 +28,17 @@ use core {
     dispatchClose, dispatchSize,
     dispatchKeyDown, dispatchKeyUp,
     dispatchMouseMove, dispatchMouseDown, dispatchMouseUp,
+    WINDOWS,
 }
+
+/// `SC_MOVE` system-command code. Win32 has no native fixed-
+/// position flag, so we synthesise `setMovable(false)` by
+/// dropping the WM_SYSCOMMAND for SC_MOVE on the floor.
+const SC_MOVE_CODE: u64 = 0xF010 as u64
+/// `wParam` of WM_SYSCOMMAND has type-bits in the low 4 — the
+/// command code lives in the upper 12 of the low 16. Mask to
+/// strip the low bits before comparing.
+const SC_MASK: u64      = 0xFFF0 as u64
 use button   { tryButtonClick }
 use checkbox { tryCheckboxToggle }
 use radio    { tryRadioToggle }
@@ -244,6 +254,16 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             // slider HWND.
             if trySliderChange(lParam as i64) { return 0 }
             return 0
+        }
+        WindowMessage.sysCommand {
+            // `setMovable(false)` synthesised by dropping SC_MOVE
+            // on the floor — blocks both the title-bar drag and
+            // the Alt+Space → Move keyboard path.
+            if (wParam & SC_MASK) == SC_MOVE_CODE {
+                if let some(slot) = WINDOWS.get(hwnd) {
+                    if !slot.isMovable { return 0 }
+                }
+            }
         }
         _ {}
     }

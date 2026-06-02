@@ -43,6 +43,8 @@ pub class WindowSlot {
     pub onLeaveFullScreen: fn()
     pub lastSizeWParam:    i32
     pub isFullScreen:      bool
+    pub isClosable:        bool
+    pub isMovable:         bool
     pub preFullScreenStyle:     i64
     pub preFullScreenPlacement: WINDOWPLACEMENT
 
@@ -63,6 +65,8 @@ pub class WindowSlot {
         this.onLeaveFullScreen = noOp1
         this.lastSizeWParam    = SIZE_RESTORED
         this.isFullScreen      = false
+        this.isClosable        = true
+        this.isMovable         = true
         this.preFullScreenStyle     = 0 as i64
         this.preFullScreenPlacement = WINDOWPLACEMENT {
             length:           44 as u32,

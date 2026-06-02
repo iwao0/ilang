@@ -37,6 +37,9 @@ use gui_impl {
     maximizeNativeWindow, unmaximizeNativeWindow,
     setNativeWindowFullScreen,
     isNativeWindowMinimized, isNativeWindowMaximized, isNativeWindowFullScreen,
+    setNativeWindowResizable, isNativeWindowResizable,
+    setNativeWindowMovable,   isNativeWindowMovable,
+    setNativeWindowClosable,  isNativeWindowClosable,
     setOnClose,
     setOnResize,
     setOnKeyDown,
@@ -359,6 +362,25 @@ pub class Window : Container {
     pub isMinimized():  bool { isNativeWindowMinimized(this.handle) }
     pub isMaximized():  bool { isNativeWindowMaximized(this.handle) }
     pub isFullScreen(): bool { isNativeWindowFullScreen(this.handle) }
+
+    /// Whether the user can resize the window by dragging its
+    /// border. Disabling drops the resize grip + maximise button
+    /// from the title bar on the platforms that have those.
+    pub setResizable(on: bool) { setNativeWindowResizable(this.handle, on) }
+    pub isResizable(): bool    { isNativeWindowResizable(this.handle) }
+
+    /// Whether the user can drag the window by its title bar /
+    /// background. macOS honours this natively; Win32 synthesises
+    /// the lock by dropping `WM_SYSCOMMAND` SC_MOVE; GTK4 has no
+    /// equivalent — the flag is stored but not enforced on Linux.
+    pub setMovable(on: bool) { setNativeWindowMovable(this.handle, on) }
+    pub isMovable(): bool    { isNativeWindowMovable(this.handle) }
+
+    /// Whether the title-bar × button is enabled. Disabling also
+    /// blocks the OS-level close paths (⌘W / Alt+F4 / system menu
+    /// → Close). `onClose` won't fire while this is `false`.
+    pub setClosable(on: bool) { setNativeWindowClosable(this.handle, on) }
+    pub isClosable(): bool    { isNativeWindowClosable(this.handle) }
 
     /// Re-run the dock / margin layout pass over every direct
     /// child. Called automatically on `addChild` (inherited from

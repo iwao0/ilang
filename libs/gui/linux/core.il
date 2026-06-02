@@ -37,6 +37,7 @@ pub class WindowSlot {
     pub wasMaximized:  bool
     pub wasFullScreen: bool
     pub wasMinimized:  bool
+    pub isMovable:     bool
 
     pub init(win: GtkWindow, fixed: GtkFixed) {
         this.win               = win
@@ -57,6 +58,7 @@ pub class WindowSlot {
         this.wasMaximized      = false
         this.wasFullScreen     = false
         this.wasMinimized      = false
+        this.isMovable         = true
     }
 }
 

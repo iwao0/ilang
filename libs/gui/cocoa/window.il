@@ -12,6 +12,8 @@ use cocoa {
     sharedApplication, makeWindow,
 }
 const FULLSCREEN_BIT: u64 = NSWindowStyleMask.fullScreen as u64
+const RESIZABLE_BIT:  u64 = NSWindowStyleMask.resizable  as u64
+const CLOSABLE_BIT:   u64 = NSWindowStyleMask.closable   as u64
 use core { WINDOWS, WindowSlot, GuiDelegate, GuiAppDelegate, GuiView, registerView }
 
 /// `app.setDelegate(...)` only needs to fire once per process. The
@@ -140,6 +142,58 @@ pub fn isNativeWindowMaximized(handle: i64): bool {
 pub fn isNativeWindowFullScreen(handle: i64): bool {
     if let some(slot) = WINDOWS.get(handle) {
         (slot.win.styleMask as u64 & FULLSCREEN_BIT) != 0 as u64
+    } else {
+        false
+    }
+}
+
+// ─── window-trait flags ────────────────────────────────────────
+
+/// Toggle a single bit on the window's style mask. Cocoa keeps
+/// the rest of the chrome (title bar, miniaturise button, …) in
+/// sync; the AppKit re-frame happens implicitly.
+fn setStyleBit(slot: WindowSlot, bit: u64, on: bool) {
+    let mask = slot.win.styleMask as u64
+    let nextMask = if on { mask | bit } else { mask & ~bit }
+    if nextMask != mask {
+        slot.win.setStyleMask(nextMask as NSWindowStyleMask)
+    }
+}
+
+pub fn setNativeWindowResizable(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        setStyleBit(slot, RESIZABLE_BIT, on)
+    }
+}
+pub fn isNativeWindowResizable(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        (slot.win.styleMask as u64 & RESIZABLE_BIT) != 0 as u64
+    } else {
+        false
+    }
+}
+
+pub fn setNativeWindowClosable(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        setStyleBit(slot, CLOSABLE_BIT, on)
+    }
+}
+pub fn isNativeWindowClosable(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        (slot.win.styleMask as u64 & CLOSABLE_BIT) != 0 as u64
+    } else {
+        false
+    }
+}
+
+pub fn setNativeWindowMovable(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.setMovable(on)
+    }
+}
+pub fn isNativeWindowMovable(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.isMovable
     } else {
         false
     }

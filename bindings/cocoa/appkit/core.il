@@ -218,6 +218,22 @@ pub enum NSApplicationActivationPolicy: i64 {
         /// that bit to query full-screen state.
         @objc("styleMask")
         pub get styleMask(): NSWindowStyleMask
+        /// Rewrite the style mask wholesale. Used to toggle
+        /// individual bits (`.resizable`, `.closable`,
+        /// `.miniaturizable`, …) by reading `styleMask`, OR/AND-
+        /// masking, and writing back. AppKit re-frames + re-
+        /// chromes the window in response, so callers don't have
+        /// to.
+        @objc("setStyleMask:")
+        pub setStyleMask(mask: NSWindowStyleMask)
+        /// Whether the user can drag the window by its title bar
+        /// or background. `setMovable(false)` pins the window in
+        /// place — the title bar stays drawn but the drag gesture
+        /// no longer moves it.
+        @objc("isMovable")
+        pub get isMovable(): bool
+        @objc("setMovable:")
+        pub setMovable(flag: bool)
     }
 
     /// `NSScreen` — physical display. `mainScreen` is the one

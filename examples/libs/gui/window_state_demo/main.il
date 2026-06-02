@@ -1,7 +1,9 @@
-// libs/gui — `Window` state-action / state-event demo.
-// Four buttons drive `minimize()`, `maximize()`, `unmaximize()`,
-// and a `setFullScreen()` toggle; the status label below reflects
-// the most recent state-event the window emitted.
+// libs/gui — `Window` state-action / state-event / trait-flag demo.
+// Top row drives `minimize()`, `maximize()`, `unmaximize()`, and a
+// `setFullScreen()` toggle. The second row toggles the three trait
+// flags (`setResizable` / `setMovable` / `setClosable`). The
+// status label below reflects the most recent state-event the
+// window emitted.
 //
 // (`Restore` has no button — once the window is iconified, none
 // of its own buttons are clickable. Click the Dock icon to bring
@@ -15,8 +17,8 @@ use gui
 fn run(): i64 {
     let w = new gui.Window()
     w.title  = "ilang gui × window state"
-    w.width  = 560.0
-    w.height = 200.0
+    w.width  = 600.0
+    w.height = 240.0
 
     let v = new gui.VBox()
     v.dock = gui.Dock.fill
@@ -56,6 +58,47 @@ fn run(): i64 {
         w.setFullScreen(!w.isFullScreen())
     })
     row.addChild(bFs)
+
+    // Trait-flag toggles. Each click reads the current state via
+    // the matching `isXxx()` query, flips it, and rewrites the
+    // button label so the user can see the new value at a glance.
+    let traits = new gui.HBox()
+    traits.height = 36.0
+    traits.margin = new gui.Margin(4.0)
+    v.addChild(traits)
+
+    let bResizable = new gui.Button()
+    bResizable.text   = "Resizable: ON"
+    bResizable.flex   = 1.0
+    bResizable.margin = new gui.Margin(4.0)
+    bResizable.onClick.add(fn(e: gui.MouseEvent) {
+        let next = !w.isResizable()
+        w.setResizable(next)
+        bResizable.text = if next { "Resizable: ON" } else { "Resizable: OFF" }
+    })
+    traits.addChild(bResizable)
+
+    let bMovable = new gui.Button()
+    bMovable.text   = "Movable: ON"
+    bMovable.flex   = 1.0
+    bMovable.margin = new gui.Margin(4.0)
+    bMovable.onClick.add(fn(e: gui.MouseEvent) {
+        let next = !w.isMovable()
+        w.setMovable(next)
+        bMovable.text = if next { "Movable: ON" } else { "Movable: OFF" }
+    })
+    traits.addChild(bMovable)
+
+    let bClosable = new gui.Button()
+    bClosable.text   = "Closable: ON"
+    bClosable.flex   = 1.0
+    bClosable.margin = new gui.Margin(4.0)
+    bClosable.onClick.add(fn(e: gui.MouseEvent) {
+        let next = !w.isClosable()
+        w.setClosable(next)
+        bClosable.text = if next { "Closable: ON" } else { "Closable: OFF" }
+    })
+    traits.addChild(bClosable)
 
     let status = new gui.Label()
     status.text   = "(no state event yet)"

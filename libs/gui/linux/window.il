@@ -18,6 +18,8 @@ use gtk {
     gtk_window_maximize, gtk_window_unmaximize,
     gtk_window_fullscreen, gtk_window_unfullscreen,
     gtk_window_is_maximized, gtk_window_is_fullscreen,
+    gtk_window_set_resizable, gtk_window_get_resizable,
+    gtk_window_set_deletable, gtk_window_get_deletable,
     gtk_widget_set_visible, gtk_widget_set_size_request,
     gtk_widget_get_width, gtk_widget_get_height,
     gtk_widget_add_controller,
@@ -431,6 +433,51 @@ pub fn isNativeWindowFullScreen(handle: i64): bool {
         gtk_window_is_fullscreen(slot.win) != 0 as i32
     } else {
         false
+    }
+}
+
+// ─── window-trait flags ────────────────────────────────────────
+
+pub fn setNativeWindowResizable(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_window_set_resizable(slot.win, if on { 1 as i32 } else { 0 as i32 })
+    }
+}
+pub fn isNativeWindowResizable(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_window_get_resizable(slot.win) != 0 as i32
+    } else {
+        true
+    }
+}
+
+pub fn setNativeWindowClosable(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_window_set_deletable(slot.win, if on { 1 as i32 } else { 0 as i32 })
+    }
+}
+pub fn isNativeWindowClosable(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_window_get_deletable(slot.win) != 0 as i32
+    } else {
+        true
+    }
+}
+
+/// GTK4 has no `gtk_window_set_movable`; the property is a per-
+/// slot flag we expose for API parity. The window manager always
+/// honours its own move bindings, so this is informational only
+/// on Linux.
+pub fn setNativeWindowMovable(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.isMovable = on
+    }
+}
+pub fn isNativeWindowMovable(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.isMovable
+    } else {
+        true
     }
 }
 

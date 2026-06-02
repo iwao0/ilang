@@ -10,7 +10,7 @@ use windows {
     GetModuleHandleA,
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU,
     WNDCLASSEXA, MSG, POINT, WINDOWPLACEMENT,
-    ClassStyle, WindowStyle, ShowCmd, SystemMetric, WindowLongIndex,
+    ClassStyle, WindowStyle, ShowCmd, SystemMetric, WindowLongIndex, MenuFlags,
     RegisterClassExW, CreateWindowExW,
     SetWindowTextW, SetWindowPos,
     SetWindowPosFlags,
@@ -19,13 +19,21 @@ use windows {
     IsIconic, IsZoomed,
     GetWindowLongPtrW, SetWindowLongPtrW,
     GetWindowPlacement, SetWindowPlacement,
-    GetSystemMetrics,
+    GetSystemMetrics, GetSystemMenu, EnableMenuItem,
 }
 use util { enableComctl32V6 }
 use core { WindowSlot, WINDOWS }
 use wnd_proc { guiWndProc }
 
 const WS_OVERLAPPEDWINDOW: u64 = WindowStyle.overlappedWindow as u64
+/// `WS_THICKFRAME | WS_MAXIMIZEBOX` — the two style bits that
+/// together control "the user can resize / maximise this window".
+/// Stripping both gives a fully fixed-size frame.
+const RESIZABLE_BITS:      u64 = (WindowStyle.thickframe as u64)
+                               | (WindowStyle.maximizeBox as u64)
+/// `SC_CLOSE` system-menu identifier. Greyed via `EnableMenuItem`
+/// to disable both the menu entry and the title-bar × button.
+const SC_CLOSE: u32 = 0xF060 as u32
 
 @extern(C) {
 
@@ -192,6 +200,77 @@ pub fn isNativeWindowFullScreen(handle: i64): bool {
         slot.isFullScreen
     } else {
         false
+    }
+}
+
+// ─── window-trait flags ────────────────────────────────────────
+
+pub fn setNativeWindowResizable(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let style = GetWindowLongPtrW(slot.hwnd, WindowLongIndex.style as i32) as u64
+        let next = if on { style | RESIZABLE_BITS } else { style & ~RESIZABLE_BITS }
+        if next != style {
+            SetWindowLongPtrW(slot.hwnd, WindowLongIndex.style as i32, next as i64)
+            // Force a non-client redraw so the title-bar's resize
+            // grip + maximise button reflect the change.
+            let flags = (SetWindowPosFlags.noMove   as u32)
+                      | (SetWindowPosFlags.noSize   as u32)
+                      | (SetWindowPosFlags.noZOrder as u32)
+                      | (SetWindowPosFlags.frameChanged as u32)
+            SetWindowPos(slot.hwnd, 0 as HWND, 0, 0, 0, 0, flags)
+        }
+    }
+}
+pub fn isNativeWindowResizable(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        let style = GetWindowLongPtrW(slot.hwnd, WindowLongIndex.style as i32) as u64
+        (style & RESIZABLE_BITS) != 0 as u64
+    } else {
+        false
+    }
+}
+
+/// Closable on Win32 = grey out `SC_CLOSE` on the system menu.
+/// This disables both the title-bar × button and the Alt+F4 /
+/// system-menu close path. `EnableMenuItem` uses `MF_BYCOMMAND`
+/// (the default 0 bit) to address by command ID.
+pub fn setNativeWindowClosable(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let menu = GetSystemMenu(slot.hwnd, 0 as i32)
+        if menu as i64 != 0 as i64 {
+            let state = if on {
+                MenuFlags.bycommand as u32 | MenuFlags.enabled as u32
+            } else {
+                MenuFlags.bycommand as u32 | MenuFlags.grayed as u32
+            }
+            EnableMenuItem(menu, SC_CLOSE, state)
+            slot.isClosable = on
+        }
+    }
+}
+pub fn isNativeWindowClosable(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.isClosable
+    } else {
+        true
+    }
+}
+
+/// Movable on Win32 = a per-slot bool consulted by
+/// `wnd_proc.guiWndProc` when `WM_SYSCOMMAND` arrives with
+/// `wParam == SC_MOVE`. Win32 has no native fixed-position
+/// flag; intercepting the SysCommand blocks both the
+/// keyboard-driven move and the title-bar drag path.
+pub fn setNativeWindowMovable(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.isMovable = on
+    }
+}
+pub fn isNativeWindowMovable(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.isMovable
+    } else {
+        true
     }
 }
 
