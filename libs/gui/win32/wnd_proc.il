@@ -19,7 +19,7 @@
 use windows {
     HWND, HINSTANCE,
     DefWindowProcW, PostQuitMessage, DestroyWindow,
-    WindowMessage, VirtualKey,
+    WindowMessage, VirtualKey, ActivateCode,
     GetKeyState,
     LoadCursorA, SetCursor, SystemCursor,
     HDC, RECT, GetClientRect, FillRect, GetSysColorBrush,
@@ -28,6 +28,7 @@ use core {
     dispatchClose, dispatchSize,
     dispatchKeyDown, dispatchKeyUp,
     dispatchMouseMove, dispatchMouseDown, dispatchMouseUp,
+    dispatchFocus, dispatchBlur,
     WINDOWS,
 }
 
@@ -263,6 +264,19 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                 if let some(slot) = WINDOWS.get(hwnd) {
                     if !slot.isMovable { return 0 }
                 }
+            }
+        }
+        WindowMessage.activate {
+            // wParam low-word: ActivateCode (`inactive` / `active`
+            // / `clickActive`). Synthesise the focus / blur events
+            // so the public `onFocus` / `onBlur` Signals fire
+            // alongside the AppKit / GTK paths.
+            let code = (wParam & 0xFFFF) as u32 as ActivateCode
+            match code {
+                inactive    { dispatchBlur(hwnd) }
+                active      { dispatchFocus(hwnd) }
+                clickActive { dispatchFocus(hwnd) }
+                _ {}
             }
         }
         _ {}

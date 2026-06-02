@@ -20,6 +20,8 @@ use windows {
     GetWindowLongPtrW, SetWindowLongPtrW,
     GetWindowPlacement, SetWindowPlacement,
     GetSystemMetrics, GetSystemMenu, EnableMenuItem,
+    SetForegroundWindow, GetForegroundWindow,
+    BringWindowToTop, SetActiveWindow,
 }
 use util { enableComctl32V6 }
 use core { WindowSlot, WINDOWS }
@@ -34,6 +36,11 @@ const RESIZABLE_BITS:      u64 = (WindowStyle.thickframe as u64)
 /// `SC_CLOSE` system-menu identifier. Greyed via `EnableMenuItem`
 /// to disable both the menu entry and the title-bar × button.
 const SC_CLOSE: u32 = 0xF060 as u32
+/// Special HWND sentinels accepted by `SetWindowPos`'s
+/// `hwndInsertAfter` slot. `topmost` raises into the always-on-
+/// top band; `notTopmost` returns to the normal band.
+const HWND_TOPMOST:    i64 = -1 as i64
+const HWND_NOTOPMOST:  i64 = -2 as i64
 
 @extern(C) {
 
@@ -271,6 +278,55 @@ pub fn isNativeWindowMovable(handle: i64): bool {
         slot.isMovable
     } else {
         true
+    }
+}
+
+// ─── focus / Z-order ───────────────────────────────────────────
+
+pub fn focusNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        SetForegroundWindow(slot.hwnd)
+    }
+}
+
+/// Win32 has no per-window blur primitive; clearing the active
+/// window slot with `SetActiveWindow(NULL)` comes closest.
+/// `handle` is accepted for API symmetry — the OS-wide effect
+/// doesn't need the per-window slot. Foreground status may still
+/// belong to this hwnd until the OS hands it elsewhere.
+pub fn blurNativeWindow(handle: i64) {
+    SetActiveWindow(0 as HWND)
+}
+
+pub fn isNativeWindowFocused(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        (GetForegroundWindow() as i64) == (slot.hwnd as i64)
+    } else {
+        false
+    }
+}
+
+pub fn setNativeWindowAlwaysOnTop(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let after = if on { HWND_TOPMOST } else { HWND_NOTOPMOST }
+        let flags = (SetWindowPosFlags.noMove as u32)
+                  | (SetWindowPosFlags.noSize as u32)
+                  | (SetWindowPosFlags.noActivate as u32)
+        SetWindowPos(slot.hwnd, after as HWND, 0, 0, 0, 0, flags)
+        slot.isAlwaysOnTop = on
+    }
+}
+pub fn isNativeWindowAlwaysOnTop(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.isAlwaysOnTop
+    } else {
+        false
+    }
+}
+
+pub fn moveTopNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        BringWindowToTop(slot.hwnd)
     }
 }
 

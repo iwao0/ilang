@@ -41,6 +41,8 @@ pub class WindowSlot {
     pub onUnmaximize:      fn()
     pub onEnterFullScreen: fn()
     pub onLeaveFullScreen: fn()
+    pub onFocus:           fn()
+    pub onBlur:            fn()
     pub wasZoomed:         bool
 
     pub init(win: NSWindow, delegate: NSObject, view: NSObject, viewHandle: i64) {
@@ -61,6 +63,8 @@ pub class WindowSlot {
         this.onUnmaximize      = noOp1
         this.onEnterFullScreen = noOp1
         this.onLeaveFullScreen = noOp1
+        this.onFocus           = noOp1
+        this.onBlur            = noOp1
         this.wasZoomed         = false
     }
 }
@@ -225,6 +229,19 @@ pub class GuiDelegate : NSObject {
             cb()
         }
     }
+
+    pub windowDidBecomeKey(n: NSNotification) {
+        if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
+            let cb = slot.onFocus
+            cb()
+        }
+    }
+    pub windowDidResignKey(n: NSNotification) {
+        if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
+            let cb = slot.onBlur
+            cb()
+        }
+    }
 }
 
 /// `applicationShouldTerminateAfterLastWindowClosed:` returns true
@@ -361,4 +378,10 @@ pub fn setOnWindowEnterFullScreen(handle: i64, cb: fn()) {
 }
 pub fn setOnWindowLeaveFullScreen(handle: i64, cb: fn()) {
     if let some(slot) = WINDOWS.get(handle) { slot.onLeaveFullScreen = cb }
+}
+pub fn setOnWindowFocus(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnWindowBlur(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onBlur = cb }
 }

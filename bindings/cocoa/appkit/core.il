@@ -71,6 +71,12 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub activateIgnoringOtherApps(flag: bool)
         @objc("activate")
         pub activate()
+        /// Inverse of `activate` — hands foreground / key-window
+        /// status to whichever app the system picks next. Used by
+        /// `BrowserWindow.blur()`-style callers; no per-window
+        /// primitive exists on AppKit.
+        @objc("deactivate")
+        pub deactivate()
         @objc("run")
         pub run()
         @objc("terminate:")
@@ -234,6 +240,28 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub get isMovable(): bool
         @objc("setMovable:")
         pub setMovable(flag: bool)
+        /// Focus / Z-order. `makeKeyWindow` flips this window into
+        /// AppKit's "key window" slot (the keyboard-focus target)
+        /// without re-ordering Z; `orderFront:` re-orders Z to the
+        /// top without touching key status. Their combination
+        /// (`makeKeyAndOrderFront:`) is the all-in-one "show me"
+        /// path already bound above. `isKeyWindow` reads the
+        /// current key-window state.
+        @objc("makeKeyWindow")
+        pub makeKeyWindow()
+        @objc("orderFront:")
+        pub orderFront(sender: NSObject)
+        @objc("isKeyWindow")
+        pub get isKeyWindow(): bool
+        /// `level` is the window-server Z-band the window sits in.
+        /// `0` is the normal application band; raising to e.g.
+        /// `3` (`NSFloatingWindowLevel`) or `25`
+        /// (`NSStatusWindowLevel`) keeps the window above ordinary
+        /// peer windows — the "always on top" toggle.
+        @objc("level")
+        pub get level(): i64
+        @objc("setLevel:")
+        pub setLevel(level: i64)
     }
 
     /// `NSScreen` — physical display. `mainScreen` is the one

@@ -62,6 +62,16 @@ pub class LeaveFullScreenEvent : Event {
     pub init(sender: EventTarget) { super(sender) }
 }
 
+/// Fired when the window gains / loses keyboard focus (becomes
+/// the key window on macOS, gains foreground on Win32, becomes
+/// active on GTK). 0-payload — the sender carries the source.
+pub class FocusEvent : Event {
+    pub init(sender: EventTarget) { super(sender) }
+}
+pub class BlurEvent : Event {
+    pub init(sender: EventTarget) { super(sender) }
+}
+
 /// Fired when the window's drawable content area changes size.
 /// `width` / `height` are the new client-area dimensions in
 /// device-independent points.

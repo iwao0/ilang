@@ -27,6 +27,7 @@ use events {
     MinimizeEvent, RestoreEvent,
     MaximizeEvent, UnmaximizeEvent,
     EnterFullScreenEvent, LeaveFullScreenEvent,
+    FocusEvent, BlurEvent,
 }
 use layout { Dock, Margin }
 use gui_impl {
@@ -40,6 +41,9 @@ use gui_impl {
     setNativeWindowResizable, isNativeWindowResizable,
     setNativeWindowMovable,   isNativeWindowMovable,
     setNativeWindowClosable,  isNativeWindowClosable,
+    focusNativeWindow, blurNativeWindow, isNativeWindowFocused,
+    setNativeWindowAlwaysOnTop, isNativeWindowAlwaysOnTop,
+    moveTopNativeWindow,
     setOnClose,
     setOnResize,
     setOnKeyDown,
@@ -50,6 +54,7 @@ use gui_impl {
     setOnWindowMinimize, setOnWindowRestore,
     setOnWindowMaximize, setOnWindowUnmaximize,
     setOnWindowEnterFullScreen, setOnWindowLeaveFullScreen,
+    setOnWindowFocus, setOnWindowBlur,
     setWindowMenuBar,
 }
 use menubar { Menu }
@@ -225,6 +230,8 @@ pub class Window : Container {
     pub onUnmaximize:       Signal<UnmaximizeEvent>
     pub onEnterFullScreen:  Signal<EnterFullScreenEvent>
     pub onLeaveFullScreen:  Signal<LeaveFullScreenEvent>
+    pub onFocus:            Signal<FocusEvent>
+    pub onBlur:             Signal<BlurEvent>
 
     pub init() {
         super()
@@ -249,6 +256,8 @@ pub class Window : Container {
         this.onUnmaximize       = new Signal<UnmaximizeEvent>()
         this.onEnterFullScreen  = new Signal<EnterFullScreenEvent>()
         this.onLeaveFullScreen  = new Signal<LeaveFullScreenEvent>()
+        this.onFocus            = new Signal<FocusEvent>()
+        this.onBlur             = new Signal<BlurEvent>()
         // Forward native callbacks to each Signal. The closures
         // capture `this` so the same Window flows through as
         // `event.sender`.
@@ -301,6 +310,12 @@ pub class Window : Container {
         })
         setOnWindowLeaveFullScreen(this.handle, fn() {
             this.onLeaveFullScreen.emit(new LeaveFullScreenEvent(this))
+        })
+        setOnWindowFocus(this.handle, fn() {
+            this.onFocus.emit(new FocusEvent(this))
+        })
+        setOnWindowBlur(this.handle, fn() {
+            this.onBlur.emit(new BlurEvent(this))
         })
     }
 
@@ -381,6 +396,34 @@ pub class Window : Container {
     /// → Close). `onClose` won't fire while this is `false`.
     pub setClosable(on: bool) { setNativeWindowClosable(this.handle, on) }
     pub isClosable(): bool    { isNativeWindowClosable(this.handle) }
+
+    /// Make this window key + raise it to the foreground. macOS
+    /// also bounces the app into the foreground so the transition
+    /// is visible regardless of the current activation state.
+    pub focus()         { focusNativeWindow(this.handle) }
+    /// Best-effort blur: macOS deactivates the app; Win32 clears
+    /// the active-window slot via `SetActiveWindow(NULL)`; GTK4
+    /// has no per-window blur and silently no-ops.
+    pub blur()          { blurNativeWindow(this.handle) }
+    pub isFocused(): bool { isNativeWindowFocused(this.handle) }
+
+    /// Pin the window above ordinary peer windows. macOS raises
+    /// the NSWindow level into the floating band; Win32 uses
+    /// `HWND_TOPMOST` via `SetWindowPos`; GTK4 stores the flag
+    /// but the WM owns stacking on Linux (no-op visually).
+    pub setAlwaysOnTop(on: bool) {
+        setNativeWindowAlwaysOnTop(this.handle, on)
+    }
+    pub isAlwaysOnTop(): bool {
+        isNativeWindowAlwaysOnTop(this.handle)
+    }
+
+    /// Raise the window to the top of its peer band WITHOUT
+    /// taking keyboard focus. macOS uses `orderFront:`; Win32
+    /// uses `BringWindowToTop`; GTK falls back to
+    /// `gtk_window_present` (which may also focus, depending on
+    /// the WM).
+    pub moveTop() { moveTopNativeWindow(this.handle) }
 
     /// Re-run the dock / margin layout pass over every direct
     /// child. Called automatically on `addChild` (inherited from

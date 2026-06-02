@@ -11,6 +11,10 @@ use cocoa {
     nsstr, makeSize, nil,
     sharedApplication, makeWindow,
 }
+/// `NSFloatingWindowLevel` raw value (NSWindow.Level.floating).
+/// Above the normal application band but below status / menu bar.
+const FLOATING_LEVEL: i64 = 3 as i64
+const NORMAL_LEVEL:   i64 = 0 as i64
 const FULLSCREEN_BIT: u64 = NSWindowStyleMask.fullScreen as u64
 const RESIZABLE_BIT:  u64 = NSWindowStyleMask.resizable  as u64
 const CLOSABLE_BIT:   u64 = NSWindowStyleMask.closable   as u64
@@ -196,5 +200,61 @@ pub fn isNativeWindowMovable(handle: i64): bool {
         slot.win.isMovable
     } else {
         false
+    }
+}
+
+// ─── focus / Z-order ───────────────────────────────────────────
+
+/// `focus` = make the window key + raise to the front of its
+/// peer band, then bounce the app into the foreground so the
+/// transition is visible regardless of current activation state.
+pub fn focusNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.makeKeyAndOrderFront(nil)
+        sharedApplication().activate()
+    }
+}
+
+/// `blur` has no per-window AppKit primitive; the closest thing
+/// is deactivating the application so the OS hands the key
+/// window slot to whoever is next in line. `handle` is accepted
+/// for API symmetry across the platform backends — the
+/// deactivate is process-wide. Mirrors Electron's
+/// `BrowserWindow.blur()` semantics on macOS.
+pub fn blurNativeWindow(handle: i64) {
+    sharedApplication().deactivate()
+}
+
+pub fn isNativeWindowFocused(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.isKeyWindow
+    } else {
+        false
+    }
+}
+
+/// Always-on-top = raise the window level into the floating
+/// band. Lowering it back to the normal band restores ordinary
+/// stacking with peer windows.
+pub fn setNativeWindowAlwaysOnTop(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.setLevel(if on { FLOATING_LEVEL } else { NORMAL_LEVEL })
+    }
+}
+pub fn isNativeWindowAlwaysOnTop(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.level >= FLOATING_LEVEL
+    } else {
+        false
+    }
+}
+
+/// Raise the window to the top of its peer band without touching
+/// keyboard focus (vs. `focus`, which also makes it key). Useful
+/// when a background window needs to surface after a notification
+/// without stealing input from the user's active context.
+pub fn moveTopNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.win.orderFront(nil)
     }
 }

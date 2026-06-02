@@ -30,6 +30,8 @@ pub class WindowSlot {
     pub onUnmaximize:      fn()
     pub onEnterFullScreen: fn()
     pub onLeaveFullScreen: fn()
+    pub onFocus:           fn()
+    pub onBlur:            fn()
     /// Previous `maximized` / `fullscreened` / `minimized` bits,
     /// used by the `notify::` callbacks in window.il to detect
     /// edge transitions (GTK fires `notify` for both rising and
@@ -37,7 +39,9 @@ pub class WindowSlot {
     pub wasMaximized:  bool
     pub wasFullScreen: bool
     pub wasMinimized:  bool
+    pub wasActive:     bool
     pub isMovable:     bool
+    pub isAlwaysOnTop: bool
 
     pub init(win: GtkWindow, fixed: GtkFixed) {
         this.win               = win
@@ -55,10 +59,14 @@ pub class WindowSlot {
         this.onUnmaximize      = noOpClose
         this.onEnterFullScreen = noOpClose
         this.onLeaveFullScreen = noOpClose
+        this.onFocus           = noOpClose
+        this.onBlur            = noOpClose
         this.wasMaximized      = false
         this.wasFullScreen     = false
         this.wasMinimized      = false
+        this.wasActive         = false
         this.isMovable         = true
+        this.isAlwaysOnTop     = false
     }
 }
 
@@ -128,4 +136,10 @@ pub fn setOnWindowEnterFullScreen(handle: i64, cb: fn()) {
 }
 pub fn setOnWindowLeaveFullScreen(handle: i64, cb: fn()) {
     if let some(slot) = WINDOWS.get(handle) { slot.onLeaveFullScreen = cb }
+}
+pub fn setOnWindowFocus(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnWindowBlur(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onBlur = cb }
 }

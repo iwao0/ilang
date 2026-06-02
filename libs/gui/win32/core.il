@@ -41,10 +41,13 @@ pub class WindowSlot {
     pub onUnmaximize:      fn()
     pub onEnterFullScreen: fn()
     pub onLeaveFullScreen: fn()
+    pub onFocus:           fn()
+    pub onBlur:            fn()
     pub lastSizeWParam:    i32
     pub isFullScreen:      bool
     pub isClosable:        bool
     pub isMovable:         bool
+    pub isAlwaysOnTop:     bool
     pub preFullScreenStyle:     i64
     pub preFullScreenPlacement: WINDOWPLACEMENT
 
@@ -63,10 +66,13 @@ pub class WindowSlot {
         this.onUnmaximize      = noOp1
         this.onEnterFullScreen = noOp1
         this.onLeaveFullScreen = noOp1
+        this.onFocus           = noOp1
+        this.onBlur            = noOp1
         this.lastSizeWParam    = SIZE_RESTORED
         this.isFullScreen      = false
         this.isClosable        = true
         this.isMovable         = true
+        this.isAlwaysOnTop     = false
         this.preFullScreenStyle     = 0 as i64
         this.preFullScreenPlacement = WINDOWPLACEMENT {
             length:           44 as u32,
@@ -142,6 +148,12 @@ pub fn setOnWindowEnterFullScreen(handle: i64, cb: fn()) {
 pub fn setOnWindowLeaveFullScreen(handle: i64, cb: fn()) {
     if let some(slot) = WINDOWS.get(handle) { slot.onLeaveFullScreen = cb }
 }
+pub fn setOnWindowFocus(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnWindowBlur(handle: i64, cb: fn()) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onBlur = cb }
+}
 
 // ─── dispatch entry points — called by `wnd_proc.guiWndProc` ─
 
@@ -213,4 +225,10 @@ pub fn dispatchMouseUp(
     if let some(slot) = WINDOWS.get(handle) {
         slot.onMouseUp(x, y, b, ctrl, shift, alt, meta)
     }
+}
+pub fn dispatchFocus(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onFocus() }
+}
+pub fn dispatchBlur(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onBlur() }
 }

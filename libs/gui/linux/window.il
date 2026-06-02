@@ -20,6 +20,7 @@ use gtk {
     gtk_window_is_maximized, gtk_window_is_fullscreen,
     gtk_window_set_resizable, gtk_window_get_resizable,
     gtk_window_set_deletable, gtk_window_get_deletable,
+    gtk_window_is_active,
     gtk_widget_set_visible, gtk_widget_set_size_request,
     gtk_widget_get_width, gtk_widget_get_height,
     gtk_widget_add_controller,
@@ -154,6 +155,15 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
             if now != slot.wasFullScreen {
                 slot.wasFullScreen = now
                 if now { slot.onEnterFullScreen() } else { slot.onLeaveFullScreen() }
+            }
+        }
+    }
+    pub fn linux_window_is_active_notify(win: i64, pspec: i64, data: i64) {
+        if let some(slot) = WINDOWS.get(data) {
+            let now = gtk_window_is_active(slot.win) != 0 as i32
+            if now != slot.wasActive {
+                slot.wasActive = now
+                if now { slot.onFocus() } else { slot.onBlur() }
             }
         }
     }
@@ -294,6 +304,10 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     g_signal_connect_data2(
         win as GObject, cstrFromString("notify::fullscreened"),
         linux_window_fullscreened_notify, handle as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data2(
+        win as GObject, cstrFromString("notify::is-active"),
+        linux_window_is_active_notify, handle as *void, 0 as i64, 0 as u32
     )
 
     // Key controller — emits "key-pressed" / "key-released" on
@@ -478,6 +492,47 @@ pub fn isNativeWindowMovable(handle: i64): bool {
         slot.isMovable
     } else {
         true
+    }
+}
+
+// ─── focus / Z-order ───────────────────────────────────────────
+
+pub fn focusNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_window_present(slot.win)
+    }
+}
+/// GTK4 has no per-window blur primitive. `handle` is accepted
+/// for API symmetry; the call is a no-op on Linux.
+pub fn blurNativeWindow(handle: i64) {}
+
+pub fn isNativeWindowFocused(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_window_is_active(slot.win) != 0 as i32
+    } else {
+        false
+    }
+}
+
+/// GTK4 dropped `gtk_window_set_keep_above`. The flag is stored
+/// on the slot for API parity; the window manager always owns
+/// stacking on Linux.
+pub fn setNativeWindowAlwaysOnTop(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.isAlwaysOnTop = on
+    }
+}
+pub fn isNativeWindowAlwaysOnTop(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.isAlwaysOnTop
+    } else {
+        false
+    }
+}
+
+pub fn moveTopNativeWindow(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        gtk_window_present(slot.win)
     }
 }
 

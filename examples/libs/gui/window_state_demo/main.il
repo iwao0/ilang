@@ -1,13 +1,13 @@
-// libs/gui — `Window` state-action / state-event / trait-flag demo.
-// Top row drives `minimize()`, `maximize()`, `unmaximize()`, and a
-// `setFullScreen()` toggle. The second row toggles the three trait
-// flags (`setResizable` / `setMovable` / `setClosable`). The
-// status label below reflects the most recent state-event the
-// window emitted.
+// libs/gui — `Window` state-action / state-event / trait-flag /
+// focus / Z-order demo.
 //
-// (`Restore` has no button — once the window is iconified, none
-// of its own buttons are clickable. Click the Dock icon to bring
-// it back; `onRestore` will fire and the label will update.)
+// Row 1: `minimize()`, `maximize()`, `unmaximize()`, `setFullScreen()` toggle.
+// Row 2: `setResizable` / `setMovable` / `setClosable` toggles.
+// Row 3: `blur()`, `setAlwaysOnTop()` toggle, `moveTop()`.
+// Status label below reflects the most recent fired event.
+//
+// (`Restore` has no button — once iconified, none of its own
+// buttons are clickable. Click the Dock icon to bring it back.)
 //
 // Run on macOS:
 //   cargo run -p ilang -- run examples/libs/gui/window_state_demo/main.il
@@ -18,7 +18,7 @@ fn run(): i64 {
     let w = new gui.Window()
     w.title  = "ilang gui × window state"
     w.width  = 600.0
-    w.height = 240.0
+    w.height = 280.0
 
     let v = new gui.VBox()
     v.dock = gui.Dock.fill
@@ -100,6 +100,40 @@ fn run(): i64 {
     })
     traits.addChild(bClosable)
 
+    // Focus / Z-order row. `Blur` deactivates the app; the user
+    // can click back into the window to watch `onFocus` fire.
+    // `Always-on-top` toggles the floating Z band. `Move top`
+    // raises the window without taking focus.
+    let zorder = new gui.HBox()
+    zorder.height = 36.0
+    zorder.margin = new gui.Margin(4.0)
+    v.addChild(zorder)
+
+    let bBlur = new gui.Button()
+    bBlur.text   = "Blur"
+    bBlur.flex   = 1.0
+    bBlur.margin = new gui.Margin(4.0)
+    bBlur.onClick.add(fn(e: gui.MouseEvent) { w.blur() })
+    zorder.addChild(bBlur)
+
+    let bTop = new gui.Button()
+    bTop.text   = "AlwaysOnTop: OFF"
+    bTop.flex   = 1.0
+    bTop.margin = new gui.Margin(4.0)
+    bTop.onClick.add(fn(e: gui.MouseEvent) {
+        let next = !w.isAlwaysOnTop()
+        w.setAlwaysOnTop(next)
+        bTop.text = if next { "AlwaysOnTop: ON" } else { "AlwaysOnTop: OFF" }
+    })
+    zorder.addChild(bTop)
+
+    let bMoveTop = new gui.Button()
+    bMoveTop.text   = "Move Top"
+    bMoveTop.flex   = 1.0
+    bMoveTop.margin = new gui.Margin(4.0)
+    bMoveTop.onClick.add(fn(e: gui.MouseEvent) { w.moveTop() })
+    zorder.addChild(bMoveTop)
+
     let status = new gui.Label()
     status.text   = "(no state event yet)"
     status.flex   = 1.0
@@ -123,6 +157,12 @@ fn run(): i64 {
     })
     w.onLeaveFullScreen.add(fn(e: gui.LeaveFullScreenEvent) {
         status.text = "onLeaveFullScreen fired"
+    })
+    w.onFocus.add(fn(e: gui.FocusEvent) {
+        status.text = "onFocus fired"
+    })
+    w.onBlur.add(fn(e: gui.BlurEvent) {
+        status.text = "onBlur fired"
     })
 
     w.show()
