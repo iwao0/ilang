@@ -112,4 +112,13 @@ pub class Button : Control {
             this.onClick.emit(new MouseEvent(this, x, y, b, false, false, false, false))
         })
     }
+
+    pub override setFrame(x: f64, y: f64, w: f64, h: f64) {
+        this._x = x; this._y = y; this._width = w; this._height = h
+        if this.handle >= 0 {
+            setButtonFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub override frameWidth():  f64 { this._width }
+    pub override frameHeight(): f64 { this._height }
 }

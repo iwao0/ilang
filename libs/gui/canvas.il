@@ -158,4 +158,13 @@ pub class Canvas : Control {
             setCanvasLineWidth(this.handle, this._lineWidth)
         }
     }
+
+    pub override setFrame(x: f64, y: f64, w: f64, h: f64) {
+        this._x = x; this._y = y; this._width = w; this._height = h
+        if this.handle >= 0 {
+            setCanvasFrame(this.handle, this._x, this._y, this._width, this._height)
+        }
+    }
+    pub override frameWidth():  f64 { this._width }
+    pub override frameHeight(): f64 { this._height }
 }

@@ -31,9 +31,10 @@ fn run(): i64 {
     w.height = 480.0
 
     let v = new gui.GpuView()
-    v.x = 0.0; v.y = 0.0
-    v.width  = 640.0
-    v.height = 480.0
+    // Dock = fill → the view tracks the window: addChild runs the
+    // first layout pass, and every later `onResize` re-runs it so
+    // the surface always covers the client area.
+    v.dock = gui.Dock.fill
     w.addChild(v)            // attachTo runs → v.device / v.format valid
 
     if v.device.handle == 0 {

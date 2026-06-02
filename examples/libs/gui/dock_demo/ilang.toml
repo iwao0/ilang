@@ -1,0 +1,6 @@
+[package]
+name = "gui_dock_demo_example"
+
+[deps]
+gui    = "../../../../libs/gui"
+wgpu29 = "../../../../bindings/wgpu29"
