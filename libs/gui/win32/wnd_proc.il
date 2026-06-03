@@ -283,8 +283,10 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         WindowMessage.hScroll {
             // Trackbars (msctls_trackbar32) post WM_HSCROLL to
             // their parent for every thumb move; lParam is the
-            // slider HWND.
-            if trySliderChange(lParam as i64) { return 0 }
+            // slider HWND, LOWORD(wParam) is the trackbar action
+            // (TB_THUMBTRACK / TB_ENDTRACK / ...).
+            let code = (wParam & 0xFFFF) as i32
+            if trySliderChange(lParam as i64, code) { return 0 }
             return 0
         }
         WindowMessage.sysCommand {

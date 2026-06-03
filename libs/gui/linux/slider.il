@@ -4,12 +4,14 @@
 use std.ffi { cstrFromString }
 use gtk {
     GtkWidget, GtkScale, GtkRange, GtkFixed, GObject, GtkOrientation,
+    GtkPositionType,
     GtkEventController, GtkEventControllerFocus, GtkEventControllerMotion,
     GtkEventControllerScroll, GtkEventControllerScrollFlags,
     GtkEventControllerKey,
     GtkGestureSingle, GtkGestureClick,
     gtk_scale_new_with_range, gtk_range_set_value, gtk_range_get_value,
-    gtk_range_set_range,
+    gtk_range_set_range, gtk_range_set_increments,
+    gtk_scale_add_mark, gtk_scale_clear_marks,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
     gtk_widget_set_visible, gtk_widget_set_tooltip_text,
@@ -34,7 +36,8 @@ class SliderSlot {
     pub scale: GtkScale
     pub fixed: GtkFixed
     pub winHandle: i64
-    pub onChange: fn(f64)
+    pub onChange:  fn(f64)
+    pub onRelease: fn(f64)
     pub onFocus:  fn()
     pub onBlur:   fn()
     pub onMouseEnter: fn(f64, f64)
@@ -49,7 +52,8 @@ class SliderSlot {
         this.scale = scale
         this.fixed = fixed
         this.winHandle = winHandle
-        this.onChange = noOpF64
+        this.onChange  = noOpF64
+        this.onRelease = noOpF64
         this.onFocus  = noOp1
         this.onBlur   = noOp1
         this.onMouseEnter = noOpEnterLeave
@@ -155,6 +159,13 @@ let SLIDERS = new Map<i64, SliderSlot>()
             cb(x, y, gdkBtnToW3c(btn),
                hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
                hasMod(st, MOD_ALT),  hasMod(st, MOD_META))
+            // Drag-end commit, primary button only — matches the
+            // win32 TB_ENDTRACK shape (`onRelease` fires once with
+            // the final value).
+            if btn == 1 as u32 {
+                let rel = slot.onRelease
+                rel(gtk_range_get_value(slot.scale as GtkRange))
+            }
         }
     }
     pub fn linux_slider_scroll(
@@ -283,6 +294,29 @@ pub fn createNativeSlider(
 
 pub fn setOnSliderChange(handle: i64, cb: fn(f64)) {
     if let some(slot) = SLIDERS.get(handle) { slot.onChange = cb }
+}
+pub fn setOnSliderRelease(handle: i64, cb: fn(f64)) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onRelease = cb }
+}
+pub fn setSliderTickInterval(handle: i64, min: f64, max: f64, interval: f64) {
+    if let some(slot) = SLIDERS.get(handle) {
+        gtk_scale_clear_marks(slot.scale)
+        if interval <= 0.0 { return }
+        // GtkPositionType.bottom = 3 — ticks under a horizontal scale.
+        let pos: GtkPositionType = 3 as GtkPositionType
+        let v = min
+        while v <= max {
+            gtk_scale_add_mark(slot.scale, v, pos, 0 as *const char)
+            v = v + interval
+        }
+    }
+}
+pub fn setSliderPageStep(handle: i64, step: f64) {
+    if let some(slot) = SLIDERS.get(handle) {
+        // step_increment kept at 1.0 (default); the public class
+        // doesn't expose it. page_increment maps directly.
+        gtk_range_set_increments(slot.scale as GtkRange, 1.0, step)
+    }
 }
 pub fn setSliderRange(handle: i64, min: f64, max: f64) {
     if let some(slot) = SLIDERS.get(handle) { gtk_range_set_range(slot.scale as GtkRange, min, max) }

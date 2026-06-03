@@ -7,7 +7,9 @@ use events { SliderEvent, FocusEvent, BlurEvent, MouseEvent, KeyEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeSlider, readSliderValue,
-    setOnSliderChange, setSliderRange, setSliderValue,
+    setOnSliderChange, setOnSliderRelease,
+    setSliderRange, setSliderValue,
+    setSliderTickInterval, setSliderPageStep,
     setSliderFrame, setSliderEnabled, setSliderVisible,
     setSliderTooltip,
     setOnSliderFocus, setOnSliderBlur,
@@ -30,7 +32,14 @@ pub class Slider : Control {
     _isEnabled: bool
     _isVisible: bool
     _tooltip:   string
+    _tickInterval: f64
+    _pageStep:     f64
     pub onChange: Signal<SliderEvent>
+    /// Fires once when the user releases the slider thumb after a
+    /// drag. Use this instead of `onChange` when you only want the
+    /// final value (e.g. firing an expensive query off the commit
+    /// rather than every intermediate position).
+    pub onRelease: Signal<SliderEvent>
     pub onFocus:  Signal<FocusEvent>
     pub onBlur:   Signal<BlurEvent>
     pub onMouseEnter:  Signal<MouseEvent>
@@ -55,7 +64,10 @@ pub class Slider : Control {
         this._isEnabled = true
         this._isVisible = true
         this._tooltip   = ""
+        this._tickInterval = 0.0
+        this._pageStep     = 0.0
         this.onChange   = new Signal<SliderEvent>()
+        this.onRelease  = new Signal<SliderEvent>()
         this.onFocus    = new Signal<FocusEvent>()
         this.onBlur     = new Signal<BlurEvent>()
         this.onMouseEnter  = new Signal<MouseEvent>()
@@ -134,6 +146,29 @@ pub class Slider : Control {
         if this.handle >= 0 { setSliderTooltip(this.handle, v) }
     }
 
+    /// Spacing between tick marks in slider value units. `0.0`
+    /// (default) draws no ticks. macOS approximates the request
+    /// via `setNumberOfTickMarks((max-min)/interval)`; Win32 calls
+    /// `TBM_SETTICFREQ`; GTK lays out evenly-spaced
+    /// `gtk_scale_add_mark` entries.
+    pub get tickInterval(): f64 { this._tickInterval }
+    pub set tickInterval(v: f64) {
+        this._tickInterval = v
+        if this.handle >= 0 {
+            setSliderTickInterval(this.handle, this._min, this._max, v)
+        }
+    }
+
+    /// PageUp / PageDown / mouse-on-track keyboard increment.
+    /// `0.0` keeps the platform default. Cocoa has no equivalent —
+    /// NSSlider doesn't honour PgUp/PgDn — so the setter is a
+    /// no-op on macOS.
+    pub get pageStep(): f64 { this._pageStep }
+    pub set pageStep(v: f64) {
+        this._pageStep = v
+        if this.handle >= 0 { setSliderPageStep(this.handle, v) }
+    }
+
     pub override attachTo(window: Window) {
         if this.handle >= 0 { return }
         this.handle = createNativeSlider(
@@ -145,6 +180,10 @@ pub class Slider : Control {
         setOnSliderChange(this.handle, fn(v: f64) {
             this._value = v
             this.onChange.emit(new SliderEvent(this, v))
+        })
+        setOnSliderRelease(this.handle, fn(v: f64) {
+            this._value = v
+            this.onRelease.emit(new SliderEvent(this, v))
         })
         setOnSliderFocus(this.handle, fn() {
             this.onFocus.emit(new FocusEvent(this))
@@ -187,6 +226,12 @@ pub class Slider : Control {
                 this.onKeyUp.emit(new KeyEvent(this, c, ck, sk, ak, mk))
             })
         if this._tooltip != "" { setSliderTooltip(this.handle, this._tooltip) }
+        if this._tickInterval > 0.0 {
+            setSliderTickInterval(this.handle, this._min, this._max, this._tickInterval)
+        }
+        if this._pageStep > 0.0 {
+            setSliderPageStep(this.handle, this._pageStep)
+        }
     }
 
     pub focus() { if this.handle >= 0 { focusSlider(this.handle) } }

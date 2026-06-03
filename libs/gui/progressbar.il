@@ -3,11 +3,13 @@
 /// `[min, max]` to advance.
 
 use window { Window, Control }
+use layout { Orientation }
 use gui_impl {
     createNativeProgress,
     setProgressRange, setProgressValue,
     setProgressFrame, setProgressVisible,
     setProgressEnabled, setProgressTooltip,
+    setProgressIndeterminate, setProgressOrientation,
 }
 
 pub class ProgressBar : Control {
@@ -22,6 +24,8 @@ pub class ProgressBar : Control {
     _isEnabled: bool
     _isVisible: bool
     _tooltip:   string
+    _indeterminate: bool
+    _orientation:   Orientation
 
     pub init() {
         super()
@@ -36,6 +40,8 @@ pub class ProgressBar : Control {
         this._isEnabled = true
         this._isVisible = true
         this._tooltip   = ""
+        this._indeterminate = false
+        this._orientation   = Orientation.horizontal
     }
 
     pub get min(): f64 { this._min }
@@ -101,6 +107,26 @@ pub class ProgressBar : Control {
         if this.handle >= 0 { setProgressTooltip(this.handle, v) }
     }
 
+    /// `true` puts the bar into a continuous-animation mode for
+    /// "progress unknown" tasks. `value` is ignored while
+    /// indeterminate is on.
+    pub get indeterminate(): bool { this._indeterminate }
+    pub set indeterminate(v: bool) {
+        this._indeterminate = v
+        if this.handle >= 0 { setProgressIndeterminate(this.handle, v) }
+    }
+
+    /// Horizontal (default) or vertical bar. macOS / Win32 honour
+    /// the request natively; GTK toggles the underlying
+    /// `GtkOrientable`.
+    pub get orientation(): Orientation { this._orientation }
+    pub set orientation(v: Orientation) {
+        this._orientation = v
+        if this.handle >= 0 {
+            setProgressOrientation(this.handle, v == Orientation.vertical)
+        }
+    }
+
     pub override attachTo(window: Window) {
         if this.handle >= 0 { return }
         this.handle = createNativeProgress(
@@ -111,6 +137,12 @@ pub class ProgressBar : Control {
         )
         if !this._isEnabled { setProgressEnabled(this.handle, false) }
         if this._tooltip != "" { setProgressTooltip(this.handle, this._tooltip) }
+        if this._orientation == Orientation.vertical {
+            setProgressOrientation(this.handle, true)
+        }
+        if this._indeterminate {
+            setProgressIndeterminate(this.handle, true)
+        }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

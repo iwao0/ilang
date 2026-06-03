@@ -15,7 +15,8 @@ use core {
 
 class SliderSlot {
     pub slider:   NSSlider
-    pub onChange: fn(f64)
+    pub onChange:  fn(f64)
+    pub onRelease: fn(f64)
     pub onFocus:  fn()
     pub onBlur:   fn()
     pub onMouseEnter: fn(f64, f64)
@@ -29,7 +30,8 @@ class SliderSlot {
     pub handler:  NSObject
     pub init(slider: NSSlider, handler: NSObject) {
         this.slider = slider
-        this.onChange = noOpF64
+        this.onChange  = noOpF64
+        this.onRelease = noOpF64
         this.onFocus  = noOp1
         this.onBlur   = noOp1
         this.onMouseEnter = noOpEnterLeave
@@ -87,6 +89,12 @@ class FocusSlider : NSSlider {
             let cb = slot.onMouseUp
             cb(p.x, y, 0,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+            // Drag-end commit. NSSlider is continuous so the
+            // change callback already fired during the drag; mirror
+            // the win32 / GTK `onRelease` shape by emitting once
+            // more with the final value.
+            let rel = slot.onRelease
+            rel(slot.slider.doubleValue)
         }
         super.mouseUp(event)
     }
@@ -245,6 +253,28 @@ pub fn createNativeSlider(
 
 pub fn setOnSliderChange(handle: i64, cb: fn(f64)) {
     if let some(slot) = SLIDERS.get(handle) { slot.onChange = cb }
+}
+pub fn setOnSliderRelease(handle: i64, cb: fn(f64)) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onRelease = cb }
+}
+pub fn setSliderTickInterval(handle: i64, min: f64, max: f64, interval: f64) {
+    if let some(slot) = SLIDERS.get(handle) {
+        if interval <= 0.0 {
+            slot.slider.setNumberOfTickMarks(0 as i64)
+        } else {
+            // NSSlider exposes tick count rather than spacing. Map
+            // `interval` to `count = floor((max-min)/interval) + 1`
+            // so the endpoints line up the way win32 / GTK ticks do.
+            let span = max - min
+            let n = (span / interval) as i64 + 1 as i64
+            slot.slider.setNumberOfTickMarks(n)
+        }
+    }
+}
+pub fn setSliderPageStep(handle: i64, step: f64) {
+    // NSSlider has no PageUp / PageDown shortcut, so this is a
+    // no-op on macOS. Arrow-key increments are derived from the
+    // slider's value range automatically.
 }
 pub fn setSliderRange(handle: i64, min: f64, max: f64) {
     if let some(slot) = SLIDERS.get(handle) {

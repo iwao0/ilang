@@ -24,6 +24,14 @@ pub enum Dock {
     right
 }
 
+/// Whether a widget lays out / fills along its horizontal or
+/// vertical axis. Used by `ProgressBar.orientation` (and any
+/// future axis-aware widget).
+pub enum Orientation {
+    horizontal
+    vertical
+}
+
 /// Edge margins in logical pixels. Four overloaded constructors —
 /// the no-arg form yields a zero margin, the single-arg form
 /// uniform, the two-arg form (vertical, horizontal), and the

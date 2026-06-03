@@ -2,7 +2,8 @@
 /// driven via `doubleValue` (no callbacks).
 
 use cocoa {
-    NSObject, NSProgressIndicator, NSView, nsstr, nil,
+    NSObject, NSProgressIndicator, NSView,
+    NSProgressIndicatorStyle, nsstr, nil,
     makeRect, makeProgressBar,
 }
 use core { WINDOWS }
@@ -61,4 +62,17 @@ pub fn setProgressTooltip(handle: i64, text: string) {
             (slot.bar as NSView).setToolTip(nsstr(text) as NSObject)
         }
     }
+}
+pub fn setProgressIndeterminate(handle: i64, on: bool) {
+    if let some(slot) = PROGRESS_BARS.get(handle) {
+        slot.bar.setIndeterminate(on)
+        if on { slot.bar.startAnimation(nil) }
+        else  { slot.bar.stopAnimation(nil) }
+    }
+}
+pub fn setProgressOrientation(handle: i64, vertical: bool) {
+    // NSProgressIndicator follows its frame's aspect ratio — a
+    // taller-than-wide frame renders vertically. The public class
+    // sizes the bar before calling this, so no native call is
+    // needed beyond keeping the API surface consistent.
 }

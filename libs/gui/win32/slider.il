@@ -31,7 +31,8 @@ class SliderSlot {
     pub tooltipHwnd: HWND
     pub min:      f64
     pub max:      f64
-    pub onChange: fn(f64)
+    pub onChange:  fn(f64)
+    pub onRelease: fn(f64)
     pub onFocus:  fn()
     pub onBlur:   fn()
     pub onMouseEnter: fn(f64, f64)
@@ -49,7 +50,8 @@ class SliderSlot {
         this.tooltipHwnd = 0 as HWND
         this.min  = min
         this.max  = max
-        this.onChange = noOpF64
+        this.onChange  = noOpF64
+        this.onRelease = noOpF64
         this.onFocus  = noOp1
         this.onBlur   = noOp1
         this.onMouseEnter = noOpEnterLeave
@@ -71,9 +73,17 @@ fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let SLIDERS = new Map<i64, SliderSlot>()
 
-pub fn trySliderChange(hwnd: i64): bool {
+/// WM_HSCROLL → Slider. `scrollCode` is LOWORD(wParam) — the
+/// trackbar action that triggered the message. TB_ENDTRACK (0x08)
+/// is the drag-end commit, so on top of the per-move `onChange`
+/// we fire `onRelease` once with the final value.
+pub fn trySliderChange(hwnd: i64, scrollCode: i32): bool {
     if let some(slot) = SLIDERS.get(hwnd) {
-        slot.onChange(readSliderValue(hwnd))
+        let v = readSliderValue(hwnd)
+        slot.onChange(v)
+        if scrollCode == 0x08 as i32 {
+            slot.onRelease(v)
+        }
         true
     } else {
         false
@@ -241,6 +251,25 @@ pub fn createNativeSlider(
 
 pub fn setOnSliderChange(handle: i64, cb: fn(f64)) {
     if let some(slot) = SLIDERS.get(handle) { slot.onChange = cb }
+}
+pub fn setOnSliderRelease(handle: i64, cb: fn(f64)) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onRelease = cb }
+}
+/// TBM_SETTICFREQ = 0x0414 (wParam = tick frequency, lParam = 0).
+/// The trackbar stores positions as ints, so `interval` is rounded
+/// to the nearest integer step; `0.0` clears the auto-ticks pattern.
+pub fn setSliderTickInterval(handle: i64, min: f64, max: f64, interval: f64) {
+    if let some(slot) = SLIDERS.get(handle) {
+        let freq = interval as i32
+        let f: i32 = if freq < 1 as i32 { 1 as i32 } else { freq }
+        SendMessageA(slot.hwnd, 0x0414 as u32, f as u64, 0 as i64)
+    }
+}
+/// TBM_SETPAGESIZE = 0x0415 (wParam = 0, lParam = pagesize).
+pub fn setSliderPageStep(handle: i64, step: f64) {
+    if let some(slot) = SLIDERS.get(handle) {
+        SendMessageA(slot.hwnd, 0x0415 as u32, 0 as u64, step as i64)
+    }
 }
 pub fn setSliderRange(handle: i64, min: f64, max: f64) {
     if let some(slot) = SLIDERS.get(handle) {

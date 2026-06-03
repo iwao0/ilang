@@ -3,12 +3,13 @@
 
 use windows {
     HWND, HINSTANCE, HMENU, RECT,
-    WindowStyle, ShowCmd,
+    WindowStyle, ShowCmd, GWL,
     TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     CreateWindowExW, EnableWindow, MoveWindow, ShowWindow,
     SendMessageA, SendMessageW,
+    GetWindowLongPtrW, SetWindowLongPtrW,
 }
 use core { windowHwnd }
 
@@ -94,6 +95,37 @@ pub fn setProgressEnabled(handle: i64, enabled: bool) {
     if let some(slot) = PROGRESS.get(handle) {
         let flag: i32 = if enabled { 1 } else { 0 }
         EnableWindow(slot.hwnd, flag)
+    }
+}
+pub fn setProgressIndeterminate(handle: i64, on: bool) {
+    if let some(slot) = PROGRESS.get(handle) {
+        let cur = GetWindowLongPtrW(slot.hwnd, GWL.style as i32)
+        // PBS_MARQUEE = 0x08. PBM_SETMARQUEE only animates when
+        // the style bit is on; flip it in / out before posting.
+        let next = if on {
+            cur | (0x08 as i64)
+        } else {
+            cur & (~(0x08 as i64))
+        }
+        SetWindowLongPtrW(slot.hwnd, GWL.style as i32, next)
+        // PBM_SETMARQUEE = 0x040A (wParam=enable, lParam=update-ms).
+        SendMessageA(
+            slot.hwnd, 0x040A as u32,
+            if on { 1 as u64 } else { 0 as u64 },
+            30 as i64
+        )
+    }
+}
+pub fn setProgressOrientation(handle: i64, vertical: bool) {
+    if let some(slot) = PROGRESS.get(handle) {
+        let cur = GetWindowLongPtrW(slot.hwnd, GWL.style as i32)
+        // PBS_VERTICAL = 0x04.
+        let next = if vertical {
+            cur | (0x04 as i64)
+        } else {
+            cur & (~(0x04 as i64))
+        }
+        SetWindowLongPtrW(slot.hwnd, GWL.style as i32, next)
     }
 }
 pub fn setProgressTooltip(handle: i64, text: string) {

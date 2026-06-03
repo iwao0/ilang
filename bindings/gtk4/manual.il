@@ -252,6 +252,15 @@ pub enum Keyval: u32 {
     ): u32
     // `gtk_widget_remove_tick_callback` is already in generated/gtk.il.
 
+    // ─── GtkOrientable interface ──────────────────────────────
+    // GIR `<interface>` skipped by the generator. The setter
+    // accepts a GtkProgressBar (or any GtkOrientable subclass);
+    // we type the argument as GtkWidget so any caller-supplied
+    // widget pointer can be passed through unchanged.
+    @lib pub fn gtk_orientable_set_orientation(
+        orientable: GtkWidget, orientation: i32
+    )
+
     // ─── X11 backend extras ───────────────────────────────────
     // Exported from libgtk-4.so on systems built with the X11
     // backend. `gdk_x11_surface_get_xid` returns `Window`

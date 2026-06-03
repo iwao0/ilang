@@ -195,6 +195,11 @@ pub enum NSDatePickerStyle: u64 {
         pub setTarget(target: NSObject)
         @objc("setAction:")
         pub setAction(sel: i64)
+
+        @objc("setNumberOfTickMarks:")
+        pub setNumberOfTickMarks(n: i64)
+        @objc("setAllowsTickMarkValuesOnly:")
+        pub setAllowsTickMarkValuesOnly(flag: bool)
     }
 
     /// `NSStepper` — pair of up / down arrows over a value with
