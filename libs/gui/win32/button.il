@@ -12,7 +12,7 @@ use windows {
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     CreateWindowExW, SetWindowTextW, EnableWindow, MoveWindow, ShowWindow,
-    SendMessageW, SetFocus, TrackMouseEvent,
+    SendMessageW, SetFocus, GetFocus, TrackMouseEvent,
     SetWindowSubclass, DefSubclassProc,
 }
 use util {
@@ -431,6 +431,18 @@ pub fn focusButton(handle: i64) {
         // BN_KILLFOCUS / BN_SETFOCUS WM_COMMAND notifications to
         // the parent because we built the control with BS_NOTIFY.
         SetFocus(slot.hwnd)
+    }
+}
+pub fn blurButton(handle: i64) {
+    if let some(slot) = BUTTONS.get(handle) {
+        // Web `blur()` is a no-op when the element isn't focused;
+        // otherwise we'd drag focus off whatever sibling control
+        // actually has it. Punt focus back to the parent window
+        // — same path `SetFocus` takes when the dialog manager
+        // would otherwise route the next Tab.
+        if GetFocus() as i64 == slot.hwnd as i64 {
+            SetFocus(slot.winHandle as HWND)
+        }
     }
 }
 pub fn setButtonDefault(handle: i64, isDefault: bool) {

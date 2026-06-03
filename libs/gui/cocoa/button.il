@@ -418,6 +418,18 @@ pub fn focusButton(handle: i64) {
         let _ = win.makeFirstResponder(slot.btn as NSObject)
     }
 }
+pub fn blurButton(handle: i64) {
+    if let some(slot) = BUTTONS.get(handle) {
+        let win = slot.btn.window
+        // Web `blur()` only acts if the element holds focus —
+        // otherwise we'd yank focus off whichever sibling control
+        // actually has it. Compare the window's current responder
+        // against our button before calling `makeFirstResponder:nil`.
+        if win.firstResponder.handle == slot.btn.handle {
+            let _ = win.makeFirstResponder(nil)
+        }
+    }
+}
 pub fn setButtonDefault(handle: i64, isDefault: bool) {
     if let some(slot) = BUTTONS.get(handle) {
         if isDefault {

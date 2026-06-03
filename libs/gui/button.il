@@ -24,7 +24,7 @@ use gui_impl {
     setOnButtonContextMenu,
     setOnButtonKeyDown, setOnButtonKeyUp,
     setButtonText, setButtonFrame, setButtonEnabled, setButtonVisible,
-    setButtonDefault, setButtonTooltip, clickButton, focusButton,
+    setButtonDefault, setButtonTooltip, clickButton, focusButton, blurButton,
 }
 
 pub class Button : Control {
@@ -225,6 +225,16 @@ pub class Button : Control {
     /// been attached to a window.
     pub focus() {
         if this.handle >= 0 { focusButton(this.handle) }
+    }
+
+    /// Remove keyboard focus from this button. Matches the
+    /// `HTMLElement.blur()` web semantics — only acts when this
+    /// button is the current focus holder. Fires `onBlur` on
+    /// this button as a side effect of the responder chain
+    /// resigning. No-op until the button has been attached to a
+    /// window.
+    pub blur() {
+        if this.handle >= 0 { blurButton(this.handle) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

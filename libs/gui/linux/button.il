@@ -20,6 +20,7 @@ use gtk {
     gtk_widget_set_tooltip_text,
     gtk_widget_set_receives_default, gtk_window_set_default_widget,
     gtk_widget_grab_focus, gtk_widget_add_controller,
+    gtk_window_get_focus, gtk_window_set_focus,
     gtk_event_controller_focus_new,
     gtk_event_controller_motion_new,
     gtk_event_controller_key_new,
@@ -455,6 +456,19 @@ pub fn focusButton(handle: i64) {
         // holder), which routes through our linux_button_focus_*
         // handlers back to `onFocus` / `onBlur`.
         let _ = gtk_widget_grab_focus(slot.btn as GtkWidget)
+    }
+}
+pub fn blurButton(handle: i64) {
+    if let some(slot) = BUTTONS.get(handle) {
+        // Web `blur()` only acts when this widget is the current
+        // focus holder; otherwise we'd steal focus from whatever
+        // sibling actually has it. Clear by passing NULL to the
+        // window's focus setter — GTK then leaves no widget focused
+        // and our focus controller's `leave` fires onBlur.
+        let cur = gtk_window_get_focus(slot.win)
+        if cur as i64 == slot.btn as i64 {
+            gtk_window_set_focus(slot.win, 0 as GtkWidget)
+        }
     }
 }
 pub fn setButtonDefault(handle: i64, isDefault: bool) {

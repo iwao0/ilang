@@ -301,6 +301,12 @@ pub enum NSApplicationActivationPolicy: i64 {
         /// Returns `true` if the new responder accepted the role.
         @objc("makeFirstResponder:")
         pub makeFirstResponder(r: NSObject): bool
+        /// Currently-installed first responder. Returns the
+        /// window itself when no view holds the role, so a
+        /// caller comparing handles needs to match against the
+        /// specific view it cares about.
+        @objc("firstResponder")
+        pub get firstResponder(): NSObject
         /// setDelegate overloads — typed `NSWindowDelegate` for
         /// the conformance-checked casual case, NSObject for nil
         /// clearing / framework-bound objects.
