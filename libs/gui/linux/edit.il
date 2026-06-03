@@ -4,6 +4,7 @@ use std.ffi { cstrFromString, stringFromCstr }
 use gtk {
     GtkWidget, GtkEntry, GtkFixed, GtkWindow, GObject,
     GtkEventController, GtkEventControllerFocus, GtkEventControllerMotion,
+    GtkEventControllerKey,
     GtkGestureSingle, GtkGestureClick,
     gtk_entry_new, gtk_editable_set_text, gtk_editable_get_text,
     gtk_editable_set_editable,
@@ -14,14 +15,17 @@ use gtk {
     gtk_widget_set_tooltip_text,
     gtk_widget_grab_focus, gtk_widget_add_controller,
     gtk_event_controller_focus_new, gtk_event_controller_motion_new,
+    gtk_event_controller_key_new,
     gtk_event_controller_get_widget,
     gtk_event_controller_get_current_event_state,
+    gdk_keyval_to_lower,
     gtk_gesture_click_new,
     gtk_gesture_single_set_button, gtk_gesture_single_get_current_button,
     gtk_window_get_focus, gtk_window_set_focus,
-    g_signal_connect_data,
+    g_signal_connect_data, g_signal_connect_key,
 }
 use core { WINDOWS, WindowSlot, noOpText, noOpClose }
+use window { keyvalToCode }
 
 class EditSlot {
     pub entry: GtkEntry
@@ -35,6 +39,8 @@ class EditSlot {
     pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onKeyDown: fn(string, bool, bool, bool, bool)
+    pub onKeyUp:   fn(string, bool, bool, bool, bool)
     pub init(entry: GtkEntry, fixed: GtkFixed, winHandle: i64) {
         this.entry = entry
         this.fixed = fixed
@@ -47,11 +53,14 @@ class EditSlot {
         this.onMouseDown  = noOpClickMod
         this.onMouseUp    = noOpClickMod
         this.onContextMenu = noOpClickMod
+        this.onKeyDown    = noOpKey
+        this.onKeyUp      = noOpKey
     }
 }
 
 fn noOpEnterLeave(x: f64, y: f64) {}
 fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 // GdkModifierType bits we need. Pulled out so the entry's gesture
 // handlers can `& MOD_*` without going through the flags enum.
@@ -153,6 +162,32 @@ let EDITS = new Map<i64, EditSlot>()
                hasMod(st, MOD_ALT),  hasMod(st, MOD_META))
         }
     }
+    pub fn linux_entry_key_pressed(
+        ctrl: i64, keyval: u32, keycode: u32, state: u32, data: i64
+    ): i32 {
+        let w = gtk_event_controller_get_widget(ctrl as GtkEventController)
+        if let some(slot) = EDITS.get(w as i64) {
+            let code = keyvalToCode(gdk_keyval_to_lower(keyval))
+            let cb = slot.onKeyDown
+            cb(code,
+               hasMod(state, MOD_CTRL), hasMod(state, MOD_SHIFT),
+               hasMod(state, MOD_ALT),  hasMod(state, MOD_META))
+        }
+        0 as i32
+    }
+    pub fn linux_entry_key_released(
+        ctrl: i64, keyval: u32, keycode: u32, state: u32, data: i64
+    ): i32 {
+        let w = gtk_event_controller_get_widget(ctrl as GtkEventController)
+        if let some(slot) = EDITS.get(w as i64) {
+            let code = keyvalToCode(gdk_keyval_to_lower(keyval))
+            let cb = slot.onKeyUp
+            cb(code,
+               hasMod(state, MOD_CTRL), hasMod(state, MOD_SHIFT),
+               hasMod(state, MOD_ALT),  hasMod(state, MOD_META))
+        }
+        0 as i32
+    }
 }
 
 @extern(C) {
@@ -228,6 +263,20 @@ pub fn createNativeEdit(
         linux_entry_released, 0 as *void, 0 as i64, 0 as u32
     )
 
+    // Key controller for onKeyDown / onKeyUp. Mirrors the
+    // Button-side wiring; the controller is bound to the entry,
+    // so events only flow while the entry has focus.
+    let keyCtl = gtk_event_controller_key_new() as GtkEventControllerKey
+    gtk_widget_add_controller(entry as GtkWidget, keyCtl as GtkEventController)
+    g_signal_connect_key(
+        keyCtl as GObject, cstrFromString("key-pressed"),
+        linux_entry_key_pressed, 0 as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_key(
+        keyCtl as GObject, cstrFromString("key-released"),
+        linux_entry_key_released, 0 as *void, 0 as i64, 0 as u32
+    )
+
     let handle = entry as i64
     EDITS[handle] = new EditSlot(entry, winSlot.fixed, windowHandle)
     handle
@@ -262,6 +311,12 @@ pub fn setOnEditContextMenu(
     handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 ) {
     if let some(slot) = EDITS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setOnEditKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = EDITS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnEditKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = EDITS.get(handle) { slot.onKeyUp = cb }
 }
 pub fn focusEdit(handle: i64) {
     if let some(slot) = EDITS.get(handle) {

@@ -13,13 +13,14 @@
 ///   window.addChild(t)
 
 use std.events { Signal }
-use events { ChangeEvent, FocusEvent, BlurEvent, MouseEvent }
+use events { ChangeEvent, FocusEvent, BlurEvent, MouseEvent, KeyEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeEdit, readEditText,
     setOnEditChange, setOnEditFocus, setOnEditBlur,
     setOnEditMouseEnter, setOnEditMouseLeave,
     setOnEditMouseDown, setOnEditMouseUp, setOnEditContextMenu,
+    setOnEditKeyDown, setOnEditKeyUp,
     setEditText, setEditFrame,
     setEditEnabled, setEditVisible, setEditTooltip,
     setEditPlaceholder, setEditReadOnly, setEditMaxLength,
@@ -47,6 +48,8 @@ pub class TextField : Control {
     pub onMouseDown:  Signal<MouseEvent>
     pub onMouseUp:    Signal<MouseEvent>
     pub onContextMenu: Signal<MouseEvent>
+    pub onKeyDown:    Signal<KeyEvent>
+    pub onKeyUp:      Signal<KeyEvent>
 
     pub init() {
         super()
@@ -70,6 +73,8 @@ pub class TextField : Control {
         this.onMouseDown  = new Signal<MouseEvent>()
         this.onMouseUp    = new Signal<MouseEvent>()
         this.onContextMenu = new Signal<MouseEvent>()
+        this.onKeyDown    = new Signal<KeyEvent>()
+        this.onKeyUp      = new Signal<KeyEvent>()
     }
 
     pub get text(): string {
@@ -196,6 +201,14 @@ pub class TextField : Control {
         setOnEditContextMenu(this.handle,
             fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
                 this.onContextMenu.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnEditKeyDown(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyDown.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+            })
+        setOnEditKeyUp(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyUp.emit(new KeyEvent(this, c, ck, sk, ak, mk))
             })
         if this._tooltip != "" { setEditTooltip(this.handle, this._tooltip) }
         if this._placeholder != "" { setEditPlaceholder(this.handle, this._placeholder) }

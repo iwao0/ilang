@@ -3,15 +3,15 @@
 /// contents to the registered callback.
 
 use cocoa {
-    NSObject, NSTextField, NSView, NSEvent, NSNotification,
+    NSObject, NSTextField, NSView, NSWindow, NSEvent, NSEventMask, NSNotification,
     NSTrackingArea, NSTrackingAreaOptions,
     nsstr, ilstr, makeRect, makeTextField, nil,
     classPtr, setObjectClass,
 }
 use core {
-    WINDOWS, noOpText, noOp1,
+    WINDOWS, noOpText, noOp1, noOpKey,
     noOpEnterLeave, noOpClickMod,
-    modCtrl, modShift, modAlt, modMeta,
+    keyCodeToString, modCtrl, modShift, modAlt, modMeta,
 }
 
 class EditSlot {
@@ -24,6 +24,14 @@ class EditSlot {
     pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onKeyDown:    fn(string, bool, bool, bool, bool)
+    pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    /// Retained handle to the `+addLocalMonitorForEventsMatchingMask:`
+    /// monitor that surfaces key events. Stored on the slot so the
+    /// monitor's lifetime tracks the text field's; left alive until
+    /// process exit (matches the rest of libs/gui's "leak until app
+    /// quit" widget lifetime).
+    pub keyMonitor: NSObject
     pub handler:  NSObject
     /// Character cap. `0` = no limit. AppKit has no built-in max
     /// length on NSTextField; the change-handler reads this and
@@ -40,6 +48,9 @@ class EditSlot {
         this.onMouseDown  = noOpClickMod
         this.onMouseUp    = noOpClickMod
         this.onContextMenu = noOpClickMod
+        this.onKeyDown = noOpKey
+        this.onKeyUp   = noOpKey
+        this.keyMonitor = nil
         this.handler = handler
         this.maxLength = 0 as i32
     }
@@ -266,7 +277,50 @@ pub fn createNativeEdit(
     winSlot.win.contentView.addSubview(tf as NSView)
 
     let handle = (tf as NSView).handle
-    EDITS[handle] = new EditSlot(tf, h as NSObject)
+    let slot = new EditSlot(tf, h as NSObject)
+    EDITS[handle] = slot
+
+    // NSEvent local monitor for key events. The field editor
+    // (the NSText shared by the window, not this NSTextField)
+    // is the actual firstResponder once the field has focus, so
+    // a `keyDown:` override on FocusTextField would never fire.
+    // A process-local monitor sees keyDown/keyUp before they're
+    // dispatched up the responder chain; filter by
+    // `window.firstResponder == textfield.currentEditor` so only
+    // keys actually aimed at this field surface as our Signal.
+    let keyMask = NSEventMask.keyDown | NSEventMask.keyUp
+    slot.keyMonitor = NSEvent.addLocalMonitorForEventsMatchingMask(
+        keyMask,
+        new ObjCBlock(fn(evtRaw: i64): i64 {
+            let evt = NSEvent.__wrap_handle_unowned(evtRaw)
+            let winObj = evt.window
+            if winObj.handle != 0 as i64 {
+                let win = NSWindow.__wrap_handle_unowned(winObj.handle)
+                let resp = win.firstResponder
+                let editor = slot.edit.currentEditor
+                if editor.handle != 0 as i64 && resp.handle == editor.handle {
+                    let flags = evt.modifierFlags as u64
+                    let code = keyCodeToString(evt.keyCode)
+                    let ck = modCtrl(flags)
+                    let sk = modShift(flags)
+                    let ak = modAlt(flags)
+                    let mk = modMeta(flags)
+                    if (evt.eventType as u64) == 10 as u64 {
+                        let cb = slot.onKeyDown
+                        cb(code, ck, sk, ak, mk)
+                    } else {
+                        let cb = slot.onKeyUp
+                        cb(code, ck, sk, ak, mk)
+                    }
+                }
+            }
+            // Always forward — swallowing would block AppKit's
+            // own keystroke handling (insert text into the field
+            // editor, command keys, etc.).
+            evtRaw
+        })
+    )
+
     handle
 }
 
@@ -306,6 +360,12 @@ pub fn setOnEditContextMenu(
     handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 ) {
     if let some(slot) = EDITS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setOnEditKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = EDITS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnEditKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = EDITS.get(handle) { slot.onKeyUp = cb }
 }
 pub fn focusEdit(handle: i64) {
     if let some(slot) = EDITS.get(handle) {

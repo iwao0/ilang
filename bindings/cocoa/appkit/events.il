@@ -45,6 +45,20 @@ pub enum NSEventModifierFlags: u64 {
     function = 0x800000
 }
 
+/// `NSEventMask` — `1 << NSEventType` bitfield for
+/// `addLocalMonitorForEventsMatchingMask:`. Combine with `|`.
+/// Only the values libs/gui currently routes through monitor
+/// pipelines are exposed; add more as the consumer set grows.
+@flags
+pub enum NSEventMask: u64 {
+    leftMouseDown  = 0x2
+    leftMouseUp    = 0x4
+    rightMouseDown = 0x8
+    rightMouseUp   = 0x10
+    keyDown        = 0x400
+    keyUp          = 0x800
+}
+
 @extern(ObjC, "/System/Library/Frameworks/AppKit.framework/AppKit") {
     /// `NSEvent` — keyboard / mouse / scroll wheel event passed
     /// to `SKScene.mouseDown:` and friends when subclassing for
@@ -89,5 +103,24 @@ pub enum NSEventModifierFlags: u64 {
         pub get charactersIgnoringModifiers(): NSString
         @objc("isARepeat")
         pub get isARepeat(): bool
+        /// Window the event originated in. `nil` for system-wide
+        /// or appKitDefined events (none of which our monitors
+        /// currently filter on).
+        @objc("window")
+        pub get window(): NSObject
+
+        /// Process-local event monitor. `handler` runs before the
+        /// matched events are dispatched up the responder chain;
+        /// return the same event to forward it, or `nil` (raw `0`)
+        /// to swallow it. The returned monitor `id` must be kept
+        /// alive — releasing it tears the monitor down.
+        @objc("addLocalMonitorForEventsMatchingMask:handler:")
+        pub static addLocalMonitorForEventsMatchingMask(
+            mask: NSEventMask, handler: ObjCBlock<fn(i64): i64>
+        ): NSObject
+        /// Removes a previously-installed monitor. Pass the id
+        /// returned by the `addLocal…` call.
+        @objc("removeMonitor:")
+        pub static removeMonitor(monitor: NSObject)
     }
 }

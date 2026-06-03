@@ -7,6 +7,7 @@
 use windows {
     HWND, HINSTANCE, HMENU, RECT,
     WindowStyle, ShowCmd, WindowMessage, TrackMouseFlags, TRACKMOUSEEVENT,
+    VirtualKey,
     TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
@@ -19,7 +20,7 @@ use windows {
 use std.ffi { arrayFromCArray }
 use util {
     applyGuiFont, noOpText,
-    modCtrl, modShift, modAlt, modMeta,
+    vkToString, modCtrl, modShift, modAlt, modMeta,
 }
 use core { windowHwnd, noOp1 }
 
@@ -43,6 +44,8 @@ class EditSlot {
     pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onKeyDown:    fn(string, bool, bool, bool, bool)
+    pub onKeyUp:      fn(string, bool, bool, bool, bool)
     pub mouseTracking: bool
     pub winHandle: i64
     /// Lazy-created tooltip control; stays `0` until the first
@@ -59,6 +62,8 @@ class EditSlot {
         this.onMouseDown  = noOpClickMod
         this.onMouseUp    = noOpClickMod
         this.onContextMenu = noOpClickMod
+        this.onKeyDown     = noOpKey
+        this.onKeyUp       = noOpKey
         this.mouseTracking = false
         this.winHandle = winHandle
         this.tooltipHwnd = 0 as HWND
@@ -67,6 +72,7 @@ class EditSlot {
 
 fn noOpEnterLeave(x: f64, y: f64) {}
 fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let EDITS = new Map<i64, EditSlot>()
 
@@ -179,6 +185,20 @@ pub fn editSubclassProc(
                 cb(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
+        WindowMessage.keydown {
+            if let some(slot) = EDITS.get(hwnd) {
+                let vk = wParam as u32 as VirtualKey
+                let cb = slot.onKeyDown
+                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.keyup {
+            if let some(slot) = EDITS.get(hwnd) {
+                let vk = wParam as u32 as VirtualKey
+                let cb = slot.onKeyUp
+                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
         _ {}
     }
     DefSubclassProc(hwnd as HWND, msg, wParam, lParam)
@@ -281,6 +301,12 @@ pub fn setOnEditContextMenu(
     handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 ) {
     if let some(slot) = EDITS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setOnEditKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = EDITS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnEditKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = EDITS.get(handle) { slot.onKeyUp = cb }
 }
 pub fn focusEdit(handle: i64) {
     if let some(slot) = EDITS.get(handle) { SetFocus(slot.hwnd) }
