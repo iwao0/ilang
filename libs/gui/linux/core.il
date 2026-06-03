@@ -8,7 +8,7 @@
 /// tables key off this i64 so signal handlers can resolve back to
 /// the user's callback in O(1).
 
-use gtk { GtkWidget, GtkWindow, GtkApplication, GtkFixed, GMainLoop }
+use gtk { GtkWidget, GtkWindow, GtkApplication, GtkFixed, GtkScrolledWindow, GMainLoop }
 // ─── per-window state ─────────────────────────────────────────
 
 /// One row per top-level window. `WINDOWS` keys off the GtkWindow
@@ -17,6 +17,12 @@ use gtk { GtkWidget, GtkWindow, GtkApplication, GtkFixed, GMainLoop }
 pub class WindowSlot {
     pub win:         GtkWindow
     pub fixed:       GtkFixed       // contentView equivalent
+    /// The scrolled window hosting `fixed`. Its allocation is the
+    /// window's real content area (below the CSD title bar) and does
+    /// not depend on our own child layout, so the resize handler
+    /// measures it — not `win` (includes the title bar) and not
+    /// `fixed` (sizes to its children). See window.il.
+    pub scroll:      GtkScrolledWindow
     pub onClose:     fn()
     pub onResize:    fn(f64, f64)
     pub onKeyDown:   fn(string, bool, bool, bool, bool)
@@ -63,9 +69,10 @@ pub class WindowSlot {
     pub maxH: f64
     pub hasMaxSize: bool
 
-    pub init(win: GtkWindow, fixed: GtkFixed) {
+    pub init(win: GtkWindow, fixed: GtkFixed, scroll: GtkScrolledWindow) {
         this.win               = win
         this.fixed             = fixed
+        this.scroll            = scroll
         this.onClose           = noOpClose
         this.onResize          = noOpResize
         this.onKeyDown         = noOpKey
