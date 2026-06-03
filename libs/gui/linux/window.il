@@ -27,6 +27,11 @@ use gtk {
     gtk_widget_set_opacity, gtk_widget_get_opacity,
     gtk_widget_add_controller,
     gtk_fixed_new,
+    GtkScrolledWindow, GtkPolicyType,
+    gtk_scrolled_window_new, gtk_scrolled_window_set_child,
+    gtk_scrolled_window_set_policy,
+    gtk_scrolled_window_set_propagate_natural_width,
+    gtk_scrolled_window_set_propagate_natural_height,
     gtk_event_controller_key_new, gtk_event_controller_motion_new,
     gtk_gesture_click_new, gtk_gesture_single_set_button,
     gtk_gesture_single_get_current_button,
@@ -137,10 +142,22 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
     /// double-fire just delivers `onResize` twice with the same dims.
     pub fn linux_window_resize(win: i64, pspec: i64, data: i64) {
         if let some(slot) = WINDOWS.get(data) {
-            let w = gtk_widget_get_width(slot.win as GtkWidget)
-            let h = gtk_widget_get_height(slot.win as GtkWidget)
-            let cb = slot.onResize
-            cb(w as f64, h as f64)
+            // Measure the scrolled window (the window's content area
+            // below the CSD title bar), NOT `win` — `win` includes the
+            // title bar, so laying children out to it overshoots.
+            let w = gtk_widget_get_width(slot.scroll as GtkWidget)
+            let h = gtk_widget_get_height(slot.scroll as GtkWidget)
+            // `notify::default-width/height` also fires from
+            // `gtk_window_set_default_size` (called before the window is
+            // realised, e.g. from the `width`/`height` setters), when
+            // the allocation still reads back as 0. Forwarding that
+            // would clobber the window's logical size to 0 and collapse
+            // every flex child to zero width (buttons overlap). Only
+            // forward a real, post-allocation size.
+            if w > 0 as i32 && h > 0 as i32 {
+                let cb = slot.onResize
+                cb(w as f64, h as f64)
+            }
         }
     }
 
@@ -276,10 +293,22 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     // Absolute-positioning container — every widget goes through
     // gtk_fixed_put rather than the default child slot.
     let fixed = gtk_fixed_new() as GtkFixed
-    gtk_window_set_child(win, fixed as GtkWidget)
+    // A bare GtkFixed reports its children's bounding box as its
+    // MINIMUM size, which becomes the window's minimum — so the window
+    // can never be dragged smaller than its current content. Wrapping
+    // it in a scrolled window with `external` policy draws no
+    // scrollbars and (unlike `never`) does NOT propagate the fixed's
+    // minimum up to the window, leaving it freely shrinkable. Children
+    // re-flow to the content area on every resize, so nothing scrolls.
+    let scroll = gtk_scrolled_window_new() as GtkScrolledWindow
+    gtk_scrolled_window_set_policy(scroll, GtkPolicyType.external, GtkPolicyType.external)
+    gtk_scrolled_window_set_propagate_natural_width(scroll, 0 as i32)
+    gtk_scrolled_window_set_propagate_natural_height(scroll, 0 as i32)
+    gtk_scrolled_window_set_child(scroll, fixed as GtkWidget)
+    gtk_window_set_child(win, scroll as GtkWidget)
 
     let handle = win as i64
-    WINDOWS[handle] = new WindowSlot(win, fixed)
+    WINDOWS[handle] = new WindowSlot(win, fixed, scroll)
     g_signal_connect_data(
         win as GObject,
         cstrFromString("destroy"),
