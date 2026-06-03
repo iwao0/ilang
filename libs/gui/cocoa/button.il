@@ -25,6 +25,7 @@ class ButtonSlot {
     pub onMouseLeave: fn(f64, f64)
     pub onMouseDown:  fn(f64, f64, i32)
     pub onMouseUp:    fn(f64, f64, i32)
+    pub onContextMenu: fn(f64, f64, i32)
     pub handler: NSObject
     pub winHandle: i64
     pub init(btn: NSButton, handler: NSObject, winHandle: i64) {
@@ -36,6 +37,7 @@ class ButtonSlot {
         this.onMouseLeave = noOpEnterLeave
         this.onMouseDown  = noOpClick
         this.onMouseUp    = noOpClick
+        this.onContextMenu = noOpClick
         this.handler = handler
         this.winHandle = winHandle
     }
@@ -190,6 +192,10 @@ class FocusButton : NSButton {
             let y = this.frame.size.height - p.y
             let cb = slot.onMouseDown
             cb(p.x, y, 2)
+            // Web-style contextmenu: fire at the same instant as
+            // the OS would start showing its own context menu.
+            let ctx = slot.onContextMenu
+            ctx(p.x, y, 2)
         }
     }
     pub override rightMouseUp(event: NSObject) {
@@ -333,6 +339,9 @@ pub fn setOnButtonMouseDown(handle: i64, cb: fn(f64, f64, i32)) {
 }
 pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnButtonContextMenu(handle: i64, cb: fn(f64, f64, i32)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onContextMenu = cb }
 }
 pub fn focusButton(handle: i64) {
     if let some(slot) = BUTTONS.get(handle) {

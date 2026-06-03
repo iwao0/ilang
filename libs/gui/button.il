@@ -21,6 +21,7 @@ use gui_impl {
     setOnButtonClick, setOnButtonFocus, setOnButtonBlur,
     setOnButtonMouseEnter, setOnButtonMouseLeave,
     setOnButtonMouseDown, setOnButtonMouseUp,
+    setOnButtonContextMenu,
     setButtonText, setButtonFrame, setButtonEnabled, setButtonVisible,
     setButtonDefault, clickButton, focusButton,
 }
@@ -44,6 +45,15 @@ pub class Button : Control {
     pub onMouseLeave: Signal<MouseEvent>
     pub onMouseDown:  Signal<MouseEvent>
     pub onMouseUp:    Signal<MouseEvent>
+    /// Web-style `contextmenu` event. Fires on right-button press
+    /// (macOS `rightMouseDown:`, Win32 `WM_RBUTTONDOWN`, GTK click
+    /// gesture with `button=3`) — the same instant the OS would
+    /// otherwise begin showing the system context menu. Listeners
+    /// often pair this with their own popup to replace the default.
+    /// Keyboard-triggered context menus (Shift+F10 / the Menu key)
+    /// are not surfaced yet — add WM_CONTEXTMENU plumbing if that
+    /// becomes a need.
+    pub onContextMenu: Signal<MouseEvent>
 
     pub init() {
         super()
@@ -63,6 +73,7 @@ pub class Button : Control {
         this.onMouseLeave = new Signal<MouseEvent>()
         this.onMouseDown  = new Signal<MouseEvent>()
         this.onMouseUp    = new Signal<MouseEvent>()
+        this.onContextMenu = new Signal<MouseEvent>()
     }
 
     pub get text(): string { this._text }
@@ -157,6 +168,9 @@ pub class Button : Control {
         })
         setOnButtonMouseUp(this.handle, fn(x: f64, y: f64, b: i32) {
             this.onMouseUp.emit(new MouseEvent(this, x, y, b, false, false, false, false))
+        })
+        setOnButtonContextMenu(this.handle, fn(x: f64, y: f64, b: i32) {
+            this.onContextMenu.emit(new MouseEvent(this, x, y, b, false, false, false, false))
         })
     }
 

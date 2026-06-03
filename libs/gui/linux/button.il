@@ -44,6 +44,7 @@ class ButtonSlot {
     pub onMouseLeave: fn(f64, f64)
     pub onMouseDown:  fn(f64, f64, i32)
     pub onMouseUp:    fn(f64, f64, i32)
+    pub onContextMenu: fn(f64, f64, i32)
     pub init(
         btn: GtkButton, fixed: GtkFixed, win: GtkWindow, winHandle: i64,
         x: f64, y: f64, w: f64, h: f64
@@ -63,6 +64,7 @@ class ButtonSlot {
         this.onMouseLeave = noOpEnterLeave
         this.onMouseDown  = noOpClick
         this.onMouseUp    = noOpClick
+        this.onContextMenu = noOpClick
     }
 }
 
@@ -131,8 +133,17 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
         let w = gtk_event_controller_get_widget(gesture as GtkEventController)
         if let some(slot) = BUTTONS.get(w as i64) {
             let btn = gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
+            let w3c = gdkBtnToW3c(btn)
             let cb = slot.onMouseDown
-            cb(x, y, gdkBtnToW3c(btn))
+            cb(x, y, w3c)
+            // Right-button press → also surface onContextMenu, the
+            // moment GTK would otherwise begin showing the system
+            // context menu. Keyboard-triggered menus (Menu key /
+            // Shift+F10) aren't routed yet.
+            if btn == 3 as u32 {
+                let ctx = slot.onContextMenu
+                ctx(x, y, w3c)
+            }
         }
     }
     pub fn linux_button_released(
@@ -340,6 +351,9 @@ pub fn setOnButtonMouseDown(handle: i64, cb: fn(f64, f64, i32)) {
 }
 pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnButtonContextMenu(handle: i64, cb: fn(f64, f64, i32)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onContextMenu = cb }
 }
 pub fn focusButton(handle: i64) {
     if let some(slot) = BUTTONS.get(handle) {

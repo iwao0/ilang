@@ -51,6 +51,7 @@ class ButtonSlot {
     pub onMouseLeave: fn(f64, f64)
     pub onMouseDown:  fn(f64, f64, i32)
     pub onMouseUp:    fn(f64, f64, i32)
+    pub onContextMenu: fn(f64, f64, i32)
     /// Win32 has no native `WM_MOUSEENTER`; we synthesise it the
     /// first time `WM_MOUSEMOVE` arrives after a previous leave.
     /// `mouseTracking` flips to true when we've registered a
@@ -67,6 +68,7 @@ class ButtonSlot {
         this.onMouseLeave = noOpEnterLeave
         this.onMouseDown  = noOpClick
         this.onMouseUp    = noOpClick
+        this.onContextMenu = noOpClick
         this.mouseTracking = false
         this.winHandle = winHandle
     }
@@ -197,6 +199,13 @@ pub fn buttonSubclassProc(
             if let some(slot) = BUTTONS.get(hwnd) {
                 let cb = slot.onMouseDown
                 cb(lo, hi, 2)
+                // Fire contextmenu at the same instant — matches
+                // the cross-OS "right-press" timing the public API
+                // promises. Keyboard-triggered context menus
+                // (Shift+F10, the Menu key) would surface via
+                // WM_CONTEXTMENU and aren't wired yet.
+                let ctx = slot.onContextMenu
+                ctx(lo, hi, 2)
             }
         }
         WindowMessage.rButtonUp {
@@ -304,6 +313,9 @@ pub fn setOnButtonMouseDown(handle: i64, cb: fn(f64, f64, i32)) {
 }
 pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnButtonContextMenu(handle: i64, cb: fn(f64, f64, i32)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onContextMenu = cb }
 }
 pub fn focusButton(handle: i64) {
     if let some(slot) = BUTTONS.get(handle) {
