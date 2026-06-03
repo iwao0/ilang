@@ -34,6 +34,7 @@ pub use menubar.*
 pub use layout.*
 pub use window.*
 pub use box.*
+pub use grid.*
 pub use button.*
 pub use label.*
 pub use textfield.*
