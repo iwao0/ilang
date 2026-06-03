@@ -28,6 +28,7 @@ use gui_impl {
     setEditEnabled, setEditVisible, setEditTooltip,
     setEditPlaceholder, setEditReadOnly, setEditMaxLength,
     focusEdit, blurEdit,
+    copyEdit, cutEdit, pasteEdit, undoEdit, redoEdit, scrollEditToCaret,
 }
 
 pub class TextField : Control {
@@ -267,6 +268,28 @@ pub class TextField : Control {
     }
     pub get selectionEnd(): i64 {
         if this.handle >= 0 { getEditSelectionEnd(this.handle) } else { 0 as i64 }
+    }
+
+    /// Copy the current selection to the system clipboard. No-op
+    /// when the selection is empty.
+    pub copy()  { if this.handle >= 0 { copyEdit(this.handle) } }
+    /// Cut the current selection (copy + delete in one step).
+    pub cut()   { if this.handle >= 0 { cutEdit(this.handle) } }
+    /// Paste clipboard text at the current caret. Honours
+    /// `maxLength` on the platforms that gate it natively
+    /// (Win32 / GTK); macOS truncates after the next change event.
+    pub paste() { if this.handle >= 0 { pasteEdit(this.handle) } }
+    /// Undo the most recent edit. Backed by the system undo
+    /// manager (NSUndoManager on Cocoa, EM_UNDO on Win32,
+    /// GtkText.undo on GTK).
+    pub undo()  { if this.handle >= 0 { undoEdit(this.handle) } }
+    /// Redo the most recently undone edit.
+    pub redo()  { if this.handle >= 0 { redoEdit(this.handle) } }
+    /// Bring the caret into view by scrolling the field. Useful
+    /// after a programmatic `setSelection` to a position outside
+    /// the visible run.
+    pub scrollToCaret() {
+        if this.handle >= 0 { scrollEditToCaret(this.handle) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

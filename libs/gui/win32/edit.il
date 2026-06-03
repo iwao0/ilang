@@ -476,4 +476,42 @@ pub fn setEditTooltip(handle: i64, text: string) {
     }
 }
 
+/// `WM_COPY` / `WM_CUT` / `WM_PASTE` operate on the focused EDIT
+/// control's current selection — they're posted to the control's
+/// own wndproc and the standard EDIT handles the rest.
+pub fn copyEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        SendMessageW(slot.hwnd, 0x0301 as u32, 0 as u64, 0 as i64)
+    }
+}
+pub fn cutEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        SendMessageW(slot.hwnd, 0x0300 as u32, 0 as u64, 0 as i64)
+    }
+}
+pub fn pasteEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        SendMessageW(slot.hwnd, 0x0302 as u32, 0 as u64, 0 as i64)
+    }
+}
+/// `EM_UNDO` = 0x00C7. Win32 EDIT undoes one user-visible edit
+/// step; there's no native redo so `redoEdit` simply replays
+/// `EM_UNDO` (the EDIT undo stack is a single-level toggle).
+pub fn undoEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        SendMessageW(slot.hwnd, 0x00C7 as u32, 0 as u64, 0 as i64)
+    }
+}
+pub fn redoEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        SendMessageW(slot.hwnd, 0x00C7 as u32, 0 as u64, 0 as i64)
+    }
+}
+/// `EM_SCROLLCARET` = 0x00B7.
+pub fn scrollEditToCaret(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        SendMessageW(slot.hwnd, 0x00B7 as u32, 0 as u64, 0 as i64)
+    }
+}
+
 } // @extern(C)

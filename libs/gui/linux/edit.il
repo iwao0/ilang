@@ -467,4 +467,16 @@ pub fn setEditTooltip(handle: i64, text: string) {
     }
 }
 
+/// Clipboard / undo / scroll command surface — GTK 4 removed
+/// `gtk_editable_copy_clipboard` and friends in favour of signal
+/// emission, which needs `g_signal_emit_by_name` (not bound yet).
+/// Linux ships these as stubs for Round 1; Round 2 wires them
+/// through the signal API.
+pub fn copyEdit(handle: i64) {}
+pub fn cutEdit(handle: i64) {}
+pub fn pasteEdit(handle: i64) {}
+pub fn undoEdit(handle: i64) {}
+pub fn redoEdit(handle: i64) {}
+pub fn scrollEditToCaret(handle: i64) {}
+
 } // @extern(C)

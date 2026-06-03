@@ -8,7 +8,7 @@ use cocoa {
     NSTrackingArea, NSTrackingAreaOptions,
     NSRange,
     nsstr, ilstr, makeRect, makeTextField, nil,
-    classPtr, setObjectClass,
+    classPtr, setObjectClass, selectorPtr,
 }
 use core {
     WINDOWS, noOpText, noOp1, noOpKey,
@@ -517,5 +517,42 @@ pub fn setEditTooltip(handle: i64, text: string) {
         } else {
             (slot.edit as NSView).setToolTip(nsstr(text) as NSObject)
         }
+    }
+}
+
+/// Forward an `editor` selector (copy: / paste: / undo: / …)
+/// to the field editor. When the field isn't focused there's no
+/// editor and these are silent no-ops.
+fn editorAction(slot: EditSlot, sel: i64) {
+    let editor = slot.edit.currentEditor
+    if editor.handle == 0 as i64 { return }
+    (editor as NSObject).performSelector(sel)
+}
+
+pub fn copyEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) { editorAction(slot, selectorPtr("copy:")) }
+}
+pub fn cutEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) { editorAction(slot, selectorPtr("cut:")) }
+}
+pub fn pasteEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) { editorAction(slot, selectorPtr("paste:")) }
+}
+pub fn undoEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        editorAction(slot, selectorPtr("undo:"))
+    }
+}
+pub fn redoEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        editorAction(slot, selectorPtr("redo:"))
+    }
+}
+pub fn scrollEditToCaret(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        let editor = editorOf(slot)
+        if editor.handle == 0 as i64 { return }
+        let r = editor.selectedRange()
+        editor.scrollRangeToVisible(r)
     }
 }

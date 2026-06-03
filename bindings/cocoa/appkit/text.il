@@ -95,6 +95,9 @@ use core { NSView }
         /// `textDidBeginEditing:` / `textDidEndEditing:`.
         @objc("setDelegate:")
         pub setDelegate(d: NSObject)
+        /// Scroll the receiver so that `range` is visible.
+        @objc("scrollRangeToVisible:")
+        pub scrollRangeToVisible(range: NSRange)
     }
 
     /// `NSTextView` — editable multi-line text view. Usually
