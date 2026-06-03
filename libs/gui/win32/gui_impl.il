@@ -24,6 +24,7 @@ pub use list.*
 pub use groupbox.*
 pub use menu.*
 pub use canvas.*
+pub use dialogs.*
 // `gpuview` is intentionally NOT re-exported here. Its `wgpu29`
 // dependency pulls in `wgpu_native.dll` at JIT-link time, which
 // fails unless the dll is on `PATH` (or next to the binary).

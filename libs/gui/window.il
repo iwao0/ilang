@@ -73,6 +73,8 @@ use gui_impl {
     setOnWindowFocus, setOnWindowBlur,
     setOnWindowMove,
     setWindowMenuBar, menuPopup,
+    showAlertDialog, showConfirmDialog,
+    showOpenFileDialog, showSaveFileDialog,
 }
 use menubar { Menu }
 
@@ -713,5 +715,31 @@ pub class Window : Container {
     /// from a control's `onContextMenu`.
     pub popupMenu(menu: Menu, x: f64, y: f64) {
         menuPopup(menu.handle, this.handle, x, y)
+    }
+
+    /// Show a modal informational alert with a single OK button.
+    /// `callback` fires once the user dismisses it.
+    pub alert(text: string, callback: fn()) {
+        showAlertDialog(this.handle, text, callback)
+    }
+
+    /// Show an OK / Cancel confirmation dialog. `callback` runs
+    /// with `true` when the user picks OK, `false` for Cancel
+    /// (including window-close shortcuts).
+    pub confirm(text: string, callback: fn(bool)) {
+        showConfirmDialog(this.handle, text, callback)
+    }
+
+    /// Open-file picker. `callback` runs with the chosen path,
+    /// or `""` if the user cancelled. Single file only.
+    pub openFile(callback: fn(string)) {
+        showOpenFileDialog(this.handle, callback)
+    }
+
+    /// Save-file picker. `suggestedName` pre-fills the name field
+    /// (empty string keeps the OS default). `callback` runs with
+    /// the chosen path, or `""` if cancelled.
+    pub saveFile(suggestedName: string, callback: fn(string)) {
+        showSaveFileDialog(this.handle, suggestedName, callback)
     }
 }

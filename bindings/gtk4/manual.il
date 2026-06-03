@@ -29,7 +29,9 @@
 // import (the umbrella `pub use`s this file too).
 use generated.gobject { GObject }
 use generated.glib { GMainLoop, GVariant }
-use generated.gtk { GtkWidget, GtkEntry, GtkDrawingArea }
+use generated.gtk { GtkWidget, GtkEntry, GtkDrawingArea, GtkWindow,
+                    GtkAlertDialog, GtkFileDialog }
+use generated.gio { GCancellable }
 use generated.gdk { GdkDisplay, GdkSurface, GdkFrameClock }
 
 // ─── Gdk keyvals ─────────────────────────────────────────────
@@ -260,6 +262,64 @@ pub enum Keyval: u32 {
     @lib pub fn gtk_orientable_set_orientation(
         orientable: GtkWidget, orientation: i32
     )
+
+    // ─── GtkAlertDialog / GtkFileDialog async API ─────────────
+    // GIR skips these because they go through
+    // `GAsyncReadyCallback` (a function-pointer typedef) and
+    // return GObject-rooted result handles GIR can't widen.
+    // Manual binding here gives libs/gui dialogs a callback
+    // shape that mirrors the cocoa sheet flow.
+
+    @handle pub struct GFile {}
+    @handle pub struct GAsyncResult {}
+
+    /// `GtkAlertDialog` constructor + chooser methods. The
+    /// trailing `*va_list` overload of `_new` isn't exposed —
+    /// callers set the message via `set_message` instead.
+    @lib pub fn gtk_alert_dialog_new(message: *const char): GtkAlertDialog
+    /// `void(GObject* source, GAsyncResult* result, gpointer)`.
+    @lib pub fn gtk_alert_dialog_choose(
+        self: GtkAlertDialog,
+        parent: GtkWindow,
+        cancellable: GCancellable,
+        callback: fn(i64, i64, i64),
+        user_data: *void
+    )
+    /// Returns the 0-indexed button label that was clicked, or
+    /// `-1` on error. `error_out` may be NULL (`0 as *void`).
+    @lib pub fn gtk_alert_dialog_choose_finish(
+        self: GtkAlertDialog, result: GAsyncResult, error_out: *void
+    ): i32
+
+    @lib pub fn gtk_file_dialog_new(): GtkFileDialog
+    @lib pub fn gtk_file_dialog_set_title(self: GtkFileDialog, title: *const char)
+    @lib pub fn gtk_file_dialog_set_initial_name(
+        self: GtkFileDialog, name: *const char
+    )
+    @lib pub fn gtk_file_dialog_open(
+        self: GtkFileDialog,
+        parent: GtkWindow,
+        cancellable: GCancellable,
+        callback: fn(i64, i64, i64),
+        user_data: *void
+    )
+    @lib pub fn gtk_file_dialog_open_finish(
+        self: GtkFileDialog, result: GAsyncResult, error_out: *void
+    ): GFile
+    @lib pub fn gtk_file_dialog_save(
+        self: GtkFileDialog,
+        parent: GtkWindow,
+        cancellable: GCancellable,
+        callback: fn(i64, i64, i64),
+        user_data: *void
+    )
+    @lib pub fn gtk_file_dialog_save_finish(
+        self: GtkFileDialog, result: GAsyncResult, error_out: *void
+    ): GFile
+
+    /// `GFile` → filesystem path (Linux: UTF-8). Returns the path
+    /// owned by the caller; the `g_free` cost is acceptable.
+    @lib pub fn g_file_get_path(file: GFile): *const char
 
     // ─── X11 backend extras ───────────────────────────────────
     // Exported from libgtk-4.so on systems built with the X11

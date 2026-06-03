@@ -17,6 +17,7 @@ pub use list.*
 pub use groupbox.*
 pub use menu.*
 pub use canvas.*
+pub use dialogs.*
 // `gpuview` is intentionally NOT re-exported here. Its `wgpu29`
 // dependency pulls in `libwgpu_native.so` at JIT-link time,
 // which fails unless `LD_LIBRARY_PATH` is configured. Keeping
