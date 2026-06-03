@@ -21,17 +21,22 @@
 
 use gtk {
     GtkWidget, GtkWindow, GtkFixed, GtkDrawingArea, GObject,
-    GtkEventController, GtkEventControllerKey, GtkEventControllerMotion,
+    GtkEventController, GtkEventControllerFocus,
+    GtkEventControllerKey, GtkEventControllerMotion,
     GtkEventControllerScroll, GtkEventControllerScrollFlags,
     GtkGestureClick, GtkGestureSingle, Keyval,
     gtk_drawing_area_new, gtk_fixed_put,
     gtk_widget_set_size_request, gtk_widget_set_visible,
+    gtk_widget_set_sensitive, gtk_widget_set_tooltip_text,
     gtk_widget_queue_draw,
     gtk_widget_add_tick_callback, gtk_widget_remove_tick_callback,
     gtk_drawing_area_set_draw_func,
     gtk_widget_add_controller, gtk_widget_set_focusable, gtk_widget_grab_focus,
+    gtk_window_get_focus, gtk_window_set_focus,
+    gtk_event_controller_focus_new,
     gtk_event_controller_key_new, gtk_event_controller_motion_new,
     gtk_event_controller_scroll_new,
+    gtk_event_controller_get_widget,
     gtk_gesture_click_new, gtk_gesture_single_set_button,
     gtk_gesture_single_get_current_button,
     gtk_event_controller_get_current_event_state,
@@ -101,11 +106,17 @@ class GpuViewSlot {
     pub cairoStride: i32          // from cairo_format_stride_for_width
     pub tickId:     u32           // 0 = no tick callback
     pub onRender:   fn(WGPURenderPassEncoder, f64, f64)
+    pub winHandle:  i64
+    pub onFocus:      fn()
+    pub onBlur:       fn()
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
     pub onMouseMove:  fn(f64, f64, u32, bool, bool, bool, bool)
     pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
     pub onResize:     fn(f64, f64)
     pub startNs:    i64
@@ -129,11 +140,17 @@ class GpuViewSlot {
         this.cairoStride = cairoStride
         this.tickId      = 0
         this.onRender     = gpuNoOpRender
+        this.winHandle    = 0 as i64
+        this.onFocus      = gpuNoOp0
+        this.onBlur       = gpuNoOp0
         this.onKeyDown    = gpuNoOpKey
         this.onKeyUp      = gpuNoOpKey
+        this.onMouseEnter = gpuNoOpEnterLeave
+        this.onMouseLeave = gpuNoOpEnterLeave
         this.onMouseMove  = gpuNoOpMove
         this.onMouseDown  = gpuNoOpButton
         this.onMouseUp    = gpuNoOpButton
+        this.onContextMenu = gpuNoOpButton
         this.onMouseWheel = gpuNoOpWheel
         this.onResize     = gpuNoOpResize
         this.startNs      = 0 as i64
@@ -144,6 +161,8 @@ class GpuViewSlot {
 let GPUVIEWS = new Map<i64, GpuViewSlot>()
 
 fn gpuNoOpRender(pass: WGPURenderPassEncoder, t: f64, dt: f64) {}
+fn gpuNoOp0() {}
+fn gpuNoOpEnterLeave(x: f64, y: f64) {}
 fn gpuNoOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn gpuNoOpMove(x: f64, y: f64, b: u32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn gpuNoOpButton(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
@@ -452,6 +471,30 @@ let MAP_STATUS:   i64[] = [-1]
         }
         0 as i32
     }
+    pub fn gpuLinuxFocusEnter(ctrl: i64, data: i64) {
+        if let some(slot) = GPUVIEWS.get(data) {
+            let cb = slot.onFocus
+            cb()
+        }
+    }
+    pub fn gpuLinuxFocusLeave(ctrl: i64, data: i64) {
+        if let some(slot) = GPUVIEWS.get(data) {
+            let cb = slot.onBlur
+            cb()
+        }
+    }
+    pub fn gpuLinuxMotionEnter(ctrl: i64, x: f64, y: f64, data: i64) {
+        if let some(slot) = GPUVIEWS.get(data) {
+            let cb = slot.onMouseEnter
+            cb(x, y)
+        }
+    }
+    pub fn gpuLinuxMotionLeave(ctrl: i64, data: i64) {
+        if let some(slot) = GPUVIEWS.get(data) {
+            let cb = slot.onMouseLeave
+            cb(0.0, 0.0)
+        }
+    }
     pub fn gpuLinuxMotion(ctrl: i64, x: f64, y: f64, data: i64) {
         if let some(slot) = GPUVIEWS.get(data) {
             let st = gtk_event_controller_get_current_event_state(
@@ -471,16 +514,22 @@ let MAP_STATUS:   i64[] = [-1]
         gesture: i64, n_press: i32, x: f64, y: f64, data: i64
     ) {
         if let some(slot) = GPUVIEWS.get(data) {
-            let btn = gpuButtonToW3C(
-                gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
-            )
+            let rawBtn = gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
+            let btn = gpuButtonToW3C(rawBtn)
             let st = gtk_event_controller_get_current_event_state(
                 gesture as GtkEventController
             )
+            let ck = gpuHasMod(st, GDK_MOD_CTRL)
+            let sk = gpuHasMod(st, GDK_MOD_SHIFT)
+            let ak = gpuHasMod(st, GDK_MOD_ALT)
+            let mk = gpuHasMod(st, GDK_MOD_META)
+            gtk_widget_grab_focus(slot.area as GtkWidget)
             let cb = slot.onMouseDown
-            cb(x, y, btn,
-               gpuHasMod(st, GDK_MOD_CTRL), gpuHasMod(st, GDK_MOD_SHIFT),
-               gpuHasMod(st, GDK_MOD_ALT),  gpuHasMod(st, GDK_MOD_META))
+            cb(x, y, btn, ck, sk, ak, mk)
+            if rawBtn == 3 as u32 {
+                let ctx = slot.onContextMenu
+                ctx(x, y, btn, ck, sk, ak, mk)
+            }
         }
     }
     pub fn gpuLinuxReleased(
@@ -525,7 +574,7 @@ let MAP_STATUS:   i64[] = [-1]
 
 pub fn createNativeGpuView(
     windowHandle: i64,
-    x: f64, y: f64, width: f64, height: f64, visible: bool
+    x: f64, y: f64, width: f64, height: f64, enabled: bool, visible: bool
 ): i64 {
     let slot = match WINDOWS.get(windowHandle) {
         some(s) { s }
@@ -604,6 +653,7 @@ pub fn createNativeGpuView(
     gtk_widget_set_size_request(area as GtkWidget, pxW, pxH)
     gtk_fixed_put(slot.fixed, area as GtkWidget, x, y)
     gtk_widget_set_visible(area as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
+    gtk_widget_set_sensitive(area as GtkWidget, if enabled { 1 as i32 } else { 0 as i32 })
 
     let handle = allocHandle()
     gtk_drawing_area_set_draw_func(
@@ -615,6 +665,7 @@ pub fn createNativeGpuView(
         cpuBytes as i64, cairoSurf as i64,
         pxW, pxH, wgpuStride, cairoStride
     )
+    view.winHandle = windowHandle
     GPUVIEWS[handle] = view
 
     // ─── input controllers ────────────────────────────────────
@@ -636,10 +687,29 @@ pub fn createNativeGpuView(
     )
     gtk_widget_add_controller(area as GtkWidget, keyCtrl as GtkEventController)
 
+    let focusCtrl = gtk_event_controller_focus_new()
+    g_signal_connect_data(
+        focusCtrl as GObject, cstrFromString("enter"),
+        gpuLinuxFocusEnter, handle as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        focusCtrl as GObject, cstrFromString("leave"),
+        gpuLinuxFocusLeave, handle as *void, 0 as i64, 0 as u32
+    )
+    gtk_widget_add_controller(area as GtkWidget, focusCtrl)
+
     let motionCtrl = gtk_event_controller_motion_new() as GtkEventControllerMotion
     g_signal_connect_motion(
         motionCtrl as GObject, cstrFromString("motion"),
         gpuLinuxMotion, handle as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        motionCtrl as GObject, cstrFromString("enter"),
+        gpuLinuxMotionEnter, handle as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        motionCtrl as GObject, cstrFromString("leave"),
+        gpuLinuxMotionLeave, handle as *void, 0 as i64, 0 as u32
     )
     gtk_widget_add_controller(area as GtkWidget, motionCtrl as GtkEventController)
 
@@ -695,6 +765,25 @@ pub fn setGpuViewVisible(handle: i64, visible: bool) {
     }
 }
 
+pub fn setGpuViewEnabled(handle: i64, enabled: bool) {
+    if let some(slot) = GPUVIEWS.get(handle) {
+        gtk_widget_set_sensitive(
+            slot.area as GtkWidget,
+            if enabled { 1 as i32 } else { 0 as i32 }
+        )
+    }
+}
+
+pub fn setGpuViewTooltip(handle: i64, text: string) {
+    if let some(slot) = GPUVIEWS.get(handle) {
+        if text == "" {
+            gtk_widget_set_tooltip_text(slot.area as GtkWidget, 0 as *const char)
+        } else {
+            gtk_widget_set_tooltip_text(slot.area as GtkWidget, cstrFromString(text))
+        }
+    }
+}
+
 pub fn setOnGpuViewRender(handle: i64, cb: fn(WGPURenderPassEncoder, f64, f64)) {
     if let some(slot) = GPUVIEWS.get(handle) {
         slot.onRender = cb
@@ -706,6 +795,36 @@ pub fn setOnGpuViewKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) 
 }
 pub fn setOnGpuViewKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = GPUVIEWS.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnGpuViewFocus(handle: i64, cb: fn()) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnGpuViewBlur(handle: i64, cb: fn()) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onBlur = cb }
+}
+pub fn setOnGpuViewMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnGpuViewMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnGpuViewContextMenu(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn focusGpuView(handle: i64) {
+    if let some(slot) = GPUVIEWS.get(handle) {
+        let _ = gtk_widget_grab_focus(slot.area as GtkWidget)
+    }
+}
+pub fn blurGpuView(handle: i64) {
+    if let some(slot) = GPUVIEWS.get(handle) {
+        if let some(winSlot) = WINDOWS.get(slot.winHandle) {
+            let cur = gtk_window_get_focus(winSlot.win)
+            if cur as i64 == slot.area as i64 {
+                gtk_window_set_focus(winSlot.win, 0 as GtkWidget)
+            }
+        }
+    }
 }
 pub fn setOnGpuViewMouseMove(handle: i64, cb: fn(f64, f64, u32, bool, bool, bool, bool)) {
     if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseMove = cb }

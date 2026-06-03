@@ -33,12 +33,13 @@
 use cocoa {
     NSObject, NSView, NSString, NSRunLoop, NSEvent,
     NSEventModifierFlags, KeyCode,
+    NSTrackingArea, NSTrackingAreaOptions,
     CAMetalLayer, CADisplayLink,
     NSPoint, NSRect, NSSize,
     makeRect, makeSize, nsstr, selectorPtr, nil,
 }
 use core {
-    WINDOWS,
+    WINDOWS, noOp1, noOpEnterLeave,
     keyCodeToString, modShift, modCtrl, modAlt, modMeta,
 }
 use std.time { monotonicNs }
@@ -90,10 +91,31 @@ class GpuViewNSView : NSView {
 
     /// Take first responder so keyDown:/keyUp: arrive at this view
     /// instead of falling back to the window's content view.
-    pub acceptsFirstResponder(): bool { true }
+    /// `isEnabled=false` opts the view out of input dispatch.
+    pub acceptsFirstResponder(): bool {
+        match GPUVIEWS.get(this.handle) {
+            some(slot) { slot.isEnabled }
+            none       { true }
+        }
+    }
+    pub becomeFirstResponder(): bool {
+        if let some(slot) = GPUVIEWS.get(this.handle) {
+            let cb = slot.onFocus
+            cb()
+        }
+        true
+    }
+    pub resignFirstResponder(): bool {
+        if let some(slot) = GPUVIEWS.get(this.handle) {
+            let cb = slot.onBlur
+            cb()
+        }
+        true
+    }
 
     pub keyDown(event: NSEvent) {
         if let some(slot) = GPUVIEWS.get(this.handle) {
+            if !slot.isEnabled { return }
             let flags = event.modifierFlags as u64
             let cb = slot.onKeyDown
             cb(keyCodeToString(event.keyCode),
@@ -102,6 +124,7 @@ class GpuViewNSView : NSView {
     }
     pub keyUp(event: NSEvent) {
         if let some(slot) = GPUVIEWS.get(this.handle) {
+            if !slot.isEnabled { return }
             let flags = event.modifierFlags as u64
             let cb = slot.onKeyUp
             cb(keyCodeToString(event.keyCode),
@@ -127,6 +150,14 @@ class GpuViewNSView : NSView {
     pub override rightMouseDown(event: NSObject) {
         let e = NSEvent.__wrap_handle_unowned(event.handle)
         this.dispatchMouse(e, 1, 2)
+        if let some(slot) = GPUVIEWS.get(this.handle) {
+            if !slot.isEnabled { return }
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let flags = e.modifierFlags as u64
+            let ctx = slot.onContextMenu
+            ctx(p.x, p.y, 2,
+                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
     }
     pub override rightMouseUp(event: NSObject) {
         let e = NSEvent.__wrap_handle_unowned(event.handle)
@@ -143,8 +174,28 @@ class GpuViewNSView : NSView {
     }
     pub otherMouseDragged(event: NSEvent) { this.dispatchMouse(event, 0, 1) }
 
+    pub override mouseEntered(event: NSObject) {
+        if let some(slot) = GPUVIEWS.get(this.handle) {
+            if !slot.isEnabled { return }
+            let e = NSEvent.__wrap_handle_unowned(event.handle)
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let cb = slot.onMouseEnter
+            cb(p.x, p.y)
+        }
+    }
+    pub override mouseExited(event: NSObject) {
+        if let some(slot) = GPUVIEWS.get(this.handle) {
+            if !slot.isEnabled { return }
+            let e = NSEvent.__wrap_handle_unowned(event.handle)
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let cb = slot.onMouseLeave
+            cb(p.x, p.y)
+        }
+    }
+
     pub scrollWheel(event: NSEvent) {
         if let some(slot) = GPUVIEWS.get(this.handle) {
+            if !slot.isEnabled { return }
             let p = this.convertPointFromView(event.locationInWindow, nil)
             let flags = event.modifierFlags as u64
             let cb = slot.onMouseWheel
@@ -156,6 +207,7 @@ class GpuViewNSView : NSView {
     /// `kind`: 0=move, 1=down, 2=up. `button`: W3C MouseEvent.button.
     dispatchMouse(event: NSEvent, kind: i32, button: i32) {
         if let some(slot) = GPUVIEWS.get(this.handle) {
+            if !slot.isEnabled { return }
             let p = this.convertPointFromView(event.locationInWindow, nil)
             let flags = event.modifierFlags as u64
             // Note: NSWindow's `setAcceptsMouseMovedEvents(true)` is
@@ -234,17 +286,23 @@ class GpuViewSlot {
     pub format:     u32
     pub width:      f64           // in points (matches view.frame)
     pub height:     f64
+    pub isEnabled:  bool
     pub link:       i64           // CADisplayLink ObjC ptr, 0 = stopped
     pub linkTarget: GpuViewLink   // keeps the tick: target alive
                                   // (CADisplayLink doesn't retain it)
     pub onRender:   fn(WGPURenderPassEncoder, f64, f64)
     // Input bridges installed by the public class. Each takes the
     // shape the matching `setOnGpuViewXxx` declares.
+    pub onFocus:      fn()
+    pub onBlur:       fn()
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
     pub onMouseMove:  fn(f64, f64, u32, bool, bool, bool, bool)
     pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
     pub onResize:     fn(f64, f64)
     // Frame-time bookkeeping. All in monotonic nanoseconds so the
@@ -262,14 +320,20 @@ class GpuViewSlot {
         this.format       = format
         this.width        = w
         this.height       = h
+        this.isEnabled    = true
         this.link         = 0
         this.linkTarget   = GpuViewLink.__wrap_handle(0)
         this.onRender     = gpuNoOpRender
+        this.onFocus      = noOp1
+        this.onBlur       = noOp1
         this.onKeyDown    = gpuNoOpKey
         this.onKeyUp      = gpuNoOpKey
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
         this.onMouseMove  = gpuNoOpMove
         this.onMouseDown  = gpuNoOpButton
         this.onMouseUp    = gpuNoOpButton
+        this.onContextMenu = gpuNoOpButton
         this.onMouseWheel = gpuNoOpWheel
         this.onResize     = gpuNoOpResize
         this.startNs      = 0 as i64
@@ -504,7 +568,7 @@ let DEVICE_OUT:   i64[]  = [0]
 
 pub fn createNativeGpuView(
     windowHandle: i64,
-    x: f64, y: f64, width: f64, height: f64, visible: bool
+    x: f64, y: f64, width: f64, height: f64, enabled: bool, visible: bool
 ): i64 {
     let winSlot = match WINDOWS.get(windowHandle) {
         some(s) { s }
@@ -535,6 +599,15 @@ pub fn createNativeGpuView(
 
     view.setLayer(layer as NSObject)
     view.setWantsLayer(true)
+    // Tracking area for mouseEntered: / mouseExited:.
+    let opts = NSTrackingAreaOptions.mouseEnteredAndExited
+             | NSTrackingAreaOptions.activeAlways
+             | NSTrackingAreaOptions.inVisibleRect
+    let area = NSTrackingArea.alloc().init(
+        makeRect(0.0, 0.0, width, height), opts,
+        view as NSObject, nil
+    )
+    (view as NSView).addTrackingArea(area as NSObject)
     // Place the GpuView UNDER any sibling controls (NSWindowBelow
     // = -1, relativeTo nil = "below all siblings"). Without this,
     // GpuView lands on top because it's added last, and during
@@ -563,6 +636,7 @@ pub fn createNativeGpuView(
     if fmt == (0 as u32) { return -1 }
 
     let slot = new GpuViewSlot(view, layer, surfacePtr, fmt, width, height)
+    slot.isEnabled = enabled
     let handle = view.handle
     GPUVIEWS[handle] = slot
     handle
@@ -598,6 +672,30 @@ pub fn setGpuViewVisible(handle: i64, visible: bool) {
     }
 }
 
+/// NSView has no native `enabled` state — track the flag in
+/// `GpuViewSlot` and gate input dispatch on it.
+pub fn setGpuViewEnabled(handle: i64, enabled: bool) {
+    if let some(slot) = GPUVIEWS.get(handle) {
+        slot.isEnabled = enabled
+        if !enabled {
+            let win = (slot.view as NSView).window
+            if win.firstResponder.handle == (slot.view as NSView).handle {
+                let _ = win.makeFirstResponder(nil)
+            }
+        }
+    }
+}
+
+pub fn setGpuViewTooltip(handle: i64, text: string) {
+    if let some(slot) = GPUVIEWS.get(handle) {
+        if text == "" {
+            (slot.view as NSView).setToolTip(nil)
+        } else {
+            (slot.view as NSView).setToolTip(nsstr(text) as NSObject)
+        }
+    }
+}
+
 pub fn setOnGpuViewRender(handle: i64, cb: fn(WGPURenderPassEncoder, f64, f64)) {
     if let some(slot) = GPUVIEWS.get(handle) {
         slot.onRender = cb
@@ -609,6 +707,35 @@ pub fn setOnGpuViewKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) 
 }
 pub fn setOnGpuViewKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = GPUVIEWS.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnGpuViewFocus(handle: i64, cb: fn()) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnGpuViewBlur(handle: i64, cb: fn()) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onBlur = cb }
+}
+pub fn setOnGpuViewMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnGpuViewMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnGpuViewContextMenu(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn focusGpuView(handle: i64) {
+    if let some(slot) = GPUVIEWS.get(handle) {
+        let win = (slot.view as NSView).window
+        let _ = win.makeFirstResponder(slot.view as NSObject)
+    }
+}
+pub fn blurGpuView(handle: i64) {
+    if let some(slot) = GPUVIEWS.get(handle) {
+        let win = (slot.view as NSView).window
+        if win.firstResponder.handle == (slot.view as NSView).handle {
+            let _ = win.makeFirstResponder(nil)
+        }
+    }
 }
 pub fn setOnGpuViewMouseMove(handle: i64, cb: fn(f64, f64, u32, bool, bool, bool, bool)) {
     if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseMove = cb }

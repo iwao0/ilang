@@ -12,12 +12,13 @@
 
 use cocoa {
     NSObject, NSView, NSImage, NSColor, NSBezierPath,
+    NSTrackingArea, NSTrackingAreaOptions,
     NSPoint, NSRect, NSCompositingOperation, NSEvent,
-    nil,
+    nil, nsstr,
     makeRect, makePoint, makeSize,
 }
 use core {
-    WINDOWS, noOpKey,
+    WINDOWS, noOp1, noOpKey, noOpEnterLeave,
     keyCodeToString, modCtrl, modShift, modAlt, modMeta,
 }
 
@@ -31,7 +32,27 @@ class CanvasView : NSView {
     pub isFlipped(): bool { true }
     /// Take first responder so keyDown:/keyUp: arrive here
     /// instead of falling through to the window's content view.
-    pub acceptsFirstResponder(): bool { true }
+    /// `isEnabled=false` opts out of focus / input dispatch.
+    pub acceptsFirstResponder(): bool {
+        match CANVASES.get(this.handle) {
+            some(slot) { slot.isEnabled }
+            none       { true }
+        }
+    }
+    pub becomeFirstResponder(): bool {
+        if let some(slot) = CANVASES.get(this.handle) {
+            let cb = slot.onFocus
+            cb()
+        }
+        true
+    }
+    pub resignFirstResponder(): bool {
+        if let some(slot) = CANVASES.get(this.handle) {
+            let cb = slot.onBlur
+            cb()
+        }
+        true
+    }
 
     pub drawRect(dirty: NSRect) {
         if let some(slot) = CANVASES.get(this.handle) {
@@ -41,6 +62,7 @@ class CanvasView : NSView {
 
     pub keyDown(event: NSEvent) {
         if let some(slot) = CANVASES.get(this.handle) {
+            if !slot.isEnabled { return }
             let flags = event.modifierFlags as u64
             let cb = slot.onKeyDown
             cb(keyCodeToString(event.keyCode),
@@ -49,6 +71,7 @@ class CanvasView : NSView {
     }
     pub keyUp(event: NSEvent) {
         if let some(slot) = CANVASES.get(this.handle) {
+            if !slot.isEnabled { return }
             let flags = event.modifierFlags as u64
             let cb = slot.onKeyUp
             cb(keyCodeToString(event.keyCode),
@@ -73,6 +96,14 @@ class CanvasView : NSView {
     pub override rightMouseDown(event: NSObject) {
         let e = NSEvent.__wrap_handle_unowned(event.handle)
         this.dispatchMouse(e, 1, 2)
+        if let some(slot) = CANVASES.get(this.handle) {
+            if !slot.isEnabled { return }
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let flags = e.modifierFlags as u64
+            let ctx = slot.onContextMenu
+            ctx(p.x, p.y, 2,
+                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
     }
     pub override rightMouseUp(event: NSObject) {
         let e = NSEvent.__wrap_handle_unowned(event.handle)
@@ -86,8 +117,27 @@ class CanvasView : NSView {
         let e = NSEvent.__wrap_handle_unowned(event.handle)
         this.dispatchMouse(e, 2, 1)
     }
+    pub override mouseEntered(event: NSObject) {
+        if let some(slot) = CANVASES.get(this.handle) {
+            if !slot.isEnabled { return }
+            let e = NSEvent.__wrap_handle_unowned(event.handle)
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let cb = slot.onMouseEnter
+            cb(p.x, p.y)
+        }
+    }
+    pub override mouseExited(event: NSObject) {
+        if let some(slot) = CANVASES.get(this.handle) {
+            if !slot.isEnabled { return }
+            let e = NSEvent.__wrap_handle_unowned(event.handle)
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let cb = slot.onMouseLeave
+            cb(p.x, p.y)
+        }
+    }
     pub scrollWheel(event: NSEvent) {
         if let some(slot) = CANVASES.get(this.handle) {
+            if !slot.isEnabled { return }
             let p = this.convertPointFromView(event.locationInWindow, nil)
             let flags = event.modifierFlags as u64
             let cb = slot.onMouseWheel
@@ -98,6 +148,7 @@ class CanvasView : NSView {
     /// `kind`: 0=move, 1=down, 2=up. `button`: W3C MouseEvent.button.
     dispatchMouse(event: NSEvent, kind: i32, button: i32) {
         if let some(slot) = CANVASES.get(this.handle) {
+            if !slot.isEnabled { return }
             let p = this.convertPointFromView(event.locationInWindow, nil)
             let flags = event.modifierFlags as u64
             match kind {
@@ -141,11 +192,17 @@ class CanvasSlot {
     pub fillColor:   NSColor
     pub strokeColor: NSColor
     pub lineWidth:   f64
+    pub isEnabled:   bool
+    pub onFocus:      fn()
+    pub onBlur:       fn()
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
     pub onMouseMove:  fn(f64, f64, u32, bool, bool, bool, bool)
     pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 
     pub init(view: CanvasView, img: NSImage, w: f64, h: f64) {
@@ -157,11 +214,17 @@ class CanvasSlot {
         this.fillColor   = NSColor.black
         this.strokeColor = NSColor.black
         this.lineWidth   = 1.0
+        this.isEnabled   = true
+        this.onFocus      = noOp1
+        this.onBlur       = noOp1
         this.onKeyDown    = noOpKey
         this.onKeyUp      = noOpKey
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
         this.onMouseMove  = canvasNoOpMove
         this.onMouseDown  = canvasNoOpBtn
         this.onMouseUp    = canvasNoOpBtn
+        this.onContextMenu = canvasNoOpBtn
         this.onMouseWheel = canvasNoOpWheel
     }
 }
@@ -187,7 +250,7 @@ fn makeBmp(w: f64, h: f64): NSImage {
 
 pub fn createNativeCanvas(
     windowHandle: i64,
-    x: f64, y: f64, width: f64, height: f64, visible: bool
+    x: f64, y: f64, width: f64, height: f64, enabled: bool, visible: bool
 ): i64 {
     let winSlot = match WINDOWS.get(windowHandle) {
         some(s) { s }
@@ -200,10 +263,22 @@ pub fn createNativeCanvas(
 
     let img = makeBmp(width, height)
 
+    // Tracking area for mouseEntered: / mouseExited:.
+    let opts = NSTrackingAreaOptions.mouseEnteredAndExited
+             | NSTrackingAreaOptions.activeAlways
+             | NSTrackingAreaOptions.inVisibleRect
+    let area = NSTrackingArea.alloc().init(
+        makeRect(0.0, 0.0, width, height), opts,
+        view as NSObject, nil
+    )
+    (view as NSView).addTrackingArea(area as NSObject)
+
     winSlot.win.contentView.addSubview(view as NSView)
 
     let handle = view.handle
-    CANVASES[handle] = new CanvasSlot(view, img, width, height)
+    let slot = new CanvasSlot(view, img, width, height)
+    slot.isEnabled = enabled
+    CANVASES[handle] = slot
     handle
 }
 
@@ -226,6 +301,32 @@ pub fn setCanvasFrame(handle: i64, x: f64, y: f64, w: f64, h: f64) {
 pub fn setCanvasVisible(handle: i64, visible: bool) {
     if let some(slot) = CANVASES.get(handle) {
         slot.view.setHidden(!visible)
+    }
+}
+
+/// NSView has no native `enabled` state — track the flag in
+/// `CanvasSlot` and gate input dispatch on it instead. Drawing
+/// content stays as the caller left it; redraw to a grayed-out
+/// look is the caller's responsibility.
+pub fn setCanvasEnabled(handle: i64, enabled: bool) {
+    if let some(slot) = CANVASES.get(handle) {
+        slot.isEnabled = enabled
+        if !enabled {
+            let win = (slot.view as NSView).window
+            if win.firstResponder.handle == (slot.view as NSView).handle {
+                let _ = win.makeFirstResponder(nil)
+            }
+        }
+    }
+}
+
+pub fn setCanvasTooltip(handle: i64, text: string) {
+    if let some(slot) = CANVASES.get(handle) {
+        if text == "" {
+            (slot.view as NSView).setToolTip(nil)
+        } else {
+            (slot.view as NSView).setToolTip(nsstr(text) as NSObject)
+        }
     }
 }
 
@@ -344,11 +445,37 @@ pub fn canvasStroke(handle: i64) {
     }
 }
 
+pub fn setOnCanvasFocus(handle: i64, cb: fn()) {
+    if let some(slot) = CANVASES.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnCanvasBlur(handle: i64, cb: fn()) {
+    if let some(slot) = CANVASES.get(handle) { slot.onBlur = cb }
+}
+pub fn focusCanvas(handle: i64) {
+    if let some(slot) = CANVASES.get(handle) {
+        let win = (slot.view as NSView).window
+        let _ = win.makeFirstResponder(slot.view as NSObject)
+    }
+}
+pub fn blurCanvas(handle: i64) {
+    if let some(slot) = CANVASES.get(handle) {
+        let win = (slot.view as NSView).window
+        if win.firstResponder.handle == (slot.view as NSView).handle {
+            let _ = win.makeFirstResponder(nil)
+        }
+    }
+}
 pub fn setOnCanvasKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = CANVASES.get(handle) { slot.onKeyDown = cb }
 }
 pub fn setOnCanvasKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = CANVASES.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnCanvasMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnCanvasMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseLeave = cb }
 }
 pub fn setOnCanvasMouseMove(
     handle: i64, cb: fn(f64, f64, u32, bool, bool, bool, bool)
@@ -364,6 +491,11 @@ pub fn setOnCanvasMouseUp(
     handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 ) {
     if let some(slot) = CANVASES.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnCanvasContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = CANVASES.get(handle) { slot.onContextMenu = cb }
 }
 pub fn setOnCanvasMouseWheel(
     handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)

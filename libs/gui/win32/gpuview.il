@@ -32,6 +32,10 @@
 use windows {
     HWND, HINSTANCE, HMENU, HANDLE,
     HICON, HCURSOR, HBRUSH, RECT,
+    TOOLINFOW, TRACKMOUSEEVENT, TrackMouseFlags,
+    TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
+    TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
+    SendMessageW, TrackMouseEvent, SetFocus, EnableWindow,
     GetModuleHandleA,
     WNDCLASSEXA, ClassStyle, WindowStyle, WindowMessage, ShowCmd,
     RegisterClassExW, CreateWindowExW, DefWindowProcW,
@@ -82,6 +86,9 @@ use std.ffi { readU32, stringFromCstr }
 
 class GpuViewSlot {
     pub hwnd:     HWND
+    pub winHandle: i64
+    pub tooltipHwnd: HWND
+    pub mouseTracking: bool
     pub surface:  i64           // WGPUSurface, 0 = unset
     pub format:   u32
     pub width:    f64
@@ -90,18 +97,26 @@ class GpuViewSlot {
     pub stop:     bool[]        // [0] = render thread should stop
     pub pending:  bool[]        // [0] = a GPU_REDRAW is in flight
     pub onRender: fn(WGPURenderPassEncoder, f64, f64)
+    pub onFocus:      fn()
+    pub onBlur:       fn()
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
     pub onMouseMove:  fn(f64, f64, u32, bool, bool, bool, bool)
     pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
     pub onResize:     fn(f64, f64)
     pub startNs:  i64
     pub lastNs:   i64
 
-    pub init(hwnd: HWND, surface: i64, format: u32, w: f64, h: f64) {
+    pub init(hwnd: HWND, winHandle: i64, surface: i64, format: u32, w: f64, h: f64) {
         this.hwnd         = hwnd
+        this.winHandle    = winHandle
+        this.tooltipHwnd  = 0 as HWND
+        this.mouseTracking = false
         this.surface      = surface
         this.format       = format
         this.width        = w
@@ -110,11 +125,16 @@ class GpuViewSlot {
         this.stop         = [false]
         this.pending      = [false]
         this.onRender     = gpuNoOpRender
+        this.onFocus      = gpuNoOp0
+        this.onBlur       = gpuNoOp0
         this.onKeyDown    = gpuNoOpKey
         this.onKeyUp      = gpuNoOpKey
+        this.onMouseEnter = gpuNoOpEnterLeave
+        this.onMouseLeave = gpuNoOpEnterLeave
         this.onMouseMove  = gpuNoOpMove
         this.onMouseDown  = gpuNoOpButton
         this.onMouseUp    = gpuNoOpButton
+        this.onContextMenu = gpuNoOpButton
         this.onMouseWheel = gpuNoOpWheel
         this.onResize     = gpuNoOpResize
         this.startNs      = 0 as i64
@@ -125,6 +145,8 @@ class GpuViewSlot {
 let GPUVIEWS = new Map<i64, GpuViewSlot>()
 
 fn gpuNoOpRender(pass: WGPURenderPassEncoder, t: f64, dt: f64) {}
+fn gpuNoOp0() {}
+fn gpuNoOpEnterLeave(x: f64, y: f64) {}
 fn gpuNoOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn gpuNoOpMove(x: f64, y: f64, b: u32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn gpuNoOpButton(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
@@ -369,6 +391,20 @@ let CLASS_INITED: bool[] = [false]
                 // avoid flicker before the first present lands.
                 return 1
             }
+            WindowMessage.setFocus {
+                if let some(slot) = GPUVIEWS.get(hwnd) {
+                    let cb = slot.onFocus
+                    cb()
+                }
+                return 0
+            }
+            WindowMessage.killFocus {
+                if let some(slot) = GPUVIEWS.get(hwnd) {
+                    let cb = slot.onBlur
+                    cb()
+                }
+                return 0
+            }
             WindowMessage.keydown {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
                     let cb = slot.onKeyDown
@@ -387,6 +423,18 @@ let CLASS_INITED: bool[] = [false]
             }
             WindowMessage.mouseMove {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
+                    if !slot.mouseTracking {
+                        let tme = TRACKMOUSEEVENT {
+                            cbSize:      24 as u32,
+                            dwFlags:     TrackMouseFlags.leave as u32,
+                            hwndTrack:   hwnd as HWND,
+                            dwHoverTime: 0 as u32,
+                        }
+                        TrackMouseEvent(&tme)
+                        slot.mouseTracking = true
+                        let enter = slot.onMouseEnter
+                        enter(lo, hi)
+                    }
                     // wParam holds the MK_* bitfield (bit0=L, 1=R, 4=middle).
                     // Pack into the (L=bit0, R=bit1, M=bit2) layout the
                     // public class exposes.
@@ -401,8 +449,17 @@ let CLASS_INITED: bool[] = [false]
                 }
                 return 0
             }
+            WindowMessage.mouseLeave {
+                if let some(slot) = GPUVIEWS.get(hwnd) {
+                    slot.mouseTracking = false
+                    let cb = slot.onMouseLeave
+                    cb(lo, hi)
+                }
+                return 0
+            }
             WindowMessage.lbuttondown {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
+                    SetFocus(slot.hwnd)
                     let cb = slot.onMouseDown
                     cb(lo, hi, 0 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
                 }
@@ -417,8 +474,14 @@ let CLASS_INITED: bool[] = [false]
             }
             WindowMessage.rButtonDown {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
+                    let ck = gpuModCtrl()
+                    let sk = gpuModShift()
+                    let ak = gpuModAlt()
+                    let mk = gpuModMeta()
                     let cb = slot.onMouseDown
-                    cb(lo, hi, 2 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                    cb(lo, hi, 2 as i32, ck, sk, ak, mk)
+                    let ctx = slot.onContextMenu
+                    ctx(lo, hi, 2 as i32, ck, sk, ak, mk)
                 }
                 return 0
             }
@@ -533,7 +596,7 @@ fn registerGpuViewClass() {
 
 pub fn createNativeGpuView(
     windowHandle: i64,
-    x: f64, y: f64, width: f64, height: f64, visible: bool
+    x: f64, y: f64, width: f64, height: f64, enabled: bool, visible: bool
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
@@ -542,7 +605,8 @@ pub fn createNativeGpuView(
     let classW = "IlangGuiGpuView".encodeUtf16()
     let titleW = "".encodeUtf16()
     let visibleBits: u32 = if visible { WindowStyle.visible as u32 } else { 0 as u32 }
-    let style: u32 = (WindowStyle.child as u32) | visibleBits
+    let disabledBits: u32 = if !enabled { WindowStyle.disabled as u32 } else { 0 as u32 }
+    let style: u32 = (WindowStyle.child as u32) | visibleBits | disabledBits
     let hInstance = GetModuleHandleA(0 as *const char)
     let hwnd = CreateWindowExW(
         0,
@@ -574,7 +638,7 @@ pub fn createNativeGpuView(
         return -1
     }
 
-    let slot = new GpuViewSlot(hwnd, surfacePtr, fmt, width, height)
+    let slot = new GpuViewSlot(hwnd, windowHandle, surfacePtr, fmt, width, height)
     let handle = hwnd as i64
     GPUVIEWS[handle] = slot
     handle
@@ -598,6 +662,68 @@ pub fn setGpuViewVisible(handle: i64, visible: bool) {
     }
 }
 
+pub fn setGpuViewEnabled(handle: i64, enabled: bool) {
+    if let some(slot) = GPUVIEWS.get(handle) {
+        let flag: i32 = if enabled { 1 } else { 0 }
+        EnableWindow(slot.hwnd, flag)
+    }
+}
+
+pub fn setGpuViewTooltip(handle: i64, text: string) {
+    if let some(slot) = GPUVIEWS.get(handle) {
+        if text == "" {
+            if slot.tooltipHwnd as i64 != 0 as i64 {
+                let info = TOOLINFOW {
+                    cbSize:     72 as u32,
+                    uFlags:     TTF_IDISHWND,
+                    hwnd:       slot.winHandle as HWND,
+                    uId:        slot.hwnd as u64,
+                    rect:       RECT { left: 0 as i32, top: 0 as i32, right: 0 as i32, bottom: 0 as i32 },
+                    hinst:      0 as HINSTANCE,
+                    lpszText:   0 as *const u16,
+                    lParam:     0 as i64,
+                    lpReserved: 0 as *void,
+                }
+                let p: *const TOOLINFOW = &info
+                SendMessageW(slot.tooltipHwnd, TTM_DELTOOLW, 0 as u64, p as i64)
+            }
+            return
+        }
+        let textW = text.encodeUtf16()
+        let info = TOOLINFOW {
+            cbSize:     72 as u32,
+            uFlags:     TTF_IDISHWND | TTF_SUBCLASS,
+            hwnd:       slot.winHandle as HWND,
+            uId:        slot.hwnd as u64,
+            rect:       RECT { left: 0 as i32, top: 0 as i32, right: 0 as i32, bottom: 0 as i32 },
+            hinst:      0 as HINSTANCE,
+            lpszText:   textW,
+            lParam:     0 as i64,
+            lpReserved: 0 as *void,
+        }
+        let p: *const TOOLINFOW = &info
+        if slot.tooltipHwnd as i64 == 0 as i64 {
+            let classW = "tooltips_class32".encodeUtf16()
+            let hInstance = GetModuleHandleA(0 as *const char)
+            let tt = CreateWindowExW(
+                0,
+                classW,
+                0 as *const u16,
+                (WindowStyle.popup as u32) | TTS_ALWAYSTIP,
+                0, 0, 0, 0,
+                slot.winHandle as HWND,
+                0 as HMENU,
+                hInstance as HINSTANCE,
+                0 as *void
+            )
+            slot.tooltipHwnd = tt
+            SendMessageW(tt, TTM_ADDTOOLW, 0 as u64, p as i64)
+        } else {
+            SendMessageW(slot.tooltipHwnd, TTM_UPDATETIPTEXTW, 0 as u64, p as i64)
+        }
+    }
+}
+
 pub fn setOnGpuViewRender(handle: i64, cb: fn(WGPURenderPassEncoder, f64, f64)) {
     if let some(slot) = GPUVIEWS.get(handle) {
         slot.onRender = cb
@@ -609,6 +735,29 @@ pub fn setOnGpuViewKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) 
 }
 pub fn setOnGpuViewKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = GPUVIEWS.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnGpuViewFocus(handle: i64, cb: fn()) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnGpuViewBlur(handle: i64, cb: fn()) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onBlur = cb }
+}
+pub fn setOnGpuViewMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnGpuViewMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnGpuViewContextMenu(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
+    if let some(slot) = GPUVIEWS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn focusGpuView(handle: i64) {
+    if let some(slot) = GPUVIEWS.get(handle) { SetFocus(slot.hwnd) }
+}
+pub fn blurGpuView(handle: i64) {
+    if let some(slot) = GPUVIEWS.get(handle) {
+        SetFocus(0 as HWND)
+    }
 }
 pub fn setOnGpuViewMouseMove(handle: i64, cb: fn(f64, f64, u32, bool, bool, bool, bool)) {
     if let some(slot) = GPUVIEWS.get(handle) { slot.onMouseMove = cb }

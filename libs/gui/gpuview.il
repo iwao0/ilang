@@ -49,7 +49,10 @@
 /// top-left).
 
 use window { Window, Control }
-use events { EventTarget, Event, KeyEvent, MouseEvent, SizeEvent }
+use events {
+    EventTarget, Event, KeyEvent, MouseEvent, SizeEvent,
+    FocusEvent, BlurEvent,
+}
 use std.events { Signal }
 use wgpu29 {
     WGPUSurface, WGPUDevice, WGPUQueue, WGPURenderPassEncoder,
@@ -60,13 +63,17 @@ use wgpu29 {
 // `use gui` don't drag in wgpu's `libwgpu_native` at JIT-link
 // time.
 use gui_impl.gpuview {
-    createNativeGpuView, setGpuViewFrame, setGpuViewVisible,
+    createNativeGpuView, setGpuViewFrame,
+    setGpuViewEnabled, setGpuViewVisible, setGpuViewTooltip,
     setOnGpuViewRender,
     getGpuViewSurface, getGpuViewDevice, getGpuViewQueue, getGpuViewFormat,
     startGpuViewLoop, stopGpuViewLoop, requestGpuViewFrame,
     setOnGpuViewKeyDown, setOnGpuViewKeyUp,
+    setOnGpuViewFocus, setOnGpuViewBlur,
+    setOnGpuViewMouseEnter, setOnGpuViewMouseLeave,
     setOnGpuViewMouseMove, setOnGpuViewMouseDown, setOnGpuViewMouseUp,
-    setOnGpuViewMouseWheel, setOnGpuViewResize,
+    setOnGpuViewContextMenu, setOnGpuViewMouseWheel, setOnGpuViewResize,
+    focusGpuView, blurGpuView,
 }
 
 /// One per-tick render callback. `pass` is a live
@@ -96,7 +103,9 @@ pub class GpuView : Control {
     _y:           f64
     _width:       f64
     _height:      f64
+    _isEnabled:   bool
     _isVisible:   bool
+    _tooltip:     string
 
     // Friendly wrappers, built once in attachTo. Starting
     // sentinels (handle == 0) so reads before realisation are
@@ -130,9 +139,14 @@ pub class GpuView : Control {
     /// from the window.
     pub onKeyDown:    Signal<KeyEvent>
     pub onKeyUp:      Signal<KeyEvent>
+    pub onFocus:      Signal<FocusEvent>
+    pub onBlur:       Signal<BlurEvent>
+    pub onMouseEnter: Signal<MouseEvent>
+    pub onMouseLeave: Signal<MouseEvent>
     pub onMouseMove:  Signal<MouseEvent>
     pub onMouseDown:  Signal<MouseEvent>
     pub onMouseUp:    Signal<MouseEvent>
+    pub onContextMenu: Signal<MouseEvent>
     pub onMouseWheel: Signal<MouseEvent>
     pub onResize:     Signal<SizeEvent>
 
@@ -143,7 +157,9 @@ pub class GpuView : Control {
         this._y            = 0.0
         this._width        = 400.0
         this._height       = 300.0
+        this._isEnabled    = true
         this._isVisible    = true
+        this._tooltip      = ""
         this._surface      = new Surface(0 as WGPUSurface)
         this._device       = new Device(0 as WGPUDevice)
         this._queue        = new Queue(0 as WGPUQueue)
@@ -154,9 +170,14 @@ pub class GpuView : Control {
         this.onRender      = new Signal<RenderEvent>()
         this.onKeyDown     = new Signal<KeyEvent>()
         this.onKeyUp       = new Signal<KeyEvent>()
+        this.onFocus       = new Signal<FocusEvent>()
+        this.onBlur        = new Signal<BlurEvent>()
+        this.onMouseEnter  = new Signal<MouseEvent>()
+        this.onMouseLeave  = new Signal<MouseEvent>()
         this.onMouseMove   = new Signal<MouseEvent>()
         this.onMouseDown   = new Signal<MouseEvent>()
         this.onMouseUp     = new Signal<MouseEvent>()
+        this.onContextMenu = new Signal<MouseEvent>()
         this.onMouseWheel  = new Signal<MouseEvent>()
         this.onResize      = new Signal<SizeEvent>()
     }
@@ -190,10 +211,22 @@ pub class GpuView : Control {
         }
     }
 
+    pub get isEnabled(): bool { this._isEnabled }
+    pub set isEnabled(v: bool) {
+        this._isEnabled = v
+        if this.handle >= 0 { setGpuViewEnabled(this.handle, v) }
+    }
     pub get isVisible(): bool { this._isVisible }
     pub set isVisible(v: bool) {
         this._isVisible = v
         if this.handle >= 0 { setGpuViewVisible(this.handle, v) }
+    }
+
+    /// Hover tooltip. Empty string clears it.
+    pub get tooltip(): string { this._tooltip }
+    pub set tooltip(v: string) {
+        this._tooltip = v
+        if this.handle >= 0 { setGpuViewTooltip(this.handle, v) }
     }
 
     // ─── low-level escape hatches ──────────────────────────────
@@ -257,7 +290,7 @@ pub class GpuView : Control {
         this.handle = createNativeGpuView(
             window.handle,
             this._x, this._y, this._width, this._height,
-            this._isVisible
+            this._isEnabled, this._isVisible
         )
         if this.handle >= 0 {
             // Cache the friendly wrappers once — getters return
@@ -286,6 +319,18 @@ pub class GpuView : Control {
                     this._keysDown[c] = false
                     this.onKeyUp.emit(new KeyEvent(this, c, ck, sk, ak, mk))
                 })
+            setOnGpuViewFocus(this.handle, fn() {
+                this.onFocus.emit(new FocusEvent(this))
+            })
+            setOnGpuViewBlur(this.handle, fn() {
+                this.onBlur.emit(new BlurEvent(this))
+            })
+            setOnGpuViewMouseEnter(this.handle, fn(x: f64, y: f64) {
+                this.onMouseEnter.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+            })
+            setOnGpuViewMouseLeave(this.handle, fn(x: f64, y: f64) {
+                this.onMouseLeave.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+            })
             setOnGpuViewMouseMove(this.handle,
                 fn(x: f64, y: f64, b: u32, ck: bool, sk: bool, ak: bool, mk: bool) {
                     this._mouseX = x
@@ -307,6 +352,10 @@ pub class GpuView : Control {
                     this._mouseButtons = this._mouseButtons & (~buttonMask(btn))
                     this.onMouseUp.emit(new MouseEvent(this, x, y, btn, ck, sk, ak, mk))
                 })
+            setOnGpuViewContextMenu(this.handle,
+                fn(x: f64, y: f64, btn: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                    this.onContextMenu.emit(new MouseEvent(this, x, y, btn, ck, sk, ak, mk))
+                })
             setOnGpuViewMouseWheel(this.handle,
                 fn(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {
                     this._mouseX = x
@@ -321,8 +370,14 @@ pub class GpuView : Control {
                 this._height = h
                 this.onResize.emit(new SizeEvent(this, w, h))
             })
+            if this._tooltip != "" { setGpuViewTooltip(this.handle, this._tooltip) }
         }
     }
+
+    /// Move keyboard focus to this view. No-op until attached.
+    pub focus() { if this.handle >= 0 { focusGpuView(this.handle) } }
+    /// Release focus iff this view holds it. No-op until attached.
+    pub blur()  { if this.handle >= 0 { blurGpuView(this.handle) } }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {
         this._x = x; this._y = y; this._width = w; this._height = h

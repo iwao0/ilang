@@ -22,12 +22,15 @@ use std.math as math
 use windows {
     HWND, HDC, HBITMAP, HBRUSH, HPEN, HGDIOBJ,
     HINSTANCE, HMENU, HICON, HCURSOR,
-    POINT, RECT, PAINTSTRUCT, WNDCLASSEXA,
+    POINT, RECT, PAINTSTRUCT, WNDCLASSEXA, TOOLINFOW, TRACKMOUSEEVENT,
     ClassStyle, WindowStyle, WindowMessage, ShowCmd, VirtualKey,
-    RasterOp, StockObject, PenStyle, BackgroundMode,
+    RasterOp, StockObject, PenStyle, BackgroundMode, TrackMouseFlags,
+    TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
+    TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     RegisterClassExW, CreateWindowExW, DefWindowProcW,
-    MoveWindow, ShowWindow, SetFocus,
+    MoveWindow, ShowWindow, SetFocus, EnableWindow,
+    SendMessageW, TrackMouseEvent,
     GetDC, ReleaseDC, BeginPaint, EndPaint, InvalidateRect, FillRect,
     CreateCompatibleDC, CreateCompatibleBitmap, SelectObject,
     DeleteObject, BitBlt, CreateSolidBrush, CreatePen, SetBkMode,
@@ -53,6 +56,9 @@ const OP_CLOSE: i64 = 3
 /// `handle: i64`. Colours are stored as GDI `COLORREF` (0x00BBGGRR).
 class CanvasSlot {
     pub hwnd:        HWND
+    pub winHandle:   i64
+    pub tooltipHwnd: HWND
+    pub mouseTracking: bool
     pub mdc:         HDC          // memory DC holding the bitmap
     pub bmp:         HBITMAP      // backing bitmap
     pub w:           f64
@@ -63,15 +69,23 @@ class CanvasSlot {
     // Accumulated path: parallel op-code + argument arrays.
     pub pathOps:     i64[]
     pub pathArgs:    f64[][]
+    pub onFocus:      fn()
+    pub onBlur:       fn()
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
     pub onMouseMove:  fn(f64, f64, u32, bool, bool, bool, bool)
     pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 
-    pub init(hwnd: HWND, mdc: HDC, bmp: HBITMAP, w: f64, h: f64) {
+    pub init(hwnd: HWND, winHandle: i64, mdc: HDC, bmp: HBITMAP, w: f64, h: f64) {
         this.hwnd        = hwnd
+        this.winHandle   = winHandle
+        this.tooltipHwnd = 0 as HWND
+        this.mouseTracking = false
         this.mdc         = mdc
         this.bmp         = bmp
         this.w           = w
@@ -81,16 +95,23 @@ class CanvasSlot {
         this.lineWidth   = 1.0
         this.pathOps     = newOps()
         this.pathArgs    = newArgs()
+        this.onFocus      = canvasNoOp0
+        this.onBlur       = canvasNoOp0
         this.onKeyDown    = canvasNoOpKey
         this.onKeyUp      = canvasNoOpKey
+        this.onMouseEnter = canvasNoOpEnterLeave
+        this.onMouseLeave = canvasNoOpEnterLeave
         this.onMouseMove  = canvasNoOpMove
         this.onMouseDown  = canvasNoOpBtn
         this.onMouseUp    = canvasNoOpBtn
+        this.onContextMenu = canvasNoOpBtn
         this.onMouseWheel = canvasNoOpWheel
     }
 }
 
+fn canvasNoOp0() {}
 fn canvasNoOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn canvasNoOpEnterLeave(x: f64, y: f64) {}
 fn canvasNoOpMove(x: f64, y: f64, b: u32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn canvasNoOpBtn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn canvasNoOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
@@ -136,6 +157,20 @@ pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         WindowMessage.eraseBkgnd {
             return 1
         }
+        WindowMessage.setFocus {
+            if let some(slot) = CANVASES.get(hwnd) {
+                let cb = slot.onFocus
+                cb()
+            }
+            return 0
+        }
+        WindowMessage.killFocus {
+            if let some(slot) = CANVASES.get(hwnd) {
+                let cb = slot.onBlur
+                cb()
+            }
+            return 0
+        }
         WindowMessage.keydown {
             if let some(slot) = CANVASES.get(hwnd) {
                 let cb = slot.onKeyDown
@@ -154,6 +189,21 @@ pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         }
         WindowMessage.mouseMove {
             if let some(slot) = CANVASES.get(hwnd) {
+                // First mouseMove since the cursor (re-)entered the
+                // canvas: arm WM_MOUSELEAVE and synthesise an enter
+                // event so callers don't have to.
+                if !slot.mouseTracking {
+                    let tme = TRACKMOUSEEVENT {
+                        cbSize:      24 as u32,
+                        dwFlags:     TrackMouseFlags.leave as u32,
+                        hwndTrack:   hwnd as HWND,
+                        dwHoverTime: 0 as u32,
+                    }
+                    TrackMouseEvent(&tme)
+                    slot.mouseTracking = true
+                    let enter = slot.onMouseEnter
+                    enter(lo, hi)
+                }
                 // wParam holds the MK_* bitfield (bit0=L, bit1=R,
                 // bit4=middle). Pack into the (L=bit0, R=bit1,
                 // M=bit2) layout that gpuview exposes.
@@ -165,6 +215,14 @@ pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                 let cb = slot.onMouseMove
                 cb(lo, hi, buttons,
                    modCtrl(), modShift(), modAlt(), modMeta())
+            }
+            return 0
+        }
+        WindowMessage.mouseLeave {
+            if let some(slot) = CANVASES.get(hwnd) {
+                slot.mouseTracking = false
+                let cb = slot.onMouseLeave
+                cb(lo, hi)
             }
             return 0
         }
@@ -187,8 +245,14 @@ pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         }
         WindowMessage.rButtonDown {
             if let some(slot) = CANVASES.get(hwnd) {
+                let ck = modCtrl()
+                let sk = modShift()
+                let ak = modAlt()
+                let mk = modMeta()
                 let cb = slot.onMouseDown
-                cb(lo, hi, 2 as i32, modCtrl(), modShift(), modAlt(), modMeta())
+                cb(lo, hi, 2 as i32, ck, sk, ak, mk)
+                let ctx = slot.onContextMenu
+                ctx(lo, hi, 2 as i32, ck, sk, ak, mk)
             }
             return 0
         }
@@ -263,7 +327,7 @@ fn whiteFill(mdc: HDC, w: f64, h: f64) {
 
 pub fn createNativeCanvas(
     windowHandle: i64,
-    x: f64, y: f64, width: f64, height: f64, visible: bool
+    x: f64, y: f64, width: f64, height: f64, enabled: bool, visible: bool
 ): i64 {
     let parent = windowHwnd(windowHandle)
     if parent as i64 == 0 as i64 { return -1 }
@@ -276,7 +340,12 @@ pub fn createNativeCanvas(
     } else {
         0 as u32
     }
-    let style: u32 = (WindowStyle.child as u32) | visibleBits
+    let disabledBits: u32 = if !enabled {
+        WindowStyle.disabled as u32
+    } else {
+        0 as u32
+    }
+    let style: u32 = (WindowStyle.child as u32) | visibleBits | disabledBits
     let hInstance = GetModuleHandleA(0 as *const char)
     let hwnd = CreateWindowExW(
         0,
@@ -298,7 +367,7 @@ pub fn createNativeCanvas(
     whiteFill(mdc, width, height)
 
     let handle = hwnd as i64
-    CANVASES[handle] = new CanvasSlot(hwnd, mdc, bmp, width, height)
+    CANVASES[handle] = new CanvasSlot(hwnd, windowHandle, mdc, bmp, width, height)
     handle
 }
 
@@ -326,6 +395,68 @@ pub fn setCanvasVisible(handle: i64, visible: bool) {
     if let some(slot) = CANVASES.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(slot.hwnd, cmd)
+    }
+}
+
+pub fn setCanvasEnabled(handle: i64, enabled: bool) {
+    if let some(slot) = CANVASES.get(handle) {
+        let flag: i32 = if enabled { 1 } else { 0 }
+        EnableWindow(slot.hwnd, flag)
+    }
+}
+
+pub fn setCanvasTooltip(handle: i64, text: string) {
+    if let some(slot) = CANVASES.get(handle) {
+        if text == "" {
+            if slot.tooltipHwnd as i64 != 0 as i64 {
+                let info = TOOLINFOW {
+                    cbSize:     72 as u32,
+                    uFlags:     TTF_IDISHWND,
+                    hwnd:       slot.winHandle as HWND,
+                    uId:        slot.hwnd as u64,
+                    rect:       RECT { left: 0 as i32, top: 0 as i32, right: 0 as i32, bottom: 0 as i32 },
+                    hinst:      0 as HINSTANCE,
+                    lpszText:   0 as *const u16,
+                    lParam:     0 as i64,
+                    lpReserved: 0 as *void,
+                }
+                let p: *const TOOLINFOW = &info
+                SendMessageW(slot.tooltipHwnd, TTM_DELTOOLW, 0 as u64, p as i64)
+            }
+            return
+        }
+        let textW = text.encodeUtf16()
+        let info = TOOLINFOW {
+            cbSize:     72 as u32,
+            uFlags:     TTF_IDISHWND | TTF_SUBCLASS,
+            hwnd:       slot.winHandle as HWND,
+            uId:        slot.hwnd as u64,
+            rect:       RECT { left: 0 as i32, top: 0 as i32, right: 0 as i32, bottom: 0 as i32 },
+            hinst:      0 as HINSTANCE,
+            lpszText:   textW,
+            lParam:     0 as i64,
+            lpReserved: 0 as *void,
+        }
+        let p: *const TOOLINFOW = &info
+        if slot.tooltipHwnd as i64 == 0 as i64 {
+            let classW = "tooltips_class32".encodeUtf16()
+            let hInstance = GetModuleHandleA(0 as *const char)
+            let tt = CreateWindowExW(
+                0,
+                classW,
+                0 as *const u16,
+                (WindowStyle.popup as u32) | TTS_ALWAYSTIP,
+                0, 0, 0, 0,
+                slot.winHandle as HWND,
+                0 as HMENU,
+                hInstance as HINSTANCE,
+                0 as *void
+            )
+            slot.tooltipHwnd = tt
+            SendMessageW(tt, TTM_ADDTOOLW, 0 as u64, p as i64)
+        } else {
+            SendMessageW(slot.tooltipHwnd, TTM_UPDATETIPTEXTW, 0 as u64, p as i64)
+        }
     }
 }
 
@@ -488,11 +619,33 @@ pub fn canvasStroke(handle: i64) {
     }
 }
 
+pub fn setOnCanvasFocus(handle: i64, cb: fn()) {
+    if let some(slot) = CANVASES.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnCanvasBlur(handle: i64, cb: fn()) {
+    if let some(slot) = CANVASES.get(handle) { slot.onBlur = cb }
+}
+pub fn focusCanvas(handle: i64) {
+    if let some(slot) = CANVASES.get(handle) { SetFocus(slot.hwnd) }
+}
+pub fn blurCanvas(handle: i64) {
+    if let some(slot) = CANVASES.get(handle) {
+        // SetFocus(NULL) releases focus from the foreground thread's
+        // active window; matches the Cocoa / GTK `blur` semantics.
+        SetFocus(0 as HWND)
+    }
+}
 pub fn setOnCanvasKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = CANVASES.get(handle) { slot.onKeyDown = cb }
 }
 pub fn setOnCanvasKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = CANVASES.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnCanvasMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnCanvasMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseLeave = cb }
 }
 pub fn setOnCanvasMouseMove(
     handle: i64, cb: fn(f64, f64, u32, bool, bool, bool, bool)
@@ -508,6 +661,11 @@ pub fn setOnCanvasMouseUp(
     handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 ) {
     if let some(slot) = CANVASES.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnCanvasContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = CANVASES.get(handle) { slot.onContextMenu = cb }
 }
 pub fn setOnCanvasMouseWheel(
     handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)

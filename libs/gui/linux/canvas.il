@@ -17,14 +17,18 @@
 use std.ffi { cstrFromString }
 use gtk {
     GtkWidget, GtkDrawingArea, GtkFixed, GObject,
-    GtkEventController, GtkEventControllerKey, GtkEventControllerMotion,
+    GtkEventController, GtkEventControllerFocus,
+    GtkEventControllerKey, GtkEventControllerMotion,
     GtkEventControllerScroll, GtkEventControllerScrollFlags,
     GtkGestureSingle, GtkGestureClick,
     gtk_drawing_area_new, gtk_drawing_area_set_draw_func,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_visible,
+    gtk_widget_set_sensitive, gtk_widget_set_tooltip_text,
     gtk_widget_queue_draw, gtk_widget_set_focusable, gtk_widget_grab_focus,
     gtk_widget_add_controller,
+    gtk_window_get_focus, gtk_window_set_focus,
+    gtk_event_controller_focus_new,
     gtk_event_controller_key_new, gtk_event_controller_motion_new,
     gtk_event_controller_scroll_new,
     gtk_event_controller_get_widget,
@@ -32,7 +36,7 @@ use gtk {
     gdk_keyval_to_lower,
     gtk_gesture_click_new,
     gtk_gesture_single_set_button, gtk_gesture_single_get_current_button,
-    g_signal_connect_key,
+    g_signal_connect_key, g_signal_connect_data,
     g_signal_connect_motion, g_signal_connect_click, g_signal_connect_scroll,
 }
 use window { keyvalToCode }
@@ -59,6 +63,7 @@ const CAIRO_OPERATOR_SOURCE: i32 = 1
 class CanvasSlot {
     pub area:      GtkDrawingArea
     pub fixed:     GtkFixed
+    pub winHandle: i64
     pub surface:   cairo_surface_t
     pub cr:        cairo_t
     pub w:         f64
@@ -72,19 +77,25 @@ class CanvasSlot {
     pub strokeB:   f64
     pub strokeA:   f64
     pub lineWidth: f64
+    pub onFocus:      fn()
+    pub onBlur:       fn()
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
     pub onMouseMove:  fn(f64, f64, u32, bool, bool, bool, bool)
     pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 
     pub init(
-        area: GtkDrawingArea, fixed: GtkFixed,
+        area: GtkDrawingArea, fixed: GtkFixed, winHandle: i64,
         surface: cairo_surface_t, cr: cairo_t, w: f64, h: f64
     ) {
         this.area      = area
         this.fixed     = fixed
+        this.winHandle = winHandle
         this.surface   = surface
         this.cr        = cr
         this.w         = w
@@ -98,16 +109,23 @@ class CanvasSlot {
         this.strokeB   = 0.0
         this.strokeA   = 1.0
         this.lineWidth = 1.0
+        this.onFocus      = canvasNoOp0
+        this.onBlur       = canvasNoOp0
         this.onKeyDown    = canvasNoOpKey
         this.onKeyUp      = canvasNoOpKey
+        this.onMouseEnter = canvasNoOpEnterLeave
+        this.onMouseLeave = canvasNoOpEnterLeave
         this.onMouseMove  = canvasNoOpMove
         this.onMouseDown  = canvasNoOpBtn
         this.onMouseUp    = canvasNoOpBtn
+        this.onContextMenu = canvasNoOpBtn
         this.onMouseWheel = canvasNoOpWheel
     }
 }
 
+fn canvasNoOp0() {}
 fn canvasNoOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn canvasNoOpEnterLeave(x: f64, y: f64) {}
 fn canvasNoOpMove(x: f64, y: f64, b: u32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn canvasNoOpBtn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn canvasNoOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
@@ -149,6 +167,34 @@ pub fn linux_canvas_draw(area: i64, cr: i64, width: i32, height: i32, data: i64)
     }
 }
 
+pub fn linux_canvas_focus_enter(ctl: i64, data: i64) {
+    let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+    if let some(slot) = CANVASES.get(w as i64) {
+        let cb = slot.onFocus
+        cb()
+    }
+}
+pub fn linux_canvas_focus_leave(ctl: i64, data: i64) {
+    let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+    if let some(slot) = CANVASES.get(w as i64) {
+        let cb = slot.onBlur
+        cb()
+    }
+}
+pub fn linux_canvas_motion_enter(ctl: i64, x: f64, y: f64, data: i64) {
+    let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+    if let some(slot) = CANVASES.get(w as i64) {
+        let cb = slot.onMouseEnter
+        cb(x, y)
+    }
+}
+pub fn linux_canvas_motion_leave(ctl: i64, data: i64) {
+    let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+    if let some(slot) = CANVASES.get(w as i64) {
+        let cb = slot.onMouseLeave
+        cb(0.0, 0.0)
+    }
+}
 pub fn linux_canvas_motion(ctl: i64, x: f64, y: f64, data: i64) {
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = CANVASES.get(w as i64) {
@@ -176,13 +222,20 @@ pub fn linux_canvas_pressed(
         // Grab focus on click so subsequent key events arrive.
         gtk_widget_grab_focus(w)
         let btn = gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
+        let w3c = gdkBtnToW3c(btn)
         let st = gtk_event_controller_get_current_event_state(
             gesture as GtkEventController
         ) as u32
+        let ck = hasMod(st, MOD_CTRL)
+        let sk = hasMod(st, MOD_SHIFT)
+        let ak = hasMod(st, MOD_ALT)
+        let mk = hasMod(st, MOD_META)
         let cb = slot.onMouseDown
-        cb(x, y, gdkBtnToW3c(btn),
-           hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
-           hasMod(st, MOD_ALT),  hasMod(st, MOD_META))
+        cb(x, y, w3c, ck, sk, ak, mk)
+        if btn == 3 as u32 {
+            let ctx = slot.onContextMenu
+            ctx(x, y, w3c, ck, sk, ak, mk)
+        }
     }
 }
 pub fn linux_canvas_released(
@@ -239,7 +292,7 @@ pub fn linux_canvas_key_released(
 
 pub fn createNativeCanvas(
     windowHandle: i64,
-    x: f64, y: f64, width: f64, height: f64, visible: bool
+    x: f64, y: f64, width: f64, height: f64, enabled: bool, visible: bool
 ): i64 {
     let winSlot = match WINDOWS.get(windowHandle) {
         some(s) { s }
@@ -250,6 +303,10 @@ pub fn createNativeCanvas(
     gtk_widget_set_visible(
         area as GtkWidget,
         if visible { 1 as i32 } else { 0 as i32 }
+    )
+    gtk_widget_set_sensitive(
+        area as GtkWidget,
+        if enabled { 1 as i32 } else { 0 as i32 }
     )
     gtk_fixed_put(winSlot.fixed, area as GtkWidget, x, y)
 
@@ -262,7 +319,9 @@ pub fn createNativeCanvas(
     cairo_paint(cr)
 
     let handle = area as i64
-    CANVASES[handle] = new CanvasSlot(area, winSlot.fixed, surface, cr, width, height)
+    CANVASES[handle] = new CanvasSlot(
+        area, winSlot.fixed, windowHandle, surface, cr, width, height
+    )
     gtk_drawing_area_set_draw_func(
         area, linux_canvas_draw, handle as *void, 0 as i64
     )
@@ -271,6 +330,17 @@ pub fn createNativeCanvas(
     // controller can deliver keyDown/keyUp once the widget grabs
     // focus (we grab on click in `linux_canvas_pressed`).
     gtk_widget_set_focusable(area as GtkWidget, 1 as i32)
+
+    let focusCtl = gtk_event_controller_focus_new()
+    g_signal_connect_data(
+        focusCtl as GObject, cstrFromString("enter"),
+        linux_canvas_focus_enter, 0 as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        focusCtl as GObject, cstrFromString("leave"),
+        linux_canvas_focus_leave, 0 as *void, 0 as i64, 0 as u32
+    )
+    gtk_widget_add_controller(area as GtkWidget, focusCtl)
 
     let keyCtl = gtk_event_controller_key_new() as GtkEventControllerKey
     g_signal_connect_key(
@@ -287,6 +357,14 @@ pub fn createNativeCanvas(
     g_signal_connect_motion(
         motionCtl as GObject, cstrFromString("motion"),
         linux_canvas_motion, 0 as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        motionCtl as GObject, cstrFromString("enter"),
+        linux_canvas_motion_enter, 0 as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        motionCtl as GObject, cstrFromString("leave"),
+        linux_canvas_motion_leave, 0 as *void, 0 as i64, 0 as u32
     )
     gtk_widget_add_controller(area as GtkWidget, motionCtl as GtkEventController)
 
@@ -345,6 +423,25 @@ pub fn setCanvasVisible(handle: i64, visible: bool) {
             slot.area as GtkWidget,
             if visible { 1 as i32 } else { 0 as i32 }
         )
+    }
+}
+
+pub fn setCanvasEnabled(handle: i64, enabled: bool) {
+    if let some(slot) = CANVASES.get(handle) {
+        gtk_widget_set_sensitive(
+            slot.area as GtkWidget,
+            if enabled { 1 as i32 } else { 0 as i32 }
+        )
+    }
+}
+
+pub fn setCanvasTooltip(handle: i64, text: string) {
+    if let some(slot) = CANVASES.get(handle) {
+        if text == "" {
+            gtk_widget_set_tooltip_text(slot.area as GtkWidget, 0 as *const char)
+        } else {
+            gtk_widget_set_tooltip_text(slot.area as GtkWidget, cstrFromString(text))
+        }
     }
 }
 
@@ -459,11 +556,38 @@ pub fn canvasStroke(handle: i64) {
     }
 }
 
+pub fn setOnCanvasFocus(handle: i64, cb: fn()) {
+    if let some(slot) = CANVASES.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnCanvasBlur(handle: i64, cb: fn()) {
+    if let some(slot) = CANVASES.get(handle) { slot.onBlur = cb }
+}
+pub fn focusCanvas(handle: i64) {
+    if let some(slot) = CANVASES.get(handle) {
+        let _ = gtk_widget_grab_focus(slot.area as GtkWidget)
+    }
+}
+pub fn blurCanvas(handle: i64) {
+    if let some(slot) = CANVASES.get(handle) {
+        if let some(winSlot) = WINDOWS.get(slot.winHandle) {
+            let cur = gtk_window_get_focus(winSlot.win)
+            if cur as i64 == slot.area as i64 {
+                gtk_window_set_focus(winSlot.win, 0 as GtkWidget)
+            }
+        }
+    }
+}
 pub fn setOnCanvasKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = CANVASES.get(handle) { slot.onKeyDown = cb }
 }
 pub fn setOnCanvasKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = CANVASES.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnCanvasMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnCanvasMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseLeave = cb }
 }
 pub fn setOnCanvasMouseMove(
     handle: i64, cb: fn(f64, f64, u32, bool, bool, bool, bool)
@@ -479,6 +603,11 @@ pub fn setOnCanvasMouseUp(
     handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 ) {
     if let some(slot) = CANVASES.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnCanvasContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = CANVASES.get(handle) { slot.onContextMenu = cb }
 }
 pub fn setOnCanvasMouseWheel(
     handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
