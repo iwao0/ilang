@@ -6,7 +6,7 @@
 
 use windows {
     HWND, HINSTANCE, HMENU, RECT,
-    WindowStyle, ShowCmd, WindowMessage, TrackMouseFlags,
+    WindowStyle, ShowCmd, WindowMessage, TrackMouseFlags, VirtualKey,
     TRACKMOUSEEVENT,
     TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
@@ -15,7 +15,10 @@ use windows {
     SendMessageW, SetFocus, TrackMouseEvent,
     SetWindowSubclass, DefSubclassProc,
 }
-use util { applyExplorerTheme, applyGuiFont, noOpClick }
+use util {
+    applyExplorerTheme, applyGuiFont, noOpClick,
+    vkToString, modCtrl, modShift, modAlt, modMeta,
+}
 use core { windowHwnd, noOp1 }
 
 /// `BM_SETSTYLE` — flip the button style at runtime (used to set /
@@ -54,6 +57,8 @@ class ButtonSlot {
     pub onMouseDown:  fn(f64, f64, i32)
     pub onMouseUp:    fn(f64, f64, i32)
     pub onContextMenu: fn(f64, f64, i32)
+    pub onKeyDown:    fn(string, bool, bool, bool, bool)
+    pub onKeyUp:      fn(string, bool, bool, bool, bool)
     /// Win32 has no native `WM_MOUSEENTER`; we synthesise it the
     /// first time `WM_MOUSEMOVE` arrives after a previous leave.
     /// `mouseTracking` flips to true when we've registered a
@@ -76,6 +81,8 @@ class ButtonSlot {
         this.onMouseDown  = noOpClick
         this.onMouseUp    = noOpClick
         this.onContextMenu = noOpClick
+        this.onKeyDown     = noOpKey
+        this.onKeyUp       = noOpKey
         this.mouseTracking = false
         this.winHandle = winHandle
         this.tooltipHwnd = 0 as HWND
@@ -83,6 +90,7 @@ class ButtonSlot {
 }
 
 fn noOpEnterLeave(x: f64, y: f64) {}
+fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let BUTTONS = new Map<i64, ButtonSlot>()
 
@@ -222,6 +230,20 @@ pub fn buttonSubclassProc(
                 cb(lo, hi, 2)
             }
         }
+        WindowMessage.keydown {
+            if let some(slot) = BUTTONS.get(hwnd) {
+                let vk = wParam as u32 as VirtualKey
+                let cb = slot.onKeyDown
+                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.keyup {
+            if let some(slot) = BUTTONS.get(hwnd) {
+                let vk = wParam as u32 as VirtualKey
+                let cb = slot.onKeyUp
+                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
         _ {}
     }
     DefSubclassProc(hwnd as HWND, msg, wParam, lParam)
@@ -324,6 +346,12 @@ pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
 }
 pub fn setOnButtonContextMenu(handle: i64, cb: fn(f64, f64, i32)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setOnButtonKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnButtonKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onKeyUp = cb }
 }
 pub fn setButtonTooltip(handle: i64, text: string) {
     if let some(slot) = BUTTONS.get(handle) {

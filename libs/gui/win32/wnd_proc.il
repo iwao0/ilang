@@ -20,7 +20,6 @@ use windows {
     HWND, HINSTANCE,
     DefWindowProcW, PostQuitMessage, DestroyWindow,
     WindowMessage, VirtualKey, ActivateCode,
-    GetKeyState,
     LoadCursorA, SetCursor, SystemCursor,
     HDC, RECT, POINT, MINMAXINFO,
     GetClientRect, FillRect, GetSysColorBrush,
@@ -56,79 +55,9 @@ use list     { tryListSelect }
 use slider   { trySliderChange }
 use menu     { tryMenuClick }
 use super.events
-// ─── VirtualKey → W3C KeyboardEvent.code ──────────────────────
-
-pub fn vkToString(vk: VirtualKey): string {
-    vkToEnum(vk) as string
-}
-
-/// Win32 virtual key codes (`windows.VirtualKey`) → the parent
-/// package's `events.KeyCode` (W3C `KeyboardEvent.code`). Unmapped
-/// keys fall through to `events.KeyCode.unknown`; the caller then
-/// serialises that into the discriminant string for the
-/// cross-package callback ABI.
-fn vkToEnum(vk: VirtualKey): events.KeyCode {
-    match vk {
-        VirtualKey.a       { events.KeyCode.keyA }
-        VirtualKey.b       { events.KeyCode.keyB }
-        VirtualKey.c       { events.KeyCode.keyC }
-        VirtualKey.d       { events.KeyCode.keyD }
-        VirtualKey.e       { events.KeyCode.keyE }
-        VirtualKey.f       { events.KeyCode.keyF }
-        VirtualKey.g       { events.KeyCode.keyG }
-        VirtualKey.h       { events.KeyCode.keyH }
-        VirtualKey.i       { events.KeyCode.keyI }
-        VirtualKey.j       { events.KeyCode.keyJ }
-        VirtualKey.k       { events.KeyCode.keyK }
-        VirtualKey.l       { events.KeyCode.keyL }
-        VirtualKey.m       { events.KeyCode.keyM }
-        VirtualKey.n       { events.KeyCode.keyN }
-        VirtualKey.o       { events.KeyCode.keyO }
-        VirtualKey.p       { events.KeyCode.keyP }
-        VirtualKey.q       { events.KeyCode.keyQ }
-        VirtualKey.r       { events.KeyCode.keyR }
-        VirtualKey.s       { events.KeyCode.keyS }
-        VirtualKey.t       { events.KeyCode.keyT }
-        VirtualKey.u       { events.KeyCode.keyU }
-        VirtualKey.v       { events.KeyCode.keyV }
-        VirtualKey.w       { events.KeyCode.keyW }
-        VirtualKey.x       { events.KeyCode.keyX }
-        VirtualKey.y       { events.KeyCode.keyY }
-        VirtualKey.z       { events.KeyCode.keyZ }
-        VirtualKey.d0      { events.KeyCode.digit0 }
-        VirtualKey.d1      { events.KeyCode.digit1 }
-        VirtualKey.d2      { events.KeyCode.digit2 }
-        VirtualKey.d3      { events.KeyCode.digit3 }
-        VirtualKey.d4      { events.KeyCode.digit4 }
-        VirtualKey.d5      { events.KeyCode.digit5 }
-        VirtualKey.d6      { events.KeyCode.digit6 }
-        VirtualKey.d7      { events.KeyCode.digit7 }
-        VirtualKey.d8      { events.KeyCode.digit8 }
-        VirtualKey.d9      { events.KeyCode.digit9 }
-        VirtualKey.enter   { events.KeyCode.enter }
-        VirtualKey.escape  { events.KeyCode.escape }
-        VirtualKey.back    { events.KeyCode.backspace }
-        VirtualKey.tab     { events.KeyCode.tab }
-        VirtualKey.space   { events.KeyCode.space }
-        VirtualKey.left    { events.KeyCode.arrowLeft }
-        VirtualKey.right   { events.KeyCode.arrowRight }
-        VirtualKey.down    { events.KeyCode.arrowDown }
-        VirtualKey.up      { events.KeyCode.arrowUp }
-        _                  { events.KeyCode.unknown }
-    }
-}
+use util { vkToString, modCtrl, modShift, modAlt, modMeta }
 
 @extern(C) {
-
-// ─── modifier helpers (GetKeyState high-bit set ⇒ pressed) ─────
-
-fn keyDown(vk: i32): bool {
-    (GetKeyState(vk) as i32 & 0x8000) != 0
-}
-fn modShift(): bool { keyDown(VirtualKey.shift as i32) }
-fn modCtrl():  bool { keyDown(VirtualKey.control as i32) }
-fn modAlt():   bool { keyDown(VirtualKey.alt as i32) }
-fn modMeta():  bool { keyDown(VirtualKey.lWin as i32) || keyDown(VirtualKey.rWin as i32) }
 
 /// Window procedure shared by every gui-win32 window. Per-instance
 /// state is keyed by the window's HWND in `core.WINDOWS`; the

@@ -11,7 +11,8 @@
 use std.ffi { cstrFromString }
 use gtk {
     GtkWidget, GtkButton, GtkFixed, GtkWindow, GObject,
-    GtkEventController, GtkGestureSingle, GtkGesture,
+    GtkEventController, GtkEventControllerKey,
+    GtkGestureSingle, GtkGesture,
     gtk_button_new_with_label, gtk_button_set_label,
     gtk_fixed_put, gtk_fixed_move, gtk_fixed_remove,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
@@ -21,13 +22,16 @@ use gtk {
     gtk_widget_grab_focus, gtk_widget_add_controller,
     gtk_event_controller_focus_new,
     gtk_event_controller_motion_new,
+    gtk_event_controller_key_new,
     gtk_event_controller_get_widget,
+    gdk_keyval_to_lower,
     gtk_gesture_click_new,
     gtk_gesture_single_set_button,
     gtk_gesture_single_get_current_button,
-    g_signal_connect_data,
+    g_signal_connect_data, g_signal_connect_key,
 }
 use core { WINDOWS, noOpClick, noOpClose }
+use window { keyvalToCode }
 
 class ButtonSlot {
     pub btn:     GtkButton
@@ -46,6 +50,8 @@ class ButtonSlot {
     pub onMouseDown:  fn(f64, f64, i32)
     pub onMouseUp:    fn(f64, f64, i32)
     pub onContextMenu: fn(f64, f64, i32)
+    pub onKeyDown:    fn(string, bool, bool, bool, bool)
+    pub onKeyUp:      fn(string, bool, bool, bool, bool)
     pub init(
         btn: GtkButton, fixed: GtkFixed, win: GtkWindow, winHandle: i64,
         x: f64, y: f64, w: f64, h: f64
@@ -66,10 +72,23 @@ class ButtonSlot {
         this.onMouseDown  = noOpClick
         this.onMouseUp    = noOpClick
         this.onContextMenu = noOpClick
+        this.onKeyDown     = noOpKey
+        this.onKeyUp       = noOpKey
     }
 }
 
 fn noOpEnterLeave(x: f64, y: f64) {}
+fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
+
+// GdkModifierType bits we need (same as window.il's). Pulled out
+// here so the key handler can `& MOD_*` without bouncing through
+// `gtk` constants.
+const MOD_SHIFT: u32 = 0x00000001 as u32
+const MOD_CTRL:  u32 = 0x00000004 as u32
+const MOD_ALT:   u32 = 0x00000008 as u32
+const MOD_META:  u32 = 0x10000000 as u32
+
+fn hasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
 
 /// GDK button numbering → W3C `MouseEvent.button`. GDK uses 1
 /// for primary, 2 for middle, 3 for secondary; the DOM uses
@@ -176,6 +195,38 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
             cb(0.0, 0.0)
         }
     }
+    /// `GtkEventControllerKey.key-pressed` /
+    /// `GtkEventControllerKey.key-released` carry
+    /// `(controller*, guint keyval, guint keycode,
+    /// GdkModifierType state, gpointer)` and return a
+    /// `gboolean`. We always return 0 so default activation
+    /// (Space-press → click on a GtkButton) still runs.
+    pub fn linux_button_key_pressed(
+        ctrl: i64, keyval: u32, keycode: u32, state: u32, data: i64
+    ): i32 {
+        let w = gtk_event_controller_get_widget(ctrl as GtkEventController)
+        if let some(slot) = BUTTONS.get(w as i64) {
+            let code = keyvalToCode(gdk_keyval_to_lower(keyval))
+            let cb = slot.onKeyDown
+            cb(code,
+               hasMod(state, MOD_CTRL), hasMod(state, MOD_SHIFT),
+               hasMod(state, MOD_ALT),  hasMod(state, MOD_META))
+        }
+        0 as i32
+    }
+    pub fn linux_button_key_released(
+        ctrl: i64, keyval: u32, keycode: u32, state: u32, data: i64
+    ): i32 {
+        let w = gtk_event_controller_get_widget(ctrl as GtkEventController)
+        if let some(slot) = BUTTONS.get(w as i64) {
+            let code = keyvalToCode(gdk_keyval_to_lower(keyval))
+            let cb = slot.onKeyUp
+            cb(code,
+               hasMod(state, MOD_CTRL), hasMod(state, MOD_SHIFT),
+               hasMod(state, MOD_ALT),  hasMod(state, MOD_META))
+        }
+        0 as i32
+    }
 }
 
 @extern(C) {
@@ -251,6 +302,28 @@ pub fn createNativeButton(
         motionCtl as GObject,
         cstrFromString("leave"),
         linux_button_motion_leave,
+        0 as *void,
+        0 as i64,
+        0 as u32
+    )
+
+    // Keyboard controller for onKeyDown / onKeyUp. Attaches to
+    // the button so GTK only routes events while the button has
+    // focus — matches AppKit's responder-chain semantics.
+    let keyCtl = gtk_event_controller_key_new() as GtkEventControllerKey
+    gtk_widget_add_controller(btn as GtkWidget, keyCtl as GtkEventController)
+    g_signal_connect_key(
+        keyCtl as GObject,
+        cstrFromString("key-pressed"),
+        linux_button_key_pressed,
+        0 as *void,
+        0 as i64,
+        0 as u32
+    )
+    g_signal_connect_key(
+        keyCtl as GObject,
+        cstrFromString("key-released"),
+        linux_button_key_released,
         0 as *void,
         0 as i64,
         0 as u32
@@ -355,6 +428,12 @@ pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
 }
 pub fn setOnButtonContextMenu(handle: i64, cb: fn(f64, f64, i32)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setOnButtonKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnButtonKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onKeyUp = cb }
 }
 pub fn setButtonTooltip(handle: i64, text: string) {
     if let some(slot) = BUTTONS.get(handle) {

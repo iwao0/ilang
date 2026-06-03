@@ -29,8 +29,12 @@ use windows {
     FontWeight, FontCharset, FontOutPrecision, FontClipPrecision,
     FontQuality, FontPitchFamily,
     SendMessageA,
+    // VirtualKey + GetKeyState for the cross-widget key helpers
+    // exposed below.
+    VirtualKey, GetKeyState,
 }
 use uxtheme { SetWindowTheme }
+use super.events
 
 // True once `enableComctl32V6` has run; subsequent calls bail
 // out so the activation context stays installed at most once
@@ -230,5 +234,80 @@ pub fn applyGuiFont(hwnd: HWND) {
         1 as i64
     )
 }
+
+} // @extern(C)
+
+// ─── VirtualKey → W3C KeyboardEvent.code ────────────────────────
+// Lives in util so both wnd_proc (window-level keys) and the
+// widget files (eg. button's WM_KEYDOWN intercept) can hit the
+// same mapping without bouncing through wnd_proc and creating a
+// dependency cycle.
+
+pub fn vkToString(vk: VirtualKey): string {
+    vkToEnum(vk) as string
+}
+
+fn vkToEnum(vk: VirtualKey): events.KeyCode {
+    match vk {
+        VirtualKey.a       { events.KeyCode.keyA }
+        VirtualKey.b       { events.KeyCode.keyB }
+        VirtualKey.c       { events.KeyCode.keyC }
+        VirtualKey.d       { events.KeyCode.keyD }
+        VirtualKey.e       { events.KeyCode.keyE }
+        VirtualKey.f       { events.KeyCode.keyF }
+        VirtualKey.g       { events.KeyCode.keyG }
+        VirtualKey.h       { events.KeyCode.keyH }
+        VirtualKey.i       { events.KeyCode.keyI }
+        VirtualKey.j       { events.KeyCode.keyJ }
+        VirtualKey.k       { events.KeyCode.keyK }
+        VirtualKey.l       { events.KeyCode.keyL }
+        VirtualKey.m       { events.KeyCode.keyM }
+        VirtualKey.n       { events.KeyCode.keyN }
+        VirtualKey.o       { events.KeyCode.keyO }
+        VirtualKey.p       { events.KeyCode.keyP }
+        VirtualKey.q       { events.KeyCode.keyQ }
+        VirtualKey.r       { events.KeyCode.keyR }
+        VirtualKey.s       { events.KeyCode.keyS }
+        VirtualKey.t       { events.KeyCode.keyT }
+        VirtualKey.u       { events.KeyCode.keyU }
+        VirtualKey.v       { events.KeyCode.keyV }
+        VirtualKey.w       { events.KeyCode.keyW }
+        VirtualKey.x       { events.KeyCode.keyX }
+        VirtualKey.y       { events.KeyCode.keyY }
+        VirtualKey.z       { events.KeyCode.keyZ }
+        VirtualKey.d0      { events.KeyCode.digit0 }
+        VirtualKey.d1      { events.KeyCode.digit1 }
+        VirtualKey.d2      { events.KeyCode.digit2 }
+        VirtualKey.d3      { events.KeyCode.digit3 }
+        VirtualKey.d4      { events.KeyCode.digit4 }
+        VirtualKey.d5      { events.KeyCode.digit5 }
+        VirtualKey.d6      { events.KeyCode.digit6 }
+        VirtualKey.d7      { events.KeyCode.digit7 }
+        VirtualKey.d8      { events.KeyCode.digit8 }
+        VirtualKey.d9      { events.KeyCode.digit9 }
+        VirtualKey.enter   { events.KeyCode.enter }
+        VirtualKey.escape  { events.KeyCode.escape }
+        VirtualKey.back    { events.KeyCode.backspace }
+        VirtualKey.tab     { events.KeyCode.tab }
+        VirtualKey.space   { events.KeyCode.space }
+        VirtualKey.left    { events.KeyCode.arrowLeft }
+        VirtualKey.right   { events.KeyCode.arrowRight }
+        VirtualKey.down    { events.KeyCode.arrowDown }
+        VirtualKey.up      { events.KeyCode.arrowUp }
+        _                  { events.KeyCode.unknown }
+    }
+}
+
+@extern(C) {
+
+// ─── modifier helpers (GetKeyState high-bit set ⇒ pressed) ──────
+
+fn keyDown(vk: i32): bool {
+    (GetKeyState(vk) as i32 & 0x8000) != 0
+}
+pub fn modShift(): bool { keyDown(VirtualKey.shift as i32) }
+pub fn modCtrl():  bool { keyDown(VirtualKey.control as i32) }
+pub fn modAlt():   bool { keyDown(VirtualKey.alt as i32) }
+pub fn modMeta():  bool { keyDown(VirtualKey.lWin as i32) || keyDown(VirtualKey.rWin as i32) }
 
 } // @extern(C)

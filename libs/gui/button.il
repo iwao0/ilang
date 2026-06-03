@@ -14,7 +14,7 @@
 ///   window.addChild(b)
 
 use std.events { Signal }
-use events { MouseEvent, FocusEvent, BlurEvent }
+use events { MouseEvent, FocusEvent, BlurEvent, KeyEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeButton,
@@ -22,6 +22,7 @@ use gui_impl {
     setOnButtonMouseEnter, setOnButtonMouseLeave,
     setOnButtonMouseDown, setOnButtonMouseUp,
     setOnButtonContextMenu,
+    setOnButtonKeyDown, setOnButtonKeyUp,
     setButtonText, setButtonFrame, setButtonEnabled, setButtonVisible,
     setButtonDefault, setButtonTooltip, clickButton, focusButton,
 }
@@ -46,6 +47,18 @@ pub class Button : Control {
     pub onMouseLeave: Signal<MouseEvent>
     pub onMouseDown:  Signal<MouseEvent>
     pub onMouseUp:    Signal<MouseEvent>
+    /// Keyboard events on this button while it holds focus. On
+    /// macOS the FocusButton subclass's `keyDown:` / `keyUp:`
+    /// override forwards here (and re-runs the default
+    /// Space → click activation manually, because the ilang
+    /// ObjC-super trampoline can't reach `super.keyDown:`). On
+    /// Win32 the BUTTON subclass intercepts `WM_KEYDOWN` /
+    /// `WM_KEYUP`. On Linux a `GtkEventControllerKey` attached to
+    /// the button delivers the GDK `key-pressed` / `key-released`
+    /// signals. `e.code` carries the W3C `KeyboardEvent.code`
+    /// string (compare against `KeyCode` enum variants).
+    pub onKeyDown:    Signal<KeyEvent>
+    pub onKeyUp:      Signal<KeyEvent>
     /// Web-style `contextmenu` event. Fires on right-button press
     /// (macOS `rightMouseDown:`, Win32 `WM_RBUTTONDOWN`, GTK click
     /// gesture with `button=3`) — the same instant the OS would
@@ -76,6 +89,8 @@ pub class Button : Control {
         this.onMouseDown  = new Signal<MouseEvent>()
         this.onMouseUp    = new Signal<MouseEvent>()
         this.onContextMenu = new Signal<MouseEvent>()
+        this.onKeyDown    = new Signal<KeyEvent>()
+        this.onKeyUp      = new Signal<KeyEvent>()
     }
 
     pub get text(): string { this._text }
@@ -186,6 +201,14 @@ pub class Button : Control {
         setOnButtonContextMenu(this.handle, fn(x: f64, y: f64, b: i32) {
             this.onContextMenu.emit(new MouseEvent(this, x, y, b, false, false, false, false))
         })
+        setOnButtonKeyDown(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyDown.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+            })
+        setOnButtonKeyUp(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyUp.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+            })
     }
 
     /// Programmatic click. Animates the native button and runs

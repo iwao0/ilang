@@ -10,7 +10,11 @@ use cocoa {
     nsstr, makeRect, selectorPtr, nil,
     classPtr, setObjectClass,
 }
-use core { WINDOWS, noOpClick, noOp1 }
+use core {
+    WINDOWS, noOpClick, noOp1, noOpKey,
+    keyCodeToString, modCtrl, modShift, modAlt, modMeta,
+}
+use events { KeyCode }
 
 /// Per-button state. Stored in `BUTTONS` keyed by the NSButton's
 /// raw ObjC pointer (`btn.handle`). Same key gui-core sees as the
@@ -26,6 +30,8 @@ class ButtonSlot {
     pub onMouseDown:  fn(f64, f64, i32)
     pub onMouseUp:    fn(f64, f64, i32)
     pub onContextMenu: fn(f64, f64, i32)
+    pub onKeyDown:    fn(string, bool, bool, bool, bool)
+    pub onKeyUp:      fn(string, bool, bool, bool, bool)
     pub handler: NSObject
     pub winHandle: i64
     pub init(btn: NSButton, handler: NSObject, winHandle: i64) {
@@ -38,6 +44,8 @@ class ButtonSlot {
         this.onMouseDown  = noOpClick
         this.onMouseUp    = noOpClick
         this.onContextMenu = noOpClick
+        this.onKeyDown = noOpKey
+        this.onKeyUp   = noOpKey
         this.handler = handler
         this.winHandle = winHandle
     }
@@ -80,6 +88,11 @@ class ClickHandler : NSObject {
 /// `resignFirstResponder` — mirrors how `GuiView` declares
 /// `acceptsFirstResponder` and `isFlipped`.
 class FocusButton : NSButton {
+    /// AppKit's default `NSButton.acceptsFirstResponder` returns
+    /// false unless the user has Full Keyboard Access turned on in
+    /// System Settings. Without this override `makeFirstResponder:`
+    /// silently refuses to install us, and `keyDown:` never fires.
+    pub acceptsFirstResponder(): bool { true }
     pub becomeFirstResponder(): bool {
         if let some(slot) = BUTTONS.get(this.handle) {
             let cb = slot.onFocus
@@ -232,6 +245,41 @@ class FocusButton : NSButton {
             cb(p.x, y, 1)
         }
     }
+    /// `keyDown:` / `keyUp:` are inherited from NSResponder. The
+    /// bindings don't declare them on NSView so we don't need the
+    /// `override` modifier here — auto-lift infers the selector
+    /// (`keyDown:` / `keyUp:`) from the name + arity and emits an
+    /// IMP that `register()` installs via class_addMethod.
+    pub keyDown(event: NSEvent) {
+        let flags = event.modifierFlags as u64
+        let code = keyCodeToString(event.keyCode)
+        let ctrl  = modCtrl(flags)
+        let shift = modShift(flags)
+        let alt   = modAlt(flags)
+        let meta  = modMeta(flags)
+        if let some(slot) = BUTTONS.get(this.handle) {
+            let cb = slot.onKeyDown
+            cb(code, ctrl, shift, alt, meta)
+        }
+        // Restore NSButton's default Space-press → click activation
+        // that we'd otherwise lose by replacing `keyDown:` without
+        // chaining to `super` (the ilang ObjC-super trampoline
+        // SIGSEGVs — see crates/ilang-parser/src/item/extern_objc/
+        // super_call.rs). `Enter` on a default button is handled
+        // separately through `setKeyEquivalent("\r")` and doesn't
+        // route through `keyDown:`, so no extra branch needed.
+        if code == KeyCode.space as string {
+            this.performClick(nil)
+        }
+    }
+    pub keyUp(event: NSEvent) {
+        let flags = event.modifierFlags as u64
+        if let some(slot) = BUTTONS.get(this.handle) {
+            let cb = slot.onKeyUp
+            cb(keyCodeToString(event.keyCode),
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+    }
 }
 
 /// Per-button "primary button is currently pressed" flag, keyed
@@ -342,6 +390,12 @@ pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
 }
 pub fn setOnButtonContextMenu(handle: i64, cb: fn(f64, f64, i32)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setOnButtonKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnButtonKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onKeyUp = cb }
 }
 pub fn setButtonTooltip(handle: i64, text: string) {
     if let some(slot) = BUTTONS.get(handle) {
