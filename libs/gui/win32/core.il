@@ -149,7 +149,10 @@ pub class FrameSize {
 /// Compute the frame size (content + chrome) for a given content
 /// size by asking Win32 via `AdjustWindowRectEx`. Reads style /
 /// extended style / menu state straight off the HWND so callers
-/// never have to mirror them.
+/// never have to mirror them. Wrapped in `@extern(C)` so the
+/// `@lib`-typed `GetWindowLongPtrW` / `GetMenu` / `AdjustWindowRectEx`
+/// calls are reachable.
+@extern(C) {
 pub fn contentToFrameSize(hwnd: HWND, contentW: f64, contentH: f64): FrameSize {
     let rect = RECT { left: 0, top: 0, right: contentW as i32, bottom: contentH as i32 }
     let style   = GetWindowLongPtrW(hwnd, WindowLongIndex.style   as i32) as u32
@@ -161,6 +164,7 @@ pub fn contentToFrameSize(hwnd: HWND, contentW: f64, contentH: f64): FrameSize {
         (rect.bottom - rect.top) as f64
     )
 }
+} // @extern(C)
 
 // ─── setters (`gui-core` calls these via gui_impl re-exports) ─
 

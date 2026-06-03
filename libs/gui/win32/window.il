@@ -567,6 +567,8 @@ pub fn runNativeWindowModal(handle: i64) {
     }
 }
 
+} // @extern(C) — `let` declarations need to live at module scope.
+
 /// Process-wide `ITaskbarList3` instance — lazily CoCreated on
 /// the first `setProgressBar` call. Shared across every window in
 /// the process; the per-window state lives on the COM side, keyed
@@ -574,6 +576,8 @@ pub fn runNativeWindowModal(handle: i64) {
 let TASKBAR_LIST:  ITaskbarList3[] = []
 let COM_INITED:    bool[]          = [false]
 let TASKBAR_READY: bool[]          = [false]
+
+@extern(C) {
 
 /// Lazy init for the taskbar singleton. `CoInitializeEx` is
 /// idempotent within an apartment, but we still gate on a flag so

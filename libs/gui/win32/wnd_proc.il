@@ -33,6 +33,7 @@ use core {
     contentToFrameSize,
     WINDOWS,
 }
+use std.ffi { writeI32 }
 
 /// `SC_MOVE` system-command code. Win32 has no native fixed-
 /// position flag, so we synthesise `setMovable(false)` by
@@ -293,14 +294,21 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             // `contentToFrameSize` before stamping the struct so the
             // OS clamps the drag against the right number.
             if let some(slot) = WINDOWS.get(hwnd) {
-                let mmi = lParam as *MINMAXINFO
+                // MINMAXINFO layout (POINT = 2× i32, 8 B each):
+                //   24 ptMinTrackSize.x / 28 .y
+                //   32 ptMaxTrackSize.x / 36 .y
+                // ilang doesn't parse `(*ptr).field = …` yet, so
+                // poke the fields via `writeI32` instead.
+                let mmiPtr = lParam as *void
                 if slot.minW > 0.0 || slot.minH > 0.0 {
                     let f = contentToFrameSize(hwnd as HWND, slot.minW, slot.minH)
-                    (*mmi).ptMinTrackSize = POINT { x: f.fw as i32, y: f.fh as i32 }
+                    writeI32(mmiPtr, 24 as i64, f.fw as i32)
+                    writeI32(mmiPtr, 28 as i64, f.fh as i32)
                 }
                 if slot.hasMaxSize {
                     let f = contentToFrameSize(hwnd as HWND, slot.maxW, slot.maxH)
-                    (*mmi).ptMaxTrackSize = POINT { x: f.fw as i32, y: f.fh as i32 }
+                    writeI32(mmiPtr, 32 as i64, f.fw as i32)
+                    writeI32(mmiPtr, 36 as i64, f.fh as i32)
                 }
             }
             return 0
