@@ -196,6 +196,15 @@ pub fn setNativeWindowFullScreen(handle: i64, on: bool) {
                 slot.hwnd, WindowLongIndex.style as i32, slot.preFullScreenStyle
             )
             SetWindowPlacement(slot.hwnd, &slot.preFullScreenPlacement)
+            // `SetWindowPlacement` repositions but does not by itself
+            // refresh the non-client area against the just-restored
+            // style. Send a frame-changed SetWindowPos so the title
+            // bar re-acquires its min / max / close chrome.
+            let flags = (SetWindowPosFlags.noMove as u32)
+                      | (SetWindowPosFlags.noSize as u32)
+                      | (SetWindowPosFlags.noZOrder as u32)
+                      | (SetWindowPosFlags.frameChanged as u32)
+            SetWindowPos(slot.hwnd, 0 as HWND, 0, 0, 0, 0, flags)
             slot.isFullScreen = false
             slot.onLeaveFullScreen()
         }
