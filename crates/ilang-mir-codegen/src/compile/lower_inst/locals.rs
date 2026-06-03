@@ -17,6 +17,7 @@ use ilang_mir::{Inst, ValueId};
 use crate::ty::mir_to_clif;
 
 use super::super::{CompileError, OBJECT_HEADER_BYTES};
+use ilang_mir::types::MirTy;
 
 pub(super) fn lower_local_inst<M: Module>(
     fb: &mut ClifFnBuilder,
@@ -71,22 +72,54 @@ pub(super) fn lower_local_inst<M: Module>(
         Inst::AddrOfField { dst, obj, class, field } => {
             let obj_v = vmap[obj];
             let layout = &prog.classes[class.0 as usize];
-            let offset: i64 = if matches!(
+            let is_crepr_parent = matches!(
                 layout.repr,
                 ilang_mir::ClassRepr::CRepr
                     | ilang_mir::ClassRepr::CPacked
                     | ilang_mir::ClassRepr::CUnion
-            ) {
-                layout
-                    .c_field_offsets
-                    .get(field.0 as usize)
-                    .copied()
-                    .unwrap_or(0)
+            );
+            // For a non-CRepr parent class, a field whose declared
+            // type is a CRepr struct (`Object` with CRepr/CPacked/
+            // CUnion repr) is stored as a pointer in the 8-byte
+            // slot, not inline. The slot's address (`obj + offset`)
+            // would let an FFI write of the struct's full size
+            // clobber adjacent slots — heap corruption.
+            // For these fields, load the i64 the slot holds; that's
+            // already the pointer to the struct's bytes wherever the
+            // initial `StoreField` placed them.
+            let field_ty = layout
+                .fields
+                .get(field.0 as usize)
+                .map(|fd| fd.ty.clone());
+            let field_is_crepr_object = !is_crepr_parent
+                && matches!(&field_ty, Some(MirTy::Object(inner_cid))
+                    if {
+                        let inner = &prog.classes[inner_cid.0 as usize];
+                        !inner.is_handle
+                            && matches!(
+                                inner.repr,
+                                ilang_mir::ClassRepr::CRepr
+                                    | ilang_mir::ClassRepr::CPacked
+                                    | ilang_mir::ClassRepr::CUnion
+                            )
+                    });
+            if field_is_crepr_object {
+                let off = OBJECT_HEADER_BYTES as i32 + (field.0 as i32) * 8;
+                let p = fb.ins().load(types::I64, MemFlags::trusted(), obj_v, off);
+                vmap.insert(*dst, p);
             } else {
-                OBJECT_HEADER_BYTES as i64 + (field.0 as i64) * 8
-            };
-            let p = fb.ins().iadd_imm(obj_v, offset);
-            vmap.insert(*dst, p);
+                let offset: i64 = if is_crepr_parent {
+                    layout
+                        .c_field_offsets
+                        .get(field.0 as usize)
+                        .copied()
+                        .unwrap_or(0)
+                } else {
+                    OBJECT_HEADER_BYTES as i64 + (field.0 as i64) * 8
+                };
+                let p = fb.ins().iadd_imm(obj_v, offset);
+                vmap.insert(*dst, p);
+            }
         }
         _ => unreachable!("lower_local_inst called with non-local inst"),
     }

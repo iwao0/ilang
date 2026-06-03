@@ -196,6 +196,15 @@ pub fn setNativeWindowFullScreen(handle: i64, on: bool) {
                 slot.hwnd, WindowLongIndex.style as i32, slot.preFullScreenStyle
             )
             SetWindowPlacement(slot.hwnd, &slot.preFullScreenPlacement)
+            // `SetWindowPlacement` repositions but does not by itself
+            // refresh the non-client area against the just-restored
+            // style. Send a frame-changed SetWindowPos so the title
+            // bar re-acquires its min / max / close chrome.
+            let flags = (SetWindowPosFlags.noMove as u32)
+                      | (SetWindowPosFlags.noSize as u32)
+                      | (SetWindowPosFlags.noZOrder as u32)
+                      | (SetWindowPosFlags.frameChanged as u32)
+            SetWindowPos(slot.hwnd, 0 as HWND, 0, 0, 0, 0, flags)
             slot.isFullScreen = false
             slot.onLeaveFullScreen()
         }
@@ -567,6 +576,8 @@ pub fn runNativeWindowModal(handle: i64) {
     }
 }
 
+} // @extern(C) — `let` declarations need to live at module scope.
+
 /// Process-wide `ITaskbarList3` instance — lazily CoCreated on
 /// the first `setProgressBar` call. Shared across every window in
 /// the process; the per-window state lives on the COM side, keyed
@@ -574,6 +585,8 @@ pub fn runNativeWindowModal(handle: i64) {
 let TASKBAR_LIST:  ITaskbarList3[] = []
 let COM_INITED:    bool[]          = [false]
 let TASKBAR_READY: bool[]          = [false]
+
+@extern(C) {
 
 /// Lazy init for the taskbar singleton. `CoInitializeEx` is
 /// idempotent within an apartment, but we still gate on a flag so
