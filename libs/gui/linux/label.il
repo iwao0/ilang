@@ -6,6 +6,7 @@ use gtk {
     gtk_label_new, gtk_label_set_text,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_visible,
+    gtk_widget_set_tooltip_text,
 }
 use core { WINDOWS }
 
@@ -69,6 +70,19 @@ pub fn setLabelVisible(handle: i64, visible: bool) {
 }
 pub fn setLabelSelectable(handle: i64, selectable: bool) {
     // No-op for now — gtk_label_set_selectable isn't bound yet.
+}
+pub fn setLabelTooltip(handle: i64, text: string) {
+    if let some(slot) = LABELS.get(handle) {
+        // Empty string → pass NULL so GTK clears the tooltip
+        // outright (`gtk_widget_set_tooltip_text` documents NULL
+        // as the "remove tooltip" path; an empty cstring would
+        // still register an empty tooltip).
+        if text == "" {
+            gtk_widget_set_tooltip_text(slot.label as GtkWidget, 0 as *const char)
+        } else {
+            gtk_widget_set_tooltip_text(slot.label as GtkWidget, cstrFromString(text))
+        }
+    }
 }
 
 } // @extern(C)

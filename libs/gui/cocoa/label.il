@@ -2,7 +2,7 @@
 /// / drawsBackground all off — `makeLabel` from the cocoa
 /// foundation helpers does that for us.
 
-use cocoa { NSTextField, NSView, nsstr, makeRect, makeLabel }
+use cocoa { NSTextField, NSObject, NSView, nsstr, nil, makeRect, makeLabel }
 use core { WINDOWS }
 
 class LabelSlot {
@@ -42,4 +42,16 @@ pub fn setLabelVisible(handle: i64, visible: bool) {
 }
 pub fn setLabelSelectable(handle: i64, selectable: bool) {
     if let some(slot) = LABELS.get(handle) { slot.label.setSelectable(selectable) }
+}
+pub fn setLabelTooltip(handle: i64, text: string) {
+    if let some(slot) = LABELS.get(handle) {
+        // Empty string → pass `nil` so AppKit clears the tooltip
+        // outright. An empty `NSString` would register as a real
+        // tooltip and pop up a stub bubble.
+        if text == "" {
+            (slot.label as NSView).setToolTip(nil)
+        } else {
+            (slot.label as NSView).setToolTip(nsstr(text) as NSObject)
+        }
+    }
 }

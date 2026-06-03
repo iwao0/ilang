@@ -14,6 +14,7 @@ use window { Window, Control }
 use gui_impl {
     createNativeLabel,
     setLabelText, setLabelFrame, setLabelVisible, setLabelSelectable,
+    setLabelTooltip,
 }
 
 pub class Label : Control {
@@ -30,6 +31,7 @@ pub class Label : Control {
     /// cursor; flip to `true` only when the label genuinely
     /// presents user-copyable content.
     _selectable: bool
+    _tooltip:    string
 
     pub init() {
         super()
@@ -41,6 +43,7 @@ pub class Label : Control {
         this._height     = 20.0
         this._isVisible  = true
         this._selectable = false
+        this._tooltip    = ""
     }
 
     pub get text(): string { this._text }
@@ -90,6 +93,13 @@ pub class Label : Control {
         if this.handle >= 0 { setLabelSelectable(this.handle, v) }
     }
 
+    /// Hover tooltip. Empty string clears it.
+    pub get tooltip(): string { this._tooltip }
+    pub set tooltip(v: string) {
+        this._tooltip = v
+        if this.handle >= 0 { setLabelTooltip(this.handle, v) }
+    }
+
     pub override attachTo(window: Window) {
         if this.handle >= 0 { return }
         this.handle = createNativeLabel(
@@ -97,6 +107,7 @@ pub class Label : Control {
             this._text, this._x, this._y, this._width, this._height,
             this._isVisible, this._selectable
         )
+        if this._tooltip != "" { setLabelTooltip(this.handle, this._tooltip) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {
