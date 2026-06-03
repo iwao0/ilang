@@ -24,6 +24,14 @@ use windows {
     SetForegroundWindow, GetForegroundWindow,
     BringWindowToTop, SetActiveWindow,
     SetLayeredWindowAttributes, WindowStyleEx, LayeredWindowFlags,
+    FlashWindowEx, FLASHWINFO, FlashWindowFlags,
+    CoInitializeEx, CoCreateInstance, CoInit, ClsCtx,
+    NULL,
+}
+use shobjidl {
+    ITaskbarList3,
+    CLSID_TaskbarList, IID_ITaskbarList3,
+    TBPFLAG,
 }
 use util { enableComctl32V6 }
 use core { WindowSlot, WINDOWS, contentToFrameSize }
@@ -460,16 +468,86 @@ pub fn getNativeWindowMaxHeight(handle: i64): f64 {
     }
 }
 
-/// `flashFrame` on Win32 would route through `FlashWindowEx`, but
-/// the binding work hasn't landed yet. Public-API signature only
-/// for cross-platform parity — call is a no-op until implemented.
-pub fn flashNativeWindow(handle: i64, on: bool) {}
+/// `FlashWindowEx` continues flashing until the user activates
+/// the window (`timernofg`) when `on == true`, or stops a pending
+/// flash (`stop`) when `on == false`. Both the taskbar button and
+/// the title-bar caption are flashed (`all = caption | tray`).
+pub fn flashNativeWindow(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let flags: u32 = if on {
+            (FlashWindowFlags.all as u32) | (FlashWindowFlags.timernofg as u32)
+        } else {
+            FlashWindowFlags.stop as u32
+        }
+        let info = FLASHWINFO {
+            cbSize:    32 as u32,
+            hwnd:      slot.hwnd,
+            dwFlags:   flags,
+            uCount:    0 as u32,
+            dwTimeout: 0 as u32,
+        }
+        FlashWindowEx(&info)
+    }
+}
 
-/// `setProgressBar` on Win32 would route through the `ITaskbar
-/// List3` COM interface; the COM binding work hasn't landed yet.
-/// Public-API signature only for cross-platform parity — call is
-/// a no-op until implemented.
-pub fn setNativeWindowProgressBar(handle: i64, progress: f64) {}
+/// Process-wide `ITaskbarList3` instance — lazily CoCreated on
+/// the first `setProgressBar` call. Shared across every window in
+/// the process; the per-window state lives on the COM side, keyed
+/// by HWND.
+let TASKBAR_LIST:  ITaskbarList3[] = []
+let COM_INITED:    bool[]          = [false]
+let TASKBAR_READY: bool[]          = [false]
+
+/// Lazy init for the taskbar singleton. `CoInitializeEx` is
+/// idempotent within an apartment, but we still gate on a flag so
+/// the apartment-threaded mode is only requested once per
+/// process. Returns the cached instance, or pushes an "unavailable"
+/// sentinel via `TASKBAR_READY = false` if any step fails.
+fn ensureTaskbarList(): bool {
+    if TASKBAR_READY[0] { return true }
+    if !COM_INITED[0] {
+        let hr = CoInitializeEx(NULL, CoInit.apartmentThreaded as u32)
+        // S_OK (0) or S_FALSE (1) — both mean we now own a COM
+        // apartment. Anything negative is a real failure; leave
+        // the flag false so subsequent calls retry.
+        if hr < 0 { return false }
+        COM_INITED[0] = true
+    }
+    let raw: *void = NULL
+    let chr = CoCreateInstance(
+        &CLSID_TaskbarList,
+        NULL,
+        ClsCtx.inprocServer as u32,
+        &IID_ITaskbarList3,
+        &raw
+    )
+    if chr != 0 { return false }
+    let tb = raw as ITaskbarList3
+    tb.HrInit()
+    TASKBAR_LIST.push(tb)
+    TASKBAR_READY[0] = true
+    true
+}
+
+/// Per-window taskbar-button progress. Same semantics as macOS:
+///   * `progress < 0`     — `TBPF_NOPROGRESS` (clear)
+///   * `0.0..=1.0`        — `TBPF_NORMAL` + `SetProgressValue`
+///   * `progress > 1.0`   — `TBPF_INDETERMINATE` (spinning bar)
+pub fn setNativeWindowProgressBar(handle: i64, progress: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        if !ensureTaskbarList() { return }
+        let tb = TASKBAR_LIST[0]
+        if progress < 0.0 {
+            tb.SetProgressState(slot.hwnd, TBPFLAG.noProgress as u32)
+        } elif progress > 1.0 {
+            tb.SetProgressState(slot.hwnd, TBPFLAG.indeterminate as u32)
+        } else {
+            tb.SetProgressState(slot.hwnd, TBPFLAG.normal as u32)
+            let pct = (progress * 100.0) as u64
+            tb.SetProgressValue(slot.hwnd, pct, 100 as u64)
+        }
+    }
+}
 
 pub fn runEventLoop() {
     let msg = MSG {

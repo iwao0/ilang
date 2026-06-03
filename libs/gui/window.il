@@ -546,20 +546,23 @@ pub class Window : Container {
     /// Request user attention. macOS bounces the Dock icon via
     /// `[NSApp requestUserAttention:NSCriticalRequest]` and keeps
     /// bouncing until the user activates the app or `flashFrame
-    /// (false)` cancels the pending request. Win32 and GTK4 are
-    /// no-ops for now (`FlashWindowEx` / GTK4 lacks an urgency
-    /// hint — see each backend file).
+    /// (false)` cancels the pending request. Win32 drives
+    /// `FlashWindowEx` with `FLASHW_ALL | FLASHW_TIMERNOFG` so the
+    /// taskbar button + title bar flash until the window is
+    /// foregrounded. GTK4 is a no-op (`gtk_window_set_urgency_
+    /// hint` was removed in 4.0).
     pub flashFrame(on: bool) {
         flashNativeWindow(this.handle, on)
     }
 
     /// Show task progress on the OS task-bar / Dock affordance.
-    /// `progress < 0` clears, `0.0..=1.0` is a fractional bar
-    /// (clamped above 1). macOS draws an `NSProgressIndicator`
-    /// over the Dock tile (covers the icon while active); Win32
-    /// and GTK4 are no-ops for now (see each backend file —
-    /// Win32 needs `ITaskbarList3` COM bindings, Linux needs the
-    /// libunity d-bus protocol).
+    /// `progress < 0` clears, `0.0..=1.0` is a fractional bar,
+    /// `progress > 1.0` is indeterminate. macOS draws an
+    /// `NSProgressIndicator` over the Dock tile (covers the icon
+    /// while active). Win32 routes through `ITaskbarList3.Set
+    /// ProgressState` / `SetProgressValue`, which paints the
+    /// taskbar button background WITHOUT covering the icon. GTK4
+    /// is a no-op (libunity d-bus protocol isn't bundled).
     pub setProgressBar(progress: f64) {
         setNativeWindowProgressBar(this.handle, progress)
     }
