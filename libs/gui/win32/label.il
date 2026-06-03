@@ -7,6 +7,7 @@ use windows {
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     CreateWindowExW, SetWindowTextW, MoveWindow, ShowWindow,
+    EnableWindow,
     SendMessageW, TrackMouseEvent,
     SetWindowSubclass, DefSubclassProc,
 }
@@ -154,7 +155,7 @@ pub fn labelSubclassProc(
 pub fn createNativeLabel(
     windowHandle: i64,
     text: string, x: f64, y: f64, width: f64, height: f64,
-    visible: bool, selectable: bool
+    enabled: bool, visible: bool, selectable: bool
 ): i64 {
     // `selectable` is honoured on macOS (NSTextField), no-op here:
     // Win32 STATIC controls don't carry a selection state.
@@ -167,10 +168,15 @@ pub fn createNativeLabel(
     } else {
         0 as u32
     }
+    let disabledBits: u32 = if !enabled {
+        WindowStyle.disabled as u32
+    } else {
+        0 as u32
+    }
     // `SS_NOTIFY` is what makes STATIC accept mouse hits in the
     // first place — without it the control returns HTTRANSPARENT
     // and the subclass proc never sees WM_*BUTTON* messages.
-    let style: u32 = (WindowStyle.child as u32) | visibleBits | SS_NOTIFY
+    let style: u32 = (WindowStyle.child as u32) | visibleBits | disabledBits | SS_NOTIFY
     let hInstance = GetModuleHandleA(0 as *const char)
     let hwnd = CreateWindowExW(
         0,
@@ -205,6 +211,12 @@ pub fn setLabelVisible(handle: i64, visible: bool) {
     if let some(slot) = LABELS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(slot.hwnd, cmd)
+    }
+}
+pub fn setLabelEnabled(handle: i64, enabled: bool) {
+    if let some(slot) = LABELS.get(handle) {
+        let flag: i32 = if enabled { 1 } else { 0 }
+        EnableWindow(slot.hwnd, flag)
     }
 }
 pub fn setLabelSelectable(handle: i64, selectable: bool) {

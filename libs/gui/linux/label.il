@@ -9,7 +9,7 @@ use gtk {
     gtk_label_new, gtk_label_set_text,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_visible,
-    gtk_widget_set_tooltip_text,
+    gtk_widget_set_sensitive, gtk_widget_set_tooltip_text,
     gtk_widget_add_controller,
     gtk_event_controller_motion_new,
     gtk_event_controller_scroll_new,
@@ -137,7 +137,7 @@ pub fn linux_label_scroll(
 pub fn createNativeLabel(
     windowHandle: i64,
     text: string, x: f64, y: f64, width: f64, height: f64,
-    visible: bool, selectable: bool
+    enabled: bool, visible: bool, selectable: bool
 ): i64 {
     // `selectable` is honoured on macOS (NSTextField). GtkLabel
     // can expose `set_selectable` too, but we don't bind it yet
@@ -151,6 +151,10 @@ pub fn createNativeLabel(
     gtk_widget_set_visible(
         label as GtkWidget,
         if visible { 1 as i32 } else { 0 as i32 }
+    )
+    gtk_widget_set_sensitive(
+        label as GtkWidget,
+        if enabled { 1 as i32 } else { 0 as i32 }
     )
     gtk_fixed_put(winSlot.fixed, label as GtkWidget, x, y)
 
@@ -215,6 +219,14 @@ pub fn setLabelVisible(handle: i64, visible: bool) {
         gtk_widget_set_visible(
             slot.label as GtkWidget,
             if visible { 1 as i32 } else { 0 as i32 }
+        )
+    }
+}
+pub fn setLabelEnabled(handle: i64, enabled: bool) {
+    if let some(slot) = LABELS.get(handle) {
+        gtk_widget_set_sensitive(
+            slot.label as GtkWidget,
+            if enabled { 1 as i32 } else { 0 as i32 }
         )
     }
 }

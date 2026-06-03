@@ -16,7 +16,8 @@ use events { MouseEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeLabel,
-    setLabelText, setLabelFrame, setLabelVisible, setLabelSelectable,
+    setLabelText, setLabelFrame,
+    setLabelEnabled, setLabelVisible, setLabelSelectable,
     setLabelTooltip,
     setOnLabelMouseEnter, setOnLabelMouseLeave,
     setOnLabelMouseDown, setOnLabelMouseUp, setOnLabelContextMenu,
@@ -30,6 +31,7 @@ pub class Label : Control {
     _y:          f64
     _width:      f64
     _height:     f64
+    _isEnabled:  bool
     _isVisible:  bool
     /// macOS NSTextField hangs an I-beam cursor rect off any
     /// selectable label, which reads as "this is editable text"
@@ -53,6 +55,7 @@ pub class Label : Control {
         this._y          = 0.0
         this._width      = 80.0
         this._height     = 20.0
+        this._isEnabled  = true
         this._isVisible  = true
         this._selectable = false
         this._tooltip    = ""
@@ -99,6 +102,11 @@ pub class Label : Control {
         }
     }
 
+    pub get isEnabled(): bool { this._isEnabled }
+    pub set isEnabled(v: bool) {
+        this._isEnabled = v
+        if this.handle >= 0 { setLabelEnabled(this.handle, v) }
+    }
     pub get isVisible(): bool { this._isVisible }
     pub set isVisible(v: bool) {
         this._isVisible = v
@@ -123,7 +131,7 @@ pub class Label : Control {
         this.handle = createNativeLabel(
             window.handle,
             this._text, this._x, this._y, this._width, this._height,
-            this._isVisible, this._selectable
+            this._isEnabled, this._isVisible, this._selectable
         )
         setOnLabelMouseEnter(this.handle, fn(x: f64, y: f64) {
             this.onMouseEnter.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
