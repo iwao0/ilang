@@ -94,6 +94,11 @@ pub enum NSCompositingOperation: u64 {
         pub get image(): NSImage
         @objc("setImage:")
         pub set image(img: NSImage)
+        /// `NSImageScaling` raw value. `0` = proportionally down,
+        /// `1` = axes independent (stretch), `2` = none,
+        /// `3` = proportionally up or down.
+        @objc("setImageScaling:")
+        pub setImageScaling(s: i64)
     }
 
     /// `NSCursor` — mouse-cursor sprite. The class methods
