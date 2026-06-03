@@ -32,6 +32,7 @@ class ButtonSlot {
     pub onContextMenu: fn(f64, f64, i32)
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
     pub handler: NSObject
     pub winHandle: i64
     pub init(btn: NSButton, handler: NSObject, winHandle: i64) {
@@ -46,12 +47,14 @@ class ButtonSlot {
         this.onContextMenu = noOpClick
         this.onKeyDown = noOpKey
         this.onKeyUp   = noOpKey
+        this.onMouseWheel = noOpWheel
         this.handler = handler
         this.winHandle = winHandle
     }
 }
 
 fn noOpEnterLeave(x: f64, y: f64) {}
+fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let BUTTONS = new Map<i64, ButtonSlot>()
 
@@ -280,6 +283,22 @@ class FocusButton : NSButton {
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
+    /// Wheel scroll over the button. `NSEvent.deltaY` is positive
+    /// up on AppKit's natural-scroll convention — we forward it
+    /// as-is and leave sign-handling to the user, matching how
+    /// `GpuView` surfaces wheel events. NSResponder declares
+    /// `scrollWheel:` so no `@objc` decoration is needed; the
+    /// auto-lift infers the selector from `name + ':'`.
+    pub scrollWheel(event: NSEvent) {
+        if let some(slot) = BUTTONS.get(this.handle) {
+            let p = this.convertPointFromView(event.locationInWindow, nil)
+            let y = this.frame.size.height - p.y
+            let flags = event.modifierFlags as u64
+            let cb = slot.onMouseWheel
+            cb(event.deltaX, event.deltaY, p.x, y,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+    }
 }
 
 /// Per-button "primary button is currently pressed" flag, keyed
@@ -396,6 +415,12 @@ pub fn setOnButtonKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
 }
 pub fn setOnButtonKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnButtonMouseWheel(
+    handle: i64,
+    cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseWheel = cb }
 }
 pub fn setButtonTooltip(handle: i64, text: string) {
     if let some(slot) = BUTTONS.get(handle) {

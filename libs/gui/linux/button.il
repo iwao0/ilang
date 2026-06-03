@@ -11,7 +11,8 @@
 use std.ffi { cstrFromString }
 use gtk {
     GtkWidget, GtkButton, GtkFixed, GtkWindow, GObject,
-    GtkEventController, GtkEventControllerKey,
+    GtkEventController, GtkEventControllerKey, GtkEventControllerScroll,
+    GtkEventControllerScrollFlags,
     GtkGestureSingle, GtkGesture,
     gtk_button_new_with_label, gtk_button_set_label,
     gtk_fixed_put, gtk_fixed_move, gtk_fixed_remove,
@@ -24,12 +25,13 @@ use gtk {
     gtk_event_controller_focus_new,
     gtk_event_controller_motion_new,
     gtk_event_controller_key_new,
+    gtk_event_controller_scroll_new,
     gtk_event_controller_get_widget,
     gdk_keyval_to_lower,
     gtk_gesture_click_new,
     gtk_gesture_single_set_button,
     gtk_gesture_single_get_current_button,
-    g_signal_connect_data, g_signal_connect_key,
+    g_signal_connect_data, g_signal_connect_key, g_signal_connect_scroll,
 }
 use core { WINDOWS, noOpClick, noOpClose }
 use window { keyvalToCode }
@@ -53,6 +55,7 @@ class ButtonSlot {
     pub onContextMenu: fn(f64, f64, i32)
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
     pub init(
         btn: GtkButton, fixed: GtkFixed, win: GtkWindow, winHandle: i64,
         x: f64, y: f64, w: f64, h: f64
@@ -75,11 +78,13 @@ class ButtonSlot {
         this.onContextMenu = noOpClick
         this.onKeyDown     = noOpKey
         this.onKeyUp       = noOpKey
+        this.onMouseWheel  = noOpWheel
     }
 }
 
 fn noOpEnterLeave(x: f64, y: f64) {}
 fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 // GdkModifierType bits we need (same as window.il's). Pulled out
 // here so the key handler can `& MOD_*` without bouncing through
@@ -228,6 +233,23 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
         }
         0 as i32
     }
+    /// `GtkEventControllerScroll.scroll` carries
+    /// `(controller*, gdouble dx, gdouble dy, gpointer)` and
+    /// returns `gboolean`. We always return 0 so GTK's default
+    /// scrolling (e.g. inside a parent ScrolledWindow) still
+    /// runs. GtkEventControllerScroll doesn't carry the cursor
+    /// position; pass `0.0` for x / y as the gpuview backend
+    /// does.
+    pub fn linux_button_scroll(
+        ctrl: i64, dx: f64, dy: f64, data: i64
+    ): i32 {
+        let w = gtk_event_controller_get_widget(ctrl as GtkEventController)
+        if let some(slot) = BUTTONS.get(w as i64) {
+            let cb = slot.onMouseWheel
+            cb(dx, dy, 0.0, 0.0, false, false, false, false)
+        }
+        0 as i32
+    }
 }
 
 @extern(C) {
@@ -303,6 +325,24 @@ pub fn createNativeButton(
         motionCtl as GObject,
         cstrFromString("leave"),
         linux_button_motion_leave,
+        0 as *void,
+        0 as i64,
+        0 as u32
+    )
+
+    // Scroll controller for onMouseWheel. Enables vertical and
+    // horizontal axes so the public Signal sees both. The
+    // controller's signal returns 0 from our handler so parent
+    // ScrolledWindow / range widgets still get their default
+    // handling — buttons rarely consume wheel events outright.
+    let scrollCtl = gtk_event_controller_scroll_new(
+        GtkEventControllerScrollFlags.vertical | GtkEventControllerScrollFlags.horizontal
+    ) as GtkEventControllerScroll
+    gtk_widget_add_controller(btn as GtkWidget, scrollCtl as GtkEventController)
+    g_signal_connect_scroll(
+        scrollCtl as GObject,
+        cstrFromString("scroll"),
+        linux_button_scroll,
         0 as *void,
         0 as i64,
         0 as u32
@@ -435,6 +475,12 @@ pub fn setOnButtonKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
 }
 pub fn setOnButtonKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnButtonMouseWheel(
+    handle: i64,
+    cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseWheel = cb }
 }
 pub fn setButtonTooltip(handle: i64, text: string) {
     if let some(slot) = BUTTONS.get(handle) {

@@ -23,6 +23,7 @@ use gui_impl {
     setOnButtonMouseDown, setOnButtonMouseUp,
     setOnButtonContextMenu,
     setOnButtonKeyDown, setOnButtonKeyUp,
+    setOnButtonMouseWheel,
     setButtonText, setButtonFrame, setButtonEnabled, setButtonVisible,
     setButtonDefault, setButtonTooltip, clickButton, focusButton, blurButton,
 }
@@ -59,6 +60,11 @@ pub class Button : Control {
     /// string (compare against `KeyCode` enum variants).
     pub onKeyDown:    Signal<KeyEvent>
     pub onKeyUp:      Signal<KeyEvent>
+    /// Wheel scroll over the button. `e.wheelDx` / `e.wheelDy`
+    /// carry the delta (±1 per detent on macOS / Win32 after
+    /// normalisation; GTK's continuous-scroll values pass through
+    /// as the wheel-controller emits them).
+    pub onMouseWheel: Signal<MouseEvent>
     /// Web-style `contextmenu` event. Fires on right-button press
     /// (macOS `rightMouseDown:`, Win32 `WM_RBUTTONDOWN`, GTK click
     /// gesture with `button=3`) — the same instant the OS would
@@ -91,6 +97,7 @@ pub class Button : Control {
         this.onContextMenu = new Signal<MouseEvent>()
         this.onKeyDown    = new Signal<KeyEvent>()
         this.onKeyUp      = new Signal<KeyEvent>()
+        this.onMouseWheel = new Signal<MouseEvent>()
     }
 
     pub get text(): string { this._text }
@@ -208,6 +215,14 @@ pub class Button : Control {
         setOnButtonKeyUp(this.handle,
             fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
                 this.onKeyUp.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+            })
+        setOnButtonMouseWheel(this.handle,
+            fn(dx: f64, dy: f64, x: f64, y: f64,
+               ck: bool, sk: bool, ak: bool, mk: bool) {
+                let e = new MouseEvent(this, x, y, 0, ck, sk, ak, mk)
+                e.wheelDx = dx
+                e.wheelDy = dy
+                this.onMouseWheel.emit(e)
             })
     }
 

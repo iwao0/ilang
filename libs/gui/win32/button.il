@@ -59,6 +59,7 @@ class ButtonSlot {
     pub onContextMenu: fn(f64, f64, i32)
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
     /// Win32 has no native `WM_MOUSEENTER`; we synthesise it the
     /// first time `WM_MOUSEMOVE` arrives after a previous leave.
     /// `mouseTracking` flips to true when we've registered a
@@ -83,6 +84,7 @@ class ButtonSlot {
         this.onContextMenu = noOpClick
         this.onKeyDown     = noOpKey
         this.onKeyUp       = noOpKey
+        this.onMouseWheel  = noOpWheel
         this.mouseTracking = false
         this.winHandle = winHandle
         this.tooltipHwnd = 0 as HWND
@@ -91,6 +93,7 @@ class ButtonSlot {
 
 fn noOpEnterLeave(x: f64, y: f64) {}
 fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let BUTTONS = new Map<i64, ButtonSlot>()
 
@@ -244,6 +247,25 @@ pub fn buttonSubclassProc(
                 cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
+        WindowMessage.mouseWheel {
+            if let some(slot) = BUTTONS.get(hwnd) {
+                // HIWORD(wParam) is a signed 16-bit delta in
+                // multiples of WHEEL_DELTA (120). Normalise to
+                // ±1 per detent so the cross-OS shape stays the
+                // same as the macOS / GTK paths.
+                let raw = ((wParam >> 16) & 0xFFFF) as i32
+                let signed = if raw >= 0x8000 as i32 { raw - 0x10000 as i32 } else { raw }
+                let dy = (signed as f64) / 120.0
+                // `lo` / `hi` are *screen* coords on WM_MOUSEWHEEL,
+                // not client. Shipping the raw values keeps the
+                // backend simple; widgets that need a local point
+                // can call ScreenToClient themselves until we wire
+                // it through here.
+                let cb = slot.onMouseWheel
+                cb(0.0, dy, lo, hi,
+                   modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
         _ {}
     }
     DefSubclassProc(hwnd as HWND, msg, wParam, lParam)
@@ -352,6 +374,12 @@ pub fn setOnButtonKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
 }
 pub fn setOnButtonKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnButtonMouseWheel(
+    handle: i64,
+    cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseWheel = cb }
 }
 pub fn setButtonTooltip(handle: i64, text: string) {
     if let some(slot) = BUTTONS.get(handle) {
