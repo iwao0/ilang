@@ -106,10 +106,25 @@ pub(super) fn build_super_helper(
         },
         span,
     );
+    // The loader's merge prefixes class names by module
+    // (`NSButton` imported from `cocoa.appkit.controls` becomes
+    // `cocoa.NSButton`); `objc_getClass` only knows the bare
+    // Objective-C name. `imp.rs::build_register_class_fn` strips
+    // the prefix when registering the subclass; mirror the same
+    // strip here so `objc_msgSendSuper`'s super_class field
+    // resolves to a real Class pointer. Without this the call
+    // received NULL for super_class and crashed inside libobjc
+    // with FAR=0x10 (the size of `struct objc_super`), which the
+    // earlier HANDOFF traced as the bool-return SIGSEGV.
+    let parent_objc_name = parent_name
+        .as_str()
+        .rsplit_once('.')
+        .map(|(_, tail)| tail)
+        .unwrap_or_else(|| parent_name.as_str());
     let parent_cls_call = Expr::new(
         ExprKind::Call {
             callee: ctx.get_class,
-            args: Box::new([build_cstr(parent_name.as_str(), span)]),
+            args: Box::new([build_cstr(parent_objc_name, span)]),
         },
         span,
     );
