@@ -465,6 +465,12 @@ pub fn getNativeWindowMaxHeight(handle: i64): f64 {
 /// for cross-platform parity — call is a no-op until implemented.
 pub fn flashNativeWindow(handle: i64, on: bool) {}
 
+/// `setProgressBar` on Win32 would route through the `ITaskbar
+/// List3` COM interface; the COM binding work hasn't landed yet.
+/// Public-API signature only for cross-platform parity — call is
+/// a no-op until implemented.
+pub fn setNativeWindowProgressBar(handle: i64, progress: f64) {}
+
 pub fn runEventLoop() {
     let msg = MSG {
         hwnd:     0 as HWND,

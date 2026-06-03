@@ -9,6 +9,7 @@ use cocoa {
     NSObject, NSApplication, NSWindow, NSView, NSScreen,
     NSWindowStyleMask, NSApplicationActivationPolicy,
     NSPoint, NSRect, NSSize,
+    NSProgressIndicator, NSProgressIndicatorStyle,
     nsstr, makePoint, makeRect, makeSize, nil,
     sharedApplication, makeWindow,
 }
@@ -415,4 +416,56 @@ pub fn flashNativeWindow(handle: i64, on: bool) {
             }
         }
     }
+}
+
+/// Process-wide `NSProgressIndicator` lazily allocated on the
+/// first `setProgressBar` call. AppKit's `NSDockTile` is one per
+/// process, so there's only ever one progress bar — the
+/// `handle` argument is accepted for API symmetry but doesn't
+/// route per-window.
+let DOCK_PROGRESS_BAR: NSProgressIndicator[] = []
+/// Default Dock-tile size in points. AppKit composites the bar
+/// over the icon area at this resolution.
+const DOCK_TILE_SIZE: f64 = 128.0
+
+/// Drop the custom contentView so AppKit redraws the app icon
+/// at the next `display`. Used by `progress < 0`.
+fn clearDockProgress() {
+    let tile = sharedApplication().dockTile
+    tile.setContentView(nil)
+    tile.display()
+}
+
+/// Electron-style `progress` semantics:
+///   * `progress < 0`     — clear the bar, restore the icon
+///   * `0.0 <= p <= 1.0`  — fractional progress, drawn as a
+///                          horizontal bar across the Dock tile
+///   * `progress > 1.0`   — clamped to `1.0` (indeterminate
+///                          animation isn't reliably supported
+///                          inside a Dock-tile content view)
+///
+/// The bar covers the icon area while progress is set — that's
+/// the AppKit-native trade-off for `NSDockTile.contentView` and
+/// matches Electron's behaviour when a custom drawing path
+/// isn't installed.
+pub fn setNativeWindowProgressBar(handle: i64, progress: f64) {
+    if progress < 0.0 {
+        clearDockProgress()
+        return
+    }
+    if DOCK_PROGRESS_BAR.length == 0 {
+        let bar = NSProgressIndicator.alloc().init(
+            makeRect(0.0, 0.0, DOCK_TILE_SIZE, DOCK_TILE_SIZE)
+        )
+        bar.setStyle(NSProgressIndicatorStyle.bar)
+        bar.setMinValue(0.0)
+        bar.setMaxValue(1.0)
+        bar.setIndeterminate(false)
+        DOCK_PROGRESS_BAR.push(bar)
+    }
+    let bar = DOCK_PROGRESS_BAR[0]
+    bar.doubleValue = if progress > 1.0 { 1.0 } else { progress }
+    let tile = sharedApplication().dockTile
+    tile.setContentView(bar as NSView)
+    tile.display()
 }

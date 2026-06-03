@@ -54,6 +54,7 @@ use gui_impl {
     setNativeWindowMaxSize,
     getNativeWindowMaxWidth, getNativeWindowMaxHeight,
     flashNativeWindow,
+    setNativeWindowProgressBar,
     setOnClose,
     setOnResize,
     setOnKeyDown,
@@ -550,6 +551,17 @@ pub class Window : Container {
     /// hint — see each backend file).
     pub flashFrame(on: bool) {
         flashNativeWindow(this.handle, on)
+    }
+
+    /// Show task progress on the OS task-bar / Dock affordance.
+    /// `progress < 0` clears, `0.0..=1.0` is a fractional bar
+    /// (clamped above 1). macOS draws an `NSProgressIndicator`
+    /// over the Dock tile (covers the icon while active); Win32
+    /// and GTK4 are no-ops for now (see each backend file —
+    /// Win32 needs `ITaskbarList3` COM bindings, Linux needs the
+    /// libunity d-bus protocol).
+    pub setProgressBar(progress: f64) {
+        setNativeWindowProgressBar(this.handle, progress)
     }
 
     /// Re-run the dock / margin layout pass over every direct

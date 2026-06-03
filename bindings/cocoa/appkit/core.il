@@ -88,6 +88,14 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub requestUserAttention(type: i64): i64
         @objc("cancelUserAttentionRequest:")
         pub cancelUserAttentionRequest(id: i64)
+        /// The Dock tile representing this app. Lazy — AppKit
+        /// vends the same instance on every call. Use the
+        /// `setContentView:` / `display` pair to host a custom
+        /// `NSView` (e.g. an `NSProgressIndicator`) over the
+        /// app icon; `setBadgeLabel:` writes the small text
+        /// badge in the corner.
+        @objc("dockTile")
+        pub get dockTile(): NSDockTile
         @objc("run")
         pub run()
         @objc("terminate:")
@@ -151,6 +159,33 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub setLayer(layer: NSObject)
         @objc("setWantsLayer:")
         pub setWantsLayer(flag: bool)
+    }
+
+    /// `NSDockTile` — the per-app icon rectangle on the Dock.
+    /// One instance per process (vended by
+    /// `NSApplication.dockTile`). `setContentView:` lets us host
+    /// a custom `NSView` (eg. an `NSProgressIndicator`); call
+    /// `display` after mutating the content view's state so
+    /// AppKit re-composites the icon. `badgeLabel` is the small
+    /// text overlay AppKit draws in the bottom-right.
+    @objc pub class NSDockTile : NSObject {
+        @objc("contentView")
+        pub get contentView(): NSView
+        @objc("setContentView:")
+        pub setContentView(v: NSView)
+        @objc("setContentView:")
+        pub setContentView(v: NSObject)        // nil-clearing overload
+        @objc("display")
+        pub display()
+        @objc("badgeLabel")
+        pub get badgeLabel(): NSString
+        @objc("setBadgeLabel:")
+        pub setBadgeLabel(s: NSString)
+        /// nil-clearing overload — pass `cocoa.nil` (typed as
+        /// NSObject) to remove the badge entirely instead of
+        /// drawing an empty pill.
+        @objc("setBadgeLabel:")
+        pub setBadgeLabel(s: NSObject)
     }
 
     /// NSWindow. The two-step `alloc + initWithContentRect:...`

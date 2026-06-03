@@ -613,6 +613,12 @@ pub fn getNativeWindowMaxHeight(handle: i64): f64 {
 /// cross-platform parity — call is a no-op on Linux.
 pub fn flashNativeWindow(handle: i64, on: bool) {}
 
+/// `setProgressBar` on Linux would route through the Unity
+/// Launcher d-bus protocol (libunity), which isn't a portable
+/// dependency. Public-API signature only for cross-platform
+/// parity — call is a no-op on Linux.
+pub fn setNativeWindowProgressBar(handle: i64, progress: f64) {}
+
 pub fn setNativeWindowOpacity(handle: i64, v: f64) {
     if let some(slot) = WINDOWS.get(handle) {
         gtk_widget_set_opacity(slot.win as GtkWidget, v)

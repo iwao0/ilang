@@ -8,6 +8,8 @@
 // Row 5: `flashFrame(true)` (after a 3-second delay so you have
 //        time to switch apps; AppKit ignores requestUserAttention
 //        when the app is already active) / `flashFrame(false)`.
+// Row 6: `setProgressBar(0.33 / 0.67 / -1)` — draws a horizontal
+//        progress bar over the Dock tile. Clear restores the icon.
 // Status label below reflects the most recent fired event.
 //
 // (`Restore` has no button — once iconified, none of its own
@@ -23,7 +25,7 @@ fn run(): i64 {
     let w = new gui.Window()
     w.title  = "ilang gui × window state"
     w.width  = 600.0
-    w.height = 360.0
+    w.height = 400.0
 
     let v = new gui.VBox()
     v.dock = gui.Dock.fill
@@ -213,6 +215,36 @@ fn run(): i64 {
     bUnflash.margin = new gui.Margin(4.0)
     bUnflash.onClick.add(fn(e: gui.MouseEvent) { w.flashFrame(false) })
     attn.addChild(bUnflash)
+
+    // Progress row — drives the Dock-tile progress bar. Each
+    // fractional button sets a discrete value; "Clear" passes a
+    // negative value, which removes the custom contentView and
+    // restores the normal app icon.
+    let prog = new gui.HBox()
+    prog.height = 36.0
+    prog.margin = new gui.Margin(4.0)
+    v.addChild(prog)
+
+    let bProg33 = new gui.Button()
+    bProg33.text   = "Progress 33%"
+    bProg33.flex   = 1.0
+    bProg33.margin = new gui.Margin(4.0)
+    bProg33.onClick.add(fn(e: gui.MouseEvent) { w.setProgressBar(0.33) })
+    prog.addChild(bProg33)
+
+    let bProg67 = new gui.Button()
+    bProg67.text   = "Progress 67%"
+    bProg67.flex   = 1.0
+    bProg67.margin = new gui.Margin(4.0)
+    bProg67.onClick.add(fn(e: gui.MouseEvent) { w.setProgressBar(0.67) })
+    prog.addChild(bProg67)
+
+    let bProgClear = new gui.Button()
+    bProgClear.text   = "Clear Progress"
+    bProgClear.flex   = 1.0
+    bProgClear.margin = new gui.Margin(4.0)
+    bProgClear.onClick.add(fn(e: gui.MouseEvent) { w.setProgressBar(-1.0) })
+    prog.addChild(bProgClear)
 
     let status = new gui.Label()
     status.text   = "(no state event yet)"
