@@ -14,13 +14,13 @@
 ///   window.addChild(b)
 
 use std.events { Signal }
-use events { MouseEvent }
+use events { MouseEvent, FocusEvent, BlurEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeButton,
-    setOnButtonClick,
+    setOnButtonClick, setOnButtonFocus, setOnButtonBlur,
     setButtonText, setButtonFrame, setButtonEnabled, setButtonVisible,
-    setButtonDefault, clickButton,
+    setButtonDefault, clickButton, focusButton,
 }
 
 pub class Button : Control {
@@ -36,6 +36,8 @@ pub class Button : Control {
     _isVisible: bool
     _isDefault: bool
     pub onClick: Signal<MouseEvent>
+    pub onFocus: Signal<FocusEvent>
+    pub onBlur:  Signal<BlurEvent>
 
     pub init() {
         super()
@@ -49,6 +51,8 @@ pub class Button : Control {
         this._isVisible  = true
         this._isDefault  = false
         this.onClick     = new Signal<MouseEvent>()
+        this.onFocus     = new Signal<FocusEvent>()
+        this.onBlur      = new Signal<BlurEvent>()
     }
 
     pub get text(): string { this._text }
@@ -126,6 +130,12 @@ pub class Button : Control {
         setOnButtonClick(this.handle, fn(x: f64, y: f64, b: i32) {
             this.onClick.emit(new MouseEvent(this, x, y, b, false, false, false, false))
         })
+        setOnButtonFocus(this.handle, fn() {
+            this.onFocus.emit(new FocusEvent(this))
+        })
+        setOnButtonBlur(this.handle, fn() {
+            this.onBlur.emit(new BlurEvent(this))
+        })
     }
 
     /// Programmatic click. Animates the native button and runs
@@ -134,6 +144,14 @@ pub class Button : Control {
     /// has been attached to a window.
     pub click() {
         if this.handle >= 0 { clickButton(this.handle) }
+    }
+
+    /// Move keyboard focus to this button. The native focus
+    /// transition fires `onFocus` here and `onBlur` on whichever
+    /// control previously held focus. No-op until the button has
+    /// been attached to a window.
+    pub focus() {
+        if this.handle >= 0 { focusButton(this.handle) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

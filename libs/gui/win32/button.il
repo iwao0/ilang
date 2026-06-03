@@ -9,10 +9,10 @@ use windows {
     WindowStyle, ShowCmd,
     GetModuleHandleA,
     CreateWindowExW, SetWindowTextW, EnableWindow, MoveWindow, ShowWindow,
-    SendMessageW,
+    SendMessageW, SetFocus,
 }
 use util { applyExplorerTheme, applyGuiFont, noOpClick }
-use core { windowHwnd }
+use core { windowHwnd, noOp1 }
 
 /// `BM_SETSTYLE` — flip the button style at runtime (used to set /
 /// clear `BS_DEFPUSHBUTTON`). `wParam` is the new button-style bits,
@@ -28,6 +28,13 @@ const BS_PUSHBUTTON:    u64 = 0x00000000 as u64
 /// and posts the usual `WM_COMMAND` / `BN_CLICKED` to the parent
 /// — which `wnd_proc` routes back into `tryButtonClick`.
 const BM_CLICK: u32 = 0x00F5 as u32
+/// `BS_NOTIFY` — make the button send `BN_SETFOCUS` /
+/// `BN_KILLFOCUS` to its parent via `WM_COMMAND`. Without this
+/// flag the BUTTON wndproc swallows focus transitions silently.
+const BS_NOTIFY: u32 = 0x00004000 as u32
+/// Button notify codes for `WM_COMMAND` HIWORD(wParam).
+pub const BN_SETFOCUS:  i32 = 6 as i32
+pub const BN_KILLFOCUS: i32 = 7 as i32
 
 /// Per-button state. Stored in `BUTTONS` keyed by the button's
 /// HWND (`hwnd as i64`) — same key gui-core sees as the public
@@ -36,10 +43,14 @@ const BM_CLICK: u32 = 0x00F5 as u32
 class ButtonSlot {
     pub hwnd:    HWND
     pub onClick: fn(f64, f64, i32)
+    pub onFocus: fn()
+    pub onBlur:  fn()
     pub winHandle: i64
     pub init(hwnd: HWND, winHandle: i64) {
         this.hwnd = hwnd
         this.onClick = noOpClick
+        this.onFocus = noOp1
+        this.onBlur  = noOp1
         this.winHandle = winHandle
     }
 }
@@ -77,6 +88,29 @@ pub fn tryDefaultEnter(parentHandle: i64): bool {
     false
 }
 
+/// Called by `wnd_proc` for WM_COMMAND / BN_SETFOCUS or
+/// BN_KILLFOCUS. Looks up the button by control HWND and fires
+/// the matching callback. Returns `true` when the HWND matched a
+/// button so the dispatcher stops walking.
+pub fn tryButtonFocus(hwnd: i64): bool {
+    if let some(slot) = BUTTONS.get(hwnd) {
+        let cb = slot.onFocus
+        cb()
+        true
+    } else {
+        false
+    }
+}
+pub fn tryButtonBlur(hwnd: i64): bool {
+    if let some(slot) = BUTTONS.get(hwnd) {
+        let cb = slot.onBlur
+        cb()
+        true
+    } else {
+        false
+    }
+}
+
 @extern(C) {
 
 pub fn createNativeButton(
@@ -93,7 +127,11 @@ pub fn createNativeButton(
     } else {
         0 as u32
     }
-    let style: u32 = (WindowStyle.child as u32) | visibleBits
+    // `BS_NOTIFY` opts the BUTTON into BN_SETFOCUS / BN_KILLFOCUS
+    // (and BN_DBLCLK / BN_PUSHED / ...) WM_COMMAND notifications.
+    // Without it the BUTTON wndproc never tells the parent about
+    // focus transitions, so onFocus / onBlur would never fire.
+    let style: u32 = (WindowStyle.child as u32) | visibleBits | BS_NOTIFY
     let hInstance = GetModuleHandleA(0 as *const char)
     let hwnd = CreateWindowExW(
         0,
@@ -145,6 +183,21 @@ pub fn setButtonVisible(handle: i64, visible: bool) {
 pub fn clickButton(handle: i64) {
     if let some(slot) = BUTTONS.get(handle) {
         SendMessageW(slot.hwnd, BM_CLICK, 0 as u64, 0 as i64)
+    }
+}
+pub fn setOnButtonFocus(handle: i64, cb: fn()) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnButtonBlur(handle: i64, cb: fn()) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onBlur = cb }
+}
+pub fn focusButton(handle: i64) {
+    if let some(slot) = BUTTONS.get(handle) {
+        // `SetFocus` posts WM_KILLFOCUS to the previous holder and
+        // WM_SETFOCUS to the button; the BUTTON wndproc then sends
+        // BN_KILLFOCUS / BN_SETFOCUS WM_COMMAND notifications to
+        // the parent because we built the control with BS_NOTIFY.
+        SetFocus(slot.hwnd)
     }
 }
 pub fn setButtonDefault(handle: i64, isDefault: bool) {

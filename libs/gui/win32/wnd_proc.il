@@ -43,7 +43,11 @@ const SC_MOVE_CODE: u64 = 0xF010 as u64
 /// command code lives in the upper 12 of the low 16. Mask to
 /// strip the low bits before comparing.
 const SC_MASK: u64      = 0xFFF0 as u64
-use button   { tryButtonClick, tryDefaultEnter }
+use button   {
+    tryButtonClick, tryDefaultEnter,
+    tryButtonFocus, tryButtonBlur,
+    BN_SETFOCUS, BN_KILLFOCUS,
+}
 use checkbox { tryCheckboxToggle }
 use radio    { tryRadioToggle }
 use edit     { tryEditChange }
@@ -278,6 +282,10 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                 // CBN_SELCHANGE / LBN_SELCHANGE share the value.
                 if tryComboSelect(ctrlHwnd) { return 0 }
                 if tryListSelect(ctrlHwnd)  { return 0 }
+            } elif notify == BN_SETFOCUS {
+                if tryButtonFocus(ctrlHwnd) { return 0 }
+            } elif notify == BN_KILLFOCUS {
+                if tryButtonBlur(ctrlHwnd) { return 0 }
             }
             return 0
         }

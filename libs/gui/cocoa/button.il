@@ -7,8 +7,9 @@
 use cocoa {
     NSObject, NSButton, NSView,
     nsstr, makeRect, selectorPtr, nil,
+    classPtr, setObjectClass,
 }
-use core { WINDOWS, noOpClick }
+use core { WINDOWS, noOpClick, noOp1 }
 
 /// Per-button state. Stored in `BUTTONS` keyed by the NSButton's
 /// raw ObjC pointer (`btn.handle`). Same key gui-core sees as the
@@ -17,11 +18,15 @@ use core { WINDOWS, noOpClick }
 class ButtonSlot {
     pub btn:     NSButton
     pub onClick: fn(f64, f64, i32)
+    pub onFocus: fn()
+    pub onBlur:  fn()
     pub handler: NSObject
     pub winHandle: i64
     pub init(btn: NSButton, handler: NSObject, winHandle: i64) {
         this.btn = btn
         this.onClick = noOpClick
+        this.onFocus = noOp1
+        this.onBlur  = noOp1
         this.handler = handler
         this.winHandle = winHandle
     }
@@ -50,6 +55,34 @@ class ClickHandler : NSObject {
     }
 }
 
+/// `NSButton` subclass used as an isa-swap target so AppKit's
+/// `becomeFirstResponder` / `resignFirstResponder` dispatch lands
+/// in our IMPs and we can surface `onFocus` / `onBlur`. Construction
+/// stays on the unmodified `NSButton` path so `initWithFrame:`
+/// initialises the cell properly; once the button is built we
+/// rewrite its `isa` pointer to `FocusButton` (the KVO trick).
+///
+/// Methods are written without the `override` keyword because the
+/// parent's bindings don't expose `becomeFirstResponder` /
+/// `resignFirstResponder` — mirrors how `GuiView` declares
+/// `acceptsFirstResponder` and `isFlipped`.
+class FocusButton : NSButton {
+    pub becomeFirstResponder(): bool {
+        if let some(slot) = BUTTONS.get(this.handle) {
+            let cb = slot.onFocus
+            cb()
+        }
+        true
+    }
+    pub resignFirstResponder(): bool {
+        if let some(slot) = BUTTONS.get(this.handle) {
+            let cb = slot.onBlur
+            cb()
+        }
+        true
+    }
+}
+
 pub fn createNativeButton(
     windowHandle: i64,
     text: string, x: f64, y: f64, width: f64, height: f64,
@@ -59,10 +92,27 @@ pub fn createNativeButton(
         some(s) { s }
         none    { return -1 }
     }
+    // Construct an ordinary `NSButton` through `initWithFrame:` so
+    // the cell is set up. Then register `FocusButton` with the ObjC
+    // runtime and rewrite the instance's isa pointer to it so AppKit
+    // dispatches `becomeFirstResponder` / `resignFirstResponder`
+    // through our IMPs.
     let btn = NSButton.alloc().init(makeRect(x, y, width, height))
     btn.setTitle(nsstr(text))
     btn.setEnabled(enabled)
     btn.setHidden(!visible)
+    FocusButton.register()
+    // ilang auto-lift registers the subclass with the ObjC runtime
+    // under its fully-qualified module path (`gui_impl.FocusButton`
+    // here), not the bare class name. Hard-coding the path keeps the
+    // isa swap a single lookup; if ilang's mangling convention
+    // changes the lookup returns 0 and the swap is silently skipped,
+    // leaving the button as a plain `NSButton` (onFocus / onBlur
+    // would stop firing but every other behaviour stays intact).
+    let focusCls = classPtr("gui_impl.FocusButton")
+    if focusCls != 0 as i64 {
+        let _ = setObjectClass(btn.handle, focusCls)
+    }
 
     ClickHandler.register()
     let h = ClickHandler.alloc().init()
@@ -99,6 +149,21 @@ pub fn clickButton(handle: i64) {
         // `performClick:` runs the configured target/action, which
         // is our `ClickHandler.clicked:` → forwards to `onClick`.
         slot.btn.performClick(nil)
+    }
+}
+pub fn setOnButtonFocus(handle: i64, cb: fn()) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnButtonBlur(handle: i64, cb: fn()) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onBlur = cb }
+}
+pub fn focusButton(handle: i64) {
+    if let some(slot) = BUTTONS.get(handle) {
+        // Ask the parent window to install this button as its
+        // first responder. AppKit then drives our subclass'
+        // `becomeFirstResponder` override, which fires `onFocus`.
+        let win = slot.btn.window
+        let _ = win.makeFirstResponder(slot.btn as NSObject)
     }
 }
 pub fn setButtonDefault(handle: i64, isDefault: bool) {

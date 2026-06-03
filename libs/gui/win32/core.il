@@ -117,7 +117,7 @@ pub class WindowSlot {
 
 pub let WINDOWS = new Map<i64, WindowSlot>()
 
-fn noOp1() {}
+pub fn noOp1() {}
 fn noOp2(w: f64, h: f64) {}
 fn noOpKey(c: string, k1: bool, k2: bool, k3: bool, k4: bool) {}
 fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {}

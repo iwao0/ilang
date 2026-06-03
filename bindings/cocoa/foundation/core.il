@@ -1007,11 +1007,33 @@ pub enum NSBinarySearchingOptions: u64 {
     @lib("objc") @symbol("objc_release")
         fn _objc_release(obj: i64)
 
+    @lib("objc") @symbol("objc_getClass")
+        fn _objc_get_class(name: *const char): i64
+    @lib("objc") @symbol("object_setClass")
+        fn _object_set_class(obj: i64, cls: i64): i64
+
     /// Intern an Objective-C selector by name and return its
     /// stable SEL pointer (as `i64`). Use it with
     /// `button.setAction(selectorPtr("clicked:"))`.
     pub fn selectorPtr(name: string): i64 {
         _sel_register_name(cstrFromString(name))
+    }
+
+    /// Look up an ObjC class by name. Returns the class pointer (as
+    /// `i64`) or 0 if the class isn't registered. Pair with
+    /// `setObjectClass` to do an isa swap on an existing instance.
+    pub fn classPtr(name: string): i64 {
+        _objc_get_class(cstrFromString(name))
+    }
+
+    /// Rewrite `obj`'s isa pointer to `cls` so subsequent method
+    /// dispatch on the instance walks `cls`'s method table. Pair
+    /// with `classPtr` to retarget an existing object onto a
+    /// subclass registered via `Subclass.register()`. Used to mix
+    /// in extra IMPs on a fully-initialised parent-class instance
+    /// (the KVO mechanism).
+    pub fn setObjectClass(obj: i64, cls: i64): i64 {
+        _object_set_class(obj, cls)
     }
 
     /// Build an `NSString` from an ilang `string`. Wraps the

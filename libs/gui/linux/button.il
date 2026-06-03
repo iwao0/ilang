@@ -11,14 +11,17 @@
 use std.ffi { cstrFromString }
 use gtk {
     GtkWidget, GtkButton, GtkFixed, GtkWindow, GObject,
+    GtkEventController,
     gtk_button_new_with_label, gtk_button_set_label,
     gtk_fixed_put, gtk_fixed_move, gtk_fixed_remove,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
     gtk_widget_set_visible, gtk_widget_activate,
     gtk_widget_set_receives_default, gtk_window_set_default_widget,
+    gtk_widget_grab_focus, gtk_widget_add_controller,
+    gtk_event_controller_focus_new,
     g_signal_connect_data,
 }
-use core { WINDOWS, noOpClick }
+use core { WINDOWS, noOpClick, noOpClose }
 
 class ButtonSlot {
     pub btn:     GtkButton
@@ -30,6 +33,8 @@ class ButtonSlot {
     pub width:   f64
     pub height:  f64
     pub onClick: fn(f64, f64, i32)
+    pub onFocus: fn()
+    pub onBlur:  fn()
     pub init(
         btn: GtkButton, fixed: GtkFixed, win: GtkWindow, winHandle: i64,
         x: f64, y: f64, w: f64, h: f64
@@ -43,6 +48,8 @@ class ButtonSlot {
         this.width = w
         this.height = h
         this.onClick = noOpClick
+        this.onFocus = noOpClose
+        this.onBlur  = noOpClose
     }
 }
 
@@ -65,6 +72,25 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
                 slot.y + slot.height / 2.0,
                 0 as i32
             )
+        }
+    }
+    /// `enter` / `leave` signals on `GtkEventControllerFocus` carry
+    /// `(GtkEventControllerFocus*, gpointer)`. The controller knows
+    /// which widget it's attached to via
+    /// `gtk_event_controller_get_widget`; use that as the BUTTONS
+    /// key (same key createNativeButton stored).
+    pub fn linux_button_focus_enter(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = BUTTONS.get(w as i64) {
+            let cb = slot.onFocus
+            cb()
+        }
+    }
+    pub fn linux_button_focus_leave(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = BUTTONS.get(w as i64) {
+            let cb = slot.onBlur
+            cb()
         }
     }
 }
@@ -96,6 +122,30 @@ pub fn createNativeButton(
         btn as GObject,
         cstrFromString("clicked"),
         linux_button_clicked,
+        0 as *void,
+        0 as i64,
+        0 as u32
+    )
+
+    // Attach a focus event controller so the widget's focus /
+    // blur transitions surface to our linux_button_focus_*
+    // handlers. The controller's `widget` association is set by
+    // gtk_widget_add_controller; the handlers look up the
+    // ButtonSlot through `gtk_event_controller_get_widget`.
+    let focusCtl = gtk_event_controller_focus_new()
+    gtk_widget_add_controller(btn as GtkWidget, focusCtl)
+    g_signal_connect_data(
+        focusCtl as GObject,
+        cstrFromString("enter"),
+        linux_button_focus_enter,
+        0 as *void,
+        0 as i64,
+        0 as u32
+    )
+    g_signal_connect_data(
+        focusCtl as GObject,
+        cstrFromString("leave"),
+        linux_button_focus_leave,
         0 as *void,
         0 as i64,
         0 as u32
@@ -154,6 +204,21 @@ pub fn clickButton(handle: i64) {
         // GtkButton, which our `linux_button_clicked` handler
         // routes back to `onClick`.
         gtk_widget_activate(slot.btn as GtkWidget)
+    }
+}
+pub fn setOnButtonFocus(handle: i64, cb: fn()) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnButtonBlur(handle: i64, cb: fn()) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onBlur = cb }
+}
+pub fn focusButton(handle: i64) {
+    if let some(slot) = BUTTONS.get(handle) {
+        // `grab_focus` triggers the focus controller's `enter`
+        // signal on this widget (and `leave` on the previous
+        // holder), which routes through our linux_button_focus_*
+        // handlers back to `onFocus` / `onBlur`.
+        let _ = gtk_widget_grab_focus(slot.btn as GtkWidget)
     }
 }
 pub fn setButtonDefault(handle: i64, isDefault: bool) {
