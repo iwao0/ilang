@@ -1,11 +1,13 @@
 /// GtkProgressBar wrapper. GTK fraction is `[0.0, 1.0]`, so we
 /// normalize against the [min, max] range gui-core hands us.
 
+use std.ffi { cstrFromString }
 use gtk {
     GtkWidget, GtkProgressBar, GtkFixed,
     gtk_progress_bar_new, gtk_progress_bar_set_fraction,
     gtk_fixed_put, gtk_fixed_move,
-    gtk_widget_set_size_request, gtk_widget_set_visible,
+    gtk_widget_set_size_request, gtk_widget_set_sensitive,
+    gtk_widget_set_visible, gtk_widget_set_tooltip_text,
 }
 use core { WINDOWS }
 
@@ -78,6 +80,23 @@ pub fn setProgressFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
 pub fn setProgressVisible(handle: i64, visible: bool) {
     if let some(slot) = PROGRESS_BARS.get(handle) {
         gtk_widget_set_visible(slot.bar as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
+    }
+}
+pub fn setProgressEnabled(handle: i64, enabled: bool) {
+    if let some(slot) = PROGRESS_BARS.get(handle) {
+        gtk_widget_set_sensitive(
+            slot.bar as GtkWidget,
+            if enabled { 1 as i32 } else { 0 as i32 }
+        )
+    }
+}
+pub fn setProgressTooltip(handle: i64, text: string) {
+    if let some(slot) = PROGRESS_BARS.get(handle) {
+        if text == "" {
+            gtk_widget_set_tooltip_text(slot.bar as GtkWidget, 0 as *const char)
+        } else {
+            gtk_widget_set_tooltip_text(slot.bar as GtkWidget, cstrFromString(text))
+        }
     }
 }
 

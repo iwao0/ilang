@@ -9,7 +9,8 @@ use gtk {
     GtkWidget, GtkFrame, GtkFixed,
     gtk_frame_new, gtk_frame_set_label,
     gtk_fixed_put, gtk_fixed_move,
-    gtk_widget_set_size_request, gtk_widget_set_visible,
+    gtk_widget_set_size_request, gtk_widget_set_sensitive,
+    gtk_widget_set_visible, gtk_widget_set_tooltip_text,
 }
 use core { WINDOWS }
 
@@ -63,6 +64,23 @@ pub fn setGroupBoxVisible(handle: i64, visible: bool) {
             slot.frame as GtkWidget,
             if visible { 1 as i32 } else { 0 as i32 }
         )
+    }
+}
+pub fn setGroupBoxEnabled(handle: i64, enabled: bool) {
+    if let some(slot) = GROUPBOXES.get(handle) {
+        gtk_widget_set_sensitive(
+            slot.frame as GtkWidget,
+            if enabled { 1 as i32 } else { 0 as i32 }
+        )
+    }
+}
+pub fn setGroupBoxTooltip(handle: i64, text: string) {
+    if let some(slot) = GROUPBOXES.get(handle) {
+        if text == "" {
+            gtk_widget_set_tooltip_text(slot.frame as GtkWidget, 0 as *const char)
+        } else {
+            gtk_widget_set_tooltip_text(slot.frame as GtkWidget, cstrFromString(text))
+        }
     }
 }
 

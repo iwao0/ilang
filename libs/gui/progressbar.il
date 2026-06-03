@@ -7,6 +7,7 @@ use gui_impl {
     createNativeProgress,
     setProgressRange, setProgressValue,
     setProgressFrame, setProgressVisible,
+    setProgressEnabled, setProgressTooltip,
 }
 
 pub class ProgressBar : Control {
@@ -18,7 +19,9 @@ pub class ProgressBar : Control {
     _y:         f64
     _width:     f64
     _height:    f64
+    _isEnabled: bool
     _isVisible: bool
+    _tooltip:   string
 
     pub init() {
         super()
@@ -30,7 +33,9 @@ pub class ProgressBar : Control {
         this._y         = 0.0
         this._width     = 200.0
         this._height    = 18.0
+        this._isEnabled = true
         this._isVisible = true
+        this._tooltip   = ""
     }
 
     pub get min(): f64 { this._min }
@@ -78,10 +83,22 @@ pub class ProgressBar : Control {
         }
     }
 
+    pub get isEnabled(): bool { this._isEnabled }
+    pub set isEnabled(v: bool) {
+        this._isEnabled = v
+        if this.handle >= 0 { setProgressEnabled(this.handle, v) }
+    }
     pub get isVisible(): bool { this._isVisible }
     pub set isVisible(v: bool) {
         this._isVisible = v
         if this.handle >= 0 { setProgressVisible(this.handle, v) }
+    }
+
+    /// Hover tooltip. Empty string clears it.
+    pub get tooltip(): string { this._tooltip }
+    pub set tooltip(v: string) {
+        this._tooltip = v
+        if this.handle >= 0 { setProgressTooltip(this.handle, v) }
     }
 
     pub override attachTo(window: Window) {
@@ -92,6 +109,8 @@ pub class ProgressBar : Control {
             this._x, this._y, this._width, this._height,
             this._isVisible
         )
+        if !this._isEnabled { setProgressEnabled(this.handle, false) }
+        if this._tooltip != "" { setProgressTooltip(this.handle, this._tooltip) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

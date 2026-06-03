@@ -1,7 +1,10 @@
 /// Progress indicator. NSProgressIndicator in `bar` style;
 /// driven via `doubleValue` (no callbacks).
 
-use cocoa { NSProgressIndicator, NSView, makeRect, makeProgressBar }
+use cocoa {
+    NSObject, NSProgressIndicator, NSView, nsstr, nil,
+    makeRect, makeProgressBar,
+}
 use core { WINDOWS }
 
 class ProgressSlot {
@@ -45,4 +48,17 @@ pub fn setProgressFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
 }
 pub fn setProgressVisible(handle: i64, visible: bool) {
     if let some(slot) = PROGRESS_BARS.get(handle) { slot.bar.setHidden(!visible) }
+}
+pub fn setProgressEnabled(handle: i64, enabled: bool) {
+    // NSProgressIndicator has no `enabled` state — progress bars
+    // are non-interactive on macOS, surface as a no-op.
+}
+pub fn setProgressTooltip(handle: i64, text: string) {
+    if let some(slot) = PROGRESS_BARS.get(handle) {
+        if text == "" {
+            (slot.bar as NSView).setToolTip(nil)
+        } else {
+            (slot.bar as NSView).setToolTip(nsstr(text) as NSObject)
+        }
+    }
 }

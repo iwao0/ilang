@@ -2,17 +2,26 @@
 /// frame for visually grouping related controls; ignores clicks.
 
 use windows {
-    HWND, HINSTANCE, HMENU,
+    HWND, HINSTANCE, HMENU, RECT,
     WindowStyle, ShowCmd,
+    TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
+    TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
-    CreateWindowExW, SetWindowTextW, MoveWindow, ShowWindow,
+    CreateWindowExW, SetWindowTextW, EnableWindow, MoveWindow, ShowWindow,
+    SendMessageW,
 }
 use util { applyGuiFont }
 use core { windowHwnd }
 
 class GroupBoxSlot {
     pub hwnd: HWND
-    pub init(hwnd: HWND) { this.hwnd = hwnd }
+    pub winHandle: i64
+    pub tooltipHwnd: HWND
+    pub init(hwnd: HWND, winHandle: i64) {
+        this.hwnd = hwnd
+        this.winHandle = winHandle
+        this.tooltipHwnd = 0 as HWND
+    }
 }
 
 let GROUPBOXES = new Map<i64, GroupBoxSlot>()
@@ -49,7 +58,7 @@ pub fn createNativeGroupBox(
     )
     applyGuiFont(hwnd)
     let handle = hwnd as i64
-    GROUPBOXES[handle] = new GroupBoxSlot(hwnd)
+    GROUPBOXES[handle] = new GroupBoxSlot(hwnd, windowHandle)
     handle
 }
 
@@ -68,6 +77,66 @@ pub fn setGroupBoxVisible(handle: i64, visible: bool) {
     if let some(slot) = GROUPBOXES.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(slot.hwnd, cmd)
+    }
+}
+pub fn setGroupBoxEnabled(handle: i64, enabled: bool) {
+    if let some(slot) = GROUPBOXES.get(handle) {
+        let flag: i32 = if enabled { 1 } else { 0 }
+        EnableWindow(slot.hwnd, flag)
+    }
+}
+pub fn setGroupBoxTooltip(handle: i64, text: string) {
+    if let some(slot) = GROUPBOXES.get(handle) {
+        if text == "" {
+            if slot.tooltipHwnd as i64 != 0 as i64 {
+                let info = TOOLINFOW {
+                    cbSize:     72 as u32,
+                    uFlags:     TTF_IDISHWND,
+                    hwnd:       slot.winHandle as HWND,
+                    uId:        slot.hwnd as u64,
+                    rect:       RECT { left: 0 as i32, top: 0 as i32, right: 0 as i32, bottom: 0 as i32 },
+                    hinst:      0 as HINSTANCE,
+                    lpszText:   0 as *const u16,
+                    lParam:     0 as i64,
+                    lpReserved: 0 as *void,
+                }
+                let p: *const TOOLINFOW = &info
+                SendMessageW(slot.tooltipHwnd, TTM_DELTOOLW, 0 as u64, p as i64)
+            }
+            return
+        }
+        let textW = text.encodeUtf16()
+        let info = TOOLINFOW {
+            cbSize:     72 as u32,
+            uFlags:     TTF_IDISHWND | TTF_SUBCLASS,
+            hwnd:       slot.winHandle as HWND,
+            uId:        slot.hwnd as u64,
+            rect:       RECT { left: 0 as i32, top: 0 as i32, right: 0 as i32, bottom: 0 as i32 },
+            hinst:      0 as HINSTANCE,
+            lpszText:   textW,
+            lParam:     0 as i64,
+            lpReserved: 0 as *void,
+        }
+        let p: *const TOOLINFOW = &info
+        if slot.tooltipHwnd as i64 == 0 as i64 {
+            let classW = "tooltips_class32".encodeUtf16()
+            let hInstance = GetModuleHandleA(0 as *const char)
+            let tt = CreateWindowExW(
+                0,
+                classW,
+                0 as *const u16,
+                (WindowStyle.popup as u32) | TTS_ALWAYSTIP,
+                0, 0, 0, 0,
+                slot.winHandle as HWND,
+                0 as HMENU,
+                hInstance as HINSTANCE,
+                0 as *void
+            )
+            slot.tooltipHwnd = tt
+            SendMessageW(tt, TTM_ADDTOOLW, 0 as u64, p as i64)
+        } else {
+            SendMessageW(slot.tooltipHwnd, TTM_UPDATETIPTEXTW, 0 as u64, p as i64)
+        }
     }
 }
 

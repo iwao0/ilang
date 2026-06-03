@@ -7,6 +7,7 @@ use window { Window, Control }
 use gui_impl {
     createNativeGroupBox,
     setGroupBoxText, setGroupBoxFrame, setGroupBoxVisible,
+    setGroupBoxEnabled, setGroupBoxTooltip,
 }
 
 pub class GroupBox : Control {
@@ -16,7 +17,9 @@ pub class GroupBox : Control {
     _y:         f64
     _width:     f64
     _height:    f64
+    _isEnabled: bool
     _isVisible: bool
+    _tooltip:   string
 
     pub init() {
         super()
@@ -26,7 +29,9 @@ pub class GroupBox : Control {
         this._y         = 0.0
         this._width     = 200.0
         this._height    = 100.0
+        this._isEnabled = true
         this._isVisible = true
+        this._tooltip   = ""
     }
 
     pub get text(): string { this._text }
@@ -64,10 +69,22 @@ pub class GroupBox : Control {
         }
     }
 
+    pub get isEnabled(): bool { this._isEnabled }
+    pub set isEnabled(v: bool) {
+        this._isEnabled = v
+        if this.handle >= 0 { setGroupBoxEnabled(this.handle, v) }
+    }
     pub get isVisible(): bool { this._isVisible }
     pub set isVisible(v: bool) {
         this._isVisible = v
         if this.handle >= 0 { setGroupBoxVisible(this.handle, v) }
+    }
+
+    /// Hover tooltip. Empty string clears it.
+    pub get tooltip(): string { this._tooltip }
+    pub set tooltip(v: string) {
+        this._tooltip = v
+        if this.handle >= 0 { setGroupBoxTooltip(this.handle, v) }
     }
 
     pub override attachTo(window: Window) {
@@ -78,6 +95,8 @@ pub class GroupBox : Control {
             this._x, this._y, this._width, this._height,
             this._isVisible
         )
+        if !this._isEnabled { setGroupBoxEnabled(this.handle, false) }
+        if this._tooltip != "" { setGroupBoxTooltip(this.handle, this._tooltip) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

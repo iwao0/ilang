@@ -2,20 +2,26 @@
 /// Read-only, no event surface.
 
 use windows {
-    HWND, HINSTANCE, HMENU,
+    HWND, HINSTANCE, HMENU, RECT,
     WindowStyle, ShowCmd,
+    TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
+    TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
-    CreateWindowExW, MoveWindow, ShowWindow,
-    SendMessageA,
+    CreateWindowExW, EnableWindow, MoveWindow, ShowWindow,
+    SendMessageA, SendMessageW,
 }
 use core { windowHwnd }
 
 class ProgressSlot {
     pub hwnd: HWND
+    pub winHandle: i64
+    pub tooltipHwnd: HWND
     pub min:  f64
     pub max:  f64
-    pub init(hwnd: HWND, min: f64, max: f64) {
+    pub init(hwnd: HWND, winHandle: i64, min: f64, max: f64) {
         this.hwnd = hwnd
+        this.winHandle = winHandle
+        this.tooltipHwnd = 0 as HWND
         this.min  = min
         this.max  = max
     }
@@ -50,7 +56,7 @@ pub fn createNativeProgress(
         0 as *void
     )
     let handle = hwnd as i64
-    PROGRESS[handle] = new ProgressSlot(hwnd, min, max)
+    PROGRESS[handle] = new ProgressSlot(hwnd, windowHandle, min, max)
     // PBM_SETRANGE32 = 0x0406 (wParam = min, lParam = max).
     SendMessageA(hwnd, 0x0406 as u32, min as i64 as u64, max as i64)
     // PBM_SETPOS = 0x0402.
@@ -82,6 +88,66 @@ pub fn setProgressVisible(handle: i64, visible: bool) {
     if let some(slot) = PROGRESS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(slot.hwnd, cmd)
+    }
+}
+pub fn setProgressEnabled(handle: i64, enabled: bool) {
+    if let some(slot) = PROGRESS.get(handle) {
+        let flag: i32 = if enabled { 1 } else { 0 }
+        EnableWindow(slot.hwnd, flag)
+    }
+}
+pub fn setProgressTooltip(handle: i64, text: string) {
+    if let some(slot) = PROGRESS.get(handle) {
+        if text == "" {
+            if slot.tooltipHwnd as i64 != 0 as i64 {
+                let info = TOOLINFOW {
+                    cbSize:     72 as u32,
+                    uFlags:     TTF_IDISHWND,
+                    hwnd:       slot.winHandle as HWND,
+                    uId:        slot.hwnd as u64,
+                    rect:       RECT { left: 0 as i32, top: 0 as i32, right: 0 as i32, bottom: 0 as i32 },
+                    hinst:      0 as HINSTANCE,
+                    lpszText:   0 as *const u16,
+                    lParam:     0 as i64,
+                    lpReserved: 0 as *void,
+                }
+                let p: *const TOOLINFOW = &info
+                SendMessageW(slot.tooltipHwnd, TTM_DELTOOLW, 0 as u64, p as i64)
+            }
+            return
+        }
+        let textW = text.encodeUtf16()
+        let info = TOOLINFOW {
+            cbSize:     72 as u32,
+            uFlags:     TTF_IDISHWND | TTF_SUBCLASS,
+            hwnd:       slot.winHandle as HWND,
+            uId:        slot.hwnd as u64,
+            rect:       RECT { left: 0 as i32, top: 0 as i32, right: 0 as i32, bottom: 0 as i32 },
+            hinst:      0 as HINSTANCE,
+            lpszText:   textW,
+            lParam:     0 as i64,
+            lpReserved: 0 as *void,
+        }
+        let p: *const TOOLINFOW = &info
+        if slot.tooltipHwnd as i64 == 0 as i64 {
+            let classW = "tooltips_class32".encodeUtf16()
+            let hInstance = GetModuleHandleA(0 as *const char)
+            let tt = CreateWindowExW(
+                0,
+                classW,
+                0 as *const u16,
+                (WindowStyle.popup as u32) | TTS_ALWAYSTIP,
+                0, 0, 0, 0,
+                slot.winHandle as HWND,
+                0 as HMENU,
+                hInstance as HINSTANCE,
+                0 as *void
+            )
+            slot.tooltipHwnd = tt
+            SendMessageW(tt, TTM_ADDTOOLW, 0 as u64, p as i64)
+        } else {
+            SendMessageW(slot.tooltipHwnd, TTM_UPDATETIPTEXTW, 0 as u64, p as i64)
+        }
     }
 }
 
