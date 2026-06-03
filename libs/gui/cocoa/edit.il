@@ -3,8 +3,10 @@
 /// contents to the registered callback.
 
 use cocoa {
-    NSObject, NSTextField, NSView, NSWindow, NSEvent, NSEventMask, NSNotification,
+    NSObject, NSTextField, NSText, NSView, NSWindow,
+    NSEvent, NSEventMask, NSNotification,
     NSTrackingArea, NSTrackingAreaOptions,
+    NSRange,
     nsstr, ilstr, makeRect, makeTextField, nil,
     classPtr, setObjectClass,
 }
@@ -75,7 +77,13 @@ class FocusTextField : NSTextField {
             let cb = slot.onFocus
             cb()
         }
-        true
+        // Forward to NSTextField's own becomeFirstResponder so the
+        // field editor actually gets installed — without that
+        // `currentEditor` stays nil and `setSelectedRange:` has
+        // nowhere to write. The super-dispatch fix from
+        // 671d5458 makes this call safe (was the same SIGSEGV
+        // path the old workaround had to dodge).
+        super.becomeFirstResponder()
     }
     /// `mouseDown:` / `mouseUp:` etc. forward the event after
     /// firing our Signal so NSTextField's default machinery —
@@ -387,6 +395,69 @@ pub fn setOnEditMouseWheel(
     cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 ) {
     if let some(slot) = EDITS.get(handle) { slot.onMouseWheel = cb }
+}
+
+/// Internal: hand the field editor wrapped as NSText, or `nil`
+/// when the field isn't focused (no editor allocated yet).
+fn editorOf(slot: EditSlot): NSText {
+    let raw = slot.edit.currentEditor
+    if raw.handle == 0 as i64 {
+        // `NSText.wrap(0)` returns a typed nil — callers compare
+        // .handle before dereferencing.
+        NSText.__wrap_handle_unowned(0 as i64)
+    } else {
+        NSText.__wrap_handle_unowned(raw.handle)
+    }
+}
+
+pub fn selectAllEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        // `selectText:` makes the field first responder and
+        // selects all in one step — the same path AppKit takes
+        // when the user Tab-cycles into the field.
+        slot.edit.selectText(nil)
+    }
+}
+
+pub fn setEditSelection(handle: i64, start: i64, end: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        // The field editor must exist to carry a selection.
+        // Force focus first so AppKit hands one back.
+        let editor0 = editorOf(slot)
+        let editor = if editor0.handle == 0 as i64 {
+            let win = (slot.edit as NSView).window
+            let _ = win.makeFirstResponder(slot.edit as NSObject)
+            editorOf(slot)
+        } else { editor0 }
+        if editor.handle != 0 as i64 {
+            let s = if start < 0 as i64 { 0 as i64 } else { start }
+            let e = if end < s { s } else { end }
+            editor.setSelectedRange(
+                NSRange { location: s as u64, length: (e - s) as u64 }
+            )
+        }
+    }
+}
+
+pub fn getEditSelectionStart(handle: i64): i64 {
+    if let some(slot) = EDITS.get(handle) {
+        let editor = editorOf(slot)
+        if editor.handle == 0 as i64 { return 0 as i64 }
+        editor.selectedRange().location as i64
+    } else {
+        0 as i64
+    }
+}
+
+pub fn getEditSelectionEnd(handle: i64): i64 {
+    if let some(slot) = EDITS.get(handle) {
+        let editor = editorOf(slot)
+        if editor.handle == 0 as i64 { return 0 as i64 }
+        let r = editor.selectedRange()
+        (r.location + r.length) as i64
+    } else {
+        0 as i64
+    }
 }
 pub fn focusEdit(handle: i64) {
     if let some(slot) = EDITS.get(handle) {

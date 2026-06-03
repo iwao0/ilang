@@ -1,6 +1,6 @@
 /// Text + typography — NSTextView / NSFont / NSColor.
 
-use foundation { NSObject, NSString, NSRect, nsstr, makeRect }
+use foundation { NSObject, NSString, NSRange, NSRect, nsstr, makeRect }
 use core { NSView }
 
 @extern(ObjC, "/System/Library/Frameworks/AppKit.framework/AppKit") {
@@ -72,6 +72,20 @@ use core { NSView }
         pub get familyName(): NSString
         @objc("pointSize")
         pub get pointSize(): f64
+    }
+
+    /// `NSText` — Foundation-level text-editing abstract base.
+    /// Concrete instances arrive as `NSTextView`, but the
+    /// selection / `selectAll:` API is declared on `NSText`.
+    /// Bound here so callers can talk to the field editor an
+    /// `NSTextField` hands back from `currentEditor`.
+    @objc pub class NSText : NSView {
+        @objc("selectedRange")
+        pub selectedRange(): NSRange
+        @objc("setSelectedRange:")
+        pub setSelectedRange(r: NSRange)
+        @objc("selectAll:")
+        pub selectAll(sender: NSObject)
     }
 
     /// `NSTextView` — editable multi-line text view. Usually

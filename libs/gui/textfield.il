@@ -22,6 +22,8 @@ use gui_impl {
     setOnEditMouseDown, setOnEditMouseUp, setOnEditContextMenu,
     setOnEditKeyDown, setOnEditKeyUp,
     setOnEditMouseWheel,
+    selectAllEdit, setEditSelection,
+    getEditSelectionStart, getEditSelectionEnd,
     setEditText, setEditFrame,
     setEditEnabled, setEditVisible, setEditTooltip,
     setEditPlaceholder, setEditReadOnly, setEditMaxLength,
@@ -238,6 +240,33 @@ pub class TextField : Control {
     /// `HTMLElement.blur()` semantics). No-op until attached.
     pub blur() {
         if this.handle >= 0 { blurEdit(this.handle) }
+    }
+
+    /// Select the entire contents. Grabs focus on macOS (so the
+    /// field editor is installed and the selection has somewhere
+    /// to live). No-op until the field is attached.
+    pub selectAll() {
+        if this.handle >= 0 { selectAllEdit(this.handle) }
+    }
+
+    /// Set the selection range. `start` / `end` are character
+    /// indices into the UTF-16 form of the text (matching the
+    /// HTML / DOM convention each backend's native API also
+    /// uses). `start == end` collapses the selection to a caret.
+    /// Grabs focus on macOS so the field editor exists. No-op
+    /// until the field is attached.
+    pub setSelection(start: i64, end: i64) {
+        if this.handle >= 0 { setEditSelection(this.handle, start, end) }
+    }
+
+    /// Current selection start. `0` when the field isn't
+    /// focused and no field editor exists yet (macOS) — the
+    /// browser DOM exposes the same reset-on-blur behaviour.
+    pub get selectionStart(): i64 {
+        if this.handle >= 0 { getEditSelectionStart(this.handle) } else { 0 as i64 }
+    }
+    pub get selectionEnd(): i64 {
+        if this.handle >= 0 { getEditSelectionEnd(this.handle) } else { 0 as i64 }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

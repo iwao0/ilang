@@ -8,6 +8,7 @@ use gtk {
     GtkGestureSingle, GtkGestureClick,
     gtk_entry_new, gtk_editable_set_text, gtk_editable_get_text,
     gtk_editable_set_editable,
+    gtk_editable_select_region, gtk_editable_get_selection_bounds,
     gtk_entry_set_placeholder_text, gtk_entry_set_max_length,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
@@ -350,6 +351,34 @@ pub fn setOnEditMouseWheel(
     cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 ) {
     if let some(slot) = EDITS.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn selectAllEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        gtk_editable_select_region(slot.entry, 0 as i32, -1 as i32)
+    }
+}
+pub fn setEditSelection(handle: i64, start: i64, end: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        let s = if start < 0 as i64 { 0 as i64 } else { start }
+        let e = if end < s { s } else { end }
+        gtk_editable_select_region(slot.entry, s as i32, e as i32)
+    }
+}
+pub fn getEditSelectionStart(handle: i64): i64 {
+    if let some(slot) = EDITS.get(handle) {
+        let start: i32[1] = [0 as i32]
+        let end: i32[1] = [0 as i32]
+        gtk_editable_get_selection_bounds(slot.entry, &start[0], &end[0])
+        start[0] as i64
+    } else { 0 as i64 }
+}
+pub fn getEditSelectionEnd(handle: i64): i64 {
+    if let some(slot) = EDITS.get(handle) {
+        let start: i32[1] = [0 as i32]
+        let end: i32[1] = [0 as i32]
+        gtk_editable_get_selection_bounds(slot.entry, &start[0], &end[0])
+        end[0] as i64
+    } else { 0 as i64 }
 }
 pub fn focusEdit(handle: i64) {
     if let some(slot) = EDITS.get(handle) {

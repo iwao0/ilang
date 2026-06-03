@@ -25,11 +25,15 @@ use util {
 use core { windowHwnd, noOp1 }
 
 /// EDIT-control messages. Constants from `winuser.h`.
+/// EM_GETSEL      — fill (start, end) via output u32 pointers.
+/// EM_SETSEL      — set selection to wParam..lParam (-1 = end).
 /// EM_LIMITTEXT   — cap on user-typed character count.
 /// EM_SETREADONLY — wParam = TRUE → block typed edits, retain
 ///                  copy / selection.
 /// EM_SETCUEBANNER — cue-banner (placeholder). wParam = retain
 ///                   when focused?, lParam = wide-char pointer.
+const EM_GETSEL:        u32 = 0x00B0 as u32
+const EM_SETSEL:        u32 = 0x00B1 as u32
 const EM_LIMITTEXT:     u32 = 0x00C5 as u32
 const EM_SETREADONLY:   u32 = 0x00CF as u32
 const EM_SETCUEBANNER:  u32 = 0x1501 as u32
@@ -328,6 +332,34 @@ pub fn setOnEditMouseWheel(
     cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 ) {
     if let some(slot) = EDITS.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn selectAllEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        // EM_SETSEL with wParam = 0 and lParam = -1 selects all.
+        SendMessageW(slot.hwnd, EM_SETSEL, 0 as u64, -1 as i64)
+    }
+}
+pub fn setEditSelection(handle: i64, start: i64, end: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        let s = if start < 0 as i64 { 0 as i64 } else { start }
+        let e = if end < s { s } else { end }
+        SendMessageW(slot.hwnd, EM_SETSEL, s as u64, e as i64)
+    }
+}
+pub fn getEditSelectionStart(handle: i64): i64 {
+    if let some(slot) = EDITS.get(handle) {
+        // EM_GETSEL packs (start, end) into a single DWORD return
+        // (LOWORD / HIWORD). Match the same convention the API
+        // uses on parameterless callers.
+        let r = SendMessageW(slot.hwnd, EM_GETSEL, 0 as u64, 0 as i64) as u64
+        (r & 0xFFFF) as i64
+    } else { 0 as i64 }
+}
+pub fn getEditSelectionEnd(handle: i64): i64 {
+    if let some(slot) = EDITS.get(handle) {
+        let r = SendMessageW(slot.hwnd, EM_GETSEL, 0 as u64, 0 as i64) as u64
+        ((r >> 16) & 0xFFFF) as i64
+    } else { 0 as i64 }
 }
 pub fn focusEdit(handle: i64) {
     if let some(slot) = EDITS.get(handle) { SetFocus(slot.hwnd) }

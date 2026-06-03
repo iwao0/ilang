@@ -115,6 +115,16 @@ pub enum Keyval: u32 {
     /// stays focusable / hit-testable; only typed input is
     /// suppressed.
     @lib pub fn gtk_editable_set_editable(entry: GtkEntry, is_editable: i32)
+    /// Select `[start, end)`; `end = -1` extends to the end of
+    /// the text. Pass `start == end` to collapse the selection
+    /// to a caret at `start`.
+    @lib pub fn gtk_editable_select_region(entry: GtkEntry, start: i32, end: i32)
+    /// Fill `*start` / `*end` with the current selection bounds.
+    /// When no selection exists, both receive the caret position.
+    /// Returns non-zero when there's a real selection.
+    @lib pub fn gtk_editable_get_selection_bounds(
+        entry: GtkEntry, start: *i32, end: *i32
+    ): i32
 
     // ─── GtkComboBoxText (deprecated, generator skips) ────────
 

@@ -148,6 +148,13 @@ pub enum NSDatePickerStyle: u64 {
         /// containing window is the field editor, not this NSTextField.
         @objc("currentEditor")
         pub get currentEditor(): NSObject
+        /// Make the field the first responder, install the shared
+        /// field editor, and select all text in one shot. The
+        /// `sender` argument is the AppKit convention for who
+        /// requested the action; `nil` is the canonical "no real
+        /// sender" path.
+        @objc("selectText:")
+        pub selectText(sender: NSObject)
 
         /// setDelegate overloads. NSTextField accepts either the
         /// text-field-specific protocol or the more general
