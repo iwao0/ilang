@@ -4,7 +4,7 @@
 /// changes.
 
 use std.events { Signal }
-use events { SelectEvent, FocusEvent, BlurEvent }
+use events { SelectEvent, FocusEvent, BlurEvent, MouseEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeList, readListSelectedIndex,
@@ -13,6 +13,9 @@ use gui_impl {
     setListEnabled, setListVisible,
     setListTooltip,
     setOnListFocus, setOnListBlur,
+    setOnListMouseEnter, setOnListMouseLeave,
+    setOnListMouseDown, setOnListMouseUp, setOnListContextMenu,
+    setOnListMouseWheel,
     focusList, blurList,
 }
 
@@ -30,6 +33,12 @@ pub class ListBox : Control {
     pub onSelect: Signal<SelectEvent>
     pub onFocus:  Signal<FocusEvent>
     pub onBlur:   Signal<BlurEvent>
+    pub onMouseEnter:  Signal<MouseEvent>
+    pub onMouseLeave:  Signal<MouseEvent>
+    pub onMouseDown:   Signal<MouseEvent>
+    pub onMouseUp:     Signal<MouseEvent>
+    pub onContextMenu: Signal<MouseEvent>
+    pub onMouseWheel:  Signal<MouseEvent>
 
     pub init() {
         super()
@@ -46,6 +55,12 @@ pub class ListBox : Control {
         this.onSelect   = new Signal<SelectEvent>()
         this.onFocus    = new Signal<FocusEvent>()
         this.onBlur     = new Signal<BlurEvent>()
+        this.onMouseEnter  = new Signal<MouseEvent>()
+        this.onMouseLeave  = new Signal<MouseEvent>()
+        this.onMouseDown   = new Signal<MouseEvent>()
+        this.onMouseUp     = new Signal<MouseEvent>()
+        this.onContextMenu = new Signal<MouseEvent>()
+        this.onMouseWheel  = new Signal<MouseEvent>()
     }
 
     pub addItem(item: string) {
@@ -149,6 +164,32 @@ pub class ListBox : Control {
         setOnListBlur(this.handle, fn() {
             this.onBlur.emit(new BlurEvent(this))
         })
+        setOnListMouseEnter(this.handle, fn(x: f64, y: f64) {
+            this.onMouseEnter.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+        })
+        setOnListMouseLeave(this.handle, fn(x: f64, y: f64) {
+            this.onMouseLeave.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+        })
+        setOnListMouseDown(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onMouseDown.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnListMouseUp(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onMouseUp.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnListContextMenu(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onContextMenu.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnListMouseWheel(this.handle,
+            fn(dx: f64, dy: f64, x: f64, y: f64,
+               ck: bool, sk: bool, ak: bool, mk: bool) {
+                let e = new MouseEvent(this, x, y, 0, ck, sk, ak, mk)
+                e.wheelDx = dx
+                e.wheelDy = dy
+                this.onMouseWheel.emit(e)
+            })
         if this._tooltip != "" { setListTooltip(this.handle, this._tooltip) }
     }
 

@@ -13,7 +13,7 @@
 /// group bits.
 
 use std.events { Signal }
-use events { ToggleEvent, FocusEvent, BlurEvent }
+use events { ToggleEvent, FocusEvent, BlurEvent, MouseEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeRadio, readRadioChecked,
@@ -21,6 +21,9 @@ use gui_impl {
     setRadioFrame, setRadioEnabled, setRadioVisible,
     setRadioTooltip,
     setOnRadioFocus, setOnRadioBlur,
+    setOnRadioMouseEnter, setOnRadioMouseLeave,
+    setOnRadioMouseDown, setOnRadioMouseUp, setOnRadioContextMenu,
+    setOnRadioMouseWheel,
     focusRadio, blurRadio,
 }
 
@@ -44,6 +47,12 @@ pub class RadioButton : Control {
     pub onToggle: Signal<ToggleEvent>
     pub onFocus:  Signal<FocusEvent>
     pub onBlur:   Signal<BlurEvent>
+    pub onMouseEnter:  Signal<MouseEvent>
+    pub onMouseLeave:  Signal<MouseEvent>
+    pub onMouseDown:   Signal<MouseEvent>
+    pub onMouseUp:     Signal<MouseEvent>
+    pub onContextMenu: Signal<MouseEvent>
+    pub onMouseWheel:  Signal<MouseEvent>
 
     pub init() {
         super()
@@ -61,6 +70,12 @@ pub class RadioButton : Control {
         this.onToggle   = new Signal<ToggleEvent>()
         this.onFocus    = new Signal<FocusEvent>()
         this.onBlur     = new Signal<BlurEvent>()
+        this.onMouseEnter  = new Signal<MouseEvent>()
+        this.onMouseLeave  = new Signal<MouseEvent>()
+        this.onMouseDown   = new Signal<MouseEvent>()
+        this.onMouseUp     = new Signal<MouseEvent>()
+        this.onContextMenu = new Signal<MouseEvent>()
+        this.onMouseWheel  = new Signal<MouseEvent>()
     }
 
     pub get text(): string { this._text }
@@ -159,6 +174,32 @@ pub class RadioButton : Control {
         setOnRadioBlur(this.handle, fn() {
             this.onBlur.emit(new BlurEvent(this))
         })
+        setOnRadioMouseEnter(this.handle, fn(x: f64, y: f64) {
+            this.onMouseEnter.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+        })
+        setOnRadioMouseLeave(this.handle, fn(x: f64, y: f64) {
+            this.onMouseLeave.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+        })
+        setOnRadioMouseDown(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onMouseDown.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnRadioMouseUp(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onMouseUp.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnRadioContextMenu(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onContextMenu.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnRadioMouseWheel(this.handle,
+            fn(dx: f64, dy: f64, x: f64, y: f64,
+               ck: bool, sk: bool, ak: bool, mk: bool) {
+                let e = new MouseEvent(this, x, y, 0, ck, sk, ak, mk)
+                e.wheelDx = dx
+                e.wheelDy = dy
+                this.onMouseWheel.emit(e)
+            })
         if this._tooltip != "" { setRadioTooltip(this.handle, this._tooltip) }
     }
 

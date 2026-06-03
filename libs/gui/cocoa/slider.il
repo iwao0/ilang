@@ -2,22 +2,40 @@
 /// callback fires every time the thumb moves, not just on mouse-up.
 
 use cocoa {
-    NSObject, NSSlider, NSView, nsstr, nil, makeRect, makeSlider, selectorPtr,
+    NSObject, NSSlider, NSView, NSEvent,
+    NSTrackingArea, NSTrackingAreaOptions,
+    nsstr, nil, makeRect, makeSlider, selectorPtr,
     classPtr, setObjectClass,
 }
-use core { WINDOWS, noOp1, noOpF64 }
+use core {
+    WINDOWS, noOp1, noOpF64,
+    noOpEnterLeave, noOpClickMod, noOpWheel,
+    modCtrl, modShift, modAlt, modMeta,
+}
 
 class SliderSlot {
     pub slider:   NSSlider
     pub onChange: fn(f64)
     pub onFocus:  fn()
     pub onBlur:   fn()
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
     pub handler:  NSObject
     pub init(slider: NSSlider, handler: NSObject) {
         this.slider = slider
         this.onChange = noOpF64
         this.onFocus  = noOp1
         this.onBlur   = noOp1
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
+        this.onMouseDown  = noOpClickMod
+        this.onMouseUp    = noOpClickMod
+        this.onContextMenu = noOpClickMod
+        this.onMouseWheel = noOpWheel
         this.handler = handler
     }
 }
@@ -45,7 +63,109 @@ class FocusSlider : NSSlider {
         if win.firstResponder.handle != (this as NSView).handle {
             let _ = win.makeFirstResponder(this as NSObject)
         }
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+        let y = (this as NSView).frame.size.height - p.y
+        let flags = e.modifierFlags as u64
+        if let some(slot) = SLIDERS.get((this as NSView).handle) {
+            let cb = slot.onMouseDown
+            cb(p.x, y, 0,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
         super.mouseDown(event)
+    }
+    pub override mouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = SLIDERS.get((this as NSView).handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let cb = slot.onMouseUp
+            cb(p.x, y, 0,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.mouseUp(event)
+    }
+    pub override rightMouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = SLIDERS.get((this as NSView).handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let ck = modCtrl(flags)
+            let sk = modShift(flags)
+            let ak = modAlt(flags)
+            let mk = modMeta(flags)
+            let down = slot.onMouseDown
+            down(p.x, y, 2, ck, sk, ak, mk)
+            let ctx = slot.onContextMenu
+            ctx(p.x, y, 2, ck, sk, ak, mk)
+        }
+        super.rightMouseDown(event)
+    }
+    pub override rightMouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = SLIDERS.get((this as NSView).handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let cb = slot.onMouseUp
+            cb(p.x, y, 2,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.rightMouseUp(event)
+    }
+    pub override otherMouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = SLIDERS.get((this as NSView).handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let cb = slot.onMouseDown
+            cb(p.x, y, 1,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.otherMouseDown(event)
+    }
+    pub override otherMouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = SLIDERS.get((this as NSView).handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let cb = slot.onMouseUp
+            cb(p.x, y, 1,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.otherMouseUp(event)
+    }
+    pub override mouseEntered(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = SLIDERS.get((this as NSView).handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let cb = slot.onMouseEnter
+            cb(p.x, y)
+        }
+    }
+    pub override mouseExited(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = SLIDERS.get((this as NSView).handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let cb = slot.onMouseLeave
+            cb(p.x, y)
+        }
+    }
+    pub scrollWheel(event: NSEvent) {
+        if let some(slot) = SLIDERS.get((this as NSView).handle) {
+            let p = (this as NSView).convertPointFromView(event.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = event.modifierFlags as u64
+            let cb = slot.onMouseWheel
+            cb(event.deltaX, event.deltaY, p.x, y,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
     }
 }
 
@@ -84,6 +204,14 @@ pub fn createNativeSlider(
     if focusCls != 0 as i64 {
         let _ = setObjectClass((s as NSView).handle, focusCls)
     }
+    let opts = NSTrackingAreaOptions.mouseEnteredAndExited
+             | NSTrackingAreaOptions.activeAlways
+             | NSTrackingAreaOptions.inVisibleRect
+    let area = NSTrackingArea.alloc().init(
+        makeRect(0.0, 0.0, width, height), opts,
+        s as NSObject, nil
+    )
+    (s as NSView).addTrackingArea(area as NSObject)
 
     winSlot.win.contentView.addSubview(s as NSView)
 
@@ -141,6 +269,32 @@ pub fn blurSlider(handle: i64) {
             let _ = win.makeFirstResponder(nil)
         }
     }
+}
+pub fn setOnSliderMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnSliderMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnSliderMouseDown(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnSliderMouseUp(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnSliderContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setOnSliderMouseWheel(
+    handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onMouseWheel = cb }
 }
 pub fn setSliderTooltip(handle: i64, text: string) {
     if let some(slot) = SLIDERS.get(handle) {

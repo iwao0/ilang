@@ -4,16 +4,19 @@
 
 use windows {
     HWND, HINSTANCE, HMENU, RECT,
-    WindowStyle, ShowCmd, WindowMessage,
+    WindowStyle, ShowCmd, WindowMessage, TrackMouseFlags, TRACKMOUSEEVENT,
     TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     CreateWindowExW, EnableWindow, MoveWindow, ShowWindow,
-    SetFocus, GetFocus,
+    SetFocus, GetFocus, TrackMouseEvent,
     SendMessageA, SendMessageW,
     SetWindowSubclass, DefSubclassProc,
 }
-use util { applyGuiFont, noOpI32 }
+use util {
+    applyGuiFont, noOpI32,
+    modCtrl, modShift, modAlt, modMeta,
+}
 use core { windowHwnd, noOp1 }
 
 class ComboSlot {
@@ -23,6 +26,13 @@ class ComboSlot {
     pub onSelect: fn(i32)
     pub onFocus:  fn()
     pub onBlur:   fn()
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub mouseTracking: bool
     pub init(hwnd: HWND, winHandle: i64) {
         this.hwnd = hwnd
         this.winHandle = winHandle
@@ -30,8 +40,19 @@ class ComboSlot {
         this.onSelect = noOpI32
         this.onFocus  = noOp1
         this.onBlur   = noOp1
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
+        this.onMouseDown  = noOpClickMod
+        this.onMouseUp    = noOpClickMod
+        this.onContextMenu = noOpClickMod
+        this.onMouseWheel = noOpWheel
+        this.mouseTracking = false
     }
 }
+
+fn noOpEnterLeave(x: f64, y: f64) {}
+fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let COMBOS = new Map<i64, ComboSlot>()
 
@@ -50,6 +71,8 @@ pub fn comboSubclassProc(
     hwnd: i64, msg: u32, wParam: u64, lParam: i64,
     idSubclass: u64, refData: u64
 ): i64 {
+    let lo = (lParam & 0xFFFF) as f64
+    let hi = ((lParam >> 16) & 0xFFFF) as f64
     match msg as WindowMessage {
         WindowMessage.setFocus {
             if let some(slot) = COMBOS.get(hwnd) {
@@ -61,6 +84,81 @@ pub fn comboSubclassProc(
             if let some(slot) = COMBOS.get(hwnd) {
                 let cb = slot.onBlur
                 cb()
+            }
+        }
+        WindowMessage.mouseMove {
+            if let some(slot) = COMBOS.get(hwnd) {
+                if !slot.mouseTracking {
+                    let tme = TRACKMOUSEEVENT {
+                        cbSize:      24 as u32,
+                        dwFlags:     TrackMouseFlags.leave as u32,
+                        hwndTrack:   hwnd as HWND,
+                        dwHoverTime: 0 as u32,
+                    }
+                    TrackMouseEvent(&tme)
+                    slot.mouseTracking = true
+                    let cb = slot.onMouseEnter
+                    cb(lo, hi)
+                }
+            }
+        }
+        WindowMessage.mouseLeave {
+            if let some(slot) = COMBOS.get(hwnd) {
+                slot.mouseTracking = false
+                let cb = slot.onMouseLeave
+                cb(lo, hi)
+            }
+        }
+        WindowMessage.lbuttondown {
+            if let some(slot) = COMBOS.get(hwnd) {
+                let cb = slot.onMouseDown
+                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.lbuttonup {
+            if let some(slot) = COMBOS.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.mButtonDown {
+            if let some(slot) = COMBOS.get(hwnd) {
+                let cb = slot.onMouseDown
+                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.mButtonUp {
+            if let some(slot) = COMBOS.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.rButtonDown {
+            if let some(slot) = COMBOS.get(hwnd) {
+                let ck = modCtrl()
+                let sk = modShift()
+                let ak = modAlt()
+                let mk = modMeta()
+                let cb = slot.onMouseDown
+                cb(lo, hi, 2, ck, sk, ak, mk)
+                let ctx = slot.onContextMenu
+                ctx(lo, hi, 2, ck, sk, ak, mk)
+            }
+        }
+        WindowMessage.rButtonUp {
+            if let some(slot) = COMBOS.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.mouseWheel {
+            if let some(slot) = COMBOS.get(hwnd) {
+                let raw = ((wParam >> 16) & 0xFFFF) as i32
+                let signed = if raw >= 0x8000 as i32 { raw - 0x10000 as i32 } else { raw }
+                let dy = (signed as f64) / 120.0
+                let cb = slot.onMouseWheel
+                cb(0.0, dy, lo, hi,
+                   modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         _ {}
@@ -168,6 +266,32 @@ pub fn setOnComboFocus(handle: i64, cb: fn()) {
 }
 pub fn setOnComboBlur(handle: i64, cb: fn()) {
     if let some(slot) = COMBOS.get(handle) { slot.onBlur = cb }
+}
+pub fn setOnComboMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = COMBOS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnComboMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = COMBOS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnComboMouseDown(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = COMBOS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnComboMouseUp(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = COMBOS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnComboContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = COMBOS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setOnComboMouseWheel(
+    handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = COMBOS.get(handle) { slot.onMouseWheel = cb }
 }
 pub fn focusCombo(handle: i64) {
     if let some(slot) = COMBOS.get(handle) { SetFocus(slot.hwnd) }

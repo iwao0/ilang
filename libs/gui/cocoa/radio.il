@@ -4,22 +4,40 @@
 /// click and lets the core toggle siblings via `setRadioChecked`.
 
 use cocoa {
-    NSObject, NSButton, NSView, nsstr, nil, makeRect, selectorPtr,
+    NSObject, NSButton, NSView, NSEvent,
+    NSTrackingArea, NSTrackingAreaOptions,
+    nsstr, nil, makeRect, selectorPtr,
     classPtr, setObjectClass,
 }
-use core { WINDOWS, noOp1, noOpBool }
+use core {
+    WINDOWS, noOp1, noOpBool,
+    noOpEnterLeave, noOpClickMod, noOpWheel,
+    modCtrl, modShift, modAlt, modMeta,
+}
 
 class RadioSlot {
     pub btn:      NSButton
     pub onToggle: fn(bool)
     pub onFocus:  fn()
     pub onBlur:   fn()
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
     pub handler:  NSObject
     pub init(btn: NSButton, handler: NSObject) {
         this.btn = btn
         this.onToggle = noOpBool
         this.onFocus  = noOp1
         this.onBlur   = noOp1
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
+        this.onMouseDown  = noOpClickMod
+        this.onMouseUp    = noOpClickMod
+        this.onContextMenu = noOpClickMod
+        this.onMouseWheel = noOpWheel
         this.handler = handler
     }
 }
@@ -47,7 +65,109 @@ class FocusRadio : NSButton {
         if win.firstResponder.handle != this.handle {
             let _ = win.makeFirstResponder(this as NSObject)
         }
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+        let y = (this as NSView).frame.size.height - p.y
+        let flags = e.modifierFlags as u64
+        if let some(slot) = RADIOS.get(this.handle) {
+            let cb = slot.onMouseDown
+            cb(p.x, y, 0,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
         super.mouseDown(event)
+    }
+    pub override mouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = RADIOS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let cb = slot.onMouseUp
+            cb(p.x, y, 0,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.mouseUp(event)
+    }
+    pub override rightMouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = RADIOS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let ck = modCtrl(flags)
+            let sk = modShift(flags)
+            let ak = modAlt(flags)
+            let mk = modMeta(flags)
+            let down = slot.onMouseDown
+            down(p.x, y, 2, ck, sk, ak, mk)
+            let ctx = slot.onContextMenu
+            ctx(p.x, y, 2, ck, sk, ak, mk)
+        }
+        super.rightMouseDown(event)
+    }
+    pub override rightMouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = RADIOS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let cb = slot.onMouseUp
+            cb(p.x, y, 2,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.rightMouseUp(event)
+    }
+    pub override otherMouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = RADIOS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let cb = slot.onMouseDown
+            cb(p.x, y, 1,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.otherMouseDown(event)
+    }
+    pub override otherMouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = RADIOS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let cb = slot.onMouseUp
+            cb(p.x, y, 1,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.otherMouseUp(event)
+    }
+    pub override mouseEntered(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = RADIOS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let cb = slot.onMouseEnter
+            cb(p.x, y)
+        }
+    }
+    pub override mouseExited(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = RADIOS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let cb = slot.onMouseLeave
+            cb(p.x, y)
+        }
+    }
+    pub scrollWheel(event: NSEvent) {
+        if let some(slot) = RADIOS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(event.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = event.modifierFlags as u64
+            let cb = slot.onMouseWheel
+            cb(event.deltaX, event.deltaY, p.x, y,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
     }
 }
 
@@ -88,6 +208,14 @@ pub fn createNativeRadio(
     if focusCls != 0 as i64 {
         let _ = setObjectClass((r as NSView).handle, focusCls)
     }
+    let opts = NSTrackingAreaOptions.mouseEnteredAndExited
+             | NSTrackingAreaOptions.activeAlways
+             | NSTrackingAreaOptions.inVisibleRect
+    let area = NSTrackingArea.alloc().init(
+        makeRect(0.0, 0.0, width, height), opts,
+        r as NSObject, nil
+    )
+    (r as NSView).addTrackingArea(area as NSObject)
 
     winSlot.win.contentView.addSubview(r as NSView)
 
@@ -143,6 +271,32 @@ pub fn blurRadio(handle: i64) {
             let _ = win.makeFirstResponder(nil)
         }
     }
+}
+pub fn setOnRadioMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = RADIOS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnRadioMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = RADIOS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnRadioMouseDown(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = RADIOS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnRadioMouseUp(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = RADIOS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnRadioContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = RADIOS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setOnRadioMouseWheel(
+    handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = RADIOS.get(handle) { slot.onMouseWheel = cb }
 }
 pub fn setRadioTooltip(handle: i64, text: string) {
     if let some(slot) = RADIOS.get(handle) {

@@ -9,16 +9,19 @@
 
 use windows {
     HWND, HINSTANCE, HMENU, RECT,
-    WindowStyle, ShowCmd, WindowMessage,
+    WindowStyle, ShowCmd, WindowMessage, TrackMouseFlags, TRACKMOUSEEVENT,
     TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     CreateWindowExW, EnableWindow, MoveWindow, ShowWindow,
-    SetFocus, GetFocus,
+    SetFocus, GetFocus, TrackMouseEvent,
     SendMessageA, SendMessageW,
     SetWindowSubclass, DefSubclassProc,
 }
-use util { noOpF64 }
+use util {
+    noOpF64,
+    modCtrl, modShift, modAlt, modMeta,
+}
 use core { windowHwnd, noOp1 }
 
 class SliderSlot {
@@ -30,6 +33,13 @@ class SliderSlot {
     pub onChange: fn(f64)
     pub onFocus:  fn()
     pub onBlur:   fn()
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub mouseTracking: bool
     pub init(hwnd: HWND, winHandle: i64, min: f64, max: f64) {
         this.hwnd = hwnd
         this.winHandle = winHandle
@@ -39,8 +49,19 @@ class SliderSlot {
         this.onChange = noOpF64
         this.onFocus  = noOp1
         this.onBlur   = noOp1
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
+        this.onMouseDown  = noOpClickMod
+        this.onMouseUp    = noOpClickMod
+        this.onContextMenu = noOpClickMod
+        this.onMouseWheel = noOpWheel
+        this.mouseTracking = false
     }
 }
+
+fn noOpEnterLeave(x: f64, y: f64) {}
+fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let SLIDERS = new Map<i64, SliderSlot>()
 
@@ -65,6 +86,8 @@ pub fn sliderSubclassProc(
     hwnd: i64, msg: u32, wParam: u64, lParam: i64,
     idSubclass: u64, refData: u64
 ): i64 {
+    let lo = (lParam & 0xFFFF) as f64
+    let hi = ((lParam >> 16) & 0xFFFF) as f64
     match msg as WindowMessage {
         WindowMessage.setFocus {
             if let some(slot) = SLIDERS.get(hwnd) {
@@ -76,6 +99,81 @@ pub fn sliderSubclassProc(
             if let some(slot) = SLIDERS.get(hwnd) {
                 let cb = slot.onBlur
                 cb()
+            }
+        }
+        WindowMessage.mouseMove {
+            if let some(slot) = SLIDERS.get(hwnd) {
+                if !slot.mouseTracking {
+                    let tme = TRACKMOUSEEVENT {
+                        cbSize:      24 as u32,
+                        dwFlags:     TrackMouseFlags.leave as u32,
+                        hwndTrack:   hwnd as HWND,
+                        dwHoverTime: 0 as u32,
+                    }
+                    TrackMouseEvent(&tme)
+                    slot.mouseTracking = true
+                    let cb = slot.onMouseEnter
+                    cb(lo, hi)
+                }
+            }
+        }
+        WindowMessage.mouseLeave {
+            if let some(slot) = SLIDERS.get(hwnd) {
+                slot.mouseTracking = false
+                let cb = slot.onMouseLeave
+                cb(lo, hi)
+            }
+        }
+        WindowMessage.lbuttondown {
+            if let some(slot) = SLIDERS.get(hwnd) {
+                let cb = slot.onMouseDown
+                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.lbuttonup {
+            if let some(slot) = SLIDERS.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.mButtonDown {
+            if let some(slot) = SLIDERS.get(hwnd) {
+                let cb = slot.onMouseDown
+                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.mButtonUp {
+            if let some(slot) = SLIDERS.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.rButtonDown {
+            if let some(slot) = SLIDERS.get(hwnd) {
+                let ck = modCtrl()
+                let sk = modShift()
+                let ak = modAlt()
+                let mk = modMeta()
+                let cb = slot.onMouseDown
+                cb(lo, hi, 2, ck, sk, ak, mk)
+                let ctx = slot.onContextMenu
+                ctx(lo, hi, 2, ck, sk, ak, mk)
+            }
+        }
+        WindowMessage.rButtonUp {
+            if let some(slot) = SLIDERS.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.mouseWheel {
+            if let some(slot) = SLIDERS.get(hwnd) {
+                let raw = ((wParam >> 16) & 0xFFFF) as i32
+                let signed = if raw >= 0x8000 as i32 { raw - 0x10000 as i32 } else { raw }
+                let dy = (signed as f64) / 120.0
+                let cb = slot.onMouseWheel
+                cb(0.0, dy, lo, hi,
+                   modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         _ {}
@@ -170,6 +268,32 @@ pub fn setOnSliderFocus(handle: i64, cb: fn()) {
 }
 pub fn setOnSliderBlur(handle: i64, cb: fn()) {
     if let some(slot) = SLIDERS.get(handle) { slot.onBlur = cb }
+}
+pub fn setOnSliderMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnSliderMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnSliderMouseDown(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnSliderMouseUp(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnSliderContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setOnSliderMouseWheel(
+    handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onMouseWheel = cb }
 }
 pub fn focusSlider(handle: i64) {
     if let some(slot) = SLIDERS.get(handle) { SetFocus(slot.hwnd) }
