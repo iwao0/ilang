@@ -42,7 +42,7 @@ const SC_MOVE_CODE: u64 = 0xF010 as u64
 /// command code lives in the upper 12 of the low 16. Mask to
 /// strip the low bits before comparing.
 const SC_MASK: u64      = 0xFFF0 as u64
-use button   { tryButtonClick }
+use button   { tryButtonClick, tryDefaultEnter }
 use checkbox { tryCheckboxToggle }
 use radio    { tryRadioToggle }
 use edit     { tryEditChange }
@@ -198,7 +198,18 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             return 0
         }
         WindowMessage.keydown {
-            dispatchKeyDown(hwnd, vkToString(wParam as u32 as VirtualKey),
+            // Default-button routing: this process's message pump
+            // does not call `IsDialogMessageW`, so Return wouldn't
+            // otherwise activate the button carrying
+            // `BS_DEFPUSHBUTTON`. Fire it explicitly. Only matches
+            // when the parent window itself has focus (a focused
+            // EDIT / BUTTON receives the key on its own HWND first
+            // and never bubbles it here).
+            let vk = wParam as u32 as VirtualKey
+            if vk == VirtualKey.enter {
+                if tryDefaultEnter(hwnd) { return 0 }
+            }
+            dispatchKeyDown(hwnd, vkToString(vk),
                             modCtrl(), modShift(), modAlt(), modMeta())
             return 0
         }

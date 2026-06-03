@@ -6,7 +6,7 @@
 
 use cocoa {
     NSObject, NSButton, NSView,
-    nsstr, makeRect, selectorPtr,
+    nsstr, makeRect, selectorPtr, nil,
 }
 use core { WINDOWS, noOpClick }
 
@@ -18,14 +18,22 @@ class ButtonSlot {
     pub btn:     NSButton
     pub onClick: fn(f64, f64, i32)
     pub handler: NSObject
-    pub init(btn: NSButton, handler: NSObject) {
+    pub winHandle: i64
+    pub init(btn: NSButton, handler: NSObject, winHandle: i64) {
         this.btn = btn
         this.onClick = noOpClick
         this.handler = handler
+        this.winHandle = winHandle
     }
 }
 
 let BUTTONS = new Map<i64, ButtonSlot>()
+
+/// Window handle → current default-button handle. AppKit only lets
+/// one button per window carry `keyEquivalent = "\r"`; this map
+/// tracks which one so a new `isDefault = true` setter can clear
+/// the previous holder.
+let DEFAULT_BUTTONS = new Map<i64, i64>()
 
 class ClickHandler : NSObject {
     pub clicked(sender: NSObject) {
@@ -45,7 +53,7 @@ class ClickHandler : NSObject {
 pub fn createNativeButton(
     windowHandle: i64,
     text: string, x: f64, y: f64, width: f64, height: f64,
-    enabled: bool, visible: bool
+    enabled: bool, visible: bool, isDefault: bool
 ): i64 {
     let winSlot = match WINDOWS.get(windowHandle) {
         some(s) { s }
@@ -64,7 +72,8 @@ pub fn createNativeButton(
     winSlot.win.contentView.addSubview(btn as NSView)
 
     let handle = btn.handle
-    BUTTONS[handle] = new ButtonSlot(btn, h as NSObject)
+    BUTTONS[handle] = new ButtonSlot(btn, h as NSObject, windowHandle)
+    if isDefault { setButtonDefault(handle, true) }
     handle
 }
 
@@ -84,4 +93,33 @@ pub fn setButtonEnabled(handle: i64, enabled: bool) {
 }
 pub fn setButtonVisible(handle: i64, visible: bool) {
     if let some(slot) = BUTTONS.get(handle) { slot.btn.setHidden(!visible) }
+}
+pub fn clickButton(handle: i64) {
+    if let some(slot) = BUTTONS.get(handle) {
+        // `performClick:` runs the configured target/action, which
+        // is our `ClickHandler.clicked:` → forwards to `onClick`.
+        slot.btn.performClick(nil)
+    }
+}
+pub fn setButtonDefault(handle: i64, isDefault: bool) {
+    if let some(slot) = BUTTONS.get(handle) {
+        if isDefault {
+            // Clear the previous holder in the same window so two
+            // buttons never end up both responding to Return.
+            if let some(prev) = DEFAULT_BUTTONS.get(slot.winHandle) {
+                if prev != handle {
+                    if let some(prevSlot) = BUTTONS.get(prev) {
+                        prevSlot.btn.setKeyEquivalent(nsstr(""))
+                    }
+                }
+            }
+            slot.btn.setKeyEquivalent(nsstr("\r"))
+            DEFAULT_BUTTONS[slot.winHandle] = handle
+        } else {
+            slot.btn.setKeyEquivalent(nsstr(""))
+            if let some(cur) = DEFAULT_BUTTONS.get(slot.winHandle) {
+                if cur == handle { DEFAULT_BUTTONS.delete(slot.winHandle) }
+            }
+        }
+    }
 }

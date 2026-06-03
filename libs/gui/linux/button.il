@@ -10,11 +10,12 @@
 
 use std.ffi { cstrFromString }
 use gtk {
-    GtkWidget, GtkButton, GtkFixed, GObject,
+    GtkWidget, GtkButton, GtkFixed, GtkWindow, GObject,
     gtk_button_new_with_label, gtk_button_set_label,
     gtk_fixed_put, gtk_fixed_move, gtk_fixed_remove,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
-    gtk_widget_set_visible,
+    gtk_widget_set_visible, gtk_widget_activate,
+    gtk_widget_set_receives_default, gtk_window_set_default_widget,
     g_signal_connect_data,
 }
 use core { WINDOWS, noOpClick }
@@ -22,14 +23,21 @@ use core { WINDOWS, noOpClick }
 class ButtonSlot {
     pub btn:     GtkButton
     pub fixed:   GtkFixed
+    pub win:     GtkWindow
+    pub winHandle: i64
     pub x:       f64
     pub y:       f64
     pub width:   f64
     pub height:  f64
     pub onClick: fn(f64, f64, i32)
-    pub init(btn: GtkButton, fixed: GtkFixed, x: f64, y: f64, w: f64, h: f64) {
+    pub init(
+        btn: GtkButton, fixed: GtkFixed, win: GtkWindow, winHandle: i64,
+        x: f64, y: f64, w: f64, h: f64
+    ) {
         this.btn = btn
         this.fixed = fixed
+        this.win = win
+        this.winHandle = winHandle
         this.x = x
         this.y = y
         this.width = w
@@ -39,6 +47,12 @@ class ButtonSlot {
 }
 
 let BUTTONS = new Map<i64, ButtonSlot>()
+
+/// Window handle → current default-button handle. GTK's
+/// `set_default_widget` auto-clears the previous default on its
+/// own, but tracking the holder lets `setButtonDefault(_, false)`
+/// know whether to call it with `NULL`.
+let DEFAULT_BUTTONS = new Map<i64, i64>()
 
 @extern(C) {
     pub fn linux_button_clicked(btn: i64, data: i64) {
@@ -60,7 +74,7 @@ let BUTTONS = new Map<i64, ButtonSlot>()
 pub fn createNativeButton(
     windowHandle: i64,
     text: string, x: f64, y: f64, width: f64, height: f64,
-    enabled: bool, visible: bool
+    enabled: bool, visible: bool, isDefault: bool
 ): i64 {
     let winSlot = match WINDOWS.get(windowHandle) {
         some(s) { s }
@@ -88,7 +102,11 @@ pub fn createNativeButton(
     )
 
     let handle = btn as i64
-    BUTTONS[handle] = new ButtonSlot(btn, winSlot.fixed, x, y, width, height)
+    BUTTONS[handle] = new ButtonSlot(
+        btn, winSlot.fixed, winSlot.win, windowHandle,
+        x, y, width, height
+    )
+    if isDefault { setButtonDefault(handle, true) }
     handle
 }
 
@@ -128,6 +146,33 @@ pub fn setButtonVisible(handle: i64, visible: bool) {
             slot.btn as GtkWidget,
             if visible { 1 as i32 } else { 0 as i32 }
         )
+    }
+}
+pub fn clickButton(handle: i64) {
+    if let some(slot) = BUTTONS.get(handle) {
+        // `gtk_widget_activate` fires the "clicked" signal on
+        // GtkButton, which our `linux_button_clicked` handler
+        // routes back to `onClick`.
+        gtk_widget_activate(slot.btn as GtkWidget)
+    }
+}
+pub fn setButtonDefault(handle: i64, isDefault: bool) {
+    if let some(slot) = BUTTONS.get(handle) {
+        if isDefault {
+            gtk_widget_set_receives_default(slot.btn as GtkWidget, 1 as i32)
+            gtk_window_set_default_widget(slot.win, slot.btn as GtkWidget)
+            DEFAULT_BUTTONS[slot.winHandle] = handle
+        } else {
+            gtk_widget_set_receives_default(slot.btn as GtkWidget, 0 as i32)
+            // Clear only if *this* button is still the window's
+            // default; otherwise another button already took over.
+            if let some(cur) = DEFAULT_BUTTONS.get(slot.winHandle) {
+                if cur == handle {
+                    gtk_window_set_default_widget(slot.win, 0 as GtkWidget)
+                    DEFAULT_BUTTONS.delete(slot.winHandle)
+                }
+            }
+        }
     }
 }
 

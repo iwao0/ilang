@@ -20,6 +20,7 @@ use gui_impl {
     createNativeButton,
     setOnButtonClick,
     setButtonText, setButtonFrame, setButtonEnabled, setButtonVisible,
+    setButtonDefault, clickButton,
 }
 
 pub class Button : Control {
@@ -33,6 +34,7 @@ pub class Button : Control {
     _height:    f64
     _isEnabled: bool
     _isVisible: bool
+    _isDefault: bool
     pub onClick: Signal<MouseEvent>
 
     pub init() {
@@ -45,6 +47,7 @@ pub class Button : Control {
         this._height     = 30.0
         this._isEnabled  = true
         this._isVisible  = true
+        this._isDefault  = false
         this.onClick     = new Signal<MouseEvent>()
     }
 
@@ -95,6 +98,18 @@ pub class Button : Control {
         if this.handle >= 0 { setButtonVisible(this.handle, v) }
     }
 
+    /// Marks this button as the window's default — pressing Return
+    /// while the window is focused activates it, and the native
+    /// "default" treatment (pulsing blue on macOS, heavy frame on
+    /// Win32, GTK default frame) is drawn. Setting `true` on a new
+    /// button automatically clears any previous default on the same
+    /// window.
+    pub get isDefault(): bool { this._isDefault }
+    pub set isDefault(v: bool) {
+        this._isDefault = v
+        if this.handle >= 0 { setButtonDefault(this.handle, v) }
+    }
+
     /// Realize the native control under `window`. Called via
     /// `Window.addChild(this)` → `Control.attachTo`; not part of
     /// the public surface the user invokes directly.
@@ -103,7 +118,7 @@ pub class Button : Control {
         this.handle = createNativeButton(
             window.handle,
             this._text, this._x, this._y, this._width, this._height,
-            this._isEnabled, this._isVisible
+            this._isEnabled, this._isVisible, this._isDefault
         )
         // Forward native click → onClick. Native pos is (centre, 0)
         // on macOS and (0, 0) on win32; we surface it as a MouseEvent
@@ -111,6 +126,14 @@ pub class Button : Control {
         setOnButtonClick(this.handle, fn(x: f64, y: f64, b: i32) {
             this.onClick.emit(new MouseEvent(this, x, y, b, false, false, false, false))
         })
+    }
+
+    /// Programmatic click. Animates the native button and runs
+    /// the same target/action path a real mouse click would,
+    /// so any `onClick` listeners fire. No-op until the button
+    /// has been attached to a window.
+    pub click() {
+        if this.handle >= 0 { clickButton(this.handle) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

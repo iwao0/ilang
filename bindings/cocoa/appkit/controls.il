@@ -86,6 +86,18 @@ pub enum NSDatePickerStyle: u64 {
         pub setEnabled(flag: bool)
         @objc("isEnabled")
         pub get isEnabled(): bool
+        /// Setting the key equivalent to `"\r"` (Return) makes this
+        /// button the window's default — AppKit then draws the
+        /// pulsing-blue treatment and activates the button when the
+        /// user presses Return while the window is key. Pass `""` to
+        /// clear it.
+        @objc("setKeyEquivalent:")
+        pub setKeyEquivalent(s: NSString)
+        /// Programmatic click. Animates the button briefly and
+        /// invokes the configured target/action. Pass `nil` as
+        /// `sender` for the canonical "no real sender" case.
+        @objc("performClick:")
+        pub performClick(sender: NSObject)
     }
 
     /// NSTextField. Doubles as both an editable text input and a
