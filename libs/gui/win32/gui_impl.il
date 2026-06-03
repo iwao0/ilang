@@ -15,6 +15,7 @@ pub use core.*
 pub use button.*
 pub use label.*
 pub use edit.*
+pub use textarea.*
 pub use checkbox.*
 pub use radio.*
 pub use slider.*

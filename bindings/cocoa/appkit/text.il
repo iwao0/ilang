@@ -86,6 +86,15 @@ use core { NSView }
         pub setSelectedRange(r: NSRange)
         @objc("selectAll:")
         pub selectAll(sender: NSObject)
+        @objc("setEditable:")
+        pub setEditable(flag: bool)
+        @objc("setSelectable:")
+        pub setSelectable(flag: bool)
+        /// `NSTextDelegate` protocol target. Hand any `NSObject`
+        /// subclass that responds to `textDidChange:` /
+        /// `textDidBeginEditing:` / `textDidEndEditing:`.
+        @objc("setDelegate:")
+        pub setDelegate(d: NSObject)
     }
 
     /// `NSTextView` — editable multi-line text view. Usually

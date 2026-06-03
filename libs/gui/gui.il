@@ -37,6 +37,7 @@ pub use box.*
 pub use button.*
 pub use label.*
 pub use textfield.*
+pub use textarea.*
 pub use checkbox.*
 pub use radio.*
 pub use slider.*
