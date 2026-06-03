@@ -662,9 +662,9 @@ pub fn isNativeWindowModal(handle: i64): bool {
 /// quits the loop on the close path.
 pub fn runNativeWindowModal(handle: i64) {
     if let some(slot) = WINDOWS.get(handle) {
-        let loop = g_main_loop_new(0 as *void, 0 as i32)
-        slot.modalLoopRaw = loop as i64
-        g_main_loop_run(loop)
+        let ml = g_main_loop_new(0 as *void, 0 as i32)
+        slot.modalLoopRaw = ml as i64
+        g_main_loop_run(ml)
         slot.modalLoopRaw = 0 as i64
     }
 }
