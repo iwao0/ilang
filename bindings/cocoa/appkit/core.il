@@ -88,6 +88,18 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub requestUserAttention(type: i64): i64
         @objc("cancelUserAttentionRequest:")
         pub cancelUserAttentionRequest(id: i64)
+        /// `runModalForWindow:` runs an app-modal session around
+        /// `window` — the current thread enters a nested run-loop
+        /// that returns only after `stopModal` (or
+        /// `stopModalWithCode:`) is called. Returns the modal
+        /// code passed to the stop call (`0` = `NSModalResponse
+        /// OK` by convention).
+        @objc("runModalForWindow:")
+        pub runModalForWindow(window: NSWindow): i64
+        @objc("stopModal")
+        pub stopModal()
+        @objc("stopModalWithCode:")
+        pub stopModalWithCode(code: i64)
         /// The Dock tile representing this app. Lazy — AppKit
         /// vends the same instance on every call. Use the
         /// `setContentView:` / `display` pair to host a custom
@@ -323,6 +335,16 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub get alphaValue(): f64
         @objc("setAlphaValue:")
         pub setAlphaValue(v: f64)
+        /// Establish a parent / child window relationship. `child`
+        /// rides along with the receiver: minimising the parent
+        /// hides the child, moving the parent moves the child by
+        /// the same delta. `place` is `NSWindowOrderingMode`
+        /// (`1` = above, `-1` = below, `0` = remove from
+        /// ordering). The matching `removeChildWindow:` undoes it.
+        @objc("addChildWindow:ordered:")
+        pub addChildWindow(child: NSWindow, ordered: i64)
+        @objc("removeChildWindow:")
+        pub removeChildWindow(child: NSWindow)
         /// Move the frame's origin (bottom-left in screen
         /// coordinates) to `p` without changing the size.
         @objc("setFrameOrigin:")

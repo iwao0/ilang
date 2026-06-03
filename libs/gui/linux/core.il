@@ -43,6 +43,13 @@ pub class WindowSlot {
     pub wasActive:     bool
     pub isMovable:     bool
     pub isAlwaysOnTop: bool
+    pub parentHandle:  i64
+    pub isModal:       bool
+    /// Per-window nested GMainLoop for modal sessions. `0` while
+    /// the window is non-modal or hasn't been `show()`n
+    /// modally; populated by `runNativeWindowModal` and quit
+    /// from `linux_window_destroy`.
+    pub modalLoopRaw:  i64
     /// Geometry / position state. GTK4 dropped the per-window
     /// position APIs (no `gtk_window_move`, no
     /// `gtk_window_get_position`), and has no built-in upper
@@ -81,6 +88,9 @@ pub class WindowSlot {
         this.wasActive         = false
         this.isMovable         = true
         this.isAlwaysOnTop     = false
+        this.parentHandle      = 0 as i64
+        this.isModal           = false
+        this.modalLoopRaw      = 0 as i64
         this.posX              = 0.0
         this.posY              = 0.0
         this.minW              = 0.0

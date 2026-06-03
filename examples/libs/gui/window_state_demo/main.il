@@ -10,6 +10,9 @@
 //        when the app is already active) / `flashFrame(false)`.
 // Row 6: `setProgressBar(0.33 / 0.67 / -1)` — draws a horizontal
 //        progress bar over the Dock tile. Clear restores the icon.
+// Row 7: `Open Modal` — spawns a child window with `setParentWindow`
+//        + `setModal(true)`. `child.show()` BLOCKS until the user
+//        closes the child; the status label updates on return.
 // Status label below reflects the most recent fired event.
 //
 // (`Restore` has no button — once iconified, none of its own
@@ -25,7 +28,7 @@ fn run(): i64 {
     let w = new gui.Window()
     w.title  = "ilang gui × window state"
     w.width  = 600.0
-    w.height = 400.0
+    w.height = 440.0
 
     let v = new gui.VBox()
     v.dock = gui.Dock.fill
@@ -243,6 +246,34 @@ fn run(): i64 {
     bProgClear.margin = new gui.Margin(4.0)
     bProgClear.onClick.add(fn(e: gui.MouseEvent) { w.setProgressBar(-1.0) })
     prog.addChild(bProgClear)
+
+    // Modal row — opens a child window, marks it modal against
+    // this one, and lets `child.show()` block until close.
+    let modal = new gui.HBox()
+    modal.height = 36.0
+    modal.margin = new gui.Margin(4.0)
+    v.addChild(modal)
+
+    let bModal = new gui.Button()
+    bModal.text   = "Open Modal"
+    bModal.flex   = 1.0
+    bModal.margin = new gui.Margin(4.0)
+    bModal.onClick.add(fn(e: gui.MouseEvent) {
+        let child = new gui.Window()
+        child.title  = "Modal child"
+        child.width  = 320.0
+        child.height = 160.0
+        let lbl = new gui.Label()
+        lbl.text   = "I'm modal. Close me to continue."
+        lbl.dock   = gui.Dock.fill
+        lbl.margin = new gui.Margin(16.0)
+        child.addChild(lbl)
+        child.setParentWindow(some(w))
+        child.setModal(true)
+        child.show()   // BLOCKS until the user closes `child`
+        console.log("modal closed")
+    })
+    modal.addChild(bModal)
 
     let status = new gui.Label()
     status.text   = "(no state event yet)"

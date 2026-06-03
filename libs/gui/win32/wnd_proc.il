@@ -145,6 +145,17 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             return 0
         }
         WindowMessage.destroy {
+            // Modal windows ride a nested message pump in
+            // `runNativeWindowModal`; signalling it via
+            // `modalLoopExit` lets the surrounding non-modal
+            // event loop keep running. Non-modal windows still
+            // post `WM_QUIT` which ends the outer pump.
+            if let some(slot) = WINDOWS.get(hwnd) {
+                if slot.isModal {
+                    slot.modalLoopExit = true
+                    return 0
+                }
+            }
             PostQuitMessage(0)
             return 0
         }

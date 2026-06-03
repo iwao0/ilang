@@ -22,7 +22,7 @@ use windows {
     GetWindowRect, AdjustWindowRectEx, GetMenu,
     GetSystemMetrics, GetSystemMenu, EnableMenuItem,
     SetForegroundWindow, GetForegroundWindow,
-    BringWindowToTop, SetActiveWindow,
+    BringWindowToTop, SetActiveWindow, EnableWindow,
     SetLayeredWindowAttributes, WindowStyleEx, LayeredWindowFlags,
     FlashWindowEx, FLASHWINFO, FlashWindowFlags,
     CoInitializeEx, CoCreateInstance, CoInit, ClsCtx,
@@ -487,6 +487,83 @@ pub fn flashNativeWindow(handle: i64, on: bool) {
             dwTimeout: 0 as u32,
         }
         FlashWindowEx(&info)
+    }
+}
+
+// ─── parent / modal ────────────────────────────────────────────
+
+/// `GWLP_HWNDPARENT` on a top-level window sets the OWNER (Win32
+/// terminology — `SetParent` would re-parent as a CHILD which is
+/// the wrong shape for modal dialogs). Owner relationships make
+/// the child stack above the owner and follow its minimise /
+/// foreground state.
+pub fn setNativeWindowParent(handle: i64, parentHandle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let parentHwnd: HWND = if parentHandle != 0 as i64 {
+            if let some(parent) = WINDOWS.get(parentHandle) {
+                parent.hwnd
+            } else {
+                0 as HWND
+            }
+        } else {
+            0 as HWND
+        }
+        SetWindowLongPtrW(
+            slot.hwnd, WindowLongIndex.hwndparent as i32, parentHwnd as i64
+        )
+        slot.parentHandle = parentHandle
+    }
+}
+
+pub fn setNativeWindowModal(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.isModal = on
+    }
+}
+pub fn isNativeWindowModal(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) { slot.isModal } else { false }
+}
+
+/// Run a nested Win32 message pump until this window is closed.
+/// Disables the owner for the duration so input goes only to the
+/// modal window; re-enables on exit. `wnd_proc.guiWndProc` sets
+/// `slot.modalLoopExit` from `WM_DESTROY` so this loop bails on
+/// the close path.
+pub fn runNativeWindowModal(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let parentHwnd: HWND = if slot.parentHandle != 0 as i64 {
+            if let some(parent) = WINDOWS.get(slot.parentHandle) {
+                parent.hwnd
+            } else {
+                0 as HWND
+            }
+        } else {
+            0 as HWND
+        }
+        if (parentHwnd as i64) != 0 as i64 {
+            EnableWindow(parentHwnd, 0 as i32)
+        }
+        slot.modalLoopExit = false
+        let msg = MSG {
+            hwnd:     0 as HWND,
+            message:  0,
+            wParam:   0,
+            lParam:   0,
+            time:     0,
+            pt:       POINT { x: 0, y: 0 },
+            lPrivate: 0,
+        }
+        loop {
+            if slot.modalLoopExit { break }
+            let r = GetMessageW(&msg, 0 as HWND, 0, 0)
+            if r <= 0 { break }
+            TranslateMessage(&msg)
+            DispatchMessageW(&msg)
+        }
+        if (parentHwnd as i64) != 0 as i64 {
+            EnableWindow(parentHwnd, 1 as i32)
+            SetForegroundWindow(parentHwnd)
+        }
     }
 }
 

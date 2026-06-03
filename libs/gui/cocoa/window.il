@@ -436,6 +436,47 @@ fn clearDockProgress() {
     tile.display()
 }
 
+// ─── parent / modal ────────────────────────────────────────────
+
+/// Detach `child` from a previous parent (if any), then attach
+/// to `parent` via `addChildWindow:ordered:`. Passing
+/// `parentHandle == 0` clears the relationship entirely.
+pub fn setNativeWindowParent(handle: i64, parentHandle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        if slot.parentHandle != 0 as i64 {
+            if let some(prev) = WINDOWS.get(slot.parentHandle) {
+                prev.win.removeChildWindow(slot.win)
+            }
+        }
+        slot.parentHandle = parentHandle
+        if parentHandle != 0 as i64 {
+            if let some(parent) = WINDOWS.get(parentHandle) {
+                // `1` = `NSWindowAbove`. The child rides above
+                // the parent and tracks its move / minimise.
+                parent.win.addChildWindow(slot.win, 1 as i64)
+            }
+        }
+    }
+}
+
+pub fn setNativeWindowModal(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.isModal = on
+    }
+}
+pub fn isNativeWindowModal(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) { slot.isModal } else { false }
+}
+
+/// Enter a nested modal run-loop hosted by this window. Blocks
+/// until `windowWillClose:` calls `[NSApp stopModal]` (see
+/// `GuiDelegate.windowWillClose` in `core.il`).
+pub fn runNativeWindowModal(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        sharedApplication().runModalForWindow(slot.win)
+    }
+}
+
 /// Electron-style `progress` semantics:
 ///   * `progress < 0`     — clear the bar, restore the icon
 ///   * `0.0 <= p <= 1.0`  — fractional progress, drawn as a

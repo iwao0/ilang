@@ -55,6 +55,9 @@ use gui_impl {
     getNativeWindowMaxWidth, getNativeWindowMaxHeight,
     flashNativeWindow,
     setNativeWindowProgressBar,
+    setNativeWindowParent,
+    setNativeWindowModal, isNativeWindowModal,
+    runNativeWindowModal,
     setOnClose,
     setOnResize,
     setOnKeyDown,
@@ -247,6 +250,10 @@ pub class Window : Container {
     pub onShow:             Signal<ShowEvent>
     pub onHide:             Signal<HideEvent>
     pub onMove:             Signal<MoveEvent>
+    /// Parent window kept around for `parentWindow()` lookups —
+    /// the native layer only stores the handle, so the public
+    /// getter rides this slot instead of going through the OS.
+    _parent: Window?
 
     pub init() {
         super()
@@ -276,6 +283,7 @@ pub class Window : Container {
         this.onShow             = new Signal<ShowEvent>()
         this.onHide             = new Signal<HideEvent>()
         this.onMove             = new Signal<MoveEvent>()
+        this._parent            = none
         // Forward native callbacks to each Signal. The closures
         // capture `this` so the same Window flows through as
         // `event.sender`.
@@ -363,9 +371,19 @@ pub class Window : Container {
     /// after the native call returns — there's no OS hook for
     /// "the window became visible", so external means (e.g. the
     /// user clicking the Dock icon) won't trigger it.
+    ///
+    /// When the window is marked modal (`setModal(true)`),
+    /// `show()` BLOCKS — it returns only after the user closes
+    /// the modal window. macOS uses `NSApp.runModalForWindow:`,
+    /// Win32 disables the owner and runs a nested message pump,
+    /// GTK4 nests a GMainLoop on top of the WM-enforced input
+    /// grab. Non-modal windows return immediately as before.
     pub show() {
         showNativeWindow(this.handle)
         this.onShow.emit(new ShowEvent(this))
+        if isNativeWindowModal(this.handle) {
+            runNativeWindowModal(this.handle)
+        }
     }
 
     /// Hide the window without destroying it. The HWND / NSWindow
@@ -554,6 +572,30 @@ pub class Window : Container {
     pub flashFrame(on: bool) {
         flashNativeWindow(this.handle, on)
     }
+
+    /// Attach to another `Window` as a child / transient.
+    /// `setParentWindow(none)` detaches. macOS uses
+    /// `addChildWindow:ordered:`, Win32 sets `GWLP_HWNDPARENT`,
+    /// GTK4 uses `gtk_window_set_transient_for`. The relationship
+    /// makes the child track the parent's z-order, minimise
+    /// state, and (for modal windows) sit on top of it.
+    pub setParentWindow(parent: Window?) {
+        this._parent = parent
+        let parentHandle: i64 = match parent {
+            some(p) { p.handle }
+            none    { 0 as i64 }
+        }
+        setNativeWindowParent(this.handle, parentHandle)
+    }
+    pub parentWindow(): Window? { this._parent }
+
+    /// Mark the window as modal. The flag is consulted by
+    /// `show()`: a modal window enters a nested OS run-loop and
+    /// `show()` returns only when the user closes it. Pair with
+    /// `setParentWindow(parent)` so the OS knows which window's
+    /// input to block while the modal is up.
+    pub setModal(on: bool) { setNativeWindowModal(this.handle, on) }
+    pub isModal(): bool    { isNativeWindowModal(this.handle) }
 
     /// Show task progress on the OS task-bar / Dock affordance.
     /// `progress < 0` clears, `0.0..=1.0` is a fractional bar,

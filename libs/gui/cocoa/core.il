@@ -50,6 +50,13 @@ pub class WindowSlot {
     /// `flashFrame(false)` can hand it back to
     /// `cancelUserAttentionRequest:`. `0` = no active request.
     pub flashRequestId:    i64
+    /// Parent window's handle (i64). `0` = no parent. Used by
+    /// `setNativeWindowParent` to call `addChildWindow:` on the
+    /// previous parent's slot on detach, and by the close-
+    /// handler path to call `[NSApp stopModal]` only when the
+    /// dying window is actually the modal session's host.
+    pub parentHandle:      i64
+    pub isModal:           bool
 
     pub init(win: NSWindow, delegate: NSObject, view: NSObject, viewHandle: i64) {
         this.win               = win
@@ -74,6 +81,8 @@ pub class WindowSlot {
         this.onMove            = noOp2
         this.wasZoomed         = false
         this.flashRequestId    = 0 as i64
+        this.parentHandle      = 0 as i64
+        this.isModal           = false
     }
 }
 
@@ -182,6 +191,14 @@ pub fn keyCodeToEnum(k: KeyCode): events.KeyCode {
 pub class GuiDelegate : NSObject {
     pub windowWillClose(n: NSNotification) {
         if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
+            // If this window is hosting an active modal session,
+            // tell `NSApp` to break out of `runModalForWindow:`
+            // before firing user-side `onClose`. Otherwise the
+            // caller of `Window.show()` is stuck inside the
+            // nested run-loop and never returns.
+            if slot.isModal {
+                NSApplication.sharedApplication().stopModal()
+            }
             let cb = slot.onClose
             cb()
         }

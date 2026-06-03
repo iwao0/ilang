@@ -21,6 +21,7 @@ use gtk {
     gtk_window_set_resizable, gtk_window_get_resizable,
     gtk_window_set_deletable, gtk_window_get_deletable,
     gtk_window_is_active,
+    gtk_window_set_modal, gtk_window_set_transient_for,
     gtk_widget_set_visible, gtk_widget_set_size_request,
     gtk_widget_get_width, gtk_widget_get_height,
     gtk_widget_set_opacity, gtk_widget_get_opacity,
@@ -112,6 +113,13 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
 @extern(C) {
     pub fn linux_window_destroy(win: i64, data: i64) {
         if let some(slot) = WINDOWS.get(win) {
+            // If this window is hosting a nested modal loop,
+            // quit it before the slot evaporates so
+            // `runNativeWindowModal` returns to its caller and
+            // the surrounding `Window.show()` finishes.
+            if slot.modalLoopRaw != 0 as i64 {
+                g_main_loop_quit(slot.modalLoopRaw as GMainLoop)
+            }
             let cb = slot.onClose
             cb()
             WINDOWS.delete(win)
@@ -618,6 +626,48 @@ pub fn flashNativeWindow(handle: i64, on: bool) {}
 /// dependency. Public-API signature only for cross-platform
 /// parity — call is a no-op on Linux.
 pub fn setNativeWindowProgressBar(handle: i64, progress: f64) {}
+
+// ─── parent / modal ────────────────────────────────────────────
+
+pub fn setNativeWindowParent(handle: i64, parentHandle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let parent: GtkWindow = if parentHandle != 0 as i64 {
+            if let some(p) = WINDOWS.get(parentHandle) {
+                p.win
+            } else {
+                0 as i64 as GtkWindow
+            }
+        } else {
+            0 as i64 as GtkWindow
+        }
+        gtk_window_set_transient_for(slot.win, parent)
+        slot.parentHandle = parentHandle
+    }
+}
+
+pub fn setNativeWindowModal(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.isModal = on
+        gtk_window_set_modal(slot.win, if on { 1 as i32 } else { 0 as i32 })
+    }
+}
+pub fn isNativeWindowModal(handle: i64): bool {
+    if let some(slot) = WINDOWS.get(handle) { slot.isModal } else { false }
+}
+
+/// Spin a nested GMainLoop until the modal window is closed.
+/// GTK4's `set_modal(true)` already grabs input at the WM level;
+/// the nested loop here is what makes `Window.show()` BLOCK
+/// (matching the macOS / Win32 behaviour). `linux_window_destroy`
+/// quits the loop on the close path.
+pub fn runNativeWindowModal(handle: i64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let loop = g_main_loop_new(0 as *void, 0 as i32)
+        slot.modalLoopRaw = loop as i64
+        g_main_loop_run(loop)
+        slot.modalLoopRaw = 0 as i64
+    }
+}
 
 pub fn setNativeWindowOpacity(handle: i64, v: f64) {
     if let some(slot) = WINDOWS.get(handle) {

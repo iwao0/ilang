@@ -53,6 +53,12 @@ pub class WindowSlot {
     pub isMovable:         bool
     pub isAlwaysOnTop:     bool
     pub opacity:           f64
+    pub parentHandle:      i64
+    pub isModal:           bool
+    /// Set by `wnd_proc` when this window is destroyed so the
+    /// modal message-pump loop in `runNativeWindowModal` knows
+    /// to bail. Stays `false` for non-modal windows.
+    pub modalLoopExit:     bool
     /// User-supplied content-size constraints. `minW/H` of `0`
     /// = "no minimum"; `hasMaxSize == false` = "no maximum".
     /// `WM_GETMINMAXINFO` reads these and translates content
@@ -89,6 +95,9 @@ pub class WindowSlot {
         this.isMovable         = true
         this.isAlwaysOnTop     = false
         this.opacity           = 1.0
+        this.parentHandle      = 0 as i64
+        this.isModal           = false
+        this.modalLoopExit     = false
         this.minW              = 0.0
         this.minH              = 0.0
         this.maxW              = 0.0
