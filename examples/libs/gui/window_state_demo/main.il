@@ -19,7 +19,7 @@
 //   cargo run -p ilang -- run examples/libs/gui/window_state_demo/main.il
 
 use gui
-use cocoa { NSTimer }
+use std.time { setTimeout }
 
 fn run(): i64 {
     let w = new gui.Window()
@@ -203,9 +203,7 @@ fn run(): i64 {
     bFlash.flex   = 1.0
     bFlash.margin = new gui.Margin(4.0)
     bFlash.onClick.add(fn(e: gui.MouseEvent) {
-        let timer = NSTimer.scheduledTimer(3.0, false, fn(t: i64) {
-            w.flashFrame(true)
-        })
+        let id = setTimeout(fn() { w.flashFrame(true) }, 3000)
     })
     attn.addChild(bFlash)
 

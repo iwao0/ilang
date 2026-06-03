@@ -58,6 +58,7 @@ pub mod sets;
 pub mod test_externs;
 pub mod test_helpers;
 pub mod time;
+pub mod timers;
 pub mod tuples;
 
 // Re-exports — keep the historical `ilang_runtime::xxx` flat API so

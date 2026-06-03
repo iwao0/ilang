@@ -58,6 +58,14 @@ fn time_parse_iso(s: string): i64[]
 fn time_to_iso(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, offsetMin: i64): string
 @intrinsic("time.format")
 fn time_format(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, ms: i64, weekday: i64, offsetMin: i64, fmt: string): string
+@intrinsic("time.set_timeout")
+fn time_set_timeout(ms: i64, callback: fn()): i64
+@intrinsic("time.clear_timeout")
+fn time_clear_timeout(id: i64)
+@intrinsic("time.set_interval")
+fn time_set_interval(ms: i64, callback: fn()): i64
+@intrinsic("time.clear_interval")
+fn time_clear_interval(id: i64)
 
 /// Current wall-clock instant as Unix-epoch milliseconds.
 pub fn now(): i64 { time_now_ms() }
@@ -79,6 +87,33 @@ pub fn monotonicNs(): i64 { time_monotonic_ns() }
 /// `ms <= 0`. The actual sleep length is at least `ms` but the
 /// OS may wake later — don't use this for sub-millisecond timing.
 pub fn sleep(ms: i64) { time_sleep_ms(ms) }
+
+/// Schedule `callback` to run once after `ms` milliseconds. Returns
+/// a non-zero id; pass it to `clearTimeout` to cancel before the
+/// timer fires. Callbacks run on the shared pool worker threads —
+/// the runtime drains pending timers at the program-end so a
+/// scheduled `setTimeout` reliably fires before the process exits.
+/// Argument order mirrors JavaScript's `setTimeout(fn, ms)`.
+pub fn setTimeout(callback: fn(), ms: i64): i64 {
+    time_set_timeout(ms, callback)
+}
+
+/// Cancel a pending `setTimeout`. No-op for unknown or already-
+/// fired ids.
+pub fn clearTimeout(id: i64) { time_clear_timeout(id) }
+
+/// Schedule `callback` to run every `ms` milliseconds until
+/// `clearInterval(id)` cancels it. The first firing is `ms` after
+/// the call (not immediate). An uncleared interval keeps the
+/// process alive — matches Node.js semantics.
+pub fn setInterval(callback: fn(), ms: i64): i64 {
+    time_set_interval(ms, callback)
+}
+
+/// Cancel a `setInterval` schedule. Same id space as
+/// `clearTimeout`, but the name is kept distinct for parity with
+/// JavaScript's API.
+pub fn clearInterval(id: i64) { time_clear_interval(id) }
 
 /// Broken-down calendar time at a specific UTC offset. Stores
 /// wall-clock components plus the offset they're interpreted
