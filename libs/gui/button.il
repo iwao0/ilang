@@ -184,9 +184,10 @@ pub class Button : Control {
         // Forward native click → onClick. Native pos is (centre, 0)
         // on macOS and (0, 0) on win32; we surface it as a MouseEvent
         // with `sender = this` for downcast.
-        setOnButtonClick(this.handle, fn(x: f64, y: f64, b: i32) {
-            this.onClick.emit(new MouseEvent(this, x, y, b, false, false, false, false))
-        })
+        setOnButtonClick(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onClick.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
         setOnButtonFocus(this.handle, fn() {
             this.onFocus.emit(new FocusEvent(this))
         })
@@ -199,15 +200,18 @@ pub class Button : Control {
         setOnButtonMouseLeave(this.handle, fn(x: f64, y: f64) {
             this.onMouseLeave.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
         })
-        setOnButtonMouseDown(this.handle, fn(x: f64, y: f64, b: i32) {
-            this.onMouseDown.emit(new MouseEvent(this, x, y, b, false, false, false, false))
-        })
-        setOnButtonMouseUp(this.handle, fn(x: f64, y: f64, b: i32) {
-            this.onMouseUp.emit(new MouseEvent(this, x, y, b, false, false, false, false))
-        })
-        setOnButtonContextMenu(this.handle, fn(x: f64, y: f64, b: i32) {
-            this.onContextMenu.emit(new MouseEvent(this, x, y, b, false, false, false, false))
-        })
+        setOnButtonMouseDown(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onMouseDown.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnButtonMouseUp(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onMouseUp.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnButtonContextMenu(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onContextMenu.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
         setOnButtonKeyDown(this.handle,
             fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
                 this.onKeyDown.emit(new KeyEvent(this, c, ck, sk, ak, mk))

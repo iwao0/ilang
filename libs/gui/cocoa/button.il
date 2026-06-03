@@ -22,14 +22,14 @@ use events { KeyCode }
 /// click-handler-side sender lookup are O(1) Map gets.
 class ButtonSlot {
     pub btn:     NSButton
-    pub onClick: fn(f64, f64, i32)
+    pub onClick: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onFocus: fn()
     pub onBlur:  fn()
     pub onMouseEnter: fn(f64, f64)
     pub onMouseLeave: fn(f64, f64)
-    pub onMouseDown:  fn(f64, f64, i32)
-    pub onMouseUp:    fn(f64, f64, i32)
-    pub onContextMenu: fn(f64, f64, i32)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
@@ -37,14 +37,14 @@ class ButtonSlot {
     pub winHandle: i64
     pub init(btn: NSButton, handler: NSObject, winHandle: i64) {
         this.btn = btn
-        this.onClick = noOpClick
+        this.onClick = noOpClickMod
         this.onFocus = noOp1
         this.onBlur  = noOp1
         this.onMouseEnter = noOpEnterLeave
         this.onMouseLeave = noOpEnterLeave
-        this.onMouseDown  = noOpClick
-        this.onMouseUp    = noOpClick
-        this.onContextMenu = noOpClick
+        this.onMouseDown  = noOpClickMod
+        this.onMouseUp    = noOpClickMod
+        this.onContextMenu = noOpClickMod
         this.onKeyDown = noOpKey
         this.onKeyUp   = noOpKey
         this.onMouseWheel = noOpWheel
@@ -55,6 +55,7 @@ class ButtonSlot {
 
 fn noOpEnterLeave(x: f64, y: f64) {}
 fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let BUTTONS = new Map<i64, ButtonSlot>()
 
@@ -70,11 +71,17 @@ class ClickHandler : NSObject {
             let f = slot.btn.frame
             // Cocoa target/action carries no cursor position; pass
             // the button's centre so the MouseEvent has something
-            // sensible.
+            // sensible. Modifiers come from `+[NSEvent modifierFlags]`
+            // — the action callback has no NSEvent but the current
+            // modifier state is queryable. Covers `performClick:`
+            // (our `clickButton()` entrypoint) and the AppKit
+            // Enter-on-default-button path.
+            let flags = NSEvent.currentModifierFlags as u64
             let cb = slot.onClick
             cb(f.origin.x + f.size.width / 2.0,
                f.origin.y + f.size.height / 2.0,
-               0)
+               0,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
 }
@@ -143,8 +150,10 @@ class FocusButton : NSButton {
             // AppKit's bottom-left origin to W3C top-left so the
             // value matches the existing onClick payload.
             let y = this.frame.size.height - p.y
+            let flags = e.modifierFlags as u64
             let cb = slot.onMouseDown
-            cb(p.x, y, 0)
+            cb(p.x, y, 0,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
             PENDING_CLICK[this.handle] = true
         }
     }
@@ -155,8 +164,13 @@ class FocusButton : NSButton {
             let f = this.frame
             let p = this.convertPointFromView(e.locationInWindow, nil)
             let y = f.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let ck = modCtrl(flags)
+            let sk = modShift(flags)
+            let ak = modAlt(flags)
+            let mk = modMeta(flags)
             let upCb = slot.onMouseUp
-            upCb(p.x, y, 0)
+            upCb(p.x, y, 0, ck, sk, ak, mk)
             let pending = match PENDING_CLICK.get(this.handle) {
                 some(b) { b }
                 none    { false }
@@ -168,7 +182,7 @@ class FocusButton : NSButton {
                 let clk = slot.onClick
                 clk(f.origin.x + f.size.width / 2.0,
                     f.origin.y + f.size.height / 2.0,
-                    0)
+                    0, ck, sk, ak, mk)
             }
         }
     }
@@ -206,12 +220,17 @@ class FocusButton : NSButton {
         if let some(slot) = BUTTONS.get(this.handle) {
             let p = this.convertPointFromView(e.locationInWindow, nil)
             let y = this.frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let ck = modCtrl(flags)
+            let sk = modShift(flags)
+            let ak = modAlt(flags)
+            let mk = modMeta(flags)
             let cb = slot.onMouseDown
-            cb(p.x, y, 2)
+            cb(p.x, y, 2, ck, sk, ak, mk)
             // Web-style contextmenu: fire at the same instant as
             // the OS would start showing its own context menu.
             let ctx = slot.onContextMenu
-            ctx(p.x, y, 2)
+            ctx(p.x, y, 2, ck, sk, ak, mk)
         }
     }
     pub override rightMouseUp(event: NSObject) {
@@ -219,8 +238,10 @@ class FocusButton : NSButton {
         if let some(slot) = BUTTONS.get(this.handle) {
             let p = this.convertPointFromView(e.locationInWindow, nil)
             let y = this.frame.size.height - p.y
+            let flags = e.modifierFlags as u64
             let cb = slot.onMouseUp
-            cb(p.x, y, 2)
+            cb(p.x, y, 2,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
     /// Middle / extra mouse buttons. AppKit lumps everything that
@@ -235,8 +256,10 @@ class FocusButton : NSButton {
         if let some(slot) = BUTTONS.get(this.handle) {
             let p = this.convertPointFromView(e.locationInWindow, nil)
             let y = this.frame.size.height - p.y
+            let flags = e.modifierFlags as u64
             let cb = slot.onMouseDown
-            cb(p.x, y, 1)
+            cb(p.x, y, 1,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
     pub override otherMouseUp(event: NSObject) {
@@ -244,8 +267,10 @@ class FocusButton : NSButton {
         if let some(slot) = BUTTONS.get(this.handle) {
             let p = this.convertPointFromView(e.locationInWindow, nil)
             let y = this.frame.size.height - p.y
+            let flags = e.modifierFlags as u64
             let cb = slot.onMouseUp
-            cb(p.x, y, 1)
+            cb(p.x, y, 1,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
     /// `keyDown:` / `keyUp:` are inherited from NSResponder. The
@@ -365,7 +390,7 @@ pub fn createNativeButton(
     handle
 }
 
-pub fn setOnButtonClick(handle: i64, cb: fn(f64, f64, i32)) {
+pub fn setOnButtonClick(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onClick = cb }
 }
 pub fn setButtonText(handle: i64, text: string) {
@@ -401,13 +426,19 @@ pub fn setOnButtonMouseEnter(handle: i64, cb: fn(f64, f64)) {
 pub fn setOnButtonMouseLeave(handle: i64, cb: fn(f64, f64)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onMouseLeave = cb }
 }
-pub fn setOnButtonMouseDown(handle: i64, cb: fn(f64, f64, i32)) {
+pub fn setOnButtonMouseDown(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
     if let some(slot) = BUTTONS.get(handle) { slot.onMouseDown = cb }
 }
-pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
+pub fn setOnButtonMouseUp(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
     if let some(slot) = BUTTONS.get(handle) { slot.onMouseUp = cb }
 }
-pub fn setOnButtonContextMenu(handle: i64, cb: fn(f64, f64, i32)) {
+pub fn setOnButtonContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
     if let some(slot) = BUTTONS.get(handle) { slot.onContextMenu = cb }
 }
 pub fn setOnButtonKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {

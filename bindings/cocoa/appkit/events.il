@@ -59,6 +59,14 @@ pub enum NSEventModifierFlags: u64 {
         pub get locationInWindow(): NSPoint
         @objc("modifierFlags")
         pub get modifierFlags(): NSEventModifierFlags
+        /// Class-method snapshot of the current modifier-key
+        /// state. Useful when surfacing modifiers for an event
+        /// we don't directly hold — e.g. an AppKit target/action
+        /// callback (`-[id action:]`) carries no `NSEvent`, but
+        /// the user's Ctrl / Shift / Alt / Cmd state at the
+        /// moment the action fires is still queryable.
+        @objc("modifierFlags")
+        pub static get currentModifierFlags(): NSEventModifierFlags
         @objc("timestamp")
         pub get timestamp(): f64
         @objc("clickCount")

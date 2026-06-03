@@ -49,14 +49,14 @@ pub const BN_KILLFOCUS: i32 = 7 as i32
 /// wnd_proc-side sender lookup are O(1) Map gets.
 class ButtonSlot {
     pub hwnd:    HWND
-    pub onClick: fn(f64, f64, i32)
+    pub onClick: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onFocus: fn()
     pub onBlur:  fn()
     pub onMouseEnter: fn(f64, f64)
     pub onMouseLeave: fn(f64, f64)
-    pub onMouseDown:  fn(f64, f64, i32)
-    pub onMouseUp:    fn(f64, f64, i32)
-    pub onContextMenu: fn(f64, f64, i32)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
@@ -74,14 +74,14 @@ class ButtonSlot {
     pub tooltipHwnd: HWND
     pub init(hwnd: HWND, winHandle: i64) {
         this.hwnd = hwnd
-        this.onClick = noOpClick
+        this.onClick = noOpClickMod
         this.onFocus = noOp1
         this.onBlur  = noOp1
         this.onMouseEnter = noOpEnterLeave
         this.onMouseLeave = noOpEnterLeave
-        this.onMouseDown  = noOpClick
-        this.onMouseUp    = noOpClick
-        this.onContextMenu = noOpClick
+        this.onMouseDown  = noOpClickMod
+        this.onMouseUp    = noOpClickMod
+        this.onContextMenu = noOpClickMod
         this.onKeyDown     = noOpKey
         this.onKeyUp       = noOpKey
         this.onMouseWheel  = noOpWheel
@@ -94,6 +94,7 @@ class ButtonSlot {
 fn noOpEnterLeave(x: f64, y: f64) {}
 fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let BUTTONS = new Map<i64, ButtonSlot>()
 
@@ -108,7 +109,11 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
 /// stops walking).
 pub fn tryButtonClick(hwnd: i64): bool {
     if let some(slot) = BUTTONS.get(hwnd) {
-        slot.onClick(0.0, 0.0, 0)
+        // BN_CLICKED carries no modifier state; sample GetKeyState
+        // now so the listener sees what the user was holding at
+        // the instant AppKit's analogue (target/action) fires.
+        slot.onClick(0.0, 0.0, 0,
+                     modCtrl(), modShift(), modAlt(), modMeta())
         true
     } else {
         false
@@ -121,7 +126,8 @@ pub fn tryButtonClick(hwnd: i64): bool {
 pub fn tryDefaultEnter(parentHandle: i64): bool {
     if let some(btnHandle) = DEFAULT_BUTTONS.get(parentHandle) {
         if let some(slot) = BUTTONS.get(btnHandle) {
-            slot.onClick(0.0, 0.0, 0)
+            slot.onClick(0.0, 0.0, 0,
+                         modCtrl(), modShift(), modAlt(), modMeta())
             return true
         }
     }
@@ -193,44 +199,48 @@ pub fn buttonSubclassProc(
         WindowMessage.lbuttondown {
             if let some(slot) = BUTTONS.get(hwnd) {
                 let cb = slot.onMouseDown
-                cb(lo, hi, 0)
+                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.lbuttonup {
             if let some(slot) = BUTTONS.get(hwnd) {
                 let cb = slot.onMouseUp
-                cb(lo, hi, 0)
+                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.mButtonDown {
             if let some(slot) = BUTTONS.get(hwnd) {
                 let cb = slot.onMouseDown
-                cb(lo, hi, 1)
+                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.mButtonUp {
             if let some(slot) = BUTTONS.get(hwnd) {
                 let cb = slot.onMouseUp
-                cb(lo, hi, 1)
+                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.rButtonDown {
             if let some(slot) = BUTTONS.get(hwnd) {
+                let ck = modCtrl()
+                let sk = modShift()
+                let ak = modAlt()
+                let mk = modMeta()
                 let cb = slot.onMouseDown
-                cb(lo, hi, 2)
+                cb(lo, hi, 2, ck, sk, ak, mk)
                 // Fire contextmenu at the same instant — matches
                 // the cross-OS "right-press" timing the public API
                 // promises. Keyboard-triggered context menus
                 // (Shift+F10, the Menu key) would surface via
                 // WM_CONTEXTMENU and aren't wired yet.
                 let ctx = slot.onContextMenu
-                ctx(lo, hi, 2)
+                ctx(lo, hi, 2, ck, sk, ak, mk)
             }
         }
         WindowMessage.rButtonUp {
             if let some(slot) = BUTTONS.get(hwnd) {
                 let cb = slot.onMouseUp
-                cb(lo, hi, 2)
+                cb(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.keydown {
@@ -317,7 +327,7 @@ pub fn createNativeButton(
     handle
 }
 
-pub fn setOnButtonClick(handle: i64, cb: fn(f64, f64, i32)) {
+pub fn setOnButtonClick(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onClick = cb }
 }
 pub fn setButtonText(handle: i64, text: string) {
@@ -360,13 +370,19 @@ pub fn setOnButtonMouseEnter(handle: i64, cb: fn(f64, f64)) {
 pub fn setOnButtonMouseLeave(handle: i64, cb: fn(f64, f64)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onMouseLeave = cb }
 }
-pub fn setOnButtonMouseDown(handle: i64, cb: fn(f64, f64, i32)) {
+pub fn setOnButtonMouseDown(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
     if let some(slot) = BUTTONS.get(handle) { slot.onMouseDown = cb }
 }
-pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
+pub fn setOnButtonMouseUp(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
     if let some(slot) = BUTTONS.get(handle) { slot.onMouseUp = cb }
 }
-pub fn setOnButtonContextMenu(handle: i64, cb: fn(f64, f64, i32)) {
+pub fn setOnButtonContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
     if let some(slot) = BUTTONS.get(handle) { slot.onContextMenu = cb }
 }
 pub fn setOnButtonKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {

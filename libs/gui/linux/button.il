@@ -27,6 +27,7 @@ use gtk {
     gtk_event_controller_key_new,
     gtk_event_controller_scroll_new,
     gtk_event_controller_get_widget,
+    gtk_event_controller_get_current_event_state,
     gdk_keyval_to_lower,
     gtk_gesture_click_new,
     gtk_gesture_single_set_button,
@@ -45,14 +46,20 @@ class ButtonSlot {
     pub y:       f64
     pub width:   f64
     pub height:  f64
-    pub onClick: fn(f64, f64, i32)
+    pub onClick: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onFocus: fn()
     pub onBlur:  fn()
     pub onMouseEnter: fn(f64, f64)
     pub onMouseLeave: fn(f64, f64)
-    pub onMouseDown:  fn(f64, f64, i32)
-    pub onMouseUp:    fn(f64, f64, i32)
-    pub onContextMenu: fn(f64, f64, i32)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
+    /// Latest modifier-bit snapshot taken in the click gesture's
+    /// `released` handler so the GtkButton `clicked` signal, which
+    /// carries no event state of its own, can surface the same
+    /// modifiers. Updated on every release; read by the clicked
+    /// handler.
+    pub lastClickMods: u32
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
@@ -68,14 +75,15 @@ class ButtonSlot {
         this.y = y
         this.width = w
         this.height = h
-        this.onClick = noOpClick
+        this.onClick = noOpClickMod
         this.onFocus = noOpClose
         this.onBlur  = noOpClose
         this.onMouseEnter = noOpEnterLeave
         this.onMouseLeave = noOpEnterLeave
-        this.onMouseDown  = noOpClick
-        this.onMouseUp    = noOpClick
-        this.onContextMenu = noOpClick
+        this.onMouseDown  = noOpClickMod
+        this.onMouseUp    = noOpClickMod
+        this.onContextMenu = noOpClickMod
+        this.lastClickMods = 0 as u32
         this.onKeyDown     = noOpKey
         this.onKeyUp       = noOpKey
         this.onMouseWheel  = noOpWheel
@@ -85,6 +93,7 @@ class ButtonSlot {
 fn noOpEnterLeave(x: f64, y: f64) {}
 fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 // GdkModifierType bits we need (same as window.il's). Pulled out
 // here so the key handler can `& MOD_*` without bouncing through
@@ -121,11 +130,18 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
         let key = btn as i64
         if let some(slot) = BUTTONS.get(key) {
             // Cocoa / Win32 surface the button's centre as the click
-            // pos when the OS gives us none — match that.
+            // pos when the OS gives us none — match that. GtkButton's
+            // `clicked` signal carries no event state, so we read the
+            // modifier snapshot the gesture's `released` handler
+            // stashed onto `lastClickMods` just before this signal
+            // fired.
+            let st = slot.lastClickMods
             slot.onClick(
                 slot.x + slot.width / 2.0,
                 slot.y + slot.height / 2.0,
-                0 as i32
+                0 as i32,
+                hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
+                hasMod(st, MOD_ALT),  hasMod(st, MOD_META)
             )
         }
     }
@@ -160,15 +176,22 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
         if let some(slot) = BUTTONS.get(w as i64) {
             let btn = gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
             let w3c = gdkBtnToW3c(btn)
+            let st = gtk_event_controller_get_current_event_state(
+                gesture as GtkEventController
+            ) as u32
+            let ck = hasMod(st, MOD_CTRL)
+            let sk = hasMod(st, MOD_SHIFT)
+            let ak = hasMod(st, MOD_ALT)
+            let mk = hasMod(st, MOD_META)
             let cb = slot.onMouseDown
-            cb(x, y, w3c)
+            cb(x, y, w3c, ck, sk, ak, mk)
             // Right-button press → also surface onContextMenu, the
             // moment GTK would otherwise begin showing the system
             // context menu. Keyboard-triggered menus (Menu key /
             // Shift+F10) aren't routed yet.
             if btn == 3 as u32 {
                 let ctx = slot.onContextMenu
-                ctx(x, y, w3c)
+                ctx(x, y, w3c, ck, sk, ak, mk)
             }
         }
     }
@@ -178,8 +201,17 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
         let w = gtk_event_controller_get_widget(gesture as GtkEventController)
         if let some(slot) = BUTTONS.get(w as i64) {
             let btn = gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
+            let st = gtk_event_controller_get_current_event_state(
+                gesture as GtkEventController
+            ) as u32
+            // Stash for the upcoming `clicked` signal (fires
+            // immediately after a release-inside-bounds for the
+            // primary button) — that signal has no event state.
+            slot.lastClickMods = st
             let cb = slot.onMouseUp
-            cb(x, y, gdkBtnToW3c(btn))
+            cb(x, y, gdkBtnToW3c(btn),
+               hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
+               hasMod(st, MOD_ALT),  hasMod(st, MOD_META))
         }
     }
     /// `GtkEventControllerMotion.enter` carries
@@ -403,7 +435,7 @@ pub fn createNativeButton(
     handle
 }
 
-pub fn setOnButtonClick(handle: i64, cb: fn(f64, f64, i32)) {
+pub fn setOnButtonClick(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onClick = cb }
 }
 
@@ -461,13 +493,19 @@ pub fn setOnButtonMouseEnter(handle: i64, cb: fn(f64, f64)) {
 pub fn setOnButtonMouseLeave(handle: i64, cb: fn(f64, f64)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onMouseLeave = cb }
 }
-pub fn setOnButtonMouseDown(handle: i64, cb: fn(f64, f64, i32)) {
+pub fn setOnButtonMouseDown(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
     if let some(slot) = BUTTONS.get(handle) { slot.onMouseDown = cb }
 }
-pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
+pub fn setOnButtonMouseUp(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
     if let some(slot) = BUTTONS.get(handle) { slot.onMouseUp = cb }
 }
-pub fn setOnButtonContextMenu(handle: i64, cb: fn(f64, f64, i32)) {
+pub fn setOnButtonContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
     if let some(slot) = BUTTONS.get(handle) { slot.onContextMenu = cb }
 }
 pub fn setOnButtonKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
