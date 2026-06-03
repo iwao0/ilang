@@ -142,6 +142,50 @@ fn run_if_enabled<S: Default>(env: &str, f: impl FnOnce() -> S) -> S {
     }
 }
 
+/// Rewrite every `Array { fixed: Some(_) }` inside a type to
+/// `fixed: None`. The slot's runtime value is always built by the
+/// MIR lowerer as a dynamic array (header + buffer), so the slot
+/// type must agree — otherwise the inline-fixed read path in
+/// `lower_array_inst` interprets the header bytes as element data
+/// and `count[0]` returns the array's length instead of element 0.
+fn normalize_slot_ty(ty: ilang_ast::Type) -> ilang_ast::Type {
+    use ilang_ast::Type;
+    match ty {
+        Type::Array { elem, fixed: _ } => Type::Array {
+            elem: Box::new(normalize_slot_ty(*elem)),
+            fixed: None,
+        },
+        Type::Tuple(elems) => Type::Tuple(
+            elems
+                .into_vec()
+                .into_iter()
+                .map(normalize_slot_ty)
+                .collect(),
+        ),
+        Type::Optional(inner) => Type::Optional(Box::new(normalize_slot_ty(*inner))),
+        Type::Weak(inner) => Type::Weak(Box::new(normalize_slot_ty(*inner))),
+        Type::RawPtr { is_const, inner } => Type::RawPtr {
+            is_const,
+            inner: Box::new(normalize_slot_ty(*inner)),
+        },
+        Type::Generic(g) => {
+            let ilang_ast::GenericTy { base, args } = *g;
+            Type::Generic(Box::new(ilang_ast::GenericTy {
+                base,
+                args: args.into_vec().into_iter().map(normalize_slot_ty).collect(),
+            }))
+        }
+        Type::Fn(f) => {
+            let ilang_ast::FnTy { params, ret } = *f;
+            Type::Fn(Box::new(ilang_ast::FnTy {
+                params: params.into_vec().into_iter().map(normalize_slot_ty).collect(),
+                ret: normalize_slot_ty(ret),
+            }))
+        }
+        other => other,
+    }
+}
+
 /// Build the host-slot table: a `let` declared at module scope and
 /// referenced from any free fn / method body becomes a host-side
 /// slot so `lower_program_with_slots` emits `__repl_load_slot` /
@@ -171,7 +215,7 @@ fn build_slot_table(
                 continue;
             }
             if let Some(ty) = tc.lookup_global(*name) {
-                slot_table.insert(*name, (next_slot, ty));
+                slot_table.insert(*name, (next_slot, normalize_slot_ty(ty)));
                 next_slot += 1;
             }
         }
@@ -796,7 +840,7 @@ impl ReplSession {
                 };
                 let idx = self.next_slot;
                 self.next_slot += 1;
-                self.slot_table.insert(*name, (idx, ty));
+                self.slot_table.insert(*name, (idx, normalize_slot_ty(ty)));
             }
         }
 
