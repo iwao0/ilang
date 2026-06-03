@@ -12,6 +12,7 @@ use gtk {
     GtkWidget, GtkCheckButton, GtkFixed, GObject,
     GtkEventController, GtkEventControllerFocus, GtkEventControllerMotion,
     GtkEventControllerScroll, GtkEventControllerScrollFlags,
+    GtkEventControllerKey,
     GtkGestureSingle, GtkGestureClick,
     gtk_check_button_new_with_label, gtk_check_button_set_label,
     gtk_check_button_set_active, gtk_check_button_get_active,
@@ -23,14 +24,17 @@ use gtk {
     gtk_event_controller_focus_new,
     gtk_event_controller_motion_new,
     gtk_event_controller_scroll_new,
+    gtk_event_controller_key_new,
     gtk_event_controller_get_widget,
     gtk_event_controller_get_current_event_state,
     gtk_gesture_click_new,
     gtk_gesture_single_set_button, gtk_gesture_single_get_current_button,
+    gdk_keyval_to_lower,
     gtk_window_get_focus, gtk_window_set_focus,
-    g_signal_connect_data,
+    g_signal_connect_data, g_signal_connect_key,
     g_signal_connect_motion, g_signal_connect_click, g_signal_connect_scroll,
 }
+use window { keyvalToCode }
 use core { WINDOWS, noOp1, noOpBool }
 
 class RadioSlot {
@@ -46,6 +50,8 @@ class RadioSlot {
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub onKeyDown: fn(string, bool, bool, bool, bool)
+    pub onKeyUp:   fn(string, bool, bool, bool, bool)
     pub init(btn: GtkCheckButton, fixed: GtkFixed, winHandle: i64) {
         this.btn = btn
         this.fixed = fixed
@@ -59,12 +65,15 @@ class RadioSlot {
         this.onMouseUp    = noOpClickMod
         this.onContextMenu = noOpClickMod
         this.onMouseWheel = noOpWheel
+        this.onKeyDown = noOpKey
+        this.onKeyUp   = noOpKey
     }
 }
 
 fn noOpEnterLeave(x: f64, y: f64) {}
 fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 const MOD_SHIFT: u32 = 0x00000001 as u32
 const MOD_CTRL:  u32 = 0x00000004 as u32
@@ -169,6 +178,32 @@ let GROUP_LEADERS = new Map<i64, GtkCheckButton>()
         }
         0 as i32
     }
+    pub fn linux_radio_key_pressed(
+        ctl: i64, keyval: u32, keycode: u32, state: u32, data: i64
+    ): i32 {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = RADIOS.get(w as i64) {
+            let code = keyvalToCode(gdk_keyval_to_lower(keyval))
+            let cb = slot.onKeyDown
+            cb(code,
+               hasMod(state, MOD_CTRL), hasMod(state, MOD_SHIFT),
+               hasMod(state, MOD_ALT),  hasMod(state, MOD_META))
+        }
+        0 as i32
+    }
+    pub fn linux_radio_key_released(
+        ctl: i64, keyval: u32, keycode: u32, state: u32, data: i64
+    ): i32 {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = RADIOS.get(w as i64) {
+            let code = keyvalToCode(gdk_keyval_to_lower(keyval))
+            let cb = slot.onKeyUp
+            cb(code,
+               hasMod(state, MOD_CTRL), hasMod(state, MOD_SHIFT),
+               hasMod(state, MOD_ALT),  hasMod(state, MOD_META))
+        }
+        0 as i32
+    }
 }
 
 @extern(C) {
@@ -243,6 +278,17 @@ pub fn createNativeRadio(
     g_signal_connect_scroll(
         scrollCtl as GObject, cstrFromString("scroll"),
         linux_radio_scroll, 0 as *void, 0 as i64, 0 as u32
+    )
+
+    let keyCtl = gtk_event_controller_key_new() as GtkEventControllerKey
+    gtk_widget_add_controller(r as GtkWidget, keyCtl as GtkEventController)
+    g_signal_connect_key(
+        keyCtl as GObject, cstrFromString("key-pressed"),
+        linux_radio_key_pressed, 0 as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_key(
+        keyCtl as GObject, cstrFromString("key-released"),
+        linux_radio_key_released, 0 as *void, 0 as i64, 0 as u32
     )
 
     let handle = r as i64
@@ -331,6 +377,12 @@ pub fn setOnRadioMouseWheel(
     handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 ) {
     if let some(slot) = RADIOS.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn setOnRadioKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = RADIOS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnRadioKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = RADIOS.get(handle) { slot.onKeyUp = cb }
 }
 pub fn setRadioTooltip(handle: i64, text: string) {
     if let some(slot) = RADIOS.get(handle) {

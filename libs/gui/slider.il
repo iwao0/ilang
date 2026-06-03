@@ -3,7 +3,7 @@
 /// fires live while the thumb is being dragged.
 
 use std.events { Signal }
-use events { SliderEvent, FocusEvent, BlurEvent, MouseEvent }
+use events { SliderEvent, FocusEvent, BlurEvent, MouseEvent, KeyEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeSlider, readSliderValue,
@@ -14,6 +14,7 @@ use gui_impl {
     setOnSliderMouseEnter, setOnSliderMouseLeave,
     setOnSliderMouseDown, setOnSliderMouseUp, setOnSliderContextMenu,
     setOnSliderMouseWheel,
+    setOnSliderKeyDown, setOnSliderKeyUp,
     focusSlider, blurSlider,
 }
 
@@ -38,6 +39,8 @@ pub class Slider : Control {
     pub onMouseUp:     Signal<MouseEvent>
     pub onContextMenu: Signal<MouseEvent>
     pub onMouseWheel:  Signal<MouseEvent>
+    pub onKeyDown:     Signal<KeyEvent>
+    pub onKeyUp:       Signal<KeyEvent>
 
     pub init() {
         super()
@@ -61,6 +64,8 @@ pub class Slider : Control {
         this.onMouseUp     = new Signal<MouseEvent>()
         this.onContextMenu = new Signal<MouseEvent>()
         this.onMouseWheel  = new Signal<MouseEvent>()
+        this.onKeyDown     = new Signal<KeyEvent>()
+        this.onKeyUp       = new Signal<KeyEvent>()
     }
 
     pub get min(): f64 { this._min }
@@ -172,6 +177,14 @@ pub class Slider : Control {
                 e.wheelDx = dx
                 e.wheelDy = dy
                 this.onMouseWheel.emit(e)
+            })
+        setOnSliderKeyDown(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyDown.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+            })
+        setOnSliderKeyUp(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyUp.emit(new KeyEvent(this, c, ck, sk, ak, mk))
             })
         if this._tooltip != "" { setSliderTooltip(this.handle, this._tooltip) }
     }

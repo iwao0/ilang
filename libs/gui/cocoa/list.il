@@ -12,9 +12,9 @@ use cocoa {
     classPtr, setObjectClass,
 }
 use core {
-    WINDOWS, noOp1, noOpI32,
+    WINDOWS, noOp1, noOpI32, noOpKey,
     noOpEnterLeave, noOpClickMod, noOpWheel,
-    modCtrl, modShift, modAlt, modMeta,
+    keyCodeToString, modCtrl, modShift, modAlt, modMeta,
 }
 
 class ListSlot {
@@ -30,6 +30,8 @@ class ListSlot {
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub onKeyDown: fn(string, bool, bool, bool, bool)
+    pub onKeyUp:   fn(string, bool, bool, bool, bool)
     pub dataSource: NSObject   // ListDataSource instance keep-alive
     pub delegate:   NSObject   // ListDelegate instance keep-alive
     pub init(table: NSTableView, scroll: NSScrollView,
@@ -46,6 +48,8 @@ class ListSlot {
         this.onMouseUp    = noOpClickMod
         this.onContextMenu = noOpClickMod
         this.onMouseWheel = noOpWheel
+        this.onKeyDown = noOpKey
+        this.onKeyUp   = noOpKey
         this.dataSource = dataSource
         this.delegate   = delegate
     }
@@ -173,6 +177,25 @@ class FocusList : NSTableView {
             cb(event.deltaX, event.deltaY, p.x, y,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
+    }
+    pub keyDown(event: NSEvent) {
+        if let some(slot) = LISTS.get(this.handle) {
+            let flags = event.modifierFlags as u64
+            let cb = slot.onKeyDown
+            cb(keyCodeToString(event.keyCode),
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        // Forward so arrow keys still navigate rows.
+        super.keyDown(event)
+    }
+    pub keyUp(event: NSEvent) {
+        if let some(slot) = LISTS.get(this.handle) {
+            let flags = event.modifierFlags as u64
+            let cb = slot.onKeyUp
+            cb(keyCodeToString(event.keyCode),
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.keyUp(event)
     }
 }
 
@@ -372,6 +395,12 @@ pub fn setOnListMouseWheel(
     handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 ) {
     if let some(slot) = LISTS.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn setOnListKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = LISTS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnListKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = LISTS.get(handle) { slot.onKeyUp = cb }
 }
 pub fn setListTooltip(handle: i64, text: string) {
     if let some(slot) = LISTS.get(handle) {

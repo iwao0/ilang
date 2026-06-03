@@ -13,7 +13,7 @@
 /// group bits.
 
 use std.events { Signal }
-use events { ToggleEvent, FocusEvent, BlurEvent, MouseEvent }
+use events { ToggleEvent, FocusEvent, BlurEvent, MouseEvent, KeyEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeRadio, readRadioChecked,
@@ -24,6 +24,7 @@ use gui_impl {
     setOnRadioMouseEnter, setOnRadioMouseLeave,
     setOnRadioMouseDown, setOnRadioMouseUp, setOnRadioContextMenu,
     setOnRadioMouseWheel,
+    setOnRadioKeyDown, setOnRadioKeyUp,
     focusRadio, blurRadio,
 }
 
@@ -53,6 +54,8 @@ pub class RadioButton : Control {
     pub onMouseUp:     Signal<MouseEvent>
     pub onContextMenu: Signal<MouseEvent>
     pub onMouseWheel:  Signal<MouseEvent>
+    pub onKeyDown:     Signal<KeyEvent>
+    pub onKeyUp:       Signal<KeyEvent>
 
     pub init() {
         super()
@@ -76,6 +79,8 @@ pub class RadioButton : Control {
         this.onMouseUp     = new Signal<MouseEvent>()
         this.onContextMenu = new Signal<MouseEvent>()
         this.onMouseWheel  = new Signal<MouseEvent>()
+        this.onKeyDown     = new Signal<KeyEvent>()
+        this.onKeyUp       = new Signal<KeyEvent>()
     }
 
     pub get text(): string { this._text }
@@ -199,6 +204,14 @@ pub class RadioButton : Control {
                 e.wheelDx = dx
                 e.wheelDy = dy
                 this.onMouseWheel.emit(e)
+            })
+        setOnRadioKeyDown(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyDown.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+            })
+        setOnRadioKeyUp(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyUp.emit(new KeyEvent(this, c, ck, sk, ak, mk))
             })
         if this._tooltip != "" { setRadioTooltip(this.handle, this._tooltip) }
     }

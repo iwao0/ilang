@@ -7,7 +7,7 @@
 /// immediately.
 
 use std.events { Signal }
-use events { SelectEvent, FocusEvent, BlurEvent, MouseEvent }
+use events { SelectEvent, FocusEvent, BlurEvent, MouseEvent, KeyEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeCombo, readComboSelectedIndex,
@@ -19,6 +19,7 @@ use gui_impl {
     setOnComboMouseEnter, setOnComboMouseLeave,
     setOnComboMouseDown, setOnComboMouseUp, setOnComboContextMenu,
     setOnComboMouseWheel,
+    setOnComboKeyDown, setOnComboKeyUp,
     focusCombo, blurCombo,
 }
 
@@ -42,6 +43,8 @@ pub class ComboBox : Control {
     pub onMouseUp:     Signal<MouseEvent>
     pub onContextMenu: Signal<MouseEvent>
     pub onMouseWheel:  Signal<MouseEvent>
+    pub onKeyDown:     Signal<KeyEvent>
+    pub onKeyUp:       Signal<KeyEvent>
 
     pub init() {
         super()
@@ -64,6 +67,8 @@ pub class ComboBox : Control {
         this.onMouseUp     = new Signal<MouseEvent>()
         this.onContextMenu = new Signal<MouseEvent>()
         this.onMouseWheel  = new Signal<MouseEvent>()
+        this.onKeyDown     = new Signal<KeyEvent>()
+        this.onKeyUp       = new Signal<KeyEvent>()
     }
 
     /// Append `item` to the dropdown.
@@ -197,6 +202,14 @@ pub class ComboBox : Control {
                 e.wheelDx = dx
                 e.wheelDy = dy
                 this.onMouseWheel.emit(e)
+            })
+        setOnComboKeyDown(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyDown.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+            })
+        setOnComboKeyUp(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyUp.emit(new KeyEvent(this, c, ck, sk, ak, mk))
             })
         if this._tooltip != "" { setComboTooltip(this.handle, this._tooltip) }
     }

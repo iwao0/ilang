@@ -4,7 +4,7 @@
 /// changes.
 
 use std.events { Signal }
-use events { SelectEvent, FocusEvent, BlurEvent, MouseEvent }
+use events { SelectEvent, FocusEvent, BlurEvent, MouseEvent, KeyEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeList, readListSelectedIndex,
@@ -16,6 +16,7 @@ use gui_impl {
     setOnListMouseEnter, setOnListMouseLeave,
     setOnListMouseDown, setOnListMouseUp, setOnListContextMenu,
     setOnListMouseWheel,
+    setOnListKeyDown, setOnListKeyUp,
     focusList, blurList,
 }
 
@@ -39,6 +40,8 @@ pub class ListBox : Control {
     pub onMouseUp:     Signal<MouseEvent>
     pub onContextMenu: Signal<MouseEvent>
     pub onMouseWheel:  Signal<MouseEvent>
+    pub onKeyDown:     Signal<KeyEvent>
+    pub onKeyUp:       Signal<KeyEvent>
 
     pub init() {
         super()
@@ -61,6 +64,8 @@ pub class ListBox : Control {
         this.onMouseUp     = new Signal<MouseEvent>()
         this.onContextMenu = new Signal<MouseEvent>()
         this.onMouseWheel  = new Signal<MouseEvent>()
+        this.onKeyDown     = new Signal<KeyEvent>()
+        this.onKeyUp       = new Signal<KeyEvent>()
     }
 
     pub addItem(item: string) {
@@ -189,6 +194,14 @@ pub class ListBox : Control {
                 e.wheelDx = dx
                 e.wheelDy = dy
                 this.onMouseWheel.emit(e)
+            })
+        setOnListKeyDown(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyDown.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+            })
+        setOnListKeyUp(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyUp.emit(new KeyEvent(this, c, ck, sk, ak, mk))
             })
         if this._tooltip != "" { setListTooltip(this.handle, this._tooltip) }
     }

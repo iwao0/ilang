@@ -4,7 +4,7 @@
 /// the checked state flips.
 
 use std.events { Signal }
-use events { ToggleEvent, FocusEvent, BlurEvent, MouseEvent }
+use events { ToggleEvent, FocusEvent, BlurEvent, MouseEvent, KeyEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeCheckbox, readCheckboxChecked,
@@ -15,6 +15,7 @@ use gui_impl {
     setOnCheckboxMouseEnter, setOnCheckboxMouseLeave,
     setOnCheckboxMouseDown, setOnCheckboxMouseUp, setOnCheckboxContextMenu,
     setOnCheckboxMouseWheel,
+    setOnCheckboxKeyDown, setOnCheckboxKeyUp,
     focusCheckbox, blurCheckbox,
 }
 
@@ -38,6 +39,8 @@ pub class Checkbox : Control {
     pub onMouseUp:     Signal<MouseEvent>
     pub onContextMenu: Signal<MouseEvent>
     pub onMouseWheel:  Signal<MouseEvent>
+    pub onKeyDown:     Signal<KeyEvent>
+    pub onKeyUp:       Signal<KeyEvent>
 
     pub init() {
         super()
@@ -60,6 +63,8 @@ pub class Checkbox : Control {
         this.onMouseUp     = new Signal<MouseEvent>()
         this.onContextMenu = new Signal<MouseEvent>()
         this.onMouseWheel  = new Signal<MouseEvent>()
+        this.onKeyDown     = new Signal<KeyEvent>()
+        this.onKeyUp       = new Signal<KeyEvent>()
     }
 
     pub get text(): string { this._text }
@@ -166,6 +171,14 @@ pub class Checkbox : Control {
                 e.wheelDx = dx
                 e.wheelDy = dy
                 this.onMouseWheel.emit(e)
+            })
+        setOnCheckboxKeyDown(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyDown.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+            })
+        setOnCheckboxKeyUp(this.handle,
+            fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onKeyUp.emit(new KeyEvent(this, c, ck, sk, ak, mk))
             })
         if this._tooltip != "" { setCheckboxTooltip(this.handle, this._tooltip) }
     }

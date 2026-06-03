@@ -10,9 +10,9 @@ use cocoa {
     classPtr, setObjectClass,
 }
 use core {
-    WINDOWS, noOp1, noOpBool,
+    WINDOWS, noOp1, noOpBool, noOpKey,
     noOpEnterLeave, noOpClickMod, noOpWheel,
-    modCtrl, modShift, modAlt, modMeta,
+    keyCodeToString, modCtrl, modShift, modAlt, modMeta,
 }
 
 class RadioSlot {
@@ -26,6 +26,8 @@ class RadioSlot {
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub onKeyDown: fn(string, bool, bool, bool, bool)
+    pub onKeyUp:   fn(string, bool, bool, bool, bool)
     pub handler:  NSObject
     pub init(btn: NSButton, handler: NSObject) {
         this.btn = btn
@@ -38,6 +40,8 @@ class RadioSlot {
         this.onMouseUp    = noOpClickMod
         this.onContextMenu = noOpClickMod
         this.onMouseWheel = noOpWheel
+        this.onKeyDown = noOpKey
+        this.onKeyUp   = noOpKey
         this.handler = handler
     }
 }
@@ -169,6 +173,22 @@ class FocusRadio : NSButton {
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
+    pub keyDown(event: NSEvent) {
+        if let some(slot) = RADIOS.get(this.handle) {
+            let flags = event.modifierFlags as u64
+            let cb = slot.onKeyDown
+            cb(keyCodeToString(event.keyCode),
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+    }
+    pub keyUp(event: NSEvent) {
+        if let some(slot) = RADIOS.get(this.handle) {
+            let flags = event.modifierFlags as u64
+            let cb = slot.onKeyUp
+            cb(keyCodeToString(event.keyCode),
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+    }
 }
 
 class RadioHandler : NSObject {
@@ -297,6 +317,12 @@ pub fn setOnRadioMouseWheel(
     handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 ) {
     if let some(slot) = RADIOS.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn setOnRadioKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = RADIOS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnRadioKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = RADIOS.get(handle) { slot.onKeyUp = cb }
 }
 pub fn setRadioTooltip(handle: i64, text: string) {
     if let some(slot) = RADIOS.get(handle) {

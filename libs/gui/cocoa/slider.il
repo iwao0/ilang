@@ -8,9 +8,9 @@ use cocoa {
     classPtr, setObjectClass,
 }
 use core {
-    WINDOWS, noOp1, noOpF64,
+    WINDOWS, noOp1, noOpF64, noOpKey,
     noOpEnterLeave, noOpClickMod, noOpWheel,
-    modCtrl, modShift, modAlt, modMeta,
+    keyCodeToString, modCtrl, modShift, modAlt, modMeta,
 }
 
 class SliderSlot {
@@ -24,6 +24,8 @@ class SliderSlot {
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub onKeyDown: fn(string, bool, bool, bool, bool)
+    pub onKeyUp:   fn(string, bool, bool, bool, bool)
     pub handler:  NSObject
     pub init(slider: NSSlider, handler: NSObject) {
         this.slider = slider
@@ -36,6 +38,8 @@ class SliderSlot {
         this.onMouseUp    = noOpClickMod
         this.onContextMenu = noOpClickMod
         this.onMouseWheel = noOpWheel
+        this.onKeyDown = noOpKey
+        this.onKeyUp   = noOpKey
         this.handler = handler
     }
 }
@@ -167,6 +171,25 @@ class FocusSlider : NSSlider {
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
+    pub keyDown(event: NSEvent) {
+        if let some(slot) = SLIDERS.get((this as NSView).handle) {
+            let flags = event.modifierFlags as u64
+            let cb = slot.onKeyDown
+            cb(keyCodeToString(event.keyCode),
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        // Forward so arrow-key value increments stay alive.
+        super.keyDown(event)
+    }
+    pub keyUp(event: NSEvent) {
+        if let some(slot) = SLIDERS.get((this as NSView).handle) {
+            let flags = event.modifierFlags as u64
+            let cb = slot.onKeyUp
+            cb(keyCodeToString(event.keyCode),
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.keyUp(event)
+    }
 }
 
 class SliderHandler : NSObject {
@@ -295,6 +318,12 @@ pub fn setOnSliderMouseWheel(
     handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 ) {
     if let some(slot) = SLIDERS.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn setOnSliderKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnSliderKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onKeyUp = cb }
 }
 pub fn setSliderTooltip(handle: i64, text: string) {
     if let some(slot) = SLIDERS.get(handle) {

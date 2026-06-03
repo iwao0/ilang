@@ -5,6 +5,7 @@
 use windows {
     HWND, HINSTANCE, HMENU, RECT,
     WindowStyle, ShowCmd, WindowMessage, TrackMouseFlags, TRACKMOUSEEVENT,
+    VirtualKey,
     TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
@@ -15,7 +16,7 @@ use windows {
 }
 use util {
     applyGuiFont, noOpI32,
-    modCtrl, modShift, modAlt, modMeta,
+    vkToString, modCtrl, modShift, modAlt, modMeta,
 }
 use core { windowHwnd, noOp1 }
 
@@ -32,6 +33,8 @@ class ComboSlot {
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub onKeyDown: fn(string, bool, bool, bool, bool)
+    pub onKeyUp:   fn(string, bool, bool, bool, bool)
     pub mouseTracking: bool
     pub init(hwnd: HWND, winHandle: i64) {
         this.hwnd = hwnd
@@ -46,6 +49,8 @@ class ComboSlot {
         this.onMouseUp    = noOpClickMod
         this.onContextMenu = noOpClickMod
         this.onMouseWheel = noOpWheel
+        this.onKeyDown = noOpKey
+        this.onKeyUp   = noOpKey
         this.mouseTracking = false
     }
 }
@@ -53,6 +58,7 @@ class ComboSlot {
 fn noOpEnterLeave(x: f64, y: f64) {}
 fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let COMBOS = new Map<i64, ComboSlot>()
 
@@ -159,6 +165,20 @@ pub fn comboSubclassProc(
                 let cb = slot.onMouseWheel
                 cb(0.0, dy, lo, hi,
                    modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.keydown {
+            if let some(slot) = COMBOS.get(hwnd) {
+                let vk = wParam as u32 as VirtualKey
+                let cb = slot.onKeyDown
+                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.keyup {
+            if let some(slot) = COMBOS.get(hwnd) {
+                let vk = wParam as u32 as VirtualKey
+                let cb = slot.onKeyUp
+                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         _ {}
@@ -292,6 +312,12 @@ pub fn setOnComboMouseWheel(
     handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 ) {
     if let some(slot) = COMBOS.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn setOnComboKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = COMBOS.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnComboKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = COMBOS.get(handle) { slot.onKeyUp = cb }
 }
 pub fn focusCombo(handle: i64) {
     if let some(slot) = COMBOS.get(handle) { SetFocus(slot.hwnd) }
