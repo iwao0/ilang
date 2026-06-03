@@ -36,4 +36,19 @@ impl ParseError {
             | ParseError::Generic { span, .. } => *span,
         }
     }
+
+    /// Stamp the error's span with the file it came from. The lexer /
+    /// parser work on a bare `&str` and don't know paths, so the
+    /// loader sets this when wrapping the error — otherwise the span
+    /// has an empty `source_file` and the CLI misattributes the error
+    /// to the entry file instead of the offending module.
+    pub fn set_source_file(&mut self, file: ilang_ast::Symbol) {
+        let span = match self {
+            ParseError::Unexpected { span, .. }
+            | ParseError::InvalidAssignTarget { span }
+            | ParseError::UnauthorizedModuleRef { span, .. }
+            | ParseError::Generic { span, .. } => span,
+        };
+        span.source_file = file;
+    }
 }

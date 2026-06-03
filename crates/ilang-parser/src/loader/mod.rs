@@ -121,9 +121,17 @@ impl LoadError {
             | LoadError::PrivateItemRef { span, .. }
             | LoadError::AsyncLowerError { span, .. } => span,
             LoadError::DuplicatePubDeclaration { second_span, .. } => second_span,
+            // A parse error inside a `use`d module carries the real
+            // source file on its span — surface it so the diagnostic
+            // points at the offending module, not the entry file.
+            LoadError::ParseError(e) => match e {
+                ParseError::Unexpected { span, .. }
+                | ParseError::InvalidAssignTarget { span }
+                | ParseError::UnauthorizedModuleRef { span, .. }
+                | ParseError::Generic { span, .. } => span,
+            },
             LoadError::ReadError { .. }
             | LoadError::LexError(_)
-            | LoadError::ParseError(_)
             | LoadError::CircularImport { .. }
             | LoadError::UnknownImport { .. } => return None,
         };
@@ -472,12 +480,18 @@ fn load_recursive(
             objc_class_modules.entry(*k).or_insert(*v);
         }
     }
+    let file_symbol = Symbol::intern(&file.display().to_string());
     let mut prog = crate::parse_with_implicit_modules(
         &toks,
         objc_registry,
         &implicit_modules,
     )
-    .map_err(LoadError::ParseError)?;
+    .map_err(|mut e| {
+        // The parser doesn't know paths; stamp the real file so the
+        // diagnostic points at this module, not the entry file.
+        e.set_source_file(file_symbol);
+        LoadError::ParseError(e)
+    })?;
     // Drop items annotated with `@target(...)` whose OS doesn't match
     // the build host. Runs before embed / objc-class harvesting so
     // those passes never see classes / fns that don't survive the
@@ -490,7 +504,6 @@ fn load_recursive(
     // generated spans (which borrow line / col of the closest
     // user token) inherit the file too; that's accurate enough —
     // they always live in the same file as the trigger token.
-    let file_symbol = Symbol::intern(&file.display().to_string());
     tag_program_spans(&mut prog, file_symbol);
     if !file_class_modules.is_empty() {
         sibling_class_maps.insert(file.to_path_buf(), file_class_modules);
