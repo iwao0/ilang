@@ -7,6 +7,7 @@ use gtk {
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
     gtk_widget_set_visible,
+    gtk_widget_set_tooltip_text,
     g_signal_connect_data,
 }
 use core { WINDOWS, noOpText }
@@ -106,6 +107,17 @@ pub fn setEditVisible(handle: i64, visible: bool) {
             slot.entry as GtkWidget,
             if visible { 1 as i32 } else { 0 as i32 }
         )
+    }
+}
+pub fn setEditTooltip(handle: i64, text: string) {
+    if let some(slot) = EDITS.get(handle) {
+        // Empty string → pass NULL so GTK clears the tooltip
+        // outright. Same logic as the Button-side helper.
+        if text == "" {
+            gtk_widget_set_tooltip_text(slot.entry as GtkWidget, 0 as *const char)
+        } else {
+            gtk_widget_set_tooltip_text(slot.entry as GtkWidget, cstrFromString(text))
+        }
     }
 }
 

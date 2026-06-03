@@ -18,7 +18,7 @@ use window { Window, Control }
 use gui_impl {
     createNativeEdit, readEditText,
     setOnEditChange, setEditText, setEditFrame,
-    setEditEnabled, setEditVisible,
+    setEditEnabled, setEditVisible, setEditTooltip,
 }
 
 pub class TextField : Control {
@@ -30,6 +30,7 @@ pub class TextField : Control {
     _height:    f64
     _isEnabled: bool
     _isVisible: bool
+    _tooltip:   string
     pub onChange: Signal<ChangeEvent>
 
     pub init() {
@@ -42,6 +43,7 @@ pub class TextField : Control {
         this._height    = 24.0
         this._isEnabled = true
         this._isVisible = true
+        this._tooltip   = ""
         this.onChange   = new Signal<ChangeEvent>()
     }
 
@@ -99,6 +101,13 @@ pub class TextField : Control {
         if this.handle >= 0 { setEditVisible(this.handle, v) }
     }
 
+    /// Hover tooltip. Empty string clears it.
+    pub get tooltip(): string { this._tooltip }
+    pub set tooltip(v: string) {
+        this._tooltip = v
+        if this.handle >= 0 { setEditTooltip(this.handle, v) }
+    }
+
     pub override attachTo(window: Window) {
         if this.handle >= 0 { return }
         this.handle = createNativeEdit(
@@ -110,6 +119,7 @@ pub class TextField : Control {
             this._text = v
             this.onChange.emit(new ChangeEvent(this, v))
         })
+        if this._tooltip != "" { setEditTooltip(this.handle, this._tooltip) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

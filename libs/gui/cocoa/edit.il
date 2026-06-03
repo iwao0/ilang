@@ -4,7 +4,7 @@
 
 use cocoa {
     NSObject, NSTextField, NSView, NSNotification,
-    nsstr, ilstr, makeRect, makeTextField,
+    nsstr, ilstr, makeRect, makeTextField, nil,
 }
 use core { WINDOWS, noOpText }
 
@@ -77,4 +77,15 @@ pub fn setEditEnabled(handle: i64, enabled: bool) {
 }
 pub fn setEditVisible(handle: i64, visible: bool) {
     if let some(slot) = EDITS.get(handle) { slot.edit.setHidden(!visible) }
+}
+pub fn setEditTooltip(handle: i64, text: string) {
+    if let some(slot) = EDITS.get(handle) {
+        // Empty string → pass `nil` so AppKit clears the tooltip
+        // outright rather than registering an empty bubble.
+        if text == "" {
+            (slot.edit as NSView).setToolTip(nil)
+        } else {
+            (slot.edit as NSView).setToolTip(nsstr(text) as NSObject)
+        }
+    }
 }
