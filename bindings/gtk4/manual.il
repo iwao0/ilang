@@ -28,7 +28,7 @@
 // buckets — going through the umbrella would create a circular
 // import (the umbrella `pub use`s this file too).
 use generated.gobject { GObject }
-use generated.glib { GMainLoop }
+use generated.glib { GMainLoop, GVariant }
 use generated.gtk { GtkWidget, GtkEntry, GtkDrawingArea }
 use generated.gdk { GdkDisplay, GdkSurface, GdkFrameClock }
 
@@ -93,6 +93,16 @@ pub enum Keyval: u32 {
     @handle pub struct GActionMap {}
 
     @lib pub fn g_action_map_add_action(map: GActionMap, action: GAction)
+
+    // ─── GVariant constructors / accessors ────────────────────
+    // Skipped by the generator because they take / return raw
+    // C primitive shapes (gboolean, const gchar*) the GIR pass
+    // doesn't widen automatically.
+
+    @lib pub fn g_variant_new_boolean(value: i32): GVariant
+    @lib pub fn g_variant_new_string(value: *const char): GVariant
+    @lib pub fn g_variant_get_boolean(value: GVariant): i32
+    @lib pub fn g_variant_get_string(value: GVariant, length: *u64): *const char
 
     @lib pub fn gtk_widget_insert_action_group(
         w: GtkWidget, name: *const char, group: GActionGroup

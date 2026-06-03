@@ -18,15 +18,22 @@
 use std.ffi { cstrFromString }
 use gtk {
     GMenu, GMenuModel, GAction, GSimpleAction, GActionMap, GActionGroup,
-    GSimpleActionGroup, GVariantType, GObject, GtkWidget, GtkBox,
-    GtkPopoverMenuBar, GtkWindow, GtkFixed, GtkOrientation,
+    GSimpleActionGroup, GVariantType, GVariant, GObject, GtkWidget, GtkBox,
+    GtkPopoverMenu, GtkPopoverMenuBar, GtkPopover, GdkRectangle,
+    GtkWindow, GtkFixed, GtkOrientation,
     GtkShortcutController, GtkShortcut, GtkShortcutTrigger,
     GtkShortcutAction, GtkShortcutScope, GtkEventController,
     g_menu_new, g_menu_append, g_menu_append_submenu, g_menu_append_section,
-    g_simple_action_new, g_simple_action_group_new, g_action_map_add_action,
+    g_menu_append_item, g_menu_item_new, g_menu_item_set_action_and_target_value,
+    g_simple_action_new, g_simple_action_new_stateful,
+    g_simple_action_set_enabled, g_simple_action_set_state,
+    g_simple_action_group_new, g_action_map_add_action,
+    g_variant_new_boolean, g_variant_new_string, g_variant_get_string,
     gtk_popover_menu_bar_new_from_model,
+    gtk_popover_menu_new_from_model, gtk_popover_set_pointing_to,
+    gtk_popover_popup,
     gtk_widget_insert_action_group, gtk_widget_add_controller,
-    gtk_widget_set_vexpand, gtk_widget_set_hexpand,
+    gtk_widget_set_vexpand, gtk_widget_set_hexpand, gtk_widget_set_parent,
     gtk_window_set_child,
     gtk_box_new, gtk_box_append,
     gtk_shortcut_controller_new, gtk_shortcut_controller_set_scope,
@@ -41,15 +48,31 @@ class MenuSlot {
     pub menu:    GMenu     // top-level GMenu shown in the menubar
     pub section: GMenu[]   // single-element mutable slot for the current section
     pub title:   string
+    /// Per-group radio members, keyed by group name.
+    pub radioGroups: Map<string, i64[]>
     pub init(menu: GMenu, section: GMenu, title: string) {
         this.menu = menu
         this.section = [section]
         this.title = title
+        this.radioGroups = new Map<string, i64[]>()
     }
 }
 
 let MENUS = new Map<i64, MenuSlot>()
 let ITEM_ACTIONS = new Map<i64, fn()>()
+let CHECK_ACTIONS = new Map<i64, fn(bool)>()
+let ITEM_CHECKED = new Map<i64, bool>()
+let ITEM_ACTION = new Map<i64, GSimpleAction>()
+/// id → (menuHandle, groupName) for radio items
+class RadioInfo {
+    pub menuHandle: i64
+    pub group:      string
+    pub init(menuHandle: i64, group: string) {
+        this.menuHandle = menuHandle
+        this.group = group
+    }
+}
+let RADIO_INFO = new Map<i64, RadioInfo>()
 let NEXT_ACTION_ID: i64[] = [1 as i64]
 /// Single GSimpleActionGroup shared by every menubar — installed
 /// on each window under the `"app"` prefix.
@@ -74,6 +97,53 @@ let SHORTCUTS: PendingShortcut[] = []
     /// pointer.
     pub fn linux_action_activated(action: i64, param: i64, data: i64) {
         let id = data as i64
+        if let some(cb) = ITEM_ACTIONS.get(id) { cb() }
+    }
+    /// Check-item activate. GAction's stateful API forwards the
+    /// request via `change-state`; we run the toggle ourselves so
+    /// the user callback sees the new value synchronously.
+    pub fn linux_check_activated(action: i64, param: i64, data: i64) {
+        let id = data as i64
+        let prev = match ITEM_CHECKED.get(id) {
+            some(b) { b }
+            none    { false }
+        }
+        let next = !prev
+        ITEM_CHECKED[id] = next
+        if let some(act) = ITEM_ACTION.get(id) {
+            g_simple_action_set_state(act, g_variant_new_boolean(if next { 1 as i32 } else { 0 as i32 }))
+        }
+        if let some(cb) = CHECK_ACTIONS.get(id) { cb(next) }
+    }
+    /// Radio-item activate. Clears every sibling in the same group
+    /// and sets this one checked before invoking the user callback.
+    pub fn linux_radio_activated(action: i64, param: i64, data: i64) {
+        let id = data as i64
+        if let some(info) = RADIO_INFO.get(id) {
+            if let some(slot) = MENUS.get(info.menuHandle) {
+                match slot.radioGroups.get(info.group) {
+                    some(members) {
+                        let n = members.length
+                        let i = 0
+                        while i < n {
+                            let m = members[i]
+                            ITEM_CHECKED[m] = false
+                            if let some(act) = ITEM_ACTION.get(m) {
+                                g_simple_action_set_state(
+                                    act, g_variant_new_boolean(0 as i32)
+                                )
+                            }
+                            i = i + 1
+                        }
+                    }
+                    none {}
+                }
+            }
+        }
+        ITEM_CHECKED[id] = true
+        if let some(act) = ITEM_ACTION.get(id) {
+            g_simple_action_set_state(act, g_variant_new_boolean(1 as i32))
+        }
         if let some(cb) = ITEM_ACTIONS.get(id) { cb() }
     }
 }
@@ -106,42 +176,136 @@ pub fn createNativeMenu(title: string): i64 {
     handle
 }
 
-pub fn menuAddItem(menuHandle: i64, text: string, onClick: fn()) {
+pub fn menuAddItem(menuHandle: i64, text: string, onClick: fn()): i64 {
     menuAddItemWithShortcut(menuHandle, text, "", onClick)
 }
 
 pub fn menuAddItemWithShortcut(
     menuHandle: i64, text: string, shortcut: string, onClick: fn()
-) {
-    if let some(slot) = MENUS.get(menuHandle) {
-        let id = NEXT_ACTION_ID[0]
-        NEXT_ACTION_ID[0] = id + 1 as i64
-        ITEM_ACTIONS[id] = onClick
+): i64 {
+    match MENUS.get(menuHandle) {
+        some(slot) {
+            let id = NEXT_ACTION_ID[0]
+            NEXT_ACTION_ID[0] = id + 1 as i64
+            ITEM_ACTIONS[id] = onClick
 
-        let actionName = "menu_" + id.toString()
-        let detailed   = "app." + actionName
+            let actionName = "menu_" + id.toString()
+            let detailed   = "app." + actionName
 
-        let group = ensureActionGroup()
-        let simple = g_simple_action_new(
-            cstrFromString(actionName), 0 as GVariantType
-        )
-        g_signal_connect_data2(
-            simple as GObject,
-            cstrFromString("activate"),
-            linux_action_activated,
-            id as *void,
-            0 as i64, 0 as u32
-        )
-        g_action_map_add_action(group as GActionMap, simple as GAction)
+            let group = ensureActionGroup()
+            let simple = g_simple_action_new(
+                cstrFromString(actionName), 0 as GVariantType
+            )
+            g_signal_connect_data2(
+                simple as GObject,
+                cstrFromString("activate"),
+                linux_action_activated,
+                id as *void,
+                0 as i64, 0 as u32
+            )
+            g_action_map_add_action(group as GActionMap, simple as GAction)
+            ITEM_ACTION[id] = simple
 
-        let accel = formatAccel(shortcut)
-        if accel.length > 0 {
-            SHORTCUTS.push(new PendingShortcut(detailed, accel))
+            let accel = formatAccel(shortcut)
+            if accel.length > 0 {
+                SHORTCUTS.push(new PendingShortcut(detailed, accel))
+            }
+
+            g_menu_append(
+                slot.section[0], cstrFromString(text), cstrFromString(detailed)
+            )
+            id
         }
+        none { 0 as i64 }
+    }
+}
 
-        g_menu_append(
-            slot.section[0], cstrFromString(text), cstrFromString(detailed)
-        )
+pub fn menuAddCheckItem(
+    menuHandle: i64, text: string, initialChecked: bool, onToggle: fn(bool)
+): i64 {
+    match MENUS.get(menuHandle) {
+        some(slot) {
+            let id = NEXT_ACTION_ID[0]
+            NEXT_ACTION_ID[0] = id + 1 as i64
+            CHECK_ACTIONS[id] = onToggle
+            ITEM_CHECKED[id] = initialChecked
+
+            let actionName = "menu_" + id.toString()
+            let detailed   = "app." + actionName
+
+            let group = ensureActionGroup()
+            let state = g_variant_new_boolean(
+                if initialChecked { 1 as i32 } else { 0 as i32 }
+            )
+            let simple = g_simple_action_new_stateful(
+                cstrFromString(actionName), 0 as GVariantType, state
+            )
+            g_signal_connect_data2(
+                simple as GObject,
+                cstrFromString("activate"),
+                linux_check_activated,
+                id as *void,
+                0 as i64, 0 as u32
+            )
+            g_action_map_add_action(group as GActionMap, simple as GAction)
+            ITEM_ACTION[id] = simple
+
+            g_menu_append(
+                slot.section[0], cstrFromString(text), cstrFromString(detailed)
+            )
+            id
+        }
+        none { 0 as i64 }
+    }
+}
+
+pub fn menuAddRadioItem(
+    menuHandle: i64, text: string, groupName: string, onSelect: fn()
+): i64 {
+    match MENUS.get(menuHandle) {
+        some(slot) {
+            let id = NEXT_ACTION_ID[0]
+            NEXT_ACTION_ID[0] = id + 1 as i64
+            ITEM_ACTIONS[id] = onSelect
+            RADIO_INFO[id] = new RadioInfo(menuHandle, groupName)
+            ITEM_CHECKED[id] = false
+
+            let actionName = "menu_" + id.toString()
+            let detailed   = "app." + actionName
+
+            let group = ensureActionGroup()
+            // Stateful boolean action — GMenu renders the
+            // check / radio indicator from the state.
+            let state = g_variant_new_boolean(0 as i32)
+            let simple = g_simple_action_new_stateful(
+                cstrFromString(actionName), 0 as GVariantType, state
+            )
+            g_signal_connect_data2(
+                simple as GObject,
+                cstrFromString("activate"),
+                linux_radio_activated,
+                id as *void,
+                0 as i64, 0 as u32
+            )
+            g_action_map_add_action(group as GActionMap, simple as GAction)
+            ITEM_ACTION[id] = simple
+
+            g_menu_append(
+                slot.section[0], cstrFromString(text), cstrFromString(detailed)
+            )
+
+            let members = match slot.radioGroups.get(groupName) {
+                some(xs) { xs }
+                none {
+                    let xs: i64[] = []
+                    slot.radioGroups[groupName] = xs
+                    xs
+                }
+            }
+            members.push(id)
+            id
+        }
+        none { 0 as i64 }
     }
 }
 
@@ -160,6 +324,46 @@ pub fn menuAddSubmenu(parentHandle: i64, childHandle: i64) {
                 parent.section[0], cstrFromString(child.title),
                 child.menu as GMenuModel
             )
+        }
+    }
+}
+
+pub fn menuItemSetEnabled(menuHandle: i64, itemHandle: i64, enabled: bool) {
+    if let some(act) = ITEM_ACTION.get(itemHandle) {
+        g_simple_action_set_enabled(act, if enabled { 1 as i32 } else { 0 as i32 })
+    }
+}
+
+pub fn menuItemSetChecked(menuHandle: i64, itemHandle: i64, checked: bool) {
+    ITEM_CHECKED[itemHandle] = checked
+    if let some(act) = ITEM_ACTION.get(itemHandle) {
+        g_simple_action_set_state(
+            act, g_variant_new_boolean(if checked { 1 as i32 } else { 0 as i32 })
+        )
+    }
+}
+
+pub fn menuPopup(menuHandle: i64, windowHandle: i64, x: f64, y: f64) {
+    if let some(slot) = MENUS.get(menuHandle) {
+        if let some(winSlot) = WINDOWS.get(windowHandle) {
+            // Make sure the action group is in place — the user may
+            // popup a menu without ever calling setWindowMenuBar.
+            let group = ensureActionGroup()
+            gtk_widget_insert_action_group(
+                winSlot.win as GtkWidget,
+                cstrFromString("app"),
+                group as GActionGroup
+            )
+            let popover = gtk_popover_menu_new_from_model(slot.menu as GMenuModel) as GtkPopoverMenu
+            gtk_widget_set_parent(popover as GtkWidget, winSlot.win as GtkWidget)
+            let rect = GdkRectangle {
+                x:      x as i32,
+                y:      y as i32,
+                width:  1 as i32,
+                height: 1 as i32,
+            }
+            gtk_popover_set_pointing_to(popover as GtkPopover, &rect)
+            gtk_popover_popup(popover as GtkPopover)
         }
     }
 }

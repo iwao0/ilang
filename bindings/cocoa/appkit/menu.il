@@ -1,6 +1,7 @@
 /// Menus — NSMenu / NSMenuItem + NSMenuDelegate.
 
-use foundation { NSObject, NSString, NSArray }
+use foundation { NSObject, NSString, NSArray, NSPoint }
+use core { NSView }
 
 @extern(ObjC, "/System/Library/Frameworks/AppKit.framework/AppKit") {
     /// `NSMenuItem` — one row in a menu. The standard ctor takes
@@ -24,6 +25,8 @@ use foundation { NSObject, NSString, NSArray }
         pub setAction(sel: i64)
         @objc("setEnabled:")
         pub setEnabled(flag: bool)
+        @objc("setState:")
+        pub setState(s: i64)
         @objc("setSubmenu:")
         pub setSubmenu(m: NSMenu)
         @objc("setKeyEquivalent:")
@@ -58,6 +61,14 @@ use foundation { NSObject, NSString, NSArray }
         pub setDelegate(d: NSMenuDelegate)
         @objc("setDelegate:")
         pub setDelegate(d: NSObject)
+
+        /// Show this menu as a popup at `location` in `view`'s
+        /// coordinate space. `item` is the row that should land
+        /// under the cursor (nil = position by location alone).
+        @objc("popUpMenuPositioningItem:atLocation:inView:")
+        pub popUpMenuPositioningItem(
+            item: NSMenuItem, location: NSPoint, view: NSView
+        ): bool
     }
 
     /// `NSMenuDelegate` — menu open / close / item validation

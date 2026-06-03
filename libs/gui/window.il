@@ -70,7 +70,7 @@ use gui_impl {
     setOnWindowEnterFullScreen, setOnWindowLeaveFullScreen,
     setOnWindowFocus, setOnWindowBlur,
     setOnWindowMove,
-    setWindowMenuBar,
+    setWindowMenuBar, menuPopup,
 }
 use menubar { Menu }
 
@@ -678,5 +678,12 @@ pub class Window : Container {
             i = i + 1
         }
         setWindowMenuBar(this.handle, handles)
+    }
+
+    /// Show `menu` as a popup at `(x, y)` in this window's client
+    /// coordinates. Useful as a right-click context menu fired
+    /// from a control's `onContextMenu`.
+    pub popupMenu(menu: Menu, x: f64, y: f64) {
+        menuPopup(menu.handle, this.handle, x, y)
     }
 }
