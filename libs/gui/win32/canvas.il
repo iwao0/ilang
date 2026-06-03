@@ -673,4 +673,9 @@ pub fn setOnCanvasMouseWheel(
     if let some(slot) = CANVASES.get(handle) { slot.onMouseWheel = cb }
 }
 
+/// Canvas-level drop is wired on cocoa; win32 deferred to Round 2.
+/// The stub keeps the cross-platform symbol surface intact so the
+/// public class compiles without conditional imports.
+pub fn setOnCanvasFilesDropped(handle: i64, cb: fn(string[], f64, f64)) {}
+
 } // @extern(C)

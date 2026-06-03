@@ -223,6 +223,13 @@ pub enum NSApplicationActivationPolicy: i64 {
         /// and the `nil` constant.
         @objc("setToolTip:")
         pub setToolTip(s: NSObject)
+        /// Register the receiver to accept drags carrying any of the
+        /// pasteboard types in `types` (an NSArray of NSString
+        /// UTIs / legacy type names). Pair with overrides of the
+        /// `NSDraggingDestination` protocol selectors below to
+        /// surface drop events.
+        @objc("registerForDraggedTypes:")
+        pub registerForDraggedTypes(types: NSArray)
     }
 
     /// `NSDockTile` — the per-app icon rectangle on the Dock.

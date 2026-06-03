@@ -21,7 +21,7 @@
 /// cache pre-realize and apply on `attachTo`.
 
 use std.events { Signal }
-use events { KeyEvent, MouseEvent, FocusEvent, BlurEvent }
+use events { KeyEvent, MouseEvent, FocusEvent, BlurEvent, FilesDroppedEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeCanvas, setCanvasFrame,
@@ -36,6 +36,7 @@ use gui_impl {
     setOnCanvasMouseEnter, setOnCanvasMouseLeave,
     setOnCanvasMouseMove, setOnCanvasMouseDown, setOnCanvasMouseUp,
     setOnCanvasContextMenu, setOnCanvasMouseWheel,
+    setOnCanvasFilesDropped,
     focusCanvas, blurCanvas,
 }
 
@@ -67,6 +68,7 @@ pub class Canvas : Control {
     pub onMouseUp:    Signal<MouseEvent>
     pub onContextMenu: Signal<MouseEvent>
     pub onMouseWheel: Signal<MouseEvent>
+    pub onFilesDropped: Signal<FilesDroppedEvent>
 
     pub init() {
         super()
@@ -92,6 +94,7 @@ pub class Canvas : Control {
         this.onMouseUp    = new Signal<MouseEvent>()
         this.onContextMenu = new Signal<MouseEvent>()
         this.onMouseWheel = new Signal<MouseEvent>()
+        this.onFilesDropped = new Signal<FilesDroppedEvent>()
     }
 
     pub get x(): f64 { this._x }
@@ -251,6 +254,10 @@ pub class Canvas : Control {
                     e.wheelDx = dx
                     e.wheelDy = dy
                     this.onMouseWheel.emit(e)
+                })
+            setOnCanvasFilesDropped(this.handle,
+                fn(files: string[], x: f64, y: f64) {
+                    this.onFilesDropped.emit(new FilesDroppedEvent(this, files, x, y))
                 })
             if this._tooltip != "" { setCanvasTooltip(this.handle, this._tooltip) }
         }

@@ -287,3 +287,19 @@ pub class TabChangeEvent : Event {
         this.index = index
     }
 }
+
+/// Fired when files are dropped onto a window or widget. `files`
+/// holds the absolute paths in the order the OS reported them;
+/// `x` / `y` are the drop coordinates in the receiver's local
+/// (top-left origin) space.
+pub class FilesDroppedEvent : Event {
+    pub files: string[]
+    pub x:     f64
+    pub y:     f64
+    pub init(sender: EventTarget, files: string[], x: f64, y: f64) {
+        super(sender)
+        this.files = files
+        this.x = x
+        this.y = y
+    }
+}

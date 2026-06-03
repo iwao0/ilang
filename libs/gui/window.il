@@ -29,6 +29,7 @@ use events {
     EnterFullScreenEvent, LeaveFullScreenEvent,
     FocusEvent, BlurEvent,
     ShowEvent, HideEvent, MoveEvent,
+    FilesDroppedEvent,
 }
 use layout { Dock, Margin, Point, Size, Rect }
 use gui_impl {
@@ -67,6 +68,7 @@ use gui_impl {
     setOnMouseUp,
     setOnWindowMouseEnter, setOnWindowMouseLeave,
     setOnWindowMouseWheel, setOnWindowContextMenu,
+    setOnWindowFilesDropped,
     setOnWindowMinimize, setOnWindowRestore,
     setOnWindowMaximize, setOnWindowUnmaximize,
     setOnWindowEnterFullScreen, setOnWindowLeaveFullScreen,
@@ -247,6 +249,7 @@ pub class Window : Container {
     pub onMouseLeave:       Signal<MouseEvent>
     pub onMouseWheel:       Signal<MouseEvent>
     pub onContextMenu:      Signal<MouseEvent>
+    pub onFilesDropped:     Signal<FilesDroppedEvent>
     pub onMinimize:         Signal<MinimizeEvent>
     pub onRestore:          Signal<RestoreEvent>
     pub onMaximize:         Signal<MaximizeEvent>
@@ -284,6 +287,7 @@ pub class Window : Container {
         this.onMouseLeave       = new Signal<MouseEvent>()
         this.onMouseWheel       = new Signal<MouseEvent>()
         this.onContextMenu      = new Signal<MouseEvent>()
+        this.onFilesDropped     = new Signal<FilesDroppedEvent>()
         this.onMinimize         = new Signal<MinimizeEvent>()
         this.onRestore          = new Signal<RestoreEvent>()
         this.onMaximize         = new Signal<MaximizeEvent>()
@@ -348,6 +352,10 @@ pub class Window : Container {
         setOnWindowContextMenu(this.handle,
             fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
                 this.onContextMenu.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnWindowFilesDropped(this.handle,
+            fn(files: string[], x: f64, y: f64) {
+                this.onFilesDropped.emit(new FilesDroppedEvent(this, files, x, y))
             })
         setOnWindowMinimize(this.handle, fn() {
             this.onMinimize.emit(new MinimizeEvent(this))

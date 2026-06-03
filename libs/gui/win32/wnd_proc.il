@@ -17,21 +17,24 @@
 ///   route to `slider`.
 
 use windows {
-    HWND, HINSTANCE,
+    HWND, HINSTANCE, HDROP,
     DefWindowProcW, PostQuitMessage, DestroyWindow,
     WindowMessage, VirtualKey, ActivateCode, TrackMouseFlags, TRACKMOUSEEVENT,
     TrackMouseEvent, ScreenToClient,
     LoadCursorA, SetCursor, SystemCursor,
     HDC, RECT, POINT, MINMAXINFO, NMHDR,
     GetClientRect, FillRect, GetSysColorBrush,
+    DragQueryFileW, DragQueryPoint, DragFinish,
+    HeapAlloc, HeapFree, GetProcessHeap,
 }
-use std.ffi { readI32, readU64 }
+use std.ffi { readI32, readU64, arrayFromCArray }
 use core {
     dispatchClose, dispatchSize,
     dispatchKeyDown, dispatchKeyUp,
     dispatchMouseMove, dispatchMouseDown, dispatchMouseUp,
     dispatchMouseEnter, dispatchMouseLeave,
     dispatchMouseWheel, dispatchContextMenu,
+    dispatchFilesDropped,
     windowMouseTracking,
     dispatchFocus, dispatchBlur, dispatchMove,
     contentToFrameSize,
@@ -302,6 +305,37 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             let ctrl = readU64(pHdr, 0 as i64) as i64
             let code = readI32(pHdr, 16 as i64)
             if tryTabViewSelChange(ctrl, code) { return 0 }
+            return 0
+        }
+        WindowMessage.dropFiles {
+            // wParam is an `HDROP` carrying the dropped file list.
+            // DragAcceptFiles(hwnd, TRUE) must have been called to
+            // arm WM_DROPFILES; that happens lazily when the user
+            // installs onFilesDropped via core.setOnWindowFilesDropped.
+            let hDrop = wParam as i64 as HDROP
+            let count = DragQueryFileW(
+                hDrop, 0xFFFFFFFF as u32, 0 as *u16, 0 as u32
+            ) as i32
+            let files: string[] = []
+            let heap = GetProcessHeap()
+            let i = 0
+            while i < count {
+                let need = DragQueryFileW(
+                    hDrop, i as u32, 0 as *u16, 0 as u32
+                ) as i32
+                let bufBytes = (need as u64 + 1 as u64) * 2 as u64
+                let buf = HeapAlloc(heap, 8 as u32, bufBytes) as *u16
+                DragQueryFileW(hDrop, i as u32, buf, (need + 1) as u32)
+                let units = arrayFromCArray(buf as *const u16, need as u64)
+                files.push(string.fromUtf16(units))
+                HeapFree(heap, 0 as u32, buf as *void)
+                i = i + 1
+            }
+            let pt = POINT { x: 0 as i32, y: 0 as i32 }
+            let p: *POINT = &pt
+            DragQueryPoint(hDrop, p)
+            DragFinish(hDrop)
+            dispatchFilesDropped(hwnd, files, pt.x as f64, pt.y as f64)
             return 0
         }
         WindowMessage.sysCommand {

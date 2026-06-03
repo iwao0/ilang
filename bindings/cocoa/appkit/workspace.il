@@ -1,11 +1,17 @@
 /// Workspace + pasteboard — NSPasteboard / NSWorkspace plus the
 /// PasteboardTypeString UTI constant.
 
-use foundation { NSObject, NSString, NSURL, nsstr, ilstr }
+use foundation { NSObject, NSString, NSURL, NSPoint, nsstr, ilstr }
 
 /// Standard UTI for plain UTF-8 text on the pasteboard. Pass to
 /// `pasteboardCopy` / `setString(forType:)`.
 pub const PasteboardTypeString: string = "public.utf8-plain-text"
+
+/// Legacy "list of NSString paths" pasteboard type. Still
+/// honoured by Finder drag sources on current macOS; reading via
+/// `propertyListForType:` returns an `NSArray` of `NSString`
+/// absolute paths.
+pub const FilenamesPboardType: string = "NSFilenamesPboardType"
 
 @extern(ObjC, "/System/Library/Frameworks/AppKit.framework/AppKit") {
     /// `NSPasteboard` — system clipboard. `generalPasteboard`
@@ -28,6 +34,29 @@ pub const PasteboardTypeString: string = "public.utf8-plain-text"
         pub setString(s: NSString, forType: NSString): bool
         @objc("stringForType:")
         pub stringForType(t: NSString): NSString
+        /// Decode the data for `type` as a Cocoa property list and
+        /// return the root. For `FilenamesPboardType` this is an
+        /// `NSArray` of `NSString` absolute paths (cast to
+        /// `NSArray` via `NSArray.__wrap_handle_unowned`).
+        @objc("propertyListForType:")
+        pub propertyListForType(t: NSString): NSObject
+    }
+
+    /// `NSDraggingInfo` is an `@protocol`, not a class — every
+    /// argument typed `id<NSDraggingInfo>` is actually some
+    /// concrete AppKit object that implements the protocol's
+    /// selectors. ilang binds the surface as a regular `@objc`
+    /// class so callers can dispatch by name; rebind any
+    /// `NSObject` sender that arrives in a dragging selector via
+    /// `NSDraggingInfo.__wrap_handle_unowned(sender.handle)`.
+    @objc pub class NSDraggingInfo : NSObject {
+        @objc("draggingPasteboard")
+        pub get draggingPasteboard(): NSPasteboard
+        /// Window-coordinate location of the cursor during the
+        /// drag. Convert into view coordinates with
+        /// `view.convertPointFromView(p, nil)`.
+        @objc("draggingLocation")
+        pub get draggingLocation(): NSPoint
     }
 
     /// `NSWorkspace` — Finder / Launch-Services bridge. Use

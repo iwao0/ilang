@@ -14,7 +14,9 @@ use cocoa {
     NSObject, NSView, NSImage, NSColor, NSBezierPath,
     NSTrackingArea, NSTrackingAreaOptions,
     NSPoint, NSRect, NSCompositingOperation, NSEvent,
-    nil, nsstr,
+    NSArray, NSMutableArray, NSString,
+    NSPasteboard, NSDraggingInfo, FilenamesPboardType,
+    nil, nsstr, ilstr,
     makeRect, makePoint, makeSize,
 }
 use core {
@@ -145,6 +147,30 @@ class CanvasView : NSView {
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
+    pub draggingEntered(sender: NSObject): u64 { 1 as u64 }
+    pub performDragOperation(sender: NSObject): bool {
+        if let some(slot) = CANVASES.get(this.handle) {
+            let info = NSDraggingInfo.__wrap_handle_unowned(sender.handle)
+            let pb = info.draggingPasteboard
+            let plist = pb.propertyListForType(nsstr(FilenamesPboardType))
+            if plist.handle == 0 as i64 { return false }
+            let arr = NSArray.__wrap_handle_unowned(plist.handle)
+            let n = arr.count
+            let files: string[] = []
+            let i = 0 as i64
+            while i < n {
+                let item = arr.objectAtIndex(i)
+                let s = NSString.__wrap_handle_unowned(item.handle)
+                files.push(ilstr(s))
+                i = i + 1 as i64
+            }
+            let loc = info.draggingLocation
+            let p = this.convertPointFromView(loc, nil)
+            let cb = slot.onFilesDropped
+            cb(files, p.x, p.y)
+        }
+        true
+    }
     /// `kind`: 0=move, 1=down, 2=up. `button`: W3C MouseEvent.button.
     dispatchMouse(event: NSEvent, kind: i32, button: i32) {
         if let some(slot) = CANVASES.get(this.handle) {
@@ -204,6 +230,7 @@ class CanvasSlot {
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub onFilesDropped: fn(string[], f64, f64)
 
     pub init(view: CanvasView, img: NSImage, w: f64, h: f64) {
         this.view        = view
@@ -226,8 +253,11 @@ class CanvasSlot {
         this.onMouseUp    = canvasNoOpBtn
         this.onContextMenu = canvasNoOpBtn
         this.onMouseWheel = canvasNoOpWheel
+        this.onFilesDropped = canvasNoOpFiles
     }
 }
+
+fn canvasNoOpFiles(files: string[], x: f64, y: f64) {}
 
 let CANVASES = new Map<i64, CanvasSlot>()
 
@@ -501,4 +531,12 @@ pub fn setOnCanvasMouseWheel(
     handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 ) {
     if let some(slot) = CANVASES.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn setOnCanvasFilesDropped(handle: i64, cb: fn(string[], f64, f64)) {
+    if let some(slot) = CANVASES.get(handle) {
+        slot.onFilesDropped = cb
+        let types = NSMutableArray.alloc().init()
+        types.addObject(nsstr(FilenamesPboardType) as NSObject)
+        (slot.view as NSView).registerForDraggedTypes(types as NSArray)
+    }
 }

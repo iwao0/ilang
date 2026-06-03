@@ -11,6 +11,7 @@
 use windows {
     HWND, WINDOWPLACEMENT, POINT, RECT,
     WindowLongIndex, GetWindowLongPtrW, GetMenu, AdjustWindowRectEx,
+    DragAcceptFiles,
 }
 
 /// `lastSizeWParam` is the wParam value (SIZE_* code) of the most
@@ -42,6 +43,7 @@ pub class WindowSlot {
     pub onMouseLeave:  fn(f64, f64)
     pub onMouseWheel:  fn(f64, f64, f64, f64, bool, bool, bool, bool)
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onFilesDropped: fn(string[], f64, f64)
     pub mouseTracking: bool
     pub onMinimize:        fn()
     pub onRestore:         fn()
@@ -89,6 +91,7 @@ pub class WindowSlot {
         this.onMouseLeave      = noOpEnterLeave
         this.onMouseWheel      = noOpWheel
         this.onContextMenu     = noOpMouse
+        this.onFilesDropped    = noOpFilesDropped
         this.mouseTracking     = false
         this.onMinimize        = noOp1
         this.onRestore         = noOp1
@@ -133,6 +136,7 @@ fn noOpKey(c: string, k1: bool, k2: bool, k3: bool, k4: bool) {}
 fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {}
 fn noOpEnterLeave(x: f64, y: f64) {}
 fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, k1: bool, k2: bool, k3: bool, k4: bool) {}
+fn noOpFilesDropped(files: string[], x: f64, y: f64) {}
 
 /// Lookup the raw HWND for window `handle`. Used by widget
 /// modules' `createNative*` to find the parent HWND for
@@ -216,6 +220,19 @@ pub fn setOnWindowContextMenu(
     handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 ) {
     if let some(slot) = WINDOWS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setOnWindowFilesDropped(handle: i64, cb: fn(string[], f64, f64)) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.onFilesDropped = cb
+        // Toggle WM_DROPFILES delivery on first subscription. The
+        // wnd_proc's WM_DROPFILES arm reads the slot.
+        DragAcceptFiles(slot.hwnd, 1 as i32)
+    }
+}
+pub fn dispatchFilesDropped(handle: i64, files: string[], x: f64, y: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.onFilesDropped(files, x, y)
+    }
 }
 pub fn setOnWindowMinimize(handle: i64, cb: fn()) {
     if let some(slot) = WINDOWS.get(handle) { slot.onMinimize = cb }

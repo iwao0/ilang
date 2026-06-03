@@ -180,6 +180,11 @@ pub fn setOnWindowContextMenu(
 ) {
     if let some(slot) = WINDOWS.get(handle) { slot.onContextMenu = cb }
 }
+/// Window-level drop is wired on cocoa / win32; linux is
+/// deferred to Round 2 (GtkDropTarget + GdkFileList wiring is
+/// non-trivial to bind cleanly). Stub keeps the cross-platform
+/// symbol surface intact.
+pub fn setOnWindowFilesDropped(handle: i64, cb: fn(string[], f64, f64)) {}
 pub fn setOnMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if let some(slot) = WINDOWS.get(handle) { slot.onMouseUp = cb }
 }

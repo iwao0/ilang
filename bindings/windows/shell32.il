@@ -131,7 +131,7 @@ pub enum NotifyIconDataFlags: u32 {
 }
 
 use winnt { HANDLE }
-use windef { HICON, HINSTANCE, HWND }
+use windef { HICON, HINSTANCE, HWND, POINT }
 @extern(C, "shell32") {
     // ── Shell handle type ─────────────────────────────────────────
 
@@ -238,6 +238,12 @@ use windef { HICON, HINSTANCE, HWND }
     /// Releases memory allocated by the system for `hDrop`.
     /// Always call this after processing WM_DROPFILES.
     @lib pub fn DragFinish(hDrop: HDROP)
+
+    /// Drop-point query. `lppt` is filled with the cursor position
+    /// in the receiving window's client coordinates. Returns
+    /// non-zero when the point lies inside the receiving window's
+    /// client area.
+    @lib pub fn DragQueryPoint(hDrop: HDROP, lppt: *POINT): i32
 
     // ── System tray ───────────────────────────────────────────────
 

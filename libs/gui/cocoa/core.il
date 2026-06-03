@@ -9,6 +9,8 @@ use cocoa {
     NSObject, NSApplication, NSWindow, NSView, NSScreen,
     NSNotification, NSEvent,
     NSEventModifierFlags, KeyCode, nil,
+    NSArray, NSMutableArray, NSString, NSPasteboard, NSDraggingInfo,
+    FilenamesPboardType, nsstr, ilstr,
 }
 use super.events
 // ─── per-window state ─────────────────────────────────────────
@@ -33,6 +35,7 @@ pub class WindowSlot {
     pub onMouseLeave:  fn(f64, f64)
     pub onMouseWheel:  fn(f64, f64, f64, f64, bool, bool, bool, bool)
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onFilesDropped: fn(string[], f64, f64)
     /// Window-state event hooks. AppKit fires distinct delegate
     /// callbacks for miniaturize / deminiaturize / enter-full-
     /// screen / exit-full-screen, but NOT for `zoom:` — there's
@@ -78,6 +81,7 @@ pub class WindowSlot {
         this.onMouseLeave      = noOpEnterLeave
         this.onMouseWheel      = noOpWheel
         this.onContextMenu     = noOpClickMod
+        this.onFilesDropped    = noOpFilesDropped
         this.onMinimize        = noOp1
         this.onRestore         = noOp1
         this.onMaximize        = noOp1
@@ -108,6 +112,7 @@ pub fn noOp2(w: f64, h: f64) {
 }
 pub fn noOpEnterLeave(x: f64, y: f64) {}
 pub fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+pub fn noOpFilesDropped(files: string[], x: f64, y: f64) {}
 pub fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 pub fn noOpKey(c: string, k1: bool, k2: bool, k3: bool, k4: bool) {
 }
@@ -413,6 +418,36 @@ pub class GuiView : NSView {
         let e = NSEvent.__wrap_handle_unowned(event.handle)
         this.dispatchMouse(e, 2, 1)
     }
+    /// `NSDraggingDestination` entry point. Returning a non-zero
+    /// `NSDragOperation` (1 = NSDragOperationCopy) signals "yes,
+    /// I want this drop" and turns on the cursor's drop indicator.
+    pub draggingEntered(sender: NSObject): u64 { 1 as u64 }
+    /// Drop commit. Pull the FilenamesPboardType payload (an
+    /// `NSArray<NSString*>` of absolute paths) and feed it to the
+    /// user callback alongside the local drop point.
+    pub performDragOperation(sender: NSObject): bool {
+        if let some(slot) = this.windowSlot() {
+            let info = NSDraggingInfo.__wrap_handle_unowned(sender.handle)
+            let pb = info.draggingPasteboard
+            let plist = pb.propertyListForType(nsstr(FilenamesPboardType))
+            if plist.handle == 0 as i64 { return false }
+            let arr = NSArray.__wrap_handle_unowned(plist.handle)
+            let n = arr.count
+            let files: string[] = []
+            let i = 0 as i64
+            while i < n {
+                let item = arr.objectAtIndex(i)
+                let s = NSString.__wrap_handle_unowned(item.handle)
+                files.push(ilstr(s))
+                i = i + 1 as i64
+            }
+            let loc = info.draggingLocation
+            let p = this.convertPointFromView(loc, nil)
+            let cb = slot.onFilesDropped
+            cb(files, p.x, p.y)
+        }
+        true
+    }
 
     /// Look up the WindowSlot this view belongs to. Two-step:
     /// view.handle → window.handle (VIEW_TO_WINDOW) → WindowSlot
@@ -488,6 +523,17 @@ pub fn setOnWindowContextMenu(
     handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 ) {
     if let some(slot) = WINDOWS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setOnWindowFilesDropped(handle: i64, cb: fn(string[], f64, f64)) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.onFilesDropped = cb
+        // Register the contentView as a drag target on first
+        // subscription so callers don't have to opt in twice.
+        let types = NSMutableArray.alloc().init()
+        types.addObject(nsstr(FilenamesPboardType) as NSObject)
+        let v = NSView.__wrap_handle_unowned(slot.viewHandle)
+        v.registerForDraggedTypes(types as NSArray)
+    }
 }
 pub fn setOnWindowMinimize(handle: i64, cb: fn()) {
     if let some(slot) = WINDOWS.get(handle) { slot.onMinimize = cb }
