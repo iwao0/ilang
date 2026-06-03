@@ -19,6 +19,8 @@ use window { Window, Control }
 use gui_impl {
     createNativeButton,
     setOnButtonClick, setOnButtonFocus, setOnButtonBlur,
+    setOnButtonMouseEnter, setOnButtonMouseLeave,
+    setOnButtonMouseDown, setOnButtonMouseUp,
     setButtonText, setButtonFrame, setButtonEnabled, setButtonVisible,
     setButtonDefault, clickButton, focusButton,
 }
@@ -38,6 +40,10 @@ pub class Button : Control {
     pub onClick: Signal<MouseEvent>
     pub onFocus: Signal<FocusEvent>
     pub onBlur:  Signal<BlurEvent>
+    pub onMouseEnter: Signal<MouseEvent>
+    pub onMouseLeave: Signal<MouseEvent>
+    pub onMouseDown:  Signal<MouseEvent>
+    pub onMouseUp:    Signal<MouseEvent>
 
     pub init() {
         super()
@@ -53,6 +59,10 @@ pub class Button : Control {
         this.onClick     = new Signal<MouseEvent>()
         this.onFocus     = new Signal<FocusEvent>()
         this.onBlur      = new Signal<BlurEvent>()
+        this.onMouseEnter = new Signal<MouseEvent>()
+        this.onMouseLeave = new Signal<MouseEvent>()
+        this.onMouseDown  = new Signal<MouseEvent>()
+        this.onMouseUp    = new Signal<MouseEvent>()
     }
 
     pub get text(): string { this._text }
@@ -135,6 +145,18 @@ pub class Button : Control {
         })
         setOnButtonBlur(this.handle, fn() {
             this.onBlur.emit(new BlurEvent(this))
+        })
+        setOnButtonMouseEnter(this.handle, fn(x: f64, y: f64) {
+            this.onMouseEnter.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+        })
+        setOnButtonMouseLeave(this.handle, fn(x: f64, y: f64) {
+            this.onMouseLeave.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+        })
+        setOnButtonMouseDown(this.handle, fn(x: f64, y: f64, b: i32) {
+            this.onMouseDown.emit(new MouseEvent(this, x, y, b, false, false, false, false))
+        })
+        setOnButtonMouseUp(this.handle, fn(x: f64, y: f64, b: i32) {
+            this.onMouseUp.emit(new MouseEvent(this, x, y, b, false, false, false, false))
         })
     }
 

@@ -6,10 +6,12 @@
 
 use windows {
     HWND, HINSTANCE, HMENU,
-    WindowStyle, ShowCmd,
+    WindowStyle, ShowCmd, WindowMessage, TrackMouseFlags,
+    TRACKMOUSEEVENT,
     GetModuleHandleA,
     CreateWindowExW, SetWindowTextW, EnableWindow, MoveWindow, ShowWindow,
-    SendMessageW, SetFocus,
+    SendMessageW, SetFocus, TrackMouseEvent,
+    SetWindowSubclass, DefSubclassProc,
 }
 use util { applyExplorerTheme, applyGuiFont, noOpClick }
 use core { windowHwnd, noOp1 }
@@ -45,15 +47,32 @@ class ButtonSlot {
     pub onClick: fn(f64, f64, i32)
     pub onFocus: fn()
     pub onBlur:  fn()
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
+    pub onMouseDown:  fn(f64, f64, i32)
+    pub onMouseUp:    fn(f64, f64, i32)
+    /// Win32 has no native `WM_MOUSEENTER`; we synthesise it the
+    /// first time `WM_MOUSEMOVE` arrives after a previous leave.
+    /// `mouseTracking` flips to true when we've registered a
+    /// `TrackMouseEvent` (so the leave message will fire) and back
+    /// to false on `WM_MOUSELEAVE`.
+    pub mouseTracking: bool
     pub winHandle: i64
     pub init(hwnd: HWND, winHandle: i64) {
         this.hwnd = hwnd
         this.onClick = noOpClick
         this.onFocus = noOp1
         this.onBlur  = noOp1
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
+        this.onMouseDown  = noOpClick
+        this.onMouseUp    = noOpClick
+        this.mouseTracking = false
         this.winHandle = winHandle
     }
 }
+
+fn noOpEnterLeave(x: f64, y: f64) {}
 
 let BUTTONS = new Map<i64, ButtonSlot>()
 
@@ -113,6 +132,84 @@ pub fn tryButtonBlur(hwnd: i64): bool {
 
 @extern(C) {
 
+/// Window-procedure subclass installed on every BUTTON instance.
+/// Surfaces the per-button mouse events that the default BUTTON
+/// wndproc swallows. Forwards everything else to `DefSubclassProc`
+/// so click + visual state stay intact.
+pub fn buttonSubclassProc(
+    hwnd: i64, msg: u32, wParam: u64, lParam: i64,
+    idSubclass: u64, refData: u64
+): i64 {
+    let lo = (lParam & 0xFFFF) as f64
+    let hi = ((lParam >> 16) & 0xFFFF) as f64
+    match msg as WindowMessage {
+        WindowMessage.mouseMove {
+            if let some(slot) = BUTTONS.get(hwnd) {
+                if !slot.mouseTracking {
+                    // First move after creation / a previous leave:
+                    // register for WM_MOUSELEAVE and synthesise the
+                    // enter event ourselves.
+                    let tme = TRACKMOUSEEVENT {
+                        cbSize:      24 as u32,
+                        dwFlags:     TrackMouseFlags.leave as u32,
+                        hwndTrack:   hwnd as HWND,
+                        dwHoverTime: 0 as u32,
+                    }
+                    TrackMouseEvent(&tme)
+                    slot.mouseTracking = true
+                    let cb = slot.onMouseEnter
+                    cb(lo, hi)
+                }
+            }
+        }
+        WindowMessage.mouseLeave {
+            if let some(slot) = BUTTONS.get(hwnd) {
+                slot.mouseTracking = false
+                let cb = slot.onMouseLeave
+                cb(lo, hi)
+            }
+        }
+        WindowMessage.lbuttondown {
+            if let some(slot) = BUTTONS.get(hwnd) {
+                let cb = slot.onMouseDown
+                cb(lo, hi, 0)
+            }
+        }
+        WindowMessage.lbuttonup {
+            if let some(slot) = BUTTONS.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 0)
+            }
+        }
+        WindowMessage.mButtonDown {
+            if let some(slot) = BUTTONS.get(hwnd) {
+                let cb = slot.onMouseDown
+                cb(lo, hi, 1)
+            }
+        }
+        WindowMessage.mButtonUp {
+            if let some(slot) = BUTTONS.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 1)
+            }
+        }
+        WindowMessage.rButtonDown {
+            if let some(slot) = BUTTONS.get(hwnd) {
+                let cb = slot.onMouseDown
+                cb(lo, hi, 2)
+            }
+        }
+        WindowMessage.rButtonUp {
+            if let some(slot) = BUTTONS.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 2)
+            }
+        }
+        _ {}
+    }
+    DefSubclassProc(hwnd as HWND, msg, wParam, lParam)
+}
+
 pub fn createNativeButton(
     windowHandle: i64,
     text: string, x: f64, y: f64, width: f64, height: f64,
@@ -148,6 +245,11 @@ pub fn createNativeButton(
     EnableWindow(hwnd, enabledFlag)
     applyExplorerTheme(hwnd)
     applyGuiFont(hwnd)
+    // Subclass the BUTTON so we see WM_LBUTTONDOWN / UP /
+    // WM_MOUSEMOVE / WM_MOUSELEAVE before they reach the
+    // default BUTTON wndproc. `DefSubclassProc` from inside the
+    // hook keeps the standard click + visual press feedback.
+    SetWindowSubclass(hwnd, buttonSubclassProc, 1 as u64, 0 as u64)
     let handle = hwnd as i64
     BUTTONS[handle] = new ButtonSlot(hwnd, windowHandle)
     if isDefault { setButtonDefault(handle, true) }
@@ -190,6 +292,18 @@ pub fn setOnButtonFocus(handle: i64, cb: fn()) {
 }
 pub fn setOnButtonBlur(handle: i64, cb: fn()) {
     if let some(slot) = BUTTONS.get(handle) { slot.onBlur = cb }
+}
+pub fn setOnButtonMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnButtonMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnButtonMouseDown(handle: i64, cb: fn(f64, f64, i32)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseUp = cb }
 }
 pub fn focusButton(handle: i64) {
     if let some(slot) = BUTTONS.get(handle) {

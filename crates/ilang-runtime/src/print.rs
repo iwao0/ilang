@@ -58,6 +58,14 @@ pub extern "C" fn __print_space() {
 pub extern "C" fn __print_newline() {
     let mut out = std::io::stdout().lock();
     let _ = out.write_all(b"\n");
+    // Rust's stdout is block-buffered when stdout is a pipe / file
+    // (the `tee` case). Without flushing at end-of-line, output from
+    // `console.log` produced inside `gui.run()`'s `NSApp.run()` event
+    // loop never reaches the pipe — `[NSApp terminate:]` calls libc
+    // `exit` directly and bypasses Rust's atexit flush. Flushing here
+    // gives `console.log` line-buffered semantics in every context
+    // (terminal *and* pipe).
+    let _ = out.flush();
 }
 
 // --------------------------------------------------------------------

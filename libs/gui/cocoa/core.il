@@ -334,8 +334,23 @@ pub class GuiView : NSView {
 
     pub mouseMoved(event: NSEvent)     { this.dispatchMouse(event, 0, 0) }
     pub mouseDragged(event: NSEvent)   { this.dispatchMouse(event, 0, 0) }
-    pub mouseDown(event: NSEvent)      { this.dispatchMouse(event, 1, 0) }
-    pub mouseUp(event: NSEvent)        { this.dispatchMouse(event, 2, 0) }
+    /// `mouseDown` / `mouseUp` are declared on `NSView` typed as
+    /// `NSObject` (the binding sits in `core.il`'s `@extern(ObjC)`
+    /// block, which can't pull in `NSEvent` from the sibling
+    /// `events.il` block). Override with the same `NSObject`
+    /// signature and rebind to `NSEvent` via `__wrap_handle_unowned`.
+    /// `as? NSEvent` looks correct but doesn't work — ilang's
+    /// checked downcast reads `obj+0` as the ilang class id, while
+    /// @objc instances store the objc isa pointer there, so the
+    /// test always fails.
+    pub override mouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 1, 0)
+    }
+    pub override mouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 2, 0)
+    }
     pub rightMouseDown(event: NSEvent) { this.dispatchMouse(event, 1, 2) }
     pub rightMouseUp(event: NSEvent)   { this.dispatchMouse(event, 2, 2) }
     pub otherMouseDown(event: NSEvent) { this.dispatchMouse(event, 1, 1) }

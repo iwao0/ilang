@@ -98,6 +98,13 @@ pub enum NSDatePickerStyle: u64 {
         /// `sender` for the canonical "no real sender" case.
         @objc("performClick:")
         pub performClick(sender: NSObject)
+        /// Toggle the cell's "is being pressed" state explicitly.
+        /// `NSButton` reflects this in the cell's visual treatment
+        /// (the bezel sinks in). Useful when a subclass takes over
+        /// `mouseDown:` / `mouseUp:` and needs to keep the press
+        /// feedback running without bouncing through `super`.
+        @objc("setHighlighted:")
+        pub setHighlighted(flag: bool)
     }
 
     /// NSTextField. Doubles as both an editable text input and a

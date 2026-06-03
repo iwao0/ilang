@@ -171,6 +171,32 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub setLayer(layer: NSObject)
         @objc("setWantsLayer:")
         pub setWantsLayer(flag: bool)
+        /// Add a mouse-tracking region so AppKit dispatches
+        /// `mouseEntered:` / `mouseExited:` (and optionally
+        /// `mouseMoved:`) on this view. Construct the `NSTrackingArea`
+        /// with the desired option set; the area's `owner` receives
+        /// the callbacks.
+        @objc("addTrackingArea:")
+        pub addTrackingArea(area: NSObject)
+        @objc("removeTrackingArea:")
+        pub removeTrackingArea(area: NSObject)
+        /// `NSResponder` event entry points. The runtime hands an
+        /// `NSEvent` here; the parameter is typed `NSObject` so the
+        /// binding doesn't pull `NSEvent`'s declaration into this
+        /// block (it lives in `events.il`, a sibling `@extern(ObjC)`
+        /// scope). Subclass overrides cast back to `NSEvent` via
+        /// `event as NSEvent` to read the typed accessors. Pair the
+        /// override with `super.mouseDown(event)` (etc.) to keep the
+        /// parent's default behaviour — press visuals on `NSButton`,
+        /// hover cell state and so on — running.
+        @objc("mouseDown:")
+        pub mouseDown(event: NSObject)
+        @objc("mouseUp:")
+        pub mouseUp(event: NSObject)
+        @objc("mouseEntered:")
+        pub mouseEntered(event: NSObject)
+        @objc("mouseExited:")
+        pub mouseExited(event: NSObject)
     }
 
     /// `NSDockTile` — the per-app icon rectangle on the Dock.

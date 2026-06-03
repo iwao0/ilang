@@ -5,7 +5,8 @@
 /// stores as the public `handle: i64`.
 
 use cocoa {
-    NSObject, NSButton, NSView,
+    NSObject, NSButton, NSView, NSEvent,
+    NSTrackingArea, NSTrackingAreaOptions,
     nsstr, makeRect, selectorPtr, nil,
     classPtr, setObjectClass,
 }
@@ -20,6 +21,10 @@ class ButtonSlot {
     pub onClick: fn(f64, f64, i32)
     pub onFocus: fn()
     pub onBlur:  fn()
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
+    pub onMouseDown:  fn(f64, f64, i32)
+    pub onMouseUp:    fn(f64, f64, i32)
     pub handler: NSObject
     pub winHandle: i64
     pub init(btn: NSButton, handler: NSObject, winHandle: i64) {
@@ -27,10 +32,16 @@ class ButtonSlot {
         this.onClick = noOpClick
         this.onFocus = noOp1
         this.onBlur  = noOp1
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
+        this.onMouseDown  = noOpClick
+        this.onMouseUp    = noOpClick
         this.handler = handler
         this.winHandle = winHandle
     }
 }
+
+fn noOpEnterLeave(x: f64, y: f64) {}
 
 let BUTTONS = new Map<i64, ButtonSlot>()
 
@@ -81,7 +92,99 @@ class FocusButton : NSButton {
         }
         true
     }
+    /// AppKit dispatches `mouseDown:` here when the user presses
+    /// the primary button inside the view. We hand the event to
+    /// `super` first so `NSButton`'s default press handling
+    /// (highlight cell, run target/action on a successful click,
+    /// etc.) stays intact, then surface the event as
+    /// `onMouseDown`. AppKit's own target/action drives `onClick`
+    /// via `ClickHandler.clicked:`; we don't need to synthesise it.
+    /// AppKit dispatches `mouseDown:` here when the user presses
+    /// the primary button inside the view. We deliberately don't
+    /// invoke `super.mouseDown(event)` — the ilang ObjC-super
+    /// trampoline crashed with a SIGSEGV at `objc_msgSendSuper2`
+    /// (FAR = 0x10, the `struct objc_super` size) on real AppKit
+    /// dispatch. Instead we drive the press visual manually via
+    /// `setHighlighted(true)` and synthesise the missing
+    /// target/action on the matching `mouseUp:` while the cursor
+    /// is still inside the bounds (DOM `click` semantics).
+    pub override mouseDown(event: NSObject) {
+        this.setHighlighted(true)
+        // Wrap as `NSEvent` via the @objc desugar's unowned binder.
+        // `event as? NSEvent` doesn't work — ilang's checked downcast
+        // reads `obj+0` as the ilang class id, but an @objc handle
+        // stores objc's isa pointer there, so the test always fails.
+        // `__wrap_handle_unowned` takes the raw `id` we already
+        // possess and rebinds it under the more-specific ilang type
+        // *without* claiming ownership (AppKit autoreleases the event,
+        // so an owning wrap would double-release on scope exit).
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = BUTTONS.get(this.handle) {
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            // NSView's `isFlipped` defaults to `false`; convert
+            // AppKit's bottom-left origin to W3C top-left so the
+            // value matches the existing onClick payload.
+            let y = this.frame.size.height - p.y
+            let cb = slot.onMouseDown
+            cb(p.x, y, 0)
+            PENDING_CLICK[this.handle] = true
+        }
+    }
+    pub override mouseUp(event: NSObject) {
+        this.setHighlighted(false)
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = BUTTONS.get(this.handle) {
+            let f = this.frame
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let y = f.size.height - p.y
+            let upCb = slot.onMouseUp
+            upCb(p.x, y, 0)
+            let pending = match PENDING_CLICK.get(this.handle) {
+                some(b) { b }
+                none    { false }
+            }
+            PENDING_CLICK[this.handle] = false
+            let inside = p.x >= 0.0 && p.y >= 0.0
+                       && p.x <= f.size.width && p.y <= f.size.height
+            if pending && inside {
+                let clk = slot.onClick
+                clk(f.origin.x + f.size.width / 2.0,
+                    f.origin.y + f.size.height / 2.0,
+                    0)
+            }
+        }
+    }
+    pub override mouseEntered(event: NSObject) {
+        // No `super.mouseEntered` — same SIGSEGV issue with the
+        // ilang ObjC-super trampoline. NSButton's stock
+        // `mouseEntered:` doesn't drive a visible hover effect, so
+        // omitting it costs no observable feedback.
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = BUTTONS.get(this.handle) {
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let y = this.frame.size.height - p.y
+            let cb = slot.onMouseEnter
+            cb(p.x, y)
+        }
+    }
+    pub override mouseExited(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = BUTTONS.get(this.handle) {
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let y = this.frame.size.height - p.y
+            let cb = slot.onMouseLeave
+            cb(p.x, y)
+        }
+    }
 }
+
+/// Per-button "primary button is currently pressed" flag, keyed
+/// by the NSButton's `handle`. `mouseDown:` sets it; `mouseUp:`
+/// clears it and decides whether to synthesise `onClick` (only
+/// fires when the release lands inside the bounds, mirroring DOM
+/// `click`).
+let PENDING_CLICK = new Map<i64, bool>()
+
 
 pub fn createNativeButton(
     windowHandle: i64,
@@ -107,12 +210,24 @@ pub fn createNativeButton(
     // here), not the bare class name. Hard-coding the path keeps the
     // isa swap a single lookup; if ilang's mangling convention
     // changes the lookup returns 0 and the swap is silently skipped,
-    // leaving the button as a plain `NSButton` (onFocus / onBlur
-    // would stop firing but every other behaviour stays intact).
+    // leaving the button as a plain `NSButton` (focus / mouse
+    // events stop firing but every other behaviour stays intact).
     let focusCls = classPtr("gui_impl.FocusButton")
     if focusCls != 0 as i64 {
         let _ = setObjectClass(btn.handle, focusCls)
     }
+    // Tracking area covers the whole button. `activeAlways` so
+    // entered/exited fire regardless of which window is key, and
+    // `inVisibleRect` ties the area to the view's bounds so a later
+    // setFrame doesn't desynchronise the hit region.
+    let opts = NSTrackingAreaOptions.mouseEnteredAndExited
+             | NSTrackingAreaOptions.activeAlways
+             | NSTrackingAreaOptions.inVisibleRect
+    let area = NSTrackingArea.alloc().init(
+        makeRect(0.0, 0.0, width, height), opts,
+        btn as NSObject, nil
+    )
+    (btn as NSView).addTrackingArea(area as NSObject)
 
     ClickHandler.register()
     let h = ClickHandler.alloc().init()
@@ -156,6 +271,18 @@ pub fn setOnButtonFocus(handle: i64, cb: fn()) {
 }
 pub fn setOnButtonBlur(handle: i64, cb: fn()) {
     if let some(slot) = BUTTONS.get(handle) { slot.onBlur = cb }
+}
+pub fn setOnButtonMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnButtonMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnButtonMouseDown(handle: i64, cb: fn(f64, f64, i32)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseUp = cb }
 }
 pub fn focusButton(handle: i64) {
     if let some(slot) = BUTTONS.get(handle) {

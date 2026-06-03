@@ -11,7 +11,7 @@
 use std.ffi { cstrFromString }
 use gtk {
     GtkWidget, GtkButton, GtkFixed, GtkWindow, GObject,
-    GtkEventController,
+    GtkEventController, GtkGestureSingle, GtkGesture,
     gtk_button_new_with_label, gtk_button_set_label,
     gtk_fixed_put, gtk_fixed_move, gtk_fixed_remove,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
@@ -19,6 +19,11 @@ use gtk {
     gtk_widget_set_receives_default, gtk_window_set_default_widget,
     gtk_widget_grab_focus, gtk_widget_add_controller,
     gtk_event_controller_focus_new,
+    gtk_event_controller_motion_new,
+    gtk_event_controller_get_widget,
+    gtk_gesture_click_new,
+    gtk_gesture_single_set_button,
+    gtk_gesture_single_get_current_button,
     g_signal_connect_data,
 }
 use core { WINDOWS, noOpClick, noOpClose }
@@ -35,6 +40,10 @@ class ButtonSlot {
     pub onClick: fn(f64, f64, i32)
     pub onFocus: fn()
     pub onBlur:  fn()
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
+    pub onMouseDown:  fn(f64, f64, i32)
+    pub onMouseUp:    fn(f64, f64, i32)
     pub init(
         btn: GtkButton, fixed: GtkFixed, win: GtkWindow, winHandle: i64,
         x: f64, y: f64, w: f64, h: f64
@@ -50,6 +59,24 @@ class ButtonSlot {
         this.onClick = noOpClick
         this.onFocus = noOpClose
         this.onBlur  = noOpClose
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
+        this.onMouseDown  = noOpClick
+        this.onMouseUp    = noOpClick
+    }
+}
+
+fn noOpEnterLeave(x: f64, y: f64) {}
+
+/// GDK button numbering → W3C `MouseEvent.button`. GDK uses 1
+/// for primary, 2 for middle, 3 for secondary; the DOM uses
+/// 0 / 1 / 2 respectively. Unknown buttons fall through to 0.
+fn gdkBtnToW3c(gdk: u32): i32 {
+    match gdk {
+        1 as u32 { 0 as i32 }
+        2 as u32 { 1 as i32 }
+        3 as u32 { 2 as i32 }
+        _        { 0 as i32 }
     }
 }
 
@@ -91,6 +118,50 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
         if let some(slot) = BUTTONS.get(w as i64) {
             let cb = slot.onBlur
             cb()
+        }
+    }
+
+    /// `GtkGestureClick.pressed` / `released` carry
+    /// `(GtkGestureClick* gesture, gint n_press, gdouble x, gdouble y,
+    /// gpointer user)`. The gesture is itself a `GtkEventController`,
+    /// so the widget lookup mirrors the focus controllers.
+    pub fn linux_button_pressed(
+        gesture: i64, nPress: i32, x: f64, y: f64, data: i64
+    ) {
+        let w = gtk_event_controller_get_widget(gesture as GtkEventController)
+        if let some(slot) = BUTTONS.get(w as i64) {
+            let btn = gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
+            let cb = slot.onMouseDown
+            cb(x, y, gdkBtnToW3c(btn))
+        }
+    }
+    pub fn linux_button_released(
+        gesture: i64, nPress: i32, x: f64, y: f64, data: i64
+    ) {
+        let w = gtk_event_controller_get_widget(gesture as GtkEventController)
+        if let some(slot) = BUTTONS.get(w as i64) {
+            let btn = gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
+            let cb = slot.onMouseUp
+            cb(x, y, gdkBtnToW3c(btn))
+        }
+    }
+    /// `GtkEventControllerMotion.enter` carries
+    /// `(controller*, gdouble x, gdouble y, gpointer user)`.
+    pub fn linux_button_motion_enter(ctl: i64, x: f64, y: f64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = BUTTONS.get(w as i64) {
+            let cb = slot.onMouseEnter
+            cb(x, y)
+        }
+    }
+    /// `GtkEventControllerMotion.leave` is positionless —
+    /// `(controller*, gpointer user)`. Surface (0, 0) so the
+    /// payload shape matches `onMouseEnter`.
+    pub fn linux_button_motion_leave(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = BUTTONS.get(w as i64) {
+            let cb = slot.onMouseLeave
+            cb(0.0, 0.0)
         }
     }
 }
@@ -146,6 +217,52 @@ pub fn createNativeButton(
         focusCtl as GObject,
         cstrFromString("leave"),
         linux_button_focus_leave,
+        0 as *void,
+        0 as i64,
+        0 as u32
+    )
+
+    // Pointer motion controller for onMouseEnter / onMouseLeave —
+    // GTK4 dropped the GtkWidget enter / leave signals; the modern
+    // way is a dedicated motion controller.
+    let motionCtl = gtk_event_controller_motion_new()
+    gtk_widget_add_controller(btn as GtkWidget, motionCtl)
+    g_signal_connect_data(
+        motionCtl as GObject,
+        cstrFromString("enter"),
+        linux_button_motion_enter,
+        0 as *void,
+        0 as i64,
+        0 as u32
+    )
+    g_signal_connect_data(
+        motionCtl as GObject,
+        cstrFromString("leave"),
+        linux_button_motion_leave,
+        0 as *void,
+        0 as i64,
+        0 as u32
+    )
+
+    // Click gesture for onMouseDown / onMouseUp. `set_button(0)`
+    // makes the gesture fire for any mouse button (default is
+    // primary only); we map the GDK button id to the W3C
+    // MouseEvent.button inside the handlers.
+    let clickGesture = gtk_gesture_click_new()
+    gtk_gesture_single_set_button(clickGesture as GtkGestureSingle, 0 as u32)
+    gtk_widget_add_controller(btn as GtkWidget, clickGesture as GtkEventController)
+    g_signal_connect_data(
+        clickGesture as GObject,
+        cstrFromString("pressed"),
+        linux_button_pressed,
+        0 as *void,
+        0 as i64,
+        0 as u32
+    )
+    g_signal_connect_data(
+        clickGesture as GObject,
+        cstrFromString("released"),
+        linux_button_released,
         0 as *void,
         0 as i64,
         0 as u32
@@ -211,6 +328,18 @@ pub fn setOnButtonFocus(handle: i64, cb: fn()) {
 }
 pub fn setOnButtonBlur(handle: i64, cb: fn()) {
     if let some(slot) = BUTTONS.get(handle) { slot.onBlur = cb }
+}
+pub fn setOnButtonMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnButtonMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnButtonMouseDown(handle: i64, cb: fn(f64, f64, i32)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
+    if let some(slot) = BUTTONS.get(handle) { slot.onMouseUp = cb }
 }
 pub fn focusButton(handle: i64) {
     if let some(slot) = BUTTONS.get(handle) {

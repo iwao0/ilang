@@ -110,8 +110,20 @@ class GpuViewNSView : NSView {
     }
     pub mouseMoved(event: NSEvent)     { this.dispatchMouse(event, 0, 0) }
     pub mouseDragged(event: NSEvent)   { this.dispatchMouse(event, 0, 0) }
-    pub mouseDown(event: NSEvent)      { this.dispatchMouse(event, 1, 0) }
-    pub mouseUp(event: NSEvent)        { this.dispatchMouse(event, 2, 0) }
+    /// See GuiView's note in core.il: NSView's mouseDown / mouseUp
+    /// are typed `NSObject` in the binding to avoid pulling NSEvent
+    /// into that scope; the override has to match. The `as?` checked
+    /// downcast doesn't work on @objc objects (ilang reads `obj+0`
+    /// as the ilang class id, but it's actually the objc isa
+    /// pointer there) — rebind via `__wrap_handle_unowned` instead.
+    pub override mouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 1, 0)
+    }
+    pub override mouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 2, 0)
+    }
     pub rightMouseDown(event: NSEvent) { this.dispatchMouse(event, 1, 2) }
     pub rightMouseUp(event: NSEvent)   { this.dispatchMouse(event, 2, 2) }
     pub rightMouseDragged(event: NSEvent) { this.dispatchMouse(event, 0, 2) }
