@@ -205,6 +205,51 @@ use windef { HINSTANCE, HWND, RECT }
 
     // ── Misc helpers ────────────────────────────────────────────
 
+    // ── Tab control (SysTabControl32) ────────────────────────────
+
+    /// Identify which TCITEMW fields are populated. `mask = TCIF_TEXT`
+    /// is enough for a label-only tab.
+    pub const TCIF_TEXT:      u32 = 0x0001 as u32
+    pub const TCIF_IMAGE:     u32 = 0x0002 as u32
+    pub const TCIF_RTLREADING: u32 = 0x0004 as u32
+    pub const TCIF_PARAM:     u32 = 0x0008 as u32
+    pub const TCIF_STATE:     u32 = 0x0010 as u32
+
+    /// SysTabControl32 messages.
+    pub const TCM_GETITEMCOUNT: u32 = 0x1304 as u32
+    pub const TCM_DELETEITEM:   u32 = 0x1308 as u32
+    pub const TCM_GETCURSEL:    u32 = 0x130B as u32
+    pub const TCM_SETCURSEL:    u32 = 0x130C as u32
+    pub const TCM_SETITEMW:     u32 = 0x133D as u32
+    pub const TCM_INSERTITEMW:  u32 = 0x133E as u32
+
+    /// `TCN_*` notification codes arriving via WM_NOTIFY.
+    /// `TCN_SELCHANGE = -551` — sent after the selection changes.
+    pub const TCN_SELCHANGE: i32 = -551 as i32
+
+    /// `NMHDR` — header that every WM_NOTIFY payload starts with.
+    /// 24 bytes on x86_64 (pointers padded to 8).
+    pub struct NMHDR {
+        hwndFrom: HWND
+        idFrom:   u64
+        code:     i32
+        _pad:     u32
+    }
+
+    /// `TCITEMW` — tab item descriptor passed to TCM_INSERTITEMW /
+    /// TCM_SETITEMW. Set `mask = TCIF_TEXT` and point `pszText`
+    /// at a NUL-terminated wide string for the label-only path.
+    pub struct TCITEMW {
+        mask:        u32
+        dwState:     u32
+        dwStateMask: u32
+        _pad0:       u32
+        pszText:     *const u16
+        cchTextMax:  i32
+        iImage:      i32
+        lParam:      i64
+    }
+
     /// Default window procedure for subclassed controls. Bind via
     /// `MAKELONG(ctrlId, 0)` callbacks etc.
     @lib pub fn DefSubclassProc(hWnd: HWND, uMsg: u32, wParam: u64, lParam: i64): i64

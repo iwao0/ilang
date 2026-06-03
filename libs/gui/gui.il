@@ -47,6 +47,7 @@ pub use listbox.*
 pub use groupbox.*
 pub use canvas.*
 pub use imageview.*
+pub use tabview.*
 pub use clipboard.*
 // `gpuview` is intentionally NOT re-exported. Its `wgpu29`
 // dependency pulls in `libwgpu_native.dylib` / `wgpu_native.dll`,

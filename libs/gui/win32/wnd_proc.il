@@ -22,9 +22,10 @@ use windows {
     WindowMessage, VirtualKey, ActivateCode, TrackMouseFlags, TRACKMOUSEEVENT,
     TrackMouseEvent, ScreenToClient,
     LoadCursorA, SetCursor, SystemCursor,
-    HDC, RECT, POINT, MINMAXINFO,
+    HDC, RECT, POINT, MINMAXINFO, NMHDR,
     GetClientRect, FillRect, GetSysColorBrush,
 }
+use std.ffi { readI32, readU64 }
 use core {
     dispatchClose, dispatchSize,
     dispatchKeyDown, dispatchKeyUp,
@@ -58,6 +59,7 @@ use textarea { tryTextAreaChange, tryTextAreaFocus, tryTextAreaBlur }
 use combo    { tryComboSelect }
 use list     { tryListSelect }
 use slider   { trySliderChange }
+use tabview  { tryTabViewSelChange }
 use menu     { tryMenuClick }
 use super.events
 use util { vkToString, modCtrl, modShift, modAlt, modMeta }
@@ -291,6 +293,15 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             // (TB_THUMBTRACK / TB_ENDTRACK / ...).
             let code = (wParam & 0xFFFF) as i32
             if trySliderChange(lParam as i64, code) { return 0 }
+            return 0
+        }
+        WindowMessage.notify {
+            // lParam points to NMHDR; first 8 bytes = hwndFrom,
+            // next 8 = idFrom (UINT_PTR), then i32 code.
+            let pHdr = lParam as *const void
+            let ctrl = readU64(pHdr, 0 as i64) as i64
+            let code = readI32(pHdr, 16 as i64)
+            if tryTabViewSelChange(ctrl, code) { return 0 }
             return 0
         }
         WindowMessage.sysCommand {

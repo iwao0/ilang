@@ -19,6 +19,7 @@ pub use groupbox.*
 pub use menu.*
 pub use canvas.*
 pub use imageview.*
+pub use tabview.*
 pub use dialogs.*
 pub use clipboard.*
 // `gpuview` is intentionally NOT re-exported here. Its `wgpu29`

@@ -277,3 +277,13 @@ pub class SelectEvent : Event {
         this.value = value
     }
 }
+
+/// Fired when a `TabView`'s selected tab changes. `index` is the
+/// new 0-based selected slot.
+pub class TabChangeEvent : Event {
+    pub index: i32
+    pub init(sender: EventTarget, index: i32) {
+        super(sender)
+        this.index = index
+    }
+}
