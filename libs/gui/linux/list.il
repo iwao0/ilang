@@ -14,7 +14,7 @@ use gtk {
     gtk_scrolled_window_new, gtk_scrolled_window_set_child,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
-    gtk_widget_set_visible,
+    gtk_widget_set_visible, gtk_widget_set_tooltip_text,
     g_signal_connect_data2,
 }
 use core { WINDOWS, noOpI32 }
@@ -153,6 +153,15 @@ pub fn setListVisible(handle: i64, visible: bool) {
             slot.scroll as GtkWidget,
             if visible { 1 as i32 } else { 0 as i32 }
         )
+    }
+}
+pub fn setListTooltip(handle: i64, text: string) {
+    if let some(slot) = LISTS.get(handle) {
+        if text == "" {
+            gtk_widget_set_tooltip_text(slot.scroll as GtkWidget, 0 as *const char)
+        } else {
+            gtk_widget_set_tooltip_text(slot.scroll as GtkWidget, cstrFromString(text))
+        }
     }
 }
 

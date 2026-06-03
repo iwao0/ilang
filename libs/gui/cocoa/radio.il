@@ -3,7 +3,7 @@
 /// `_unselectSiblings` walk, so this backend just surfaces the
 /// click and lets the core toggle siblings via `setRadioChecked`.
 
-use cocoa { NSObject, NSButton, NSView, nsstr, makeRect, selectorPtr }
+use cocoa { NSObject, NSButton, NSView, nsstr, nil, makeRect, selectorPtr }
 use core { WINDOWS, noOpBool }
 
 class RadioSlot {
@@ -85,4 +85,13 @@ pub fn setRadioEnabled(handle: i64, enabled: bool) {
 }
 pub fn setRadioVisible(handle: i64, visible: bool) {
     if let some(slot) = RADIOS.get(handle) { slot.btn.setHidden(!visible) }
+}
+pub fn setRadioTooltip(handle: i64, text: string) {
+    if let some(slot) = RADIOS.get(handle) {
+        if text == "" {
+            (slot.btn as NSView).setToolTip(nil)
+        } else {
+            (slot.btn as NSView).setToolTip(nsstr(text) as NSObject)
+        }
+    }
 }

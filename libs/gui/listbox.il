@@ -11,6 +11,7 @@ use gui_impl {
     setOnListSelect, addListItem, clearListItems,
     setListSelectedIndex, setListFrame,
     setListEnabled, setListVisible,
+    setListTooltip,
 }
 
 pub class ListBox : Control {
@@ -23,6 +24,7 @@ pub class ListBox : Control {
     _height:    f64
     _isEnabled: bool
     _isVisible: bool
+    _tooltip:   string
     pub onSelect: Signal<SelectEvent>
 
     pub init() {
@@ -36,6 +38,7 @@ pub class ListBox : Control {
         this._height    = 120.0
         this._isEnabled = true
         this._isVisible = true
+        this._tooltip   = ""
         this.onSelect   = new Signal<SelectEvent>()
     }
 
@@ -102,6 +105,13 @@ pub class ListBox : Control {
         if this.handle >= 0 { setListVisible(this.handle, v) }
     }
 
+    /// Hover tooltip. Empty string clears it.
+    pub get tooltip(): string { this._tooltip }
+    pub set tooltip(v: string) {
+        this._tooltip = v
+        if this.handle >= 0 { setListTooltip(this.handle, v) }
+    }
+
     pub override attachTo(window: Window) {
         if this.handle >= 0 { return }
         this.handle = createNativeList(
@@ -127,6 +137,7 @@ pub class ListBox : Control {
             }
             this.onSelect.emit(new SelectEvent(this, idx, v))
         })
+        if this._tooltip != "" { setListTooltip(this.handle, this._tooltip) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

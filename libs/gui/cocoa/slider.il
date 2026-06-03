@@ -1,7 +1,7 @@
 /// Continuous slider. NSSlider with `setContinuous(true)` so the
 /// callback fires every time the thumb moves, not just on mouse-up.
 
-use cocoa { NSObject, NSSlider, NSView, makeRect, makeSlider, selectorPtr }
+use cocoa { NSObject, NSSlider, NSView, nsstr, nil, makeRect, makeSlider, selectorPtr }
 use core { WINDOWS, noOpF64 }
 
 class SliderSlot {
@@ -83,4 +83,13 @@ pub fn setSliderEnabled(handle: i64, enabled: bool) {
 }
 pub fn setSliderVisible(handle: i64, visible: bool) {
     if let some(slot) = SLIDERS.get(handle) { slot.slider.setHidden(!visible) }
+}
+pub fn setSliderTooltip(handle: i64, text: string) {
+    if let some(slot) = SLIDERS.get(handle) {
+        if text == "" {
+            (slot.slider as NSView).setToolTip(nil)
+        } else {
+            (slot.slider as NSView).setToolTip(nsstr(text) as NSObject)
+        }
+    }
 }

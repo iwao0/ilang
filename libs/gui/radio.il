@@ -19,6 +19,7 @@ use gui_impl {
     createNativeRadio, readRadioChecked,
     setOnRadioToggle, setRadioText, setRadioChecked,
     setRadioFrame, setRadioEnabled, setRadioVisible,
+    setRadioTooltip,
 }
 
 // Process-wide registry of every `RadioButton` ever constructed.
@@ -37,6 +38,7 @@ pub class RadioButton : Control {
     _height:    f64
     _isEnabled: bool
     _isVisible: bool
+    _tooltip:   string
     pub onToggle: Signal<ToggleEvent>
 
     pub init() {
@@ -51,6 +53,7 @@ pub class RadioButton : Control {
         this._height    = 22.0
         this._isEnabled = true
         this._isVisible = true
+        this._tooltip   = ""
         this.onToggle   = new Signal<ToggleEvent>()
     }
 
@@ -110,6 +113,13 @@ pub class RadioButton : Control {
         if this.handle >= 0 { setRadioVisible(this.handle, v) }
     }
 
+    /// Hover tooltip. Empty string clears it.
+    pub get tooltip(): string { this._tooltip }
+    pub set tooltip(v: string) {
+        this._tooltip = v
+        if this.handle >= 0 { setRadioTooltip(this.handle, v) }
+    }
+
     _unselectSiblings() {
         let n = RADIOS.length
         let i: i64 = 0
@@ -137,6 +147,7 @@ pub class RadioButton : Control {
             if checked { this._unselectSiblings() }
             this.onToggle.emit(new ToggleEvent(this, checked))
         })
+        if this._tooltip != "" { setRadioTooltip(this.handle, this._tooltip) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

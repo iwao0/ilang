@@ -15,7 +15,7 @@ use gtk {
     gtk_check_button_set_group,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
-    gtk_widget_set_visible,
+    gtk_widget_set_visible, gtk_widget_set_tooltip_text,
     g_signal_connect_data,
 }
 use core { WINDOWS, noOpBool }
@@ -116,6 +116,15 @@ pub fn setRadioEnabled(handle: i64, enabled: bool) {
 pub fn setRadioVisible(handle: i64, visible: bool) {
     if let some(slot) = RADIOS.get(handle) {
         gtk_widget_set_visible(slot.btn as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
+    }
+}
+pub fn setRadioTooltip(handle: i64, text: string) {
+    if let some(slot) = RADIOS.get(handle) {
+        if text == "" {
+            gtk_widget_set_tooltip_text(slot.btn as GtkWidget, 0 as *const char)
+        } else {
+            gtk_widget_set_tooltip_text(slot.btn as GtkWidget, cstrFromString(text))
+        }
     }
 }
 

@@ -2,7 +2,7 @@
 /// looks like a combo box / picker with the current selection as
 /// the title.
 
-use cocoa { NSObject, NSPopUpButton, NSView, nsstr, makeRect, selectorPtr }
+use cocoa { NSObject, NSPopUpButton, NSView, nsstr, nil, makeRect, selectorPtr }
 use core { WINDOWS, noOpI32 }
 
 class ComboSlot {
@@ -82,4 +82,13 @@ pub fn setComboEnabled(handle: i64, enabled: bool) {
 }
 pub fn setComboVisible(handle: i64, visible: bool) {
     if let some(slot) = COMBOS.get(handle) { slot.combo.setHidden(!visible) }
+}
+pub fn setComboTooltip(handle: i64, text: string) {
+    if let some(slot) = COMBOS.get(handle) {
+        if text == "" {
+            (slot.combo as NSView).setToolTip(nil)
+        } else {
+            (slot.combo as NSView).setToolTip(nsstr(text) as NSObject)
+        }
+    }
 }

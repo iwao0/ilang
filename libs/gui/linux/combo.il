@@ -11,7 +11,7 @@ use gtk {
     gtk_combo_box_set_active, gtk_combo_box_get_active,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
-    gtk_widget_set_visible,
+    gtk_widget_set_visible, gtk_widget_set_tooltip_text,
     g_signal_connect_data,
 }
 use core { WINDOWS, noOpI32 }
@@ -102,6 +102,15 @@ pub fn setComboEnabled(handle: i64, enabled: bool) {
 pub fn setComboVisible(handle: i64, visible: bool) {
     if let some(slot) = COMBOS.get(handle) {
         gtk_widget_set_visible(slot.combo as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
+    }
+}
+pub fn setComboTooltip(handle: i64, text: string) {
+    if let some(slot) = COMBOS.get(handle) {
+        if text == "" {
+            gtk_widget_set_tooltip_text(slot.combo as GtkWidget, 0 as *const char)
+        } else {
+            gtk_widget_set_tooltip_text(slot.combo as GtkWidget, cstrFromString(text))
+        }
     }
 }
 

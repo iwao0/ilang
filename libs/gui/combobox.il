@@ -14,6 +14,7 @@ use gui_impl {
     setOnComboSelect, addComboItem, clearComboItems,
     setComboSelectedIndex, setComboFrame,
     setComboEnabled, setComboVisible,
+    setComboTooltip,
 }
 
 pub class ComboBox : Control {
@@ -26,6 +27,7 @@ pub class ComboBox : Control {
     _height:    f64
     _isEnabled: bool
     _isVisible: bool
+    _tooltip:   string
     pub onSelect: Signal<SelectEvent>
 
     pub init() {
@@ -39,6 +41,7 @@ pub class ComboBox : Control {
         this._height    = 26.0
         this._isEnabled = true
         this._isVisible = true
+        this._tooltip   = ""
         this.onSelect   = new Signal<SelectEvent>()
     }
 
@@ -109,6 +112,13 @@ pub class ComboBox : Control {
         if this.handle >= 0 { setComboVisible(this.handle, v) }
     }
 
+    /// Hover tooltip. Empty string clears it.
+    pub get tooltip(): string { this._tooltip }
+    pub set tooltip(v: string) {
+        this._tooltip = v
+        if this.handle >= 0 { setComboTooltip(this.handle, v) }
+    }
+
     pub override attachTo(window: Window) {
         if this.handle >= 0 { return }
         this.handle = createNativeCombo(
@@ -135,6 +145,7 @@ pub class ComboBox : Control {
             }
             this.onSelect.emit(new SelectEvent(this, idx, v))
         })
+        if this._tooltip != "" { setComboTooltip(this.handle, this._tooltip) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

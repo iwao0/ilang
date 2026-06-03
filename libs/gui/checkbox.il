@@ -10,6 +10,7 @@ use gui_impl {
     createNativeCheckbox, readCheckboxChecked,
     setOnCheckboxToggle, setCheckboxText, setCheckboxChecked,
     setCheckboxFrame, setCheckboxEnabled, setCheckboxVisible,
+    setCheckboxTooltip,
 }
 
 pub class Checkbox : Control {
@@ -22,6 +23,7 @@ pub class Checkbox : Control {
     _height:    f64
     _isEnabled: bool
     _isVisible: bool
+    _tooltip:   string
     pub onToggle: Signal<ToggleEvent>
 
     pub init() {
@@ -35,6 +37,7 @@ pub class Checkbox : Control {
         this._height    = 22.0
         this._isEnabled = true
         this._isVisible = true
+        this._tooltip   = ""
         this.onToggle   = new Signal<ToggleEvent>()
     }
 
@@ -92,6 +95,13 @@ pub class Checkbox : Control {
         if this.handle >= 0 { setCheckboxVisible(this.handle, v) }
     }
 
+    /// Hover tooltip. Empty string clears it.
+    pub get tooltip(): string { this._tooltip }
+    pub set tooltip(v: string) {
+        this._tooltip = v
+        if this.handle >= 0 { setCheckboxTooltip(this.handle, v) }
+    }
+
     pub override attachTo(window: Window) {
         if this.handle >= 0 { return }
         this.handle = createNativeCheckbox(
@@ -104,6 +114,7 @@ pub class Checkbox : Control {
             this._checked = checked
             this.onToggle.emit(new ToggleEvent(this, checked))
         })
+        if this._tooltip != "" { setCheckboxTooltip(this.handle, this._tooltip) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

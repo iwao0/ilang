@@ -159,3 +159,15 @@ pub fn setListEnabled(handle: i64, enabled: bool) {
 pub fn setListVisible(handle: i64, visible: bool) {
     if let some(slot) = LISTS.get(handle) { slot.scroll.setHidden(!visible) }
 }
+pub fn setListTooltip(handle: i64, text: string) {
+    if let some(slot) = LISTS.get(handle) {
+        // Hang the tooltip off the scroll view — the table view
+        // sits inside the scroller, so the hover hit-test is on
+        // the scroll's frame anyway.
+        if text == "" {
+            (slot.scroll as NSView).setToolTip(nil)
+        } else {
+            (slot.scroll as NSView).setToolTip(nsstr(text) as NSObject)
+        }
+    }
+}

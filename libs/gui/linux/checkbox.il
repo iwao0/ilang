@@ -9,7 +9,7 @@ use gtk {
     gtk_check_button_set_active, gtk_check_button_get_active,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
-    gtk_widget_set_visible,
+    gtk_widget_set_visible, gtk_widget_set_tooltip_text,
     g_signal_connect_data,
 }
 use core { WINDOWS, noOpBool }
@@ -101,6 +101,15 @@ pub fn setCheckboxEnabled(handle: i64, enabled: bool) {
 pub fn setCheckboxVisible(handle: i64, visible: bool) {
     if let some(slot) = CHECKBOXES.get(handle) {
         gtk_widget_set_visible(slot.btn as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
+    }
+}
+pub fn setCheckboxTooltip(handle: i64, text: string) {
+    if let some(slot) = CHECKBOXES.get(handle) {
+        if text == "" {
+            gtk_widget_set_tooltip_text(slot.btn as GtkWidget, 0 as *const char)
+        } else {
+            gtk_widget_set_tooltip_text(slot.btn as GtkWidget, cstrFromString(text))
+        }
     }
 }
 

@@ -2,7 +2,7 @@
 /// Click target/action goes through `ToggleHandler` which reads
 /// the new `state` (0 = off, 1 = on) and posts a bool.
 
-use cocoa { NSObject, NSButton, NSView, nsstr, makeRect, selectorPtr }
+use cocoa { NSObject, NSButton, NSView, nsstr, nil, makeRect, selectorPtr }
 use core { WINDOWS, noOpBool }
 
 class CheckboxSlot {
@@ -85,4 +85,13 @@ pub fn setCheckboxEnabled(handle: i64, enabled: bool) {
 }
 pub fn setCheckboxVisible(handle: i64, visible: bool) {
     if let some(slot) = CHECKBOXES.get(handle) { slot.btn.setHidden(!visible) }
+}
+pub fn setCheckboxTooltip(handle: i64, text: string) {
+    if let some(slot) = CHECKBOXES.get(handle) {
+        if text == "" {
+            (slot.btn as NSView).setToolTip(nil)
+        } else {
+            (slot.btn as NSView).setToolTip(nsstr(text) as NSObject)
+        }
+    }
 }

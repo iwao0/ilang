@@ -8,22 +8,28 @@
 /// WM_HSCROLL arm.
 
 use windows {
-    HWND, HINSTANCE, HMENU,
+    HWND, HINSTANCE, HMENU, RECT,
     WindowStyle, ShowCmd,
+    TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
+    TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     CreateWindowExW, EnableWindow, MoveWindow, ShowWindow,
-    SendMessageA,
+    SendMessageA, SendMessageW,
 }
 use util { noOpF64 }
 use core { windowHwnd }
 
 class SliderSlot {
     pub hwnd:     HWND
+    pub winHandle: i64
+    pub tooltipHwnd: HWND
     pub min:      f64
     pub max:      f64
     pub onChange: fn(f64)
-    pub init(hwnd: HWND, min: f64, max: f64) {
+    pub init(hwnd: HWND, winHandle: i64, min: f64, max: f64) {
         this.hwnd = hwnd
+        this.winHandle = winHandle
+        this.tooltipHwnd = 0 as HWND
         this.min  = min
         this.max  = max
         this.onChange = noOpF64
@@ -78,7 +84,7 @@ pub fn createNativeSlider(
     EnableWindow(hwnd, enabledFlag)
 
     let handle = hwnd as i64
-    SLIDERS[handle] = new SliderSlot(hwnd, min, max)
+    SLIDERS[handle] = new SliderSlot(hwnd, windowHandle, min, max)
     // TBM_SETRANGE = 0x0406 (wParam = redraw, lParam = LOWORD min / HIWORD max).
     SendMessageA(hwnd, 0x0406 as u32, 1 as u64, rangeBits(min, max))
     // TBM_SETPOS = 0x0405.
@@ -128,6 +134,60 @@ pub fn setSliderVisible(handle: i64, visible: bool) {
     if let some(slot) = SLIDERS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(slot.hwnd, cmd)
+    }
+}
+pub fn setSliderTooltip(handle: i64, text: string) {
+    if let some(slot) = SLIDERS.get(handle) {
+        if text == "" {
+            if slot.tooltipHwnd as i64 != 0 as i64 {
+                let info = TOOLINFOW {
+                    cbSize:     72 as u32,
+                    uFlags:     TTF_IDISHWND,
+                    hwnd:       slot.winHandle as HWND,
+                    uId:        slot.hwnd as u64,
+                    rect:       RECT { left: 0 as i32, top: 0 as i32, right: 0 as i32, bottom: 0 as i32 },
+                    hinst:      0 as HINSTANCE,
+                    lpszText:   0 as *const u16,
+                    lParam:     0 as i64,
+                    lpReserved: 0 as *void,
+                }
+                let p: *const TOOLINFOW = &info
+                SendMessageW(slot.tooltipHwnd, TTM_DELTOOLW, 0 as u64, p as i64)
+            }
+            return
+        }
+        let textW = text.encodeUtf16()
+        let info = TOOLINFOW {
+            cbSize:     72 as u32,
+            uFlags:     TTF_IDISHWND | TTF_SUBCLASS,
+            hwnd:       slot.winHandle as HWND,
+            uId:        slot.hwnd as u64,
+            rect:       RECT { left: 0 as i32, top: 0 as i32, right: 0 as i32, bottom: 0 as i32 },
+            hinst:      0 as HINSTANCE,
+            lpszText:   textW,
+            lParam:     0 as i64,
+            lpReserved: 0 as *void,
+        }
+        let p: *const TOOLINFOW = &info
+        if slot.tooltipHwnd as i64 == 0 as i64 {
+            let classW = "tooltips_class32".encodeUtf16()
+            let hInstance = GetModuleHandleA(0 as *const char)
+            let tt = CreateWindowExW(
+                0,
+                classW,
+                0 as *const u16,
+                (WindowStyle.popup as u32) | TTS_ALWAYSTIP,
+                0, 0, 0, 0,
+                slot.winHandle as HWND,
+                0 as HMENU,
+                hInstance as HINSTANCE,
+                0 as *void
+            )
+            slot.tooltipHwnd = tt
+            SendMessageW(tt, TTM_ADDTOOLW, 0 as u64, p as i64)
+        } else {
+            SendMessageW(slot.tooltipHwnd, TTM_UPDATETIPTEXTW, 0 as u64, p as i64)
+        }
     }
 }
 

@@ -9,6 +9,7 @@ use gui_impl {
     createNativeSlider, readSliderValue,
     setOnSliderChange, setSliderRange, setSliderValue,
     setSliderFrame, setSliderEnabled, setSliderVisible,
+    setSliderTooltip,
 }
 
 pub class Slider : Control {
@@ -22,6 +23,7 @@ pub class Slider : Control {
     _height:    f64
     _isEnabled: bool
     _isVisible: bool
+    _tooltip:   string
     pub onChange: Signal<SliderEvent>
 
     pub init() {
@@ -36,6 +38,7 @@ pub class Slider : Control {
         this._height    = 26.0
         this._isEnabled = true
         this._isVisible = true
+        this._tooltip   = ""
         this.onChange   = new Signal<SliderEvent>()
     }
 
@@ -98,6 +101,13 @@ pub class Slider : Control {
         if this.handle >= 0 { setSliderVisible(this.handle, v) }
     }
 
+    /// Hover tooltip. Empty string clears it.
+    pub get tooltip(): string { this._tooltip }
+    pub set tooltip(v: string) {
+        this._tooltip = v
+        if this.handle >= 0 { setSliderTooltip(this.handle, v) }
+    }
+
     pub override attachTo(window: Window) {
         if this.handle >= 0 { return }
         this.handle = createNativeSlider(
@@ -110,6 +120,7 @@ pub class Slider : Control {
             this._value = v
             this.onChange.emit(new SliderEvent(this, v))
         })
+        if this._tooltip != "" { setSliderTooltip(this.handle, this._tooltip) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {
