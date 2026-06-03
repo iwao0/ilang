@@ -77,6 +77,17 @@ pub enum NSApplicationActivationPolicy: i64 {
         /// primitive exists on AppKit.
         @objc("deactivate")
         pub deactivate()
+        /// Bounce the Dock icon to grab user attention. `type`
+        /// is `NSRequestUserAttentionType` (`0` = Critical,
+        /// keeps bouncing until the user activates the app;
+        /// `10` = Informational, single bounce). Returns the
+        /// request ID — hand it back to
+        /// `cancelUserAttentionRequest:` to stop a critical
+        /// bounce that hasn't been acknowledged yet.
+        @objc("requestUserAttention:")
+        pub requestUserAttention(type: i64): i64
+        @objc("cancelUserAttentionRequest:")
+        pub cancelUserAttentionRequest(id: i64)
         @objc("run")
         pub run()
         @objc("terminate:")

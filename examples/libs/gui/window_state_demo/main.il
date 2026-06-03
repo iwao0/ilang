@@ -5,6 +5,9 @@
 // Row 2: `setResizable` / `setMovable` / `setClosable` toggles.
 // Row 3: `blur()`, `setAlwaysOnTop()` toggle, `moveTop()`, opacity toggle.
 // Row 4: `center()`, `setPosition(100,100)`, `setMinimumSize(400,200)`.
+// Row 5: `flashFrame(true)` (after a 3-second delay so you have
+//        time to switch apps; AppKit ignores requestUserAttention
+//        when the app is already active) / `flashFrame(false)`.
 // Status label below reflects the most recent fired event.
 //
 // (`Restore` has no button — once iconified, none of its own
@@ -14,12 +17,13 @@
 //   cargo run -p ilang -- run examples/libs/gui/window_state_demo/main.il
 
 use gui
+use cocoa { NSTimer }
 
 fn run(): i64 {
     let w = new gui.Window()
     w.title  = "ilang gui × window state"
     w.width  = 600.0
-    w.height = 320.0
+    w.height = 360.0
 
     let v = new gui.VBox()
     v.dock = gui.Dock.fill
@@ -177,6 +181,38 @@ fn run(): i64 {
         w.setMinimumSize(400.0, 200.0)
     })
     geom.addChild(bMinSize)
+
+    // Attention row — `flashFrame(true)` keeps the Dock icon
+    // bouncing until the user activates the app (or `(false)`
+    // cancels). To actually SEE the bounce: click "Flash" then
+    // switch to another app.
+    let attn = new gui.HBox()
+    attn.height = 36.0
+    attn.margin = new gui.Margin(4.0)
+    v.addChild(attn)
+
+    // `requestUserAttention:` is a no-op while the app is the
+    // active one, so the click schedules a 3-second NSTimer
+    // instead of calling `flashFrame(true)` straight away. Switch
+    // to another app (Finder / browser / etc.) before the delay
+    // elapses to see the Dock bounce.
+    let bFlash = new gui.Button()
+    bFlash.text   = "Flash in 3s"
+    bFlash.flex   = 1.0
+    bFlash.margin = new gui.Margin(4.0)
+    bFlash.onClick.add(fn(e: gui.MouseEvent) {
+        let timer = NSTimer.scheduledTimer(3.0, false, fn(t: i64) {
+            w.flashFrame(true)
+        })
+    })
+    attn.addChild(bFlash)
+
+    let bUnflash = new gui.Button()
+    bUnflash.text   = "Stop Flash"
+    bUnflash.flex   = 1.0
+    bUnflash.margin = new gui.Margin(4.0)
+    bUnflash.onClick.add(fn(e: gui.MouseEvent) { w.flashFrame(false) })
+    attn.addChild(bUnflash)
 
     let status = new gui.Label()
     status.text   = "(no state event yet)"

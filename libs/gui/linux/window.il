@@ -608,6 +608,11 @@ pub fn getNativeWindowMaxHeight(handle: i64): f64 {
     }
 }
 
+/// GTK4 dropped `gtk_window_set_urgency_hint` and has no built-in
+/// "demand user attention" hook. Public-API signature only for
+/// cross-platform parity — call is a no-op on Linux.
+pub fn flashNativeWindow(handle: i64, on: bool) {}
+
 pub fn setNativeWindowOpacity(handle: i64, v: f64) {
     if let some(slot) = WINDOWS.get(handle) {
         gtk_widget_set_opacity(slot.win as GtkWidget, v)

@@ -46,6 +46,10 @@ pub class WindowSlot {
     pub onBlur:            fn()
     pub onMove:            fn(f64, f64)
     pub wasZoomed:         bool
+    /// `NSApp requestUserAttention:` request ID kept around so
+    /// `flashFrame(false)` can hand it back to
+    /// `cancelUserAttentionRequest:`. `0` = no active request.
+    pub flashRequestId:    i64
 
     pub init(win: NSWindow, delegate: NSObject, view: NSObject, viewHandle: i64) {
         this.win               = win
@@ -69,6 +73,7 @@ pub class WindowSlot {
         this.onBlur            = noOp1
         this.onMove            = noOp2
         this.wasZoomed         = false
+        this.flashRequestId    = 0 as i64
     }
 }
 

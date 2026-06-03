@@ -460,6 +460,11 @@ pub fn getNativeWindowMaxHeight(handle: i64): f64 {
     }
 }
 
+/// `flashFrame` on Win32 would route through `FlashWindowEx`, but
+/// the binding work hasn't landed yet. Public-API signature only
+/// for cross-platform parity — call is a no-op until implemented.
+pub fn flashNativeWindow(handle: i64, on: bool) {}
+
 pub fn runEventLoop() {
     let msg = MSG {
         hwnd:     0 as HWND,

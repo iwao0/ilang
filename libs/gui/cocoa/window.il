@@ -387,3 +387,32 @@ pub fn getNativeWindowMaxHeight(handle: i64): f64 {
         0.0
     }
 }
+
+// ─── attention / progress ──────────────────────────────────────
+
+/// `NSRequestUserAttentionType.NSCriticalRequest` raw value —
+/// the bounce-until-acknowledged variant. Informational requests
+/// (`10`) bounce once and fall back; users wanting that behaviour
+/// can call `requestUserAttention` directly on the shared app.
+const CRITICAL_REQUEST: i64 = 0 as i64
+
+/// `flashFrame(true)` bounces the Dock icon until the user
+/// activates the app (or `flashFrame(false)` cancels the pending
+/// request). The request ID returned by AppKit is stored on the
+/// slot so the cancel path can hand it back to
+/// `cancelUserAttentionRequest:`.
+pub fn flashNativeWindow(handle: i64, on: bool) {
+    if let some(slot) = WINDOWS.get(handle) {
+        let app = sharedApplication()
+        if on {
+            if slot.flashRequestId == 0 as i64 {
+                slot.flashRequestId = app.requestUserAttention(CRITICAL_REQUEST)
+            }
+        } else {
+            if slot.flashRequestId != 0 as i64 {
+                app.cancelUserAttentionRequest(slot.flashRequestId)
+                slot.flashRequestId = 0 as i64
+            }
+        }
+    }
+}

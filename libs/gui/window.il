@@ -53,6 +53,7 @@ use gui_impl {
     getNativeWindowMinWidth, getNativeWindowMinHeight,
     setNativeWindowMaxSize,
     getNativeWindowMaxWidth, getNativeWindowMaxHeight,
+    flashNativeWindow,
     setOnClose,
     setOnResize,
     setOnKeyDown,
@@ -539,6 +540,16 @@ pub class Window : Container {
         this._w = w
         this._h = h
         setWindowSize(this.handle, w, h)
+    }
+
+    /// Request user attention. macOS bounces the Dock icon via
+    /// `[NSApp requestUserAttention:NSCriticalRequest]` and keeps
+    /// bouncing until the user activates the app or `flashFrame
+    /// (false)` cancels the pending request. Win32 and GTK4 are
+    /// no-ops for now (`FlashWindowEx` / GTK4 lacks an urgency
+    /// hint — see each backend file).
+    pub flashFrame(on: bool) {
+        flashNativeWindow(this.handle, on)
     }
 
     /// Re-run the dock / margin layout pass over every direct
