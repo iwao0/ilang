@@ -13,13 +13,15 @@
 ///   window.addChild(t)
 
 use std.events { Signal }
-use events { ChangeEvent }
+use events { ChangeEvent, FocusEvent, BlurEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeEdit, readEditText,
-    setOnEditChange, setEditText, setEditFrame,
+    setOnEditChange, setOnEditFocus, setOnEditBlur,
+    setEditText, setEditFrame,
     setEditEnabled, setEditVisible, setEditTooltip,
     setEditPlaceholder, setEditReadOnly, setEditMaxLength,
+    focusEdit, blurEdit,
 }
 
 pub class TextField : Control {
@@ -36,6 +38,8 @@ pub class TextField : Control {
     _isReadOnly: bool
     _maxLength:  i32
     pub onChange: Signal<ChangeEvent>
+    pub onFocus:  Signal<FocusEvent>
+    pub onBlur:   Signal<BlurEvent>
 
     pub init() {
         super()
@@ -52,6 +56,8 @@ pub class TextField : Control {
         this._isReadOnly = false
         this._maxLength  = 0 as i32
         this.onChange   = new Signal<ChangeEvent>()
+        this.onFocus    = new Signal<FocusEvent>()
+        this.onBlur     = new Signal<BlurEvent>()
     }
 
     pub get text(): string {
@@ -155,10 +161,29 @@ pub class TextField : Control {
             this._text = v
             this.onChange.emit(new ChangeEvent(this, v))
         })
+        setOnEditFocus(this.handle, fn() {
+            this.onFocus.emit(new FocusEvent(this))
+        })
+        setOnEditBlur(this.handle, fn() {
+            this.onBlur.emit(new BlurEvent(this))
+        })
         if this._tooltip != "" { setEditTooltip(this.handle, this._tooltip) }
         if this._placeholder != "" { setEditPlaceholder(this.handle, this._placeholder) }
         if this._isReadOnly { setEditReadOnly(this.handle, true) }
         if this._maxLength as i64 > 0 as i64 { setEditMaxLength(this.handle, this._maxLength) }
+    }
+
+    /// Move keyboard focus to this text field. The native
+    /// transition fires `onFocus` here and `onBlur` on whichever
+    /// control previously held focus. No-op until attached.
+    pub focus() {
+        if this.handle >= 0 { focusEdit(this.handle) }
+    }
+
+    /// Release focus iff this field currently holds it (web
+    /// `HTMLElement.blur()` semantics). No-op until attached.
+    pub blur() {
+        if this.handle >= 0 { blurEdit(this.handle) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

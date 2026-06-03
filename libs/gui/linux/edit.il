@@ -2,7 +2,8 @@
 
 use std.ffi { cstrFromString, stringFromCstr }
 use gtk {
-    GtkWidget, GtkEntry, GtkFixed, GObject,
+    GtkWidget, GtkEntry, GtkFixed, GtkWindow, GObject,
+    GtkEventController, GtkEventControllerFocus,
     gtk_entry_new, gtk_editable_set_text, gtk_editable_get_text,
     gtk_editable_set_editable,
     gtk_entry_set_placeholder_text, gtk_entry_set_max_length,
@@ -10,18 +11,27 @@ use gtk {
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
     gtk_widget_set_visible,
     gtk_widget_set_tooltip_text,
+    gtk_widget_grab_focus, gtk_widget_add_controller,
+    gtk_event_controller_focus_new, gtk_event_controller_get_widget,
+    gtk_window_get_focus, gtk_window_set_focus,
     g_signal_connect_data,
 }
-use core { WINDOWS, noOpText }
+use core { WINDOWS, WindowSlot, noOpText, noOpClose }
 
 class EditSlot {
     pub entry: GtkEntry
     pub fixed: GtkFixed
+    pub winHandle: i64
     pub onChange: fn(string)
-    pub init(entry: GtkEntry, fixed: GtkFixed) {
+    pub onFocus:  fn()
+    pub onBlur:   fn()
+    pub init(entry: GtkEntry, fixed: GtkFixed, winHandle: i64) {
         this.entry = entry
         this.fixed = fixed
+        this.winHandle = winHandle
         this.onChange = noOpText
+        this.onFocus  = noOpClose
+        this.onBlur   = noOpClose
     }
 }
 
@@ -35,6 +45,25 @@ let EDITS = new Map<i64, EditSlot>()
             let s = stringFromCstr(p)
             let cb = slot.onChange
             cb(s)
+        }
+    }
+    /// `GtkEventControllerFocus.enter` /
+    /// `GtkEventControllerFocus.leave` carry
+    /// `(controller*, gpointer)`. Resolve the slot through the
+    /// controller's attached widget, same trick the Button-side
+    /// helpers use.
+    pub fn linux_entry_focus_enter(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = EDITS.get(w as i64) {
+            let cb = slot.onFocus
+            cb()
+        }
+    }
+    pub fn linux_entry_focus_leave(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = EDITS.get(w as i64) {
+            let cb = slot.onBlur
+            cb()
         }
     }
 }
@@ -70,13 +99,51 @@ pub fn createNativeEdit(
         0 as *void, 0 as i64, 0 as u32
     )
 
+    // Focus controller for onFocus / onBlur. GtkEntry routes
+    // focus through the same GtkEventControllerFocus mechanism
+    // GtkButton does — `enter` / `leave` map to the public Signals.
+    let focusCtl = gtk_event_controller_focus_new()
+    gtk_widget_add_controller(entry as GtkWidget, focusCtl)
+    g_signal_connect_data(
+        focusCtl as GObject, cstrFromString("enter"),
+        linux_entry_focus_enter, 0 as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        focusCtl as GObject, cstrFromString("leave"),
+        linux_entry_focus_leave, 0 as *void, 0 as i64, 0 as u32
+    )
+
     let handle = entry as i64
-    EDITS[handle] = new EditSlot(entry, winSlot.fixed)
+    EDITS[handle] = new EditSlot(entry, winSlot.fixed, windowHandle)
     handle
 }
 
 pub fn setOnEditChange(handle: i64, cb: fn(string)) {
     if let some(slot) = EDITS.get(handle) { slot.onChange = cb }
+}
+pub fn setOnEditFocus(handle: i64, cb: fn()) {
+    if let some(slot) = EDITS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnEditBlur(handle: i64, cb: fn()) {
+    if let some(slot) = EDITS.get(handle) { slot.onBlur = cb }
+}
+pub fn focusEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        let _ = gtk_widget_grab_focus(slot.entry as GtkWidget)
+    }
+}
+pub fn blurEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        // Only clear when this entry actually has focus, mirroring
+        // the cocoa / win32 paths. Walk the parent WindowSlot to
+        // find the GtkWindow that owns focus state.
+        if let some(winSlot) = WINDOWS.get(slot.winHandle) {
+            let cur = gtk_window_get_focus(winSlot.win)
+            if cur as i64 == slot.entry as i64 {
+                gtk_window_set_focus(winSlot.win, 0 as GtkWidget)
+            }
+        }
+    }
 }
 pub fn setEditText(handle: i64, text: string) {
     if let some(slot) = EDITS.get(handle) {

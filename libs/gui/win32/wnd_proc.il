@@ -49,7 +49,7 @@ use button   {
 }
 use checkbox { tryCheckboxToggle }
 use radio    { tryRadioToggle }
-use edit     { tryEditChange }
+use edit     { tryEditChange, tryEditFocus, tryEditBlur }
 use combo    { tryComboSelect }
 use list     { tryListSelect }
 use slider   { trySliderChange }
@@ -207,6 +207,12 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             } elif notify == 0x0300 {
                 // EN_CHANGE — edit control contents changed.
                 if tryEditChange(ctrlHwnd) { return 0 }
+            } elif notify == 0x0100 {
+                // EN_SETFOCUS — edit control gained keyboard focus.
+                if tryEditFocus(ctrlHwnd) { return 0 }
+            } elif notify == 0x0200 {
+                // EN_KILLFOCUS — edit control lost keyboard focus.
+                if tryEditBlur(ctrlHwnd) { return 0 }
             } elif notify == 1 {
                 // CBN_SELCHANGE / LBN_SELCHANGE share the value.
                 if tryComboSelect(ctrlHwnd) { return 0 }

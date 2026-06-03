@@ -141,6 +141,13 @@ pub enum NSDatePickerStyle: u64 {
         /// `setPlaceholderAttributedString:` instead.
         @objc("setPlaceholderString:")
         pub setPlaceholderString(s: NSString)
+        /// `nil` when no field editor is attached (i.e. the field
+        /// is not the active editing target). Returns the NSText
+        /// field editor when the field has focus. Useful as an
+        /// "am I focused" probe — the firstResponder of the
+        /// containing window is the field editor, not this NSTextField.
+        @objc("currentEditor")
+        pub get currentEditor(): NSObject
 
         /// setDelegate overloads. NSTextField accepts either the
         /// text-field-specific protocol or the more general

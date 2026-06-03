@@ -11,13 +11,13 @@ use windows {
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     CreateWindowExW, SetWindowTextW, EnableWindow, MoveWindow, ShowWindow,
-    SendMessageW,
+    SendMessageW, SetFocus, GetFocus,
     GetWindowTextW, GetWindowTextLengthW,
     HeapAlloc, HeapFree, GetProcessHeap,
 }
 use std.ffi { arrayFromCArray }
 use util { applyGuiFont, noOpText }
-use core { windowHwnd }
+use core { windowHwnd, noOp1 }
 
 /// EDIT-control messages. Constants from `winuser.h`.
 /// EM_LIMITTEXT   — cap on user-typed character count.
@@ -32,6 +32,8 @@ const EM_SETCUEBANNER:  u32 = 0x1501 as u32
 class EditSlot {
     pub hwnd:     HWND
     pub onChange: fn(string)
+    pub onFocus:  fn()
+    pub onBlur:   fn()
     pub winHandle: i64
     /// Lazy-created tooltip control; stays `0` until the first
     /// non-empty `setEditTooltip` call. Mirrors the Button-side
@@ -40,6 +42,8 @@ class EditSlot {
     pub init(hwnd: HWND, winHandle: i64) {
         this.hwnd = hwnd
         this.onChange = noOpText
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
         this.winHandle = winHandle
         this.tooltipHwnd = 0 as HWND
     }
@@ -51,6 +55,26 @@ let EDITS = new Map<i64, EditSlot>()
 pub fn tryEditChange(hwnd: i64): bool {
     if let some(slot) = EDITS.get(hwnd) {
         slot.onChange(readEditText(hwnd))
+        true
+    } else {
+        false
+    }
+}
+/// Called by `wnd_proc` for WM_COMMAND / EN_SETFOCUS.
+pub fn tryEditFocus(hwnd: i64): bool {
+    if let some(slot) = EDITS.get(hwnd) {
+        let cb = slot.onFocus
+        cb()
+        true
+    } else {
+        false
+    }
+}
+/// Called by `wnd_proc` for WM_COMMAND / EN_KILLFOCUS.
+pub fn tryEditBlur(hwnd: i64): bool {
+    if let some(slot) = EDITS.get(hwnd) {
+        let cb = slot.onBlur
+        cb()
         true
     } else {
         false
@@ -126,6 +150,24 @@ pub fn readEditText(handle: i64): string {
 
 pub fn setOnEditChange(handle: i64, cb: fn(string)) {
     if let some(slot) = EDITS.get(handle) { slot.onChange = cb }
+}
+pub fn setOnEditFocus(handle: i64, cb: fn()) {
+    if let some(slot) = EDITS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnEditBlur(handle: i64, cb: fn()) {
+    if let some(slot) = EDITS.get(handle) { slot.onBlur = cb }
+}
+pub fn focusEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) { SetFocus(slot.hwnd) }
+}
+pub fn blurEdit(handle: i64) {
+    if let some(slot) = EDITS.get(handle) {
+        // Only act when this edit holds focus; otherwise we'd
+        // pull it off a sibling. Punt focus to the parent window.
+        if GetFocus() as i64 == slot.hwnd as i64 {
+            SetFocus(slot.winHandle as HWND)
+        }
+    }
 }
 pub fn setEditText(handle: i64, text: string) {
     if let some(slot) = EDITS.get(handle) {
