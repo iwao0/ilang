@@ -3,17 +3,27 @@
 /// contents to the registered callback.
 
 use cocoa {
-    NSObject, NSTextField, NSView, NSNotification,
+    NSObject, NSTextField, NSView, NSEvent, NSNotification,
+    NSTrackingArea, NSTrackingAreaOptions,
     nsstr, ilstr, makeRect, makeTextField, nil,
     classPtr, setObjectClass,
 }
-use core { WINDOWS, noOpText, noOp1 }
+use core {
+    WINDOWS, noOpText, noOp1,
+    noOpEnterLeave, noOpClickMod,
+    modCtrl, modShift, modAlt, modMeta,
+}
 
 class EditSlot {
     pub edit:     NSTextField
     pub onChange: fn(string)
     pub onFocus:  fn()
     pub onBlur:   fn()
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub handler:  NSObject
     /// Character cap. `0` = no limit. AppKit has no built-in max
     /// length on NSTextField; the change-handler reads this and
@@ -25,10 +35,16 @@ class EditSlot {
         this.onChange = noOpText
         this.onFocus  = noOp1
         this.onBlur   = noOp1
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
+        this.onMouseDown  = noOpClickMod
+        this.onMouseUp    = noOpClickMod
+        this.onContextMenu = noOpClickMod
         this.handler = handler
         this.maxLength = 0 as i32
     }
 }
+
 
 let EDITS = new Map<i64, EditSlot>()
 
@@ -47,6 +63,128 @@ class FocusTextField : NSTextField {
             cb()
         }
         true
+    }
+    /// `mouseDown:` / `mouseUp:` etc. forward the event after
+    /// firing our Signal so NSTextField's default machinery —
+    /// click-to-position-cursor, double-click word selection,
+    /// drag-to-select — keeps working. The ilang ObjC-super
+    /// trampoline crashed for `bool`-returning overrides on
+    /// FocusButton; void-returning `mouseDown:` is the first
+    /// case where we exercise the same path with the suspected-
+    /// safe return shape.
+    pub override mouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+        let y = (this as NSView).frame.size.height - p.y
+        let flags = e.modifierFlags as u64
+        let ck = modCtrl(flags)
+        let sk = modShift(flags)
+        let ak = modAlt(flags)
+        let mk = modMeta(flags)
+        if let some(slot) = EDITS.get(this.handle) {
+            let cb = slot.onMouseDown
+            cb(p.x, y, 0, ck, sk, ak, mk)
+        }
+        super.mouseDown(event)
+        // `super.mouseDown:` enters NSCell.trackMouse:..untilMouseUp:
+        // which spins its own `[NSApp nextEventMatchingMask:]` loop
+        // until the user releases — handling drag-select natively in
+        // the process — then returns. AppKit consumes that mouseUp
+        // inside trackMouse and never re-dispatches it to `mouseUp:`,
+        // so the override below never fires for left clicks. To keep
+        // the public API symmetric (onMouseDown without an onMouseUp
+        // would be a footgun), synthesise the emission once super
+        // returns. Position carries the press point — the release
+        // event is gone by then and recomputing from
+        // `[NSEvent mouseLocation]` would need a screen→window→view
+        // conversion that buys little for most click semantics.
+        if let some(slot) = EDITS.get(this.handle) {
+            let up = slot.onMouseUp
+            up(p.x, y, 0, ck, sk, ak, mk)
+        }
+    }
+    pub override mouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = EDITS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let cb = slot.onMouseUp
+            cb(p.x, y, 0,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.mouseUp(event)
+    }
+    pub override rightMouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = EDITS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let ck = modCtrl(flags)
+            let sk = modShift(flags)
+            let ak = modAlt(flags)
+            let mk = modMeta(flags)
+            let down = slot.onMouseDown
+            down(p.x, y, 2, ck, sk, ak, mk)
+            let ctx = slot.onContextMenu
+            ctx(p.x, y, 2, ck, sk, ak, mk)
+        }
+        super.rightMouseDown(event)
+    }
+    pub override rightMouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = EDITS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let cb = slot.onMouseUp
+            cb(p.x, y, 2,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.rightMouseUp(event)
+    }
+    pub override otherMouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = EDITS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let cb = slot.onMouseDown
+            cb(p.x, y, 1,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.otherMouseDown(event)
+    }
+    pub override otherMouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = EDITS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = e.modifierFlags as u64
+            let cb = slot.onMouseUp
+            cb(p.x, y, 1,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+        super.otherMouseUp(event)
+    }
+    pub override mouseEntered(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = EDITS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let cb = slot.onMouseEnter
+            cb(p.x, y)
+        }
+    }
+    pub override mouseExited(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = EDITS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let cb = slot.onMouseLeave
+            cb(p.x, y)
+        }
     }
 }
 
@@ -109,6 +247,17 @@ pub fn createNativeEdit(
     if focusCls != 0 as i64 {
         let _ = setObjectClass((tf as NSView).handle, focusCls)
     }
+    // Tracking area for mouseEntered: / mouseExited:. The
+    // `inVisibleRect` option pins the area to the view's bounds
+    // so a later setFrame doesn't desync the hit region.
+    let opts = NSTrackingAreaOptions.mouseEnteredAndExited
+             | NSTrackingAreaOptions.activeAlways
+             | NSTrackingAreaOptions.inVisibleRect
+    let area = NSTrackingArea.alloc().init(
+        makeRect(0.0, 0.0, width, height), opts,
+        tf as NSObject, nil
+    )
+    (tf as NSView).addTrackingArea(area as NSObject)
 
     ChangeHandler.register()
     let h = ChangeHandler.alloc().init()
@@ -136,6 +285,27 @@ pub fn setOnEditFocus(handle: i64, cb: fn()) {
 }
 pub fn setOnEditBlur(handle: i64, cb: fn()) {
     if let some(slot) = EDITS.get(handle) { slot.onBlur = cb }
+}
+pub fn setOnEditMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnEditMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnEditMouseDown(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnEditMouseUp(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnEditContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = EDITS.get(handle) { slot.onContextMenu = cb }
 }
 pub fn focusEdit(handle: i64) {
     if let some(slot) = EDITS.get(handle) {

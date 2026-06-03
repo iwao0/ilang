@@ -13,11 +13,13 @@
 ///   window.addChild(t)
 
 use std.events { Signal }
-use events { ChangeEvent, FocusEvent, BlurEvent }
+use events { ChangeEvent, FocusEvent, BlurEvent, MouseEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeEdit, readEditText,
     setOnEditChange, setOnEditFocus, setOnEditBlur,
+    setOnEditMouseEnter, setOnEditMouseLeave,
+    setOnEditMouseDown, setOnEditMouseUp, setOnEditContextMenu,
     setEditText, setEditFrame,
     setEditEnabled, setEditVisible, setEditTooltip,
     setEditPlaceholder, setEditReadOnly, setEditMaxLength,
@@ -40,6 +42,11 @@ pub class TextField : Control {
     pub onChange: Signal<ChangeEvent>
     pub onFocus:  Signal<FocusEvent>
     pub onBlur:   Signal<BlurEvent>
+    pub onMouseEnter: Signal<MouseEvent>
+    pub onMouseLeave: Signal<MouseEvent>
+    pub onMouseDown:  Signal<MouseEvent>
+    pub onMouseUp:    Signal<MouseEvent>
+    pub onContextMenu: Signal<MouseEvent>
 
     pub init() {
         super()
@@ -58,6 +65,11 @@ pub class TextField : Control {
         this.onChange   = new Signal<ChangeEvent>()
         this.onFocus    = new Signal<FocusEvent>()
         this.onBlur     = new Signal<BlurEvent>()
+        this.onMouseEnter = new Signal<MouseEvent>()
+        this.onMouseLeave = new Signal<MouseEvent>()
+        this.onMouseDown  = new Signal<MouseEvent>()
+        this.onMouseUp    = new Signal<MouseEvent>()
+        this.onContextMenu = new Signal<MouseEvent>()
     }
 
     pub get text(): string {
@@ -167,6 +179,24 @@ pub class TextField : Control {
         setOnEditBlur(this.handle, fn() {
             this.onBlur.emit(new BlurEvent(this))
         })
+        setOnEditMouseEnter(this.handle, fn(x: f64, y: f64) {
+            this.onMouseEnter.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+        })
+        setOnEditMouseLeave(this.handle, fn(x: f64, y: f64) {
+            this.onMouseLeave.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+        })
+        setOnEditMouseDown(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onMouseDown.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnEditMouseUp(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onMouseUp.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnEditContextMenu(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onContextMenu.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
         if this._tooltip != "" { setEditTooltip(this.handle, this._tooltip) }
         if this._placeholder != "" { setEditPlaceholder(this.handle, this._placeholder) }
         if this._isReadOnly { setEditReadOnly(this.handle, true) }

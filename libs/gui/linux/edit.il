@@ -3,7 +3,8 @@
 use std.ffi { cstrFromString, stringFromCstr }
 use gtk {
     GtkWidget, GtkEntry, GtkFixed, GtkWindow, GObject,
-    GtkEventController, GtkEventControllerFocus,
+    GtkEventController, GtkEventControllerFocus, GtkEventControllerMotion,
+    GtkGestureSingle, GtkGestureClick,
     gtk_entry_new, gtk_editable_set_text, gtk_editable_get_text,
     gtk_editable_set_editable,
     gtk_entry_set_placeholder_text, gtk_entry_set_max_length,
@@ -12,7 +13,11 @@ use gtk {
     gtk_widget_set_visible,
     gtk_widget_set_tooltip_text,
     gtk_widget_grab_focus, gtk_widget_add_controller,
-    gtk_event_controller_focus_new, gtk_event_controller_get_widget,
+    gtk_event_controller_focus_new, gtk_event_controller_motion_new,
+    gtk_event_controller_get_widget,
+    gtk_event_controller_get_current_event_state,
+    gtk_gesture_click_new,
+    gtk_gesture_single_set_button, gtk_gesture_single_get_current_button,
     gtk_window_get_focus, gtk_window_set_focus,
     g_signal_connect_data,
 }
@@ -25,6 +30,11 @@ class EditSlot {
     pub onChange: fn(string)
     pub onFocus:  fn()
     pub onBlur:   fn()
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub init(entry: GtkEntry, fixed: GtkFixed, winHandle: i64) {
         this.entry = entry
         this.fixed = fixed
@@ -32,6 +42,32 @@ class EditSlot {
         this.onChange = noOpText
         this.onFocus  = noOpClose
         this.onBlur   = noOpClose
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
+        this.onMouseDown  = noOpClickMod
+        this.onMouseUp    = noOpClickMod
+        this.onContextMenu = noOpClickMod
+    }
+}
+
+fn noOpEnterLeave(x: f64, y: f64) {}
+fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+
+// GdkModifierType bits we need. Pulled out so the entry's gesture
+// handlers can `& MOD_*` without going through the flags enum.
+const MOD_SHIFT: u32 = 0x00000001 as u32
+const MOD_CTRL:  u32 = 0x00000004 as u32
+const MOD_ALT:   u32 = 0x00000008 as u32
+const MOD_META:  u32 = 0x10000000 as u32
+
+fn hasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
+
+fn gdkBtnToW3c(gdk: u32): i32 {
+    match gdk {
+        1 as u32 { 0 as i32 }
+        2 as u32 { 1 as i32 }
+        3 as u32 { 2 as i32 }
+        _        { 0 as i32 }
     }
 }
 
@@ -64,6 +100,57 @@ let EDITS = new Map<i64, EditSlot>()
         if let some(slot) = EDITS.get(w as i64) {
             let cb = slot.onBlur
             cb()
+        }
+    }
+    pub fn linux_entry_motion_enter(ctl: i64, x: f64, y: f64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = EDITS.get(w as i64) {
+            let cb = slot.onMouseEnter
+            cb(x, y)
+        }
+    }
+    pub fn linux_entry_motion_leave(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = EDITS.get(w as i64) {
+            let cb = slot.onMouseLeave
+            cb(0.0, 0.0)
+        }
+    }
+    pub fn linux_entry_pressed(
+        gesture: i64, nPress: i32, x: f64, y: f64, data: i64
+    ) {
+        let w = gtk_event_controller_get_widget(gesture as GtkEventController)
+        if let some(slot) = EDITS.get(w as i64) {
+            let btn = gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
+            let w3c = gdkBtnToW3c(btn)
+            let st = gtk_event_controller_get_current_event_state(
+                gesture as GtkEventController
+            ) as u32
+            let ck = hasMod(st, MOD_CTRL)
+            let sk = hasMod(st, MOD_SHIFT)
+            let ak = hasMod(st, MOD_ALT)
+            let mk = hasMod(st, MOD_META)
+            let cb = slot.onMouseDown
+            cb(x, y, w3c, ck, sk, ak, mk)
+            if btn == 3 as u32 {
+                let ctx = slot.onContextMenu
+                ctx(x, y, w3c, ck, sk, ak, mk)
+            }
+        }
+    }
+    pub fn linux_entry_released(
+        gesture: i64, nPress: i32, x: f64, y: f64, data: i64
+    ) {
+        let w = gtk_event_controller_get_widget(gesture as GtkEventController)
+        if let some(slot) = EDITS.get(w as i64) {
+            let btn = gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
+            let st = gtk_event_controller_get_current_event_state(
+                gesture as GtkEventController
+            ) as u32
+            let cb = slot.onMouseUp
+            cb(x, y, gdkBtnToW3c(btn),
+               hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
+               hasMod(st, MOD_ALT),  hasMod(st, MOD_META))
         }
     }
 }
@@ -113,6 +200,34 @@ pub fn createNativeEdit(
         linux_entry_focus_leave, 0 as *void, 0 as i64, 0 as u32
     )
 
+    // Motion controller for onMouseEnter / onMouseLeave.
+    let motionCtl = gtk_event_controller_motion_new() as GtkEventControllerMotion
+    gtk_widget_add_controller(entry as GtkWidget, motionCtl as GtkEventController)
+    g_signal_connect_data(
+        motionCtl as GObject, cstrFromString("enter"),
+        linux_entry_motion_enter, 0 as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        motionCtl as GObject, cstrFromString("leave"),
+        linux_entry_motion_leave, 0 as *void, 0 as i64, 0 as u32
+    )
+
+    // Click gesture for onMouseDown / onMouseUp + onContextMenu
+    // (the latter fires inline on a right-button press). Set
+    // button=0 to listen for every mouse button — the handler
+    // reads the actual one back via the gesture.
+    let clickGesture = gtk_gesture_click_new() as GtkGestureClick
+    gtk_gesture_single_set_button(clickGesture as GtkGestureSingle, 0 as u32)
+    gtk_widget_add_controller(entry as GtkWidget, clickGesture as GtkEventController)
+    g_signal_connect_data(
+        clickGesture as GObject, cstrFromString("pressed"),
+        linux_entry_pressed, 0 as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        clickGesture as GObject, cstrFromString("released"),
+        linux_entry_released, 0 as *void, 0 as i64, 0 as u32
+    )
+
     let handle = entry as i64
     EDITS[handle] = new EditSlot(entry, winSlot.fixed, windowHandle)
     handle
@@ -126,6 +241,27 @@ pub fn setOnEditFocus(handle: i64, cb: fn()) {
 }
 pub fn setOnEditBlur(handle: i64, cb: fn()) {
     if let some(slot) = EDITS.get(handle) { slot.onBlur = cb }
+}
+pub fn setOnEditMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnEditMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnEditMouseDown(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnEditMouseUp(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnEditContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = EDITS.get(handle) { slot.onContextMenu = cb }
 }
 pub fn focusEdit(handle: i64) {
     if let some(slot) = EDITS.get(handle) {

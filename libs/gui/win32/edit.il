@@ -6,17 +6,21 @@
 
 use windows {
     HWND, HINSTANCE, HMENU, RECT,
-    WindowStyle, ShowCmd,
+    WindowStyle, ShowCmd, WindowMessage, TrackMouseFlags, TRACKMOUSEEVENT,
     TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     CreateWindowExW, SetWindowTextW, EnableWindow, MoveWindow, ShowWindow,
-    SendMessageW, SetFocus, GetFocus,
+    SendMessageW, SetFocus, GetFocus, TrackMouseEvent,
+    SetWindowSubclass, DefSubclassProc,
     GetWindowTextW, GetWindowTextLengthW,
     HeapAlloc, HeapFree, GetProcessHeap,
 }
 use std.ffi { arrayFromCArray }
-use util { applyGuiFont, noOpText }
+use util {
+    applyGuiFont, noOpText,
+    modCtrl, modShift, modAlt, modMeta,
+}
 use core { windowHwnd, noOp1 }
 
 /// EDIT-control messages. Constants from `winuser.h`.
@@ -34,6 +38,12 @@ class EditSlot {
     pub onChange: fn(string)
     pub onFocus:  fn()
     pub onBlur:   fn()
+    pub onMouseEnter: fn(f64, f64)
+    pub onMouseLeave: fn(f64, f64)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
+    pub mouseTracking: bool
     pub winHandle: i64
     /// Lazy-created tooltip control; stays `0` until the first
     /// non-empty `setEditTooltip` call. Mirrors the Button-side
@@ -44,10 +54,19 @@ class EditSlot {
         this.onChange = noOpText
         this.onFocus  = noOp1
         this.onBlur   = noOp1
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
+        this.onMouseDown  = noOpClickMod
+        this.onMouseUp    = noOpClickMod
+        this.onContextMenu = noOpClickMod
+        this.mouseTracking = false
         this.winHandle = winHandle
         this.tooltipHwnd = 0 as HWND
     }
 }
+
+fn noOpEnterLeave(x: f64, y: f64) {}
+fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let EDITS = new Map<i64, EditSlot>()
 
@@ -82,6 +101,88 @@ pub fn tryEditBlur(hwnd: i64): bool {
 }
 
 @extern(C) {
+
+/// Window-procedure subclass installed on every EDIT instance.
+/// Surfaces the per-control mouse events the default EDIT
+/// wndproc would otherwise consume on its own. Forwards
+/// everything else through `DefSubclassProc` so caret handling,
+/// drag-select, etc. stay intact.
+pub fn editSubclassProc(
+    hwnd: i64, msg: u32, wParam: u64, lParam: i64,
+    idSubclass: u64, refData: u64
+): i64 {
+    let lo = (lParam & 0xFFFF) as f64
+    let hi = ((lParam >> 16) & 0xFFFF) as f64
+    match msg as WindowMessage {
+        WindowMessage.mouseMove {
+            if let some(slot) = EDITS.get(hwnd) {
+                if !slot.mouseTracking {
+                    let tme = TRACKMOUSEEVENT {
+                        cbSize:      24 as u32,
+                        dwFlags:     TrackMouseFlags.leave as u32,
+                        hwndTrack:   hwnd as HWND,
+                        dwHoverTime: 0 as u32,
+                    }
+                    TrackMouseEvent(&tme)
+                    slot.mouseTracking = true
+                    let cb = slot.onMouseEnter
+                    cb(lo, hi)
+                }
+            }
+        }
+        WindowMessage.mouseLeave {
+            if let some(slot) = EDITS.get(hwnd) {
+                slot.mouseTracking = false
+                let cb = slot.onMouseLeave
+                cb(lo, hi)
+            }
+        }
+        WindowMessage.lbuttondown {
+            if let some(slot) = EDITS.get(hwnd) {
+                let cb = slot.onMouseDown
+                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.lbuttonup {
+            if let some(slot) = EDITS.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.mButtonDown {
+            if let some(slot) = EDITS.get(hwnd) {
+                let cb = slot.onMouseDown
+                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.mButtonUp {
+            if let some(slot) = EDITS.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        WindowMessage.rButtonDown {
+            if let some(slot) = EDITS.get(hwnd) {
+                let ck = modCtrl()
+                let sk = modShift()
+                let ak = modAlt()
+                let mk = modMeta()
+                let cb = slot.onMouseDown
+                cb(lo, hi, 2, ck, sk, ak, mk)
+                let ctx = slot.onContextMenu
+                ctx(lo, hi, 2, ck, sk, ak, mk)
+            }
+        }
+        WindowMessage.rButtonUp {
+            if let some(slot) = EDITS.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
+        _ {}
+    }
+    DefSubclassProc(hwnd as HWND, msg, wParam, lParam)
+}
 
 pub fn createNativeEdit(
     windowHandle: i64,
@@ -118,6 +219,9 @@ pub fn createNativeEdit(
     let enabledFlag: i32 = if enabled { 1 } else { 0 }
     EnableWindow(hwnd, enabledFlag)
     applyGuiFont(hwnd)
+    // Subclass so per-control mouse messages reach editSubclassProc
+    // before the default EDIT wndproc absorbs them.
+    SetWindowSubclass(hwnd, editSubclassProc, 1 as u64, 0 as u64)
     let handle = hwnd as i64
     EDITS[handle] = new EditSlot(hwnd, windowHandle)
     handle
@@ -156,6 +260,27 @@ pub fn setOnEditFocus(handle: i64, cb: fn()) {
 }
 pub fn setOnEditBlur(handle: i64, cb: fn()) {
     if let some(slot) = EDITS.get(handle) { slot.onBlur = cb }
+}
+pub fn setOnEditMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnEditMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnEditMouseDown(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnEditMouseUp(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnEditContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = EDITS.get(handle) { slot.onContextMenu = cb }
 }
 pub fn focusEdit(handle: i64) {
     if let some(slot) = EDITS.get(handle) { SetFocus(slot.hwnd) }
