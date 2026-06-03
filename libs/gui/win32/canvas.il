@@ -23,16 +23,19 @@ use windows {
     HWND, HDC, HBITMAP, HBRUSH, HPEN, HGDIOBJ,
     HINSTANCE, HMENU, HICON, HCURSOR,
     POINT, RECT, PAINTSTRUCT, WNDCLASSEXA,
-    ClassStyle, WindowStyle, WindowMessage, ShowCmd,
+    ClassStyle, WindowStyle, WindowMessage, ShowCmd, VirtualKey,
     RasterOp, StockObject, PenStyle, BackgroundMode,
     GetModuleHandleA,
     RegisterClassExW, CreateWindowExW, DefWindowProcW,
-    MoveWindow, ShowWindow,
+    MoveWindow, ShowWindow, SetFocus,
     GetDC, ReleaseDC, BeginPaint, EndPaint, InvalidateRect, FillRect,
     CreateCompatibleDC, CreateCompatibleBitmap, SelectObject,
     DeleteObject, BitBlt, CreateSolidBrush, CreatePen, SetBkMode,
     GetStockObject, Rectangle, MoveToEx, LineTo, AngleArc, CloseFigure,
     BeginPath, EndPath, FillPath, StrokePath,
+}
+use util {
+    vkToString, modCtrl, modShift, modAlt, modMeta,
 }
 use core { windowHwnd }
 
@@ -60,6 +63,12 @@ class CanvasSlot {
     // Accumulated path: parallel op-code + argument arrays.
     pub pathOps:     i64[]
     pub pathArgs:    f64[][]
+    pub onKeyDown:    fn(string, bool, bool, bool, bool)
+    pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseMove:  fn(f64, f64, u32, bool, bool, bool, bool)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 
     pub init(hwnd: HWND, mdc: HDC, bmp: HBITMAP, w: f64, h: f64) {
         this.hwnd        = hwnd
@@ -72,8 +81,19 @@ class CanvasSlot {
         this.lineWidth   = 1.0
         this.pathOps     = newOps()
         this.pathArgs    = newArgs()
+        this.onKeyDown    = canvasNoOpKey
+        this.onKeyUp      = canvasNoOpKey
+        this.onMouseMove  = canvasNoOpMove
+        this.onMouseDown  = canvasNoOpBtn
+        this.onMouseUp    = canvasNoOpBtn
+        this.onMouseWheel = canvasNoOpWheel
     }
 }
+
+fn canvasNoOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn canvasNoOpMove(x: f64, y: f64, b: u32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn canvasNoOpBtn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn canvasNoOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let CANVASES = new Map<i64, CanvasSlot>()
 
@@ -98,6 +118,8 @@ fn argbToColorRef(argb: u32): u32 {
 /// blits the backing bitmap; `WM_ERASEBKGND` is swallowed (we paint
 /// every pixel ourselves, so the default erase would only flicker).
 pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
+    let lo = (lParam & 0xFFFF) as f64
+    let hi = ((lParam >> 16) & 0xFFFF) as f64
     match msg as WindowMessage {
         WindowMessage.paint {
             if let some(slot) = CANVASES.get(hwnd) {
@@ -113,6 +135,94 @@ pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         }
         WindowMessage.eraseBkgnd {
             return 1
+        }
+        WindowMessage.keydown {
+            if let some(slot) = CANVASES.get(hwnd) {
+                let cb = slot.onKeyDown
+                cb(vkToString(wParam as u32 as VirtualKey),
+                   modCtrl(), modShift(), modAlt(), modMeta())
+            }
+            return 0
+        }
+        WindowMessage.keyup {
+            if let some(slot) = CANVASES.get(hwnd) {
+                let cb = slot.onKeyUp
+                cb(vkToString(wParam as u32 as VirtualKey),
+                   modCtrl(), modShift(), modAlt(), modMeta())
+            }
+            return 0
+        }
+        WindowMessage.mouseMove {
+            if let some(slot) = CANVASES.get(hwnd) {
+                // wParam holds the MK_* bitfield (bit0=L, bit1=R,
+                // bit4=middle). Pack into the (L=bit0, R=bit1,
+                // M=bit2) layout that gpuview exposes.
+                let mk = wParam as u32
+                let buttons =
+                    (if (mk & 0x1 as u32) != 0 as u32 { 0x1 as u32 } else { 0 as u32 }) |
+                    (if (mk & 0x2 as u32) != 0 as u32 { 0x2 as u32 } else { 0 as u32 }) |
+                    (if (mk & 0x10 as u32) != 0 as u32 { 0x4 as u32 } else { 0 as u32 })
+                let cb = slot.onMouseMove
+                cb(lo, hi, buttons,
+                   modCtrl(), modShift(), modAlt(), modMeta())
+            }
+            return 0
+        }
+        WindowMessage.lbuttondown {
+            if let some(slot) = CANVASES.get(hwnd) {
+                // Take focus so subsequent WM_KEYDOWN reaches us
+                // — the canvas isn't a focusable class by default.
+                SetFocus(slot.hwnd)
+                let cb = slot.onMouseDown
+                cb(lo, hi, 0 as i32, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+            return 0
+        }
+        WindowMessage.lbuttonup {
+            if let some(slot) = CANVASES.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 0 as i32, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+            return 0
+        }
+        WindowMessage.rButtonDown {
+            if let some(slot) = CANVASES.get(hwnd) {
+                let cb = slot.onMouseDown
+                cb(lo, hi, 2 as i32, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+            return 0
+        }
+        WindowMessage.rButtonUp {
+            if let some(slot) = CANVASES.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 2 as i32, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+            return 0
+        }
+        WindowMessage.mButtonDown {
+            if let some(slot) = CANVASES.get(hwnd) {
+                let cb = slot.onMouseDown
+                cb(lo, hi, 1 as i32, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+            return 0
+        }
+        WindowMessage.mButtonUp {
+            if let some(slot) = CANVASES.get(hwnd) {
+                let cb = slot.onMouseUp
+                cb(lo, hi, 1 as i32, modCtrl(), modShift(), modAlt(), modMeta())
+            }
+            return 0
+        }
+        WindowMessage.mouseWheel {
+            if let some(slot) = CANVASES.get(hwnd) {
+                let raw = ((wParam >> 16) & 0xFFFF) as i32
+                let signed = if raw >= 0x8000 as i32 { raw - 0x10000 as i32 } else { raw }
+                let dy = (signed as f64) / 120.0
+                let cb = slot.onMouseWheel
+                cb(0.0, dy, lo, hi,
+                   modCtrl(), modShift(), modAlt(), modMeta())
+            }
+            return 0
         }
         _ {}
     }
@@ -376,6 +486,33 @@ pub fn canvasStroke(handle: i64) {
         DeleteObject(pen as HGDIOBJ)
         InvalidateRect(slot.hwnd, 0 as *const RECT, 0)
     }
+}
+
+pub fn setOnCanvasKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = CANVASES.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnCanvasKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = CANVASES.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnCanvasMouseMove(
+    handle: i64, cb: fn(f64, f64, u32, bool, bool, bool, bool)
+) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseMove = cb }
+}
+pub fn setOnCanvasMouseDown(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnCanvasMouseUp(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnCanvasMouseWheel(
+    handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseWheel = cb }
 }
 
 } // @extern(C)

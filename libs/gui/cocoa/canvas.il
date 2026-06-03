@@ -12,24 +12,122 @@
 
 use cocoa {
     NSObject, NSView, NSImage, NSColor, NSBezierPath,
-    NSPoint, NSRect, NSCompositingOperation,
+    NSPoint, NSRect, NSCompositingOperation, NSEvent,
+    nil,
     makeRect, makePoint, makeSize,
 }
-use core { WINDOWS }
+use core {
+    WINDOWS, noOpKey,
+    keyCodeToString, modCtrl, modShift, modAlt, modMeta,
+}
 
 /// Custom `NSView` subclass. `drawRect:` blits the slot's
 /// persistent bitmap; `isFlipped` keeps the view's coordinate
 /// system in the W3C / top-left convention so child positions
-/// match the rest of gui-core.
+/// match the rest of gui-core. Input plumbing mirrors GpuView's
+/// pattern — keyboard events arrive once the view takes first
+/// responder, mouseMoved fires only while it owns it.
 class CanvasView : NSView {
     pub isFlipped(): bool { true }
+    /// Take first responder so keyDown:/keyUp: arrive here
+    /// instead of falling through to the window's content view.
+    pub acceptsFirstResponder(): bool { true }
 
     pub drawRect(dirty: NSRect) {
         if let some(slot) = CANVASES.get(this.handle) {
             slot.img.drawInRect(this.bounds)
         }
     }
+
+    pub keyDown(event: NSEvent) {
+        if let some(slot) = CANVASES.get(this.handle) {
+            let flags = event.modifierFlags as u64
+            let cb = slot.onKeyDown
+            cb(keyCodeToString(event.keyCode),
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+    }
+    pub keyUp(event: NSEvent) {
+        if let some(slot) = CANVASES.get(this.handle) {
+            let flags = event.modifierFlags as u64
+            let cb = slot.onKeyUp
+            cb(keyCodeToString(event.keyCode),
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+    }
+    pub mouseMoved(event: NSEvent)        { this.dispatchMouse(event, 0, 0) }
+    pub mouseDragged(event: NSEvent)      { this.dispatchMouse(event, 0, 0) }
+    pub rightMouseDragged(event: NSEvent) { this.dispatchMouse(event, 0, 2) }
+    pub otherMouseDragged(event: NSEvent) { this.dispatchMouse(event, 0, 1) }
+    /// mouseDown / mouseUp's binding is `NSObject` (see GuiView's
+    /// note in core.il) — override has to match. Rebind via
+    /// __wrap_handle_unowned.
+    pub override mouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 1, 0)
+    }
+    pub override mouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 2, 0)
+    }
+    pub override rightMouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 1, 2)
+    }
+    pub override rightMouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 2, 2)
+    }
+    pub override otherMouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 1, 1)
+    }
+    pub override otherMouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 2, 1)
+    }
+    pub scrollWheel(event: NSEvent) {
+        if let some(slot) = CANVASES.get(this.handle) {
+            let p = this.convertPointFromView(event.locationInWindow, nil)
+            let flags = event.modifierFlags as u64
+            let cb = slot.onMouseWheel
+            cb(event.deltaX, event.deltaY, p.x, p.y,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
+    }
+    /// `kind`: 0=move, 1=down, 2=up. `button`: W3C MouseEvent.button.
+    dispatchMouse(event: NSEvent, kind: i32, button: i32) {
+        if let some(slot) = CANVASES.get(this.handle) {
+            let p = this.convertPointFromView(event.locationInWindow, nil)
+            let flags = event.modifierFlags as u64
+            match kind {
+                0 {
+                    let cb = slot.onMouseMove
+                    // `buttons` bitfield carries the current button
+                    // snapshot; for the first pass we pass 0 and let
+                    // future Canvas-side tracking layer on top.
+                    cb(p.x, p.y, 0 as u32,
+                       modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+                }
+                1 {
+                    let cb = slot.onMouseDown
+                    cb(p.x, p.y, button,
+                       modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+                }
+                2 {
+                    let cb = slot.onMouseUp
+                    cb(p.x, p.y, button,
+                       modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+                }
+                _ {}
+            }
+        }
+    }
 }
+
+fn canvasNoOpMove(x: f64, y: f64, b: u32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn canvasNoOpBtn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn canvasNoOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 /// Per-canvas state. Stored in `CANVASES` keyed by the
 /// CanvasView's raw ObjC pointer — same value gui-core sees as
@@ -43,6 +141,12 @@ class CanvasSlot {
     pub fillColor:   NSColor
     pub strokeColor: NSColor
     pub lineWidth:   f64
+    pub onKeyDown:    fn(string, bool, bool, bool, bool)
+    pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseMove:  fn(f64, f64, u32, bool, bool, bool, bool)
+    pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
 
     pub init(view: CanvasView, img: NSImage, w: f64, h: f64) {
         this.view        = view
@@ -53,6 +157,12 @@ class CanvasSlot {
         this.fillColor   = NSColor.black
         this.strokeColor = NSColor.black
         this.lineWidth   = 1.0
+        this.onKeyDown    = noOpKey
+        this.onKeyUp      = noOpKey
+        this.onMouseMove  = canvasNoOpMove
+        this.onMouseDown  = canvasNoOpBtn
+        this.onMouseUp    = canvasNoOpBtn
+        this.onMouseWheel = canvasNoOpWheel
     }
 }
 
@@ -232,4 +342,31 @@ pub fn canvasStroke(handle: i64) {
         slot.img.unlockFocus()
         slot.view.setNeedsDisplay(true)
     }
+}
+
+pub fn setOnCanvasKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = CANVASES.get(handle) { slot.onKeyDown = cb }
+}
+pub fn setOnCanvasKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
+    if let some(slot) = CANVASES.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnCanvasMouseMove(
+    handle: i64, cb: fn(f64, f64, u32, bool, bool, bool, bool)
+) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseMove = cb }
+}
+pub fn setOnCanvasMouseDown(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnCanvasMouseUp(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnCanvasMouseWheel(
+    handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = CANVASES.get(handle) { slot.onMouseWheel = cb }
 }

@@ -20,6 +20,8 @@
 /// Property setters (`fillColor` / `strokeColor` / `lineWidth`)
 /// cache pre-realize and apply on `attachTo`.
 
+use std.events { Signal }
+use events { KeyEvent, MouseEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeCanvas, setCanvasFrame, setCanvasVisible,
@@ -28,6 +30,9 @@ use gui_impl {
     canvasFillRect, canvasStrokeRect,
     canvasBeginPath, canvasMoveTo, canvasLineTo,
     canvasArc, canvasClosePath, canvasFill, canvasStroke,
+    setOnCanvasKeyDown, setOnCanvasKeyUp,
+    setOnCanvasMouseMove, setOnCanvasMouseDown, setOnCanvasMouseUp,
+    setOnCanvasMouseWheel,
 }
 
 pub class Canvas : Control {
@@ -41,6 +46,17 @@ pub class Canvas : Control {
     _strokeColor: u32
     _lineWidth:   f64
 
+    /// View-local input events. Coordinates are pixels from the
+    /// canvas's top-left corner. Keyboard events fire only while
+    /// the canvas owns focus — clicking inside it grabs focus
+    /// (matches the GpuView convention).
+    pub onKeyDown:    Signal<KeyEvent>
+    pub onKeyUp:      Signal<KeyEvent>
+    pub onMouseMove:  Signal<MouseEvent>
+    pub onMouseDown:  Signal<MouseEvent>
+    pub onMouseUp:    Signal<MouseEvent>
+    pub onMouseWheel: Signal<MouseEvent>
+
     pub init() {
         super()
         this.handle       = -1
@@ -52,6 +68,12 @@ pub class Canvas : Control {
         this._fillColor   = 0xFF000000 as u32
         this._strokeColor = 0xFF000000 as u32
         this._lineWidth   = 1.0
+        this.onKeyDown    = new Signal<KeyEvent>()
+        this.onKeyUp      = new Signal<KeyEvent>()
+        this.onMouseMove  = new Signal<MouseEvent>()
+        this.onMouseDown  = new Signal<MouseEvent>()
+        this.onMouseUp    = new Signal<MouseEvent>()
+        this.onMouseWheel = new Signal<MouseEvent>()
     }
 
     pub get x(): f64 { this._x }
@@ -156,6 +178,34 @@ pub class Canvas : Control {
             setCanvasFillColor(this.handle, this._fillColor)
             setCanvasStrokeColor(this.handle, this._strokeColor)
             setCanvasLineWidth(this.handle, this._lineWidth)
+            setOnCanvasKeyDown(this.handle,
+                fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                    this.onKeyDown.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+                })
+            setOnCanvasKeyUp(this.handle,
+                fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
+                    this.onKeyUp.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+                })
+            setOnCanvasMouseMove(this.handle,
+                fn(x: f64, y: f64, b: u32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                    this.onMouseMove.emit(new MouseEvent(this, x, y, 0, ck, sk, ak, mk))
+                })
+            setOnCanvasMouseDown(this.handle,
+                fn(x: f64, y: f64, btn: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                    this.onMouseDown.emit(new MouseEvent(this, x, y, btn, ck, sk, ak, mk))
+                })
+            setOnCanvasMouseUp(this.handle,
+                fn(x: f64, y: f64, btn: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                    this.onMouseUp.emit(new MouseEvent(this, x, y, btn, ck, sk, ak, mk))
+                })
+            setOnCanvasMouseWheel(this.handle,
+                fn(dx: f64, dy: f64, x: f64, y: f64,
+                   ck: bool, sk: bool, ak: bool, mk: bool) {
+                    let e = new MouseEvent(this, x, y, 0, ck, sk, ak, mk)
+                    e.wheelDx = dx
+                    e.wheelDy = dy
+                    this.onMouseWheel.emit(e)
+                })
         }
     }
 
