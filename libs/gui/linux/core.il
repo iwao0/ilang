@@ -30,6 +30,10 @@ pub class WindowSlot {
     pub onMouseMove: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseDown: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:   fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseEnter:  fn(f64, f64)
+    pub onMouseLeave:  fn(f64, f64)
+    pub onMouseWheel:  fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMinimize:        fn()
     pub onRestore:         fn()
     pub onMaximize:        fn()
@@ -80,6 +84,10 @@ pub class WindowSlot {
         this.onMouseMove       = noOpMouse
         this.onMouseDown       = noOpMouse
         this.onMouseUp         = noOpMouse
+        this.onMouseEnter      = noOpEnterLeave
+        this.onMouseLeave      = noOpEnterLeave
+        this.onMouseWheel      = noOpWheel
+        this.onContextMenu     = noOpMouse
         this.onMinimize        = noOpClose
         this.onRestore         = noOpClose
         this.onMaximize        = noOpClose
@@ -128,6 +136,8 @@ pub fn noOpClose() {}
 pub fn noOpResize(w: f64, h: f64) {}
 pub fn noOpKey(c: string, k1: bool, k2: bool, k3: bool, k4: bool) {}
 pub fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {}
+pub fn noOpEnterLeave(x: f64, y: f64) {}
+pub fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, k1: bool, k2: bool, k3: bool, k4: bool) {}
 pub fn noOpClick(x: f64, y: f64, b: i32) {}
 pub fn noOpBool(b: bool) {}
 pub fn noOpText(s: string) {}
@@ -153,6 +163,22 @@ pub fn setOnMouseMove(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 }
 pub fn setOnMouseDown(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if let some(slot) = WINDOWS.get(handle) { slot.onMouseDown = cb }
+}
+pub fn setOnWindowMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnWindowMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnWindowMouseWheel(
+    handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn setOnWindowContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onContextMenu = cb }
 }
 pub fn setOnMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if let some(slot) = WINDOWS.get(handle) { slot.onMouseUp = cb }

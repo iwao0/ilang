@@ -19,7 +19,8 @@
 use windows {
     HWND, HINSTANCE,
     DefWindowProcW, PostQuitMessage, DestroyWindow,
-    WindowMessage, VirtualKey, ActivateCode,
+    WindowMessage, VirtualKey, ActivateCode, TrackMouseFlags, TRACKMOUSEEVENT,
+    TrackMouseEvent, ScreenToClient,
     LoadCursorA, SetCursor, SystemCursor,
     HDC, RECT, POINT, MINMAXINFO,
     GetClientRect, FillRect, GetSysColorBrush,
@@ -28,6 +29,9 @@ use core {
     dispatchClose, dispatchSize,
     dispatchKeyDown, dispatchKeyUp,
     dispatchMouseMove, dispatchMouseDown, dispatchMouseUp,
+    dispatchMouseEnter, dispatchMouseLeave,
+    dispatchMouseWheel, dispatchContextMenu,
+    windowMouseTracking,
     dispatchFocus, dispatchBlur, dispatchMove,
     contentToFrameSize,
     WINDOWS,
@@ -153,8 +157,60 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             return 0
         }
         WindowMessage.mouseMove {
+            // First mouseMove since the cursor (re-)entered the
+            // window: arm WM_MOUSELEAVE and synthesise enter.
+            if !windowMouseTracking(hwnd) {
+                let tme = TRACKMOUSEEVENT {
+                    cbSize:      24 as u32,
+                    dwFlags:     TrackMouseFlags.leave as u32,
+                    hwndTrack:   hwnd as HWND,
+                    dwHoverTime: 0 as u32,
+                }
+                TrackMouseEvent(&tme)
+                dispatchMouseEnter(hwnd, lo, hi)
+            }
             dispatchMouseMove(hwnd, lo, hi, 0,
                               modCtrl(), modShift(), modAlt(), modMeta())
+            return 0
+        }
+        WindowMessage.mouseLeave {
+            dispatchMouseLeave(hwnd, lo, hi)
+            return 0
+        }
+        WindowMessage.mouseWheel {
+            // HIWORD(wParam) is a signed 16-bit delta in
+            // multiples of WHEEL_DELTA (120). Normalise to ±1
+            // per detent, matching the cross-platform shape.
+            let raw = ((wParam >> 16) & 0xFFFF) as i32
+            let signed = if raw >= 0x8000 as i32 { raw - 0x10000 as i32 } else { raw }
+            let dy = (signed as f64) / 120.0
+            // For WM_MOUSEWHEEL lParam holds screen coordinates;
+            // ScreenToClient gives us the window-local point the
+            // other mouse events use.
+            let pt = POINT { x: lo as i32, y: hi as i32 }
+            let p: *POINT = &pt
+            ScreenToClient(hwnd as HWND, p)
+            dispatchMouseWheel(
+                hwnd, 0.0, dy, pt.x as f64, pt.y as f64,
+                modCtrl(), modShift(), modAlt(), modMeta()
+            )
+            return 0
+        }
+        WindowMessage.contextMenu {
+            // lParam packs screen-space coords. `0xFFFF` (the
+            // sentinel for a keyboard-triggered VK_APPS) skips the
+            // dispatch — those have no cursor position.
+            let rawX = (lParam & 0xFFFF) as i32
+            let rawY = ((lParam >> 16) & 0xFFFF) as i32
+            if rawX != 0xFFFF as i32 || rawY != 0xFFFF as i32 {
+                let pt = POINT { x: rawX, y: rawY }
+                let p: *POINT = &pt
+                ScreenToClient(hwnd as HWND, p)
+                dispatchContextMenu(
+                    hwnd, pt.x as f64, pt.y as f64,
+                    modCtrl(), modShift(), modAlt(), modMeta()
+                )
+            }
             return 0
         }
         WindowMessage.lbuttondown {

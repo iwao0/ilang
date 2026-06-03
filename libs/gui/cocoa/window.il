@@ -8,6 +8,7 @@
 use cocoa {
     NSObject, NSApplication, NSWindow, NSView, NSScreen,
     NSWindowStyleMask, NSApplicationActivationPolicy,
+    NSTrackingArea, NSTrackingAreaOptions,
     NSPoint, NSRect, NSSize,
     NSProgressIndicator, NSProgressIndicatorStyle,
     nsstr, makePoint, makeRect, makeSize, nil,
@@ -53,6 +54,19 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     win.setContentView(v)
     win.setAcceptsMouseMovedEvents(true)
     win.makeFirstResponder(v)
+
+    // Tracking area on the contentView. `inVisibleRect` keeps the
+    // hit region pinned to the view's bounds across window resize,
+    // so `mouseEntered:` / `mouseExited:` keep firing without
+    // re-installing the area.
+    let opts = NSTrackingAreaOptions.mouseEnteredAndExited
+             | NSTrackingAreaOptions.activeAlways
+             | NSTrackingAreaOptions.inVisibleRect
+    let area = NSTrackingArea.alloc().init(
+        makeRect(0.0, 0.0, width, height), opts,
+        v as NSObject, nil
+    )
+    (v as NSView).addTrackingArea(area as NSObject)
 
     // Created HIDDEN. The user controls first-paint via
     // `Window.show()` so they can mutate title / size / add

@@ -29,6 +29,10 @@ pub class WindowSlot {
     pub onMouseMove: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseDown: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:   fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseEnter:  fn(f64, f64)
+    pub onMouseLeave:  fn(f64, f64)
+    pub onMouseWheel:  fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     /// Window-state event hooks. AppKit fires distinct delegate
     /// callbacks for miniaturize / deminiaturize / enter-full-
     /// screen / exit-full-screen, but NOT for `zoom:` — there's
@@ -70,6 +74,10 @@ pub class WindowSlot {
         this.onMouseMove       = noOpMouse
         this.onMouseDown       = noOpMouse
         this.onMouseUp         = noOpMouse
+        this.onMouseEnter      = noOpEnterLeave
+        this.onMouseLeave      = noOpEnterLeave
+        this.onMouseWheel      = noOpWheel
+        this.onContextMenu     = noOpClickMod
         this.onMinimize        = noOp1
         this.onRestore         = noOp1
         this.onMaximize        = noOp1
@@ -357,10 +365,45 @@ pub class GuiView : NSView {
     pub override rightMouseDown(event: NSObject) {
         let e = NSEvent.__wrap_handle_unowned(event.handle)
         this.dispatchMouse(e, 1, 2)
+        if let some(slot) = this.windowSlot() {
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let w = this.frame.size.width
+            let h = this.frame.size.height
+            if p.x < 0.0 || p.y < 0.0 || p.x > w || p.y > h { return }
+            let flags = e.modifierFlags as u64
+            let ctx = slot.onContextMenu
+            ctx(p.x, p.y, 2,
+                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
     }
     pub override rightMouseUp(event: NSObject) {
         let e = NSEvent.__wrap_handle_unowned(event.handle)
         this.dispatchMouse(e, 2, 2)
+    }
+    pub override mouseEntered(event: NSObject) {
+        if let some(slot) = this.windowSlot() {
+            let e = NSEvent.__wrap_handle_unowned(event.handle)
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let cb = slot.onMouseEnter
+            cb(p.x, p.y)
+        }
+    }
+    pub override mouseExited(event: NSObject) {
+        if let some(slot) = this.windowSlot() {
+            let e = NSEvent.__wrap_handle_unowned(event.handle)
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let cb = slot.onMouseLeave
+            cb(p.x, p.y)
+        }
+    }
+    pub scrollWheel(event: NSEvent) {
+        if let some(slot) = this.windowSlot() {
+            let p = this.convertPointFromView(event.locationInWindow, nil)
+            let flags = event.modifierFlags as u64
+            let cb = slot.onMouseWheel
+            cb(event.deltaX, event.deltaY, p.x, p.y,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
+        }
     }
     pub override otherMouseDown(event: NSObject) {
         let e = NSEvent.__wrap_handle_unowned(event.handle)
@@ -429,6 +472,22 @@ pub fn setOnMouseDown(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 }
 pub fn setOnMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if let some(slot) = WINDOWS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnWindowMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnWindowMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnWindowMouseWheel(
+    handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn setOnWindowContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onContextMenu = cb }
 }
 pub fn setOnWindowMinimize(handle: i64, cb: fn()) {
     if let some(slot) = WINDOWS.get(handle) { slot.onMinimize = cb }

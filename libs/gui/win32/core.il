@@ -38,6 +38,11 @@ pub class WindowSlot {
     pub onMouseMove:  fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseDown:  fn(f64, f64, i32, bool, bool, bool, bool)
     pub onMouseUp:    fn(f64, f64, i32, bool, bool, bool, bool)
+    pub onMouseEnter:  fn(f64, f64)
+    pub onMouseLeave:  fn(f64, f64)
+    pub onMouseWheel:  fn(f64, f64, f64, f64, bool, bool, bool, bool)
+    pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
+    pub mouseTracking: bool
     pub onMinimize:        fn()
     pub onRestore:         fn()
     pub onMaximize:        fn()
@@ -80,6 +85,11 @@ pub class WindowSlot {
         this.onMouseMove       = noOpMouse
         this.onMouseDown       = noOpMouse
         this.onMouseUp         = noOpMouse
+        this.onMouseEnter      = noOpEnterLeave
+        this.onMouseLeave      = noOpEnterLeave
+        this.onMouseWheel      = noOpWheel
+        this.onContextMenu     = noOpMouse
+        this.mouseTracking     = false
         this.onMinimize        = noOp1
         this.onRestore         = noOp1
         this.onMaximize        = noOp1
@@ -121,6 +131,8 @@ pub fn noOp1() {}
 fn noOp2(w: f64, h: f64) {}
 fn noOpKey(c: string, k1: bool, k2: bool, k3: bool, k4: bool) {}
 fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {}
+fn noOpEnterLeave(x: f64, y: f64) {}
+fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, k1: bool, k2: bool, k3: bool, k4: bool) {}
 
 /// Lookup the raw HWND for window `handle`. Used by widget
 /// modules' `createNative*` to find the parent HWND for
@@ -188,6 +200,22 @@ pub fn setOnMouseDown(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
 }
 pub fn setOnMouseUp(handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)) {
     if let some(slot) = WINDOWS.get(handle) { slot.onMouseUp = cb }
+}
+pub fn setOnWindowMouseEnter(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMouseEnter = cb }
+}
+pub fn setOnWindowMouseLeave(handle: i64, cb: fn(f64, f64)) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMouseLeave = cb }
+}
+pub fn setOnWindowMouseWheel(
+    handle: i64, cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onMouseWheel = cb }
+}
+pub fn setOnWindowContextMenu(
+    handle: i64, cb: fn(f64, f64, i32, bool, bool, bool, bool)
+) {
+    if let some(slot) = WINDOWS.get(handle) { slot.onContextMenu = cb }
 }
 pub fn setOnWindowMinimize(handle: i64, cb: fn()) {
     if let some(slot) = WINDOWS.get(handle) { slot.onMinimize = cb }
@@ -286,6 +314,43 @@ pub fn dispatchMouseUp(
 ) {
     if let some(slot) = WINDOWS.get(handle) {
         slot.onMouseUp(x, y, b, ctrl, shift, alt, meta)
+    }
+}
+pub fn dispatchMouseEnter(handle: i64, x: f64, y: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.mouseTracking = true
+        slot.onMouseEnter(x, y)
+    }
+}
+pub fn dispatchMouseLeave(handle: i64, x: f64, y: f64) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.mouseTracking = false
+        slot.onMouseLeave(x, y)
+    }
+}
+pub fn dispatchMouseWheel(
+    handle: i64, dx: f64, dy: f64, x: f64, y: f64,
+    ctrl: bool, shift: bool, alt: bool, meta: bool
+) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.onMouseWheel(dx, dy, x, y, ctrl, shift, alt, meta)
+    }
+}
+pub fn dispatchContextMenu(
+    handle: i64, x: f64, y: f64,
+    ctrl: bool, shift: bool, alt: bool, meta: bool
+) {
+    if let some(slot) = WINDOWS.get(handle) {
+        slot.onContextMenu(x, y, 2 as i32, ctrl, shift, alt, meta)
+    }
+}
+/// Returns the current mouseTracking flag for `handle` (so
+/// wnd_proc can decide whether to arm TrackMouseEvent on the
+/// next WM_MOUSEMOVE).
+pub fn windowMouseTracking(handle: i64): bool {
+    match WINDOWS.get(handle) {
+        some(slot) { slot.mouseTracking }
+        none       { false }
     }
 }
 pub fn dispatchFocus(handle: i64) {

@@ -33,13 +33,15 @@ use gtk {
     gtk_scrolled_window_set_propagate_natural_width,
     gtk_scrolled_window_set_propagate_natural_height,
     gtk_event_controller_key_new, gtk_event_controller_motion_new,
+    gtk_event_controller_scroll_new, GtkEventControllerScroll,
+    GtkEventControllerScrollFlags,
     gtk_gesture_click_new, gtk_gesture_single_set_button,
     gtk_gesture_single_get_current_button,
     gtk_event_controller_get_current_event_state,
     gdk_keyval_to_lower,
     g_main_loop_new, g_main_loop_run, g_main_loop_quit,
     g_signal_connect_data, g_signal_connect_data2, g_signal_connect_key,
-    g_signal_connect_motion, g_signal_connect_click,
+    g_signal_connect_motion, g_signal_connect_click, g_signal_connect_scroll,
 }
 use core { WINDOWS, WindowSlot, GTK_INITED, LOOP_HOLDER }
 use super.events
@@ -228,11 +230,47 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
         gesture: i64, n_press: i32, x: f64, y: f64, data: i64
     ) {
         dispatchClick(gesture, data, x, y, true)
+        if let some(slot) = WINDOWS.get(data) {
+            let rawBtn = gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
+            if rawBtn == 3 as u32 {
+                let st = gtk_event_controller_get_current_event_state(
+                    gesture as GtkEventController
+                )
+                let ctx = slot.onContextMenu
+                ctx(x, y, 2 as i32,
+                    hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
+                    hasMod(st, MOD_ALT), hasMod(st, MOD_META))
+            }
+        }
     }
     pub fn linux_released(
         gesture: i64, n_press: i32, x: f64, y: f64, data: i64
     ) {
         dispatchClick(gesture, data, x, y, false)
+    }
+    pub fn linux_motion_enter(ctrl: i64, x: f64, y: f64, data: i64) {
+        if let some(slot) = WINDOWS.get(data) {
+            let cb = slot.onMouseEnter
+            cb(x, y)
+        }
+    }
+    pub fn linux_motion_leave(ctrl: i64, data: i64) {
+        if let some(slot) = WINDOWS.get(data) {
+            let cb = slot.onMouseLeave
+            cb(0.0, 0.0)
+        }
+    }
+    pub fn linux_scroll(ctrl: i64, dx: f64, dy: f64, data: i64): i32 {
+        if let some(slot) = WINDOWS.get(data) {
+            let st = gtk_event_controller_get_current_event_state(
+                ctrl as GtkEventController
+            )
+            let cb = slot.onMouseWheel
+            cb(dx, dy, 0.0, 0.0,
+               hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
+               hasMod(st, MOD_ALT), hasMod(st, MOD_META))
+        }
+        0 as i32
     }
 }
 
@@ -369,8 +407,29 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         motionCtrl as GObject, cstrFromString("motion"),
         linux_motion, handle as *void, 0 as i64, 0 as u32
     )
+    g_signal_connect_data(
+        motionCtrl as GObject, cstrFromString("enter"),
+        linux_motion_enter, handle as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        motionCtrl as GObject, cstrFromString("leave"),
+        linux_motion_leave, handle as *void, 0 as i64, 0 as u32
+    )
     gtk_widget_add_controller(
         win as GtkWidget, motionCtrl as GtkEventController
+    )
+
+    // Scroll controller for onMouseWheel.
+    let scrollCtrl = gtk_event_controller_scroll_new(
+        GtkEventControllerScrollFlags.vertical
+            | GtkEventControllerScrollFlags.horizontal
+    ) as GtkEventControllerScroll
+    g_signal_connect_scroll(
+        scrollCtrl as GObject, cstrFromString("scroll"),
+        linux_scroll, handle as *void, 0 as i64, 0 as u32
+    )
+    gtk_widget_add_controller(
+        win as GtkWidget, scrollCtrl as GtkEventController
     )
 
     // Click gesture — `button=0` matches every button so the

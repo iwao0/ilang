@@ -65,6 +65,8 @@ use gui_impl {
     setOnMouseMove,
     setOnMouseDown,
     setOnMouseUp,
+    setOnWindowMouseEnter, setOnWindowMouseLeave,
+    setOnWindowMouseWheel, setOnWindowContextMenu,
     setOnWindowMinimize, setOnWindowRestore,
     setOnWindowMaximize, setOnWindowUnmaximize,
     setOnWindowEnterFullScreen, setOnWindowLeaveFullScreen,
@@ -239,6 +241,10 @@ pub class Window : Container {
     pub onMouseMove:        Signal<MouseEvent>
     pub onMouseDown:        Signal<MouseEvent>
     pub onMouseUp:          Signal<MouseEvent>
+    pub onMouseEnter:       Signal<MouseEvent>
+    pub onMouseLeave:       Signal<MouseEvent>
+    pub onMouseWheel:       Signal<MouseEvent>
+    pub onContextMenu:      Signal<MouseEvent>
     pub onMinimize:         Signal<MinimizeEvent>
     pub onRestore:          Signal<RestoreEvent>
     pub onMaximize:         Signal<MaximizeEvent>
@@ -272,6 +278,10 @@ pub class Window : Container {
         this.onMouseMove        = new Signal<MouseEvent>()
         this.onMouseDown        = new Signal<MouseEvent>()
         this.onMouseUp          = new Signal<MouseEvent>()
+        this.onMouseEnter       = new Signal<MouseEvent>()
+        this.onMouseLeave       = new Signal<MouseEvent>()
+        this.onMouseWheel       = new Signal<MouseEvent>()
+        this.onContextMenu      = new Signal<MouseEvent>()
         this.onMinimize         = new Signal<MinimizeEvent>()
         this.onRestore          = new Signal<RestoreEvent>()
         this.onMaximize         = new Signal<MaximizeEvent>()
@@ -318,6 +328,24 @@ pub class Window : Container {
         setOnMouseUp(this.handle,
             fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
                 this.onMouseUp.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnWindowMouseEnter(this.handle, fn(x: f64, y: f64) {
+            this.onMouseEnter.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+        })
+        setOnWindowMouseLeave(this.handle, fn(x: f64, y: f64) {
+            this.onMouseLeave.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+        })
+        setOnWindowMouseWheel(this.handle,
+            fn(dx: f64, dy: f64, x: f64, y: f64,
+               ck: bool, sk: bool, ak: bool, mk: bool) {
+                let e = new MouseEvent(this, x, y, 0, ck, sk, ak, mk)
+                e.wheelDx = dx
+                e.wheelDy = dy
+                this.onMouseWheel.emit(e)
+            })
+        setOnWindowContextMenu(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onContextMenu.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
             })
         setOnWindowMinimize(this.handle, fn() {
             this.onMinimize.emit(new MinimizeEvent(this))
