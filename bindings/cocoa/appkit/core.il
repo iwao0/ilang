@@ -184,15 +184,32 @@ pub enum NSApplicationActivationPolicy: i64 {
         /// `NSEvent` here; the parameter is typed `NSObject` so the
         /// binding doesn't pull `NSEvent`'s declaration into this
         /// block (it lives in `events.il`, a sibling `@extern(ObjC)`
-        /// scope). Subclass overrides cast back to `NSEvent` via
-        /// `event as NSEvent` to read the typed accessors. Pair the
-        /// override with `super.mouseDown(event)` (etc.) to keep the
-        /// parent's default behaviour — press visuals on `NSButton`,
-        /// hover cell state and so on — running.
+        /// scope). Subclass overrides rebind to `NSEvent` via
+        /// `NSEvent.__wrap_handle_unowned(event.handle)` to read
+        /// the typed accessors — `event as? NSEvent` doesn't work
+        /// because ilang's checked downcast reads `obj+0` as the
+        /// ilang class id but @objc objects store the objc isa
+        /// pointer there. Pair the override with `super.mouseDown(event)`
+        /// (etc.) to keep the parent's default behaviour — press
+        /// visuals on `NSButton`, hover cell state and so on — running.
         @objc("mouseDown:")
         pub mouseDown(event: NSObject)
         @objc("mouseUp:")
         pub mouseUp(event: NSObject)
+        /// Secondary (right) mouse button. AppKit dispatches a
+        /// separate selector — `mouseDown:` covers the primary
+        /// button only.
+        @objc("rightMouseDown:")
+        pub rightMouseDown(event: NSObject)
+        @objc("rightMouseUp:")
+        pub rightMouseUp(event: NSObject)
+        /// Tertiary buttons (middle / scroll-wheel click and any
+        /// extra buttons on multi-button mice). The button number
+        /// is on `NSEvent.buttonNumber`.
+        @objc("otherMouseDown:")
+        pub otherMouseDown(event: NSObject)
+        @objc("otherMouseUp:")
+        pub otherMouseUp(event: NSObject)
         @objc("mouseEntered:")
         pub mouseEntered(event: NSObject)
         @objc("mouseExited:")

@@ -176,6 +176,56 @@ class FocusButton : NSButton {
             cb(p.x, y)
         }
     }
+    /// Secondary (right) button. AppKit routes it through its own
+    /// selector pair — `mouseDown:` / `mouseUp:` cover the primary
+    /// button only. Surface as `onMouseDown` / `onMouseUp` with
+    /// `button = 2` (W3C). We deliberately don't drive
+    /// `setHighlighted:` or synthesise `onClick` here: web `click`
+    /// fires for primary only, and NSButton itself doesn't visually
+    /// "press" on a right-click.
+    pub override rightMouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = BUTTONS.get(this.handle) {
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let y = this.frame.size.height - p.y
+            let cb = slot.onMouseDown
+            cb(p.x, y, 2)
+        }
+    }
+    pub override rightMouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = BUTTONS.get(this.handle) {
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let y = this.frame.size.height - p.y
+            let cb = slot.onMouseUp
+            cb(p.x, y, 2)
+        }
+    }
+    /// Middle / extra mouse buttons. AppKit lumps everything that
+    /// isn't left or right into the `otherMouseDown:` /
+    /// `otherMouseUp:` pair. Surface as `button = 1` to match
+    /// Win32's `WM_MBUTTONDOWN` mapping and Linux's
+    /// `gdkBtnToW3c(2) = 1`. Side-button users on multi-button mice
+    /// also land here — `NSEvent.buttonNumber` distinguishes them if
+    /// callers care, but the public Signal only carries the W3C id.
+    pub override otherMouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = BUTTONS.get(this.handle) {
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let y = this.frame.size.height - p.y
+            let cb = slot.onMouseDown
+            cb(p.x, y, 1)
+        }
+    }
+    pub override otherMouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        if let some(slot) = BUTTONS.get(this.handle) {
+            let p = this.convertPointFromView(e.locationInWindow, nil)
+            let y = this.frame.size.height - p.y
+            let cb = slot.onMouseUp
+            cb(p.x, y, 1)
+        }
+    }
 }
 
 /// Per-button "primary button is currently pressed" flag, keyed

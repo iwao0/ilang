@@ -124,11 +124,23 @@ class GpuViewNSView : NSView {
         let e = NSEvent.__wrap_handle_unowned(event.handle)
         this.dispatchMouse(e, 2, 0)
     }
-    pub rightMouseDown(event: NSEvent) { this.dispatchMouse(event, 1, 2) }
-    pub rightMouseUp(event: NSEvent)   { this.dispatchMouse(event, 2, 2) }
+    pub override rightMouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 1, 2)
+    }
+    pub override rightMouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 2, 2)
+    }
     pub rightMouseDragged(event: NSEvent) { this.dispatchMouse(event, 0, 2) }
-    pub otherMouseDown(event: NSEvent) { this.dispatchMouse(event, 1, 1) }
-    pub otherMouseUp(event: NSEvent)   { this.dispatchMouse(event, 2, 1) }
+    pub override otherMouseDown(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 1, 1)
+    }
+    pub override otherMouseUp(event: NSObject) {
+        let e = NSEvent.__wrap_handle_unowned(event.handle)
+        this.dispatchMouse(e, 2, 1)
+    }
     pub otherMouseDragged(event: NSEvent) { this.dispatchMouse(event, 0, 1) }
 
     pub scrollWheel(event: NSEvent) {
