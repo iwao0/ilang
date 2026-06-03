@@ -10,7 +10,7 @@ use cocoa {
 }
 use core {
     WINDOWS, noOpText, noOp1, noOpKey,
-    noOpEnterLeave, noOpClickMod,
+    noOpEnterLeave, noOpClickMod, noOpWheel,
     keyCodeToString, modCtrl, modShift, modAlt, modMeta,
 }
 
@@ -26,6 +26,7 @@ class EditSlot {
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
     /// Retained handle to the `+addLocalMonitorForEventsMatchingMask:`
     /// monitor that surfaces key events. Stored on the slot so the
     /// monitor's lifetime tracks the text field's; left alive until
@@ -50,6 +51,7 @@ class EditSlot {
         this.onContextMenu = noOpClickMod
         this.onKeyDown = noOpKey
         this.onKeyUp   = noOpKey
+        this.onMouseWheel = noOpWheel
         this.keyMonitor = nil
         this.handler = handler
         this.maxLength = 0 as i32
@@ -195,6 +197,19 @@ class FocusTextField : NSTextField {
             let y = (this as NSView).frame.size.height - p.y
             let cb = slot.onMouseLeave
             cb(p.x, y)
+        }
+    }
+    /// Wheel scroll over the field. NSResponder declares the
+    /// selector so no `@objc` decoration is needed — the
+    /// auto-lift infers `scrollWheel:` from name + arity.
+    pub scrollWheel(event: NSEvent) {
+        if let some(slot) = EDITS.get(this.handle) {
+            let p = (this as NSView).convertPointFromView(event.locationInWindow, nil)
+            let y = (this as NSView).frame.size.height - p.y
+            let flags = event.modifierFlags as u64
+            let cb = slot.onMouseWheel
+            cb(event.deltaX, event.deltaY, p.x, y,
+               modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
 }
@@ -366,6 +381,12 @@ pub fn setOnEditKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
 }
 pub fn setOnEditKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = EDITS.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnEditMouseWheel(
+    handle: i64,
+    cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseWheel = cb }
 }
 pub fn focusEdit(handle: i64) {
     if let some(slot) = EDITS.get(handle) {

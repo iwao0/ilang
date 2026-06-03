@@ -4,7 +4,7 @@ use std.ffi { cstrFromString, stringFromCstr }
 use gtk {
     GtkWidget, GtkEntry, GtkFixed, GtkWindow, GObject,
     GtkEventController, GtkEventControllerFocus, GtkEventControllerMotion,
-    GtkEventControllerKey,
+    GtkEventControllerKey, GtkEventControllerScroll, GtkEventControllerScrollFlags,
     GtkGestureSingle, GtkGestureClick,
     gtk_entry_new, gtk_editable_set_text, gtk_editable_get_text,
     gtk_editable_set_editable,
@@ -16,13 +16,14 @@ use gtk {
     gtk_widget_grab_focus, gtk_widget_add_controller,
     gtk_event_controller_focus_new, gtk_event_controller_motion_new,
     gtk_event_controller_key_new,
+    gtk_event_controller_scroll_new,
     gtk_event_controller_get_widget,
     gtk_event_controller_get_current_event_state,
     gdk_keyval_to_lower,
     gtk_gesture_click_new,
     gtk_gesture_single_set_button, gtk_gesture_single_get_current_button,
     gtk_window_get_focus, gtk_window_set_focus,
-    g_signal_connect_data, g_signal_connect_key,
+    g_signal_connect_data, g_signal_connect_key, g_signal_connect_scroll,
 }
 use core { WINDOWS, WindowSlot, noOpText, noOpClose }
 use window { keyvalToCode }
@@ -41,6 +42,7 @@ class EditSlot {
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onKeyDown: fn(string, bool, bool, bool, bool)
     pub onKeyUp:   fn(string, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
     pub init(entry: GtkEntry, fixed: GtkFixed, winHandle: i64) {
         this.entry = entry
         this.fixed = fixed
@@ -55,12 +57,14 @@ class EditSlot {
         this.onContextMenu = noOpClickMod
         this.onKeyDown    = noOpKey
         this.onKeyUp      = noOpKey
+        this.onMouseWheel = noOpWheel
     }
 }
 
 fn noOpEnterLeave(x: f64, y: f64) {}
 fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 // GdkModifierType bits we need. Pulled out so the entry's gesture
 // handlers can `& MOD_*` without going through the flags enum.
@@ -188,6 +192,16 @@ let EDITS = new Map<i64, EditSlot>()
         }
         0 as i32
     }
+    pub fn linux_entry_scroll(
+        ctrl: i64, dx: f64, dy: f64, data: i64
+    ): i32 {
+        let w = gtk_event_controller_get_widget(ctrl as GtkEventController)
+        if let some(slot) = EDITS.get(w as i64) {
+            let cb = slot.onMouseWheel
+            cb(dx, dy, 0.0, 0.0, false, false, false, false)
+        }
+        0 as i32
+    }
 }
 
 @extern(C) {
@@ -277,6 +291,19 @@ pub fn createNativeEdit(
         linux_entry_key_released, 0 as *void, 0 as i64, 0 as u32
     )
 
+    // Scroll controller for onMouseWheel. Both axes enabled —
+    // text fields rarely consume wheel events themselves so
+    // returning 0 from the handler keeps the parent's default
+    // (e.g. ScrolledWindow propagation) intact.
+    let scrollCtl = gtk_event_controller_scroll_new(
+        GtkEventControllerScrollFlags.vertical | GtkEventControllerScrollFlags.horizontal
+    ) as GtkEventControllerScroll
+    gtk_widget_add_controller(entry as GtkWidget, scrollCtl as GtkEventController)
+    g_signal_connect_scroll(
+        scrollCtl as GObject, cstrFromString("scroll"),
+        linux_entry_scroll, 0 as *void, 0 as i64, 0 as u32
+    )
+
     let handle = entry as i64
     EDITS[handle] = new EditSlot(entry, winSlot.fixed, windowHandle)
     handle
@@ -317,6 +344,12 @@ pub fn setOnEditKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
 }
 pub fn setOnEditKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = EDITS.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnEditMouseWheel(
+    handle: i64,
+    cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseWheel = cb }
 }
 pub fn focusEdit(handle: i64) {
     if let some(slot) = EDITS.get(handle) {

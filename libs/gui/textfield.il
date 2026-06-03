@@ -21,6 +21,7 @@ use gui_impl {
     setOnEditMouseEnter, setOnEditMouseLeave,
     setOnEditMouseDown, setOnEditMouseUp, setOnEditContextMenu,
     setOnEditKeyDown, setOnEditKeyUp,
+    setOnEditMouseWheel,
     setEditText, setEditFrame,
     setEditEnabled, setEditVisible, setEditTooltip,
     setEditPlaceholder, setEditReadOnly, setEditMaxLength,
@@ -50,6 +51,7 @@ pub class TextField : Control {
     pub onContextMenu: Signal<MouseEvent>
     pub onKeyDown:    Signal<KeyEvent>
     pub onKeyUp:      Signal<KeyEvent>
+    pub onMouseWheel: Signal<MouseEvent>
 
     pub init() {
         super()
@@ -75,6 +77,7 @@ pub class TextField : Control {
         this.onContextMenu = new Signal<MouseEvent>()
         this.onKeyDown    = new Signal<KeyEvent>()
         this.onKeyUp      = new Signal<KeyEvent>()
+        this.onMouseWheel = new Signal<MouseEvent>()
     }
 
     pub get text(): string {
@@ -209,6 +212,14 @@ pub class TextField : Control {
         setOnEditKeyUp(this.handle,
             fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
                 this.onKeyUp.emit(new KeyEvent(this, c, ck, sk, ak, mk))
+            })
+        setOnEditMouseWheel(this.handle,
+            fn(dx: f64, dy: f64, x: f64, y: f64,
+               ck: bool, sk: bool, ak: bool, mk: bool) {
+                let e = new MouseEvent(this, x, y, 0, ck, sk, ak, mk)
+                e.wheelDx = dx
+                e.wheelDy = dy
+                this.onMouseWheel.emit(e)
             })
         if this._tooltip != "" { setEditTooltip(this.handle, this._tooltip) }
         if this._placeholder != "" { setEditPlaceholder(this.handle, this._placeholder) }

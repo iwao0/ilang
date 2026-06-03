@@ -46,6 +46,7 @@ class EditSlot {
     pub onContextMenu: fn(f64, f64, i32, bool, bool, bool, bool)
     pub onKeyDown:    fn(string, bool, bool, bool, bool)
     pub onKeyUp:      fn(string, bool, bool, bool, bool)
+    pub onMouseWheel: fn(f64, f64, f64, f64, bool, bool, bool, bool)
     pub mouseTracking: bool
     pub winHandle: i64
     /// Lazy-created tooltip control; stays `0` until the first
@@ -64,6 +65,7 @@ class EditSlot {
         this.onContextMenu = noOpClickMod
         this.onKeyDown     = noOpKey
         this.onKeyUp       = noOpKey
+        this.onMouseWheel  = noOpWheel
         this.mouseTracking = false
         this.winHandle = winHandle
         this.tooltipHwnd = 0 as HWND
@@ -73,6 +75,7 @@ class EditSlot {
 fn noOpEnterLeave(x: f64, y: f64) {}
 fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
+fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let EDITS = new Map<i64, EditSlot>()
 
@@ -199,6 +202,18 @@ pub fn editSubclassProc(
                 cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
+        WindowMessage.mouseWheel {
+            if let some(slot) = EDITS.get(hwnd) {
+                let raw = ((wParam >> 16) & 0xFFFF) as i32
+                let signed = if raw >= 0x8000 as i32 { raw - 0x10000 as i32 } else { raw }
+                let dy = (signed as f64) / 120.0
+                // lParam coords are screen-space on WM_MOUSEWHEEL;
+                // shipping raw matches the Button-side TODO.
+                let cb = slot.onMouseWheel
+                cb(0.0, dy, lo, hi,
+                   modCtrl(), modShift(), modAlt(), modMeta())
+            }
+        }
         _ {}
     }
     DefSubclassProc(hwnd as HWND, msg, wParam, lParam)
@@ -307,6 +322,12 @@ pub fn setOnEditKeyDown(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
 }
 pub fn setOnEditKeyUp(handle: i64, cb: fn(string, bool, bool, bool, bool)) {
     if let some(slot) = EDITS.get(handle) { slot.onKeyUp = cb }
+}
+pub fn setOnEditMouseWheel(
+    handle: i64,
+    cb: fn(f64, f64, f64, f64, bool, bool, bool, bool)
+) {
+    if let some(slot) = EDITS.get(handle) { slot.onMouseWheel = cb }
 }
 pub fn focusEdit(handle: i64) {
     if let some(slot) = EDITS.get(handle) { SetFocus(slot.hwnd) }

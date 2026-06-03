@@ -100,6 +100,7 @@ pub fn noOp2(w: f64, h: f64) {
 }
 pub fn noOpEnterLeave(x: f64, y: f64) {}
 pub fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+pub fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 pub fn noOpKey(c: string, k1: bool, k2: bool, k3: bool, k4: bool) {
 }
 pub fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {

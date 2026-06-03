@@ -12,7 +12,7 @@ use cocoa {
 }
 use core {
     WINDOWS, noOpClick, noOp1, noOpKey,
-    noOpEnterLeave, noOpClickMod,
+    noOpEnterLeave, noOpClickMod, noOpWheel,
     keyCodeToString, modCtrl, modShift, modAlt, modMeta,
 }
 use events { KeyCode }
@@ -54,7 +54,6 @@ class ButtonSlot {
     }
 }
 
-fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let BUTTONS = new Map<i64, ButtonSlot>()
 
