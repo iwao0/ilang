@@ -136,6 +136,11 @@ pub enum NSDatePickerStyle: u64 {
         /// for the common case of greying out an input.
         @objc("setEnabled:")
         pub setEnabled(flag: bool)
+        /// Cue-banner text shown when the field is empty. The
+        /// AppKit attribute is plain NSString; for styled text use
+        /// `setPlaceholderAttributedString:` instead.
+        @objc("setPlaceholderString:")
+        pub setPlaceholderString(s: NSString)
 
         /// setDelegate overloads. NSTextField accepts either the
         /// text-field-specific protocol or the more general

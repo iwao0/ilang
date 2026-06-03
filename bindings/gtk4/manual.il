@@ -111,6 +111,10 @@ pub enum Keyval: u32 {
 
     @lib pub fn gtk_editable_set_text(entry: GtkEntry, text: *const char)
     @lib pub fn gtk_editable_get_text(entry: GtkEntry): *const char
+    /// Toggle whether the user can edit the contents. The widget
+    /// stays focusable / hit-testable; only typed input is
+    /// suppressed.
+    @lib pub fn gtk_editable_set_editable(entry: GtkEntry, is_editable: i32)
 
     // ─── GtkComboBoxText (deprecated, generator skips) ────────
 

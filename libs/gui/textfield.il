@@ -19,6 +19,7 @@ use gui_impl {
     createNativeEdit, readEditText,
     setOnEditChange, setEditText, setEditFrame,
     setEditEnabled, setEditVisible, setEditTooltip,
+    setEditPlaceholder, setEditReadOnly, setEditMaxLength,
 }
 
 pub class TextField : Control {
@@ -31,6 +32,9 @@ pub class TextField : Control {
     _isEnabled: bool
     _isVisible: bool
     _tooltip:   string
+    _placeholder: string
+    _isReadOnly: bool
+    _maxLength:  i32
     pub onChange: Signal<ChangeEvent>
 
     pub init() {
@@ -44,6 +48,9 @@ pub class TextField : Control {
         this._isEnabled = true
         this._isVisible = true
         this._tooltip   = ""
+        this._placeholder = ""
+        this._isReadOnly = false
+        this._maxLength  = 0 as i32
         this.onChange   = new Signal<ChangeEvent>()
     }
 
@@ -108,6 +115,35 @@ pub class TextField : Control {
         if this.handle >= 0 { setEditTooltip(this.handle, v) }
     }
 
+    /// Placeholder / cue-banner text shown when the field is
+    /// empty. Empty string clears it. macOS uses
+    /// `NSTextField.placeholderString`; Win32 sends
+    /// `EM_SETCUEBANNER`; GTK calls `gtk_entry_set_placeholder_text`.
+    pub get placeholder(): string { this._placeholder }
+    pub set placeholder(v: string) {
+        this._placeholder = v
+        if this.handle >= 0 { setEditPlaceholder(this.handle, v) }
+    }
+
+    /// Read-only mode. The field still focuses and copies text;
+    /// only typed input is suppressed. Distinct from
+    /// `isEnabled = false`, which also greys the field out.
+    pub get isReadOnly(): bool { this._isReadOnly }
+    pub set isReadOnly(v: bool) {
+        this._isReadOnly = v
+        if this.handle >= 0 { setEditReadOnly(this.handle, v) }
+    }
+
+    /// Maximum number of characters the user can type. `0` = no
+    /// limit (the default). Pasting and programmatic writes can
+    /// still exceed the cap on macOS — the limit is enforced only
+    /// for keyboard input; Win32 / GTK honour it for paste too.
+    pub get maxLength(): i32 { this._maxLength }
+    pub set maxLength(v: i32) {
+        this._maxLength = v
+        if this.handle >= 0 { setEditMaxLength(this.handle, v) }
+    }
+
     pub override attachTo(window: Window) {
         if this.handle >= 0 { return }
         this.handle = createNativeEdit(
@@ -120,6 +156,9 @@ pub class TextField : Control {
             this.onChange.emit(new ChangeEvent(this, v))
         })
         if this._tooltip != "" { setEditTooltip(this.handle, this._tooltip) }
+        if this._placeholder != "" { setEditPlaceholder(this.handle, this._placeholder) }
+        if this._isReadOnly { setEditReadOnly(this.handle, true) }
+        if this._maxLength as i64 > 0 as i64 { setEditMaxLength(this.handle, this._maxLength) }
     }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {

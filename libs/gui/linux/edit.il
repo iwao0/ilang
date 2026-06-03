@@ -4,6 +4,8 @@ use std.ffi { cstrFromString, stringFromCstr }
 use gtk {
     GtkWidget, GtkEntry, GtkFixed, GObject,
     gtk_entry_new, gtk_editable_set_text, gtk_editable_get_text,
+    gtk_editable_set_editable,
+    gtk_entry_set_placeholder_text, gtk_entry_set_max_length,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
     gtk_widget_set_visible,
@@ -107,6 +109,30 @@ pub fn setEditVisible(handle: i64, visible: bool) {
             slot.entry as GtkWidget,
             if visible { 1 as i32 } else { 0 as i32 }
         )
+    }
+}
+pub fn setEditPlaceholder(handle: i64, text: string) {
+    if let some(slot) = EDITS.get(handle) {
+        // Empty string → NULL clears the placeholder per GTK
+        // convention (an empty cstring would still show a stub).
+        if text == "" {
+            gtk_entry_set_placeholder_text(slot.entry, 0 as *const char)
+        } else {
+            gtk_entry_set_placeholder_text(slot.entry, cstrFromString(text))
+        }
+    }
+}
+pub fn setEditReadOnly(handle: i64, readOnly: bool) {
+    if let some(slot) = EDITS.get(handle) {
+        gtk_editable_set_editable(
+            slot.entry,
+            if readOnly { 0 as i32 } else { 1 as i32 }
+        )
+    }
+}
+pub fn setEditMaxLength(handle: i64, max: i32) {
+    if let some(slot) = EDITS.get(handle) {
+        gtk_entry_set_max_length(slot.entry, max)
     }
 }
 pub fn setEditTooltip(handle: i64, text: string) {

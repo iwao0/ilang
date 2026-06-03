@@ -12,10 +12,16 @@ class EditSlot {
     pub edit:     NSTextField
     pub onChange: fn(string)
     pub handler:  NSObject
+    /// Character cap. `0` = no limit. AppKit has no built-in max
+    /// length on NSTextField; the change-handler reads this and
+    /// truncates `stringValue` whenever a notification arrives
+    /// with a string longer than the cap.
+    pub maxLength: i32
     pub init(edit: NSTextField, handler: NSObject) {
         this.edit = edit
         this.onChange = noOpText
         this.handler = handler
+        this.maxLength = 0 as i32
     }
 }
 
@@ -24,8 +30,23 @@ let EDITS = new Map<i64, EditSlot>()
 class ChangeHandler : NSObject {
     pub controlTextDidChange(n: NSNotification) {
         if let some(slot) = EDITS.get(n.notificationObject.handle) {
+            let s = ilstr(slot.edit.stringValue)
+            // Honour `maxLength` here so a too-long string never
+            // reaches the user callback. Truncate, write back, then
+            // surface the trimmed value as if the user typed it.
+            // The write-back fires another `controlTextDidChange:`
+            // but the length is now within the cap so the second
+            // pass is a no-op.
+            let cap = slot.maxLength
+            if cap as i64 > 0 as i64 && s.length > cap as i64 {
+                let trimmed = s.slice(0 as i64, cap as i64)
+                slot.edit.stringValue = nsstr(trimmed)
+                let cb = slot.onChange
+                cb(trimmed)
+                return
+            }
             let cb = slot.onChange
-            cb(ilstr(slot.edit.stringValue))
+            cb(s)
         }
     }
 }
@@ -77,6 +98,17 @@ pub fn setEditEnabled(handle: i64, enabled: bool) {
 }
 pub fn setEditVisible(handle: i64, visible: bool) {
     if let some(slot) = EDITS.get(handle) { slot.edit.setHidden(!visible) }
+}
+pub fn setEditPlaceholder(handle: i64, text: string) {
+    if let some(slot) = EDITS.get(handle) {
+        slot.edit.setPlaceholderString(nsstr(text))
+    }
+}
+pub fn setEditReadOnly(handle: i64, readOnly: bool) {
+    if let some(slot) = EDITS.get(handle) { slot.edit.setEditable(!readOnly) }
+}
+pub fn setEditMaxLength(handle: i64, max: i32) {
+    if let some(slot) = EDITS.get(handle) { slot.maxLength = max }
 }
 pub fn setEditTooltip(handle: i64, text: string) {
     if let some(slot) = EDITS.get(handle) {

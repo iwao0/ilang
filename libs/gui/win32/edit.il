@@ -19,6 +19,16 @@ use std.ffi { arrayFromCArray }
 use util { applyGuiFont, noOpText }
 use core { windowHwnd }
 
+/// EDIT-control messages. Constants from `winuser.h`.
+/// EM_LIMITTEXT   — cap on user-typed character count.
+/// EM_SETREADONLY — wParam = TRUE → block typed edits, retain
+///                  copy / selection.
+/// EM_SETCUEBANNER — cue-banner (placeholder). wParam = retain
+///                   when focused?, lParam = wide-char pointer.
+const EM_LIMITTEXT:     u32 = 0x00C5 as u32
+const EM_SETREADONLY:   u32 = 0x00CF as u32
+const EM_SETCUEBANNER:  u32 = 0x1501 as u32
+
 class EditSlot {
     pub hwnd:     HWND
     pub onChange: fn(string)
@@ -138,6 +148,28 @@ pub fn setEditVisible(handle: i64, visible: bool) {
     if let some(slot) = EDITS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(slot.hwnd, cmd)
+    }
+}
+pub fn setEditPlaceholder(handle: i64, text: string) {
+    if let some(slot) = EDITS.get(handle) {
+        // `wParam = 1` keeps the cue visible while the field has
+        // focus (matches modern Windows behaviour). The wide
+        // string buffer is held in `textW` for the call's
+        // duration; EM_SETCUEBANNER copies internally.
+        let textW = text.encodeUtf16()
+        let p: *const u16 = textW
+        SendMessageW(slot.hwnd, EM_SETCUEBANNER, 1 as u64, p as i64)
+    }
+}
+pub fn setEditReadOnly(handle: i64, readOnly: bool) {
+    if let some(slot) = EDITS.get(handle) {
+        let flag: u64 = if readOnly { 1 as u64 } else { 0 as u64 }
+        SendMessageW(slot.hwnd, EM_SETREADONLY, flag, 0 as i64)
+    }
+}
+pub fn setEditMaxLength(handle: i64, max: i32) {
+    if let some(slot) = EDITS.get(handle) {
+        SendMessageW(slot.hwnd, EM_LIMITTEXT, max as u64, 0 as i64)
     }
 }
 pub fn setEditTooltip(handle: i64, text: string) {
