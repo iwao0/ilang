@@ -7,7 +7,7 @@
 /// immediately.
 
 use std.events { Signal }
-use events { SelectEvent }
+use events { SelectEvent, FocusEvent, BlurEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeCombo, readComboSelectedIndex,
@@ -15,6 +15,8 @@ use gui_impl {
     setComboSelectedIndex, setComboFrame,
     setComboEnabled, setComboVisible,
     setComboTooltip,
+    setOnComboFocus, setOnComboBlur,
+    focusCombo, blurCombo,
 }
 
 pub class ComboBox : Control {
@@ -29,6 +31,8 @@ pub class ComboBox : Control {
     _isVisible: bool
     _tooltip:   string
     pub onSelect: Signal<SelectEvent>
+    pub onFocus:  Signal<FocusEvent>
+    pub onBlur:   Signal<BlurEvent>
 
     pub init() {
         super()
@@ -43,6 +47,8 @@ pub class ComboBox : Control {
         this._isVisible = true
         this._tooltip   = ""
         this.onSelect   = new Signal<SelectEvent>()
+        this.onFocus    = new Signal<FocusEvent>()
+        this.onBlur     = new Signal<BlurEvent>()
     }
 
     /// Append `item` to the dropdown.
@@ -145,8 +151,17 @@ pub class ComboBox : Control {
             }
             this.onSelect.emit(new SelectEvent(this, idx, v))
         })
+        setOnComboFocus(this.handle, fn() {
+            this.onFocus.emit(new FocusEvent(this))
+        })
+        setOnComboBlur(this.handle, fn() {
+            this.onBlur.emit(new BlurEvent(this))
+        })
         if this._tooltip != "" { setComboTooltip(this.handle, this._tooltip) }
     }
+
+    pub focus() { if this.handle >= 0 { focusCombo(this.handle) } }
+    pub blur()  { if this.handle >= 0 { blurCombo(this.handle) } }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {
         this._x = x; this._y = y; this._width = w; this._height = h

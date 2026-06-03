@@ -3,13 +3,15 @@
 /// fires live while the thumb is being dragged.
 
 use std.events { Signal }
-use events { SliderEvent }
+use events { SliderEvent, FocusEvent, BlurEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeSlider, readSliderValue,
     setOnSliderChange, setSliderRange, setSliderValue,
     setSliderFrame, setSliderEnabled, setSliderVisible,
     setSliderTooltip,
+    setOnSliderFocus, setOnSliderBlur,
+    focusSlider, blurSlider,
 }
 
 pub class Slider : Control {
@@ -25,6 +27,8 @@ pub class Slider : Control {
     _isVisible: bool
     _tooltip:   string
     pub onChange: Signal<SliderEvent>
+    pub onFocus:  Signal<FocusEvent>
+    pub onBlur:   Signal<BlurEvent>
 
     pub init() {
         super()
@@ -40,6 +44,8 @@ pub class Slider : Control {
         this._isVisible = true
         this._tooltip   = ""
         this.onChange   = new Signal<SliderEvent>()
+        this.onFocus    = new Signal<FocusEvent>()
+        this.onBlur     = new Signal<BlurEvent>()
     }
 
     pub get min(): f64 { this._min }
@@ -120,8 +126,17 @@ pub class Slider : Control {
             this._value = v
             this.onChange.emit(new SliderEvent(this, v))
         })
+        setOnSliderFocus(this.handle, fn() {
+            this.onFocus.emit(new FocusEvent(this))
+        })
+        setOnSliderBlur(this.handle, fn() {
+            this.onBlur.emit(new BlurEvent(this))
+        })
         if this._tooltip != "" { setSliderTooltip(this.handle, this._tooltip) }
     }
+
+    pub focus() { if this.handle >= 0 { focusSlider(this.handle) } }
+    pub blur()  { if this.handle >= 0 { blurSlider(this.handle) } }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {
         this._x = x; this._y = y; this._width = w; this._height = h

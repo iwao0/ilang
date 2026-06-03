@@ -1,21 +1,53 @@
 /// Continuous slider. NSSlider with `setContinuous(true)` so the
 /// callback fires every time the thumb moves, not just on mouse-up.
 
-use cocoa { NSObject, NSSlider, NSView, nsstr, nil, makeRect, makeSlider, selectorPtr }
-use core { WINDOWS, noOpF64 }
+use cocoa {
+    NSObject, NSSlider, NSView, nsstr, nil, makeRect, makeSlider, selectorPtr,
+    classPtr, setObjectClass,
+}
+use core { WINDOWS, noOp1, noOpF64 }
 
 class SliderSlot {
     pub slider:   NSSlider
     pub onChange: fn(f64)
+    pub onFocus:  fn()
+    pub onBlur:   fn()
     pub handler:  NSObject
     pub init(slider: NSSlider, handler: NSObject) {
         this.slider = slider
         this.onChange = noOpF64
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
         this.handler = handler
     }
 }
 
 let SLIDERS = new Map<i64, SliderSlot>()
+
+class FocusSlider : NSSlider {
+    pub acceptsFirstResponder(): bool { true }
+    pub becomeFirstResponder(): bool {
+        if let some(slot) = SLIDERS.get(this.handle) {
+            let cb = slot.onFocus
+            cb()
+        }
+        true
+    }
+    pub resignFirstResponder(): bool {
+        if let some(slot) = SLIDERS.get(this.handle) {
+            let cb = slot.onBlur
+            cb()
+        }
+        true
+    }
+    pub override mouseDown(event: NSObject) {
+        let win = (this as NSView).window
+        if win.firstResponder.handle != (this as NSView).handle {
+            let _ = win.makeFirstResponder(this as NSObject)
+        }
+        super.mouseDown(event)
+    }
+}
 
 class SliderHandler : NSObject {
     pub slid(sender: NSObject) {
@@ -46,6 +78,12 @@ pub fn createNativeSlider(
     let h = SliderHandler.alloc().init()
     s.setTarget(h)
     s.setAction(selectorPtr("slid:"))
+
+    FocusSlider.register()
+    let focusCls = classPtr("gui_impl.FocusSlider")
+    if focusCls != 0 as i64 {
+        let _ = setObjectClass((s as NSView).handle, focusCls)
+    }
 
     winSlot.win.contentView.addSubview(s as NSView)
 
@@ -83,6 +121,26 @@ pub fn setSliderEnabled(handle: i64, enabled: bool) {
 }
 pub fn setSliderVisible(handle: i64, visible: bool) {
     if let some(slot) = SLIDERS.get(handle) { slot.slider.setHidden(!visible) }
+}
+pub fn setOnSliderFocus(handle: i64, cb: fn()) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnSliderBlur(handle: i64, cb: fn()) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onBlur = cb }
+}
+pub fn focusSlider(handle: i64) {
+    if let some(slot) = SLIDERS.get(handle) {
+        let win = (slot.slider as NSView).window
+        let _ = win.makeFirstResponder(slot.slider as NSObject)
+    }
+}
+pub fn blurSlider(handle: i64) {
+    if let some(slot) = SLIDERS.get(handle) {
+        let win = (slot.slider as NSView).window
+        if win.firstResponder.handle == (slot.slider as NSView).handle {
+            let _ = win.makeFirstResponder(nil)
+        }
+    }
 }
 pub fn setSliderTooltip(handle: i64, text: string) {
     if let some(slot) = SLIDERS.get(handle) {

@@ -4,13 +4,15 @@
 /// the checked state flips.
 
 use std.events { Signal }
-use events { ToggleEvent }
+use events { ToggleEvent, FocusEvent, BlurEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeCheckbox, readCheckboxChecked,
     setOnCheckboxToggle, setCheckboxText, setCheckboxChecked,
     setCheckboxFrame, setCheckboxEnabled, setCheckboxVisible,
     setCheckboxTooltip,
+    setOnCheckboxFocus, setOnCheckboxBlur,
+    focusCheckbox, blurCheckbox,
 }
 
 pub class Checkbox : Control {
@@ -25,6 +27,8 @@ pub class Checkbox : Control {
     _isVisible: bool
     _tooltip:   string
     pub onToggle: Signal<ToggleEvent>
+    pub onFocus:  Signal<FocusEvent>
+    pub onBlur:   Signal<BlurEvent>
 
     pub init() {
         super()
@@ -39,6 +43,8 @@ pub class Checkbox : Control {
         this._isVisible = true
         this._tooltip   = ""
         this.onToggle   = new Signal<ToggleEvent>()
+        this.onFocus    = new Signal<FocusEvent>()
+        this.onBlur     = new Signal<BlurEvent>()
     }
 
     pub get text(): string { this._text }
@@ -114,8 +120,19 @@ pub class Checkbox : Control {
             this._checked = checked
             this.onToggle.emit(new ToggleEvent(this, checked))
         })
+        setOnCheckboxFocus(this.handle, fn() {
+            this.onFocus.emit(new FocusEvent(this))
+        })
+        setOnCheckboxBlur(this.handle, fn() {
+            this.onBlur.emit(new BlurEvent(this))
+        })
         if this._tooltip != "" { setCheckboxTooltip(this.handle, this._tooltip) }
     }
+
+    /// Move keyboard focus to this checkbox. No-op until attached.
+    pub focus() { if this.handle >= 0 { focusCheckbox(this.handle) } }
+    /// Release focus iff this checkbox holds it. No-op until attached.
+    pub blur()  { if this.handle >= 0 { blurCheckbox(this.handle) } }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {
         this._x = x; this._y = y; this._width = w; this._height = h

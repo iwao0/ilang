@@ -4,26 +4,32 @@
 
 use windows {
     HWND, HINSTANCE, HMENU, RECT,
-    WindowStyle, ShowCmd,
+    WindowStyle, ShowCmd, WindowMessage,
     TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     CreateWindowExW, EnableWindow, MoveWindow, ShowWindow,
+    SetFocus, GetFocus,
     SendMessageA, SendMessageW,
+    SetWindowSubclass, DefSubclassProc,
 }
 use util { applyGuiFont, noOpI32 }
-use core { windowHwnd }
+use core { windowHwnd, noOp1 }
 
 class ComboSlot {
     pub hwnd:     HWND
     pub winHandle: i64
     pub tooltipHwnd: HWND
     pub onSelect: fn(i32)
+    pub onFocus:  fn()
+    pub onBlur:   fn()
     pub init(hwnd: HWND, winHandle: i64) {
         this.hwnd = hwnd
         this.winHandle = winHandle
         this.tooltipHwnd = 0 as HWND
         this.onSelect = noOpI32
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
     }
 }
 
@@ -39,6 +45,28 @@ pub fn tryComboSelect(hwnd: i64): bool {
 }
 
 @extern(C) {
+
+pub fn comboSubclassProc(
+    hwnd: i64, msg: u32, wParam: u64, lParam: i64,
+    idSubclass: u64, refData: u64
+): i64 {
+    match msg as WindowMessage {
+        WindowMessage.setFocus {
+            if let some(slot) = COMBOS.get(hwnd) {
+                let cb = slot.onFocus
+                cb()
+            }
+        }
+        WindowMessage.killFocus {
+            if let some(slot) = COMBOS.get(hwnd) {
+                let cb = slot.onBlur
+                cb()
+            }
+        }
+        _ {}
+    }
+    DefSubclassProc(hwnd as HWND, msg, wParam, lParam)
+}
 
 pub fn createNativeCombo(
     windowHandle: i64,
@@ -73,6 +101,7 @@ pub fn createNativeCombo(
     EnableWindow(hwnd, enabledFlag)
     applyGuiFont(hwnd)
     let handle = hwnd as i64
+    SetWindowSubclass(hwnd, comboSubclassProc, 1 as u64, 0 as u64)
     COMBOS[handle] = new ComboSlot(hwnd, windowHandle)
     handle
 }
@@ -132,6 +161,22 @@ pub fn setComboVisible(handle: i64, visible: bool) {
     if let some(slot) = COMBOS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(slot.hwnd, cmd)
+    }
+}
+pub fn setOnComboFocus(handle: i64, cb: fn()) {
+    if let some(slot) = COMBOS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnComboBlur(handle: i64, cb: fn()) {
+    if let some(slot) = COMBOS.get(handle) { slot.onBlur = cb }
+}
+pub fn focusCombo(handle: i64) {
+    if let some(slot) = COMBOS.get(handle) { SetFocus(slot.hwnd) }
+}
+pub fn blurCombo(handle: i64) {
+    if let some(slot) = COMBOS.get(handle) {
+        if (GetFocus() as i64) == (slot.hwnd as i64) {
+            SetFocus(slot.winHandle as HWND)
+        }
     }
 }
 pub fn setComboTooltip(handle: i64, text: string) {

@@ -4,26 +4,32 @@
 
 use windows {
     HWND, HINSTANCE, HMENU, RECT,
-    WindowStyle, ShowCmd,
+    WindowStyle, ShowCmd, WindowMessage,
     TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     CreateWindowExW, EnableWindow, MoveWindow, ShowWindow,
+    SetFocus, GetFocus,
     SendMessageA, SendMessageW,
+    SetWindowSubclass, DefSubclassProc,
 }
 use util { applyGuiFont, noOpI32 }
-use core { windowHwnd }
+use core { windowHwnd, noOp1 }
 
 class ListSlot {
     pub hwnd:     HWND
     pub winHandle: i64
     pub tooltipHwnd: HWND
     pub onSelect: fn(i32)
+    pub onFocus:  fn()
+    pub onBlur:   fn()
     pub init(hwnd: HWND, winHandle: i64) {
         this.hwnd = hwnd
         this.winHandle = winHandle
         this.tooltipHwnd = 0 as HWND
         this.onSelect = noOpI32
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
     }
 }
 
@@ -39,6 +45,28 @@ pub fn tryListSelect(hwnd: i64): bool {
 }
 
 @extern(C) {
+
+pub fn listSubclassProc(
+    hwnd: i64, msg: u32, wParam: u64, lParam: i64,
+    idSubclass: u64, refData: u64
+): i64 {
+    match msg as WindowMessage {
+        WindowMessage.setFocus {
+            if let some(slot) = LISTS.get(hwnd) {
+                let cb = slot.onFocus
+                cb()
+            }
+        }
+        WindowMessage.killFocus {
+            if let some(slot) = LISTS.get(hwnd) {
+                let cb = slot.onBlur
+                cb()
+            }
+        }
+        _ {}
+    }
+    DefSubclassProc(hwnd as HWND, msg, wParam, lParam)
+}
 
 pub fn createNativeList(
     windowHandle: i64,
@@ -71,6 +99,7 @@ pub fn createNativeList(
     EnableWindow(hwnd, enabledFlag)
     applyGuiFont(hwnd)
     let handle = hwnd as i64
+    SetWindowSubclass(hwnd, listSubclassProc, 1 as u64, 0 as u64)
     LISTS[handle] = new ListSlot(hwnd, windowHandle)
     handle
 }
@@ -129,6 +158,22 @@ pub fn setListVisible(handle: i64, visible: bool) {
     if let some(slot) = LISTS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(slot.hwnd, cmd)
+    }
+}
+pub fn setOnListFocus(handle: i64, cb: fn()) {
+    if let some(slot) = LISTS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnListBlur(handle: i64, cb: fn()) {
+    if let some(slot) = LISTS.get(handle) { slot.onBlur = cb }
+}
+pub fn focusList(handle: i64) {
+    if let some(slot) = LISTS.get(handle) { SetFocus(slot.hwnd) }
+}
+pub fn blurList(handle: i64) {
+    if let some(slot) = LISTS.get(handle) {
+        if (GetFocus() as i64) == (slot.hwnd as i64) {
+            SetFocus(slot.winHandle as HWND)
+        }
     }
 }
 pub fn setListTooltip(handle: i64, text: string) {

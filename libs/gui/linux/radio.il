@@ -10,24 +10,35 @@
 use std.ffi { cstrFromString }
 use gtk {
     GtkWidget, GtkCheckButton, GtkFixed, GObject,
+    GtkEventController, GtkEventControllerFocus,
     gtk_check_button_new_with_label, gtk_check_button_set_label,
     gtk_check_button_set_active, gtk_check_button_get_active,
     gtk_check_button_set_group,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
     gtk_widget_set_visible, gtk_widget_set_tooltip_text,
+    gtk_widget_grab_focus, gtk_widget_add_controller,
+    gtk_event_controller_focus_new,
+    gtk_event_controller_get_widget,
+    gtk_window_get_focus, gtk_window_set_focus,
     g_signal_connect_data,
 }
-use core { WINDOWS, noOpBool }
+use core { WINDOWS, noOp1, noOpBool }
 
 class RadioSlot {
     pub btn: GtkCheckButton
     pub fixed: GtkFixed
+    pub winHandle: i64
     pub onToggle: fn(bool)
-    pub init(btn: GtkCheckButton, fixed: GtkFixed) {
+    pub onFocus:  fn()
+    pub onBlur:   fn()
+    pub init(btn: GtkCheckButton, fixed: GtkFixed, winHandle: i64) {
         this.btn = btn
         this.fixed = fixed
+        this.winHandle = winHandle
         this.onToggle = noOpBool
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
     }
 }
 
@@ -43,6 +54,20 @@ let GROUP_LEADERS = new Map<i64, GtkCheckButton>()
         if let some(slot) = RADIOS.get(key) {
             let cb = slot.onToggle
             cb(gtk_check_button_get_active(slot.btn) != 0 as i32)
+        }
+    }
+    pub fn linux_radio_focus_enter(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = RADIOS.get(w as i64) {
+            let cb = slot.onFocus
+            cb()
+        }
+    }
+    pub fn linux_radio_focus_leave(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = RADIOS.get(w as i64) {
+            let cb = slot.onBlur
+            cb()
         }
     }
 }
@@ -78,8 +103,19 @@ pub fn createNativeRadio(
         0 as *void, 0 as i64, 0 as u32
     )
 
+    let focusCtl = gtk_event_controller_focus_new()
+    gtk_widget_add_controller(r as GtkWidget, focusCtl)
+    g_signal_connect_data(
+        focusCtl as GObject, cstrFromString("enter"),
+        linux_radio_focus_enter, 0 as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        focusCtl as GObject, cstrFromString("leave"),
+        linux_radio_focus_leave, 0 as *void, 0 as i64, 0 as u32
+    )
+
     let handle = r as i64
-    RADIOS[handle] = new RadioSlot(r, winSlot.fixed)
+    RADIOS[handle] = new RadioSlot(r, winSlot.fixed, windowHandle)
     handle
 }
 
@@ -116,6 +152,27 @@ pub fn setRadioEnabled(handle: i64, enabled: bool) {
 pub fn setRadioVisible(handle: i64, visible: bool) {
     if let some(slot) = RADIOS.get(handle) {
         gtk_widget_set_visible(slot.btn as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
+    }
+}
+pub fn setOnRadioFocus(handle: i64, cb: fn()) {
+    if let some(slot) = RADIOS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnRadioBlur(handle: i64, cb: fn()) {
+    if let some(slot) = RADIOS.get(handle) { slot.onBlur = cb }
+}
+pub fn focusRadio(handle: i64) {
+    if let some(slot) = RADIOS.get(handle) {
+        let _ = gtk_widget_grab_focus(slot.btn as GtkWidget)
+    }
+}
+pub fn blurRadio(handle: i64) {
+    if let some(slot) = RADIOS.get(handle) {
+        if let some(winSlot) = WINDOWS.get(slot.winHandle) {
+            let cur = gtk_window_get_focus(winSlot.win)
+            if cur as i64 == slot.btn as i64 {
+                gtk_window_set_focus(winSlot.win, 0 as GtkWidget)
+            }
+        }
     }
 }
 pub fn setRadioTooltip(handle: i64, text: string) {

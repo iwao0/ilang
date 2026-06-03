@@ -5,23 +5,34 @@
 use std.ffi { cstrFromString }
 use gtk {
     GtkWidget, GtkCheckButton, GtkFixed, GObject,
+    GtkEventController, GtkEventControllerFocus,
     gtk_check_button_new_with_label, gtk_check_button_set_label,
     gtk_check_button_set_active, gtk_check_button_get_active,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
     gtk_widget_set_visible, gtk_widget_set_tooltip_text,
+    gtk_widget_grab_focus, gtk_widget_add_controller,
+    gtk_event_controller_focus_new,
+    gtk_event_controller_get_widget,
+    gtk_window_get_focus, gtk_window_set_focus,
     g_signal_connect_data,
 }
-use core { WINDOWS, noOpBool }
+use core { WINDOWS, noOp1, noOpBool }
 
 class CheckboxSlot {
     pub btn: GtkCheckButton
     pub fixed: GtkFixed
+    pub winHandle: i64
     pub onToggle: fn(bool)
-    pub init(btn: GtkCheckButton, fixed: GtkFixed) {
+    pub onFocus:  fn()
+    pub onBlur:   fn()
+    pub init(btn: GtkCheckButton, fixed: GtkFixed, winHandle: i64) {
         this.btn = btn
         this.fixed = fixed
+        this.winHandle = winHandle
         this.onToggle = noOpBool
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
     }
 }
 
@@ -33,6 +44,20 @@ let CHECKBOXES = new Map<i64, CheckboxSlot>()
         if let some(slot) = CHECKBOXES.get(key) {
             let cb = slot.onToggle
             cb(gtk_check_button_get_active(slot.btn) != 0 as i32)
+        }
+    }
+    pub fn linux_checkbox_focus_enter(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = CHECKBOXES.get(w as i64) {
+            let cb = slot.onFocus
+            cb()
+        }
+    }
+    pub fn linux_checkbox_focus_leave(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = CHECKBOXES.get(w as i64) {
+            let cb = slot.onBlur
+            cb()
         }
     }
 }
@@ -63,8 +88,19 @@ pub fn createNativeCheckbox(
         0 as *void, 0 as i64, 0 as u32
     )
 
+    let focusCtl = gtk_event_controller_focus_new()
+    gtk_widget_add_controller(cb as GtkWidget, focusCtl)
+    g_signal_connect_data(
+        focusCtl as GObject, cstrFromString("enter"),
+        linux_checkbox_focus_enter, 0 as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        focusCtl as GObject, cstrFromString("leave"),
+        linux_checkbox_focus_leave, 0 as *void, 0 as i64, 0 as u32
+    )
+
     let handle = cb as i64
-    CHECKBOXES[handle] = new CheckboxSlot(cb, winSlot.fixed)
+    CHECKBOXES[handle] = new CheckboxSlot(cb, winSlot.fixed, windowHandle)
     handle
 }
 
@@ -101,6 +137,27 @@ pub fn setCheckboxEnabled(handle: i64, enabled: bool) {
 pub fn setCheckboxVisible(handle: i64, visible: bool) {
     if let some(slot) = CHECKBOXES.get(handle) {
         gtk_widget_set_visible(slot.btn as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
+    }
+}
+pub fn setOnCheckboxFocus(handle: i64, cb: fn()) {
+    if let some(slot) = CHECKBOXES.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnCheckboxBlur(handle: i64, cb: fn()) {
+    if let some(slot) = CHECKBOXES.get(handle) { slot.onBlur = cb }
+}
+pub fn focusCheckbox(handle: i64) {
+    if let some(slot) = CHECKBOXES.get(handle) {
+        let _ = gtk_widget_grab_focus(slot.btn as GtkWidget)
+    }
+}
+pub fn blurCheckbox(handle: i64) {
+    if let some(slot) = CHECKBOXES.get(handle) {
+        if let some(winSlot) = WINDOWS.get(slot.winHandle) {
+            let cur = gtk_window_get_focus(winSlot.win)
+            if cur as i64 == slot.btn as i64 {
+                gtk_window_set_focus(winSlot.win, 0 as GtkWidget)
+            }
+        }
     }
 }
 pub fn setCheckboxTooltip(handle: i64, text: string) {

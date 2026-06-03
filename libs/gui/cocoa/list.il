@@ -7,14 +7,17 @@
 use cocoa {
     NSObject, NSView, NSTableView, NSTableColumn, NSScrollView,
     NSNotification, nsstr, makeRect, makeScrollView, nil,
+    classPtr, setObjectClass,
 }
-use core { WINDOWS, noOpI32 }
+use core { WINDOWS, noOp1, noOpI32 }
 
 class ListSlot {
     pub table:      NSTableView
     pub scroll:     NSScrollView
     pub items:      string[]
     pub onSelect:   fn(i32)
+    pub onFocus:    fn()
+    pub onBlur:     fn()
     pub dataSource: NSObject   // ListDataSource instance keep-alive
     pub delegate:   NSObject   // ListDelegate instance keep-alive
     pub init(table: NSTableView, scroll: NSScrollView,
@@ -23,8 +26,30 @@ class ListSlot {
         this.scroll     = scroll
         this.items      = []
         this.onSelect   = noOpI32
+        this.onFocus    = noOp1
+        this.onBlur     = noOp1
         this.dataSource = dataSource
         this.delegate   = delegate
+    }
+}
+
+/// NSTableView subclass — isa-swapped so AppKit's first-responder
+/// transitions surface as onFocus / onBlur. NSTableView accepts
+/// first responder by default, so no acceptsFirstResponder override.
+class FocusList : NSTableView {
+    pub becomeFirstResponder(): bool {
+        if let some(slot) = LISTS.get(this.handle) {
+            let cb = slot.onFocus
+            cb()
+        }
+        true
+    }
+    pub resignFirstResponder(): bool {
+        if let some(slot) = LISTS.get(this.handle) {
+            let cb = slot.onBlur
+            cb()
+        }
+        true
     }
 }
 
@@ -93,6 +118,12 @@ pub fn createNativeList(
     // Single anonymous column — width matches the scroll-view
     // contents so the column spans the visible area.
     let col = NSTableColumn.alloc().initWithIdentifier(nsstr("v"))
+    // NSTableColumn defaults to editable=YES. With our cell-based
+    // rendering that draws a plain string, Tab on a focused list
+    // would otherwise enter cell-edit mode, then exit into a
+    // half-broken visual state where focus never advances. Mark
+    // the column non-editable so Tab follows the responder chain.
+    col.isEditable = false
     table.addTableColumn(col)
     table.setHeaderView(nil)
     table.allowsMultipleSelection = false
@@ -104,6 +135,12 @@ pub fn createNativeList(
     ListDelegate.register()
     let dg = ListDelegate.alloc().init()
     table.setDelegate(dg as NSObject)
+
+    FocusList.register()
+    let focusCls = classPtr("gui_impl.FocusList")
+    if focusCls != 0 as i64 {
+        let _ = setObjectClass((table as NSView).handle, focusCls)
+    }
 
     let scroll = makeScrollView(table as NSView, x, y, width, height)
     scroll.setHidden(!visible)
@@ -158,6 +195,26 @@ pub fn setListEnabled(handle: i64, enabled: bool) {
 }
 pub fn setListVisible(handle: i64, visible: bool) {
     if let some(slot) = LISTS.get(handle) { slot.scroll.setHidden(!visible) }
+}
+pub fn setOnListFocus(handle: i64, cb: fn()) {
+    if let some(slot) = LISTS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnListBlur(handle: i64, cb: fn()) {
+    if let some(slot) = LISTS.get(handle) { slot.onBlur = cb }
+}
+pub fn focusList(handle: i64) {
+    if let some(slot) = LISTS.get(handle) {
+        let win = (slot.table as NSView).window
+        let _ = win.makeFirstResponder(slot.table as NSObject)
+    }
+}
+pub fn blurList(handle: i64) {
+    if let some(slot) = LISTS.get(handle) {
+        let win = (slot.table as NSView).window
+        if win.firstResponder.handle == (slot.table as NSView).handle {
+            let _ = win.makeFirstResponder(nil)
+        }
+    }
 }
 pub fn setListTooltip(handle: i64, text: string) {
     if let some(slot) = LISTS.get(handle) {

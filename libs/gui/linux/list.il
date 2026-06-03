@@ -5,6 +5,7 @@ use std.ffi { cstrFromString }
 use gtk {
     GtkWidget, GtkLabel, GtkListBox, GtkListBoxRow, GtkScrolledWindow,
     GtkFixed, GObject,
+    GtkEventController, GtkEventControllerFocus,
     gtk_label_new,
     gtk_list_box_new, gtk_list_box_append, gtk_list_box_remove,
     gtk_list_box_select_row, gtk_list_box_unselect_all,
@@ -15,20 +16,31 @@ use gtk {
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
     gtk_widget_set_visible, gtk_widget_set_tooltip_text,
-    g_signal_connect_data2,
+    gtk_widget_grab_focus, gtk_widget_add_controller,
+    gtk_event_controller_focus_new,
+    gtk_event_controller_get_widget,
+    gtk_window_get_focus, gtk_window_set_focus,
+    g_signal_connect_data, g_signal_connect_data2,
 }
-use core { WINDOWS, noOpI32 }
+use core { WINDOWS, noOp1, noOpI32 }
 
 class ListSlot {
     pub scroll: GtkScrolledWindow
     pub listBox: GtkListBox
     pub fixed:   GtkFixed
+    pub winHandle: i64
     pub onSelect: fn(i32)
-    pub init(scroll: GtkScrolledWindow, lb: GtkListBox, fixed: GtkFixed) {
+    pub onFocus:  fn()
+    pub onBlur:   fn()
+    pub init(scroll: GtkScrolledWindow, lb: GtkListBox, fixed: GtkFixed,
+             winHandle: i64) {
         this.scroll = scroll
         this.listBox = lb
         this.fixed = fixed
+        this.winHandle = winHandle
         this.onSelect = noOpI32
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
     }
 }
 
@@ -46,6 +58,20 @@ let LISTS = new Map<i64, ListSlot>()
             }
             let cb = slot.onSelect
             cb(idx)
+        }
+    }
+    pub fn linux_list_focus_enter(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = LISTS.get(w as i64) {
+            let cb = slot.onFocus
+            cb()
+        }
+    }
+    pub fn linux_list_focus_leave(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = LISTS.get(w as i64) {
+            let cb = slot.onBlur
+            cb()
         }
     }
 }
@@ -76,10 +102,23 @@ pub fn createNativeList(
         0 as *void, 0 as i64, 0 as u32
     )
 
+    // Focus controller attached to the GtkListBox — that's what
+    // takes keyboard focus when the user Tabs into the list.
+    let focusCtl = gtk_event_controller_focus_new()
+    gtk_widget_add_controller(lb as GtkWidget, focusCtl)
+    g_signal_connect_data(
+        focusCtl as GObject, cstrFromString("enter"),
+        linux_list_focus_enter, 0 as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        focusCtl as GObject, cstrFromString("leave"),
+        linux_list_focus_leave, 0 as *void, 0 as i64, 0 as u32
+    )
+
     // The GtkListBox is what fires `row-selected`, so the public
     // handle keys off its pointer rather than the ScrolledWindow.
     let handle = lb as i64
-    LISTS[handle] = new ListSlot(scroll, lb, winSlot.fixed)
+    LISTS[handle] = new ListSlot(scroll, lb, winSlot.fixed, windowHandle)
     handle
 }
 
@@ -153,6 +192,27 @@ pub fn setListVisible(handle: i64, visible: bool) {
             slot.scroll as GtkWidget,
             if visible { 1 as i32 } else { 0 as i32 }
         )
+    }
+}
+pub fn setOnListFocus(handle: i64, cb: fn()) {
+    if let some(slot) = LISTS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnListBlur(handle: i64, cb: fn()) {
+    if let some(slot) = LISTS.get(handle) { slot.onBlur = cb }
+}
+pub fn focusList(handle: i64) {
+    if let some(slot) = LISTS.get(handle) {
+        let _ = gtk_widget_grab_focus(slot.listBox as GtkWidget)
+    }
+}
+pub fn blurList(handle: i64) {
+    if let some(slot) = LISTS.get(handle) {
+        if let some(winSlot) = WINDOWS.get(slot.winHandle) {
+            let cur = gtk_window_get_focus(winSlot.win)
+            if cur as i64 == slot.listBox as i64 {
+                gtk_window_set_focus(winSlot.win, 0 as GtkWidget)
+            }
+        }
     }
 }
 pub fn setListTooltip(handle: i64, text: string) {

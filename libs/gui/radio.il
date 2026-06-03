@@ -13,13 +13,15 @@
 /// group bits.
 
 use std.events { Signal }
-use events { ToggleEvent }
+use events { ToggleEvent, FocusEvent, BlurEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeRadio, readRadioChecked,
     setOnRadioToggle, setRadioText, setRadioChecked,
     setRadioFrame, setRadioEnabled, setRadioVisible,
     setRadioTooltip,
+    setOnRadioFocus, setOnRadioBlur,
+    focusRadio, blurRadio,
 }
 
 // Process-wide registry of every `RadioButton` ever constructed.
@@ -40,6 +42,8 @@ pub class RadioButton : Control {
     _isVisible: bool
     _tooltip:   string
     pub onToggle: Signal<ToggleEvent>
+    pub onFocus:  Signal<FocusEvent>
+    pub onBlur:   Signal<BlurEvent>
 
     pub init() {
         super()
@@ -55,6 +59,8 @@ pub class RadioButton : Control {
         this._isVisible = true
         this._tooltip   = ""
         this.onToggle   = new Signal<ToggleEvent>()
+        this.onFocus    = new Signal<FocusEvent>()
+        this.onBlur     = new Signal<BlurEvent>()
     }
 
     pub get text(): string { this._text }
@@ -147,8 +153,17 @@ pub class RadioButton : Control {
             if checked { this._unselectSiblings() }
             this.onToggle.emit(new ToggleEvent(this, checked))
         })
+        setOnRadioFocus(this.handle, fn() {
+            this.onFocus.emit(new FocusEvent(this))
+        })
+        setOnRadioBlur(this.handle, fn() {
+            this.onBlur.emit(new BlurEvent(this))
+        })
         if this._tooltip != "" { setRadioTooltip(this.handle, this._tooltip) }
     }
+
+    pub focus() { if this.handle >= 0 { focusRadio(this.handle) } }
+    pub blur()  { if this.handle >= 0 { blurRadio(this.handle) } }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {
         this._x = x; this._y = y; this._width = w; this._height = h

@@ -4,7 +4,7 @@
 /// changes.
 
 use std.events { Signal }
-use events { SelectEvent }
+use events { SelectEvent, FocusEvent, BlurEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeList, readListSelectedIndex,
@@ -12,6 +12,8 @@ use gui_impl {
     setListSelectedIndex, setListFrame,
     setListEnabled, setListVisible,
     setListTooltip,
+    setOnListFocus, setOnListBlur,
+    focusList, blurList,
 }
 
 pub class ListBox : Control {
@@ -26,6 +28,8 @@ pub class ListBox : Control {
     _isVisible: bool
     _tooltip:   string
     pub onSelect: Signal<SelectEvent>
+    pub onFocus:  Signal<FocusEvent>
+    pub onBlur:   Signal<BlurEvent>
 
     pub init() {
         super()
@@ -40,6 +44,8 @@ pub class ListBox : Control {
         this._isVisible = true
         this._tooltip   = ""
         this.onSelect   = new Signal<SelectEvent>()
+        this.onFocus    = new Signal<FocusEvent>()
+        this.onBlur     = new Signal<BlurEvent>()
     }
 
     pub addItem(item: string) {
@@ -137,8 +143,17 @@ pub class ListBox : Control {
             }
             this.onSelect.emit(new SelectEvent(this, idx, v))
         })
+        setOnListFocus(this.handle, fn() {
+            this.onFocus.emit(new FocusEvent(this))
+        })
+        setOnListBlur(this.handle, fn() {
+            this.onBlur.emit(new BlurEvent(this))
+        })
         if this._tooltip != "" { setListTooltip(this.handle, this._tooltip) }
     }
+
+    pub focus() { if this.handle >= 0 { focusList(this.handle) } }
+    pub blur()  { if this.handle >= 0 { blurList(this.handle) } }
 
     pub override setFrame(x: f64, y: f64, w: f64, h: f64) {
         this._x = x; this._y = y; this._width = w; this._height = h

@@ -4,23 +4,34 @@
 use std.ffi { cstrFromString }
 use gtk {
     GtkWidget, GtkScale, GtkRange, GtkFixed, GObject, GtkOrientation,
+    GtkEventController, GtkEventControllerFocus,
     gtk_scale_new_with_range, gtk_range_set_value, gtk_range_get_value,
     gtk_range_set_range,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
     gtk_widget_set_visible, gtk_widget_set_tooltip_text,
+    gtk_widget_grab_focus, gtk_widget_add_controller,
+    gtk_event_controller_focus_new,
+    gtk_event_controller_get_widget,
+    gtk_window_get_focus, gtk_window_set_focus,
     g_signal_connect_data,
 }
-use core { WINDOWS, noOpF64 }
+use core { WINDOWS, noOp1, noOpF64 }
 
 class SliderSlot {
     pub scale: GtkScale
     pub fixed: GtkFixed
+    pub winHandle: i64
     pub onChange: fn(f64)
-    pub init(scale: GtkScale, fixed: GtkFixed) {
+    pub onFocus:  fn()
+    pub onBlur:   fn()
+    pub init(scale: GtkScale, fixed: GtkFixed, winHandle: i64) {
         this.scale = scale
         this.fixed = fixed
+        this.winHandle = winHandle
         this.onChange = noOpF64
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
     }
 }
 
@@ -32,6 +43,20 @@ let SLIDERS = new Map<i64, SliderSlot>()
         if let some(slot) = SLIDERS.get(key) {
             let cb = slot.onChange
             cb(gtk_range_get_value(slot.scale as GtkRange))
+        }
+    }
+    pub fn linux_slider_focus_enter(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = SLIDERS.get(w as i64) {
+            let cb = slot.onFocus
+            cb()
+        }
+    }
+    pub fn linux_slider_focus_leave(ctl: i64, data: i64) {
+        let w = gtk_event_controller_get_widget(ctl as GtkEventController)
+        if let some(slot) = SLIDERS.get(w as i64) {
+            let cb = slot.onBlur
+            cb()
         }
     }
 }
@@ -63,8 +88,19 @@ pub fn createNativeSlider(
         0 as *void, 0 as i64, 0 as u32
     )
 
+    let focusCtl = gtk_event_controller_focus_new()
+    gtk_widget_add_controller(s as GtkWidget, focusCtl)
+    g_signal_connect_data(
+        focusCtl as GObject, cstrFromString("enter"),
+        linux_slider_focus_enter, 0 as *void, 0 as i64, 0 as u32
+    )
+    g_signal_connect_data(
+        focusCtl as GObject, cstrFromString("leave"),
+        linux_slider_focus_leave, 0 as *void, 0 as i64, 0 as u32
+    )
+
     let handle = s as i64
-    SLIDERS[handle] = new SliderSlot(s, winSlot.fixed)
+    SLIDERS[handle] = new SliderSlot(s, winSlot.fixed, windowHandle)
     handle
 }
 
@@ -97,6 +133,27 @@ pub fn setSliderEnabled(handle: i64, enabled: bool) {
 pub fn setSliderVisible(handle: i64, visible: bool) {
     if let some(slot) = SLIDERS.get(handle) {
         gtk_widget_set_visible(slot.scale as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
+    }
+}
+pub fn setOnSliderFocus(handle: i64, cb: fn()) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnSliderBlur(handle: i64, cb: fn()) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onBlur = cb }
+}
+pub fn focusSlider(handle: i64) {
+    if let some(slot) = SLIDERS.get(handle) {
+        let _ = gtk_widget_grab_focus(slot.scale as GtkWidget)
+    }
+}
+pub fn blurSlider(handle: i64) {
+    if let some(slot) = SLIDERS.get(handle) {
+        if let some(winSlot) = WINDOWS.get(slot.winHandle) {
+            let cur = gtk_window_get_focus(winSlot.win)
+            if cur as i64 == slot.scale as i64 {
+                gtk_window_set_focus(winSlot.win, 0 as GtkWidget)
+            }
+        }
     }
 }
 pub fn setSliderTooltip(handle: i64, text: string) {

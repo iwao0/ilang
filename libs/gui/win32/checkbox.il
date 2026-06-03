@@ -5,26 +5,32 @@
 
 use windows {
     HWND, HINSTANCE, HMENU, RECT,
-    WindowStyle, ShowCmd,
+    WindowStyle, ShowCmd, WindowMessage,
     TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     CreateWindowExW, SetWindowTextW, EnableWindow, MoveWindow, ShowWindow,
+    SetFocus, GetFocus,
     SendMessageA, SendMessageW,
+    SetWindowSubclass, DefSubclassProc,
 }
 use util { applyExplorerTheme, applyGuiFont, noOpBool }
-use core { windowHwnd }
+use core { windowHwnd, noOp1 }
 
 class CheckboxSlot {
     pub hwnd:     HWND
     pub winHandle: i64
     pub tooltipHwnd: HWND
     pub onToggle: fn(bool)
+    pub onFocus:  fn()
+    pub onBlur:   fn()
     pub init(hwnd: HWND, winHandle: i64) {
         this.hwnd = hwnd
         this.winHandle = winHandle
         this.tooltipHwnd = 0 as HWND
         this.onToggle = noOpBool
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
     }
 }
 
@@ -40,6 +46,31 @@ pub fn tryCheckboxToggle(hwnd: i64): bool {
 }
 
 @extern(C) {
+
+/// Subclass proc — only intercepts focus transitions; everything
+/// else falls through to the default BUTTON wndproc. Click /
+/// toggle still routes through wnd_proc's WM_COMMAND path.
+pub fn checkboxSubclassProc(
+    hwnd: i64, msg: u32, wParam: u64, lParam: i64,
+    idSubclass: u64, refData: u64
+): i64 {
+    match msg as WindowMessage {
+        WindowMessage.setFocus {
+            if let some(slot) = CHECKBOXES.get(hwnd) {
+                let cb = slot.onFocus
+                cb()
+            }
+        }
+        WindowMessage.killFocus {
+            if let some(slot) = CHECKBOXES.get(hwnd) {
+                let cb = slot.onBlur
+                cb()
+            }
+        }
+        _ {}
+    }
+    DefSubclassProc(hwnd as HWND, msg, wParam, lParam)
+}
 
 pub fn createNativeCheckbox(
     windowHandle: i64,
@@ -78,6 +109,7 @@ pub fn createNativeCheckbox(
     let checkedW: u64 = if checked { 1 as u64 } else { 0 as u64 }
     SendMessageA(hwnd, 0x00F1 as u32, checkedW, 0 as i64)
     let handle = hwnd as i64
+    SetWindowSubclass(hwnd, checkboxSubclassProc, 1 as u64, 0 as u64)
     CHECKBOXES[handle] = new CheckboxSlot(hwnd, windowHandle)
     handle
 }
@@ -121,6 +153,22 @@ pub fn setCheckboxVisible(handle: i64, visible: bool) {
     if let some(slot) = CHECKBOXES.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(slot.hwnd, cmd)
+    }
+}
+pub fn setOnCheckboxFocus(handle: i64, cb: fn()) {
+    if let some(slot) = CHECKBOXES.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnCheckboxBlur(handle: i64, cb: fn()) {
+    if let some(slot) = CHECKBOXES.get(handle) { slot.onBlur = cb }
+}
+pub fn focusCheckbox(handle: i64) {
+    if let some(slot) = CHECKBOXES.get(handle) { SetFocus(slot.hwnd) }
+}
+pub fn blurCheckbox(handle: i64) {
+    if let some(slot) = CHECKBOXES.get(handle) {
+        if (GetFocus() as i64) == (slot.hwnd as i64) {
+            SetFocus(slot.winHandle as HWND)
+        }
     }
 }
 pub fn setCheckboxTooltip(handle: i64, text: string) {

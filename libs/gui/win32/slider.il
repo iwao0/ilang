@@ -9,15 +9,17 @@
 
 use windows {
     HWND, HINSTANCE, HMENU, RECT,
-    WindowStyle, ShowCmd,
+    WindowStyle, ShowCmd, WindowMessage,
     TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     CreateWindowExW, EnableWindow, MoveWindow, ShowWindow,
+    SetFocus, GetFocus,
     SendMessageA, SendMessageW,
+    SetWindowSubclass, DefSubclassProc,
 }
 use util { noOpF64 }
-use core { windowHwnd }
+use core { windowHwnd, noOp1 }
 
 class SliderSlot {
     pub hwnd:     HWND
@@ -26,6 +28,8 @@ class SliderSlot {
     pub min:      f64
     pub max:      f64
     pub onChange: fn(f64)
+    pub onFocus:  fn()
+    pub onBlur:   fn()
     pub init(hwnd: HWND, winHandle: i64, min: f64, max: f64) {
         this.hwnd = hwnd
         this.winHandle = winHandle
@@ -33,6 +37,8 @@ class SliderSlot {
         this.min  = min
         this.max  = max
         this.onChange = noOpF64
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
     }
 }
 
@@ -54,6 +60,28 @@ fn rangeBits(min: f64, max: f64): i64 {
 }
 
 @extern(C) {
+
+pub fn sliderSubclassProc(
+    hwnd: i64, msg: u32, wParam: u64, lParam: i64,
+    idSubclass: u64, refData: u64
+): i64 {
+    match msg as WindowMessage {
+        WindowMessage.setFocus {
+            if let some(slot) = SLIDERS.get(hwnd) {
+                let cb = slot.onFocus
+                cb()
+            }
+        }
+        WindowMessage.killFocus {
+            if let some(slot) = SLIDERS.get(hwnd) {
+                let cb = slot.onBlur
+                cb()
+            }
+        }
+        _ {}
+    }
+    DefSubclassProc(hwnd as HWND, msg, wParam, lParam)
+}
 
 pub fn createNativeSlider(
     windowHandle: i64,
@@ -84,6 +112,7 @@ pub fn createNativeSlider(
     EnableWindow(hwnd, enabledFlag)
 
     let handle = hwnd as i64
+    SetWindowSubclass(hwnd, sliderSubclassProc, 1 as u64, 0 as u64)
     SLIDERS[handle] = new SliderSlot(hwnd, windowHandle, min, max)
     // TBM_SETRANGE = 0x0406 (wParam = redraw, lParam = LOWORD min / HIWORD max).
     SendMessageA(hwnd, 0x0406 as u32, 1 as u64, rangeBits(min, max))
@@ -134,6 +163,22 @@ pub fn setSliderVisible(handle: i64, visible: bool) {
     if let some(slot) = SLIDERS.get(handle) {
         let cmd: i32 = if visible { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
         ShowWindow(slot.hwnd, cmd)
+    }
+}
+pub fn setOnSliderFocus(handle: i64, cb: fn()) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnSliderBlur(handle: i64, cb: fn()) {
+    if let some(slot) = SLIDERS.get(handle) { slot.onBlur = cb }
+}
+pub fn focusSlider(handle: i64) {
+    if let some(slot) = SLIDERS.get(handle) { SetFocus(slot.hwnd) }
+}
+pub fn blurSlider(handle: i64) {
+    if let some(slot) = SLIDERS.get(handle) {
+        if (GetFocus() as i64) == (slot.hwnd as i64) {
+            SetFocus(slot.winHandle as HWND)
+        }
     }
 }
 pub fn setSliderTooltip(handle: i64, text: string) {

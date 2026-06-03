@@ -2,21 +2,62 @@
 /// Click target/action goes through `ToggleHandler` which reads
 /// the new `state` (0 = off, 1 = on) and posts a bool.
 
-use cocoa { NSObject, NSButton, NSView, nsstr, nil, makeRect, selectorPtr }
-use core { WINDOWS, noOpBool }
+use cocoa {
+    NSObject, NSButton, NSView, nsstr, nil, makeRect, selectorPtr,
+    classPtr, setObjectClass,
+}
+use core { WINDOWS, noOp1, noOpBool }
 
 class CheckboxSlot {
     pub btn:      NSButton
     pub onToggle: fn(bool)
+    pub onFocus:  fn()
+    pub onBlur:   fn()
     pub handler:  NSObject
     pub init(btn: NSButton, handler: NSObject) {
         this.btn = btn
         this.onToggle = noOpBool
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
         this.handler = handler
     }
 }
 
 let CHECKBOXES = new Map<i64, CheckboxSlot>()
+
+/// NSButton subclass — isa-swapped onto the freshly-created
+/// checkbox so AppKit's becomeFirstResponder / resignFirstResponder
+/// land in our IMPs and we can surface onFocus / onBlur. NSButton's
+/// default acceptsFirstResponder is gated on Full Keyboard Access;
+/// override to always accept.
+class FocusCheckbox : NSButton {
+    pub acceptsFirstResponder(): bool { true }
+    pub becomeFirstResponder(): bool {
+        if let some(slot) = CHECKBOXES.get(this.handle) {
+            let cb = slot.onFocus
+            cb()
+        }
+        true
+    }
+    pub resignFirstResponder(): bool {
+        if let some(slot) = CHECKBOXES.get(this.handle) {
+            let cb = slot.onBlur
+            cb()
+        }
+        true
+    }
+    /// AppKit's NSButton mouseDown doesn't grab first responder
+    /// (macOS convention — click-action controls don't shift
+    /// focus). Take it explicitly so onFocus fires on click,
+    /// matching the Win32 / GTK behaviour.
+    pub override mouseDown(event: NSObject) {
+        let win = (this as NSView).window
+        if win.firstResponder.handle != this.handle {
+            let _ = win.makeFirstResponder(this as NSObject)
+        }
+        super.mouseDown(event)
+    }
+}
 
 class ToggleHandler : NSObject {
     pub toggled(sender: NSObject) {
@@ -50,6 +91,14 @@ pub fn createNativeCheckbox(
     let h = ToggleHandler.alloc().init()
     cb.setTarget(h)
     cb.setAction(selectorPtr("toggled:"))
+
+    // Swap to FocusCheckbox so AppKit's responder dispatch lands
+    // in our overrides. Same isa-swap pattern as FocusButton.
+    FocusCheckbox.register()
+    let focusCls = classPtr("gui_impl.FocusCheckbox")
+    if focusCls != 0 as i64 {
+        let _ = setObjectClass((cb as NSView).handle, focusCls)
+    }
 
     winSlot.win.contentView.addSubview(cb as NSView)
 
@@ -85,6 +134,26 @@ pub fn setCheckboxEnabled(handle: i64, enabled: bool) {
 }
 pub fn setCheckboxVisible(handle: i64, visible: bool) {
     if let some(slot) = CHECKBOXES.get(handle) { slot.btn.setHidden(!visible) }
+}
+pub fn setOnCheckboxFocus(handle: i64, cb: fn()) {
+    if let some(slot) = CHECKBOXES.get(handle) { slot.onFocus = cb }
+}
+pub fn setOnCheckboxBlur(handle: i64, cb: fn()) {
+    if let some(slot) = CHECKBOXES.get(handle) { slot.onBlur = cb }
+}
+pub fn focusCheckbox(handle: i64) {
+    if let some(slot) = CHECKBOXES.get(handle) {
+        let win = slot.btn.window
+        let _ = win.makeFirstResponder(slot.btn as NSObject)
+    }
+}
+pub fn blurCheckbox(handle: i64) {
+    if let some(slot) = CHECKBOXES.get(handle) {
+        let win = slot.btn.window
+        if win.firstResponder.handle == slot.btn.handle {
+            let _ = win.makeFirstResponder(nil)
+        }
+    }
 }
 pub fn setCheckboxTooltip(handle: i64, text: string) {
     if let some(slot) = CHECKBOXES.get(handle) {
