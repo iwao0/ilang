@@ -343,6 +343,18 @@ pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
 pub fn setOnButtonContextMenu(handle: i64, cb: fn(f64, f64, i32)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onContextMenu = cb }
 }
+pub fn setButtonTooltip(handle: i64, text: string) {
+    if let some(slot) = BUTTONS.get(handle) {
+        // Empty string → pass `nil` so AppKit clears the tooltip
+        // outright. An empty `NSString` would register as a real
+        // tooltip and pop up a stub bubble.
+        if text == "" {
+            (slot.btn as NSView).setToolTip(nil)
+        } else {
+            (slot.btn as NSView).setToolTip(nsstr(text) as NSObject)
+        }
+    }
+}
 pub fn focusButton(handle: i64) {
     if let some(slot) = BUTTONS.get(handle) {
         // Ask the parent window to install this button as its

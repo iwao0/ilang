@@ -214,6 +214,15 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub mouseEntered(event: NSObject)
         @objc("mouseExited:")
         pub mouseExited(event: NSObject)
+        /// Hover tooltip. AppKit shows the string after the system
+        /// hover delay when the cursor rests inside the view. Pass
+        /// `nil` (not an empty `NSString`) to clear — an empty
+        /// string is treated as a real tooltip and pops up empty.
+        /// The parameter is typed `NSObject` so the binding accepts
+        /// both `nsstr(text)` (an `NSString`, which `is-a NSObject`)
+        /// and the `nil` constant.
+        @objc("setToolTip:")
+        pub setToolTip(s: NSObject)
     }
 
     /// `NSDockTile` — the per-app icon rectangle on the Dock.

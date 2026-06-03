@@ -23,7 +23,7 @@ use gui_impl {
     setOnButtonMouseDown, setOnButtonMouseUp,
     setOnButtonContextMenu,
     setButtonText, setButtonFrame, setButtonEnabled, setButtonVisible,
-    setButtonDefault, clickButton, focusButton,
+    setButtonDefault, setButtonTooltip, clickButton, focusButton,
 }
 
 pub class Button : Control {
@@ -38,6 +38,7 @@ pub class Button : Control {
     _isEnabled: bool
     _isVisible: bool
     _isDefault: bool
+    _tooltip:   string
     pub onClick: Signal<MouseEvent>
     pub onFocus: Signal<FocusEvent>
     pub onBlur:  Signal<BlurEvent>
@@ -66,6 +67,7 @@ pub class Button : Control {
         this._isEnabled  = true
         this._isVisible  = true
         this._isDefault  = false
+        this._tooltip    = ""
         this.onClick     = new Signal<MouseEvent>()
         this.onFocus     = new Signal<FocusEvent>()
         this.onBlur      = new Signal<BlurEvent>()
@@ -135,6 +137,17 @@ pub class Button : Control {
         if this.handle >= 0 { setButtonDefault(this.handle, v) }
     }
 
+    /// Hover tooltip. Empty string clears it. On macOS the system
+    /// hover delay shows the string; on Win32 a TOOLTIPS_CLASS
+    /// control owned by the parent window relays the same; on
+    /// Linux GTK shows the widget's tooltip text under cursor rest.
+    /// Set before or after `addChild` — both paths apply the value.
+    pub get tooltip(): string { this._tooltip }
+    pub set tooltip(v: string) {
+        this._tooltip = v
+        if this.handle >= 0 { setButtonTooltip(this.handle, v) }
+    }
+
     /// Realize the native control under `window`. Called via
     /// `Window.addChild(this)` → `Control.attachTo`; not part of
     /// the public surface the user invokes directly.
@@ -145,6 +158,7 @@ pub class Button : Control {
             this._text, this._x, this._y, this._width, this._height,
             this._isEnabled, this._isVisible, this._isDefault
         )
+        if this._tooltip != "" { setButtonTooltip(this.handle, this._tooltip) }
         // Forward native click → onClick. Native pos is (centre, 0)
         // on macOS and (0, 0) on win32; we surface it as a MouseEvent
         // with `sender = this` for downcast.

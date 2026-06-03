@@ -95,8 +95,51 @@ pub enum ImageListFlags: u32 {
     highQualityScale = 0x00020000
 }
 
-use windef { HINSTANCE, HWND }
+// ─── Tooltip (TOOLTIPS_CLASS) ────────────────────────────────────
+// `CreateWindowExW` class name is "tooltips_class32" (UTF-16).
+// `TTM_*` messages travel through `SendMessageW`, `lParam` taking
+// a `*TOOLINFOW`. `cbSize` must equal sizeof(TOOLINFOW) = 72 on
+// 64-bit Windows.
+pub const TTS_ALWAYSTIP:    u32 = 0x01 as u32
+pub const TTS_NOPREFIX:     u32 = 0x02 as u32
+pub const TTS_BALLOON:      u32 = 0x40 as u32
+/// `uId` is an HWND (the tool is the full window). Pairs with
+/// `TTF_SUBCLASS` to let the tooltip's own SetWindowSubclass
+/// register handlers for tracking the cursor.
+pub const TTF_IDISHWND:     u32 = 0x0001 as u32
+pub const TTF_SUBCLASS:     u32 = 0x0010 as u32
+/// Tooltip control messages. `WM_USER (0x0400) + offset`. The
+/// `*W` variants take a wide-character `lpszText`.
+pub const TTM_ADDTOOLW:        u32 = 0x0432 as u32
+pub const TTM_DELTOOLW:        u32 = 0x0433 as u32
+pub const TTM_UPDATETIPTEXTW:  u32 = 0x0439 as u32
+pub const TTM_ACTIVATE:        u32 = 0x0401 as u32
+
+use windef { HINSTANCE, HWND, RECT }
 @extern(C, "comctl32") {
+    /// Tooltip control's tool descriptor. Layout (x64):
+    ///   cbSize     u32   0..4
+    ///   uFlags     u32   4..8
+    ///   hwnd       HWND  8..16
+    ///   uId        u64  16..24    (UINT_PTR — usually a control HWND)
+    ///   rect       RECT 24..40
+    ///   hinst      i64  40..48
+    ///   lpszText   *u16 48..56
+    ///   lParam     i64  56..64
+    ///   lpReserved *void 64..72
+    /// Total = 72 bytes. Initialise `cbSize = 72`.
+    pub struct TOOLINFOW {
+        cbSize:     u32
+        uFlags:     u32
+        hwnd:       HWND
+        uId:        u64
+        rect:       RECT
+        hinst:      HINSTANCE
+        lpszText:   *const u16
+        lParam:     i64
+        lpReserved: *void
+    }
+
     // ── Bootstrap ────────────────────────────────────────────────
 
     pub struct INITCOMMONCONTROLSEX {

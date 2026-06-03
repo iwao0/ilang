@@ -16,6 +16,7 @@ use gtk {
     gtk_fixed_put, gtk_fixed_move, gtk_fixed_remove,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
     gtk_widget_set_visible, gtk_widget_activate,
+    gtk_widget_set_tooltip_text,
     gtk_widget_set_receives_default, gtk_window_set_default_widget,
     gtk_widget_grab_focus, gtk_widget_add_controller,
     gtk_event_controller_focus_new,
@@ -354,6 +355,19 @@ pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
 }
 pub fn setOnButtonContextMenu(handle: i64, cb: fn(f64, f64, i32)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setButtonTooltip(handle: i64, text: string) {
+    if let some(slot) = BUTTONS.get(handle) {
+        // Empty string → pass NULL so GTK clears the tooltip
+        // outright (`gtk_widget_set_tooltip_text` documents NULL
+        // as the "remove tooltip" path; an empty cstring would
+        // still register an empty tooltip).
+        if text == "" {
+            gtk_widget_set_tooltip_text(slot.btn as GtkWidget, 0 as *const char)
+        } else {
+            gtk_widget_set_tooltip_text(slot.btn as GtkWidget, cstrFromString(text))
+        }
+    }
 }
 pub fn focusButton(handle: i64) {
     if let some(slot) = BUTTONS.get(handle) {

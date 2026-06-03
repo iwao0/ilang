@@ -5,9 +5,11 @@
 /// doesn't have to reach into our `BUTTONS` map directly.
 
 use windows {
-    HWND, HINSTANCE, HMENU,
+    HWND, HINSTANCE, HMENU, RECT,
     WindowStyle, ShowCmd, WindowMessage, TrackMouseFlags,
     TRACKMOUSEEVENT,
+    TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
+    TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
     CreateWindowExW, SetWindowTextW, EnableWindow, MoveWindow, ShowWindow,
     SendMessageW, SetFocus, TrackMouseEvent,
@@ -59,6 +61,11 @@ class ButtonSlot {
     /// to false on `WM_MOUSELEAVE`.
     pub mouseTracking: bool
     pub winHandle: i64
+    /// Tooltip control owned by this button. Lazy-created on the
+    /// first `setButtonTooltip(_, non-empty)` call; reused for
+    /// subsequent updates via `TTM_UPDATETIPTEXTW`. Stays `0` (the
+    /// HWND nullary) while no tooltip is configured.
+    pub tooltipHwnd: HWND
     pub init(hwnd: HWND, winHandle: i64) {
         this.hwnd = hwnd
         this.onClick = noOpClick
@@ -71,6 +78,7 @@ class ButtonSlot {
         this.onContextMenu = noOpClick
         this.mouseTracking = false
         this.winHandle = winHandle
+        this.tooltipHwnd = 0 as HWND
     }
 }
 
@@ -316,6 +324,77 @@ pub fn setOnButtonMouseUp(handle: i64, cb: fn(f64, f64, i32)) {
 }
 pub fn setOnButtonContextMenu(handle: i64, cb: fn(f64, f64, i32)) {
     if let some(slot) = BUTTONS.get(handle) { slot.onContextMenu = cb }
+}
+pub fn setButtonTooltip(handle: i64, text: string) {
+    if let some(slot) = BUTTONS.get(handle) {
+        // Empty string → delete the tool from the tooltip control
+        // (if one exists). We deliberately leave the tooltip HWND
+        // alive even after a clear so flipping back to a non-empty
+        // string reuses it.
+        if text == "" {
+            if slot.tooltipHwnd as i64 != 0 as i64 {
+                let info = TOOLINFOW {
+                    cbSize:     72 as u32,
+                    uFlags:     TTF_IDISHWND,
+                    hwnd:       slot.winHandle as HWND,
+                    uId:        slot.hwnd as u64,
+                    rect:       RECT { left: 0 as i32, top: 0 as i32, right: 0 as i32, bottom: 0 as i32 },
+                    hinst:      0 as HINSTANCE,
+                    lpszText:   0 as *const u16,
+                    lParam:     0 as i64,
+                    lpReserved: 0 as *void,
+                }
+                let p: *const TOOLINFOW = &info
+                SendMessageW(slot.tooltipHwnd, TTM_DELTOOLW, 0 as u64, p as i64)
+            }
+            return
+        }
+        // Wide-text buffer kept in scope so ARC doesn't free it
+        // mid-call. TOOLINFOW.lpszText must outlive the
+        // SendMessageW that delivers it; tooltip controls copy the
+        // string internally so re-using `text` after this is fine.
+        let textW = text.encodeUtf16()
+        let info = TOOLINFOW {
+            cbSize:     72 as u32,
+            uFlags:     TTF_IDISHWND | TTF_SUBCLASS,
+            hwnd:       slot.winHandle as HWND,
+            uId:        slot.hwnd as u64,
+            rect:       RECT { left: 0 as i32, top: 0 as i32, right: 0 as i32, bottom: 0 as i32 },
+            hinst:      0 as HINSTANCE,
+            lpszText:   textW,
+            lParam:     0 as i64,
+            lpReserved: 0 as *void,
+        }
+        let p: *const TOOLINFOW = &info
+        if slot.tooltipHwnd as i64 == 0 as i64 {
+            // First-time setup: spawn a tooltip control as a popup
+            // child of the parent window. `TTS_ALWAYSTIP` makes the
+            // tooltip appear even when the owning window is
+            // inactive (matches AppKit's behaviour). `TTF_SUBCLASS`
+            // tells the tooltip control to install its own
+            // SetWindowSubclass on the button so the cursor-track
+            // messages are picked up without us relaying them
+            // ourselves — Win32 keys multi-subclass by `idSubclass`
+            // so it co-exists with our `buttonSubclassProc`.
+            let classW = "tooltips_class32".encodeUtf16()
+            let hInstance = GetModuleHandleA(0 as *const char)
+            let tt = CreateWindowExW(
+                0,
+                classW,
+                0 as *const u16,
+                (WindowStyle.popup as u32) | TTS_ALWAYSTIP,
+                0, 0, 0, 0,
+                slot.winHandle as HWND,
+                0 as HMENU,
+                hInstance as HINSTANCE,
+                0 as *void
+            )
+            slot.tooltipHwnd = tt
+            SendMessageW(tt, TTM_ADDTOOLW, 0 as u64, p as i64)
+        } else {
+            SendMessageW(slot.tooltipHwnd, TTM_UPDATETIPTEXTW, 0 as u64, p as i64)
+        }
+    }
 }
 pub fn focusButton(handle: i64) {
     if let some(slot) = BUTTONS.get(handle) {
