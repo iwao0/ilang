@@ -1,6 +1,7 @@
 /// A read-only text label. Backed by `STATIC` on win32 and a
-/// configured `NSTextField` on macOS. No event surface — labels
-/// just display.
+/// configured `NSTextField` on macOS. Mouse events (enter / leave /
+/// down / up / context-menu / wheel) are exposed so labels can act
+/// as clickable surfaces.
 ///
 ///   let l = new gui.Label()
 ///   l.text   = "Name:"
@@ -10,11 +11,16 @@
 ///   l.height = 20.0
 ///   window.addChild(l)
 
+use std.events { Signal }
+use events { MouseEvent }
 use window { Window, Control }
 use gui_impl {
     createNativeLabel,
     setLabelText, setLabelFrame, setLabelVisible, setLabelSelectable,
     setLabelTooltip,
+    setOnLabelMouseEnter, setOnLabelMouseLeave,
+    setOnLabelMouseDown, setOnLabelMouseUp, setOnLabelContextMenu,
+    setOnLabelMouseWheel,
 }
 
 pub class Label : Control {
@@ -32,6 +38,12 @@ pub class Label : Control {
     /// presents user-copyable content.
     _selectable: bool
     _tooltip:    string
+    pub onMouseEnter:  Signal<MouseEvent>
+    pub onMouseLeave:  Signal<MouseEvent>
+    pub onMouseDown:   Signal<MouseEvent>
+    pub onMouseUp:     Signal<MouseEvent>
+    pub onContextMenu: Signal<MouseEvent>
+    pub onMouseWheel:  Signal<MouseEvent>
 
     pub init() {
         super()
@@ -44,6 +56,12 @@ pub class Label : Control {
         this._isVisible  = true
         this._selectable = false
         this._tooltip    = ""
+        this.onMouseEnter  = new Signal<MouseEvent>()
+        this.onMouseLeave  = new Signal<MouseEvent>()
+        this.onMouseDown   = new Signal<MouseEvent>()
+        this.onMouseUp     = new Signal<MouseEvent>()
+        this.onContextMenu = new Signal<MouseEvent>()
+        this.onMouseWheel  = new Signal<MouseEvent>()
     }
 
     pub get text(): string { this._text }
@@ -107,6 +125,32 @@ pub class Label : Control {
             this._text, this._x, this._y, this._width, this._height,
             this._isVisible, this._selectable
         )
+        setOnLabelMouseEnter(this.handle, fn(x: f64, y: f64) {
+            this.onMouseEnter.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+        })
+        setOnLabelMouseLeave(this.handle, fn(x: f64, y: f64) {
+            this.onMouseLeave.emit(new MouseEvent(this, x, y, 0, false, false, false, false))
+        })
+        setOnLabelMouseDown(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onMouseDown.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnLabelMouseUp(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onMouseUp.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnLabelContextMenu(this.handle,
+            fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
+                this.onContextMenu.emit(new MouseEvent(this, x, y, b, ck, sk, ak, mk))
+            })
+        setOnLabelMouseWheel(this.handle,
+            fn(dx: f64, dy: f64, x: f64, y: f64,
+               ck: bool, sk: bool, ak: bool, mk: bool) {
+                let e = new MouseEvent(this, x, y, 0, ck, sk, ak, mk)
+                e.wheelDx = dx
+                e.wheelDy = dy
+                this.onMouseWheel.emit(e)
+            })
         if this._tooltip != "" { setLabelTooltip(this.handle, this._tooltip) }
     }
 
