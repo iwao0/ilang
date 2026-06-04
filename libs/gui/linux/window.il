@@ -44,6 +44,7 @@ use gtk {
     g_signal_connect_motion, g_signal_connect_click, g_signal_connect_scroll,
 }
 use core { WINDOWS, WindowSlot, GTK_INITED, LOOP_HOLDER }
+use statusbar { linux_relayout_status_bar }
 use super.events
 // GdkModifierType bits we need. Pulled out as locals so each
 // dispatch can `& MOD_*` without going through the flags enum.
@@ -159,6 +160,9 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
             if w > 0 as i32 && h > 0 as i32 {
                 let cb = slot.onResize
                 cb(w as f64, h as f64)
+                // Pin the bottom-docked status bar (if any) so it
+                // tracks the new content rectangle.
+                linux_relayout_status_bar(data, w, h)
             }
         }
     }

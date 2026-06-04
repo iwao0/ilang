@@ -50,6 +50,23 @@ pub enum NSApplicationActivationPolicy: i64 {
     prohibited = 2
 }
 
+/// NSAutoresizingMaskOptions — bit field for
+/// `NSView.setAutoresizingMask:`. Combine with `|`. The "Margin"
+/// bits make that margin flexible (the view's distance from that
+/// edge of its superview is free to grow / shrink); the
+/// `widthSizable` / `heightSizable` bits make the corresponding
+/// dimension itself flexible.
+@flags
+pub enum NSAutoresizingMask: u64 {
+    notSizable      = 0
+    minXMargin      = 1
+    widthSizable    = 2
+    maxXMargin      = 4
+    minYMargin      = 8
+    heightSizable   = 16
+    maxYMargin      = 32
+}
+
 // The `@extern(ObjC, "path")` form names the framework dylib so
 // the JIT dlopens it eagerly at startup — that's what registers
 // `NSApplication` / `NSWindow` / NSString etc. with libobjc's
@@ -156,6 +173,29 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub setHidden(flag: bool)
         @objc("isHidden")
         pub get isHidden(): bool
+        /// `NSAutoresizingMaskOptions` bit field controlling how
+        /// the view follows its superview's resize. Use the
+        /// `NSAutoresizingMask` enum values OR'd together. Common
+        /// dock-to-bottom recipe: `widthSizable | minYMargin`.
+        @objc("setAutoresizingMask:")
+        pub setAutoresizingMask(mask: u64)
+        /// Detach the receiver from its superview without
+        /// destroying it. Pair with `addSubview:` to relocate, or
+        /// drop the reference for cleanup.
+        @objc("removeFromSuperview")
+        pub removeFromSuperview()
+        /// Whether AppKit invokes `resizeSubviewsWithOldSize:` on
+        /// this view when its frame changes. Default `true`;
+        /// flip off when you take over child layout entirely.
+        @objc("setAutoresizesSubviews:")
+        pub setAutoresizesSubviews(flag: bool)
+        /// AppKit invokes this on every frame change to give the
+        /// view a chance to lay its subviews out. Subclasses
+        /// override to take over layout entirely; the default
+        /// implementation honours each subview's autoresizing
+        /// mask.
+        @objc("resizeSubviewsWithOldSize:")
+        pub resizeSubviewsWithOldSize(oldSize: NSSize)
         @objc("window")
         pub get window(): NSWindow
         /// Mark the receiver dirty so AppKit schedules a

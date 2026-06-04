@@ -1,0 +1,5 @@
+[package]
+name = "gui_statusbar_example"
+
+[deps]
+gui = "../../../../libs/gui"

@@ -82,6 +82,7 @@ use gui_impl {
 }
 use font { Font }
 use menubar { Menu }
+use statusbar { StatusBar }
 
 /// Icon glyph shown next to the message text in `Window.message`.
 /// Maps to each platform's standard dialog-icon enum so the
@@ -755,6 +756,14 @@ pub class Window : Container {
             i = i + 1
         }
         setWindowMenuBar(this.handle, handles)
+    }
+
+    /// Install `bar` as this window's status bar. The bar docks
+    /// along the bottom edge and resizes automatically with the
+    /// window; segment text is driven through the `StatusBar`
+    /// object itself (`setText` / `setSegments`).
+    pub setStatusBar(bar: StatusBar) {
+        bar.attachTo(this.handle)
     }
 
     /// Show `menu` as a popup at `(x, y)` in this window's client

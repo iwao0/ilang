@@ -32,6 +32,7 @@ use gui_impl { runEventLoop }
 pub use events.*
 pub use font.*
 pub use menubar.*
+pub use statusbar.*
 pub use layout.*
 pub use window.*
 pub use box.*
