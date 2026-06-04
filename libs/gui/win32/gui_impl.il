@@ -26,6 +26,7 @@ pub use groupbox.*
 pub use menu.*
 pub use canvas.*
 pub use imageview.*
+pub use scrollview.*
 pub use tabview.*
 pub use dialogs.*
 pub use clipboard.*

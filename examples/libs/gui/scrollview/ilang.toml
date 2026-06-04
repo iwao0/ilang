@@ -1,0 +1,5 @@
+[package]
+name = "scrollview-demo"
+
+[deps]
+gui = "../../../../libs/gui"
