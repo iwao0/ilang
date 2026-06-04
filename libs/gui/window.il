@@ -77,9 +77,21 @@ use gui_impl {
     setWindowMenuBar, menuPopup,
     showAlertDialog, showConfirmDialog,
     showOpenFileDialog, showSaveFileDialog,
+    showMessageDialog, showColorPickerDialog, showFontPickerDialog,
     setNativeWindowIcon,
 }
+use font { Font }
 use menubar { Menu }
+
+/// Icon glyph shown next to the message text in `Window.message`.
+/// Maps to each platform's standard dialog-icon enum so the
+/// result looks native.
+pub enum MessageIcon: i32 {
+    info     = 0
+    warning  = 1
+    error    = 2
+    question = 3
+}
 
 /// Base class for every gui widget that lives inside a `Window`.
 /// Subclasses override `attachTo` to allocate / parent the native
@@ -750,6 +762,46 @@ pub class Window : Container {
     /// the chosen path, or `""` if cancelled.
     pub saveFile(suggestedName: string, callback: fn(string)) {
         showSaveFileDialog(this.handle, suggestedName, callback)
+    }
+
+    /// Modal message dialog with an arbitrary list of buttons.
+    /// `icon` picks the standard glyph (info / warning / error /
+    /// question). `callback` receives the 0-based index of the
+    /// button the user picked, or `-1` if they dismissed the
+    /// dialog without picking one (e.g. closed the window).
+    /// Buttons render left-to-right on win32/linux and right-to-
+    /// left on macOS (Cocoa convention) — order them so the
+    /// "default" / affirmative button sits first.
+    pub message(
+        text: string, buttons: string[], icon: MessageIcon,
+        callback: fn(i32)
+    ) {
+        showMessageDialog(this.handle, text, buttons, icon as i32, callback)
+    }
+
+    /// Modal color picker. `initial` is the seed colour
+    /// (0xAARRGGBB). `callback` runs with the picked colour and
+    /// an `accepted` flag — `true` when the user confirmed, `false`
+    /// when they cancelled (the colour value in that case is
+    /// platform-defined; treat it as undefined and fall back to
+    /// `initial`).
+    pub colorPicker(initial: u32, callback: fn(u32, bool)) {
+        showColorPickerDialog(this.handle, initial, callback)
+    }
+
+    /// Modal font picker. `initial` seeds the dialog with the
+    /// current family / size / weight / italic. `callback` runs
+    /// with a fresh `Font` describing the user's choice and an
+    /// `accepted` flag — the font is platform-defined on cancel.
+    pub fontPicker(initial: Font, callback: fn(Font, bool)) {
+        showFontPickerDialog(
+            this.handle,
+            initial.family, initial.size, initial.weight, initial.italic,
+            fn(family: string, size: f64, weight: i32, italic: bool,
+               accepted: bool) {
+                callback(new Font(family, size, weight, italic), accepted)
+            }
+        )
     }
 
     /// Set the window's taskbar / title-bar icon from a file

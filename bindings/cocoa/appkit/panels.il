@@ -2,7 +2,9 @@
 /// NSAlertStyle enum and the ModalResponse* / AlertFirstButtonReturn
 /// constant table.
 
-use foundation { NSObject, NSString, NSURL, NSArray, nsstr, ilstr }
+use foundation { NSObject, NSString, NSURL, NSArray, NSRect, nsstr, ilstr }
+use core { NSView, NSWindow }
+use text { NSColor, NSFont }
 
 /// NSAlertStyle — informational vs warning vs critical visual
 /// treatment of an NSAlert. AppKit picks an icon + colour based
@@ -46,8 +48,70 @@ pub const AlertThirdButtonReturn: i64 = 1002
         pub setAlertStyle(style: NSAlertStyle)
         @objc("addButtonWithTitle:")
         pub addButtonWithTitle(title: NSString): NSObject
+        /// Custom NSView that AppKit lays out between the message
+        /// area and the button row — used by the color / font
+        /// pickers in `libs/gui` to embed an `NSColorWell` etc.
+        @objc("setAccessoryView:")
+        pub setAccessoryView(v: NSView)
         @objc("runModal")
         pub runModal(): i64
+    }
+
+    /// `NSColorWell` — a colour swatch the user can click to open
+    /// the system colour picker. We use it as an `NSAlert`
+    /// accessory so the picker dialog stays OK / Cancel.
+    @objc pub class NSColorWell : NSView {
+        @objc("alloc")
+        pub static alloc(): NSColorWell
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSColorWell
+        @objc("color")
+        pub get color(): NSColor
+        @objc("setColor:")
+        pub setColor(c: NSColor)
+        @objc("activate:")
+        pub activate(exclusive: bool)
+    }
+
+    /// `NSFontManager` — the global font-selection broker.
+    /// `setSelectedFont:isMultiple:` seeds the shared font panel;
+    /// `convertFont:` returns a new font with the user's panel
+    /// selection applied to its attributes. Drive panel events
+    /// by installing a `setTarget:` whose `changeFont:` receives
+    /// the user's interactions on the floating panel.
+    @objc pub class NSFontManager : NSObject {
+        @objc("sharedFontManager")
+        pub static sharedFontManager(): NSFontManager
+        @objc("setSelectedFont:isMultiple:")
+        pub setSelectedFont(font: NSFont, isMultiple: bool)
+        @objc("selectedFont")
+        pub get selectedFont(): NSFont
+        @objc("convertFont:")
+        pub convertFont(font: NSFont): NSFont
+        /// Target that receives `changeFont:` from the floating
+        /// font panel. Pass `nil` to detach. The target's
+        /// `changeFont:` is expected to call `convertFont:` on
+        /// its current font to pick up the user's panel attrs.
+        @objc("setTarget:")
+        pub setTarget(target: NSObject)
+    }
+
+    /// `NSFontPanel` — the floating font picker. Show it with
+    /// `makeKeyAndOrderFront:` and dismiss with `orderOut:`; the
+    /// user's selection flows through `NSFontManager`. Inherits
+    /// from `NSWindow` so callers can install a window-delegate
+    /// + run an app-modal session around it.
+    @objc pub class NSFontPanel : NSWindow {
+        @objc("sharedFontPanel")
+        pub static sharedFontPanel(): NSFontPanel
+        @objc("setPanelFont:isMultiple:")
+        pub setPanelFont(font: NSFont, isMultiple: bool)
+        /// Apply the panel's current UI selection to `font` and
+        /// return the result. Use after the user closes the
+        /// panel to read what they picked, without depending on
+        /// the responder-chain `changeFont:` plumbing.
+        @objc("panelConvertFont:")
+        pub panelConvertFont(font: NSFont): NSFont
     }
 
     /// `NSSavePanel` — modal "save as" dialog. Configure with

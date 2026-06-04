@@ -321,6 +321,69 @@ pub enum Keyval: u32 {
     /// owned by the caller; the `g_free` cost is acceptable.
     @lib pub fn g_file_get_path(file: GFile): *const char
 
+    // ─── GtkAlertDialog button-label override ─────────────────
+    // The generated `gtk_alert_dialog_set_buttons` takes a single
+    // `*const char` because GIR collapses the `const char**` C
+    // signature. Re-bind it here with the correct pointer-of-
+    // pointer shape: ilang callers fill an `i64[]` with
+    // `cstrFromString` results and a trailing `0` sentinel, then
+    // pass it through this symbol-aliased declaration.
+    @symbol("gtk_alert_dialog_set_buttons")
+    @lib pub fn gtk_alert_dialog_set_buttons_array(
+        self: GtkAlertDialog, labels: *const i64
+    )
+
+    // ─── GtkColorDialog / GtkFontDialog async API ─────────────
+    // GTK 4.10+ chooser dialogs. Same async flow as
+    // GtkAlertDialog: kick off `_choose_*`, the
+    // `GAsyncReadyCallback` fires when the user dismisses the
+    // dialog, drain the result through `_choose_*_finish`.
+
+    @lib pub fn gtk_color_dialog_choose_rgba(
+        self: GtkColorDialog,
+        parent: GtkWindow,
+        initial_color: *const f32,        // GdkRGBA { r, g, b, a } as 4×f32
+        cancellable: GCancellable,
+        callback: fn(i64, i64, i64),
+        user_data: *void
+    )
+    /// Returns a freshly-allocated `GdkRGBA*` (or NULL on cancel /
+    /// error). The 4 f32 components live at offsets 0/4/8/12;
+    /// caller frees via `gdk_rgba_free`.
+    @lib pub fn gtk_color_dialog_choose_rgba_finish(
+        self: GtkColorDialog, result: GAsyncResult, error_out: *void
+    ): *void
+    @lib pub fn gdk_rgba_free(rgba: *void)
+
+    @handle pub struct PangoFontDescription {}
+
+    @lib pub fn gtk_font_dialog_choose_font(
+        self: GtkFontDialog,
+        parent: GtkWindow,
+        initial_value: PangoFontDescription,
+        cancellable: GCancellable,
+        callback: fn(i64, i64, i64),
+        user_data: *void
+    )
+    /// Returns a freshly-allocated `PangoFontDescription*` (or
+    /// NULL on cancel / error). Caller frees via
+    /// `pango_font_description_free`.
+    @lib pub fn gtk_font_dialog_choose_font_finish(
+        self: GtkFontDialog, result: GAsyncResult, error_out: *void
+    ): PangoFontDescription
+    @lib pub fn pango_font_description_from_string(s: *const char): PangoFontDescription
+    @lib pub fn pango_font_description_free(desc: PangoFontDescription)
+    /// Family string — owned by `desc`; copy before freeing.
+    @lib pub fn pango_font_description_get_family(desc: PangoFontDescription): *const char
+    /// Size in pango units: `points × PANGO_SCALE (= 1024)`.
+    @lib pub fn pango_font_description_get_size(desc: PangoFontDescription): i32
+    /// `1` if `get_size` is in pixels (absolute), `0` if in points.
+    @lib pub fn pango_font_description_get_size_is_absolute(desc: PangoFontDescription): i32
+    /// CSS-style weight (100..1000); 400=Normal, 700=Bold.
+    @lib pub fn pango_font_description_get_weight(desc: PangoFontDescription): i32
+    /// `PangoStyle`: 0=Normal, 1=Oblique, 2=Italic.
+    @lib pub fn pango_font_description_get_style(desc: PangoFontDescription): i32
+
     // ─── X11 backend extras ───────────────────────────────────
     // Exported from libgtk-4.so on systems built with the X11
     // backend. `gdk_x11_surface_get_xid` returns `Window`
