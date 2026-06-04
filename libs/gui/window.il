@@ -83,6 +83,7 @@ use gui_impl {
 use font { Font }
 use menubar { Menu }
 use statusbar { StatusBar }
+use toolbar { Toolbar }
 
 /// Icon glyph shown next to the message text in `Window.message`.
 /// Maps to each platform's standard dialog-icon enum so the
@@ -763,6 +764,14 @@ pub class Window : Container {
     /// window; segment text is driven through the `StatusBar`
     /// object itself (`setText` / `setSegments`).
     pub setStatusBar(bar: StatusBar) {
+        bar.attachTo(this.handle)
+    }
+
+    /// Install `bar` as this window's toolbar. The bar docks
+    /// along the top edge and resizes automatically with the
+    /// window; per-item state (button clicks, title updates)
+    /// rides through the `Toolbar` object itself.
+    pub setToolbar(bar: Toolbar) {
         bar.attachTo(this.handle)
     }
 

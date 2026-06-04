@@ -45,6 +45,7 @@ use gtk {
 }
 use core { WINDOWS, WindowSlot, GTK_INITED, LOOP_HOLDER }
 use statusbar { linux_relayout_status_bar }
+use toolbar { linux_relayout_toolbar }
 use super.events
 // GdkModifierType bits we need. Pulled out as locals so each
 // dispatch can `& MOD_*` without going through the flags enum.
@@ -163,6 +164,8 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
                 // Pin the bottom-docked status bar (if any) so it
                 // tracks the new content rectangle.
                 linux_relayout_status_bar(data, w, h)
+                // Same for the top-docked toolbar.
+                linux_relayout_toolbar(data, w, h)
             }
         }
     }

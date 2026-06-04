@@ -22,6 +22,7 @@ pub use imageview.*
 pub use scrollview.*
 pub use splitview.*
 pub use statusbar.*
+pub use toolbar.*
 pub use tabview.*
 pub use dialogs.*
 pub use clipboard.*

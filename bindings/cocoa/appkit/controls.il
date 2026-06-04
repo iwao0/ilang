@@ -64,6 +64,11 @@ pub enum NSDatePickerStyle: u64 {
         pub setTitle(title: NSString)
         @objc("setBezelStyle:")
         pub setBezelStyle(style: NSBezelStyle)
+        /// Resize the button to fit its current title + bezel —
+        /// honours the system font metrics rather than the
+        /// estimated width a caller might compute by hand.
+        @objc("sizeToFit")
+        pub sizeToFit()
         /// Switch to checkbox / radio / push-on-push-off / etc. by
         /// passing the matching `NSButtonType` (= `i64` on macOS).
         /// `3` = `NSButtonTypeSwitch` (checkbox).
