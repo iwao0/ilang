@@ -263,13 +263,20 @@ class TreeDelegate : NSObject {
         let cellView: NSTableCellView = if reused.handle != 0 as i64 {
             NSTableCellView.__wrap_handle_unowned(reused.handle)
         } else {
-            let cv = NSTableCellView.alloc().init(makeRect(0.0, 0.0, 200.0, 18.0))
+            // Row metrics: cellView 20pt tall to match the
+            // NSTableView rowHeight we set in `createNativeTree`.
+            // textField sits 2pt down from the top edge so the
+            // glyph baseline lands near the row's vertical
+            // centre — without that, NSTextField's descender
+            // padding pushes text noticeably below centre under
+            // the selection highlight.
+            let cv = NSTableCellView.alloc().init(makeRect(0.0, 0.0, 200.0, 20.0))
             (cv as NSView).setIdentifier(ident)
             let xOff: f64 = if checkable { 22.0 } else { 2.0 }
             if checkable {
                 if let some(tk) = DS_TO_TREE.get(this.handle) {
                     if let some(t) = TREES.get(tk) {
-                        let btn = NSButton.alloc().init(makeRect(2.0, 1.0, 18.0, 18.0))
+                        let btn = NSButton.alloc().init(makeRect(2.0, 2.0, 18.0, 18.0))
                         // NSButtonTypeSwitch = 3.
                         btn.setButtonType(3 as i64)
                         btn.setTitle(nsstr(""))
@@ -281,7 +288,7 @@ class TreeDelegate : NSObject {
                 }
             }
             let tf = NSTextField.alloc().init(
-                makeRect(xOff, 0.0, 200.0 - xOff, 17.0)
+                makeRect(xOff, 2.0, 200.0 - xOff, 16.0)
             )
             tf.setEditable(false)
             tf.setBordered(false)
@@ -358,6 +365,11 @@ pub fn createNativeTree(
     // — and the property-setter form chokes the parser here.
     (outline as NSTableView).setHeaderView(nil)
     (outline as NSTableView).allowsMultipleSelection = false
+    // 20pt rows: the default 17pt leaves the selection highlight
+    // box tight enough that NSTextField's descender padding
+    // pushes the glyph visibly low. 20pt + a centred 16pt text
+    // field reads as balanced.
+    (outline as NSTableView).rowHeight = 20.0
 
     TreeDataSource.register()
     TreeDelegate.register()

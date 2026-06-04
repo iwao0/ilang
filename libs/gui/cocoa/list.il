@@ -273,6 +273,10 @@ pub fn createNativeList(
     table.addTableColumn(col)
     table.setHeaderView(nil)
     table.allowsMultipleSelection = false
+    // 20pt rows: matches the tree view, and the default 17pt
+    // makes the selection highlight feel cramped — text reads
+    // as offset towards the bottom edge under the selection.
+    table.rowHeight = 20.0
 
     ListDataSource.register()
     let ds = ListDataSource.alloc().init()
