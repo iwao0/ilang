@@ -17,6 +17,7 @@
 ///   textfield.il   — `TextField`
 ///   checkbox.il    — `Checkbox`
 ///   switch.il      — `Switch`
+///   segmentedcontrol.il — `SegmentedControl`
 ///   radio.il       — `RadioButton`
 ///   slider.il      — `Slider`
 ///   progressbar.il — `ProgressBar`
@@ -45,6 +46,7 @@ pub use textfield.*
 pub use textarea.*
 pub use checkbox.*
 pub use switch.*
+pub use segmentedcontrol.*
 pub use radio.*
 pub use slider.*
 pub use progressbar.*

@@ -1,4 +1,5 @@
-// 🎛 libs/gui — Checkbox, Slider, ProgressBar, ComboBox, Switch.
+// 🎛 libs/gui — Checkbox, Slider, ProgressBar, ComboBox, Switch,
+//               SegmentedControl.
 //
 // A small "control panel" window:
 // - Checkbox toggles whether the slider's value drives the
@@ -8,6 +9,7 @@
 // - ComboBox cycles the slider colour-label which prints to the
 //   console.
 // - Switch enables / disables the slider.
+// - SegmentedControl jumps the slider to Low / Mid / High.
 //
 // Run with:
 //   ilang run examples/libs/gui/controls/main.il
@@ -17,7 +19,7 @@ use gui
 let w = new gui.Window()
 w.title  = "ilang × gui — controls"
 w.width  = 460.0
-w.height = 260.0
+w.height = 300.0
 
 let mirror = new gui.Checkbox()
 mirror.text   = "Drive progress from slider"
@@ -78,6 +80,27 @@ sw.onToggle.add(fn(e: gui.ToggleEvent) {
     console.log("slider enabled:", e.checked)
 })
 w.addChild(sw)
+
+let seg = new gui.SegmentedControl()
+seg.x      = 20.0
+seg.y      = 180.0
+seg.width  = 300.0
+seg.height = 26.0
+seg.addSegment("Low")
+seg.addSegment("Mid")
+seg.addSegment("High")
+seg.selectedIndex = 1 as i32
+seg.onChange.add(fn(e: gui.SelectEvent) {
+    let v =
+        if e.index == 0 as i32 { 0.0 }
+        elif e.index == 1 as i32 { 50.0 }
+        elif e.index == 2 as i32 { 100.0 }
+        else { slider.value }
+    slider.value = v
+    if mirror.checked { prog.value = v }
+    console.log("segment:", e.value, "@", e.index)
+})
+w.addChild(seg)
 
 w.show()
 gui.run()

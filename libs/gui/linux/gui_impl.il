@@ -11,6 +11,7 @@ pub use edit.*
 pub use textarea.*
 pub use checkbox.*
 pub use switch.*
+pub use segmentedcontrol.*
 pub use radio.*
 pub use slider.*
 pub use progress.*

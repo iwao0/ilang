@@ -401,8 +401,16 @@ pub enum NSDatePickerElementFlags: u64 {
         pub isSelectedForSegment(seg: i64): bool
         @objc("selectedSegment")
         pub selectedSegment(): i64
-        @objc("setSegmentedTrackingMode:")
+        @objc("setTrackingMode:")
         pub setTrackingMode(m: NSSegmentSwitchTracking)
+        @objc("setTarget:")
+        pub setTarget(target: NSObject)
+        @objc("setAction:")
+        pub setAction(sel: i64)
+        @objc("setEnabled:")
+        pub setEnabled(flag: bool)
+        @objc("isEnabled")
+        pub get isEnabled(): bool
     }
 
     /// `NSDatePicker` — graphical or text-field date editor.
