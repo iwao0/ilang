@@ -565,6 +565,42 @@ use windef { HINSTANCE, HWND, RECT }
         lParam:     i64
     }
 
+    // ── Up-Down (msctls_updown32) ────────────────────────────────
+
+    /// `UDS_*` window-style bits.
+    pub const UDS_WRAP:           u32 = 0x0001 as u32
+    pub const UDS_SETBUDDYINT:    u32 = 0x0002 as u32
+    pub const UDS_ALIGNRIGHT:     u32 = 0x0004 as u32
+    pub const UDS_ALIGNLEFT:      u32 = 0x0008 as u32
+    pub const UDS_AUTOBUDDY:      u32 = 0x0010 as u32
+    pub const UDS_ARROWKEYS:      u32 = 0x0020 as u32
+    pub const UDS_HORZ:           u32 = 0x0040 as u32
+    pub const UDS_NOTHOUSANDS:    u32 = 0x0080 as u32
+    pub const UDS_HOTTRACK:       u32 = 0x0100 as u32
+
+    /// UpDown messages (WM_USER + offset).
+    pub const UDM_SETRANGE:       u32 = 0x0465 as u32
+    pub const UDM_SETPOS:         u32 = 0x0467 as u32
+    pub const UDM_GETPOS:         u32 = 0x0468 as u32
+    pub const UDM_SETBUDDY:       u32 = 0x0469 as u32
+    pub const UDM_GETBUDDY:       u32 = 0x046A as u32
+    pub const UDM_SETRANGE32:     u32 = 0x046F as u32
+    pub const UDM_GETRANGE32:     u32 = 0x0470 as u32
+    pub const UDM_SETPOS32:       u32 = 0x0471 as u32
+    pub const UDM_GETPOS32:       u32 = 0x0472 as u32
+
+    /// UDN_FIRST = (0u - 721u). `UDN_DELTAPOS = UDN_FIRST - 1`.
+    pub const UDN_DELTAPOS:       i32 = -722 as i32
+
+    /// `NMUPDOWN` — payload of `UDN_DELTAPOS`. `iPos` is the
+    /// current integer position before the change; `iDelta` is
+    /// the signed step (typically ±1) the user requested.
+    pub struct NMUPDOWN {
+        hdr:    NMHDR
+        iPos:   i32
+        iDelta: i32
+    }
+
     /// Default window procedure for subclassed controls. Bind via
     /// `MAKELONG(ctrlId, 0)` callbacks etc.
     @lib pub fn DefSubclassProc(hWnd: HWND, uMsg: u32, wParam: u64, lParam: i64): i64

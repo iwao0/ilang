@@ -356,6 +356,18 @@ pub class TableActivateEvent : Event {
     }
 }
 
+/// Fired when a `NumericUpDown`'s value changes — either via
+/// the up/down stepper buttons or by the user committing a new
+/// number into the embedded text field. `value` is the new
+/// numeric value already clamped to the `[min, max]` range.
+pub class NumericChangeEvent : Event {
+    pub value: f64
+    pub init(sender: EventTarget, value: f64) {
+        super(sender)
+        this.value = value
+    }
+}
+
 /// Fired when files are dropped onto a window or widget. `files`
 /// holds the absolute paths in the order the OS reported them;
 /// `x` / `y` are the drop coordinates in the receiver's local

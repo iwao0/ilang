@@ -177,6 +177,13 @@ pub enum NSDatePickerStyle: u64 {
         pub setDelegate(d: NSControlTextEditingDelegate)
         @objc("setDelegate:")
         pub setDelegate(d: NSObject)
+        /// Target/action — inherited from `NSControl`. Hooked on
+        /// `NumericUpDown` so Return-press commits the typed
+        /// value back to the stepper.
+        @objc("setTarget:")
+        pub setTarget(target: NSObject)
+        @objc("setAction:")
+        pub setAction(sel: i64)
     }
 
     /// NSSlider — continuous horizontal slider by default. `min`,
@@ -235,6 +242,19 @@ pub enum NSDatePickerStyle: u64 {
         pub set doubleValue(v: f64)
         @objc("setValueWraps:")
         pub setValueWraps(flag: bool)
+        /// Target/action — inherited from `NSControl` but bound
+        /// here explicitly so `NumericUpDown` can wire the
+        /// stepper's click to its own handler.
+        @objc("setTarget:")
+        pub setTarget(target: NSObject)
+        @objc("setAction:")
+        pub setAction(sel: i64)
+        /// `setContinuous:` — same NSControl path; fires the
+        /// action repeatedly while the user holds the button.
+        @objc("setContinuous:")
+        pub setContinuous(flag: bool)
+        @objc("setEnabled:")
+        pub setEnabled(flag: bool)
     }
 
     /// `NSPopUpButton` — drop-down menu button. `pullsDown=true`

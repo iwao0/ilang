@@ -65,6 +65,7 @@ use slider   { trySliderChange }
 use tabview  { tryTabViewSelChange }
 use tree     { tryTreeViewNotify }
 use table    { tryListViewNotify }
+use numericupdown { tryNumericUpDownNotify }
 use menu     { tryMenuClick }
 use super.events
 use util { vkToString, modCtrl, modShift, modAlt, modMeta }
@@ -309,6 +310,7 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             if tryTabViewSelChange(ctrl, code) { return 0 }
             if tryTreeViewNotify(ctrl, code, lParam) { return 0 }
             if tryListViewNotify(ctrl, code, lParam) { return 0 }
+            if tryNumericUpDownNotify(ctrl, code, lParam) { return 0 }
             return 0
         }
         WindowMessage.dropFiles {

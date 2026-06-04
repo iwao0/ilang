@@ -50,6 +50,7 @@ pub use combobox.*
 pub use listbox.*
 pub use treeview.*
 pub use table.*
+pub use numericupdown.*
 pub use groupbox.*
 pub use canvas.*
 pub use imageview.*
