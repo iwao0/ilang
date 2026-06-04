@@ -20,9 +20,10 @@
 
 use std.math as math
 use windows {
-    HWND, HDC, HBITMAP, HBRUSH, HPEN, HGDIOBJ,
+    HWND, HDC, HBITMAP, HBRUSH, HPEN, HFONT, HGDIOBJ,
     HINSTANCE, HMENU, HICON, HCURSOR,
-    POINT, RECT, PAINTSTRUCT, WNDCLASSEXA, TOOLINFOW, TRACKMOUSEEVENT,
+    POINT, RECT, SIZE, PAINTSTRUCT, WNDCLASSEXA, TOOLINFOW, TRACKMOUSEEVENT,
+    TEXTMETRICA,
     ClassStyle, WindowStyle, WindowMessage, ShowCmd, VirtualKey,
     RasterOp, StockObject, PenStyle, BackgroundMode, TrackMouseFlags,
     TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
@@ -36,6 +37,8 @@ use windows {
     DeleteObject, BitBlt, CreateSolidBrush, CreatePen, SetBkMode,
     GetStockObject, Rectangle, MoveToEx, LineTo, AngleArc, CloseFigure,
     BeginPath, EndPath, FillPath, StrokePath,
+    CreateFontW, ExtTextOutW, SetTextColor,
+    GetTextExtentPoint32W, GetTextMetricsW,
 }
 use util {
     vkToString, modCtrl, modShift, modAlt, modMeta,
@@ -66,6 +69,10 @@ class CanvasSlot {
     pub fillColor:   u32
     pub strokeColor: u32
     pub lineWidth:   f64
+    pub font:        HFONT
+    pub fontAscent:  f64
+    pub fontDescent: f64
+    pub fontLineHeight: f64
     // Accumulated path: parallel op-code + argument arrays.
     pub pathOps:     i64[]
     pub pathArgs:    f64[][]
@@ -93,6 +100,10 @@ class CanvasSlot {
         this.fillColor   = 0 as u32
         this.strokeColor = 0 as u32
         this.lineWidth   = 1.0
+        this.font        = 0 as HFONT
+        this.fontAscent  = 0.0
+        this.fontDescent = 0.0
+        this.fontLineHeight = 0.0
         this.pathOps     = newOps()
         this.pathArgs    = newArgs()
         this.onFocus      = canvasNoOp0
@@ -617,6 +628,120 @@ pub fn canvasStroke(handle: i64) {
         DeleteObject(pen as HGDIOBJ)
         InvalidateRect(slot.hwnd, 0 as *const RECT, 0)
     }
+}
+
+/// Map the CSS generic family names onto faces that ship with
+/// Windows; anything else is passed through verbatim so the user
+/// can name any installed face.
+fn mapFontFace(family: string): string {
+    if family == "sans-serif" { return "Segoe UI" }
+    if family == "serif"      { return "Times New Roman" }
+    if family == "monospace"  { return "Consolas" }
+    family
+}
+
+/// Pull the font's ascent / descent / line-height into the slot
+/// so later draw / measure calls don't have to re-query GDI.
+fn cacheFontMetrics(slot: CanvasSlot) {
+    let old = SelectObject(slot.mdc, slot.font as HGDIOBJ)
+    let tm = new TEXTMETRICA()
+    GetTextMetricsW(slot.mdc, &tm)
+    slot.fontAscent     = tm.tmAscent as f64
+    slot.fontDescent    = tm.tmDescent as f64
+    slot.fontLineHeight = (tm.tmHeight + tm.tmExternalLeading) as f64
+    SelectObject(slot.mdc, old)
+}
+
+pub fn setCanvasFont(
+    handle: i64, family: string, size: f64, weight: i32, italic: bool
+) {
+    if let some(slot) = CANVASES.get(handle) {
+        // Negative nHeight asks GDI for a font whose CHARACTER
+        // height matches `size`; positive would size the cell box.
+        let faceW = mapFontFace(family).encodeUtf16()
+        let italicFlag: u32 = if italic { 1 as u32 } else { 0 as u32 }
+        let newFont = CreateFontW(
+            0 as i32 - (size as i32), 0 as i32,
+            0 as i32, 0 as i32,
+            weight,
+            italicFlag, 0 as u32, 0 as u32,
+            1 as u32,           // DEFAULT_CHARSET
+            0 as u32, 0 as u32, 0 as u32, 0 as u32,
+            faceW
+        )
+        if slot.font as i64 != 0 as i64 {
+            DeleteObject(slot.font as HGDIOBJ)
+        }
+        slot.font = newFont
+        cacheFontMetrics(slot)
+    }
+}
+
+pub fn canvasFillText(handle: i64, text: string, x: f64, y: f64) {
+    if let some(slot) = CANVASES.get(handle) {
+        if slot.font as i64 == 0 as i64 { return }
+        let oldFont = SelectObject(slot.mdc, slot.font as HGDIOBJ)
+        SetTextColor(slot.mdc, slot.fillColor)
+        SetBkMode(slot.mdc, BackgroundMode.transparent as i32)
+        // ExtTextOutW takes the upper-left of the cell, not the
+        // baseline — shift up by the font's ascent so the public
+        // `(x, y)` lands on the baseline.
+        let ty = (y - slot.fontAscent) as i32
+        let textW = text.encodeUtf16(false)
+        ExtTextOutW(
+            slot.mdc, x as i32, ty,
+            0 as u32, 0 as *const RECT,
+            textW, textW.length as u32, 0 as *const i32
+        )
+        SelectObject(slot.mdc, oldFont)
+        InvalidateRect(slot.hwnd, 0 as *const RECT, 0)
+    }
+}
+
+pub fn canvasStrokeText(handle: i64, text: string, x: f64, y: f64) {
+    if let some(slot) = CANVASES.get(handle) {
+        if slot.font as i64 == 0 as i64 { return }
+        let oldFont = SelectObject(slot.mdc, slot.font as HGDIOBJ)
+        let pen = CreatePen(
+            PenStyle.solid as i32, slot.lineWidth as i32, slot.strokeColor
+        )
+        let oldPen = SelectObject(slot.mdc, pen as HGDIOBJ)
+        SetBkMode(slot.mdc, BackgroundMode.transparent as i32)
+        let ty = (y - slot.fontAscent) as i32
+        let textW = text.encodeUtf16(false)
+        // Glyph outlines are accumulated into the DC path, then
+        // stroked with the active pen — same idiom as the other
+        // path-based primitives in this file.
+        BeginPath(slot.mdc)
+        ExtTextOutW(
+            slot.mdc, x as i32, ty,
+            0 as u32, 0 as *const RECT,
+            textW, textW.length as u32, 0 as *const i32
+        )
+        EndPath(slot.mdc)
+        StrokePath(slot.mdc)
+        SelectObject(slot.mdc, oldPen)
+        DeleteObject(pen as HGDIOBJ)
+        SelectObject(slot.mdc, oldFont)
+        InvalidateRect(slot.hwnd, 0 as *const RECT, 0)
+    }
+}
+
+pub fn canvasMeasureText(handle: i64, text: string): f64[] {
+    let result: f64[] = [0.0, 0.0, 0.0, 0.0]
+    if let some(slot) = CANVASES.get(handle) {
+        if slot.font as i64 == 0 as i64 { return result }
+        let oldFont = SelectObject(slot.mdc, slot.font as HGDIOBJ)
+        let sz = SIZE { cx: 0 as i32, cy: 0 as i32 }
+        let textW = text.encodeUtf16(false)
+        GetTextExtentPoint32W(slot.mdc, textW, textW.length as i32, &sz)
+        SelectObject(slot.mdc, oldFont)
+        result[0] = sz.cx as f64
+        result[1] = slot.fontAscent
+        result[2] = slot.fontDescent
+        result[3] = slot.fontLineHeight
+    }
+    result
 }
 
 pub fn setOnCanvasFocus(handle: i64, cb: fn()) {

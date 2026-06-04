@@ -31,6 +31,8 @@ use gui_impl {
     canvasFillRect, canvasStrokeRect,
     canvasBeginPath, canvasMoveTo, canvasLineTo,
     canvasArc, canvasClosePath, canvasFill, canvasStroke,
+    setCanvasFont,
+    canvasFillText, canvasStrokeText, canvasMeasureText,
     setOnCanvasKeyDown, setOnCanvasKeyUp,
     setOnCanvasFocus, setOnCanvasBlur,
     setOnCanvasMouseEnter, setOnCanvasMouseLeave,
@@ -38,6 +40,25 @@ use gui_impl {
     setOnCanvasContextMenu, setOnCanvasMouseWheel,
     setOnCanvasFilesDropped,
     focusCanvas, blurCanvas,
+}
+
+/// Measured text extents. `width` is the advance width of the
+/// rendered string at the current font. `ascent` / `descent` are
+/// the font's typographic extents above / below the baseline
+/// (always positive). `lineHeight` is the recommended line spacing
+/// (ascent + descent + external leading).
+pub class TextMetrics {
+    pub width:      f64
+    pub ascent:     f64
+    pub descent:    f64
+    pub lineHeight: f64
+
+    pub init(width: f64, ascent: f64, descent: f64, lineHeight: f64) {
+        this.width      = width
+        this.ascent     = ascent
+        this.descent    = descent
+        this.lineHeight = lineHeight
+    }
 }
 
 pub class Canvas : Control {
@@ -52,6 +73,10 @@ pub class Canvas : Control {
     _fillColor:   u32
     _strokeColor: u32
     _lineWidth:   f64
+    _fontFamily:  string
+    _fontSize:    f64
+    _fontWeight:  i32
+    _italic:      bool
 
     /// View-local input events. Coordinates are pixels from the
     /// canvas's top-left corner. Keyboard events fire only while
@@ -83,6 +108,10 @@ pub class Canvas : Control {
         this._fillColor   = 0xFF000000 as u32
         this._strokeColor = 0xFF000000 as u32
         this._lineWidth   = 1.0
+        this._fontFamily  = "sans-serif"
+        this._fontSize    = 12.0
+        this._fontWeight  = 400 as i32
+        this._italic      = false
         this.onKeyDown    = new Signal<KeyEvent>()
         this.onKeyUp      = new Signal<KeyEvent>()
         this.onFocus      = new Signal<FocusEvent>()
@@ -160,6 +189,43 @@ pub class Canvas : Control {
         if this.handle >= 0 { setCanvasLineWidth(this.handle, v) }
     }
 
+    /// Font family used by `fillText` / `strokeText` / `measureText`.
+    /// `"sans-serif"` / `"serif"` / `"monospace"` map to each
+    /// platform's default for that category; other strings are
+    /// passed to the OS font lookup as-is.
+    pub get fontFamily(): string { this._fontFamily }
+    pub set fontFamily(v: string) {
+        this._fontFamily = v
+        this.flushFont()
+    }
+    /// Font size in pixels (cap height roughly matches the value).
+    pub get fontSize(): f64 { this._fontSize }
+    pub set fontSize(v: f64) {
+        this._fontSize = v
+        this.flushFont()
+    }
+    /// CSS-style weight: 400 = normal, 700 = bold. Backends snap
+    /// to the closest discrete weight they support.
+    pub get fontWeight(): i32 { this._fontWeight }
+    pub set fontWeight(v: i32) {
+        this._fontWeight = v
+        this.flushFont()
+    }
+    pub get italic(): bool { this._italic }
+    pub set italic(v: bool) {
+        this._italic = v
+        this.flushFont()
+    }
+    flushFont() {
+        if this.handle >= 0 {
+            setCanvasFont(
+                this.handle,
+                this._fontFamily, this._fontSize,
+                this._fontWeight, this._italic
+            )
+        }
+    }
+
     /// Overwrite the entire bitmap with `color` (opaque or alpha-
     /// blended depending on the colour's A byte). Equivalent to
     /// HTML `ctx.fillStyle = …; ctx.fillRect(0, 0, w, h)`.
@@ -200,6 +266,27 @@ pub class Canvas : Control {
         if this.handle >= 0 { canvasStroke(this.handle) }
     }
 
+    /// Draw `text` filled with the current `fillColor`. `(x, y)` is
+    /// the alphabetic baseline of the first glyph, matching HTML
+    /// Canvas's `textBaseline = "alphabetic"` default.
+    pub fillText(text: string, x: f64, y: f64) {
+        if this.handle >= 0 { canvasFillText(this.handle, text, x, y) }
+    }
+    /// Draw the outline of `text` with the current `strokeColor`
+    /// and `lineWidth`. Same baseline convention as `fillText`.
+    pub strokeText(text: string, x: f64, y: f64) {
+        if this.handle >= 0 { canvasStrokeText(this.handle, text, x, y) }
+    }
+    /// Measure `text` under the current font. Returns a zero
+    /// `TextMetrics` until the canvas is attached.
+    pub measureText(text: string): TextMetrics {
+        if this.handle >= 0 {
+            let m = canvasMeasureText(this.handle, text)
+            return new TextMetrics(m[0], m[1], m[2], m[3])
+        }
+        new TextMetrics(0.0, 0.0, 0.0, 0.0)
+    }
+
     pub override attachTo(window: Window) {
         if this.handle >= 0 { return }
         this.handle = createNativeCanvas(
@@ -211,6 +298,11 @@ pub class Canvas : Control {
             setCanvasFillColor(this.handle, this._fillColor)
             setCanvasStrokeColor(this.handle, this._strokeColor)
             setCanvasLineWidth(this.handle, this._lineWidth)
+            setCanvasFont(
+                this.handle,
+                this._fontFamily, this._fontSize,
+                this._fontWeight, this._italic
+            )
             setOnCanvasKeyDown(this.handle,
                 fn(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {
                     this.onKeyDown.emit(new KeyEvent(this, c, ck, sk, ak, mk))

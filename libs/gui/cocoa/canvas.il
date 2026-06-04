@@ -13,8 +13,9 @@
 use cocoa {
     NSObject, NSView, NSImage, NSColor, NSBezierPath,
     NSTrackingArea, NSTrackingAreaOptions,
-    NSPoint, NSRect, NSCompositingOperation, NSEvent,
-    NSArray, NSMutableArray, NSString,
+    NSPoint, NSRect, NSSize, NSCompositingOperation, NSEvent,
+    NSArray, NSMutableArray, NSString, NSDictionary, NSMutableDictionary,
+    NSNumber, NSFont, NSFontDescriptor, NSFontSymbolicTraits,
     NSPasteboard, NSDraggingInfo, FilenamesPboardType,
     nil, nsstr, ilstr,
     makeRect, makePoint, makeSize,
@@ -218,6 +219,7 @@ class CanvasSlot {
     pub fillColor:   NSColor
     pub strokeColor: NSColor
     pub lineWidth:   f64
+    pub font:        NSFont
     pub isEnabled:   bool
     pub onFocus:      fn()
     pub onBlur:       fn()
@@ -241,6 +243,7 @@ class CanvasSlot {
         this.fillColor   = NSColor.black
         this.strokeColor = NSColor.black
         this.lineWidth   = 1.0
+        this.font        = NSFont.systemFontOfSize(12.0)
         this.isEnabled   = true
         this.onFocus      = noOp1
         this.onBlur       = noOp1
@@ -473,6 +476,126 @@ pub fn canvasStroke(handle: i64) {
         slot.img.unlockFocus()
         slot.view.setNeedsDisplay(true)
     }
+}
+
+/// Build an `NSFont` for the requested family / size / weight / italic.
+/// Cocoa exposes weight as a discrete trait (Bold or not), so weights
+/// ≥ 600 snap to bold and the rest stay regular.
+fn buildFont(family: string, size: f64, weight: i32, italic: bool): NSFont {
+    // Look the family up by name first. `"sans-serif"`, `"serif"`,
+    // and `"monospace"` are CSS generic families with no direct
+    // Cocoa equivalent, so map them to the system font / common
+    // platform faces. Anything else is passed through verbatim.
+    let base = if family == "sans-serif" {
+        NSFont.systemFontOfSize(size)
+    } elif family == "serif" {
+        let f = NSFont.fontWithName(nsstr("Times New Roman"), size)
+        if f.handle == 0 as i64 { NSFont.systemFontOfSize(size) } else { f }
+    } elif family == "monospace" {
+        let f = NSFont.fontWithName(nsstr("Menlo"), size)
+        if f.handle == 0 as i64 { NSFont.systemFontOfSize(size) } else { f }
+    } else {
+        let f = NSFont.fontWithName(nsstr(family), size)
+        if f.handle == 0 as i64 { NSFont.systemFontOfSize(size) } else { f }
+    }
+    let traits: u32 =
+        (if weight >= 600 as i32 { NSFontSymbolicTraits.bold as u32 } else { 0 as u32 }) |
+        (if italic { NSFontSymbolicTraits.italic as u32 } else { 0 as u32 })
+    if traits == 0 as u32 { return base }
+    let desc = base.fontDescriptor.fontDescriptorWithSymbolicTraits(traits)
+    let withTraits = NSFont.fontWithDescriptor(desc, size)
+    // fontWithDescriptor returns nil when the platform can't match
+    // the requested traits — fall back to the base font so the
+    // caller still gets a renderable glyph stream.
+    if withTraits.handle == 0 as i64 { base } else { withTraits }
+}
+
+pub fn setCanvasFont(
+    handle: i64, family: string, size: f64, weight: i32, italic: bool
+) {
+    if let some(slot) = CANVASES.get(handle) {
+        slot.font = buildFont(family, size, weight, italic)
+    }
+}
+
+/// Build the attribute dictionary every fill / stroke / measure call
+/// hands to AppKit's NSStringDrawing category. Constructed on each
+/// call — cheap enough at typical text-per-frame rates.
+///
+/// `stroke`: 0 = solid fill (NSStrokeWidth absent), positive value =
+/// outline-only at that NSStrokeWidth (a percentage of font size
+/// per AppKit's convention; outline-only requires a positive value).
+fn buildAttrs(slot: CanvasSlot, stroke: f64): NSMutableDictionary {
+    let attrs = NSMutableDictionary.dictionary()
+    attrs.setObject(slot.font as NSObject, nsstr("NSFont") as NSObject)
+    if stroke == 0.0 {
+        attrs.setObject(slot.fillColor as NSObject,
+                        nsstr("NSColor") as NSObject)
+    } else {
+        // NSStrokeWidth > 0 means "outline only". Use the stroke
+        // colour for both `NSColor` (which becomes the outline tint
+        // in that mode) and the explicit NSStrokeColor for AppKit
+        // versions that honour the latter.
+        attrs.setObject(slot.strokeColor as NSObject,
+                        nsstr("NSColor") as NSObject)
+        attrs.setObject(slot.strokeColor as NSObject,
+                        nsstr("NSStrokeColor") as NSObject)
+        attrs.setObject(NSNumber.fromF64(stroke) as NSObject,
+                        nsstr("NSStrokeWidth") as NSObject)
+    }
+    attrs
+}
+
+pub fn canvasFillText(handle: i64, text: string, x: f64, y: f64) {
+    if let some(slot) = CANVASES.get(handle) {
+        slot.img.lockFocusFlipped(true)
+        let attrs = buildAttrs(slot, 0.0)
+        // drawAtPoint puts the upper-left of the layout box at the
+        // given point, but the public API takes the baseline. Back
+        // up by the font's ascender so the baseline lines up at `y`.
+        let pt = makePoint(x, y - slot.font.ascender)
+        nsstr(text).drawAtPoint(pt, attrs as NSDictionary)
+        slot.img.unlockFocus()
+        slot.view.setNeedsDisplay(true)
+    }
+}
+
+pub fn canvasStrokeText(handle: i64, text: string, x: f64, y: f64) {
+    if let some(slot) = CANVASES.get(handle) {
+        slot.img.lockFocusFlipped(true)
+        // NSStrokeWidth is a percentage of the font's point size in
+        // AppKit; translate ilang's pixel-based `lineWidth` so a
+        // 1 px stroke at any font size renders at roughly the right
+        // visual weight.
+        let pct = if slot.font.pointSize > 0.0 {
+            slot.lineWidth * 100.0 / slot.font.pointSize
+        } else {
+            slot.lineWidth
+        }
+        let attrs = buildAttrs(slot, pct)
+        let pt = makePoint(x, y - slot.font.ascender)
+        nsstr(text).drawAtPoint(pt, attrs as NSDictionary)
+        slot.img.unlockFocus()
+        slot.view.setNeedsDisplay(true)
+    }
+}
+
+pub fn canvasMeasureText(handle: i64, text: string): f64[] {
+    let result: f64[] = [0.0, 0.0, 0.0, 0.0]
+    if let some(slot) = CANVASES.get(handle) {
+        let attrs = buildAttrs(slot, 0.0)
+        let sz = nsstr(text).sizeWithAttributes(attrs as NSDictionary)
+        let ascent  = slot.font.ascender
+        // NSFont.descender is conventionally negative; the public
+        // TextMetrics field is the positive distance below baseline.
+        let descent = 0.0 - slot.font.descender
+        let leading = slot.font.leading
+        result[0] = sz.width
+        result[1] = ascent
+        result[2] = descent
+        result[3] = ascent + descent + leading
+    }
+    result
 }
 
 pub fn setOnCanvasFocus(handle: i64, cb: fn()) {

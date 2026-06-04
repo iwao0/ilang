@@ -42,6 +42,7 @@ use gtk {
 use window { keyvalToCode }
 use cairo {
     cairo_t, cairo_surface_t,
+    cairo_text_extents_t, cairo_font_extents_t,
     cairo_image_surface_create, cairo_surface_destroy,
     cairo_create, cairo_destroy, cairo_save, cairo_restore,
     cairo_set_source_rgba, cairo_set_source_surface,
@@ -49,6 +50,9 @@ use cairo {
     cairo_paint, cairo_fill, cairo_stroke,
     cairo_new_path, cairo_close_path,
     cairo_move_to, cairo_line_to, cairo_rectangle, cairo_arc,
+    cairo_select_font_face, cairo_set_font_size,
+    cairo_show_text, cairo_text_path,
+    cairo_text_extents, cairo_font_extents,
 }
 use core { WINDOWS }
 
@@ -554,6 +558,79 @@ pub fn canvasStroke(handle: i64) {
         cairo_stroke(slot.cr)
         gtk_widget_queue_draw(slot.area as GtkWidget)
     }
+}
+
+/// Map CSS generic family names onto faces commonly present on
+/// Linux. Anything else is passed through verbatim so the user can
+/// name any installed face that fontconfig can resolve.
+fn mapFontFace(family: string): string {
+    if family == "sans-serif" { return "sans-serif" }
+    if family == "serif"      { return "serif" }
+    if family == "monospace"  { return "monospace" }
+    family
+}
+
+pub fn setCanvasFont(
+    handle: i64, family: string, size: f64, weight: i32, italic: bool
+) {
+    if let some(slot) = CANVASES.get(handle) {
+        // cairo_select_font_face only distinguishes ITALIC from
+        // NORMAL; map ilang's bool through.
+        let slant: i32 = if italic { 1 as i32 } else { 0 as i32 }
+        // cairo_font_weight_t is just NORMAL=0 / BOLD=1; snap
+        // ilang's 100..900 onto the closer of the two.
+        let cweight: i32 = if weight >= 600 as i32 { 1 as i32 } else { 0 as i32 }
+        cairo_select_font_face(
+            slot.cr, cstrFromString(mapFontFace(family)),
+            slant, cweight
+        )
+        cairo_set_font_size(slot.cr, size)
+    }
+}
+
+pub fn canvasFillText(handle: i64, text: string, x: f64, y: f64) {
+    if let some(slot) = CANVASES.get(handle) {
+        cairo_save(slot.cr)
+        applyFill(slot)
+        // cairo_show_text starts at the current point on the
+        // baseline, matching the public API's convention. Wrap in
+        // save/restore so the advance doesn't leak into whatever
+        // path the caller builds next.
+        cairo_move_to(slot.cr, x, y)
+        cairo_show_text(slot.cr, cstrFromString(text))
+        cairo_restore(slot.cr)
+        gtk_widget_queue_draw(slot.area as GtkWidget)
+    }
+}
+
+pub fn canvasStrokeText(handle: i64, text: string, x: f64, y: f64) {
+    if let some(slot) = CANVASES.get(handle) {
+        cairo_save(slot.cr)
+        // Build the glyph outline into the path, then stroke it
+        // with the current stroke colour + line width.
+        cairo_new_path(slot.cr)
+        cairo_move_to(slot.cr, x, y)
+        cairo_text_path(slot.cr, cstrFromString(text))
+        applyStroke(slot)
+        cairo_stroke(slot.cr)
+        cairo_restore(slot.cr)
+        gtk_widget_queue_draw(slot.area as GtkWidget)
+    }
+}
+
+pub fn canvasMeasureText(handle: i64, text: string): f64[] {
+    let result: f64[] = [0.0, 0.0, 0.0, 0.0]
+    if let some(slot) = CANVASES.get(handle) {
+        let te = new cairo_text_extents_t()
+        cairo_text_extents(slot.cr, cstrFromString(text), &te)
+        let fe = new cairo_font_extents_t()
+        cairo_font_extents(slot.cr, &fe)
+        result[0] = te.x_advance
+        result[1] = fe.ascent
+        result[2] = fe.descent
+        result[3] = fe.height
+    }
+    result
 }
 
 pub fn setOnCanvasFocus(handle: i64, cb: fn()) {

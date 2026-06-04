@@ -56,10 +56,23 @@ use core { NSView }
         pub setStroke()
     }
 
+    /// `NSFontDescriptor` — a recipe for a font (family, traits,
+    /// attributes). Use `symbolicTraits` to flip Bold / Italic
+    /// on an existing descriptor, then materialise the result
+    /// with `NSFont.fontWithDescriptor:size:`.
+    @objc pub class NSFontDescriptor : NSObject {
+        @objc("symbolicTraits")
+        pub get symbolicTraits(): u32
+        @objc("fontDescriptorWithSymbolicTraits:")
+        pub fontDescriptorWithSymbolicTraits(traits: u32): NSFontDescriptor
+    }
+
     /// `NSFont` — typeface + point size. Class methods give you
     /// the system fonts at a chosen size; `fontWithName:size:`
     /// resolves a named family. Pass into `setFont:` on any
-    /// text-bearing control.
+    /// text-bearing control. `ascender` / `descender` / `leading`
+    /// are typographic metrics in points (ascender positive,
+    /// descender negative).
     @objc pub class NSFont : NSObject {
         @objc("systemFontOfSize:")
         pub static systemFontOfSize(size: f64): NSFont
@@ -67,11 +80,21 @@ use core { NSView }
         pub static boldSystemFontOfSize(size: f64): NSFont
         @objc("fontWithName:size:")
         pub static fontWithName(name: NSString, size: f64): NSFont
+        @objc("fontWithDescriptor:size:")
+        pub static fontWithDescriptor(d: NSFontDescriptor, size: f64): NSFont
 
         @objc("familyName")
         pub get familyName(): NSString
         @objc("pointSize")
         pub get pointSize(): f64
+        @objc("fontDescriptor")
+        pub get fontDescriptor(): NSFontDescriptor
+        @objc("ascender")
+        pub get ascender(): f64
+        @objc("descender")
+        pub get descender(): f64
+        @objc("leading")
+        pub get leading(): f64
     }
 
     /// `NSText` — Foundation-level text-editing abstract base.
@@ -131,4 +154,14 @@ use core { NSView }
         tv.setEditable(true)
         tv
     }
+}
+
+/// `NSFontSymbolicTraits` — bit mask flipped into a font
+/// descriptor's `symbolicTraits`. The two bits we care about
+/// for the canvas API are italic and bold; the rest of the
+/// flag set (condensed, monospace, etc.) stays out of the
+/// binding until it has a caller.
+pub enum NSFontSymbolicTraits: u32 {
+    italic = 1
+    bold   = 2
 }

@@ -485,6 +485,17 @@ pub enum NSBinarySearchingOptions: u64 {
         pub get precomposedStringWithCompatibilityMapping(): NSString
         @objc("decomposedStringWithCompatibilityMapping")
         pub get decomposedStringWithCompatibilityMapping(): NSString
+
+        /// ─── AppKit drawing categories ─────────────────────────
+        /// Defined by AppKit's `NSStringDrawing` category, not by
+        /// Foundation itself — callers must be linking AppKit (the
+        /// gui-core backend already is). `attrs` carries the
+        /// rendering style: `NSFontAttributeName`,
+        /// `NSForegroundColorAttributeName`, etc.
+        @objc("drawAtPoint:withAttributes:")
+        pub drawAtPoint(point: NSPoint, withAttributes: NSDictionary)
+        @objc("sizeWithAttributes:")
+        pub sizeWithAttributes(attrs: NSDictionary): NSSize
     }
 
     /// `NSMutableString` — appendable / editable variant of

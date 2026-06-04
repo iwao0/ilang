@@ -75,4 +75,48 @@
         cr: cairo_t, xc: f64, yc: f64, radius: f64,
         angle1: f64, angle2: f64
     )
+
+    // ─── text / fonts ─────────────────────────────────────────
+    // `slant` uses cairo_font_slant_t: NORMAL=0, ITALIC=1, OBLIQUE=2.
+    // `weight` uses cairo_font_weight_t: NORMAL=0, BOLD=1.
+    @lib pub fn cairo_select_font_face(
+        cr: cairo_t, family: *const char, slant: i32, weight: i32
+    )
+    @lib pub fn cairo_set_font_size(cr: cairo_t, size: f64)
+    // Draws `text` (NUL-terminated UTF-8) at the current point on
+    // the baseline; advances the current point by the run's
+    // x-advance. Wrap in `save`/`restore` if the side effect on
+    // the path's current point would interfere with later drawing.
+    @lib pub fn cairo_show_text(cr: cairo_t, text: *const char)
+    // Appends the glyph outlines for `text` to the current path
+    // without painting them. Follow with `cairo_stroke` or
+    // `cairo_fill` to render.
+    @lib pub fn cairo_text_path(cr: cairo_t, text: *const char)
+
+    /// 48 bytes. Per-string typographic extents — what
+    /// `cairo_text_extents` populates. `x_advance` is the width
+    /// most callers want; `width` / `height` are the ink bounds.
+    pub struct cairo_text_extents_t {
+        x_bearing: f64
+        y_bearing: f64
+        width:     f64
+        height:    f64
+        x_advance: f64
+        y_advance: f64
+    }
+    /// 40 bytes. Per-font typographic extents (ascent, descent,
+    /// line height) for the current font face / size pair.
+    pub struct cairo_font_extents_t {
+        ascent:        f64
+        descent:       f64
+        height:        f64
+        max_x_advance: f64
+        max_y_advance: f64
+    }
+    @lib pub fn cairo_text_extents(
+        cr: cairo_t, text: *const char, extents: *cairo_text_extents_t
+    )
+    @lib pub fn cairo_font_extents(
+        cr: cairo_t, extents: *cairo_font_extents_t
+    )
 }
