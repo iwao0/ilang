@@ -1,0 +1,5 @@
+[package]
+name = "gui_splitview_example"
+
+[deps]
+gui = "../../../../libs/gui"

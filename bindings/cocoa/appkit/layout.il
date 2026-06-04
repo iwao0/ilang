@@ -96,6 +96,11 @@ pub enum NSBoxType: u64 {
         pub setDividerStyle(style: i64)
         @objc("adjustSubviews")
         pub adjustSubviews()
+        /// Drag the divider at `dividerIndex` to `position`
+        /// pixels along the splitter's main axis. `0` is the
+        /// divider between the first two subviews.
+        @objc("setPosition:ofDividerAtIndex:")
+        pub setPosition(position: f64, ofDividerAtIndex: i64)
     }
 
     /// `NSGridView` — 2-D grid layout. Build top-down with
