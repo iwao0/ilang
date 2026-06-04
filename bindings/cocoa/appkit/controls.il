@@ -49,6 +49,22 @@ pub enum NSDatePickerStyle: u64 {
     textField           = 2
 }
 
+/// NSDatePickerElementFlags — bit field describing which
+/// calendar / time elements are editable in an `NSDatePicker`.
+/// Combine with `|`. `yearMonthDay` shows year + month + day;
+/// `hourMinuteSecond` is the full clock; mixing flags from both
+/// halves (e.g. `yearMonthDay | hourMinute`) gives a combined
+/// date+time picker.
+@flags
+pub enum NSDatePickerElementFlags: u64 {
+    hourMinute         = 0x000C
+    hourMinuteSecond   = 0x000E
+    timeZone           = 0x0010
+    yearMonth          = 0x00C0
+    yearMonthDay       = 0x00E0
+    era                = 0x0100
+}
+
 @extern(ObjC, "/System/Library/Frameworks/AppKit.framework/AppKit") {
     /// NSButton. `alloc + initWithFrame:` follows the standard
     /// two-step pattern. Target/action follows the standard
@@ -384,6 +400,22 @@ pub enum NSDatePickerStyle: u64 {
         pub setMinDate(d: NSDate)
         @objc("setMaxDate:")
         pub setMaxDate(d: NSDate)
+        /// Which calendar/time elements the user can edit. Pass
+        /// `yearMonthDay` for a pure date picker, `hourMinute`
+        /// or `hourMinuteSecond` for a pure time picker, or OR
+        /// them together for a combined widget.
+        @objc("setDatePickerElements:")
+        pub setDatePickerElements(flags: NSDatePickerElementFlags)
+        /// Target/action — inherited from `NSControl`; fires when
+        /// the user picks a new date / time.
+        @objc("setTarget:")
+        pub setTarget(target: NSObject)
+        @objc("setAction:")
+        pub setAction(sel: i64)
+        @objc("setContinuous:")
+        pub setContinuous(flag: bool)
+        @objc("setEnabled:")
+        pub setEnabled(flag: bool)
     }
 
     /// `NSBox` — titled / bordered container view. Wraps a

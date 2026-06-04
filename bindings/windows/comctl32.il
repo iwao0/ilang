@@ -601,6 +601,64 @@ use windef { HINSTANCE, HWND, RECT }
         iDelta: i32
     }
 
+    // ── Date / time picker (SysDateTimePick32) ─────────────────
+
+    /// `DTS_*` window-style bits.
+    pub const DTS_SHORTDATEFORMAT:      u32 = 0x0000 as u32
+    pub const DTS_UPDOWN:               u32 = 0x0001 as u32
+    pub const DTS_SHOWNONE:             u32 = 0x0002 as u32
+    pub const DTS_LONGDATEFORMAT:       u32 = 0x0004 as u32
+    pub const DTS_TIMEFORMAT:           u32 = 0x0009 as u32
+    pub const DTS_APPCANPARSE:          u32 = 0x0010 as u32
+    pub const DTS_RIGHTALIGN:           u32 = 0x0020 as u32
+    pub const DTS_SHORTDATECENTURYFORMAT: u32 = 0x000C as u32
+
+    /// DateTimePick messages.
+    pub const DTM_GETSYSTEMTIME: u32 = 0x1001 as u32
+    pub const DTM_SETSYSTEMTIME: u32 = 0x1002 as u32
+    pub const DTM_GETRANGE:      u32 = 0x1003 as u32
+    pub const DTM_SETRANGE:      u32 = 0x1004 as u32
+
+    /// `GDT_*` — DTM_GETSYSTEMTIME / DTM_SETSYSTEMTIME's
+    /// `GDT_VALID` (0) vs `GDT_NONE` (1, "no date") result code
+    /// / wParam.
+    pub const GDT_VALID: u64 = 0 as u64
+    pub const GDT_NONE:  u64 = 1 as u64
+
+    /// `GDTR_MIN` / `GDTR_MAX` — bit flags for the wParam of
+    /// `DTM_SETRANGE` describing which slots in the `SYSTEMTIME[2]`
+    /// payload are populated.
+    pub const GDTR_MIN: u64 = 0x0001 as u64
+    pub const GDTR_MAX: u64 = 0x0002 as u64
+
+    /// `DTN_*` notification codes arriving via WM_NOTIFY.
+    pub const DTN_DATETIMECHANGE: i32 = -759 as i32
+
+    /// `SYSTEMTIME` — 8 × WORD calendar/time struct. 16 bytes.
+    pub struct SYSTEMTIME {
+        wYear:          u16
+        wMonth:         u16
+        wDayOfWeek:     u16
+        wDay:           u16
+        wHour:          u16
+        wMinute:        u16
+        wSecond:        u16
+        wMilliseconds:  u16
+    }
+
+    /// `NMDATETIMECHANGE` — payload of `DTN_DATETIMECHANGE`.
+    /// Layout (x64):
+    ///   hdr     NMHDR       0..24
+    ///   dwFlags u32        24..28
+    ///   _pad    u32        28..32
+    ///   st      SYSTEMTIME 32..48
+    pub struct NMDATETIMECHANGE {
+        hdr:     NMHDR
+        dwFlags: u32
+        _pad:    u32
+        st:      SYSTEMTIME
+    }
+
     /// Default window procedure for subclassed controls. Bind via
     /// `MAKELONG(ctrlId, 0)` callbacks etc.
     @lib pub fn DefSubclassProc(hWnd: HWND, uMsg: u32, wParam: u64, lParam: i64): i64

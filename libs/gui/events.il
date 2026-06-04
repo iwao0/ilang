@@ -368,6 +368,40 @@ pub class NumericChangeEvent : Event {
     }
 }
 
+/// Fired when a `DatePicker`'s value changes. `year` / `month`
+/// / `day` are the new calendar fields the user picked. The
+/// `DatePicker` itself stores a full `std.time.DateTime` and
+/// reads these back through the event; `year` / `month` /
+/// `day` are split out here so listeners that don't care about
+/// the wider time-of-day fields don't have to deal with them.
+pub class DateChangeEvent : Event {
+    pub year:  i32
+    pub month: i32
+    pub day:   i32
+    pub init(sender: EventTarget, year: i32, month: i32, day: i32) {
+        super(sender)
+        this.year  = year
+        this.month = month
+        this.day   = day
+    }
+}
+
+/// Fired when a `TimePicker`'s value changes. `hour` /
+/// `minute` / `second` carry the new wall-clock time the user
+/// committed. `second` is `0` on pickers built with
+/// `showSeconds = false`.
+pub class TimeChangeEvent : Event {
+    pub hour:   i32
+    pub minute: i32
+    pub second: i32
+    pub init(sender: EventTarget, hour: i32, minute: i32, second: i32) {
+        super(sender)
+        this.hour   = hour
+        this.minute = minute
+        this.second = second
+    }
+}
+
 /// Fired when files are dropped onto a window or widget. `files`
 /// holds the absolute paths in the order the OS reported them;
 /// `x` / `y` are the drop coordinates in the receiver's local
