@@ -26,6 +26,7 @@ use windows {
     SetLayeredWindowAttributes, WindowStyleEx, LayeredWindowFlags,
     FlashWindowEx, FLASHWINFO, FlashWindowFlags,
     CoInitializeEx, CoCreateInstance, CoInit, ClsCtx,
+    LoadImageW, SendMessageW,
     NULL,
 }
 use shobjidl {
@@ -654,6 +655,30 @@ pub fn runEventLoop() {
         if r <= 0 { break }
         TranslateMessage(&msg)
         DispatchMessageW(&msg)
+    }
+}
+
+/// `IMAGE_ICON` = 1; `LR_LOADFROMFILE` = 0x10; `LR_DEFAULTSIZE` = 0x40.
+/// WM_SETICON = 0x0080; `ICON_SMALL` = 0; `ICON_BIG` = 1.
+pub fn setNativeWindowIcon(handle: i64, path: string) {
+    if let some(slot) = WINDOWS.get(handle) {
+        if path == "" {
+            // Clearing — pass NULL for both sizes so the OS falls
+            // back to the class default.
+            SendMessageW(slot.hwnd, 0x0080 as u32, 0 as u64, 0 as i64)
+            SendMessageW(slot.hwnd, 0x0080 as u32, 1 as u64, 0 as i64)
+            return
+        }
+        let pathW = path.encodeUtf16()
+        let hIcon = LoadImageW(
+            0 as *void, pathW,
+            1 as u32,                          // IMAGE_ICON
+            0 as i32, 0 as i32,                // default size
+            0x10 as u32 | 0x40 as u32          // LR_LOADFROMFILE | LR_DEFAULTSIZE
+        )
+        if hIcon as i64 == 0 as i64 { return }
+        SendMessageW(slot.hwnd, 0x0080 as u32, 0 as u64, hIcon as i64)
+        SendMessageW(slot.hwnd, 0x0080 as u32, 1 as u64, hIcon as i64)
     }
 }
 

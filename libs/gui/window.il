@@ -77,6 +77,7 @@ use gui_impl {
     setWindowMenuBar, menuPopup,
     showAlertDialog, showConfirmDialog,
     showOpenFileDialog, showSaveFileDialog,
+    setNativeWindowIcon,
 }
 use menubar { Menu }
 
@@ -749,5 +750,14 @@ pub class Window : Container {
     /// the chosen path, or `""` if cancelled.
     pub saveFile(suggestedName: string, callback: fn(string)) {
         showSaveFileDialog(this.handle, suggestedName, callback)
+    }
+
+    /// Set the window's taskbar / title-bar icon from a file
+    /// (Win32 prefers `.ico`; PNG / BMP also load via GDI+).
+    /// Empty string clears the icon back to the OS default.
+    /// macOS / GTK4 don't expose a direct path-based per-window
+    /// icon API — those platforms surface this as a no-op.
+    pub setIcon(path: string) {
+        setNativeWindowIcon(this.handle, path)
     }
 }

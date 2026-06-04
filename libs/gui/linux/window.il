@@ -770,4 +770,11 @@ pub fn getNativeWindowOpacity(handle: i64): f64 {
     }
 }
 
+/// GTK 4 dropped `gtk_window_set_icon_from_file`; the supported
+/// path goes through `gtk_window_set_icon_name`, which expects an
+/// icon-theme name rather than a filesystem path. Round 2 may
+/// wire `GdkTexture`-based custom icons through
+/// `gtk_window_set_default_icon_name`. Stub for now.
+pub fn setNativeWindowIcon(handle: i64, path: string) {}
+
 } // @extern(C)

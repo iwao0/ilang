@@ -524,3 +524,10 @@ pub fn setNativeWindowProgressBar(handle: i64, progress: f64) {
     tile.setContentView(bar as NSView)
     tile.display()
 }
+
+/// Per-window icon on macOS is the document proxy icon, which
+/// is tied to `setRepresentedURL:` (a real filesystem URL).
+/// Setting an arbitrary image as the title-bar icon isn't part
+/// of the standard AppKit surface — Round 2 may wire dock-tile
+/// image swapping for a global app icon. Stub for now.
+pub fn setNativeWindowIcon(handle: i64, path: string) {}
