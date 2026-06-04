@@ -53,6 +53,7 @@ pub use canvas.*
 pub use imageview.*
 pub use scrollview.*
 pub use splitview.*
+pub use notification.*
 pub use trayicon.*
 pub use tabview.*
 pub use clipboard.*

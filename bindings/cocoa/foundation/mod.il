@@ -29,4 +29,5 @@ pub use activity.*
 pub use extension.*
 pub use xpc.*
 pub use applescript.*
+pub use notifications.*
 pub use keycodes.*

@@ -19,6 +19,7 @@ pub use groupbox.*
 pub use menu.*
 pub use canvas.*
 pub use imageview.*
+pub use notification.*
 pub use scrollview.*
 pub use splitview.*
 pub use statusbar.*

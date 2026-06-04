@@ -1,0 +1,5 @@
+[package]
+name = "gui_notification_example"
+
+[deps]
+gui = "../../../../libs/gui"
