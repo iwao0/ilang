@@ -26,6 +26,7 @@ pub use tree.*
 pub use table.*
 pub use numericupdown.*
 pub use datepicker.*
+pub use timepicker.*
 pub use groupbox.*
 pub use menu.*
 pub use canvas.*
