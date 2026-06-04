@@ -1,4 +1,4 @@
-// 🎛 libs/gui — Checkbox, Slider, ProgressBar, ComboBox.
+// 🎛 libs/gui — Checkbox, Slider, ProgressBar, ComboBox, Switch.
 //
 // A small "control panel" window:
 // - Checkbox toggles whether the slider's value drives the
@@ -7,6 +7,7 @@
 //   checked.
 // - ComboBox cycles the slider colour-label which prints to the
 //   console.
+// - Switch enables / disables the slider.
 //
 // Run with:
 //   ilang run examples/libs/gui/controls/main.il
@@ -67,6 +68,16 @@ combo.onSelect.add(fn(e: gui.SelectEvent) {
     console.log("colour:", e.value, "@", e.index)
 })
 w.addChild(combo)
+
+let sw = new gui.Switch()
+sw.x      = 200.0
+sw.y      = 140.0
+sw.checked = true
+sw.onToggle.add(fn(e: gui.ToggleEvent) {
+    slider.isEnabled = e.checked
+    console.log("slider enabled:", e.checked)
+})
+w.addChild(sw)
 
 w.show()
 gui.run()

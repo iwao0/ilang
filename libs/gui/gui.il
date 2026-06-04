@@ -16,6 +16,7 @@
 ///   label.il       — `Label`
 ///   textfield.il   — `TextField`
 ///   checkbox.il    — `Checkbox`
+///   switch.il      — `Switch`
 ///   radio.il       — `RadioButton`
 ///   slider.il      — `Slider`
 ///   progressbar.il — `ProgressBar`
@@ -43,6 +44,7 @@ pub use label.*
 pub use textfield.*
 pub use textarea.*
 pub use checkbox.*
+pub use switch.*
 pub use radio.*
 pub use slider.*
 pub use progressbar.*

@@ -27,6 +27,7 @@ pub use label.*
 pub use edit.*
 pub use textarea.*
 pub use checkbox.*
+pub use switch.*
 pub use slider.*
 pub use progress.*
 pub use combo.*

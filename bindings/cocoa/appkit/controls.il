@@ -134,6 +134,31 @@ pub enum NSDatePickerElementFlags: u64 {
         pub setHighlighted(flag: bool)
     }
 
+    /// NSSwitch. macOS 10.15+. Standalone on/off switch — separate
+    /// class from NSButton (the button-type-switch checkbox is a
+    /// look, not a real switch). `state` reads / writes the same
+    /// `NSControlStateValueOn = 1` / `Off = 0` values as NSButton.
+    @objc pub class NSSwitch : NSView {
+        @objc("alloc")
+        pub static alloc(): NSSwitch
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSSwitch
+
+        @objc("state")
+        pub get state(): i64
+        @objc("setState:")
+        pub set state(v: i64)
+
+        @objc("setTarget:")
+        pub setTarget(target: NSObject)
+        @objc("setAction:")
+        pub setAction(sel: i64)
+        @objc("setEnabled:")
+        pub setEnabled(flag: bool)
+        @objc("isEnabled")
+        pub get isEnabled(): bool
+    }
+
     /// NSTextField. Doubles as both an editable text input and a
     /// non-editable label (set `setEditable(false)` + `setBordered(false)` +
     /// `setDrawsBackground(false)` for the label look — `makeLabel`
