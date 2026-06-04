@@ -5,6 +5,7 @@
 
 use foundation { NSObject, NSString, NSArray, NSDate, NSRect, nsstr, makeRect }
 use core { NSView }
+use image { NSImage }
 
 /// NSBezelStyle — visual style of a push button. `push` is the
 /// standard Mac-style rounded blue button; the rest are
@@ -69,6 +70,11 @@ pub enum NSDatePickerStyle: u64 {
         /// estimated width a caller might compute by hand.
         @objc("sizeToFit")
         pub sizeToFit()
+        /// Set the button's icon (NSImage). Used by status-bar
+        /// items / toolbar buttons; left nil on text-only
+        /// buttons.
+        @objc("setImage:")
+        pub setImage(img: NSImage)
         /// Switch to checkbox / radio / push-on-push-off / etc. by
         /// passing the matching `NSButtonType` (= `i64` on macOS).
         /// `3` = `NSButtonTypeSwitch` (checkbox).
