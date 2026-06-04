@@ -184,6 +184,12 @@ pub enum NSTableViewGridLineStyle: u64 {
         pub get doubleAction(): i64
         @objc("setDoubleAction:")
         pub set doubleAction(sel: i64)
+        /// Target/action used by `setDoubleAction:`. Inherited
+        /// from `NSControl` in real Cocoa; bound explicitly here
+        /// since the ilang binding doesn't surface `NSControl`'s
+        /// surface on every concrete subclass.
+        @objc("setTarget:")
+        pub setTarget(target: NSObject)
 
         @objc("scrollRowToVisible:")
         pub scrollRowToVisible(row: i64)

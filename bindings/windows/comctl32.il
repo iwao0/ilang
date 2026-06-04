@@ -382,6 +382,189 @@ use windef { HINSTANCE, HWND, RECT }
         ptDragY:  i32
     }
 
+    // ── List view (SysListView32, report mode) ─────────────────
+
+    /// `LVS_*` window-style bits. `LVS_REPORT` is the multi-
+    /// column "details" view; we always set it for our `Table`.
+    pub const LVS_ICON:           u32 = 0x0000 as u32
+    pub const LVS_REPORT:         u32 = 0x0001 as u32
+    pub const LVS_SMALLICON:      u32 = 0x0002 as u32
+    pub const LVS_LIST:           u32 = 0x0003 as u32
+    pub const LVS_SINGLESEL:      u32 = 0x0004 as u32
+    pub const LVS_SHOWSELALWAYS:  u32 = 0x0008 as u32
+    pub const LVS_NOLABELWRAP:    u32 = 0x0080 as u32
+    pub const LVS_AUTOARRANGE:    u32 = 0x0100 as u32
+    pub const LVS_EDITLABELS:     u32 = 0x0200 as u32
+
+    /// Extended styles — `LVM_SETEXTENDEDLISTVIEWSTYLE` payload.
+    pub const LVS_EX_FULLROWSELECT:  u32 = 0x0020 as u32
+    pub const LVS_EX_GRIDLINES:      u32 = 0x0001 as u32
+    pub const LVS_EX_DOUBLEBUFFER:   u32 = 0x00010000 as u32
+
+    /// `LVCF_*` — LVCOLUMNW.mask bits.
+    pub const LVCF_FMT:       u32 = 0x0001 as u32
+    pub const LVCF_WIDTH:     u32 = 0x0002 as u32
+    pub const LVCF_TEXT:      u32 = 0x0004 as u32
+    pub const LVCF_SUBITEM:   u32 = 0x0008 as u32
+
+    pub const LVCFMT_LEFT:    i32 = 0x0000 as i32
+    pub const LVCFMT_RIGHT:   i32 = 0x0001 as i32
+    pub const LVCFMT_CENTER:  i32 = 0x0002 as i32
+
+    /// `LVIF_*` — LVITEMW.mask bits.
+    pub const LVIF_TEXT:      u32 = 0x0001 as u32
+    pub const LVIF_IMAGE:     u32 = 0x0002 as u32
+    pub const LVIF_PARAM:     u32 = 0x0004 as u32
+    pub const LVIF_STATE:     u32 = 0x0008 as u32
+    pub const LVIF_INDENT:    u32 = 0x0010 as u32
+
+    /// `LVIS_*` — item state bits.
+    pub const LVIS_FOCUSED:        u32 = 0x0001 as u32
+    pub const LVIS_SELECTED:       u32 = 0x0002 as u32
+    pub const LVIS_CUT:            u32 = 0x0004 as u32
+    pub const LVIS_DROPHILITED:    u32 = 0x0008 as u32
+    pub const LVIS_STATEIMAGEMASK: u32 = 0xF000 as u32
+
+    /// `LVNI_*` — selectors for `LVM_GETNEXTITEM`.
+    pub const LVNI_ALL:        u32 = 0x0000 as u32
+    pub const LVNI_FOCUSED:    u32 = 0x0001 as u32
+    pub const LVNI_SELECTED:   u32 = 0x0002 as u32
+
+    /// SysListView32 messages (LVM_FIRST = 0x1000).
+    pub const LVM_GETITEMCOUNT:    u32 = 0x1004 as u32
+    pub const LVM_DELETEITEM:      u32 = 0x1008 as u32
+    pub const LVM_DELETEALLITEMS:  u32 = 0x1009 as u32
+    pub const LVM_GETNEXTITEM:     u32 = 0x100C as u32
+    pub const LVM_INSERTITEMW:     u32 = 0x104D as u32
+    pub const LVM_SETITEMW:        u32 = 0x104C as u32
+    pub const LVM_GETITEMW:        u32 = 0x104B as u32
+    pub const LVM_SETITEMTEXTW:    u32 = 0x1074 as u32
+    pub const LVM_SETITEMSTATE:    u32 = 0x102B as u32
+    pub const LVM_GETITEMSTATE:    u32 = 0x102C as u32
+    pub const LVM_INSERTCOLUMNW:   u32 = 0x1061 as u32
+    pub const LVM_DELETECOLUMN:    u32 = 0x101C as u32
+    pub const LVM_SETCOLUMNWIDTH:  u32 = 0x101E as u32
+    pub const LVM_ENSUREVISIBLE:   u32 = 0x1013 as u32
+    pub const LVM_SETEXTENDEDLISTVIEWSTYLE: u32 = 0x1036 as u32
+
+    /// `LVN_*` notification codes arriving via WM_NOTIFY. (Subset.)
+    pub const LVN_ITEMCHANGED:  i32 = -101 as i32
+    pub const LVN_ITEMACTIVATE: i32 = -114 as i32
+    /// `NM_DBLCLK` — generic common-control notification for a
+    /// double-click on the item area.
+    pub const NM_DBLCLK: i32 = -3 as i32
+
+    /// `LVCOLUMNW` — column descriptor for `LVM_INSERTCOLUMNW`.
+    /// Layout (x64):
+    ///   mask        u32      0..4
+    ///   fmt         i32      4..8
+    ///   cx          i32      8..12
+    ///   _pad        u32     12..16
+    ///   pszText     *u16    16..24
+    ///   cchTextMax  i32     24..28
+    ///   iSubItem    i32     28..32
+    ///   iImage      i32     32..36
+    ///   iOrder      i32     36..40
+    ///   cxMin       i32     40..44
+    ///   cxDefault   i32     44..48
+    ///   cxIdeal     i32     48..52
+    /// Size = 52 (52 → 56 with trailing pad on the struct slot).
+    pub struct LVCOLUMNW {
+        mask:        u32
+        fmt:         i32
+        cx:          i32
+        _pad0:       u32
+        pszText:     *const u16
+        cchTextMax:  i32
+        iSubItem:    i32
+        iImage:      i32
+        iOrder:      i32
+        cxMin:       i32
+        cxDefault:   i32
+        cxIdeal:     i32
+    }
+
+    /// `LVITEMW` — item descriptor for `LVM_INSERTITEMW` /
+    /// `LVM_SETITEMTEXTW`. We expose every field through
+    /// `_WIN32_WINNT >= 0x0600` so the size matches what Vista+
+    /// `comctl32` writes.
+    /// Layout (x64):
+    ///   mask        u32      0..4
+    ///   iItem       i32      4..8
+    ///   iSubItem    i32      8..12
+    ///   state       u32     12..16
+    ///   stateMask   u32     16..20
+    ///   _pad0       u32     20..24
+    ///   pszText     *u16    24..32
+    ///   cchTextMax  i32     32..36
+    ///   iImage      i32     36..40
+    ///   lParam      i64     40..48
+    ///   iIndent     i32     48..52
+    ///   _pad1       i32     52..56
+    ///   iGroupId    i32     56..60
+    ///   _pad2       i32     60..64
+    ///   cColumns    u32     64..68
+    ///   _pad3       u32     68..72
+    ///   puColumns   *void   72..80
+    ///   piColFmt    *void   80..88
+    ///   iGroup      i32     88..92
+    /// Size = 96 with trailing pad.
+    pub struct LVITEMW {
+        mask:        u32
+        iItem:       i32
+        iSubItem:    i32
+        state:       u32
+        stateMask:   u32
+        _pad0:       u32
+        pszText:     *const u16
+        cchTextMax:  i32
+        iImage:      i32
+        lParam:      i64
+        iIndent:     i32
+        _pad1:       i32
+        iGroupId:    i32
+        _pad2:       i32
+        cColumns:    u32
+        _pad3:       u32
+        puColumns:   *void
+        piColFmt:    *void
+        iGroup:      i32
+        _pad4:       i32
+    }
+
+    /// `NMITEMACTIVATE` — payload of `LVN_ITEMACTIVATE` /
+    /// `NM_DBLCLK` on a SysListView32 control. We only read
+    /// `hdr` + `iItem`; the rest is here for documentation.
+    pub struct NMITEMACTIVATE {
+        hdr:        NMHDR
+        iItem:      i32
+        iSubItem:   i32
+        uNewState:  u32
+        uOldState:  u32
+        uChanged:   u32
+        ptActionX:  i32
+        ptActionY:  i32
+        lParam:     i64
+        uKeyFlags:  u32
+        _pad:       u32
+    }
+
+    /// `NMLISTVIEW` — payload of `LVN_ITEMCHANGED`. `iItem` is
+    /// the row, `uChanged`/`uNewState`/`uOldState` describe what
+    /// changed (we watch `LVIS_SELECTED` bit flipping in
+    /// `uNewState`).
+    pub struct NMLISTVIEW {
+        hdr:        NMHDR
+        iItem:      i32
+        iSubItem:   i32
+        uNewState:  u32
+        uOldState:  u32
+        uChanged:   u32
+        ptActionX:  i32
+        ptActionY:  i32
+        lParam:     i64
+    }
+
     /// Default window procedure for subclassed controls. Bind via
     /// `MAKELONG(ctrlId, 0)` callbacks etc.
     @lib pub fn DefSubclassProc(hWnd: HWND, uMsg: u32, wParam: u64, lParam: i64): i64

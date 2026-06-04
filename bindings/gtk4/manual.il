@@ -462,4 +462,14 @@ pub enum Keyval: u32 {
         c_handler: fn(i64, i64, i64),
         data: *void, destroy_data: i64, flags: u32
     ): u64
+
+    /// `void(GtkColumnView*, guint position, gpointer)` — the
+    /// `activate` signal on `GtkColumnView` / `GtkListView`,
+    /// fired by Enter or double-click on a row.
+    @symbol("g_signal_connect_data")
+    @lib pub fn g_signal_connect_activate_u32(
+        instance: GObject, signal_name: *const char,
+        c_handler: fn(i64, u32, i64),
+        data: *void, destroy_data: i64, flags: u32
+    ): u64
 }

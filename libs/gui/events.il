@@ -328,6 +328,34 @@ pub class TreeCheckEvent : Event {
     }
 }
 
+/// Fired when a `Table`'s selected row changes. `row` is the
+/// new 0-based row index (`-1` if the selection was cleared);
+/// `rowData` is the matching row's cell strings (empty array on
+/// a cleared selection).
+pub class TableSelectEvent : Event {
+    pub row: i32
+    pub rowData: string[]
+    pub init(sender: EventTarget, row: i32, rowData: string[]) {
+        super(sender)
+        this.row = row
+        this.rowData = rowData
+    }
+}
+
+/// Fired when the user activates a `Table` row — typically a
+/// double-click on macOS / Win32, an `activate` signal (Enter /
+/// double-click) on GTK. `row` and `rowData` mirror
+/// `TableSelectEvent`.
+pub class TableActivateEvent : Event {
+    pub row: i32
+    pub rowData: string[]
+    pub init(sender: EventTarget, row: i32, rowData: string[]) {
+        super(sender)
+        this.row = row
+        this.rowData = rowData
+    }
+}
+
 /// Fired when files are dropped onto a window or widget. `files`
 /// holds the absolute paths in the order the OS reported them;
 /// `x` / `y` are the drop coordinates in the receiver's local
