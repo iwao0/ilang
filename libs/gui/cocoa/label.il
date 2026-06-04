@@ -9,7 +9,7 @@ use cocoa {
     classPtr, setObjectClass,
 }
 use core {
-    WINDOWS, noOpEnterLeave, noOpClickMod, noOpWheel,
+    WINDOWS, resolveParentView, noOpEnterLeave, noOpClickMod, noOpWheel,
     modCtrl, modShift, modAlt, modMeta,
 }
 
@@ -159,7 +159,7 @@ pub fn createNativeLabel(
     text: string, x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool, selectable: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveParentView(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -185,7 +185,7 @@ pub fn createNativeLabel(
         lbl as NSObject, nil
     )
     (lbl as NSView).addTrackingArea(area as NSObject)
-    winSlot.win.contentView.addSubview(lbl as NSView)
+    parent.addSubview(lbl as NSView)
     let handle = (lbl as NSView).handle
     LABELS[handle] = new LabelSlot(lbl)
     handle

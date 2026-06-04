@@ -6,7 +6,7 @@ use cocoa {
     NSProgressIndicatorStyle, nsstr, nil,
     makeRect, makeProgressBar,
 }
-use core { WINDOWS }
+use core { WINDOWS, resolveParentView }
 
 class ProgressSlot {
     pub bar: NSProgressIndicator
@@ -21,13 +21,13 @@ pub fn createNativeProgress(
     x: f64, y: f64, width: f64, height: f64,
     visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveParentView(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
     let p = makeProgressBar(min, max, value, x, y, width, height)
     p.setHidden(!visible)
-    winSlot.win.contentView.addSubview(p as NSView)
+    parent.addSubview(p as NSView)
     let handle = (p as NSView).handle
     PROGRESS_BARS[handle] = new ProgressSlot(p)
     handle

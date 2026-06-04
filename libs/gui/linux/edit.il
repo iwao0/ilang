@@ -26,7 +26,7 @@ use gtk {
     gtk_window_get_focus, gtk_window_set_focus,
     g_signal_connect_data, g_signal_connect_key, g_signal_connect_scroll,
 }
-use core { WINDOWS, WindowSlot, noOpText, noOpClose }
+use core { WINDOWS, resolveGtkParent, WindowSlot, noOpText, noOpClose }
 use window { keyvalToCode }
 
 class EditSlot {
@@ -212,7 +212,7 @@ pub fn createNativeEdit(
     text: string, x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveGtkParent(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -227,7 +227,7 @@ pub fn createNativeEdit(
         entry as GtkWidget,
         if visible { 1 as i32 } else { 0 as i32 }
     )
-    gtk_fixed_put(winSlot.fixed, entry as GtkWidget, x, y)
+    gtk_fixed_put(parent.fixed, entry as GtkWidget, x, y)
 
     g_signal_connect_data(
         entry as GObject,
@@ -306,7 +306,7 @@ pub fn createNativeEdit(
     )
 
     let handle = entry as i64
-    EDITS[handle] = new EditSlot(entry, winSlot.fixed, windowHandle)
+    EDITS[handle] = new EditSlot(entry, parent.fixed, windowHandle)
     handle
 }
 
@@ -390,10 +390,10 @@ pub fn blurEdit(handle: i64) {
         // Only clear when this entry actually has focus, mirroring
         // the cocoa / win32 paths. Walk the parent WindowSlot to
         // find the GtkWindow that owns focus state.
-        if let some(winSlot) = WINDOWS.get(slot.winHandle) {
-            let cur = gtk_window_get_focus(winSlot.win)
+        if let some(parent) = resolveGtkParent(slot.winHandle) {
+            let cur = gtk_window_get_focus(parent.win)
             if cur as i64 == slot.entry as i64 {
-                gtk_window_set_focus(winSlot.win, 0 as GtkWidget)
+                gtk_window_set_focus(parent.win, 0 as GtkWidget)
             }
         }
     }

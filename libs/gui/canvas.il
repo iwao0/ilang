@@ -22,7 +22,7 @@
 
 use std.events { Signal }
 use events { KeyEvent, MouseEvent, FocusEvent, BlurEvent, FilesDroppedEvent }
-use window { Window, Control }
+use window { Window, Control, Container }
 use gui_impl {
     createNativeCanvas, setCanvasFrame,
     setCanvasEnabled, setCanvasVisible, setCanvasTooltip,
@@ -287,10 +287,10 @@ pub class Canvas : Control {
         new TextMetrics(0.0, 0.0, 0.0, 0.0)
     }
 
-    pub override attachTo(window: Window) {
+    pub override attachTo(parent: Container) {
         if this.handle >= 0 { return }
         this.handle = createNativeCanvas(
-            window.handle,
+            parent.nativeChildHandle(),
             this._x, this._y, this._width, this._height,
             this._isEnabled, this._isVisible
         )
@@ -366,6 +366,8 @@ pub class Canvas : Control {
             setCanvasFrame(this.handle, this._x, this._y, this._width, this._height)
         }
     }
+    pub override frameX():      f64 { this._x }
+    pub override frameY():      f64 { this._y }
     pub override frameWidth():  f64 { this._width }
     pub override frameHeight(): f64 { this._height }
 }

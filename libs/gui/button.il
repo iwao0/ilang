@@ -15,7 +15,7 @@
 
 use std.events { Signal }
 use events { MouseEvent, FocusEvent, BlurEvent, KeyEvent }
-use window { Window, Control }
+use window { Window, Control, Container }
 use gui_impl {
     createNativeButton,
     setOnButtonClick, setOnButtonFocus, setOnButtonBlur,
@@ -173,10 +173,10 @@ pub class Button : Control {
     /// Realize the native control under `window`. Called via
     /// `Window.addChild(this)` → `Control.attachTo`; not part of
     /// the public surface the user invokes directly.
-    pub override attachTo(window: Window) {
+    pub override attachTo(parent: Container) {
         if this.handle >= 0 { return }
         this.handle = createNativeButton(
-            window.handle,
+            parent.nativeChildHandle(),
             this._text, this._x, this._y, this._width, this._height,
             this._isEnabled, this._isVisible, this._isDefault
         )
@@ -262,6 +262,8 @@ pub class Button : Control {
             setButtonFrame(this.handle, this._x, this._y, this._width, this._height)
         }
     }
+    pub override frameX():      f64 { this._x }
+    pub override frameY():      f64 { this._y }
     pub override frameWidth():  f64 { this._width }
     pub override frameHeight(): f64 { this._height }
 }

@@ -2,7 +2,7 @@
 /// `NSProgressIndicator` (determinate bar). Set `value` within
 /// `[min, max]` to advance.
 
-use window { Window, Control }
+use window { Window, Control, Container }
 use layout { Orientation }
 use gui_impl {
     createNativeProgress,
@@ -127,10 +127,10 @@ pub class ProgressBar : Control {
         }
     }
 
-    pub override attachTo(window: Window) {
+    pub override attachTo(parent: Container) {
         if this.handle >= 0 { return }
         this.handle = createNativeProgress(
-            window.handle,
+            parent.nativeChildHandle(),
             this._min, this._max, this._value,
             this._x, this._y, this._width, this._height,
             this._isVisible
@@ -151,6 +151,8 @@ pub class ProgressBar : Control {
             setProgressFrame(this.handle, this._x, this._y, this._width, this._height)
         }
     }
+    pub override frameX():      f64 { this._x }
+    pub override frameY():      f64 { this._y }
     pub override frameWidth():  f64 { this._width }
     pub override frameHeight(): f64 { this._height }
 }

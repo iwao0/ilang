@@ -8,7 +8,7 @@ use cocoa {
     classPtr, setObjectClass,
 }
 use core {
-    WINDOWS, noOp1, noOpF64, noOpKey,
+    WINDOWS, resolveParentView, noOp1, noOpF64, noOpKey,
     noOpEnterLeave, noOpClickMod, noOpWheel,
     keyCodeToString, modCtrl, modShift, modAlt, modMeta,
 }
@@ -215,7 +215,7 @@ pub fn createNativeSlider(
     x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveParentView(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -244,7 +244,7 @@ pub fn createNativeSlider(
     )
     (s as NSView).addTrackingArea(area as NSObject)
 
-    winSlot.win.contentView.addSubview(s as NSView)
+    parent.addSubview(s as NSView)
 
     let handle = (s as NSView).handle
     SLIDERS[handle] = new SliderSlot(s, h as NSObject)

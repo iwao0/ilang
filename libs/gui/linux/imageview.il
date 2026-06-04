@@ -23,7 +23,7 @@ use gtk {
     g_signal_connect_data, g_signal_connect_motion, g_signal_connect_click,
     g_signal_connect_scroll,
 }
-use core { WINDOWS }
+use core { WINDOWS, resolveGtkParent }
 
 class ImageViewSlot {
     pub pic:   GtkPicture
@@ -137,7 +137,7 @@ pub fn createNativeImageView(
     x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveGtkParent(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -145,7 +145,7 @@ pub fn createNativeImageView(
     gtk_widget_set_size_request(pic as GtkWidget, width as i32, height as i32)
     gtk_widget_set_sensitive(pic as GtkWidget, if enabled { 1 as i32 } else { 0 as i32 })
     gtk_widget_set_visible(pic as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
-    gtk_fixed_put(winSlot.fixed, pic as GtkWidget, x, y)
+    gtk_fixed_put(parent.fixed, pic as GtkWidget, x, y)
 
     let motionCtl = gtk_event_controller_motion_new() as GtkEventControllerMotion
     gtk_widget_add_controller(pic as GtkWidget, motionCtl as GtkEventController)
@@ -180,7 +180,7 @@ pub fn createNativeImageView(
     )
 
     let handle = pic as i64
-    IMAGE_VIEWS[handle] = new ImageViewSlot(pic, winSlot.fixed)
+    IMAGE_VIEWS[handle] = new ImageViewSlot(pic, parent.fixed)
     handle
 }
 

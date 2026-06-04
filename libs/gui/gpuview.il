@@ -48,7 +48,7 @@
 /// in mouse events are GpuView-local pixels (origin = view's
 /// top-left).
 
-use window { Window, Control }
+use window { Window, Control, Container }
 use events {
     EventTarget, Event, KeyEvent, MouseEvent, SizeEvent,
     FocusEvent, BlurEvent,
@@ -285,10 +285,10 @@ pub class GpuView : Control {
         if this.handle >= 0 { requestGpuViewFrame(this.handle) }
     }
 
-    pub override attachTo(window: Window) {
+    pub override attachTo(parent: Container) {
         if this.handle >= 0 { return }
         this.handle = createNativeGpuView(
-            window.handle,
+            parent.nativeChildHandle(),
             this._x, this._y, this._width, this._height,
             this._isEnabled, this._isVisible
         )
@@ -385,6 +385,8 @@ pub class GpuView : Control {
             setGpuViewFrame(this.handle, this._x, this._y, this._width, this._height)
         }
     }
+    pub override frameX():      f64 { this._x }
+    pub override frameY():      f64 { this._y }
     pub override frameWidth():  f64 { this._width }
     pub override frameHeight(): f64 { this._height }
 }

@@ -11,7 +11,7 @@ use cocoa {
     classPtr, setObjectClass, selectorPtr,
 }
 use core {
-    WINDOWS, noOpText, noOp1, noOpKey,
+    WINDOWS, resolveParentView, noOpText, noOp1, noOpKey,
     noOpEnterLeave, noOpClickMod, noOpWheel,
     keyCodeToString, modCtrl, modShift, modAlt, modMeta,
 }
@@ -265,7 +265,7 @@ pub fn createNativeEdit(
     text: string, x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveParentView(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -297,7 +297,7 @@ pub fn createNativeEdit(
     let h = ChangeHandler.alloc().init()
     tf.setDelegate(h as NSObject)
 
-    winSlot.win.contentView.addSubview(tf as NSView)
+    parent.addSubview(tf as NSView)
 
     let handle = (tf as NSView).handle
     let slot = new EditSlot(tf, h as NSObject)

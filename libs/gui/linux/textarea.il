@@ -36,7 +36,7 @@ use gtk {
     gtk_window_get_focus, gtk_window_set_focus,
     g_signal_connect_data, g_signal_connect_key, g_signal_connect_scroll,
 }
-use core { WINDOWS, noOpText, noOpClose }
+use core { WINDOWS, resolveGtkParent, noOpText, noOpClose }
 use window { keyvalToCode }
 
 class TextAreaSlot {
@@ -217,7 +217,7 @@ pub fn createNativeTextArea(
     text: string, x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveGtkParent(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -235,10 +235,10 @@ pub fn createNativeTextArea(
     gtk_widget_set_size_request(scroll as GtkWidget, width as i32, height as i32)
     gtk_widget_set_sensitive(scroll as GtkWidget, if enabled { 1 as i32 } else { 0 as i32 })
     gtk_widget_set_visible(scroll as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
-    gtk_fixed_put(winSlot.fixed, scroll as GtkWidget, x, y)
+    gtk_fixed_put(parent.fixed, scroll as GtkWidget, x, y)
 
     let handle = tv as i64
-    let slot = new TextAreaSlot(tv, scroll, winSlot.fixed, windowHandle)
+    let slot = new TextAreaSlot(tv, scroll, parent.fixed, windowHandle)
     slot.cachedText = text
     TEXT_AREAS[handle] = slot
 
@@ -357,10 +357,10 @@ pub fn focusTextArea(handle: i64) {
 }
 pub fn blurTextArea(handle: i64) {
     if let some(slot) = TEXT_AREAS.get(handle) {
-        if let some(winSlot) = WINDOWS.get(slot.winHandle) {
-            let cur = gtk_window_get_focus(winSlot.win)
+        if let some(parent) = resolveGtkParent(slot.winHandle) {
+            let cur = gtk_window_get_focus(parent.win)
             if cur as i64 == slot.view as i64 {
-                gtk_window_set_focus(winSlot.win, 0 as GtkWidget)
+                gtk_window_set_focus(parent.win, 0 as GtkWidget)
             }
         }
     }

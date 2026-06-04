@@ -34,7 +34,7 @@ use gtk {
     gtk_gesture_single_get_current_button,
     g_signal_connect_data, g_signal_connect_key, g_signal_connect_scroll,
 }
-use core { WINDOWS, noOpClick, noOpClose }
+use core { WINDOWS, resolveGtkParent, noOpClick, noOpClose }
 use window { keyvalToCode }
 
 class ButtonSlot {
@@ -291,7 +291,7 @@ pub fn createNativeButton(
     text: string, x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool, isDefault: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveGtkParent(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -305,7 +305,7 @@ pub fn createNativeButton(
         btn as GtkWidget,
         if visible { 1 as i32 } else { 0 as i32 }
     )
-    gtk_fixed_put(winSlot.fixed, btn as GtkWidget, x, y)
+    gtk_fixed_put(parent.fixed, btn as GtkWidget, x, y)
 
     g_signal_connect_data(
         btn as GObject,
@@ -428,7 +428,7 @@ pub fn createNativeButton(
 
     let handle = btn as i64
     BUTTONS[handle] = new ButtonSlot(
-        btn, winSlot.fixed, winSlot.win, windowHandle,
+        btn, parent.fixed, parent.win, windowHandle,
         x, y, width, height
     )
     if isDefault { setButtonDefault(handle, true) }

@@ -19,7 +19,7 @@ use gtk {
     gtk_gesture_single_set_button, gtk_gesture_single_get_current_button,
     g_signal_connect_data, g_signal_connect_scroll,
 }
-use core { WINDOWS }
+use core { WINDOWS, resolveGtkParent }
 
 class LabelSlot {
     pub label: GtkLabel
@@ -142,7 +142,7 @@ pub fn createNativeLabel(
     // `selectable` is honoured on macOS (NSTextField). GtkLabel
     // can expose `set_selectable` too, but we don't bind it yet
     // and the cursor stays as the default arrow regardless.
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveGtkParent(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -156,7 +156,7 @@ pub fn createNativeLabel(
         label as GtkWidget,
         if enabled { 1 as i32 } else { 0 as i32 }
     )
-    gtk_fixed_put(winSlot.fixed, label as GtkWidget, x, y)
+    gtk_fixed_put(parent.fixed, label as GtkWidget, x, y)
 
     // Motion controller for onMouseEnter / onMouseLeave.
     let motionCtl = gtk_event_controller_motion_new() as GtkEventControllerMotion
@@ -197,7 +197,7 @@ pub fn createNativeLabel(
     )
 
     let handle = label as i64
-    LABELS[handle] = new LabelSlot(label, winSlot.fixed)
+    LABELS[handle] = new LabelSlot(label, parent.fixed)
     handle
 }
 

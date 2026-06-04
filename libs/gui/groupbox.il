@@ -3,7 +3,7 @@
 /// title. Children are NOT reparented — lay them out manually
 /// over the frame's bounds.
 
-use window { Window, Control }
+use window { Window, Control, Container }
 use gui_impl {
     createNativeGroupBox,
     setGroupBoxText, setGroupBoxFrame, setGroupBoxVisible,
@@ -87,10 +87,10 @@ pub class GroupBox : Control {
         if this.handle >= 0 { setGroupBoxTooltip(this.handle, v) }
     }
 
-    pub override attachTo(window: Window) {
+    pub override attachTo(parent: Container) {
         if this.handle >= 0 { return }
         this.handle = createNativeGroupBox(
-            window.handle,
+            parent.nativeChildHandle(),
             this._text,
             this._x, this._y, this._width, this._height,
             this._isVisible
@@ -105,6 +105,8 @@ pub class GroupBox : Control {
             setGroupBoxFrame(this.handle, this._x, this._y, this._width, this._height)
         }
     }
+    pub override frameX():      f64 { this._x }
+    pub override frameY():      f64 { this._y }
     pub override frameWidth():  f64 { this._width }
     pub override frameHeight(): f64 { this._height }
 }

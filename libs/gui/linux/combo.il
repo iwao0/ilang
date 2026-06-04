@@ -31,7 +31,7 @@ use gtk {
     g_signal_connect_motion, g_signal_connect_click, g_signal_connect_scroll,
 }
 use window { keyvalToCode }
-use core { WINDOWS, noOp1, noOpI32 }
+use core { WINDOWS, resolveGtkParent, noOp1, noOpI32 }
 
 class ComboSlot {
     pub combo: GtkComboBoxText
@@ -205,7 +205,7 @@ pub fn createNativeCombo(
     x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveGtkParent(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -213,7 +213,7 @@ pub fn createNativeCombo(
     gtk_widget_set_size_request(c as GtkWidget, width as i32, height as i32)
     gtk_widget_set_sensitive(c as GtkWidget, if enabled { 1 as i32 } else { 0 as i32 })
     gtk_widget_set_visible(c as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
-    gtk_fixed_put(winSlot.fixed, c as GtkWidget, x, y)
+    gtk_fixed_put(parent.fixed, c as GtkWidget, x, y)
 
     g_signal_connect_data(
         c as GObject,
@@ -277,7 +277,7 @@ pub fn createNativeCombo(
     )
 
     let handle = c as i64
-    COMBOS[handle] = new ComboSlot(c, winSlot.fixed, windowHandle)
+    COMBOS[handle] = new ComboSlot(c, parent.fixed, windowHandle)
     handle
 }
 
@@ -330,10 +330,10 @@ pub fn focusCombo(handle: i64) {
 }
 pub fn blurCombo(handle: i64) {
     if let some(slot) = COMBOS.get(handle) {
-        if let some(winSlot) = WINDOWS.get(slot.winHandle) {
-            let cur = gtk_window_get_focus(winSlot.win)
+        if let some(parent) = resolveGtkParent(slot.winHandle) {
+            let cur = gtk_window_get_focus(parent.win)
             if cur as i64 == slot.combo as i64 {
-                gtk_window_set_focus(winSlot.win, 0 as GtkWidget)
+                gtk_window_set_focus(parent.win, 0 as GtkWidget)
             }
         }
     }

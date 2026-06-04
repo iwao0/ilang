@@ -5,7 +5,7 @@
 
 use std.events { Signal }
 use events { ToggleEvent, FocusEvent, BlurEvent, MouseEvent, KeyEvent }
-use window { Window, Control }
+use window { Window, Control, Container }
 use gui_impl {
     createNativeCheckbox, readCheckboxChecked,
     setOnCheckboxToggle, setCheckboxText, setCheckboxChecked,
@@ -128,10 +128,10 @@ pub class Checkbox : Control {
         if this.handle >= 0 { setCheckboxTooltip(this.handle, v) }
     }
 
-    pub override attachTo(window: Window) {
+    pub override attachTo(parent: Container) {
         if this.handle >= 0 { return }
         this.handle = createNativeCheckbox(
-            window.handle,
+            parent.nativeChildHandle(),
             this._text, this._checked,
             this._x, this._y, this._width, this._height,
             this._isEnabled, this._isVisible
@@ -194,6 +194,8 @@ pub class Checkbox : Control {
             setCheckboxFrame(this.handle, this._x, this._y, this._width, this._height)
         }
     }
+    pub override frameX():      f64 { this._x }
+    pub override frameY():      f64 { this._y }
     pub override frameWidth():  f64 { this._width }
     pub override frameHeight(): f64 { this._height }
 }

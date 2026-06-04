@@ -16,7 +16,7 @@ use gtk {
     gtk_widget_set_visible, gtk_widget_set_tooltip_text,
     g_signal_connect_data,
 }
-use core { WINDOWS }
+use core { WINDOWS, resolveGtkParent }
 
 class TabViewSlot {
     pub notebook: GtkNotebook
@@ -50,7 +50,7 @@ pub fn createNativeTabView(
     x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveGtkParent(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -58,7 +58,7 @@ pub fn createNativeTabView(
     gtk_widget_set_size_request(nb as GtkWidget, width as i32, height as i32)
     gtk_widget_set_sensitive(nb as GtkWidget, if enabled { 1 as i32 } else { 0 as i32 })
     gtk_widget_set_visible(nb as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
-    gtk_fixed_put(winSlot.fixed, nb as GtkWidget, x, y)
+    gtk_fixed_put(parent.fixed, nb as GtkWidget, x, y)
 
     g_signal_connect_data(
         nb as GObject, cstrFromString("switch-page"),
@@ -66,7 +66,7 @@ pub fn createNativeTabView(
     )
 
     let handle = nb as i64
-    TAB_VIEWS[handle] = new TabViewSlot(nb, winSlot.fixed)
+    TAB_VIEWS[handle] = new TabViewSlot(nb, parent.fixed)
     handle
 }
 

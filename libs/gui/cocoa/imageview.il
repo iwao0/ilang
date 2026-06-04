@@ -10,7 +10,7 @@ use cocoa {
     classPtr, setObjectClass,
 }
 use core {
-    WINDOWS,
+    WINDOWS, resolveParentView,
     noOpEnterLeave, noOpClickMod, noOpWheel,
     modCtrl, modShift, modAlt, modMeta,
 }
@@ -142,7 +142,7 @@ pub fn createNativeImageView(
     x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveParentView(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -166,7 +166,7 @@ pub fn createNativeImageView(
     )
     (iv as NSView).addTrackingArea(area as NSObject)
 
-    winSlot.win.contentView.addSubview(iv as NSView)
+    parent.addSubview(iv as NSView)
 
     let handle = (iv as NSView).handle
     IMAGE_VIEWS[handle] = new ImageViewSlot(iv)

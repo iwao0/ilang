@@ -118,6 +118,41 @@ pub class WindowSlot {
 
 pub let WINDOWS = new Map<i64, WindowSlot>()
 
+/// `GtkParent` — the pair every widget needs from its parent
+/// container: a `GtkFixed` to position the widget inside, and the
+/// top-level `GtkWindow` for focus / default-widget operations.
+/// Both `Window` (direct children land in `WindowSlot.fixed`) and
+/// `ScrollView` (children land in the scrolled window's inner
+/// fixed) publish themselves through `resolveGtkParent`.
+pub class GtkParent {
+    pub fixed: GtkFixed
+    pub win:   GtkWindow
+    pub init(fixed: GtkFixed, win: GtkWindow) {
+        this.fixed = fixed
+        this.win   = win
+    }
+}
+
+/// Per-non-window-container `GtkParent` table — `ScrollView`'s
+/// inner-fixed handle maps here so widgets parented under it find
+/// the right GtkFixed without going through WINDOWS.
+pub let GTK_PARENTS = new Map<i64, GtkParent>()
+
+/// Resolve a `parentHandle` (passed to every `createNative*`) to
+/// the `GtkParent` that should host the new widget. Returns `none`
+/// when the handle isn't a registered Window OR a registered
+/// non-window container, so the caller can fail-soft with
+/// `return -1`.
+pub fn resolveGtkParent(handle: i64): GtkParent? {
+    if let some(slot) = WINDOWS.get(handle) {
+        return some(new GtkParent(slot.fixed, slot.win))
+    }
+    if let some(p) = GTK_PARENTS.get(handle) {
+        return some(p)
+    }
+    none
+}
+
 /// Singleton GtkApplication. Created on first `createNativeWindow`,
 /// owned by the process. (Currently unused — see window.il for the
 /// manual gtk_init + GMainLoop path.)

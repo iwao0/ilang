@@ -2,7 +2,7 @@
 /// `boxType=primary` look (rounded border + small title).
 
 use cocoa { NSObject, NSBox, NSView, nsstr, nil, makeRect }
-use core { WINDOWS }
+use core { WINDOWS, resolveParentView }
 
 class GroupBoxSlot {
     pub box: NSBox
@@ -16,14 +16,14 @@ pub fn createNativeGroupBox(
     text: string, x: f64, y: f64, width: f64, height: f64,
     visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveParentView(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
     let box = NSBox.alloc().init(makeRect(x, y, width, height))
     box.setTitle(nsstr(text))
     box.setHidden(!visible)
-    winSlot.win.contentView.addSubview(box as NSView)
+    parent.addSubview(box as NSView)
     let handle = (box as NSView).handle
     GROUPBOXES[handle] = new GroupBoxSlot(box)
     handle

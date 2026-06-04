@@ -12,7 +12,7 @@ use gtk {
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
     gtk_widget_set_visible, gtk_widget_set_tooltip_text,
 }
-use core { WINDOWS }
+use core { WINDOWS, resolveGtkParent }
 
 class GroupBoxSlot {
     pub frame: GtkFrame
@@ -32,16 +32,16 @@ pub fn createNativeGroupBox(
     text: string, x: f64, y: f64, width: f64, height: f64,
     visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveGtkParent(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
     let f = gtk_frame_new(cstrFromString(text)) as GtkFrame
     gtk_widget_set_size_request(f as GtkWidget, width as i32, height as i32)
     gtk_widget_set_visible(f as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
-    gtk_fixed_put(winSlot.fixed, f as GtkWidget, x, y)
+    gtk_fixed_put(parent.fixed, f as GtkWidget, x, y)
     let handle = f as i64
-    GROUPBOXES[handle] = new GroupBoxSlot(f, winSlot.fixed)
+    GROUPBOXES[handle] = new GroupBoxSlot(f, parent.fixed)
     handle
 }
 

@@ -101,6 +101,23 @@ pub class WindowSlot {
 /// Public handle = `win.handle` (NSWindow's raw ObjC pointer).
 pub let WINDOWS = new Map<i64, WindowSlot>()
 
+/// Resolve a `parentHandle` (passed to every `createNative*`) to
+/// the NSView that should host the new widget. The handle is
+/// either a Window's OS handle — looked up in WINDOWS for its
+/// contentView — or a non-window container's NSView pointer
+/// (e.g. a ScrollView's documentView); the latter is wrapped
+/// raw. Returns `none` for an invalid handle so the caller can
+/// fail-soft with `return -1`.
+pub fn resolveParentView(parentHandle: i64): NSView? {
+    if let some(slot) = WINDOWS.get(parentHandle) {
+        return some(slot.win.contentView)
+    }
+    if parentHandle == 0 as i64 || parentHandle < 0 as i64 {
+        return none
+    }
+    some(NSView.__wrap_handle_unowned(parentHandle))
+}
+
 /// Reverse index: GuiView's raw ObjC pointer → NSWindow's raw
 /// ObjC pointer. The view subclass's key/mouse overrides receive
 /// `this` (the GuiView); we look up its window via this table so

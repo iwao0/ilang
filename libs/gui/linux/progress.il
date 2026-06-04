@@ -12,7 +12,7 @@ use gtk {
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
     gtk_widget_set_visible, gtk_widget_set_tooltip_text,
 }
-use core { WINDOWS }
+use core { WINDOWS, resolveGtkParent }
 
 class ProgressSlot {
     pub bar:   GtkProgressBar
@@ -51,15 +51,15 @@ pub fn createNativeProgress(
     x: f64, y: f64, width: f64, height: f64,
     visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveGtkParent(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
     let bar = gtk_progress_bar_new() as GtkProgressBar
     gtk_widget_set_size_request(bar as GtkWidget, width as i32, height as i32)
     gtk_widget_set_visible(bar as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
-    gtk_fixed_put(winSlot.fixed, bar as GtkWidget, x, y)
-    let slot = new ProgressSlot(bar, winSlot.fixed, min, max, value)
+    gtk_fixed_put(parent.fixed, bar as GtkWidget, x, y)
+    let slot = new ProgressSlot(bar, parent.fixed, min, max, value)
     applyFraction(slot)
     let handle = bar as i64
     PROGRESS_BARS[handle] = slot

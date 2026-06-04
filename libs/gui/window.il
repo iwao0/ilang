@@ -125,10 +125,22 @@ pub class Control : EventTarget {
         this.margin = new Margin()
         this.flex   = 0.0
     }
-    pub attachTo(window: Window) {}
+    /// Realise the control's native peer under `parent`. The
+    /// parent supplies the native container handle via
+    /// `parent.nativeChildHandle()`; for top-level widgets
+    /// (direct children of a `Window`) that's the window's own
+    /// handle, for widgets nested inside a `ScrollView` it's the
+    /// scroll view's documentView / inner-container handle.
+    pub attachTo(parent: Container) {}
     /// Default no-op. Concrete subclasses override.
     pub setFrame(x: f64, y: f64, w: f64, h: f64) {}
-    /// Subclass-supplied current width for layout. Default 0.0.
+    /// Subclass-supplied current x / y / width / height for
+    /// layout. Defaults are 0.0; each concrete widget overrides
+    /// to return its `_x` / `_y` / `_width` / `_height`. Used by
+    /// `ScrollView` to compute the scrollable content rectangle
+    /// from the children's frames.
+    pub frameX():      f64 { 0.0 }
+    pub frameY():      f64 { 0.0 }
     pub frameWidth():  f64 { 0.0 }
     pub frameHeight(): f64 { 0.0 }
 }
@@ -153,13 +165,12 @@ pub class Container : Control {
     /// virtual `setFrame` to write geometry through one native
     /// call.
     pub _children: Control[]
-    /// Root `Window` this container belongs to, populated the
-    /// moment the container itself is attached (Window: at
-    /// construction, sets `_root = some(this)`). Children added
-    /// before attachment are buffered in `_children`; the
-    /// `attachTo` override below realises them in order once
-    /// `_root` becomes known.
-    pub _root: Window?
+    /// Parent container this one was attached under, populated
+    /// the moment `attachTo` runs. `Window` short-circuits this
+    /// in its init to `some(this)` so children added before
+    /// `show()` realise immediately. Acts as the "is realised
+    /// yet?" gate for `addChild`.
+    pub _root: Container?
     /// Absolute window-coordinate rectangle assigned to this
     /// container by its parent's relayout pass. Used by VBox /
     /// HBox / etc. to place children with `child.setFrame(_x +
@@ -179,30 +190,40 @@ pub class Container : Control {
         this._h        = 0.0
     }
 
-    /// When the container is itself attached to a window, every
-    /// already-buffered child is realised against that window in
-    /// declaration order. Subsequent `addChild` calls realise
-    /// immediately (the `_root` branch in `addChild`).
-    pub override attachTo(window: Window) {
-        this._root = some(window)
+    /// When the container is itself attached to a parent, every
+    /// already-buffered child is realised under THIS container
+    /// (so the child's `attachTo` resolves to OUR
+    /// `nativeChildHandle`) in declaration order. Subsequent
+    /// `addChild` calls realise immediately (the `_root` branch
+    /// in `addChild`).
+    pub override attachTo(parent: Container) {
+        this._root = some(parent)
         let n = this._children.length
         let i = 0
         while i < n {
-            this._children[i].attachTo(window)
+            this._children[i].attachTo(this)
             i = i + 1
         }
     }
 
+    /// Native container handle children should be parented under.
+    /// `Window` returns its OS window handle; `ScrollView` returns
+    /// its documentView / inner-container handle. The default of
+    /// `-1` is a fail-soft sentinel — a container that doesn't
+    /// override this can't actually host native children, so any
+    /// `createNative*` call with this value should bail.
+    pub nativeChildHandle(): i64 { -1 }
+
     /// Register a child for layout. If the container already
-    /// knows its root window, the child's native peer is realised
+    /// knows its root, the child's native peer is realised
     /// straight away; otherwise the realisation is deferred to
     /// `attachTo` (above). A single `relayout` pass runs after so
     /// a child added with a dock or flex setting snaps into the
     /// right rectangle on its first paint.
     pub addChild(child: Control) {
         this._children.push(child)
-        if let some(w) = this._root {
-            child.attachTo(w)
+        if let some(_) = this._root {
+            child.attachTo(this)
         }
         this.relayout()
     }
@@ -398,6 +419,11 @@ pub class Window : Container {
             this.onMove.emit(new MoveEvent(this, x, y))
         })
     }
+
+    /// Window IS the native container for its direct children;
+    /// the OS window handle is the parent every `createNative*`
+    /// call expects.
+    pub override nativeChildHandle(): i64 { this.handle }
 
     pub get title(): string { this._title }
     pub set title(v: string) {

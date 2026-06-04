@@ -12,7 +12,7 @@ use cocoa {
     classPtr, setObjectClass,
 }
 use core {
-    WINDOWS, noOp1, noOpI32, noOpKey,
+    WINDOWS, resolveParentView, noOp1, noOpI32, noOpKey,
     noOpEnterLeave, noOpClickMod, noOpWheel,
     keyCodeToString, modCtrl, modShift, modAlt, modMeta,
 }
@@ -252,7 +252,7 @@ pub fn createNativeList(
     x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveParentView(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -298,7 +298,7 @@ pub fn createNativeList(
 
     let scroll = makeScrollView(table as NSView, x, y, width, height)
     scroll.setHidden(!visible)
-    winSlot.win.contentView.addSubview(scroll as NSView)
+    parent.addSubview(scroll as NSView)
 
     let handle = (table as NSView).handle
     LISTS[handle] = new ListSlot(table, scroll, ds as NSObject, dg as NSObject)

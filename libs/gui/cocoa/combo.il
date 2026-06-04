@@ -9,7 +9,7 @@ use cocoa {
     classPtr, setObjectClass,
 }
 use core {
-    WINDOWS, noOp1, noOpI32, noOpKey,
+    WINDOWS, resolveParentView, noOp1, noOpI32, noOpKey,
     noOpEnterLeave, noOpClickMod, noOpWheel,
     keyCodeToString, modCtrl, modShift, modAlt, modMeta,
 }
@@ -204,7 +204,7 @@ pub fn createNativeCombo(
     x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveParentView(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -231,7 +231,7 @@ pub fn createNativeCombo(
     )
     (p as NSView).addTrackingArea(area as NSObject)
 
-    winSlot.win.contentView.addSubview(p as NSView)
+    parent.addSubview(p as NSView)
 
     let handle = (p as NSView).handle
     COMBOS[handle] = new ComboSlot(p, h as NSObject)

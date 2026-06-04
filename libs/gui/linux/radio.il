@@ -35,7 +35,7 @@ use gtk {
     g_signal_connect_motion, g_signal_connect_click, g_signal_connect_scroll,
 }
 use window { keyvalToCode }
-use core { WINDOWS, noOp1, noOpBool }
+use core { WINDOWS, resolveGtkParent, noOp1, noOpBool }
 
 class RadioSlot {
     pub btn: GtkCheckButton
@@ -214,7 +214,7 @@ pub fn createNativeRadio(
     x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveGtkParent(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -228,7 +228,7 @@ pub fn createNativeRadio(
     gtk_widget_set_size_request(r as GtkWidget, width as i32, height as i32)
     gtk_widget_set_sensitive(r as GtkWidget, if enabled { 1 as i32 } else { 0 as i32 })
     gtk_widget_set_visible(r as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
-    gtk_fixed_put(winSlot.fixed, r as GtkWidget, x, y)
+    gtk_fixed_put(parent.fixed, r as GtkWidget, x, y)
 
     g_signal_connect_data(
         r as GObject,
@@ -292,7 +292,7 @@ pub fn createNativeRadio(
     )
 
     let handle = r as i64
-    RADIOS[handle] = new RadioSlot(r, winSlot.fixed, windowHandle)
+    RADIOS[handle] = new RadioSlot(r, parent.fixed, windowHandle)
     handle
 }
 
@@ -344,10 +344,10 @@ pub fn focusRadio(handle: i64) {
 }
 pub fn blurRadio(handle: i64) {
     if let some(slot) = RADIOS.get(handle) {
-        if let some(winSlot) = WINDOWS.get(slot.winHandle) {
-            let cur = gtk_window_get_focus(winSlot.win)
+        if let some(parent) = resolveGtkParent(slot.winHandle) {
+            let cur = gtk_window_get_focus(parent.win)
             if cur as i64 == slot.btn as i64 {
-                gtk_window_set_focus(winSlot.win, 0 as GtkWidget)
+                gtk_window_set_focus(parent.win, 0 as GtkWidget)
             }
         }
     }

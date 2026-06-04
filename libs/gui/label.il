@@ -13,7 +13,7 @@
 
 use std.events { Signal }
 use events { MouseEvent }
-use window { Window, Control }
+use window { Window, Control, Container }
 use gui_impl {
     createNativeLabel,
     setLabelText, setLabelFrame,
@@ -126,10 +126,10 @@ pub class Label : Control {
         if this.handle >= 0 { setLabelTooltip(this.handle, v) }
     }
 
-    pub override attachTo(window: Window) {
+    pub override attachTo(parent: Container) {
         if this.handle >= 0 { return }
         this.handle = createNativeLabel(
-            window.handle,
+            parent.nativeChildHandle(),
             this._text, this._x, this._y, this._width, this._height,
             this._isEnabled, this._isVisible, this._selectable
         )
@@ -168,6 +168,8 @@ pub class Label : Control {
             setLabelFrame(this.handle, this._x, this._y, this._width, this._height)
         }
     }
+    pub override frameX():      f64 { this._x }
+    pub override frameY():      f64 { this._y }
     pub override frameWidth():  f64 { this._width }
     pub override frameHeight(): f64 { this._height }
 }

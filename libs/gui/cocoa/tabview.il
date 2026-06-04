@@ -10,7 +10,7 @@ use cocoa {
     NSString,
     nsstr, ilstr, makeRect, nil,
 }
-use core { WINDOWS, noOp1, noOpI32 }
+use core { WINDOWS, resolveParentView, noOp1, noOpI32 }
 
 class TabViewSlot {
     pub tabView:   NSTabView
@@ -56,7 +56,7 @@ pub fn createNativeTabView(
     x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveParentView(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -67,7 +67,7 @@ pub fn createNativeTabView(
     let dg = TabViewHandler.alloc().init()
     tv.setDelegate(dg as NSObject)
 
-    winSlot.win.contentView.addSubview(tv as NSView)
+    parent.addSubview(tv as NSView)
 
     let handle = (tv as NSView).handle
     TAB_VIEWS[handle] = new TabViewSlot(tv, dg as NSObject)

@@ -30,7 +30,7 @@ use gtk {
     g_signal_connect_motion, g_signal_connect_click, g_signal_connect_scroll,
 }
 use window { keyvalToCode }
-use core { WINDOWS, noOp1, noOpF64 }
+use core { WINDOWS, resolveGtkParent, noOp1, noOpF64 }
 
 class SliderSlot {
     pub scale: GtkScale
@@ -214,7 +214,7 @@ pub fn createNativeSlider(
     x: f64, y: f64, width: f64, height: f64,
     enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveGtkParent(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -224,7 +224,7 @@ pub fn createNativeSlider(
     gtk_widget_set_size_request(s as GtkWidget, width as i32, height as i32)
     gtk_widget_set_sensitive(s as GtkWidget, if enabled { 1 as i32 } else { 0 as i32 })
     gtk_widget_set_visible(s as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
-    gtk_fixed_put(winSlot.fixed, s as GtkWidget, x, y)
+    gtk_fixed_put(parent.fixed, s as GtkWidget, x, y)
 
     g_signal_connect_data(
         s as GObject,
@@ -288,7 +288,7 @@ pub fn createNativeSlider(
     )
 
     let handle = s as i64
-    SLIDERS[handle] = new SliderSlot(s, winSlot.fixed, windowHandle)
+    SLIDERS[handle] = new SliderSlot(s, parent.fixed, windowHandle)
     handle
 }
 
@@ -359,10 +359,10 @@ pub fn focusSlider(handle: i64) {
 }
 pub fn blurSlider(handle: i64) {
     if let some(slot) = SLIDERS.get(handle) {
-        if let some(winSlot) = WINDOWS.get(slot.winHandle) {
-            let cur = gtk_window_get_focus(winSlot.win)
+        if let some(parent) = resolveGtkParent(slot.winHandle) {
+            let cur = gtk_window_get_focus(parent.win)
             if cur as i64 == slot.scale as i64 {
-                gtk_window_set_focus(winSlot.win, 0 as GtkWidget)
+                gtk_window_set_focus(parent.win, 0 as GtkWidget)
             }
         }
     }

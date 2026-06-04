@@ -54,7 +54,7 @@ use cairo {
     cairo_show_text, cairo_text_path,
     cairo_text_extents, cairo_font_extents,
 }
-use core { WINDOWS }
+use core { WINDOWS, resolveGtkParent }
 
 // cairo_format_t.ARGB32 / cairo_operator_t.SOURCE.
 const CAIRO_FORMAT_ARGB32: i32 = 0
@@ -298,7 +298,7 @@ pub fn createNativeCanvas(
     windowHandle: i64,
     x: f64, y: f64, width: f64, height: f64, enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveGtkParent(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -312,7 +312,7 @@ pub fn createNativeCanvas(
         area as GtkWidget,
         if enabled { 1 as i32 } else { 0 as i32 }
     )
-    gtk_fixed_put(winSlot.fixed, area as GtkWidget, x, y)
+    gtk_fixed_put(parent.fixed, area as GtkWidget, x, y)
 
     let surface = cairo_image_surface_create(
         CAIRO_FORMAT_ARGB32, width as i32, height as i32
@@ -324,7 +324,7 @@ pub fn createNativeCanvas(
 
     let handle = area as i64
     CANVASES[handle] = new CanvasSlot(
-        area, winSlot.fixed, windowHandle, surface, cr, width, height
+        area, parent.fixed, windowHandle, surface, cr, width, height
     )
     gtk_drawing_area_set_draw_func(
         area, linux_canvas_draw, handle as *void, 0 as i64
@@ -646,10 +646,10 @@ pub fn focusCanvas(handle: i64) {
 }
 pub fn blurCanvas(handle: i64) {
     if let some(slot) = CANVASES.get(handle) {
-        if let some(winSlot) = WINDOWS.get(slot.winHandle) {
-            let cur = gtk_window_get_focus(winSlot.win)
+        if let some(parent) = resolveGtkParent(slot.winHandle) {
+            let cur = gtk_window_get_focus(parent.win)
             if cur as i64 == slot.area as i64 {
-                gtk_window_set_focus(winSlot.win, 0 as GtkWidget)
+                gtk_window_set_focus(parent.win, 0 as GtkWidget)
             }
         }
     }

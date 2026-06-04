@@ -14,7 +14,7 @@
 
 use std.events { Signal }
 use events { ToggleEvent, FocusEvent, BlurEvent, MouseEvent, KeyEvent }
-use window { Window, Control }
+use window { Window, Control, Container }
 use gui_impl {
     createNativeRadio, readRadioChecked,
     setOnRadioToggle, setRadioText, setRadioChecked,
@@ -159,10 +159,10 @@ pub class RadioButton : Control {
         }
     }
 
-    pub override attachTo(window: Window) {
+    pub override attachTo(parent: Container) {
         if this.handle >= 0 { return }
         this.handle = createNativeRadio(
-            window.handle,
+            parent.nativeChildHandle(),
             this._text, this._checked,
             this._x, this._y, this._width, this._height,
             this._isEnabled, this._isVisible
@@ -225,6 +225,8 @@ pub class RadioButton : Control {
             setRadioFrame(this.handle, this._x, this._y, this._width, this._height)
         }
     }
+    pub override frameX():      f64 { this._x }
+    pub override frameY():      f64 { this._y }
     pub override frameWidth():  f64 { this._width }
     pub override frameHeight(): f64 { this._height }
 }

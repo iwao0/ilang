@@ -138,16 +138,18 @@ fn noOpEnterLeave(x: f64, y: f64) {}
 fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, k1: bool, k2: bool, k3: bool, k4: bool) {}
 fn noOpFilesDropped(files: string[], x: f64, y: f64) {}
 
-/// Lookup the raw HWND for window `handle`. Used by widget
-/// modules' `createNative*` to find the parent HWND for
-/// `CreateWindowExW`. Returns `0 as HWND` when `handle` is not a
-/// registered window.
+/// Lookup the raw HWND for `handle` — used by every widget's
+/// `createNative*` to find the parent for `CreateWindowExW`.
+/// `handle` may be a registered top-level Window's id (looked up
+/// in WINDOWS) or a non-window container's child HWND (e.g. a
+/// ScrollView's inner pane's HWND). Anything that isn't a
+/// registered window is treated as a raw HWND.
 pub fn windowHwnd(handle: i64): HWND {
     if let some(slot) = WINDOWS.get(handle) {
-        slot.hwnd
-    } else {
-        0 as HWND
+        return slot.hwnd
     }
+    if handle == 0 as i64 { return 0 as HWND }
+    handle as HWND
 }
 
 /// Number of currently-registered top-level windows.

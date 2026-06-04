@@ -21,7 +21,7 @@ use cocoa {
     makeRect, makePoint, makeSize,
 }
 use core {
-    WINDOWS, noOp1, noOpKey, noOpEnterLeave,
+    WINDOWS, resolveParentView, noOp1, noOpKey, noOpEnterLeave,
     keyCodeToString, modCtrl, modShift, modAlt, modMeta,
 }
 
@@ -285,7 +285,7 @@ pub fn createNativeCanvas(
     windowHandle: i64,
     x: f64, y: f64, width: f64, height: f64, enabled: bool, visible: bool
 ): i64 {
-    let winSlot = match WINDOWS.get(windowHandle) {
+    let parent = match resolveParentView(windowHandle) {
         some(s) { s }
         none    { return -1 }
     }
@@ -306,7 +306,7 @@ pub fn createNativeCanvas(
     )
     (view as NSView).addTrackingArea(area as NSObject)
 
-    winSlot.win.contentView.addSubview(view as NSView)
+    parent.addSubview(view as NSView)
 
     let handle = view.handle
     let slot = new CanvasSlot(view, img, width, height)
