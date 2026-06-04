@@ -63,6 +63,7 @@ use combo    { tryComboSelect }
 use list     { tryListSelect }
 use slider   { trySliderChange }
 use tabview  { tryTabViewSelChange }
+use tree     { tryTreeViewNotify }
 use menu     { tryMenuClick }
 use super.events
 use util { vkToString, modCtrl, modShift, modAlt, modMeta }
@@ -305,6 +306,7 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             let ctrl = readU64(pHdr, 0 as i64) as i64
             let code = readI32(pHdr, 16 as i64)
             if tryTabViewSelChange(ctrl, code) { return 0 }
+            if tryTreeViewNotify(ctrl, code, lParam) { return 0 }
             return 0
         }
         WindowMessage.dropFiles {

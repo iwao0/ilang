@@ -288,6 +288,46 @@ pub class TabChangeEvent : Event {
     }
 }
 
+/// Fired when a `TreeView`'s selected node changes. `node` is the
+/// new `TreeNode` (or `none` if the selection was cleared).
+/// Defined here so user code can `use gui { TreeSelectEvent }`
+/// without pulling in `treeview` directly; the `node` payload is
+/// typed as `EventTarget` because `TreeNode` lives in `treeview.il`
+/// and would create an import cycle — downcast with
+/// `e.node as TreeNode` at the call site.
+pub class TreeSelectEvent : Event {
+    pub node: EventTarget?
+    pub init(sender: EventTarget, node: EventTarget?) {
+        super(sender)
+        this.node = node
+    }
+}
+
+/// Fired when a `TreeNode` is expanded or collapsed by the user.
+/// `node` is the `TreeNode` that changed state — downcast with
+/// `e.node as TreeNode` at the call site. Same payload for
+/// `onExpand` and `onCollapse`; the signal identifies the
+/// direction.
+pub class TreeExpandEvent : Event {
+    pub node: EventTarget
+    pub init(sender: EventTarget, node: EventTarget) {
+        super(sender)
+        this.node = node
+    }
+}
+
+/// Fired when a `TreeNode`'s checkbox is toggled (only on nodes
+/// with `checkable = true`). `checked` is the new state.
+pub class TreeCheckEvent : Event {
+    pub node: EventTarget
+    pub checked: bool
+    pub init(sender: EventTarget, node: EventTarget, checked: bool) {
+        super(sender)
+        this.node = node
+        this.checked = checked
+    }
+}
+
 /// Fired when files are dropped onto a window or widget. `files`
 /// holds the absolute paths in the order the OS reported them;
 /// `x` / `y` are the drop coordinates in the receiver's local

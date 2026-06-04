@@ -171,6 +171,17 @@ pub enum NSAutoresizingMask: u64 {
         pub get bounds(): NSRect
         @objc("setHidden:")
         pub setHidden(flag: bool)
+        /// `NSUserInterfaceItemIdentification` — identifier used
+        /// by the `NSTableView`/`NSOutlineView` reuse pool to
+        /// recycle view-based cells via
+        /// `makeViewWithIdentifier:owner:`. Setting it doesn't
+        /// add the view to the pool; it tags the view so AppKit
+        /// can hand the same instance back next time it sees the
+        /// same identifier.
+        @objc("setIdentifier:")
+        pub setIdentifier(s: NSString)
+        @objc("identifier")
+        pub get identifier(): NSString
         @objc("isHidden")
         pub get isHidden(): bool
         /// `NSAutoresizingMaskOptions` bit field controlling how

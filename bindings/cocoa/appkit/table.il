@@ -5,6 +5,8 @@
 use foundation { NSObject, NSString, NSArray, NSIndexSet, NSRect,
                  NSSize, NSNotification }
 use core { NSView }
+use controls { NSTextField }
+use image { NSImageView }
 
 /// NSTableViewSelectionHighlightStyle — visual treatment of the
 /// selected row.
@@ -196,6 +198,41 @@ pub enum NSTableViewGridLineStyle: u64 {
         pub setDataSource(d: NSTableViewDataSource)
         @objc("setDataSource:")
         pub setDataSource(d: NSObject)
+
+        /// View-based reuse pool. Returns a recycled cell view
+        /// registered under `identifier`, or `nil` (`NSObject`
+        /// with handle 0) when the pool has none. `owner` is the
+        /// nib owner; for code-built cells we pass `nil` here too.
+        @objc("makeViewWithIdentifier:owner:")
+        pub makeViewWithIdentifier(identifier: NSString, owner: NSObject): NSView
+    }
+
+    /// `NSTableCellView` — AppKit's standard cell-view container.
+    /// Holds an `objectValue` (the model item), a `textField`,
+    /// and an `imageView`. Returning instances of this class from
+    /// `outlineView:viewForTableColumn:item:` (or
+    /// `tableView:viewForTableColumn:row:`) is the canonical way
+    /// to render text + icon rows in view-based mode.
+    @objc pub class NSTableCellView : NSView {
+        @objc("alloc")
+        pub static alloc(): NSTableCellView
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSTableCellView
+
+        @objc("objectValue")
+        pub get objectValue(): NSObject
+        @objc("setObjectValue:")
+        pub set objectValue(v: NSObject)
+
+        @objc("textField")
+        pub get textField(): NSTextField
+        @objc("setTextField:")
+        pub set textField(f: NSTextField)
+
+        @objc("imageView")
+        pub get imageView(): NSImageView
+        @objc("setImageView:")
+        pub set imageView(v: NSImageView)
     }
 
     /// `NSTableViewDataSource` — required for any NSTableView

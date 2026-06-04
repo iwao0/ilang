@@ -400,4 +400,66 @@ pub enum Keyval: u32 {
     // Both go straight into `WGPUSurfaceSourceWaylandSurface`.
     @lib pub fn gdk_wayland_surface_get_wl_surface(surface: GdkSurface): *void
     @lib pub fn gdk_wayland_display_get_wl_display(display: GdkDisplay): *void
+
+    // ─── GListModel / selection models / column-view constructors ─
+    // GTK4 list / tree widgets all sit on top of `GListModel`. The
+    // generator emits the interface class struct but not the
+    // interface handle itself, so we declare it here. Same for the
+    // selection-model interface that `GtkColumnView` / `GtkListView`
+    // bind to.
+    @handle pub struct GListModel {}
+    @handle pub struct GtkSelectionModel {}
+
+    /// `gtk_tree_list_model_new(root, passthrough, autoexpand,
+    ///   create_func, user_data, user_destroy): GtkTreeListModel`.
+    /// `root` is the top-level `GListModel`; `create_func` is
+    /// invoked lazily on each item to produce that item's children
+    /// list (or `0` for leaves). The callback shape is
+    /// `GListModel*(GObject *item, gpointer user_data)`.
+    @lib pub fn gtk_tree_list_model_new(
+        root: GListModel, passthrough: i32, autoexpand: i32,
+        create_func: fn(i64, i64): i64,
+        user_data: *void, user_destroy: i64
+    ): GtkTreeListModel
+
+    /// `gtk_single_selection_new(model): GtkSingleSelection` —
+    /// the canonical "0 or 1 row selected" model wrapper.
+    @lib pub fn gtk_single_selection_new(model: GListModel): GtkSingleSelection
+    @lib pub fn gtk_single_selection_get_selected(self: GtkSingleSelection): u32
+    @lib pub fn gtk_single_selection_set_selected(self: GtkSingleSelection, position: u32)
+    @lib pub fn gtk_single_selection_get_selected_item(self: GtkSingleSelection): GObject
+
+    /// `gtk_column_view_new(selection): GtkWidget`. Pass the
+    /// selection model that wraps your data model. The view binds
+    /// rows via columns + factories.
+    @lib pub fn gtk_column_view_new(model: GtkSelectionModel): GtkWidget
+    @lib pub fn gtk_column_view_set_model(self: GtkColumnView, model: GtkSelectionModel)
+
+    /// `gtk_list_view_new(model, factory): GtkWidget` — single-
+    /// column counterpart to `GtkColumnView`. Suitable when the
+    /// tree only needs one visual column.
+    @lib pub fn gtk_list_view_new(model: GtkSelectionModel, factory: GtkListItemFactory): GtkWidget
+    @lib pub fn gtk_list_view_set_model(self: GtkListView, model: GtkSelectionModel)
+    @lib pub fn gtk_list_view_set_factory(self: GtkListView, factory: GtkListItemFactory)
+
+    /// `GtkSignalListItemFactory` setup / bind / unbind / teardown
+    /// signal shape: `void(GtkSignalListItemFactory*, GtkListItem*,
+    /// gpointer)`. Same C signal-connect as the 2-arg variant.
+    @symbol("g_signal_connect_data")
+    @lib pub fn g_signal_connect_factory(
+        instance: GObject, signal_name: *const char,
+        c_handler: fn(i64, i64, i64),
+        data: *void, destroy_data: i64, flags: u32
+    ): u64
+
+    /// `notify::selected` on `GtkSingleSelection` — generic
+    /// `void(GObject*, GParamSpec*, gpointer)`. We thread it
+    /// through the same shape as our 2-arg connect; the
+    /// `GParamSpec*` arrives in the second slot.
+    @symbol("g_signal_connect_data")
+    @lib pub fn g_signal_connect_notify(
+        instance: GObject, signal_name: *const char,
+        c_handler: fn(i64, i64, i64),
+        data: *void, destroy_data: i64, flags: u32
+    ): u64
 }

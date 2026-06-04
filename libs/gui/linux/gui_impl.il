@@ -15,6 +15,7 @@ pub use slider.*
 pub use progress.*
 pub use combo.*
 pub use list.*
+pub use tree.*
 pub use groupbox.*
 pub use menu.*
 pub use canvas.*

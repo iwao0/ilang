@@ -250,6 +250,138 @@ use windef { HINSTANCE, HWND, RECT }
         lParam:      i64
     }
 
+    // ── Tree view (SysTreeView32) ────────────────────────────────
+
+    /// `TVS_*` window-style bits. `TVS_CHECKBOXES` must be set at
+    /// creation time on Vista+ to enable the state-image column
+    /// — flipping it via `SetWindowLong` later doesn't take.
+    pub const TVS_HASBUTTONS:      u32 = 0x0001 as u32
+    pub const TVS_HASLINES:        u32 = 0x0002 as u32
+    pub const TVS_LINESATROOT:     u32 = 0x0004 as u32
+    pub const TVS_EDITLABELS:      u32 = 0x0008 as u32
+    pub const TVS_DISABLEDRAGDROP: u32 = 0x0010 as u32
+    pub const TVS_SHOWSELALWAYS:   u32 = 0x0020 as u32
+    pub const TVS_CHECKBOXES:      u32 = 0x0100 as u32
+    pub const TVS_TRACKSELECT:     u32 = 0x0200 as u32
+    pub const TVS_SINGLEEXPAND:    u32 = 0x0400 as u32
+    pub const TVS_FULLROWSELECT:   u32 = 0x1000 as u32
+
+    /// `TVIF_*` — which fields of `TVITEMW` the call wants the
+    /// system to honour. `TVIF_HANDLE` is required by reads;
+    /// `TVIF_TEXT | TVIF_STATE | TVIF_CHILDREN` covers the
+    /// inserts we make.
+    pub const TVIF_TEXT:       u32 = 0x0001 as u32
+    pub const TVIF_IMAGE:      u32 = 0x0002 as u32
+    pub const TVIF_PARAM:      u32 = 0x0004 as u32
+    pub const TVIF_STATE:      u32 = 0x0008 as u32
+    pub const TVIF_HANDLE:     u32 = 0x0010 as u32
+    pub const TVIF_SELECTEDIMAGE: u32 = 0x0020 as u32
+    pub const TVIF_CHILDREN:   u32 = 0x0040 as u32
+
+    /// `TVIS_*` — item state bits used with `TVIF_STATE`. State-
+    /// image bits live in the high nibble of the state field
+    /// (`>> 12`) and `INDEXTOSTATEIMAGEMASK(n) = n << 12`.
+    /// `n = 0` → no state image (hides the checkbox on this row);
+    /// `1` → unchecked, `2` → checked.
+    pub const TVIS_SELECTED:        u32 = 0x0002 as u32
+    pub const TVIS_EXPANDED:        u32 = 0x0020 as u32
+    pub const TVIS_EXPANDEDONCE:    u32 = 0x0040 as u32
+    pub const TVIS_EXPANDPARTIAL:   u32 = 0x0080 as u32
+    pub const TVIS_STATEIMAGEMASK:  u32 = 0xF000 as u32
+
+    pub const TVI_ROOT:  i64 = 0xFFFF0000 as i64
+    pub const TVI_FIRST: i64 = 0xFFFF0001 as i64
+    pub const TVI_LAST:  i64 = 0xFFFF0002 as i64
+    pub const TVI_SORT:  i64 = 0xFFFF0003 as i64
+
+    /// `TVE_*` — verb codes for `TVM_EXPAND`.
+    pub const TVE_COLLAPSE: u32 = 0x0001 as u32
+    pub const TVE_EXPAND:   u32 = 0x0002 as u32
+    pub const TVE_TOGGLE:   u32 = 0x0003 as u32
+
+    /// `TVGN_*` — selectors for `TVM_GETNEXTITEM`.
+    pub const TVGN_ROOT:        u32 = 0x0000 as u32
+    pub const TVGN_NEXT:        u32 = 0x0001 as u32
+    pub const TVGN_PREVIOUS:    u32 = 0x0002 as u32
+    pub const TVGN_PARENT:      u32 = 0x0003 as u32
+    pub const TVGN_CHILD:       u32 = 0x0004 as u32
+    pub const TVGN_CARET:       u32 = 0x0009 as u32
+
+    /// SysTreeView32 messages (TV_FIRST = 0x1100).
+    pub const TVM_INSERTITEMW:   u32 = 0x1132 as u32
+    pub const TVM_DELETEITEM:    u32 = 0x1101 as u32
+    pub const TVM_EXPAND:        u32 = 0x1102 as u32
+    pub const TVM_GETNEXTITEM:   u32 = 0x110A as u32
+    pub const TVM_SELECTITEM:    u32 = 0x110B as u32
+    pub const TVM_GETITEMW:      u32 = 0x113E as u32
+    pub const TVM_SETITEMW:      u32 = 0x113F as u32
+    pub const TVM_GETITEMSTATE:  u32 = 0x1127 as u32
+    pub const TVM_SETIMAGELIST:  u32 = 0x1109 as u32
+
+    /// `TVN_*` notification codes arriving via WM_NOTIFY.
+    pub const TVN_SELCHANGEDW:   i32 = -451 as i32
+    pub const TVN_ITEMEXPANDEDW: i32 = -456 as i32
+    pub const TVN_ITEMCHANGEDW:  i32 = -454 as i32
+
+    /// `TVITEMW` — item descriptor. Layout (x64):
+    ///   mask          u32     0..4
+    ///   _pad0         u32     4..8
+    ///   hItem         HTREEITEM (i64)  8..16
+    ///   state         u32    16..20
+    ///   stateMask     u32    20..24
+    ///   pszText       *u16   24..32
+    ///   cchTextMax    i32    32..36
+    ///   iImage        i32    36..40
+    ///   iSelectedImage i32   40..44
+    ///   cChildren     i32    44..48
+    ///   lParam        i64    48..56
+    /// Total = 56 bytes on x64.
+    pub struct TVITEMW {
+        mask:           u32
+        _pad0:          u32
+        hItem:          i64
+        state:          u32
+        stateMask:      u32
+        pszText:        *const u16
+        cchTextMax:     i32
+        iImage:         i32
+        iSelectedImage: i32
+        cChildren:      i32
+        lParam:         i64
+    }
+
+    /// `TVINSERTSTRUCTW` — handed to `TVM_INSERTITEMW`. The
+    /// trailing `itemex` is the inline `TVITEMW`. Layout:
+    ///   hParent      HTREEITEM (i64)  0..8
+    ///   hInsertAfter HTREEITEM (i64)  8..16
+    ///   itemex       TVITEMW        16..72
+    /// Total = 72 bytes.
+    pub struct TVINSERTSTRUCTW {
+        hParent:      i64
+        hInsertAfter: i64
+        itemex:       TVITEMW
+    }
+
+    /// `NMTREEVIEWW` — payload of `WM_NOTIFY` for TVN_SELCHANGED /
+    /// TVN_ITEMEXPANDED. Carries old + new item structs plus a
+    /// point of action. Layout (x64):
+    ///   hdr        NMHDR    0..24
+    ///   action     u32     24..28
+    ///   _pad       u32     28..32
+    ///   itemOld    TVITEMW 32..88
+    ///   itemNew    TVITEMW 88..144
+    ///   ptDrag.x   i32    144..148
+    ///   ptDrag.y   i32    148..152
+    pub struct NMTREEVIEWW {
+        hdr:      NMHDR
+        action:   u32
+        _pad:     u32
+        itemOld:  TVITEMW
+        itemNew:  TVITEMW
+        ptDragX:  i32
+        ptDragY:  i32
+    }
+
     /// Default window procedure for subclassed controls. Bind via
     /// `MAKELONG(ctrlId, 0)` callbacks etc.
     @lib pub fn DefSubclassProc(hWnd: HWND, uMsg: u32, wParam: u64, lParam: i64): i64
