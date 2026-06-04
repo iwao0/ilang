@@ -19,7 +19,7 @@ use windows {
     ClassStyle, WindowStyle, WindowMessage, ShowCmd,
     GetModuleHandleA, RegisterClassExW, CreateWindowExW,
     DefWindowProcW, MoveWindow, ShowWindow, EnableWindow,
-    SetScrollInfo, GetScrollInfo, GetClientRect,
+    SetScrollInfo, GetScrollInfo, ShowScrollBar, GetClientRect,
 }
 use core { windowHwnd }
 
@@ -312,12 +312,23 @@ pub fn setScrollViewEnabled(handle: i64, enabled: bool) {
     }
 }
 
-/// Toggling individual axes after creation needs `ShowScrollBar`
-/// (user32) — not bound here yet. Round 2 will wire that in;
-/// Round 1 honours the initial `showHScroll` / `showVScroll`
-/// flags only.
-pub fn setScrollViewShowHScroll(handle: i64, show: bool) {}
-pub fn setScrollViewShowVScroll(handle: i64, show: bool) {}
+/// `ShowScrollBar` flips the bar's visibility post-creation.
+/// We don't strip / re-add the WS_HSCROLL / WS_VSCROLL window
+/// styles because Win32 keeps reserving the gutter space for a
+/// hidden bar — that's actually the behaviour we want (toggling
+/// the bar back on shouldn't reshuffle the inner pane's layout).
+pub fn setScrollViewShowHScroll(handle: i64, show: bool) {
+    if let some(slot) = SCROLL_VIEWS.get(handle) {
+        let flag: i32 = if show { 1 as i32 } else { 0 as i32 }
+        ShowScrollBar(slot.outer, SB_HORZ, flag)
+    }
+}
+pub fn setScrollViewShowVScroll(handle: i64, show: bool) {
+    if let some(slot) = SCROLL_VIEWS.get(handle) {
+        let flag: i32 = if show { 1 as i32 } else { 0 as i32 }
+        ShowScrollBar(slot.outer, SB_VERT, flag)
+    }
+}
 
 pub fn setScrollViewContentSize(handle: i64, w: f64, h: f64) {
     if let some(slot) = SCROLL_VIEWS.get(handle) {
