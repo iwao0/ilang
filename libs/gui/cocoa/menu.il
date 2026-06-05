@@ -103,15 +103,18 @@ class MenuActionHandler : NSObject {
     }
 }
 
-let HANDLER_HOLDER: NSObject[] = []   // 0- or 1-element pseudo-Optional
+let HANDLER_HOLDER: NSObject? = none
 
 fn handler(): NSObject {
-    if HANDLER_HOLDER.length == 0 {
-        MenuActionHandler.register()
-        let h = MenuActionHandler.alloc().init()
-        HANDLER_HOLDER.push(h as NSObject)
+    match HANDLER_HOLDER {
+        some(h) { h }
+        none {
+            MenuActionHandler.register()
+            let h = MenuActionHandler.alloc().init() as NSObject
+            HANDLER_HOLDER = some(h)
+            h
+        }
     }
-    HANDLER_HOLDER[0]
 }
 
 pub fn createNativeMenu(title: string): i64 {

@@ -26,13 +26,13 @@ use core { WINDOWS, WindowSlot, GuiDelegate, GuiAppDelegate, GuiView, registerVi
 /// `app.setDelegate(...)` only needs to fire once per process. The
 /// 1-element array stands in for an Option holder so the
 /// initialiser stays inside ilang's idiom.
-let APP_DELEGATE_INSTALLED: bool[] = [false]
+let APP_DELEGATE_INSTALLED: bool = false
 
 pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     let app = sharedApplication()
     app.setActivationPolicy(NSApplicationActivationPolicy.regular)
-    if !APP_DELEGATE_INSTALLED[0] {
-        APP_DELEGATE_INSTALLED[0] = true
+    if !APP_DELEGATE_INSTALLED {
+        APP_DELEGATE_INSTALLED = true
         GuiAppDelegate.register()
         let ad = GuiAppDelegate.alloc().init()
         app.setDelegate(ad as NSObject)
@@ -437,7 +437,7 @@ pub fn flashNativeWindow(handle: i64, on: bool) {
 /// process, so there's only ever one progress bar — the
 /// `handle` argument is accepted for API symmetry but doesn't
 /// route per-window.
-let DOCK_PROGRESS_BAR: NSProgressIndicator[] = []
+let DOCK_PROGRESS_BAR: NSProgressIndicator? = none
 /// Default Dock-tile size in points. AppKit composites the bar
 /// over the icon area at this resolution.
 const DOCK_TILE_SIZE: f64 = 128.0
@@ -508,17 +508,20 @@ pub fn setNativeWindowProgressBar(handle: i64, progress: f64) {
         clearDockProgress()
         return
     }
-    if DOCK_PROGRESS_BAR.length == 0 {
-        let bar = NSProgressIndicator.alloc().init(
-            makeRect(0.0, 0.0, DOCK_TILE_SIZE, DOCK_TILE_SIZE)
-        )
-        bar.setStyle(NSProgressIndicatorStyle.bar)
-        bar.setMinValue(0.0)
-        bar.setMaxValue(1.0)
-        bar.setIndeterminate(false)
-        DOCK_PROGRESS_BAR.push(bar)
+    let bar = match DOCK_PROGRESS_BAR {
+        some(b) { b }
+        none {
+            let b = NSProgressIndicator.alloc().init(
+                makeRect(0.0, 0.0, DOCK_TILE_SIZE, DOCK_TILE_SIZE)
+            )
+            b.setStyle(NSProgressIndicatorStyle.bar)
+            b.setMinValue(0.0)
+            b.setMaxValue(1.0)
+            b.setIndeterminate(false)
+            DOCK_PROGRESS_BAR = some(b)
+            b
+        }
     }
-    let bar = DOCK_PROGRESS_BAR[0]
     bar.doubleValue = if progress > 1.0 { 1.0 } else { progress }
     let tile = sharedApplication().dockTile
     tile.setContentView(bar as NSView)

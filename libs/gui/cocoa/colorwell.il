@@ -59,7 +59,7 @@ class ColorWellHandler : NSObject {
     }
 }
 
-let PANEL_OBSERVER_INSTALLED: bool[] = [false]
+let PANEL_OBSERVER_INSTALLED: bool = false
 
 fn flushPendingColors() {
     for slot in COLORWELLS.values() {
@@ -72,8 +72,8 @@ fn flushPendingColors() {
 }
 
 fn ensurePanelObserver() {
-    if PANEL_OBSERVER_INSTALLED[0] { return }
-    PANEL_OBSERVER_INSTALLED[0] = true
+    if PANEL_OBSERVER_INSTALLED { return }
+    PANEL_OBSERVER_INSTALLED = true
     let nc = NSNotificationCenter.defaultCenter()
     let panel = NSColorPanel.sharedColorPanel()
     let _ = nc.addObserver(

@@ -23,29 +23,28 @@ pub fn isOSInDarkMode(): bool {
 
 class DarkModeObserver : NSObject {
     pub appearanceChanged(notification: NSObject) {
-        let cb = APPEARANCE_CB[0]
+        let cb = APPEARANCE_CB
         cb(isOSInDarkMode())
     }
 }
 
-let APPEARANCE_INSTALLED: bool[] = [false]
-let APPEARANCE_CB: fn(bool)[] = [appearanceNoOp]
+let APPEARANCE_CB: fn(bool) = appearanceNoOp
 /// Retains the `DarkModeObserver` instance so AppKit's
 /// NSDistributedNotificationCenter doesn't drop it through ARC —
 /// the centre holds a weak ref to its observers, so without this
 /// the appearance callback never fires after the registering
-/// function returns.
-let OBSERVER_HOLD: NSObject[] = []
+/// function returns. Doubles as the "did we already register?"
+/// flag: `none` means we haven't installed the observer yet.
+let OBSERVER_HOLD: NSObject? = none
 
 fn appearanceNoOp(isDark: bool) {}
 
 pub fn installAppearanceWatcher(cb: fn(bool)) {
-    APPEARANCE_CB[0] = cb
-    if APPEARANCE_INSTALLED[0] { return }
-    APPEARANCE_INSTALLED[0] = true
+    APPEARANCE_CB = cb
+    if let some(_) = OBSERVER_HOLD { return }
     DarkModeObserver.register()
     let observer = DarkModeObserver.alloc().init()
-    OBSERVER_HOLD.push(observer as NSObject)
+    OBSERVER_HOLD = some(observer as NSObject)
     let nc = NSDistributedNotificationCenter.defaultCenter()
     // `object: nil` so AppKit's broadcast of
     // `AppleInterfaceThemeChangedNotification` (from any sender)
