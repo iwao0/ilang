@@ -317,7 +317,51 @@ fn lower_to_mir(
     };
     let timing = std::env::var("ILANG_TIMING").is_ok();
     if timing {
-        eprintln!("[timing] parse+load: {:?}", t0.elapsed());
+        let parse_load = t0.elapsed();
+        let lt = ilang_parser::loader::take_loader_timing();
+        let dur = std::time::Duration::from_nanos;
+        eprintln!(
+            "[timing] parse+load: {:?} (files={})",
+            parse_load, lt.files,
+        );
+        eprintln!(
+            "[timing]   load_recursive: {:?} = read {:?} + tok {:?} + prescan_use {:?} + dir_objc {:?} + parse {:?} + target {:?} + embed {:?} + objc_collect {:?} + tag_spans {:?}",
+            dur(lt.load_recursive_ns),
+            dur(lt.read_ns),
+            dur(lt.tokenize_ns),
+            dur(lt.prescan_use_ns),
+            dur(lt.dir_objc_scan_ns),
+            dur(lt.parse_ns),
+            dur(lt.target_filter_ns),
+            dur(lt.expand_embeds_ns),
+            dur(lt.collect_objc_ns),
+            dur(lt.tag_spans_ns),
+        );
+        eprintln!(
+            "[timing]   post-load: visibility {:?} + apply_use {:?} + renorm {:?} + dup_pub {:?} + auto_lift {:?} + derive {:?} + inline_const {:?} + async {:?}",
+            dur(lt.visibility_ns),
+            dur(lt.apply_use_ns),
+            dur(lt.renormalize_ns),
+            dur(lt.dup_pub_ns),
+            dur(lt.auto_lift_ns),
+            dur(lt.derive_ns),
+            dur(lt.inline_const_ns),
+            dur(lt.async_lower_ns),
+        );
+        eprintln!(
+            "[timing]     apply_use: prologue {:?} + clone {:?} + toposort {:?} + named_globals {:?} + qualify {:?} + rename {:?} + prefix {:?} + stmts {:?} + wildcard {:?} + selective {:?} | (nested-loop wall {:?})",
+            dur(lt.au_prologue_ns),
+            dur(lt.au_clone_ns),
+            dur(lt.au_toposort_ns),
+            dur(lt.au_named_globals_ns),
+            dur(lt.au_qualify_ns),
+            dur(lt.au_rename_ns),
+            dur(lt.au_prefix_ns),
+            dur(lt.au_stmts_ns),
+            dur(lt.au_wildcard_ns),
+            dur(lt.au_selective_ns),
+            dur(lt.au_nested_ns),
+        );
     }
     let display_path = path.display().to_string();
     let prog = if wrap_print { wrap_trailing_print(prog) } else { prog };
@@ -1024,8 +1068,10 @@ fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    if timing { eprintln!("[timing] cranelift compile: {:?}", t_cg.elapsed()); }
-    if timing { eprintln!("[timing] ---- entering run_main ----"); }
+    if timing {
+        eprintln!("[timing] cranelift compile: {:?}", t_cg.elapsed());
+        eprintln!("[timing] ---- entering run_main ----");
+    }
     let r = ilang_mir_codegen::run_main(&compiled);
     // The MIR pipeline returns __main's i64; print it only if
     // it's non-zero so stdout-capture-based tests stay clean.

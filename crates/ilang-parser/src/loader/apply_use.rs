@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use ilang_ast::{Item, Program, Stmt, StmtKind, Symbol, UseDecl};
 
@@ -47,7 +48,14 @@ pub(super) fn apply_use(
     // physics.SKPhysicsBody(...)` because node.il can't `use physics`
     // — that would be a circular import).
     sibling_class_maps: &HashMap<PathBuf, HashMap<Symbol, Symbol>>,
+    // Precomputed `find_in_export_chain` results: for each loaded
+    // module's canonical path, the union of all names declared in
+    // its items + every `pub use` chain reachable from it. Lets the
+    // selective branch's per-name existence check be a single
+    // HashSet lookup.
+    exported_names: &HashMap<PathBuf, HashSet<Symbol>>,
 ) -> Result<(), LoadError> {
+    let t_prologue = Instant::now();
     let importer_dir = importer_canon
         .parent()
         .unwrap_or_else(|| Path::new("."))
@@ -69,10 +77,12 @@ pub(super) fn apply_use(
     // `use`s it sees the items under the original prefix). Each
     // application targets a distinct effective prefix, so the
     // resulting items don't shadow each other.
+    let t = Instant::now();
     let mut module_prog = loaded
         .get(&canon)
         .cloned()
         .expect("loaded before via load_recursive");
+    super::add_ns_pub(&super::T_AU_CLONE, t);
     // For path-style imports (`use a.b.c` → module="a",
     // subpath=["b", "c"]), the merged module's items live under the
     // full dotted path (`a.b.c`) so callers reach them exactly as
@@ -141,8 +151,10 @@ pub(super) fn apply_use(
     // there's nothing selective and no merge to do, only then can we
     // skip.
     if !needs_merge && u.selective.is_none() {
+        super::add_ns_pub(&super::T_AU_PROLOGUE, t_prologue);
         return Ok(());
     }
+    super::add_ns_pub(&super::T_AU_PROLOGUE, t_prologue);
 
     // Recursively expand the module's own use items first, into the
     // module_prog's namespace. `pub use N` propagates the
@@ -187,6 +199,7 @@ pub(super) fn apply_use(
         // other exports unreachable through the umbrella. Stable
         // tiebreaker preserves the original (already
         // re_export-first) order.
+        let t = Instant::now();
         toposort_pub_use_reexports(
             &mut nested_uses,
             &canon,
@@ -195,6 +208,8 @@ pub(super) fn apply_use(
             dep_names_to_dirs,
             loaded,
         );
+        super::add_ns_pub(&super::T_AU_TOPOSORT, t);
+        let t_nested = Instant::now();
         for nu in nested_uses {
             // `pub use M as _ { * }` (wildcard): flatten M's items
             // into the umbrella's namespace — override = umbrella prefix.
@@ -224,13 +239,16 @@ pub(super) fn apply_use(
                 applied,
                 &mut module_rename_rules,
                 sibling_class_maps,
+                exported_names,
             )?;
         }
+        super::add_ns_pub(&super::T_AU_NESTED, t_nested);
         // Prefix-merge the module's own local items. Even for
         // selective imports we want the module's items present in
         // the merged Program (under their prefixed names) so a
         // selectively-imported class's internal references to other
         // module items resolve.
+        let t = Instant::now();
         let mut named_globals: HashSet<Symbol> = module_prog
             .items
             .iter()
@@ -275,6 +293,7 @@ pub(super) fn apply_use(
                 named_globals.insert(name.clone());
             }
         }
+        super::add_ns_pub(&super::T_AU_NAMED_GLOBALS, t);
         // Fold the module's trailing expression into its stmt list
         // so it executes during import (e.g. a final `counter = 42`
         // tail expression). The entry's tail stays separate; only
@@ -285,18 +304,22 @@ pub(super) fn apply_use(
                 kind: StmtKind::Expr(tail),
                 span, source_module: None });
         }
+        let t = Instant::now();
         for item in module_prog.items.iter_mut() {
             qualify_var_refs_in_item(item, &effective_prefix, &named_globals);
         }
+        super::add_ns_pub(&super::T_AU_QUALIFY, t);
         // Apply this module's own selective-import rename rules
         // BEFORE prefixing — `prefix_item` adds the module prefix to
         // every bare `Object`/`Var`/`Call`, which would turn
         // `NeonRenderer` (after `use neon { NeonRenderer }`) into
         // `M.NeonRenderer` instead of the intended `neon.NeonRenderer`.
         if !module_rename_rules.is_empty() {
+            let t = Instant::now();
             for item in module_prog.items.iter_mut() {
                 rename_in_item(item, &module_rename_rules);
             }
+            super::add_ns_pub(&super::T_AU_RENAME, t);
         }
         // Sibling-class qualification: any bare @objc class symbol
         // (`Class`, not `module.Class`) that survived the rename pass
@@ -316,19 +339,24 @@ pub(super) fn apply_use(
                     (*cls, qualified)
                 })
                 .collect();
+            let t = Instant::now();
             for item in module_prog.items.iter_mut() {
                 rename_in_item(item, &qualify_rules);
             }
+            super::add_ns_pub(&super::T_AU_RENAME, t);
         }
+        let t = Instant::now();
         for item in module_prog.items {
             merged.items.push(prefix_item(item, &effective_prefix));
         }
+        super::add_ns_pub(&super::T_AU_PREFIX, t);
         // Forward this module's top-level stmts (Let bindings + side
         // effects) into the merged program so they execute when the
         // entry runs. `applied` guarantees a given (canon, prefix)
         // only goes through this branch once, so each module's
         // initialization runs exactly once even if multiple `use`
         // sites reach it.
+        let t = Instant::now();
         for stmt in module_prog.stmts {
             let mut s = stmt;
             qualify_var_refs_in_stmt(&mut s, &effective_prefix, &named_globals);
@@ -352,6 +380,7 @@ pub(super) fn apply_use(
             s.source_module = Some(Symbol::intern(&effective_prefix));
             merged.stmts.push(s);
         }
+        super::add_ns_pub(&super::T_AU_STMTS, t);
     }
 
     // Wildcard selective import (`use M { * }`): pull every
@@ -361,6 +390,7 @@ pub(super) fn apply_use(
     // `pub use` chains for umbrella modules like `cocoa.il`).
     // Re-exports (`pub use M { * }`) are handled separately by
     // the nested-uses loop above and don't reach here.
+    let t_wildcard = Instant::now();
     if u.wildcard && !u.re_export {
         let module_dir = importer_canon
             .parent()
@@ -388,99 +418,26 @@ pub(super) fn apply_use(
                 Symbol::intern(&format!("{effective_prefix}.{name}")).into(),
             );
         }
+        super::add_ns_pub(&super::T_AU_WILDCARD, t_wildcard);
         return Ok(());
     }
+    super::add_ns_pub(&super::T_AU_WILDCARD, t_wildcard);
+    let t_selective = Instant::now();
     // Selective imports record one rename rule per requested name so
     // the final pass rewrites bare references in the entry's content
     // to the prefixed form `effective_prefix.name`. We rely on the
     // prefix-merge above (or a sibling whole-import that ran first)
     // to make `effective_prefix.name` actually present in `merged`.
     if let Some(names) = u.selective {
-        // Whether the requested names are visible in this module's
-        // local items or any of its `pub use` chains. We need an
-        // existence check to surface a load error for typos —
-        // skipping the check would silently accept any bare name.
-        let mut local_names: HashSet<&str> = HashSet::new();
-        if let Some(p) = loaded.get(&canon) {
-            for item in p.items.iter() {
-                if let Some(n) = item_name_of_ref(item) {
-                    local_names.insert(n);
-                }
-                // `@extern(C) { struct S {} fn f() {} ... }` items
-                // count as exports too — selective import should be
-                // able to pull `S` or `f` out of `a.il`'s extern
-                // block.
-                if let Item::ExternC(b) = item {
-                    for iface in b.interfaces.iter() {
-                        local_names.insert(iface.name.as_str());
-                    }
-                    for c in b.consts.iter() {
-                        local_names.insert(c.name.as_str());
-                    }
-                    for inner in b.items.iter() {
-                        match inner {
-                            ilang_ast::ExternCItem::Struct { name, .. }
-                            | ilang_ast::ExternCItem::Union { name, .. }
-                            | ilang_ast::ExternCItem::FnDecl { name, .. } => {
-                                local_names.insert(name.as_str());
-                            }
-                            ilang_ast::ExternCItem::FnDef(f) => {
-                                local_names.insert(f.name.as_str());
-                            }
-                            ilang_ast::ExternCItem::Class(c) => {
-                                local_names.insert(c.name.as_str());
-                            }
-                        }
-                    }
-                }
-            }
-            // Top-level `pub let X = ...` lives in `p.stmts`, not in
-            // `p.items`. The loader still rewrites these into
-            // `let module.X = ...` during prefixing, so they're
-            // valid selective-import targets — list them here.
-            for s in p.stmts.iter() {
-                if let StmtKind::Let { is_pub: true, name, .. } = &s.kind {
-                    local_names.insert(name.as_str());
-                }
-            }
-        }
-        let module_dir = canon
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .to_path_buf();
+        // Existence check via the precomputed transitive-export
+        // map: a name is valid iff it appears in `exported_names`
+        // for this module (which already folded in pub-use chain
+        // reachability when the map was built).
+        let empty_set: HashSet<Symbol> = HashSet::new();
+        let visible = exported_names.get(&canon).unwrap_or(&empty_set);
+        let _ = nested_uses_for_search; // kept for future use; chain walked at precompute time
         for name in &names {
-            let exists = local_names.contains(name.as_str()) || {
-                let mut visited: HashSet<PathBuf> = HashSet::new();
-                visited.insert(canon.clone());
-                let mut hit = false;
-                for nu in &nested_uses_for_search {
-                    if !nu.re_export {
-                        continue;
-                    }
-                    let subpath_strs: Vec<String> = nu
-                        .subpath
-                        .iter()
-                        .map(|s| s.as_str().to_string())
-                        .collect();
-                    if find_in_export_chain(
-                        nu.module.as_str(),
-                        nu.super_count,
-                        name.as_str(),
-                        &module_dir,
-                        extra_paths,
-                        parents,
-                        dep_names_to_dirs,
-                        loaded,
-                        &mut visited,
-                        &subpath_strs,
-                    )? {
-                        hit = true;
-                        break;
-                    }
-                }
-                hit
-            };
-            if !exists {
+            if !visible.contains(name) {
                 return Err(LoadError::UnknownImport {
                     module: u.module.clone(),
                     name: name.clone(),
@@ -492,18 +449,131 @@ pub(super) fn apply_use(
             );
         }
     }
+    super::add_ns_pub(&super::T_AU_SELECTIVE, t_selective);
     Ok(())
 }
 
-fn item_name_of_ref(item: &Item) -> Option<&str> {
-    match item {
-        Item::Fn(f) => Some(f.name.as_str()),
-        Item::Class(c) => Some(c.name.as_str()),
-        Item::Enum(e) => Some(e.name.as_str()),
-        Item::Const(c) => Some(c.name.as_str()),
-        Item::ExternC(_) | Item::Use(_) => None,
-        Item::Interface(i) => Some(i.name.as_str()),
+/// Build, for every loaded module, the set of names callable through
+/// a `use M { Name }` selective import. Mirrors the semantics of the
+/// (now removed) `find_in_export_chain`: a name belongs to `M`'s
+/// export set if it shows up in any of M's items (including ExternC
+/// inner items, regardless of `pub`) OR in the transitive closure
+/// over M's `pub use` re-exports.
+///
+/// Computed once after `load_recursive` so apply_use's selective
+/// branch can resolve existence in O(1) per name. The traversal
+/// memoizes each module's local names + chains through `pub use`
+/// edges, with cycle detection via an "in progress" marker (empty
+/// set on cycle so the importer surfaces an UnknownImport error
+/// rather than wedging in infinite recursion).
+pub(super) fn precompute_exported_names(
+    loaded: &HashMap<PathBuf, Program>,
+    extra_paths: &[PathBuf],
+    parents: &HashMap<PathBuf, PathBuf>,
+    dep_names_to_dirs: &HashMap<String, PathBuf>,
+) -> HashMap<PathBuf, HashSet<Symbol>> {
+    let mut memo: HashMap<PathBuf, HashSet<Symbol>> = HashMap::with_capacity(loaded.len());
+    let mut in_progress: HashSet<PathBuf> = HashSet::new();
+    for canon in loaded.keys() {
+        if !memo.contains_key(canon) {
+            compute_one(canon, loaded, extra_paths, parents, dep_names_to_dirs, &mut memo, &mut in_progress);
+        }
     }
+    memo
+}
+
+fn compute_one(
+    canon: &Path,
+    loaded: &HashMap<PathBuf, Program>,
+    extra_paths: &[PathBuf],
+    parents: &HashMap<PathBuf, PathBuf>,
+    dep_names_to_dirs: &HashMap<String, PathBuf>,
+    memo: &mut HashMap<PathBuf, HashSet<Symbol>>,
+    in_progress: &mut HashSet<PathBuf>,
+) {
+    if memo.contains_key(canon) {
+        return;
+    }
+    if !in_progress.insert(canon.to_path_buf()) {
+        // Cycle — bail with empty so the importer reports
+        // UnknownImport (matches the prior chain walk's behaviour,
+        // which short-circuited on `visited` insert).
+        memo.insert(canon.to_path_buf(), HashSet::new());
+        return;
+    }
+    let mut out: HashSet<Symbol> = HashSet::new();
+    if let Some(prog) = loaded.get(canon) {
+        // Local names — every item, no `pub` filter (the original
+        // chain walk doesn't filter either).
+        for item in &prog.items {
+            if let Some(n) = item_name_of(item) {
+                out.insert(n);
+            }
+            if let Item::ExternC(b) = item {
+                for iface in b.interfaces.iter() {
+                    out.insert(iface.name);
+                }
+                for c in b.consts.iter() {
+                    out.insert(c.name.clone());
+                }
+                for inner in &b.items {
+                    let n = match inner {
+                        ilang_ast::ExternCItem::Struct { name, .. }
+                        | ilang_ast::ExternCItem::Union { name, .. }
+                        | ilang_ast::ExternCItem::FnDecl { name, .. } => *name,
+                        ilang_ast::ExternCItem::FnDef(f) => f.name.clone(),
+                        ilang_ast::ExternCItem::Class(c) => c.name.clone(),
+                    };
+                    out.insert(n);
+                }
+            }
+        }
+        // Top-level `pub let X` shows up as selective-importable in
+        // the original logic too.
+        for s in &prog.stmts {
+            if let StmtKind::Let { is_pub: true, name, .. } = &s.kind {
+                out.insert(name.clone());
+            }
+        }
+        // Chain through `pub use` re-exports.
+        let module_dir = canon
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        for item in &prog.items {
+            if let Item::Use(nu) = item {
+                if !nu.re_export {
+                    continue;
+                }
+                let subpath_strs: Vec<String> =
+                    nu.subpath.iter().map(|s| s.as_str().to_string()).collect();
+                if let Ok(target) = resolve_module(
+                    nu.module.as_str(),
+                    &subpath_strs,
+                    &module_dir,
+                    extra_paths,
+                    nu.super_count,
+                    parents,
+                    dep_names_to_dirs,
+                ) {
+                    compute_one(
+                        &target,
+                        loaded,
+                        extra_paths,
+                        parents,
+                        dep_names_to_dirs,
+                        memo,
+                        in_progress,
+                    );
+                    if let Some(child) = memo.get(&target) {
+                        out.extend(child.iter().copied());
+                    }
+                }
+            }
+        }
+    }
+    in_progress.remove(canon);
+    memo.insert(canon.to_path_buf(), out);
 }
 
 fn item_name_of(item: &Item) -> Option<Symbol> {
@@ -765,92 +835,3 @@ fn collect_export_names(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn find_in_export_chain(
-    module: &str,
-    super_count: u32,
-    name: &str,
-    importer_dir: &Path,
-    extra_paths: &[PathBuf],
-    parents: &HashMap<PathBuf, PathBuf>,
-    dep_names_to_dirs: &HashMap<String, PathBuf>,
-    loaded: &HashMap<PathBuf, Program>,
-    visited: &mut HashSet<PathBuf>,
-    subpath: &[String],
-) -> Result<bool, LoadError> {
-    let canon = resolve_module(
-        module, subpath, importer_dir, extra_paths, super_count, parents, dep_names_to_dirs,
-    )?;
-    if !visited.insert(canon.clone()) {
-        return Ok(false);
-    }
-    let prog = loaded
-        .get(&canon)
-        .expect("module pre-loaded by load_recursive");
-    // Local items first — including struct / fn / class / static
-    // / fn-decl entries declared inside this module's own
-    // `@extern(C) { ... }` block.
-    for item in &prog.items {
-        if let Some(item_name) = item_name_of(item) {
-            if item_name.as_str() == name {
-                return Ok(true);
-            }
-        }
-        if let Item::ExternC(b) = item {
-            for iface in b.interfaces.iter() {
-                if iface.name.as_str() == name {
-                    return Ok(true);
-                }
-            }
-            for c in b.consts.iter() {
-                if c.name.as_str() == name {
-                    return Ok(true);
-                }
-            }
-            for inner in &b.items {
-                let n = match inner {
-                    ilang_ast::ExternCItem::Struct { name, .. }
-                    | ilang_ast::ExternCItem::Union { name, .. }
-                    | ilang_ast::ExternCItem::FnDecl { name, .. } => name.as_str(),
-                    ilang_ast::ExternCItem::FnDef(f) => f.name.as_str(),
-                    ilang_ast::ExternCItem::Class(c) => c.name.as_str(),
-                };
-                if n == name {
-                    return Ok(true);
-                }
-            }
-        }
-    }
-    // Then follow `pub use` re-exports.
-    let module_dir = canon
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .to_path_buf();
-    for item in &prog.items {
-        if let Item::Use(nu) = item {
-            if !nu.re_export {
-                continue;
-            }
-            let subpath_strs: Vec<String> = nu
-                .subpath
-                .iter()
-                .map(|s| s.as_str().to_string())
-                .collect();
-            if find_in_export_chain(
-                nu.module.as_str(),
-                nu.super_count,
-                name,
-                &module_dir,
-                extra_paths,
-                parents,
-                dep_names_to_dirs,
-                loaded,
-                visited,
-                &subpath_strs,
-            )? {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
-}

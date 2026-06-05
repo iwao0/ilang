@@ -27,10 +27,133 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use ilang_ast::{ExternCItem, InterfaceDecl, Item, Program, Symbol};
 
 use crate::ParseError;
+
+// Per-phase counters populated by `load_recursive` when `ILANG_TIMING`
+// is set. Process-wide atomics keep the load function signatures
+// unchanged. `take_loader_timing` reads + resets them so a caller can
+// emit a one-line summary per compile.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LoaderTiming {
+    pub files: u64,
+    pub read_ns: u64,
+    pub tokenize_ns: u64,
+    pub prescan_use_ns: u64,
+    pub dir_objc_scan_ns: u64,
+    pub parse_ns: u64,
+    pub target_filter_ns: u64,
+    pub expand_embeds_ns: u64,
+    pub collect_objc_ns: u64,
+    pub tag_spans_ns: u64,
+    pub load_recursive_ns: u64,
+    pub visibility_ns: u64,
+    pub apply_use_ns: u64,
+    pub renormalize_ns: u64,
+    pub dup_pub_ns: u64,
+    pub auto_lift_ns: u64,
+    pub derive_ns: u64,
+    pub inline_const_ns: u64,
+    pub async_lower_ns: u64,
+    pub au_qualify_ns: u64,
+    pub au_rename_ns: u64,
+    pub au_prefix_ns: u64,
+    pub au_stmts_ns: u64,
+    pub au_clone_ns: u64,
+    pub au_named_globals_ns: u64,
+    pub au_prologue_ns: u64,
+    pub au_toposort_ns: u64,
+    pub au_nested_ns: u64,
+    pub au_selective_ns: u64,
+    pub au_wildcard_ns: u64,
+    pub precomp_exports_ns: u64,
+}
+
+static T_FILES: AtomicU64 = AtomicU64::new(0);
+static T_READ: AtomicU64 = AtomicU64::new(0);
+static T_TOK: AtomicU64 = AtomicU64::new(0);
+static T_PRESCAN_USE: AtomicU64 = AtomicU64::new(0);
+static T_DIR_OBJC: AtomicU64 = AtomicU64::new(0);
+static T_PARSE: AtomicU64 = AtomicU64::new(0);
+static T_TARGET: AtomicU64 = AtomicU64::new(0);
+static T_EMBED: AtomicU64 = AtomicU64::new(0);
+static T_COLLECT_OBJC: AtomicU64 = AtomicU64::new(0);
+static T_TAG: AtomicU64 = AtomicU64::new(0);
+// Post-`load_recursive` phases inside `load_program_full`. Each one
+// runs once per compile (not per file).
+static T_VISIBILITY: AtomicU64 = AtomicU64::new(0);
+static T_APPLY_USE: AtomicU64 = AtomicU64::new(0);
+static T_RENORM: AtomicU64 = AtomicU64::new(0);
+static T_DUP_PUB: AtomicU64 = AtomicU64::new(0);
+static T_AUTO_LIFT: AtomicU64 = AtomicU64::new(0);
+static T_DERIVE: AtomicU64 = AtomicU64::new(0);
+static T_INLINE_CONST: AtomicU64 = AtomicU64::new(0);
+static T_ASYNC: AtomicU64 = AtomicU64::new(0);
+static T_LOAD_RECURSIVE: AtomicU64 = AtomicU64::new(0);
+// Sub-buckets inside `apply_use` so the 186ms hotspot can be broken
+// out further.
+pub(crate) static T_AU_QUALIFY: AtomicU64 = AtomicU64::new(0);
+pub(crate) static T_AU_RENAME: AtomicU64 = AtomicU64::new(0);
+pub(crate) static T_AU_PREFIX: AtomicU64 = AtomicU64::new(0);
+pub(crate) static T_AU_STMTS: AtomicU64 = AtomicU64::new(0);
+pub(crate) static T_AU_CLONE: AtomicU64 = AtomicU64::new(0);
+pub(crate) static T_AU_NAMED_GLOBALS: AtomicU64 = AtomicU64::new(0);
+pub(crate) static T_AU_PROLOGUE: AtomicU64 = AtomicU64::new(0);
+pub(crate) static T_AU_TOPOSORT: AtomicU64 = AtomicU64::new(0);
+pub(crate) static T_AU_NESTED: AtomicU64 = AtomicU64::new(0);
+pub(crate) static T_AU_SELECTIVE: AtomicU64 = AtomicU64::new(0);
+pub(crate) static T_AU_WILDCARD: AtomicU64 = AtomicU64::new(0);
+static T_PRECOMP_EXPORTS: AtomicU64 = AtomicU64::new(0);
+
+pub fn take_loader_timing() -> LoaderTiming {
+    LoaderTiming {
+        files: T_FILES.swap(0, Ordering::Relaxed),
+        read_ns: T_READ.swap(0, Ordering::Relaxed),
+        tokenize_ns: T_TOK.swap(0, Ordering::Relaxed),
+        prescan_use_ns: T_PRESCAN_USE.swap(0, Ordering::Relaxed),
+        dir_objc_scan_ns: T_DIR_OBJC.swap(0, Ordering::Relaxed),
+        parse_ns: T_PARSE.swap(0, Ordering::Relaxed),
+        target_filter_ns: T_TARGET.swap(0, Ordering::Relaxed),
+        expand_embeds_ns: T_EMBED.swap(0, Ordering::Relaxed),
+        collect_objc_ns: T_COLLECT_OBJC.swap(0, Ordering::Relaxed),
+        tag_spans_ns: T_TAG.swap(0, Ordering::Relaxed),
+        load_recursive_ns: T_LOAD_RECURSIVE.swap(0, Ordering::Relaxed),
+        visibility_ns: T_VISIBILITY.swap(0, Ordering::Relaxed),
+        apply_use_ns: T_APPLY_USE.swap(0, Ordering::Relaxed),
+        renormalize_ns: T_RENORM.swap(0, Ordering::Relaxed),
+        dup_pub_ns: T_DUP_PUB.swap(0, Ordering::Relaxed),
+        auto_lift_ns: T_AUTO_LIFT.swap(0, Ordering::Relaxed),
+        derive_ns: T_DERIVE.swap(0, Ordering::Relaxed),
+        inline_const_ns: T_INLINE_CONST.swap(0, Ordering::Relaxed),
+        async_lower_ns: T_ASYNC.swap(0, Ordering::Relaxed),
+        au_qualify_ns: T_AU_QUALIFY.swap(0, Ordering::Relaxed),
+        au_rename_ns: T_AU_RENAME.swap(0, Ordering::Relaxed),
+        au_prefix_ns: T_AU_PREFIX.swap(0, Ordering::Relaxed),
+        au_stmts_ns: T_AU_STMTS.swap(0, Ordering::Relaxed),
+        au_clone_ns: T_AU_CLONE.swap(0, Ordering::Relaxed),
+        au_named_globals_ns: T_AU_NAMED_GLOBALS.swap(0, Ordering::Relaxed),
+        au_prologue_ns: T_AU_PROLOGUE.swap(0, Ordering::Relaxed),
+        au_toposort_ns: T_AU_TOPOSORT.swap(0, Ordering::Relaxed),
+        au_nested_ns: T_AU_NESTED.swap(0, Ordering::Relaxed),
+        au_selective_ns: T_AU_SELECTIVE.swap(0, Ordering::Relaxed),
+        au_wildcard_ns: T_AU_WILDCARD.swap(0, Ordering::Relaxed),
+        precomp_exports_ns: T_PRECOMP_EXPORTS.swap(0, Ordering::Relaxed),
+    }
+}
+
+pub(crate) fn add_ns_pub(counter: &AtomicU64, t: Instant) {
+    let ns = t.elapsed().as_nanos() as u64;
+    counter.fetch_add(ns, Ordering::Relaxed);
+}
+
+fn add_ns(counter: &AtomicU64, t: Instant) {
+    let ns = t.elapsed().as_nanos() as u64;
+    counter.fetch_add(ns, Ordering::Relaxed);
+}
 
 mod apply_use;
 mod builtin;
@@ -259,17 +382,34 @@ pub fn load_program_full(
     let entry_canon = canonicalize(entry)?;
     let extra_paths: Vec<PathBuf> = extra_paths.to_vec();
 
+    let t_lr = Instant::now();
     load_recursive(
         &entry_canon, &entry_dir, &extra_paths, parents, dep_names_to_dirs,
         &mut visiting, &mut chain, &mut loaded, overlay, &mut objc_registry,
         &mut objc_class_modules, &mut sibling_class_maps, &mut objc_dir_cache,
     )?;
+    add_ns(&T_LOAD_RECURSIVE, t_lr);
 
     // Cross-module visibility check before merging: every `M.X`
     // qualified reference and every selective `use M { X }` must
     // target a `pub` item in M. Walks every loaded file (entry
     // included) using the catalog of `pub` items per module.
+    let t = Instant::now();
     crate::visibility::validate_visibility(&loaded, &entry_canon, dep_names_to_dirs)?;
+    add_ns(&T_VISIBILITY, t);
+
+    // Precompute, for every loaded module, the union of names it
+    // exports through `find_in_export_chain` semantics — its own
+    // items (regardless of `pub`) plus the transitive closure
+    // through `pub use` re-exports. Turns the per-name existence
+    // check inside `apply_use`'s selective branch from a chain
+    // walk (O(chain length) per name) into a single HashSet
+    // lookup. Built once; immutable for the rest of the load.
+    let t = Instant::now();
+    let exported_names = apply_use::precompute_exported_names(
+        &loaded, &extra_paths, parents, dep_names_to_dirs,
+    );
+    add_ns(&T_PRECOMP_EXPORTS, t);
 
     let entry_prog = loaded.remove(&entry_canon).expect("entry just loaded");
     // Process the entry's use items into actual merged content.
@@ -291,6 +431,7 @@ pub fn load_program_full(
     // twice (which would surface as "duplicate overload" later).
     let mut applied: HashSet<(PathBuf, String)> = HashSet::new();
     let mut rename_rules: HashMap<Symbol, Symbol> = HashMap::new();
+    let t = Instant::now();
     for item in entry_prog.items {
         match item {
             Item::Use(u) => apply_use(
@@ -306,10 +447,12 @@ pub fn load_program_full(
                 &mut applied,
                 &mut rename_rules,
                 &sibling_class_maps,
+                &exported_names,
             )?,
             other => merged.items.push(other),
         }
     }
+    add_ns(&T_APPLY_USE, t);
     // Entry's own top-level stmts run after all imported modules'
     // init stmts. Per Python semantics, `import M` runs M's top-level
     // exactly once; `apply_use` enforces the once-only via `applied`.
@@ -323,7 +466,11 @@ pub fn load_program_full(
     // resolve to a separate enum / class declaration that the type
     // checker treats as distinct.
     if !rename_rules.is_empty() {
+        let t = Instant::now();
         rename_in_program(&mut merged, &rename_rules);
+        // bucket renames under apply_use for now — they only run
+        // when selective imports chain through `pub use` re-exports.
+        add_ns(&T_APPLY_USE, t);
     }
     // Re-normalize the merged program. Each file was normalized in
     // isolation, so an entry-file reference like `lib.Color.green`
@@ -335,40 +482,53 @@ pub fn load_program_full(
     // Module-prefix authorization was checked per file at parse
     // time; the merged Program has no `Item::Use`s, so use the
     // validation-skipping entry point here.
+    let t = Instant::now();
     let merged = crate::normalize::renormalize_merged(merged);
+    add_ns(&T_RENORM, t);
     // Reject duplicate `pub` declarations across the merged
     // program. Sibling modules re-exported through a single
     // umbrella can otherwise land the same bare name twice
     // (the original case was `pub struct ID3DBlob {}` +
     // `@com pub interface ID3DBlob`); without this check the
     // type system silently keeps whichever the walker hit first.
+    let t = Instant::now();
     dup_pub::validate_unique_pub(&merged)?;
+    add_ns(&T_DUP_PUB, t);
     // Auto-lift top-level `class C: SomeObjcInterface { … }` into
     // a synthesised `@extern(ObjC) { @objc class C : NSObject, … }`
     // block so users can write Cocoa delegates without dropping into
     // the FFI block themselves. Detection runs against the merged
     // Items, so cross-module `@objc interface` references work.
+    let t = Instant::now();
     let merged = auto_lift_objc_subclasses(merged);
+    add_ns(&T_AUTO_LIFT, t);
     // Auto-synthesise `equals` / `hashCode` for classes that carry
     // `@derive(Eq, Hash)`. Runs after objc auto-lift so the lifted
     // classes' fields are visible to the derive walk.
+    let t = Instant::now();
     let merged = derive::expand_derives(merged)?;
+    add_ns(&T_DERIVE, t);
     // Inline `const` declarations: collect every Item::Const in the
     // merged Program, then walk all expressions replacing
     // `Var(const_name)` with the literal value. Item::Const entries
     // are removed afterwards. Downstream stages (type checker /
     // interpreter / JIT) never see consts.
+    let t = Instant::now();
     let prog = inline_constants(merged)?;
+    add_ns(&T_INLINE_CONST, t);
     // Lower `async fn` bodies into Promise-returning state-machine
     // form. Trivial (zero-await) bodies become
     // `Promise.resolve(...)`-wrapping fns; bodies with awaits are
     // not yet supported and fail here with an actionable error.
-    crate::normalize::async_desugar::lower_async(prog).map_err(|e| {
+    let t = Instant::now();
+    let res = crate::normalize::async_desugar::lower_async(prog).map_err(|e| {
         LoadError::AsyncLowerError {
             reason: e.reason,
             span: e.span,
         }
-    })
+    });
+    add_ns(&T_ASYNC, t);
+    res
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -399,11 +559,19 @@ fn load_recursive(
     // a cheap scan to discover `use` deps (so we can load them before
     // parsing this file, populating `objc_registry`), then the full
     // parse that consults the registry inside `@extern(ObjC)` blocks.
+    T_FILES.fetch_add(1, Ordering::Relaxed);
+    let t = Instant::now();
     let src = read_source(file, overlay)?;
+    add_ns(&T_READ, t);
+    let t = Instant::now();
     let toks = ilang_lexer::tokenize(&src)
         .map_err(|e| LoadError::LexError(e.to_string()))?;
+    add_ns(&T_TOK, t);
     let dir = file.parent().unwrap_or(base_dir).to_path_buf();
-    for (super_count, dep_name, subpath) in pre_scan_use_modules(&toks) {
+    let t = Instant::now();
+    let use_modules: Vec<_> = pre_scan_use_modules(&toks).into_iter().collect();
+    add_ns(&T_PRESCAN_USE, t);
+    for (super_count, dep_name, subpath) in use_modules {
         let canon = resolve_module(
             &dep_name, &subpath, &dir, extra_paths, super_count, parents, dep_names_to_dirs,
         )?;
@@ -445,9 +613,11 @@ fn load_recursive(
         // Scan the directory's siblings once (reads + tokenizes each
         // file a single time), then reuse the cache for every other
         // sibling in the same folder.
+        let t = Instant::now();
         let scan = objc_dir_cache
             .entry(dir.clone())
             .or_insert_with(|| build_dir_objc_scan(&dir));
+        add_ns(&T_DIR_OBJC, t);
         let current_canon = file.canonicalize().ok();
         for e in &scan.entries {
             // Skip the file currently being parsed — its own @objc
@@ -481,6 +651,7 @@ fn load_recursive(
         }
     }
     let file_symbol = Symbol::intern(&file.display().to_string());
+    let t = Instant::now();
     let mut prog = crate::parse_with_implicit_modules(
         &toks,
         objc_registry,
@@ -492,19 +663,28 @@ fn load_recursive(
         e.set_source_file(file_symbol);
         LoadError::ParseError(e)
     })?;
+    add_ns(&T_PARSE, t);
     // Drop items annotated with `@target(...)` whose OS doesn't match
     // the build host. Runs before embed / objc-class harvesting so
     // those passes never see classes / fns that don't survive the
     // filter (and so per-OS same-name decls don't collide downstream).
+    let t = Instant::now();
     target_filter::filter_program(&mut prog)?;
+    add_ns(&T_TARGET, t);
+    let t = Instant::now();
     expand_embeds(&mut prog, file)?;
+    add_ns(&T_EMBED, t);
+    let t = Instant::now();
     collect_objc_class_names(&prog, objc_registry);
+    add_ns(&T_COLLECT_OBJC, t);
     // Stamp every span in this file's Program with the canonical
     // path so cross-module errors report the right source. Parser-
     // generated spans (which borrow line / col of the closest
     // user token) inherit the file too; that's accurate enough —
     // they always live in the same file as the trigger token.
+    let t = Instant::now();
     tag_program_spans(&mut prog, file_symbol);
+    add_ns(&T_TAG, t);
     if !file_class_modules.is_empty() {
         sibling_class_maps.insert(file.to_path_buf(), file_class_modules);
     }
