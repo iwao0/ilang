@@ -21,6 +21,7 @@ use windows {
     GetClientRect,
 }
 use core { windowHwnd, WINDOWS }
+use util { applyGuiFont }
 
 // BS_PUSHBUTTON = 0x00000000 (default); BS_CENTER = 0x00000300
 // keeps the title visually centred even if the style word ends
@@ -213,6 +214,10 @@ pub fn createNativeToolbar(
                 0 as i32, 0 as i32, 1 as i32, 1 as i32,
                 outer, i as HMENU, hInstance as HINSTANCE, 0 as *void
             )
+            // Default BUTTON font is the old `SYSTEM_FONT` (bitmap
+            // Tahoma); install Segoe UI 9pt so toolbar labels match
+            // the rest of the gui chrome.
+            applyGuiFont(btn)
             items.push(btn)
             naturalW.push(buttonNaturalWidth(texts[i]))
         } elif kind == KIND_SEPARATOR {
