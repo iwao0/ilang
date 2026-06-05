@@ -82,6 +82,11 @@ pub class WindowSlot {
     /// to it so the bar self-repositions; `setStatusBar` from
     /// `statusbar.il` populates it.
     pub statusBarHwnd:          HWND
+    /// HWND of the IlangGuiToolbar docked at the top of this
+    /// window, or `0 as HWND` if none. `wnd_proc` resizes it to the
+    /// new client width on WM_SIZE; `setToolbar` from `toolbar.il`
+    /// populates it.
+    pub toolbarHwnd:            HWND
 
     pub init(hwnd: HWND) {
         this.hwnd = hwnd
@@ -123,6 +128,7 @@ pub class WindowSlot {
         this.hasMaxSize        = false
         this.preFullScreenStyle     = 0 as i64
         this.statusBarHwnd          = 0 as HWND
+        this.toolbarHwnd            = 0 as HWND
         this.preFullScreenPlacement = WINDOWPLACEMENT {
             length:           44 as u32,
             flags:            0 as u32,

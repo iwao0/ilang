@@ -70,6 +70,7 @@ use datepicker { tryDateTimeNotify }
 use timepicker { tryDateTimePickTimeNotify }
 use menu     { tryMenuClick }
 use statusbar { forwardResizeToStatusBars }
+use toolbar { forwardResizeToToolbars }
 use super.events
 use util { vkToString, modCtrl, modShift, modAlt, modMeta }
 
@@ -138,10 +139,12 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         }
         WindowMessage.size {
             dispatchSize(hwnd, wParam as i32, lo, hi)
-            // CCS_BOTTOM common controls (msctls_statusbar32) only
-            // self-reposition when WM_SIZE is forwarded explicitly
-            // — DefWindowProcW does not do this for us.
+            // Win32 doesn't propagate WM_SIZE to children, so the
+            // gui controls that are pinned to a window edge
+            // (msctls_statusbar32, IlangGuiToolbar) need to be
+            // resized / repositioned by us explicitly.
             forwardResizeToStatusBars(hwnd, wParam, lParam)
+            forwardResizeToToolbars(hwnd, lo as i32)
             return 0
         }
         WindowMessage.move {

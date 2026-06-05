@@ -20,7 +20,7 @@ use windows {
     DefWindowProcW, MoveWindow, ShowWindow, SetWindowTextW,
     GetClientRect,
 }
-use core { windowHwnd }
+use core { windowHwnd, WINDOWS }
 
 // BS_PUSHBUTTON = 0x00000000 (default); BS_CENTER = 0x00000300
 // keeps the title visually centred even if the style word ends
@@ -235,8 +235,27 @@ pub fn createNativeToolbar(
     let handle = outer as i64
     let slot = new ToolbarSlot(outer, items, kindsCopy, naturalW, initW, TOOLBAR_HEIGHT)
     TOOLBARS[handle] = slot
+    // Remember the toolbar's HWND on the parent's WindowSlot so
+    // wnd_proc can keep it sized to the client width on resize —
+    // Win32 doesn't propagate WM_SIZE to children automatically.
+    if let some(winSlot) = WINDOWS.get(windowHandle) {
+        winSlot.toolbarHwnd = outer
+    }
     doLayout(slot)
     handle
+}
+
+/// Reflow the parent window's toolbar to the new client width and
+/// re-run its internal layout pass. Called from `wnd_proc` on
+/// every WM_SIZE — the toolbar otherwise keeps its creation-time
+/// width forever.
+pub fn forwardResizeToToolbars(parentHandle: i64, clientW: i32) {
+    if let some(winSlot) = WINDOWS.get(parentHandle) {
+        let tb = winSlot.toolbarHwnd
+        if tb as i64 != 0 as i64 {
+            MoveWindow(tb, 0 as i32, 0 as i32, clientW, TOOLBAR_HEIGHT, 1 as i32)
+        }
+    }
 }
 
 pub fn setToolbarItemTitle(handle: i64, index: i32, text: string) {
