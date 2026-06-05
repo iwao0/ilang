@@ -136,8 +136,7 @@ pub fn tryDefaultEnter(parentHandle: i64): bool {
 /// button so the dispatcher stops walking.
 pub fn tryButtonFocus(hwnd: i64): bool {
     if let some(slot) = BUTTONS.get(hwnd) {
-        let cb = slot.onFocus
-        cb()
+        slot.onFocus()
         true
     } else {
         false
@@ -145,8 +144,7 @@ pub fn tryButtonFocus(hwnd: i64): bool {
 }
 pub fn tryButtonBlur(hwnd: i64): bool {
     if let some(slot) = BUTTONS.get(hwnd) {
-        let cb = slot.onBlur
-        cb()
+        slot.onBlur()
         true
     } else {
         false
@@ -180,40 +178,34 @@ pub fn buttonSubclassProc(
                     }
                     TrackMouseEvent(&tme)
                     slot.mouseTracking = true
-                    let cb = slot.onMouseEnter
-                    cb(lo, hi)
+                    slot.onMouseEnter(lo, hi)
                 }
             }
         }
         WindowMessage.mouseLeave {
             if let some(slot) = BUTTONS.get(hwnd) {
                 slot.mouseTracking = false
-                let cb = slot.onMouseLeave
-                cb(lo, hi)
+                slot.onMouseLeave(lo, hi)
             }
         }
         WindowMessage.lbuttondown {
             if let some(slot) = BUTTONS.get(hwnd) {
-                let cb = slot.onMouseDown
-                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseDown(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.lbuttonup {
             if let some(slot) = BUTTONS.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.mButtonDown {
             if let some(slot) = BUTTONS.get(hwnd) {
-                let cb = slot.onMouseDown
-                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseDown(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.mButtonUp {
             if let some(slot) = BUTTONS.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.rButtonDown {
@@ -222,8 +214,7 @@ pub fn buttonSubclassProc(
                 let sk = modShift()
                 let ak = modAlt()
                 let mk = modMeta()
-                let cb = slot.onMouseDown
-                cb(lo, hi, 2, ck, sk, ak, mk)
+                slot.onMouseDown(lo, hi, 2, ck, sk, ak, mk)
                 // Fire contextmenu at the same instant — matches
                 // the cross-OS "right-press" timing the public API
                 // promises. Keyboard-triggered context menus
@@ -235,22 +226,19 @@ pub fn buttonSubclassProc(
         }
         WindowMessage.rButtonUp {
             if let some(slot) = BUTTONS.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.keydown {
             if let some(slot) = BUTTONS.get(hwnd) {
                 let vk = wParam as u32 as VirtualKey
-                let cb = slot.onKeyDown
-                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onKeyDown(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.keyup {
             if let some(slot) = BUTTONS.get(hwnd) {
                 let vk = wParam as u32 as VirtualKey
-                let cb = slot.onKeyUp
-                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onKeyUp(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.mouseWheel {
@@ -267,8 +255,7 @@ pub fn buttonSubclassProc(
                 // backend simple; widgets that need a local point
                 // can call ScreenToClient themselves until we wire
                 // it through here.
-                let cb = slot.onMouseWheel
-                cb(0.0, dy, lo, hi,
+                slot.onMouseWheel(0.0, dy, lo, hi,
                    modCtrl(), modShift(), modAlt(), modMeta())
             }
         }

@@ -128,8 +128,7 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
             if slot.modalLoopRaw != 0 as i64 {
                 g_main_loop_quit(slot.modalLoopRaw as GMainLoop)
             }
-            let cb = slot.onClose
-            cb()
+            slot.onClose()
             WINDOWS.delete(win)
         }
         if WINDOWS.size() == 0 as i64 {
@@ -186,8 +185,7 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
                     // post-correction size.
                     return
                 }
-                let cb = slot.onResize
-                cb(w as f64, h as f64)
+                slot.onResize(w as f64, h as f64)
                 // Pin the bottom-docked status bar (if any) so it
                 // tracks the new content rectangle.
                 linux_relayout_status_bar(data, w, h)
@@ -252,8 +250,7 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
             let st = gtk_event_controller_get_current_event_state(
                 ctrl as GtkEventController
             )
-            let cb = slot.onMouseMove
-            cb(x, y, 0 as i32,
+            slot.onMouseMove(x, y, 0 as i32,
                hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
                hasMod(st, MOD_ALT), hasMod(st, MOD_META))
         }
@@ -284,14 +281,12 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
     }
     pub fn linux_motion_enter(ctrl: i64, x: f64, y: f64, data: i64) {
         if let some(slot) = WINDOWS.get(data) {
-            let cb = slot.onMouseEnter
-            cb(x, y)
+            slot.onMouseEnter(x, y)
         }
     }
     pub fn linux_motion_leave(ctrl: i64, data: i64) {
         if let some(slot) = WINDOWS.get(data) {
-            let cb = slot.onMouseLeave
-            cb(0.0, 0.0)
+            slot.onMouseLeave(0.0, 0.0)
         }
     }
     pub fn linux_scroll(ctrl: i64, dx: f64, dy: f64, data: i64): i32 {
@@ -299,8 +294,7 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
             let st = gtk_event_controller_get_current_event_state(
                 ctrl as GtkEventController
             )
-            let cb = slot.onMouseWheel
-            cb(dx, dy, 0.0, 0.0,
+            slot.onMouseWheel(dx, dy, 0.0, 0.0,
                hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
                hasMod(st, MOD_ALT), hasMod(st, MOD_META))
         }

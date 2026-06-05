@@ -33,8 +33,7 @@ let LINKLABELS = new Map<i64, LinkLabelSlot>()
 @extern(C) {
     pub fn linux_linklabel_clicked(btn: i64, data: i64) {
         if let some(slot) = LINKLABELS.get(btn) {
-            let cb = slot.onClick
-            cb(0.0, 0.0)
+            slot.onClick(0.0, 0.0)
         }
     }
 }

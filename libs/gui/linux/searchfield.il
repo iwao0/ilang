@@ -57,34 +57,29 @@ let SEARCHFIELDS = new Map<i64, SearchFieldSlot>()
 @extern(C) {
     pub fn linux_searchfield_search_changed(entry: i64, data: i64) {
         if let some(slot) = SEARCHFIELDS.get(entry) {
-            let cb = slot.onChange
-            cb(stringFromCstr(gtk_editable_get_text(slot.field as GtkEditable)))
+            slot.onChange(stringFromCstr(gtk_editable_get_text(slot.field as GtkEditable)))
         }
     }
     pub fn linux_searchfield_activate(entry: i64, data: i64) {
         if let some(slot) = SEARCHFIELDS.get(entry) {
-            let cb = slot.onSearch
-            cb(stringFromCstr(gtk_editable_get_text(slot.field as GtkEditable)))
+            slot.onSearch(stringFromCstr(gtk_editable_get_text(slot.field as GtkEditable)))
         }
     }
     pub fn linux_searchfield_stop_search(entry: i64, data: i64) {
         if let some(slot) = SEARCHFIELDS.get(entry) {
-            let cb = slot.onClear
-            cb()
+            slot.onClear()
         }
     }
     pub fn linux_searchfield_focus_enter(ctl: i64, data: i64) {
         let w = gtk_event_controller_get_widget(ctl as GtkEventController)
         if let some(slot) = SEARCHFIELDS.get(w as i64) {
-            let cb = slot.onFocus
-            cb()
+            slot.onFocus()
         }
     }
     pub fn linux_searchfield_focus_leave(ctl: i64, data: i64) {
         let w = gtk_event_controller_get_widget(ctl as GtkEventController)
         if let some(slot) = SEARCHFIELDS.get(w as i64) {
-            let cb = slot.onBlur
-            cb()
+            slot.onBlur()
         }
     }
     pub fn linux_searchfield_key_pressed(
@@ -93,8 +88,7 @@ let SEARCHFIELDS = new Map<i64, SearchFieldSlot>()
         let w = gtk_event_controller_get_widget(ctl as GtkEventController)
         if let some(slot) = SEARCHFIELDS.get(w as i64) {
             let code = keyvalToCode(gdk_keyval_to_lower(keyval))
-            let cb = slot.onKeyDown
-            cb(code,
+            slot.onKeyDown(code,
                hasMod(state, MOD_CTRL), hasMod(state, MOD_SHIFT),
                hasMod(state, MOD_ALT),  hasMod(state, MOD_META))
         }
@@ -106,8 +100,7 @@ let SEARCHFIELDS = new Map<i64, SearchFieldSlot>()
         let w = gtk_event_controller_get_widget(ctl as GtkEventController)
         if let some(slot) = SEARCHFIELDS.get(w as i64) {
             let code = keyvalToCode(gdk_keyval_to_lower(keyval))
-            let cb = slot.onKeyUp
-            cb(code,
+            slot.onKeyUp(code,
                hasMod(state, MOD_CTRL), hasMod(state, MOD_SHIFT),
                hasMod(state, MOD_ALT),  hasMod(state, MOD_META))
         }

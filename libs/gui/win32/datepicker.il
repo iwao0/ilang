@@ -62,8 +62,7 @@ pub fn tryDateTimeNotify(hwnd: i64, code: i32, lParam: i64): bool {
             let y = readU16(p, 32 as i64) as i32
             let m = readU16(p, 34 as i64) as i32
             let d = readU16(p, 38 as i64) as i32
-            let cb = slot.onChange
-            cb(y, m, d)
+            slot.onChange(y, m, d)
             true
         }
         none { false }

@@ -69,8 +69,7 @@ fn findButtonIndex(slot: SegmentedSlot, btn: i64): i32 {
         if let some(boxHandle) = BUTTON_TO_BOX.get(btn) {
             if let some(slot) = SEGMENTEDS.get(boxHandle) {
                 let idx = findButtonIndex(slot, btn)
-                let cb = slot.onChange
-                cb(idx)
+                slot.onChange(idx)
             }
         }
     }

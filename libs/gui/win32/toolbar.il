@@ -131,8 +131,7 @@ pub fn toolbarWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             // LOWORD(wParam) = child control id (= our item index).
             if let some(slot) = TOOLBARS.get(hwnd) {
                 let idx = (wParam & 0xFFFF) as i32
-                let cb = slot.onItemClick
-                cb(idx)
+                slot.onItemClick(idx)
             }
             return 0
         }

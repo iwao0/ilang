@@ -165,29 +165,25 @@ pub fn linux_canvas_draw(area: i64, cr: i64, width: i32, height: i32, data: i64)
 pub fn linux_canvas_focus_enter(ctl: i64, data: i64) {
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = CANVASES.get(w as i64) {
-        let cb = slot.onFocus
-        cb()
+        slot.onFocus()
     }
 }
 pub fn linux_canvas_focus_leave(ctl: i64, data: i64) {
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = CANVASES.get(w as i64) {
-        let cb = slot.onBlur
-        cb()
+        slot.onBlur()
     }
 }
 pub fn linux_canvas_motion_enter(ctl: i64, x: f64, y: f64, data: i64) {
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = CANVASES.get(w as i64) {
-        let cb = slot.onMouseEnter
-        cb(x, y)
+        slot.onMouseEnter(x, y)
     }
 }
 pub fn linux_canvas_motion_leave(ctl: i64, data: i64) {
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = CANVASES.get(w as i64) {
-        let cb = slot.onMouseLeave
-        cb(0.0, 0.0)
+        slot.onMouseLeave(0.0, 0.0)
     }
 }
 pub fn linux_canvas_motion(ctl: i64, x: f64, y: f64, data: i64) {
@@ -203,8 +199,7 @@ pub fn linux_canvas_motion(ctl: i64, x: f64, y: f64, data: i64) {
             (if (st & 0x100 as u32) != 0 as u32 { 0x1 as u32 } else { 0 as u32 }) |
             (if (st & 0x400 as u32) != 0 as u32 { 0x2 as u32 } else { 0 as u32 }) |
             (if (st & 0x200 as u32) != 0 as u32 { 0x4 as u32 } else { 0 as u32 })
-        let cb = slot.onMouseMove
-        cb(x, y, buttons,
+        slot.onMouseMove(x, y, buttons,
            hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
            hasMod(st, MOD_ALT),  hasMod(st, MOD_META))
     }
@@ -225,8 +220,7 @@ pub fn linux_canvas_pressed(
         let sk = hasMod(st, MOD_SHIFT)
         let ak = hasMod(st, MOD_ALT)
         let mk = hasMod(st, MOD_META)
-        let cb = slot.onMouseDown
-        cb(x, y, w3c, ck, sk, ak, mk)
+        slot.onMouseDown(x, y, w3c, ck, sk, ak, mk)
         if btn == 3 as u32 {
             let ctx = slot.onContextMenu
             ctx(x, y, w3c, ck, sk, ak, mk)
@@ -242,8 +236,7 @@ pub fn linux_canvas_released(
         let st = gtk_event_controller_get_current_event_state(
             gesture as GtkEventController
         ) as u32
-        let cb = slot.onMouseUp
-        cb(x, y, gdkBtnToW3c(btn),
+        slot.onMouseUp(x, y, gdkBtnToW3c(btn),
            hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
            hasMod(st, MOD_ALT),  hasMod(st, MOD_META))
     }
@@ -253,8 +246,7 @@ pub fn linux_canvas_scroll(
 ): i32 {
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = CANVASES.get(w as i64) {
-        let cb = slot.onMouseWheel
-        cb(dx, dy, 0.0, 0.0, false, false, false, false)
+        slot.onMouseWheel(dx, dy, 0.0, 0.0, false, false, false, false)
     }
     0 as i32
 }
@@ -264,8 +256,7 @@ pub fn linux_canvas_key_pressed(
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = CANVASES.get(w as i64) {
         let code = keyvalToCode(gdk_keyval_to_lower(keyval))
-        let cb = slot.onKeyDown
-        cb(code,
+        slot.onKeyDown(code,
            hasMod(state, MOD_CTRL), hasMod(state, MOD_SHIFT),
            hasMod(state, MOD_ALT),  hasMod(state, MOD_META))
     }
@@ -277,8 +268,7 @@ pub fn linux_canvas_key_released(
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = CANVASES.get(w as i64) {
         let code = keyvalToCode(gdk_keyval_to_lower(keyval))
-        let cb = slot.onKeyUp
-        cb(code,
+        slot.onKeyUp(code,
            hasMod(state, MOD_CTRL), hasMod(state, MOD_SHIFT),
            hasMod(state, MOD_ALT),  hasMod(state, MOD_META))
     }

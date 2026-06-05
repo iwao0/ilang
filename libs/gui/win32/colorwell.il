@@ -133,8 +133,7 @@ fn openPicker(slot: ColorWellSlot) {
         if newArgb != slot.color {
             slot.color = newArgb
             InvalidateRect(slot.hwnd, 0 as *const RECT, 0)
-            let cb = slot.onChange
-            cb(newArgb)
+            slot.onChange(newArgb)
         }
     }
 }

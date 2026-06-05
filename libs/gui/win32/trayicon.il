@@ -104,8 +104,7 @@ pub fn trayMsgWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             if let some(slot) = TRAY_ICONS.get(handle) {
                 let event = (lParam & 0xFFFF) as u32
                 if event == WindowMessage.lbuttonup as u32 {
-                    let cb = slot.onClick
-                    cb()
+                    slot.onClick()
                 }
                 if event == WindowMessage.rButtonUp as u32 && slot.menuHandle >= 0 as i64 {
                     let pt = POINT { x: 0 as i32, y: 0 as i32 }

@@ -38,8 +38,7 @@ let TAB_VIEWS = new Map<i64, TabViewSlot>()
     /// `void(GtkNotebook*, GtkWidget* page, guint page_num, gpointer)`.
     pub fn linux_tabview_switch_page(nb: i64, page: i64, pageNum: u32, data: i64) {
         if let some(slot) = TAB_VIEWS.get(nb) {
-            let cb = slot.onChange
-            cb(pageNum as i32)
+            slot.onChange(pageNum as i32)
         }
     }
 }

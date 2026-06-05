@@ -182,16 +182,14 @@ pub fn searchFieldEditSubclass(
             if vk == VirtualKey.returnKey {
                 if let some(hostI) = EDIT_TO_HOST.get(hwnd) {
                     if let some(slot) = SEARCHFIELDS.get(hostI) {
-                        let cb = slot.onSearch
-                        cb(readEditText(slot.edit))
+                        slot.onSearch(readEditText(slot.edit))
                     }
                 }
                 return 0
             }
             if let some(hostI) = EDIT_TO_HOST.get(hwnd) {
                 if let some(slot) = SEARCHFIELDS.get(hostI) {
-                    let cb = slot.onKeyDown
-                    cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+                    slot.onKeyDown(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
                 }
             }
         }
@@ -199,8 +197,7 @@ pub fn searchFieldEditSubclass(
             if let some(hostI) = EDIT_TO_HOST.get(hwnd) {
                 if let some(slot) = SEARCHFIELDS.get(hostI) {
                     let vk = wParam as u32 as VirtualKey
-                    let cb = slot.onKeyUp
-                    cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+                    slot.onKeyUp(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
                 }
             }
         }
@@ -209,8 +206,7 @@ pub fn searchFieldEditSubclass(
                 if let some(slot) = SEARCHFIELDS.get(hostI) {
                     slot.focused = true
                     InvalidateRect(slot.host, 0 as *const RECT, 0)
-                    let cb = slot.onFocus
-                    cb()
+                    slot.onFocus()
                 }
             }
         }
@@ -219,8 +215,7 @@ pub fn searchFieldEditSubclass(
                 if let some(slot) = SEARCHFIELDS.get(hostI) {
                     slot.focused = false
                     InvalidateRect(slot.host, 0 as *const RECT, 0)
-                    let cb = slot.onBlur
-                    cb()
+                    slot.onBlur()
                 }
             }
         }
@@ -264,8 +259,7 @@ pub fn searchFieldWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                     if slot.suppressNextChange {
                         slot.suppressNextChange = false
                     } else {
-                        let cb = slot.onChange
-                        cb(readEditText(slot.edit))
+                        slot.onChange(readEditText(slot.edit))
                     }
                     InvalidateRect(slot.host, 0 as *const RECT, 0)
                 }
@@ -280,8 +274,7 @@ pub fn searchFieldWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                         let emptyW = "".encodeUtf16()
                         SetWindowTextW(slot.edit, emptyW)
                         InvalidateRect(slot.host, 0 as *const RECT, 0)
-                        let cb = slot.onClear
-                        cb()
+                        slot.onClear()
                     }
                 } else {
                     SetFocus(slot.edit)

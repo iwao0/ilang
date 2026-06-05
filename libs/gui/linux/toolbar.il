@@ -64,8 +64,7 @@ pub let TOOLBAR_BUTTONS = new Map<i64, ToolbarBtnInfo>()
 pub fn linux_toolbar_clicked(btn: i64, data: i64) {
     if let some(info) = TOOLBAR_BUTTONS.get(btn) {
         if let some(slot) = TOOLBARS.get(info.toolbarHandle) {
-            let cb = slot.onItemClick
-            cb(info.index)
+            slot.onItemClick(info.index)
         }
     }
 }

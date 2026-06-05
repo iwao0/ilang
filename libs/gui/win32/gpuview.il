@@ -334,8 +334,7 @@ let CLASS_INITED: bool = false
         let dt   = ((nowNs - slot.lastNs) as f64) / 1.0e9
         slot.lastNs = nowNs
 
-        let cb = slot.onRender
-        cb(pass, time, dt)
+        slot.onRender(pass, time, dt)
 
         wgpuRenderPassEncoderEnd(pass)
         let cmd = wgpuCommandEncoderFinish(enc, 0 as *void)
@@ -380,8 +379,7 @@ let CLASS_INITED: bool = false
                         if WGPU_READY {
                             configureSurfaceFor(slot.surface, w as u32, h as u32)
                         }
-                        let cb = slot.onResize
-                        cb(w, h)
+                        slot.onResize(w, h)
                     }
                 }
                 return 0
@@ -393,30 +391,26 @@ let CLASS_INITED: bool = false
             }
             WindowMessage.setFocus {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
-                    let cb = slot.onFocus
-                    cb()
+                    slot.onFocus()
                 }
                 return 0
             }
             WindowMessage.killFocus {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
-                    let cb = slot.onBlur
-                    cb()
+                    slot.onBlur()
                 }
                 return 0
             }
             WindowMessage.keydown {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
-                    let cb = slot.onKeyDown
-                    cb(vkToString(wParam as u32 as VirtualKey),
+                    slot.onKeyDown(vkToString(wParam as u32 as VirtualKey),
                        gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
                 }
                 return 0
             }
             WindowMessage.keyup {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
-                    let cb = slot.onKeyUp
-                    cb(vkToString(wParam as u32 as VirtualKey),
+                    slot.onKeyUp(vkToString(wParam as u32 as VirtualKey),
                        gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
                 }
                 return 0
@@ -443,8 +437,7 @@ let CLASS_INITED: bool = false
                         (if (mk & 0x1 as u32) != 0 as u32 { 0x1 as u32 } else { 0 as u32 }) |
                         (if (mk & 0x2 as u32) != 0 as u32 { 0x2 as u32 } else { 0 as u32 }) |
                         (if (mk & 0x10 as u32) != 0 as u32 { 0x4 as u32 } else { 0 as u32 })
-                    let cb = slot.onMouseMove
-                    cb(lo, hi, buttons,
+                    slot.onMouseMove(lo, hi, buttons,
                        gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
                 }
                 return 0
@@ -452,23 +445,20 @@ let CLASS_INITED: bool = false
             WindowMessage.mouseLeave {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
                     slot.mouseTracking = false
-                    let cb = slot.onMouseLeave
-                    cb(lo, hi)
+                    slot.onMouseLeave(lo, hi)
                 }
                 return 0
             }
             WindowMessage.lbuttondown {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
                     SetFocus(slot.hwnd)
-                    let cb = slot.onMouseDown
-                    cb(lo, hi, 0 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                    slot.onMouseDown(lo, hi, 0 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
                 }
                 return 0
             }
             WindowMessage.lbuttonup {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
-                    let cb = slot.onMouseUp
-                    cb(lo, hi, 0 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                    slot.onMouseUp(lo, hi, 0 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
                 }
                 return 0
             }
@@ -478,8 +468,7 @@ let CLASS_INITED: bool = false
                     let sk = gpuModShift()
                     let ak = gpuModAlt()
                     let mk = gpuModMeta()
-                    let cb = slot.onMouseDown
-                    cb(lo, hi, 2 as i32, ck, sk, ak, mk)
+                    slot.onMouseDown(lo, hi, 2 as i32, ck, sk, ak, mk)
                     let ctx = slot.onContextMenu
                     ctx(lo, hi, 2 as i32, ck, sk, ak, mk)
                 }
@@ -487,22 +476,19 @@ let CLASS_INITED: bool = false
             }
             WindowMessage.rButtonUp {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
-                    let cb = slot.onMouseUp
-                    cb(lo, hi, 2 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                    slot.onMouseUp(lo, hi, 2 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
                 }
                 return 0
             }
             WindowMessage.mButtonDown {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
-                    let cb = slot.onMouseDown
-                    cb(lo, hi, 1 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                    slot.onMouseDown(lo, hi, 1 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
                 }
                 return 0
             }
             WindowMessage.mButtonUp {
                 if let some(slot) = GPUVIEWS.get(hwnd) {
-                    let cb = slot.onMouseUp
-                    cb(lo, hi, 1 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
+                    slot.onMouseUp(lo, hi, 1 as i32, gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
                 }
                 return 0
             }
@@ -521,8 +507,7 @@ let CLASS_INITED: bool = false
                     // discrete delta and ignores cursor pos anyway.
                     // TODO: ScreenToClient(hwnd, &pt) for a faithful
                     // local point.
-                    let cb = slot.onMouseWheel
-                    cb(0.0, dy, lo, hi,
+                    slot.onMouseWheel(0.0, dy, lo, hi,
                        gpuModCtrl(), gpuModShift(), gpuModAlt(), gpuModMeta())
                 }
                 return 0

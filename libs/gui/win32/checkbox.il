@@ -82,14 +82,12 @@ pub fn checkboxSubclassProc(
     match msg as WindowMessage {
         WindowMessage.setFocus {
             if let some(slot) = CHECKBOXES.get(hwnd) {
-                let cb = slot.onFocus
-                cb()
+                slot.onFocus()
             }
         }
         WindowMessage.killFocus {
             if let some(slot) = CHECKBOXES.get(hwnd) {
-                let cb = slot.onBlur
-                cb()
+                slot.onBlur()
             }
         }
         WindowMessage.mouseMove {
@@ -103,40 +101,34 @@ pub fn checkboxSubclassProc(
                     }
                     TrackMouseEvent(&tme)
                     slot.mouseTracking = true
-                    let cb = slot.onMouseEnter
-                    cb(lo, hi)
+                    slot.onMouseEnter(lo, hi)
                 }
             }
         }
         WindowMessage.mouseLeave {
             if let some(slot) = CHECKBOXES.get(hwnd) {
                 slot.mouseTracking = false
-                let cb = slot.onMouseLeave
-                cb(lo, hi)
+                slot.onMouseLeave(lo, hi)
             }
         }
         WindowMessage.lbuttondown {
             if let some(slot) = CHECKBOXES.get(hwnd) {
-                let cb = slot.onMouseDown
-                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseDown(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.lbuttonup {
             if let some(slot) = CHECKBOXES.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.mButtonDown {
             if let some(slot) = CHECKBOXES.get(hwnd) {
-                let cb = slot.onMouseDown
-                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseDown(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.mButtonUp {
             if let some(slot) = CHECKBOXES.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.rButtonDown {
@@ -145,16 +137,14 @@ pub fn checkboxSubclassProc(
                 let sk = modShift()
                 let ak = modAlt()
                 let mk = modMeta()
-                let cb = slot.onMouseDown
-                cb(lo, hi, 2, ck, sk, ak, mk)
+                slot.onMouseDown(lo, hi, 2, ck, sk, ak, mk)
                 let ctx = slot.onContextMenu
                 ctx(lo, hi, 2, ck, sk, ak, mk)
             }
         }
         WindowMessage.rButtonUp {
             if let some(slot) = CHECKBOXES.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.mouseWheel {
@@ -162,23 +152,20 @@ pub fn checkboxSubclassProc(
                 let raw = ((wParam >> 16) & 0xFFFF) as i32
                 let signed = if raw >= 0x8000 as i32 { raw - 0x10000 as i32 } else { raw }
                 let dy = (signed as f64) / 120.0
-                let cb = slot.onMouseWheel
-                cb(0.0, dy, lo, hi,
+                slot.onMouseWheel(0.0, dy, lo, hi,
                    modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.keydown {
             if let some(slot) = CHECKBOXES.get(hwnd) {
                 let vk = wParam as u32 as VirtualKey
-                let cb = slot.onKeyDown
-                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onKeyDown(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.keyup {
             if let some(slot) = CHECKBOXES.get(hwnd) {
                 let vk = wParam as u32 as VirtualKey
-                let cb = slot.onKeyUp
-                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onKeyUp(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         _ {}

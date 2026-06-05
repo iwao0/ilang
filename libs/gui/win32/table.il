@@ -63,8 +63,7 @@ pub fn tryListViewNotify(hwnd: i64, code: i32, lParam: i64): bool {
                 let p = lParam as *const void
                 let row = readI32(p, 24 as i64)
                 if row >= 0 as i32 {
-                    let cb = slot.onActivate
-                    cb(row)
+                    slot.onActivate(row)
                 }
                 return true
             }
@@ -72,8 +71,7 @@ pub fn tryListViewNotify(hwnd: i64, code: i32, lParam: i64): bool {
                 let p = lParam as *const void
                 let row = readI32(p, 24 as i64)
                 if row >= 0 as i32 {
-                    let cb = slot.onActivate
-                    cb(row)
+                    slot.onActivate(row)
                 }
                 return true
             }
@@ -88,8 +86,7 @@ pub fn tryListViewNotify(hwnd: i64, code: i32, lParam: i64): bool {
                 let nowSel = (newState & LVIS_SELECTED) != 0 as u32
                 let wasSel = (oldState & LVIS_SELECTED) != 0 as u32
                 if nowSel && !wasSel {
-                    let cb = slot.onSelect
-                    cb(row)
+                    slot.onSelect(row)
                 }
                 return true
             }

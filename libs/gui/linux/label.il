@@ -60,15 +60,13 @@ let LABELS = new Map<i64, LabelSlot>()
 pub fn linux_label_motion_enter(ctl: i64, x: f64, y: f64, data: i64) {
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = LABELS.get(w as i64) {
-        let cb = slot.onMouseEnter
-        cb(x, y)
+        slot.onMouseEnter(x, y)
     }
 }
 pub fn linux_label_motion_leave(ctl: i64, data: i64) {
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = LABELS.get(w as i64) {
-        let cb = slot.onMouseLeave
-        cb(0.0, 0.0)
+        slot.onMouseLeave(0.0, 0.0)
     }
 }
 pub fn linux_label_pressed(
@@ -85,8 +83,7 @@ pub fn linux_label_pressed(
         let sk = hasMod(st, MOD_SHIFT)
         let ak = hasMod(st, MOD_ALT)
         let mk = hasMod(st, MOD_META)
-        let cb = slot.onMouseDown
-        cb(x, y, w3c, ck, sk, ak, mk)
+        slot.onMouseDown(x, y, w3c, ck, sk, ak, mk)
         if btn == 3 as u32 {
             let ctx = slot.onContextMenu
             ctx(x, y, w3c, ck, sk, ak, mk)
@@ -102,8 +99,7 @@ pub fn linux_label_released(
         let st = gtk_event_controller_get_current_event_state(
             gesture as GtkEventController
         ) as u32
-        let cb = slot.onMouseUp
-        cb(x, y, gdkBtnToW3c(btn),
+        slot.onMouseUp(x, y, gdkBtnToW3c(btn),
            hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
            hasMod(st, MOD_ALT),  hasMod(st, MOD_META))
     }
@@ -113,8 +109,7 @@ pub fn linux_label_scroll(
 ): i32 {
     let w = gtk_event_controller_get_widget(ctrl as GtkEventController)
     if let some(slot) = LABELS.get(w as i64) {
-        let cb = slot.onMouseWheel
-        cb(dx, dy, 0.0, 0.0, false, false, false, false)
+        slot.onMouseWheel(dx, dy, 0.0, 0.0, false, false, false, false)
     }
     0 as i32
 }

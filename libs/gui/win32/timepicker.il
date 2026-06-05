@@ -52,8 +52,7 @@ pub fn tryDateTimePickTimeNotify(hwnd: i64, code: i32, lParam: i64): bool {
             let h = readU16(p, 40 as i64) as i32
             let m = readU16(p, 42 as i64) as i32
             let s = readU16(p, 44 as i64) as i32
-            let cb = slot.onChange
-            cb(h, m, s)
+            slot.onChange(h, m, s)
             true
         }
         none { false }

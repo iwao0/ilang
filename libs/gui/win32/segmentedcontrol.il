@@ -184,8 +184,7 @@ fn selectAndNotify(hwnd: HWND, slot: SegmentedSlot, idx: i32) {
     if idx == slot.selectedIndex { return }
     slot.selectedIndex = idx
     InvalidateRect(hwnd, 0 as *const RECT, 0)
-    let cb = slot.onChange
-    cb(idx)
+    slot.onChange(idx)
 }
 
 pub fn segmentedWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {

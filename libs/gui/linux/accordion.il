@@ -42,8 +42,7 @@ let ACCORDIONS = new Map<i64, AccordionSlot>()
     pub fn linux_accordion_notify_expanded(self: i64, pspec: i64, data: i64) {
         if let some(slot) = ACCORDIONS.get(self) {
             let isExpanded = gtk_expander_get_expanded(slot.expander) != 0 as i32
-            let cb = slot.onToggle
-            cb(isExpanded)
+            slot.onToggle(isExpanded)
         }
     }
 }

@@ -212,8 +212,7 @@ pub fn accordionWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                     let cmd: i32 = if slot.expanded { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
                     ShowWindow(slot.content, cmd)
                     InvalidateRect(slot.host, 0 as *const RECT, 0)
-                    let cb = slot.onToggle
-                    cb(slot.expanded)
+                    slot.onToggle(slot.expanded)
                 }
             }
             return 0

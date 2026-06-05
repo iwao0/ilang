@@ -81,8 +81,7 @@ pub fn tryTreeViewNotify(hwnd: i64, code: i32, lParam: i64): bool {
                 // (NMHDR=24 + action=4 + _pad=4 + itemOld=56 → itemNew at 88; hItem field at +8).
                 let pNew = (lParam + 88 as i64) as *const void
                 let h = readI64(pNew, 8 as i64)
-                let cb = slot.onSelect
-                cb(h)
+                slot.onSelect(h)
                 return true
             }
             if code == TVN_ITEMEXPANDEDW {
@@ -90,9 +89,9 @@ pub fn tryTreeViewNotify(hwnd: i64, code: i32, lParam: i64): bool {
                 let h = readI64(pNew, 8 as i64)
                 let state = readI64(pNew, 16 as i64) as u32
                 if (state & TVIS_EXPANDED) != 0 as u32 {
-                    let cb = slot.onExpand; cb(h)
+                    slot.onExpand(h)
                 } else {
-                    let cb = slot.onCollapse; cb(h)
+                    slot.onCollapse(h)
                 }
                 return true
             }
@@ -112,8 +111,7 @@ pub fn tryTreeViewNotify(hwnd: i64, code: i32, lParam: i64): bool {
                 }
                 if nowChecked != prev {
                     slot.checks.set(h, nowChecked)
-                    let cb = slot.onCheck
-                    cb(h, nowChecked)
+                    slot.onCheck(h, nowChecked)
                 }
                 return true
             }

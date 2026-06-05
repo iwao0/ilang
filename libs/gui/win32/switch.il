@@ -193,8 +193,7 @@ fn toggleAndNotify(hwnd: HWND, slot: SwitchSlot) {
     if !slot.enabled { return }
     slot.checked = !slot.checked
     InvalidateRect(hwnd, 0 as *const RECT, 0)
-    let cb = slot.onToggle
-    cb(slot.checked)
+    slot.onToggle(slot.checked)
 }
 
 pub fn switchWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
@@ -218,8 +217,7 @@ pub fn switchWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             if let some(slot) = SWITCHES.get(hwnd) {
                 slot.focused = true
                 InvalidateRect(hwnd as HWND, 0 as *const RECT, 0)
-                let cb = slot.onFocus
-                cb()
+                slot.onFocus()
             }
             return 0
         }
@@ -227,8 +225,7 @@ pub fn switchWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             if let some(slot) = SWITCHES.get(hwnd) {
                 slot.focused = false
                 InvalidateRect(hwnd as HWND, 0 as *const RECT, 0)
-                let cb = slot.onBlur
-                cb()
+                slot.onBlur()
             }
             return 0
         }
@@ -243,8 +240,7 @@ pub fn switchWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                     }
                     TrackMouseEvent(&tme)
                     slot.mouseTracking = true
-                    let cb = slot.onMouseEnter
-                    cb(lo, hi)
+                    slot.onMouseEnter(lo, hi)
                 }
             }
             return 0
@@ -252,38 +248,33 @@ pub fn switchWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         WindowMessage.mouseLeave {
             if let some(slot) = SWITCHES.get(hwnd) {
                 slot.mouseTracking = false
-                let cb = slot.onMouseLeave
-                cb(lo, hi)
+                slot.onMouseLeave(lo, hi)
             }
             return 0
         }
         WindowMessage.lbuttondown {
             if let some(slot) = SWITCHES.get(hwnd) {
                 SetFocus(slot.hwnd)
-                let cb = slot.onMouseDown
-                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseDown(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
         }
         WindowMessage.lbuttonup {
             if let some(slot) = SWITCHES.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
                 toggleAndNotify(hwnd as HWND, slot)
             }
             return 0
         }
         WindowMessage.mButtonDown {
             if let some(slot) = SWITCHES.get(hwnd) {
-                let cb = slot.onMouseDown
-                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseDown(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
         }
         WindowMessage.mButtonUp {
             if let some(slot) = SWITCHES.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
         }
@@ -293,8 +284,7 @@ pub fn switchWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                 let sk = modShift()
                 let ak = modAlt()
                 let mk = modMeta()
-                let cb = slot.onMouseDown
-                cb(lo, hi, 2, ck, sk, ak, mk)
+                slot.onMouseDown(lo, hi, 2, ck, sk, ak, mk)
                 let ctx = slot.onContextMenu
                 ctx(lo, hi, 2, ck, sk, ak, mk)
             }
@@ -302,8 +292,7 @@ pub fn switchWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         }
         WindowMessage.rButtonUp {
             if let some(slot) = SWITCHES.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
         }
@@ -312,8 +301,7 @@ pub fn switchWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                 let raw = ((wParam >> 16) & 0xFFFF) as i32
                 let signed = if raw >= 0x8000 as i32 { raw - 0x10000 as i32 } else { raw }
                 let dy = (signed as f64) / 120.0
-                let cb = slot.onMouseWheel
-                cb(0.0, dy, lo, hi,
+                slot.onMouseWheel(0.0, dy, lo, hi,
                    modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
@@ -321,8 +309,7 @@ pub fn switchWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         WindowMessage.keydown {
             if let some(slot) = SWITCHES.get(hwnd) {
                 let vk = wParam as u32 as VirtualKey
-                let cb = slot.onKeyDown
-                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onKeyDown(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
                 // Space / Enter activate the switch — Win32 button
                 // convention.
                 if vk == VirtualKey.space || vk == VirtualKey.enter {
@@ -334,8 +321,7 @@ pub fn switchWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         WindowMessage.keyup {
             if let some(slot) = SWITCHES.get(hwnd) {
                 let vk = wParam as u32 as VirtualKey
-                let cb = slot.onKeyUp
-                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onKeyUp(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
         }

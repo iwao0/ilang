@@ -91,8 +91,7 @@ pub fn tryEditChange(hwnd: i64): bool {
 /// Called by `wnd_proc` for WM_COMMAND / EN_SETFOCUS.
 pub fn tryEditFocus(hwnd: i64): bool {
     if let some(slot) = EDITS.get(hwnd) {
-        let cb = slot.onFocus
-        cb()
+        slot.onFocus()
         true
     } else {
         false
@@ -101,8 +100,7 @@ pub fn tryEditFocus(hwnd: i64): bool {
 /// Called by `wnd_proc` for WM_COMMAND / EN_KILLFOCUS.
 pub fn tryEditBlur(hwnd: i64): bool {
     if let some(slot) = EDITS.get(hwnd) {
-        let cb = slot.onBlur
-        cb()
+        slot.onBlur()
         true
     } else {
         false
@@ -134,40 +132,34 @@ pub fn editSubclassProc(
                     }
                     TrackMouseEvent(&tme)
                     slot.mouseTracking = true
-                    let cb = slot.onMouseEnter
-                    cb(lo, hi)
+                    slot.onMouseEnter(lo, hi)
                 }
             }
         }
         WindowMessage.mouseLeave {
             if let some(slot) = EDITS.get(hwnd) {
                 slot.mouseTracking = false
-                let cb = slot.onMouseLeave
-                cb(lo, hi)
+                slot.onMouseLeave(lo, hi)
             }
         }
         WindowMessage.lbuttondown {
             if let some(slot) = EDITS.get(hwnd) {
-                let cb = slot.onMouseDown
-                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseDown(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.lbuttonup {
             if let some(slot) = EDITS.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 0, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.mButtonDown {
             if let some(slot) = EDITS.get(hwnd) {
-                let cb = slot.onMouseDown
-                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseDown(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.mButtonUp {
             if let some(slot) = EDITS.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 1, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.rButtonDown {
@@ -176,30 +168,26 @@ pub fn editSubclassProc(
                 let sk = modShift()
                 let ak = modAlt()
                 let mk = modMeta()
-                let cb = slot.onMouseDown
-                cb(lo, hi, 2, ck, sk, ak, mk)
+                slot.onMouseDown(lo, hi, 2, ck, sk, ak, mk)
                 let ctx = slot.onContextMenu
                 ctx(lo, hi, 2, ck, sk, ak, mk)
             }
         }
         WindowMessage.rButtonUp {
             if let some(slot) = EDITS.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 2, modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.keydown {
             if let some(slot) = EDITS.get(hwnd) {
                 let vk = wParam as u32 as VirtualKey
-                let cb = slot.onKeyDown
-                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onKeyDown(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.keyup {
             if let some(slot) = EDITS.get(hwnd) {
                 let vk = wParam as u32 as VirtualKey
-                let cb = slot.onKeyUp
-                cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onKeyUp(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
             }
         }
         WindowMessage.mouseWheel {
@@ -209,8 +197,7 @@ pub fn editSubclassProc(
                 let dy = (signed as f64) / 120.0
                 // lParam coords are screen-space on WM_MOUSEWHEEL;
                 // shipping raw matches the Button-side TODO.
-                let cb = slot.onMouseWheel
-                cb(0.0, dy, lo, hi,
+                slot.onMouseWheel(0.0, dy, lo, hi,
                    modCtrl(), modShift(), modAlt(), modMeta())
             }
         }

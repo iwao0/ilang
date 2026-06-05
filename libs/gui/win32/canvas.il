@@ -186,30 +186,26 @@ pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         }
         WindowMessage.setFocus {
             if let some(slot) = CANVASES.get(hwnd) {
-                let cb = slot.onFocus
-                cb()
+                slot.onFocus()
             }
             return 0
         }
         WindowMessage.killFocus {
             if let some(slot) = CANVASES.get(hwnd) {
-                let cb = slot.onBlur
-                cb()
+                slot.onBlur()
             }
             return 0
         }
         WindowMessage.keydown {
             if let some(slot) = CANVASES.get(hwnd) {
-                let cb = slot.onKeyDown
-                cb(vkToString(wParam as u32 as VirtualKey),
+                slot.onKeyDown(vkToString(wParam as u32 as VirtualKey),
                    modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
         }
         WindowMessage.keyup {
             if let some(slot) = CANVASES.get(hwnd) {
-                let cb = slot.onKeyUp
-                cb(vkToString(wParam as u32 as VirtualKey),
+                slot.onKeyUp(vkToString(wParam as u32 as VirtualKey),
                    modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
@@ -239,8 +235,7 @@ pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                     (if (mk & 0x1 as u32) != 0 as u32 { 0x1 as u32 } else { 0 as u32 }) |
                     (if (mk & 0x2 as u32) != 0 as u32 { 0x2 as u32 } else { 0 as u32 }) |
                     (if (mk & 0x10 as u32) != 0 as u32 { 0x4 as u32 } else { 0 as u32 })
-                let cb = slot.onMouseMove
-                cb(lo, hi, buttons,
+                slot.onMouseMove(lo, hi, buttons,
                    modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
@@ -248,8 +243,7 @@ pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         WindowMessage.mouseLeave {
             if let some(slot) = CANVASES.get(hwnd) {
                 slot.mouseTracking = false
-                let cb = slot.onMouseLeave
-                cb(lo, hi)
+                slot.onMouseLeave(lo, hi)
             }
             return 0
         }
@@ -258,15 +252,13 @@ pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                 // Take focus so subsequent WM_KEYDOWN reaches us
                 // — the canvas isn't a focusable class by default.
                 SetFocus(slot.hwnd)
-                let cb = slot.onMouseDown
-                cb(lo, hi, 0 as i32, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseDown(lo, hi, 0 as i32, modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
         }
         WindowMessage.lbuttonup {
             if let some(slot) = CANVASES.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 0 as i32, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 0 as i32, modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
         }
@@ -276,8 +268,7 @@ pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                 let sk = modShift()
                 let ak = modAlt()
                 let mk = modMeta()
-                let cb = slot.onMouseDown
-                cb(lo, hi, 2 as i32, ck, sk, ak, mk)
+                slot.onMouseDown(lo, hi, 2 as i32, ck, sk, ak, mk)
                 let ctx = slot.onContextMenu
                 ctx(lo, hi, 2 as i32, ck, sk, ak, mk)
             }
@@ -285,22 +276,19 @@ pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         }
         WindowMessage.rButtonUp {
             if let some(slot) = CANVASES.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 2 as i32, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 2 as i32, modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
         }
         WindowMessage.mButtonDown {
             if let some(slot) = CANVASES.get(hwnd) {
-                let cb = slot.onMouseDown
-                cb(lo, hi, 1 as i32, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseDown(lo, hi, 1 as i32, modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
         }
         WindowMessage.mButtonUp {
             if let some(slot) = CANVASES.get(hwnd) {
-                let cb = slot.onMouseUp
-                cb(lo, hi, 1 as i32, modCtrl(), modShift(), modAlt(), modMeta())
+                slot.onMouseUp(lo, hi, 1 as i32, modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0
         }
@@ -309,8 +297,7 @@ pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                 let raw = ((wParam >> 16) & 0xFFFF) as i32
                 let signed = if raw >= 0x8000 as i32 { raw - 0x10000 as i32 } else { raw }
                 let dy = (signed as f64) / 120.0
-                let cb = slot.onMouseWheel
-                cb(0.0, dy, lo, hi,
+                slot.onMouseWheel(0.0, dy, lo, hi,
                    modCtrl(), modShift(), modAlt(), modMeta())
             }
             return 0

@@ -329,8 +329,7 @@ let MAP_STATUS:   i64 = -1
         let time = ((nowNs - slot.startNs) as f64) / 1.0e9
         let dt   = ((nowNs - slot.lastNs) as f64) / 1.0e9
         slot.lastNs = nowNs
-        let cb = slot.onRender
-        cb(pass, time, dt)
+        slot.onRender(pass, time, dt)
         wgpuRenderPassEncoderEnd(pass)
 
         // Encode the texture → staging buffer copy in the same
@@ -452,8 +451,7 @@ let MAP_STATUS:   i64 = -1
     ): i32 {
         if let some(slot) = GPUVIEWS.get(data) {
             let code = keyvalToCode(gdk_keyval_to_lower(keyval))
-            let cb = slot.onKeyDown
-            cb(code,
+            slot.onKeyDown(code,
                gpuHasMod(state, GDK_MOD_CTRL), gpuHasMod(state, GDK_MOD_SHIFT),
                gpuHasMod(state, GDK_MOD_ALT),  gpuHasMod(state, GDK_MOD_META))
         }
@@ -464,8 +462,7 @@ let MAP_STATUS:   i64 = -1
     ): i32 {
         if let some(slot) = GPUVIEWS.get(data) {
             let code = keyvalToCode(gdk_keyval_to_lower(keyval))
-            let cb = slot.onKeyUp
-            cb(code,
+            slot.onKeyUp(code,
                gpuHasMod(state, GDK_MOD_CTRL), gpuHasMod(state, GDK_MOD_SHIFT),
                gpuHasMod(state, GDK_MOD_ALT),  gpuHasMod(state, GDK_MOD_META))
         }
@@ -473,26 +470,22 @@ let MAP_STATUS:   i64 = -1
     }
     pub fn gpuLinuxFocusEnter(ctrl: i64, data: i64) {
         if let some(slot) = GPUVIEWS.get(data) {
-            let cb = slot.onFocus
-            cb()
+            slot.onFocus()
         }
     }
     pub fn gpuLinuxFocusLeave(ctrl: i64, data: i64) {
         if let some(slot) = GPUVIEWS.get(data) {
-            let cb = slot.onBlur
-            cb()
+            slot.onBlur()
         }
     }
     pub fn gpuLinuxMotionEnter(ctrl: i64, x: f64, y: f64, data: i64) {
         if let some(slot) = GPUVIEWS.get(data) {
-            let cb = slot.onMouseEnter
-            cb(x, y)
+            slot.onMouseEnter(x, y)
         }
     }
     pub fn gpuLinuxMotionLeave(ctrl: i64, data: i64) {
         if let some(slot) = GPUVIEWS.get(data) {
-            let cb = slot.onMouseLeave
-            cb(0.0, 0.0)
+            slot.onMouseLeave(0.0, 0.0)
         }
     }
     pub fn gpuLinuxMotion(ctrl: i64, x: f64, y: f64, data: i64) {
@@ -500,12 +493,11 @@ let MAP_STATUS:   i64 = -1
             let st = gtk_event_controller_get_current_event_state(
                 ctrl as GtkEventController
             )
-            let cb = slot.onMouseMove
             // GTK gives us motion through GtkEventControllerMotion,
             // which doesn't expose the held-button bitfield directly.
             // Pass 0 for now — the public class merges with its own
             // down/up snapshot anyway.
-            cb(x, y, 0 as u32,
+            slot.onMouseMove(x, y, 0 as u32,
                gpuHasMod(st, GDK_MOD_CTRL), gpuHasMod(st, GDK_MOD_SHIFT),
                gpuHasMod(st, GDK_MOD_ALT),  gpuHasMod(st, GDK_MOD_META))
         }
@@ -524,8 +516,7 @@ let MAP_STATUS:   i64 = -1
             let ak = gpuHasMod(st, GDK_MOD_ALT)
             let mk = gpuHasMod(st, GDK_MOD_META)
             gtk_widget_grab_focus(slot.area as GtkWidget)
-            let cb = slot.onMouseDown
-            cb(x, y, btn, ck, sk, ak, mk)
+            slot.onMouseDown(x, y, btn, ck, sk, ak, mk)
             if rawBtn == 3 as u32 {
                 let ctx = slot.onContextMenu
                 ctx(x, y, btn, ck, sk, ak, mk)
@@ -542,8 +533,7 @@ let MAP_STATUS:   i64 = -1
             let st = gtk_event_controller_get_current_event_state(
                 gesture as GtkEventController
             )
-            let cb = slot.onMouseUp
-            cb(x, y, btn,
+            slot.onMouseUp(x, y, btn,
                gpuHasMod(st, GDK_MOD_CTRL), gpuHasMod(st, GDK_MOD_SHIFT),
                gpuHasMod(st, GDK_MOD_ALT),  gpuHasMod(st, GDK_MOD_META))
         }
@@ -553,11 +543,10 @@ let MAP_STATUS:   i64 = -1
             let st = gtk_event_controller_get_current_event_state(
                 ctrl as GtkEventController
             )
-            let cb = slot.onMouseWheel
             // GtkEventControllerScroll doesn't report cursor pos —
             // pass 0.0 for x / y. Game code can read mouseX / mouseY
             // from the public class snapshot if it needs the cursor.
-            cb(dx, dy, 0.0, 0.0,
+            slot.onMouseWheel(dx, dy, 0.0, 0.0,
                gpuHasMod(st, GDK_MOD_CTRL), gpuHasMod(st, GDK_MOD_SHIFT),
                gpuHasMod(st, GDK_MOD_ALT),  gpuHasMod(st, GDK_MOD_META))
         }
@@ -565,8 +554,7 @@ let MAP_STATUS:   i64 = -1
     }
     pub fn gpuLinuxResize(area: i64, w: i32, h: i32, data: i64) {
         if let some(slot) = GPUVIEWS.get(data) {
-            let cb = slot.onResize
-            cb(w as f64, h as f64)
+            slot.onResize(w as f64, h as f64)
         }
     }
 

@@ -47,8 +47,7 @@ pub fn tryTabViewSelChange(hwnd: i64, code: i32): bool {
     if code != TCN_SELCHANGE { return false }
     if let some(slot) = TAB_VIEWS.get(hwnd) {
         let idx = SendMessageA(slot.hwnd, TCM_GETCURSEL, 0 as u64, 0 as i64) as i32
-        let cb = slot.onChange
-        cb(idx)
+        slot.onChange(idx)
         return true
     }
     false

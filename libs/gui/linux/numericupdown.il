@@ -79,33 +79,32 @@ let NUMERICS = new Map<i64, NumericSlot>()
 pub fn linux_num_value_changed(spin: i64, data: i64) {
     if let some(slot) = NUMERICS.get(spin) {
         let v = gtk_spin_button_get_value(slot.spin)
-        let cb = slot.onChange
-        cb(v)
+        slot.onChange(v)
     }
 }
 
 pub fn linux_num_focus_enter(ctl: i64, data: i64) {
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = NUMERICS.get(w as i64) {
-        let cb = slot.onFocus; cb()
+        slot.onFocus()
     }
 }
 pub fn linux_num_focus_leave(ctl: i64, data: i64) {
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = NUMERICS.get(w as i64) {
-        let cb = slot.onBlur; cb()
+        slot.onBlur()
     }
 }
 pub fn linux_num_motion_enter(ctl: i64, x: f64, y: f64, data: i64) {
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = NUMERICS.get(w as i64) {
-        let cb = slot.onMouseEnter; cb(x, y)
+        slot.onMouseEnter(x, y)
     }
 }
 pub fn linux_num_motion_leave(ctl: i64, data: i64) {
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = NUMERICS.get(w as i64) {
-        let cb = slot.onMouseLeave; cb(0.0, 0.0)
+        slot.onMouseLeave(0.0, 0.0)
     }
 }
 pub fn linux_num_pressed(gesture: i64, nPress: i32, x: f64, y: f64, data: i64) {
@@ -120,7 +119,7 @@ pub fn linux_num_pressed(gesture: i64, nPress: i32, x: f64, y: f64, data: i64) {
         let sk = hasMod(st, NUM_MOD_SHIFT)
         let ak = hasMod(st, NUM_MOD_ALT)
         let mk = hasMod(st, NUM_MOD_META)
-        let cb = slot.onMouseDown; cb(x, y, w3c, ck, sk, ak, mk)
+        slot.onMouseDown(x, y, w3c, ck, sk, ak, mk)
         if btn == 3 as u32 {
             let ctx = slot.onContextMenu; ctx(x, y, w3c, ck, sk, ak, mk)
         }
@@ -133,8 +132,7 @@ pub fn linux_num_released(gesture: i64, nPress: i32, x: f64, y: f64, data: i64) 
         let st = gtk_event_controller_get_current_event_state(
             gesture as GtkEventController
         ) as u32
-        let cb = slot.onMouseUp
-        cb(x, y, gdkBtnToW3c(btn),
+        slot.onMouseUp(x, y, gdkBtnToW3c(btn),
            hasMod(st, NUM_MOD_CTRL), hasMod(st, NUM_MOD_SHIFT),
            hasMod(st, NUM_MOD_ALT),  hasMod(st, NUM_MOD_META))
     }
@@ -142,7 +140,7 @@ pub fn linux_num_released(gesture: i64, nPress: i32, x: f64, y: f64, data: i64) 
 pub fn linux_num_scroll(ctl: i64, dx: f64, dy: f64, data: i64): i32 {
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = NUMERICS.get(w as i64) {
-        let cb = slot.onMouseWheel; cb(dx, dy, 0.0, 0.0, false, false, false, false)
+        slot.onMouseWheel(dx, dy, 0.0, 0.0, false, false, false, false)
     }
     0 as i32
 }
@@ -152,8 +150,7 @@ pub fn linux_num_key_pressed(
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = NUMERICS.get(w as i64) {
         let code = keyvalToCode(gdk_keyval_to_lower(keyval))
-        let cb = slot.onKeyDown
-        cb(code,
+        slot.onKeyDown(code,
            hasMod(state, NUM_MOD_CTRL), hasMod(state, NUM_MOD_SHIFT),
            hasMod(state, NUM_MOD_ALT),  hasMod(state, NUM_MOD_META))
     }
@@ -165,8 +162,7 @@ pub fn linux_num_key_released(
     let w = gtk_event_controller_get_widget(ctl as GtkEventController)
     if let some(slot) = NUMERICS.get(w as i64) {
         let code = keyvalToCode(gdk_keyval_to_lower(keyval))
-        let cb = slot.onKeyUp
-        cb(code,
+        slot.onKeyUp(code,
            hasMod(state, NUM_MOD_CTRL), hasMod(state, NUM_MOD_SHIFT),
            hasMod(state, NUM_MOD_ALT),  hasMod(state, NUM_MOD_META))
     }

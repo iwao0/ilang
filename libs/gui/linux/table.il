@@ -149,15 +149,13 @@ pub fn tableSelectionChanged(sel: i64, pspec: i64, tableKey: i64) {
         } else {
             pos as i32
         }
-        let cb = slot.onSelect
-        cb(row)
+        slot.onSelect(row)
     }
 }
 
 pub fn tableActivated(cv: i64, position: u32, tableKey: i64) {
     if let some(slot) = TABLES.get(tableKey) {
-        let cb = slot.onActivate
-        cb(position as i32)
+        slot.onActivate(position as i32)
     }
 }
 

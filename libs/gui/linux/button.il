@@ -138,15 +138,13 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
     pub fn linux_button_focus_enter(ctl: i64, data: i64) {
         let w = gtk_event_controller_get_widget(ctl as GtkEventController)
         if let some(slot) = BUTTONS.get(w as i64) {
-            let cb = slot.onFocus
-            cb()
+            slot.onFocus()
         }
     }
     pub fn linux_button_focus_leave(ctl: i64, data: i64) {
         let w = gtk_event_controller_get_widget(ctl as GtkEventController)
         if let some(slot) = BUTTONS.get(w as i64) {
-            let cb = slot.onBlur
-            cb()
+            slot.onBlur()
         }
     }
 
@@ -168,8 +166,7 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
             let sk = hasMod(st, MOD_SHIFT)
             let ak = hasMod(st, MOD_ALT)
             let mk = hasMod(st, MOD_META)
-            let cb = slot.onMouseDown
-            cb(x, y, w3c, ck, sk, ak, mk)
+            slot.onMouseDown(x, y, w3c, ck, sk, ak, mk)
             // Right-button press → also surface onContextMenu, the
             // moment GTK would otherwise begin showing the system
             // context menu. Keyboard-triggered menus (Menu key /
@@ -193,8 +190,7 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
             // immediately after a release-inside-bounds for the
             // primary button) — that signal has no event state.
             slot.lastClickMods = st
-            let cb = slot.onMouseUp
-            cb(x, y, gdkBtnToW3c(btn),
+            slot.onMouseUp(x, y, gdkBtnToW3c(btn),
                hasMod(st, MOD_CTRL), hasMod(st, MOD_SHIFT),
                hasMod(st, MOD_ALT),  hasMod(st, MOD_META))
         }
@@ -204,8 +200,7 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
     pub fn linux_button_motion_enter(ctl: i64, x: f64, y: f64, data: i64) {
         let w = gtk_event_controller_get_widget(ctl as GtkEventController)
         if let some(slot) = BUTTONS.get(w as i64) {
-            let cb = slot.onMouseEnter
-            cb(x, y)
+            slot.onMouseEnter(x, y)
         }
     }
     /// `GtkEventControllerMotion.leave` is positionless —
@@ -214,8 +209,7 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
     pub fn linux_button_motion_leave(ctl: i64, data: i64) {
         let w = gtk_event_controller_get_widget(ctl as GtkEventController)
         if let some(slot) = BUTTONS.get(w as i64) {
-            let cb = slot.onMouseLeave
-            cb(0.0, 0.0)
+            slot.onMouseLeave(0.0, 0.0)
         }
     }
     /// `GtkEventControllerKey.key-pressed` /
@@ -230,8 +224,7 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
         let w = gtk_event_controller_get_widget(ctrl as GtkEventController)
         if let some(slot) = BUTTONS.get(w as i64) {
             let code = keyvalToCode(gdk_keyval_to_lower(keyval))
-            let cb = slot.onKeyDown
-            cb(code,
+            slot.onKeyDown(code,
                hasMod(state, MOD_CTRL), hasMod(state, MOD_SHIFT),
                hasMod(state, MOD_ALT),  hasMod(state, MOD_META))
         }
@@ -243,8 +236,7 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
         let w = gtk_event_controller_get_widget(ctrl as GtkEventController)
         if let some(slot) = BUTTONS.get(w as i64) {
             let code = keyvalToCode(gdk_keyval_to_lower(keyval))
-            let cb = slot.onKeyUp
-            cb(code,
+            slot.onKeyUp(code,
                hasMod(state, MOD_CTRL), hasMod(state, MOD_SHIFT),
                hasMod(state, MOD_ALT),  hasMod(state, MOD_META))
         }
@@ -262,8 +254,7 @@ let DEFAULT_BUTTONS = new Map<i64, i64>()
     ): i32 {
         let w = gtk_event_controller_get_widget(ctrl as GtkEventController)
         if let some(slot) = BUTTONS.get(w as i64) {
-            let cb = slot.onMouseWheel
-            cb(dx, dy, 0.0, 0.0, false, false, false, false)
+            slot.onMouseWheel(dx, dy, 0.0, 0.0, false, false, false, false)
         }
         0 as i32
     }

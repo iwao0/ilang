@@ -80,8 +80,7 @@ pub fn tryNumericUpDownNotify(hwnd: i64, code: i32, lParam: i64): bool {
             if clamped != slot.value {
                 slot.value = clamped
                 writeEditText(slot)
-                let cb = slot.onChange
-                cb(clamped)
+                slot.onChange(clamped)
             }
             true
         }

@@ -60,8 +60,7 @@ fn rgbaPtrToArgb(rgba: *const void): u32 {
     pub fn linux_colorwell_notify_rgba(self: i64, pspec: i64, data: i64) {
         if let some(slot) = COLORWELLS.get(self) {
             let rgba = gtk_color_dialog_button_get_rgba(slot.btn)
-            let cb = slot.onChange
-            cb(rgbaPtrToArgb(rgba as *const void))
+            slot.onChange(rgbaPtrToArgb(rgba as *const void))
         }
     }
 }

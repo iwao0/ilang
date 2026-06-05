@@ -127,8 +127,7 @@ fn paintLink(hwnd: HWND, slot: LinkLabelSlot, hdc: HDC) {
 
 fn clickAndOpen(hwnd: HWND, slot: LinkLabelSlot, x: f64, y: f64) {
     if !slot.enabled { return }
-    let cb = slot.onClick
-    cb(x, y)
+    slot.onClick(x, y)
     if slot.url != "" {
         let opW   = "open".encodeUtf16()
         let fileW = slot.url.encodeUtf16()
