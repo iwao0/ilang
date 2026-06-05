@@ -4,7 +4,7 @@
 
 use std.ffi { cstrFromString, stringFromCstr }
 use gtk {
-    GtkWidget, GtkSearchEntry, GtkEditable, GtkFixed, GObject,
+    GtkWidget, GtkSearchEntry, GtkEntry, GtkFixed, GObject,
     GtkEventController, GtkEventControllerFocus, GtkEventControllerKey,
     gtk_search_entry_new, gtk_search_entry_set_placeholder_text,
     gtk_editable_set_text, gtk_editable_get_text,
@@ -57,12 +57,12 @@ let SEARCHFIELDS = new Map<i64, SearchFieldSlot>()
 @extern(C) {
     pub fn linux_searchfield_search_changed(entry: i64, data: i64) {
         if let some(slot) = SEARCHFIELDS.get(entry) {
-            slot.onChange(stringFromCstr(gtk_editable_get_text(slot.field as GtkEditable)))
+            slot.onChange(stringFromCstr(gtk_editable_get_text(slot.field as GtkEntry)))
         }
     }
     pub fn linux_searchfield_activate(entry: i64, data: i64) {
         if let some(slot) = SEARCHFIELDS.get(entry) {
-            slot.onSearch(stringFromCstr(gtk_editable_get_text(slot.field as GtkEditable)))
+            slot.onSearch(stringFromCstr(gtk_editable_get_text(slot.field as GtkEntry)))
         }
     }
     pub fn linux_searchfield_stop_search(entry: i64, data: i64) {
@@ -121,7 +121,7 @@ pub fn createNativeSearchField(
         none    { return -1 }
     }
     let se = gtk_search_entry_new() as GtkSearchEntry
-    gtk_editable_set_text(se as GtkEditable, cstrFromString(text))
+    gtk_editable_set_text(se as GtkEntry, cstrFromString(text))
     if placeholder != "" {
         gtk_search_entry_set_placeholder_text(se, cstrFromString(placeholder))
     }
@@ -172,13 +172,13 @@ pub fn createNativeSearchField(
 
 pub fn readSearchFieldText(handle: i64): string {
     match SEARCHFIELDS.get(handle) {
-        some(slot) { stringFromCstr(gtk_editable_get_text(slot.field as GtkEditable)) }
+        some(slot) { stringFromCstr(gtk_editable_get_text(slot.field as GtkEntry)) }
         none       { "" }
     }
 }
 pub fn setSearchFieldText(handle: i64, text: string) {
     if let some(slot) = SEARCHFIELDS.get(handle) {
-        gtk_editable_set_text(slot.field as GtkEditable, cstrFromString(text))
+        gtk_editable_set_text(slot.field as GtkEntry, cstrFromString(text))
     }
 }
 pub fn setSearchFieldPlaceholder(handle: i64, text: string) {

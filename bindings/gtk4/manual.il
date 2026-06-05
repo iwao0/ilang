@@ -362,6 +362,15 @@ pub enum Keyval: u32 {
     ): *void
     @lib pub fn gdk_rgba_free(rgba: *void)
 
+    /// `gtk_color_dialog_button_set_rgba` taking the 4×f32 GdkRGBA
+    /// buffer directly. The generated binding types `color` as the
+    /// opaque `GdkRGBA` handle, which can't be built from a float
+    /// buffer — this mirrors `gtk_color_dialog_choose_rgba`.
+    @symbol("gtk_color_dialog_button_set_rgba")
+    @lib pub fn gtk_color_dialog_button_set_rgba_buf(
+        self: GtkColorDialogButton, color: *const f32
+    )
+
     @handle pub struct PangoFontDescription {}
 
     @lib pub fn gtk_font_dialog_choose_font(

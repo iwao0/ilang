@@ -11,7 +11,7 @@ use gtk {
     gtk_fixed_new, gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_visible,
     gtk_widget_set_tooltip_text,
-    g_signal_connect_data,
+    g_signal_connect_data2,
 }
 use core { resolveGtkParent, GtkParent, GTK_PARENTS }
 
@@ -72,7 +72,7 @@ pub fn createNativeAccordion(
     gtk_widget_set_visible(exp as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
     gtk_fixed_put(parent.fixed, exp as GtkWidget, x, y)
 
-    g_signal_connect_data(
+    g_signal_connect_data2(
         exp as GObject, cstrFromString("notify::expanded"),
         linux_accordion_notify_expanded, 0 as *void, 0 as i64, 0 as u32
     )
