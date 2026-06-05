@@ -46,7 +46,7 @@ use windows {
 }
 use dwmapi { DwmFlush }
 use core { WINDOWS, windowHwnd }
-use wnd_proc { vkToString }
+use util { vkToString }
 use std.time { monotonicNs }
 use wgpu29 {
     WGPUInstance, WGPUAdapter, WGPUDevice, WGPUQueue, WGPUSurface,
