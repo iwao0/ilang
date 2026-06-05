@@ -77,6 +77,11 @@ pub class WindowSlot {
     pub hasMaxSize:    bool
     pub preFullScreenStyle:     i64
     pub preFullScreenPlacement: WINDOWPLACEMENT
+    /// HWND of the msctls_statusbar32 docked at the bottom of this
+    /// window, or `0 as HWND` if none. `wnd_proc` forwards WM_SIZE
+    /// to it so the bar self-repositions; `setStatusBar` from
+    /// `statusbar.il` populates it.
+    pub statusBarHwnd:          HWND
 
     pub init(hwnd: HWND) {
         this.hwnd = hwnd
@@ -117,6 +122,7 @@ pub class WindowSlot {
         this.maxH              = 0.0
         this.hasMaxSize        = false
         this.preFullScreenStyle     = 0 as i64
+        this.statusBarHwnd          = 0 as HWND
         this.preFullScreenPlacement = WINDOWPLACEMENT {
             length:           44 as u32,
             flags:            0 as u32,

@@ -69,6 +69,7 @@ use numericupdown { tryNumericUpDownNotify }
 use datepicker { tryDateTimeNotify }
 use timepicker { tryDateTimePickTimeNotify }
 use menu     { tryMenuClick }
+use statusbar { forwardResizeToStatusBars }
 use super.events
 use util { vkToString, modCtrl, modShift, modAlt, modMeta }
 
@@ -137,6 +138,10 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         }
         WindowMessage.size {
             dispatchSize(hwnd, wParam as i32, lo, hi)
+            // CCS_BOTTOM common controls (msctls_statusbar32) only
+            // self-reposition when WM_SIZE is forwarded explicitly
+            // — DefWindowProcW does not do this for us.
+            forwardResizeToStatusBars(hwnd, wParam, lParam)
             return 0
         }
         WindowMessage.move {

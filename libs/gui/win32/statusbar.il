@@ -13,7 +13,7 @@ use windows {
     WindowStyle, WindowMessage,
     GetModuleHandleA, CreateWindowExW, SendMessageW, GetClientRect,
 }
-use core { windowHwnd }
+use core { windowHwnd, WINDOWS }
 
 // Common-control class style — CCS_BOTTOM (3) keeps the bar
 // docked to the bottom edge and `CCS_NOPARENTALIGN` is implied.
@@ -94,8 +94,29 @@ pub fn createNativeStatusBar(windowHandle: i64, segments: string[]): i64 {
     let handle = hwnd as i64
     let slot = new StatusBarSlot(hwnd, segments)
     STATUS_BARS[handle] = slot
+    // Remember the bar's HWND on the parent's WindowSlot so wnd_proc
+    // can forward WM_SIZE — msctls_statusbar32 with CCS_BOTTOM
+    // only repositions itself when it receives WM_SIZE directly.
+    if let some(winSlot) = WINDOWS.get(windowHandle) {
+        winSlot.statusBarHwnd = hwnd
+    }
     applyParts(slot, segments)
     handle
+}
+
+/// Forward the parent window's WM_SIZE to its status bar (if any)
+/// so the docked bar follows the new client height, then re-run
+/// `applyParts` so the per-segment widths track the new width.
+pub fn forwardResizeToStatusBars(parentHandle: i64, wParam: u64, lParam: i64) {
+    if let some(winSlot) = WINDOWS.get(parentHandle) {
+        let sb = winSlot.statusBarHwnd
+        if sb as i64 != 0 as i64 {
+            SendMessageW(sb, WindowMessage.size as u32, wParam, lParam)
+            if let some(barSlot) = STATUS_BARS.get(sb as i64) {
+                applyParts(barSlot, barSlot.segments)
+            }
+        }
+    }
 }
 
 pub fn setStatusBarSegments(handle: i64, segments: string[]) {
