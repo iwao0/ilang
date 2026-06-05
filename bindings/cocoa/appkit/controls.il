@@ -188,6 +188,11 @@ pub enum NSDatePickerElementFlags: u64 {
         /// for the common case of greying out an input.
         @objc("setEnabled:")
         pub setEnabled(flag: bool)
+        /// Foreground text colour. Inherited from NSControl. Used
+        /// by `LinkLabel` to dye the body text the system link
+        /// colour; safe to call on any NSTextField.
+        @objc("setTextColor:")
+        pub setTextColor(c: NSObject)
         /// Cue-banner text shown when the field is empty. The
         /// AppKit attribute is plain NSString; for styled text use
         /// `setPlaceholderAttributedString:` instead.

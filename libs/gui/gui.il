@@ -14,6 +14,7 @@
 ///   window.il      — `Window` + `Control` base class
 ///   button.il      — `Button`
 ///   label.il       — `Label`
+///   linklabel.il   — `LinkLabel`
 ///   textfield.il   — `TextField`
 ///   checkbox.il    — `Checkbox`
 ///   switch.il      — `Switch`
@@ -42,6 +43,7 @@ pub use box.*
 pub use grid.*
 pub use button.*
 pub use label.*
+pub use linklabel.*
 pub use textfield.*
 pub use textarea.*
 pub use checkbox.*

@@ -1,5 +1,5 @@
 // 🎛 libs/gui — Checkbox, Slider, ProgressBar, ComboBox, Switch,
-//               SegmentedControl.
+//               SegmentedControl, LinkLabel.
 //
 // A small "control panel" window:
 // - Checkbox toggles whether the slider's value drives the
@@ -10,6 +10,7 @@
 //   console.
 // - Switch enables / disables the slider.
 // - SegmentedControl jumps the slider to Low / Mid / High.
+// - LinkLabel opens a URL on click.
 //
 // Run with:
 //   ilang run examples/libs/gui/controls/main.il
@@ -19,7 +20,7 @@ use gui
 let w = new gui.Window()
 w.title  = "ilang × gui — controls"
 w.width  = 460.0
-w.height = 300.0
+w.height = 340.0
 
 let mirror = new gui.Checkbox()
 mirror.text   = "Drive progress from slider"
@@ -101,6 +102,19 @@ seg.onChange.add(fn(e: gui.SelectEvent) {
     console.log("segment:", e.value, "@", e.index)
 })
 w.addChild(seg)
+
+let link = new gui.LinkLabel()
+link.text   = "ilang on GitHub"
+link.url    = "https://github.com/iwao0/ilang"
+link.x      = 20.0
+link.y      = 230.0
+link.width  = 240.0
+link.height = 20.0
+link.tooltip = link.url
+link.onClick.add(fn(e: gui.MouseEvent) {
+    console.log("clicked link:", link.url)
+})
+w.addChild(link)
 
 w.show()
 gui.run()

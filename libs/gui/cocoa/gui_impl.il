@@ -24,6 +24,7 @@ pub use core.*
 pub use window.*
 pub use button.*
 pub use label.*
+pub use linklabel.*
 pub use edit.*
 pub use textarea.*
 pub use checkbox.*
