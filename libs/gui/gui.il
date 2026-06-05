@@ -72,6 +72,7 @@ pub use datepicker.*
 pub use timepicker.*
 pub use groupbox.*
 pub use accordion.*
+pub use panel.*
 pub use canvas.*
 pub use imageview.*
 pub use scrollview.*

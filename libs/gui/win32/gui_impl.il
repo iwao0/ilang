@@ -28,6 +28,7 @@ pub use progress.*
 pub use activityindicator.*
 pub use colorwell.*
 pub use webview.*
+pub use panel.*
 pub use combo.*
 pub use list.*
 pub use tree.*
