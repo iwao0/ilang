@@ -1,5 +1,5 @@
 // 🎛 libs/gui — Checkbox, Slider, ProgressBar, ComboBox, Switch,
-//               SegmentedControl, LinkLabel.
+//               SegmentedControl, LinkLabel, ActivityIndicator.
 //
 // A small "control panel" window:
 // - Checkbox toggles whether the slider's value drives the
@@ -11,6 +11,7 @@
 // - Switch enables / disables the slider.
 // - SegmentedControl jumps the slider to Low / Mid / High.
 // - LinkLabel opens a URL on click.
+// - ActivityIndicator spins while the Switch is on.
 //
 // Run with:
 //   ilang run examples/libs/gui/controls/main.il
@@ -72,6 +73,15 @@ combo.onSelect.add(fn(e: gui.SelectEvent) {
 })
 w.addChild(combo)
 
+let spin = new gui.ActivityIndicator()
+spin.x      = 260.0
+spin.y      = 138.0
+spin.width  = 24.0
+spin.height = 24.0
+spin.tooltip = "spinning while Switch is on"
+w.addChild(spin)
+spin.start()
+
 let sw = new gui.Switch()
 sw.x      = 200.0
 sw.y      = 140.0
@@ -79,6 +89,7 @@ sw.checked = true
 sw.onToggle.add(fn(e: gui.ToggleEvent) {
     slider.isEnabled = e.checked
     console.log("slider enabled:", e.checked)
+    if e.checked { spin.start() } else { spin.stop() }
 })
 w.addChild(sw)
 

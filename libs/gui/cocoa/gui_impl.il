@@ -32,6 +32,7 @@ pub use switch.*
 pub use segmentedcontrol.*
 pub use slider.*
 pub use progress.*
+pub use activityindicator.*
 pub use combo.*
 pub use radio.*
 pub use list.*

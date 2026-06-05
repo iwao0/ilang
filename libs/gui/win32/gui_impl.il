@@ -23,6 +23,7 @@ pub use segmentedcontrol.*
 pub use radio.*
 pub use slider.*
 pub use progress.*
+pub use activityindicator.*
 pub use combo.*
 pub use list.*
 pub use tree.*

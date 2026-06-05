@@ -22,6 +22,7 @@
 ///   radio.il       — `RadioButton`
 ///   slider.il      — `Slider`
 ///   progressbar.il — `ProgressBar`
+///   activityindicator.il — `ActivityIndicator`
 ///   combobox.il    — `ComboBox`
 ///   listbox.il     — `ListBox`
 ///   groupbox.il    — `GroupBox`
@@ -52,6 +53,7 @@ pub use segmentedcontrol.*
 pub use radio.*
 pub use slider.*
 pub use progressbar.*
+pub use activityindicator.*
 pub use combobox.*
 pub use listbox.*
 pub use treeview.*
