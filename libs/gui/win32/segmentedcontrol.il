@@ -33,7 +33,7 @@ const DT_VCENTER:      u32 = 0x00000004 as u32
 const DT_SINGLELINE:   u32 = 0x00000020 as u32
 const DT_END_ELLIPSIS: u32 = 0x00008000 as u32
 use util {
-    vkToString, modCtrl, modShift, modAlt, modMeta, applyGuiFont,
+    vkToString, modCtrl, modShift, modAlt, modMeta, applyGuiFont, ensureGuiFont,
 }
 use core { windowHwnd }
 
@@ -113,6 +113,12 @@ fn paintSegmented(hwnd: HWND, slot: SegmentedSlot, hdc: HDC) {
 
     SetBkMode(hdc, BackgroundMode.transparent as i32)
 
+    // Install Segoe UI on the DC so DrawTextW renders segment
+    // labels in the modern UI font instead of the default
+    // SYSTEM_FONT bitmap face.
+    let guiFont = ensureGuiFont() as HFONT
+    let oldFont = SelectObject(hdc, guiFont as HGDIOBJ)
+
     let n = slot.titles.length as i32
     let i = 0 as i32
     while i < n {
@@ -149,6 +155,9 @@ fn paintSegmented(hwnd: HWND, slot: SegmentedSlot, hdc: HDC) {
         )
         i = i + 1 as i32
     }
+
+    // Restore the DC's prior font now that we're done with text.
+    SelectObject(hdc, oldFont)
 
     // Outer border + focus ring on the selected segment.
     let borderPen = CreatePen(PenStyle.solid as i32, 1, BORDER)
