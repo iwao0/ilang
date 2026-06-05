@@ -9,6 +9,7 @@ pub use button.*
 pub use label.*
 pub use linklabel.*
 pub use edit.*
+pub use searchfield.*
 pub use textarea.*
 pub use checkbox.*
 pub use switch.*

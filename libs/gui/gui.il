@@ -16,6 +16,7 @@
 ///   label.il       — `Label`
 ///   linklabel.il   — `LinkLabel`
 ///   textfield.il   — `TextField`
+///   searchfield.il — `SearchField`
 ///   checkbox.il    — `Checkbox`
 ///   switch.il      — `Switch`
 ///   segmentedcontrol.il — `SegmentedControl`
@@ -47,6 +48,7 @@ pub use button.*
 pub use label.*
 pub use linklabel.*
 pub use textfield.*
+pub use searchfield.*
 pub use textarea.*
 pub use checkbox.*
 pub use switch.*

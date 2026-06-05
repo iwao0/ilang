@@ -232,6 +232,29 @@ pub enum NSDatePickerElementFlags: u64 {
         pub setAction(sel: i64)
     }
 
+    /// `NSSearchField` — bordered text field with a magnifying-
+    /// glass affordance and a cancel button. Subclass of
+    /// NSTextField, so all of stringValue / setPlaceholderString /
+    /// setEnabled / setDelegate / setBordered carry over. Hook
+    /// target/action to learn when the user presses Return or
+    /// clicks the cancel button.
+    @objc pub class NSSearchField : NSTextField {
+        @objc("alloc")
+        pub static alloc(): NSSearchField
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSSearchField
+
+        /// `true` fires the search action on every keystroke;
+        /// `false` (default) waits for Return or for the search
+        /// to be "committed" by the typing-pause timer.
+        @objc("setSendsSearchStringImmediately:")
+        pub setSendsSearchStringImmediately(flag: bool)
+        /// `true` (default) fires the action with the full
+        /// stringValue; `false` fires for each typed character.
+        @objc("setSendsWholeSearchString:")
+        pub setSendsWholeSearchString(flag: bool)
+    }
+
     /// NSSlider — continuous horizontal slider by default. `min`,
     /// `max`, and the current `doubleValue` are f64; the value
     /// reads back via `doubleValue()` (target/action hookups for
