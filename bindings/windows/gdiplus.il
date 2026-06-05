@@ -349,6 +349,21 @@ use windef { HDC, HWND }
         x3: f32, y3: f32, x4: f32, y4: f32
     ): i32
 
+    /// Adds the outline of `text` rendered with `family` / `style` /
+    /// `emSize` as glyph subpaths. `layoutRect` is *RectF (f32 ×4);
+    /// pass an empty rect or 0-width/height to lay out at the
+    /// rect's origin without wrapping.
+    @lib pub fn GdipAddPathString(
+        path:       *GpPath,
+        text:       *const u16,
+        length:     i32,
+        family:     *GpFontFamily,
+        style:      i32,
+        emSize:     f32,
+        layoutRect: *const void,
+        format:     *const void
+    ): i32
+
     @lib pub fn GdipDrawPath(graphics: *GpGraphics, pen: *GpPen, path: *GpPath): i32
     @lib pub fn GdipFillPath(graphics: *GpGraphics, brush: *GpBrush, path: *GpPath): i32
 

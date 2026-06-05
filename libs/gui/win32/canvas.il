@@ -46,15 +46,16 @@ use util {
 }
 use core { windowHwnd }
 use gdiplus {
-    GpGraphics, GpSolidFill, GpBrush, GpPen, GpPath,
+    GpGraphics, GpSolidFill, GpBrush, GpPen, GpPath, GpFontFamily,
     SmoothingMode, FillMode,
     GdipCreateFromHDC, GdipDeleteGraphics, GdipSetSmoothingMode,
     GdipCreateSolidFill, GdipDeleteBrush,
     GdipCreatePen1, GdipDeletePen,
     GdipCreatePath, GdipDeletePath, GdipClosePathFigure,
-    GdipAddPathLine, GdipAddPathArc,
+    GdipAddPathLine, GdipAddPathArc, GdipAddPathString,
     GdipFillPath, GdipDrawPath,
     GdipFillRectangle, GdipDrawRectangle,
+    GdipCreateFontFamilyFromName, GdipDeleteFontFamily,
 }
 
 // 180 / π — radians (public API) → degrees (AngleArc).
@@ -85,6 +86,14 @@ class CanvasSlot {
     pub fontAscent:  f64
     pub fontDescent: f64
     pub fontLineHeight: f64
+    // Mirror of the current font setting kept around for GDI+
+    // path rendering — GdipAddPathString needs the family / size
+    // / style separately and there's no clean way to recover them
+    // from an HFONT once CreateFontW has consumed them.
+    pub fontFamily:  string
+    pub fontSize:    f64
+    pub fontWeight:  i32
+    pub fontItalic:  bool
     // Accumulated path: parallel op-code + argument arrays.
     pub pathOps:     i64[]
     pub pathArgs:    f64[][]
@@ -116,6 +125,10 @@ class CanvasSlot {
         this.fontAscent  = 0.0
         this.fontDescent = 0.0
         this.fontLineHeight = 0.0
+        this.fontFamily  = ""
+        this.fontSize    = 0.0
+        this.fontWeight  = 400 as i32
+        this.fontItalic  = false
         this.pathOps     = newOps()
         this.pathArgs    = newArgs()
         this.onFocus      = canvasNoOp0
@@ -754,6 +767,10 @@ pub fn setCanvasFont(
             DeleteObject(slot.font as HGDIOBJ)
         }
         slot.font = newFont
+        slot.fontFamily = mapFontFace(family)
+        slot.fontSize   = size
+        slot.fontWeight = weight
+        slot.fontItalic = italic
         cacheFontMetrics(slot)
     }
 }
@@ -782,28 +799,52 @@ pub fn canvasFillText(handle: i64, text: string, x: f64, y: f64) {
 pub fn canvasStrokeText(handle: i64, text: string, x: f64, y: f64) {
     if let some(slot) = CANVASES.get(handle) {
         if slot.font as i64 == 0 as i64 { return }
-        let oldFont = SelectObject(slot.mdc, slot.font as HGDIOBJ)
-        let pen = CreatePen(
-            PenStyle.solid as i32, slot.lineWidth as i32, slot.strokeColor
-        )
-        let oldPen = SelectObject(slot.mdc, pen as HGDIOBJ)
-        SetBkMode(slot.mdc, BackgroundMode.transparent as i32)
-        let ty = (y - slot.fontAscent) as i32
-        let textW = text.encodeUtf16(false)
-        // Glyph outlines are accumulated into the DC path, then
-        // stroked with the active pen — same idiom as the other
-        // path-based primitives in this file.
-        BeginPath(slot.mdc)
-        ExtTextOutW(
-            slot.mdc, x as i32, ty,
-            0 as u32, 0 as *const RECT,
-            textW, textW.length as u32, 0 as *const i32
-        )
-        EndPath(slot.mdc)
-        StrokePath(slot.mdc)
-        SelectObject(slot.mdc, oldPen)
-        DeleteObject(pen as HGDIOBJ)
-        SelectObject(slot.mdc, oldFont)
+        ensureGdiplus()
+        let g: *GpGraphics = 0 as *GpGraphics
+        let pg: **GpGraphics = &g
+        GdipCreateFromHDC(slot.mdc, pg)
+        if g as i64 != 0 as i64 {
+            GdipSetSmoothingMode(g, SmoothingMode.antiAlias as i32)
+
+            // GDI+ font family + style bitmask (Regular=0, Bold=1,
+            // Italic=2). Treat any weight >= 600 as bold so demo
+            // calls like `font(..., 700, true)` outline correctly.
+            let familyW = slot.fontFamily.encodeUtf16()
+            let family: *GpFontFamily = 0 as *GpFontFamily
+            let pFamily: **GpFontFamily = &family
+            GdipCreateFontFamilyFromName(familyW, 0 as *void, pFamily)
+            let isBold:   bool = slot.fontWeight >= 600 as i32
+            let isItalic: bool = slot.fontItalic
+            let style: i32 =
+                (if isBold   { 1 as i32 } else { 0 as i32 }) |
+                (if isItalic { 2 as i32 } else { 0 as i32 })
+
+            let path: *GpPath = 0 as *GpPath
+            let pPath: **GpPath = &path
+            GdipCreatePath(FillMode.alternate as i32, pPath)
+            // ExtTextOut takes the cell origin, not the baseline —
+            // mirror the same offset so the public `(x, y)` lands
+            // on the baseline for both fill and stroke.
+            let rect: f32[] = [
+                x as f32, (y - slot.fontAscent) as f32,
+                0.0 as f32, 0.0 as f32,
+            ]
+            let textW = text.encodeUtf16(false)
+            GdipAddPathString(
+                path, textW, textW.length as i32,
+                family, style, slot.fontSize as f32,
+                rect as *const void, 0 as *const void
+            )
+
+            let pen: *GpPen = 0 as *GpPen
+            let pPen: **GpPen = &pen
+            GdipCreatePen1(colorRefToArgb(slot.strokeColor), slot.lineWidth as f32, 0 as i32, pPen)
+            GdipDrawPath(g, pen, path)
+            GdipDeletePen(pen)
+            GdipDeletePath(path)
+            GdipDeleteFontFamily(family)
+            GdipDeleteGraphics(g)
+        }
         InvalidateRect(slot.hwnd, 0 as *const RECT, 0)
     }
 }
