@@ -288,7 +288,12 @@ impl<'a> Parser<'a> {
     pub(crate) fn apply_type_postfix(&mut self, mut ty: Type) -> Result<Type, ParseError> {
         loop {
             match self.peek().kind {
-                TokenKind::LBracket => {
+                // Array `T[]` / `T[N]`. The newline guard mirrors the
+                // expression-level postfix index: an array literal that
+                // *starts* the next statement (`[a, b]` on its own line
+                // after `let x = ... as T`) must not be glued onto the
+                // cast's type as a fixed-array suffix.
+                TokenKind::LBracket if !self.peek().leading_newline => {
                     self.bump();
                     let fixed = match self.peek().kind {
                         TokenKind::RBracket => None,
