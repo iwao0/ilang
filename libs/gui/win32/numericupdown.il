@@ -67,6 +67,7 @@ let NUMERICS = new Map<i64, NumericSlot>()
 /// find its slot.
 let EDIT_TO_UPDN: Map<i64, i64> = new Map<i64, i64>()
 
+@extern(C) {
 pub fn tryNumericUpDownNotify(hwnd: i64, code: i32, lParam: i64): bool {
     if code != UDN_DELTAPOS { return false }
     match NUMERICS.get(hwnd) {
@@ -192,8 +193,6 @@ fn padLeftZero(s: string, width: i64): string {
     }
     prefix + out
 }
-
-@extern(C) {
 
 pub fn createNativeNumericUpDown(
     windowHandle: i64,

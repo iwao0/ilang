@@ -117,7 +117,7 @@ pub enum GpUnit: i32 {
     millimeter = 6
 }
 
-use windef { HDC }
+use windef { HDC, HWND }
 @extern(C, "gdiplus") {
     // ── Opaque handles ────────────────────────────────────────────
 

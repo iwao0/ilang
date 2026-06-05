@@ -56,6 +56,15 @@ pub fn noOpText(s: string) {}
 pub fn noOpF64(v: f64) {}
 pub fn noOpI32(i: i32) {}
 
+/// argb (0xAARRGGBB) → GDI COLORREF (0x00BBGGRR). Alpha dropped.
+pub fn argbToColorRef(argb: u32): u32 {
+    let mask: u32 = 0xFF as u32
+    let r = (argb >> 16) & mask
+    let g = (argb >>  8) & mask
+    let b =  argb        & mask
+    r | (g << 8) | (b << 16)
+}
+
 /// Wide "Explorer" string (UTF-16, NUL-terminated) used by
 /// `SetWindowTheme`. Populated by `enableComctl32V6`; before that
 /// the inner array is empty and `applyExplorerTheme` short-

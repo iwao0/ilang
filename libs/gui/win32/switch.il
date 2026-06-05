@@ -30,7 +30,7 @@ use windows {
 use util {
     vkToString, modCtrl, modShift, modAlt, modMeta, noOpBool,
 }
-use core { windowHwnd, noOp1 }
+use core { windowHwnd, noOp1, noOpEnterLeave, noOpClickMod, noOpWheel, noOpKey }
 
 class SwitchSlot {
     pub hwnd:        HWND
@@ -73,10 +73,6 @@ class SwitchSlot {
     }
 }
 
-fn noOpEnterLeave(x: f64, y: f64) {}
-fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let SWITCHES = new Map<i64, SwitchSlot>()
 
@@ -105,7 +101,7 @@ fn paintSwitch(hwnd: HWND, slot: SwitchSlot, hdc: HDC) {
     // sit inside the client rect.
     let trackColor =
         if !slot.enabled { TRACK_DISABLED }
-        else if slot.checked { TRACK_ON }
+        elif slot.checked { TRACK_ON }
         else { TRACK_OFF }
     let trackBrush = CreateSolidBrush(trackColor)
     let oldBrush = SelectObject(hdc, trackBrush as HGDIOBJ)
@@ -277,7 +273,7 @@ pub fn switchWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                 cb(vkToString(vk), modCtrl(), modShift(), modAlt(), modMeta())
                 // Space / Enter activate the switch — Win32 button
                 // convention.
-                if vk == VirtualKey.space || vk == VirtualKey.returnKey {
+                if vk == VirtualKey.space || vk == VirtualKey.enter {
                     toggleAndNotify(hwnd as HWND, slot)
                 }
             }

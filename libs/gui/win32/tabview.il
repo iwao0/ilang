@@ -42,6 +42,7 @@ let TAB_VIEWS = new Map<i64, TabViewSlot>()
 
 /// Called by wnd_proc on WM_NOTIFY when the notification's hwndFrom
 /// matches a registered TabView. `code` is the NMHDR.code field.
+@extern(C) {
 pub fn tryTabViewSelChange(hwnd: i64, code: i32): bool {
     if code != TCN_SELCHANGE { return false }
     if let some(slot) = TAB_VIEWS.get(hwnd) {
@@ -51,6 +52,7 @@ pub fn tryTabViewSelChange(hwnd: i64, code: i32): bool {
         return true
     }
     false
+}
 }
 
 @extern(C) {

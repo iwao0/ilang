@@ -41,7 +41,7 @@ use windows {
     GetTextExtentPoint32W, GetTextMetricsW,
 }
 use util {
-    vkToString, modCtrl, modShift, modAlt, modMeta,
+    vkToString, modCtrl, modShift, modAlt, modMeta, argbToColorRef,
 }
 use core { windowHwnd }
 
@@ -134,15 +134,6 @@ let CANVAS_CLASS_INITED: bool[] = [false]
 
 fn newOps(): i64[] { let a: i64[] = []; a }
 fn newArgs(): f64[][] { let a: f64[][] = []; a }
-
-/// argb (0xAARRGGBB) → GDI COLORREF (0x00BBGGRR). Alpha dropped.
-fn argbToColorRef(argb: u32): u32 {
-    let mask: u32 = 0xFF as u32
-    let r = (argb >> 16) & mask
-    let g = (argb >>  8) & mask
-    let b =  argb        & mask
-    r | (g << 8) | (b << 16)
-}
 
 @extern(C) {
 

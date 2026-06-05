@@ -65,7 +65,8 @@ fn applyParts(slot: StatusBarSlot, segments: string[]) {
     let j = 0 as i64
     while j < n {
         let textW = segments[j].encodeUtf16()
-        SendMessageW(slot.hwnd, SB_SETTEXTW, j as u64, textW as i64)
+        let textWPtr: *const u16 = textW
+        SendMessageW(slot.hwnd, SB_SETTEXTW, j as u64, textWPtr as i64)
         j = j + 1
     }
 }
@@ -110,7 +111,8 @@ pub fn setStatusBarSegmentText(handle: i64, index: i32, text: string) {
         if i < 0 as i64 || i >= slot.segments.length { return }
         slot.segments[i] = text
         let textW = text.encodeUtf16()
-        SendMessageW(slot.hwnd, SB_SETTEXTW, index as u64, textW as i64)
+        let textWPtr: *const u16 = textW
+        SendMessageW(slot.hwnd, SB_SETTEXTW, index as u64, textWPtr as i64)
     }
 }
 

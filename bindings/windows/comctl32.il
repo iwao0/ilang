@@ -116,6 +116,7 @@ pub const TTM_UPDATETIPTEXTW:  u32 = 0x0439 as u32
 pub const TTM_ACTIVATE:        u32 = 0x0401 as u32
 
 use windef { HINSTANCE, HWND, RECT }
+use winnt { SYSTEMTIME }
 @extern(C, "comctl32") {
     /// Tooltip control's tool descriptor. Layout (x64):
     ///   cbSize     u32   0..4
@@ -633,18 +634,6 @@ use windef { HINSTANCE, HWND, RECT }
 
     /// `DTN_*` notification codes arriving via WM_NOTIFY.
     pub const DTN_DATETIMECHANGE: i32 = -759 as i32
-
-    /// `SYSTEMTIME` — 8 × WORD calendar/time struct. 16 bytes.
-    pub struct SYSTEMTIME {
-        wYear:          u16
-        wMonth:         u16
-        wDayOfWeek:     u16
-        wDay:           u16
-        wHour:          u16
-        wMinute:        u16
-        wSecond:        u16
-        wMilliseconds:  u16
-    }
 
     /// `NMDATETIMECHANGE` — payload of `DTN_DATETIMECHANGE`.
     /// Layout (x64):

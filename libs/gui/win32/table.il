@@ -54,6 +54,7 @@ let TABLES = new Map<i64, TableSlot>()
 
 /// Dispatch routine called from `wnd_proc` on every WM_NOTIFY
 /// whose `hwndFrom` matches one of our tables.
+@extern(C) {
 pub fn tryListViewNotify(hwnd: i64, code: i32, lParam: i64): bool {
     match TABLES.get(hwnd) {
         some(slot) {
@@ -97,8 +98,6 @@ pub fn tryListViewNotify(hwnd: i64, code: i32, lParam: i64): bool {
         none { false }
     }
 }
-
-@extern(C) {
 
 pub fn createNativeTable(
     windowHandle: i64,

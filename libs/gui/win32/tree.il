@@ -72,6 +72,7 @@ let TREES = new Map<i64, TreeSlot>()
 
 /// Dispatch routine called from `wnd_proc` on every WM_NOTIFY
 /// whose hwndFrom matches a TreeView we know about.
+@extern(C) {
 pub fn tryTreeViewNotify(hwnd: i64, code: i32, lParam: i64): bool {
     match TREES.get(hwnd) {
         some(slot) {
@@ -102,8 +103,9 @@ pub fn tryTreeViewNotify(hwnd: i64, code: i32, lParam: i64): bool {
                 let p = lParam as *const void
                 let h = readI64(p, 32 as i64)
                 let newState = readI32(p, 40 as i64) as u32
-                let stateImage = (newState & TVIS_STATEIMAGEMASK) >> 12 as u32
-                let nowChecked = stateImage == 2 as u32
+                let masked_i: i64 = (newState as i64) & (TVIS_STATEIMAGEMASK as i64)
+                let stateImage_i: i64 = masked_i / (0x1000 as i64)
+                let nowChecked: bool = stateImage_i == (2 as i64)
                 let prev = match slot.checks.get(h) {
                     some(b) { b }
                     none    { false }
@@ -119,6 +121,7 @@ pub fn tryTreeViewNotify(hwnd: i64, code: i32, lParam: i64): bool {
         }
         none { false }
     }
+}
 }
 
 /// Indexed-state-image helper (no checkbox = 0, unchecked = 1,

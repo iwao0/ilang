@@ -15,7 +15,7 @@ use util {
     applyGuiFont,
     modCtrl, modShift, modAlt, modMeta,
 }
-use core { windowHwnd }
+use core { windowHwnd, noOpEnterLeave, noOpClickMod, noOpWheel, noOpKey }
 
 /// SS_NOTIFY — make the STATIC control accept mouse hits instead
 /// of returning HTTRANSPARENT (the default), so the subclass proc
@@ -53,9 +53,6 @@ class LabelSlot {
     }
 }
 
-fn noOpEnterLeave(x: f64, y: f64) {}
-fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let LABELS = new Map<i64, LabelSlot>()
 

@@ -14,7 +14,7 @@ use windows {
     RegisterClassExW, CreateWindowExW, DefWindowProcW,
     EnableWindow, MoveWindow, ShowWindow,
     BeginPaint, EndPaint, GetClientRect, InvalidateRect, FillRect,
-    GetSysColorBrush, COLOR_WINDOW,
+    GetSysColorBrush, SysColor,
     SendMessageW, TrackMouseEvent,
 }
 use gdiplus {
@@ -32,7 +32,7 @@ class ImageViewSlot {
     pub hwnd:     HWND
     pub winHandle: i64
     pub tooltipHwnd: HWND
-    pub image:    *GpImage
+    pub image:    i64
     pub onMouseEnter:  fn(f64, f64)
     pub onMouseLeave:  fn(f64, f64)
     pub onMouseDown:   fn(f64, f64, i32, bool, bool, bool, bool)
@@ -44,7 +44,7 @@ class ImageViewSlot {
         this.hwnd = hwnd
         this.winHandle = winHandle
         this.tooltipHwnd = 0 as HWND
-        this.image = 0 as *GpImage
+        this.image = 0 as i64
         this.onMouseEnter  = ivNoOpEnterLeave
         this.onMouseLeave  = ivNoOpEnterLeave
         this.onMouseDown   = ivNoOpClickMod
@@ -94,8 +94,8 @@ pub fn imageViewWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                 GetClientRect(hwnd as HWND, &rc)
                 // Background — paint window colour first so an
                 // image smaller than the view shows through.
-                FillRect(hdc, &rc, GetSysColorBrush(COLOR_WINDOW as i32))
-                if slot.image as i64 != 0 as i64 {
+                FillRect(hdc, &rc, GetSysColorBrush(SysColor.window as i32))
+                if slot.image != 0 as i64 {
                     let g: *GpGraphics = 0 as *GpGraphics
                     let pg: **GpGraphics = &g
                     GdipCreateFromHDC(hdc, pg)
@@ -104,7 +104,7 @@ pub fn imageViewWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                         // rect — the default ScaleToFit for every
                         // platform's MVP.
                         GdipDrawImageRect(
-                            g, slot.image,
+                            g, slot.image as *GpImage,
                             0.0 as f32, 0.0 as f32,
                             (rc.right - rc.left) as f32,
                             (rc.bottom - rc.top) as f32
@@ -263,16 +263,16 @@ pub fn createNativeImageView(
 
 pub fn setImageViewSrc(handle: i64, path: string) {
     if let some(slot) = IMAGE_VIEWS.get(handle) {
-        if slot.image as i64 != 0 as i64 {
-            GdipDisposeImage(slot.image)
-            slot.image = 0 as *GpImage
+        if slot.image != 0 as i64 {
+            GdipDisposeImage(slot.image as *GpImage)
+            slot.image = 0 as i64
         }
         if path != "" {
             let pathW = path.encodeUtf16()
             let img: *GpImage = 0 as *GpImage
             let pp: **GpImage = &img
             GdipLoadImageFromFile(pathW, pp)
-            slot.image = img
+            slot.image = img as i64
         }
         InvalidateRect(slot.hwnd, 0 as *const RECT, 0)
     }

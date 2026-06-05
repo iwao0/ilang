@@ -89,6 +89,56 @@ pub enum WindowStyleEx: u32 {
     paletteWindow       = 0x00000188
 }
 
+// ─── EDIT control styles (ES_*) ───────────────────────────────
+// Edit-control specific style bits — combined with the generic
+// `WindowStyle.child | WindowStyle.visible | WindowStyle.border`
+// when creating an `EDIT` window class.
+@flags
+pub enum EditStyle: u32 {
+    left        = 0x0000
+    center      = 0x0001
+    right       = 0x0002
+    multiline   = 0x0004
+    upperCase   = 0x0008
+    lowerCase   = 0x0010
+    password    = 0x0020
+    autoVScroll = 0x0040
+    autoHScroll = 0x0080
+    noHideSel   = 0x0100
+    oemConvert  = 0x0400
+    readOnly    = 0x0800
+    wantReturn  = 0x1000
+    number      = 0x2000
+}
+
+// ─── EDIT control messages (EM_*) ─────────────────────────────
+// Subset of EM_* messages; extend as needed. Pass to
+// SendMessage with appropriate wParam / lParam per message.
+pub enum EditMessage: u32 {
+    getSel             = 0x00B0
+    setSel             = 0x00B1
+    getRect            = 0x00B2
+    setRect            = 0x00B3
+    scroll             = 0x00B5
+    lineScroll         = 0x00B6
+    getModify          = 0x00B8
+    setModify          = 0x00B9
+    getLineCount       = 0x00BA
+    lineIndex          = 0x00BB
+    lineLength         = 0x00C1
+    replaceSel         = 0x00C2
+    getLine            = 0x00C4
+    limitText          = 0x00C5
+    canUndo            = 0x00C6
+    undo               = 0x00C7
+    setPasswordChar    = 0x00CC
+    emptyUndoBuffer    = 0x00CD
+    setReadOnly        = 0x00CF
+    setMargins         = 0x00D3
+    setCueBannerW      = 0x1501
+    getCueBannerW      = 0x1502
+}
+
 // ─── ShowWindow nCmdShow (SW_*) ───────────────────────────────
 pub enum ShowCmd: i32 {
     hide            = 0

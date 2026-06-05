@@ -23,7 +23,7 @@ use util {
     noOpF64,
     vkToString, modCtrl, modShift, modAlt, modMeta,
 }
-use core { windowHwnd, noOp1 }
+use core { windowHwnd, noOp1, noOpEnterLeave, noOpClickMod, noOpWheel, noOpKey }
 
 class SliderSlot {
     pub hwnd:     HWND
@@ -66,10 +66,6 @@ class SliderSlot {
     }
 }
 
-fn noOpEnterLeave(x: f64, y: f64) {}
-fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let SLIDERS = new Map<i64, SliderSlot>()
 

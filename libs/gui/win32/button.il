@@ -19,7 +19,7 @@ use util {
     applyExplorerTheme, applyGuiFont, noOpClick,
     vkToString, modCtrl, modShift, modAlt, modMeta,
 }
-use core { windowHwnd, noOp1 }
+use core { windowHwnd, noOp1, noOpEnterLeave, noOpClickMod, noOpWheel, noOpKey }
 
 /// `BM_SETSTYLE` — flip the button style at runtime (used to set /
 /// clear `BS_DEFPUSHBUTTON`). `wParam` is the new button-style bits,
@@ -91,10 +91,6 @@ class ButtonSlot {
     }
 }
 
-fn noOpEnterLeave(x: f64, y: f64) {}
-fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let BUTTONS = new Map<i64, ButtonSlot>()
 

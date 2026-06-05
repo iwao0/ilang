@@ -193,6 +193,10 @@ pub fn scrollViewWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
     DefWindowProcW(hwnd as HWND, msg, wParam, lParam)
 }
 
+fn defWndProcTrampoline(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
+    DefWindowProcW(hwnd as HWND, msg, wParam, lParam)
+}
+
 fn registerScrollViewClass() {
     if SCROLL_VIEW_CLASS_INITED[0] { return }
     SCROLL_VIEW_CLASS_INITED[0] = true
@@ -225,7 +229,7 @@ fn registerScrollViewClass() {
     let wcInner = WNDCLASSEXA {
         cbSize:        80,
         style:         (ClassStyle.hredraw | ClassStyle.vredraw) as u32,
-        lpfnWndProc:   DefWindowProcW,
+        lpfnWndProc:   defWndProcTrampoline,
         cbClsExtra:    0,
         cbWndExtra:    0,
         hInstance:     hInstance as HINSTANCE,

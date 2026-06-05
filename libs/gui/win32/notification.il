@@ -10,7 +10,7 @@
 @extern(C) {
 
 pub fn sendNativeNotification(title: string, body: string, iconPath: string): i64 {
-    -1 as i64
+    return -1 as i64
 }
 pub fn setOnNotificationClick(handle: i64, cb: fn()) {}
 

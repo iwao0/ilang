@@ -16,6 +16,7 @@ use windows {
     SetForegroundWindow, GetCursorPos, TrackPopupMenu, TrackPopupMenuFlags,
 }
 use core { windowHwnd }
+use std.ffi { writeU16 }
 
 // Shell_NotifyIcon `dwMessage` values.
 const NIM_ADD:        u32 = 0x00000000 as u32
@@ -83,23 +84,18 @@ let TRAY_CLASS_INITED: bool[] = [false]
 /// inside the NOTIFYICONDATAW, NUL-terminating and truncating
 /// as needed. Caller passes the field's offset within the
 /// struct + the buffer's capacity in u16 units.
-fn writeFixedString(nid: *NOTIFYICONDATAW, off: i64, capacity: i64, text: string) {
+fn writeFixedString(nidRaw: i64, off: i64, capacity: i64, text: string) {
     let src = text.encodeUtf16(false)
     let n = src.length
     let max = capacity - 1 as i64
     let limit = if n < max { n } else { max }
+    let basePtr = nidRaw as *void
     let i = 0 as i64
     while i < limit {
-        let c = src as i64
-        // No std.ffi.writeU16 reach into struct fields — instead
-        // we cast through *u16.
-        let p = (nid as i64 + off + i * 2 as i64) as *u16
-        p[0] = src[i]
+        writeU16(basePtr, off + i * 2 as i64, src[i])
         i = i + 1
     }
-    // NUL-terminate.
-    let pt = (nid as i64 + off + limit * 2 as i64) as *u16
-    pt[0] = 0 as u16
+    writeU16(basePtr, off + limit * 2 as i64, 0 as u16)
 }
 
 pub fn trayMsgWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
@@ -205,7 +201,7 @@ pub fn createNativeTrayIcon(
     }
     // szTip lives at offset 40 in the Vista+ struct, capped at
     // 128 wchars.
-    writeFixedString(&nid, 40 as i64, 128 as i64, tooltip)
+    writeFixedString(&nid as i64, 40 as i64, 128 as i64, tooltip)
 
     Shell_NotifyIconW(NIM_ADD, &nid as *void)
 
@@ -242,7 +238,7 @@ fn modifyTrayIcon(slot: TrayIconSlot, iconPath: string, tooltip: string, flags: 
         hBalloonIcon:      0 as HICON,
     }
     if (flags & NIF_TIP) != 0 as u32 {
-        writeFixedString(&nid, 40 as i64, 128 as i64, tooltip)
+        writeFixedString(&nid as i64, 40 as i64, 128 as i64, tooltip)
     }
     Shell_NotifyIconW(NIM_MODIFY, &nid as *void)
 }

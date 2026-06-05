@@ -155,10 +155,10 @@ pub fn splitterWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         WindowMessage.setCursor {
             if let some(splitterSlot) = SPLITTERS.get(hwnd) {
                 if let some(slot) = SPLIT_VIEWS.get(splitterSlot.splitViewHandle) {
-                    let cursorId: u32 = if slot.orientation == 0 as i32 {
-                        SystemCursor.sizeWE as u32
+                    let cursorId: i64 = if slot.orientation == 0 as i32 {
+                        SystemCursor.sizeWE as i64
                     } else {
-                        SystemCursor.sizeNS as u32
+                        SystemCursor.sizeNS as i64
                     }
                     let cursor = LoadCursorW(0 as HINSTANCE, cursorId as *const u16)
                     SetCursor(cursor)
@@ -195,6 +195,10 @@ pub fn splitterWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
     DefWindowProcW(hwnd as HWND, msg, wParam, lParam)
 }
 
+fn splitDefWndProcTrampoline(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
+    DefWindowProcW(hwnd as HWND, msg, wParam, lParam)
+}
+
 fn registerSplitViewClasses() {
     if SPLIT_VIEW_CLASSES_INITED[0] { return }
     SPLIT_VIEW_CLASSES_INITED[0] = true
@@ -226,7 +230,7 @@ fn registerSplitViewClasses() {
     let wcPane = WNDCLASSEXA {
         cbSize:        80,
         style:         (ClassStyle.hredraw | ClassStyle.vredraw) as u32,
-        lpfnWndProc:   DefWindowProcW,
+        lpfnWndProc:   splitDefWndProcTrampoline,
         cbClsExtra:    0,
         cbWndExtra:    0,
         hInstance:     hInstance as HINSTANCE,
@@ -339,7 +343,7 @@ pub fn splitViewBeginNewPane(handle: i64): i64 {
         layoutPanes(slot)
         return pane as i64
     }
-    -1 as i64
+    return -1 as i64
 }
 
 pub fn splitViewDocumentHandle(handle: i64): i64 {
@@ -350,7 +354,7 @@ pub fn splitViewDocumentHandle(handle: i64): i64 {
         }
         return slot.outer as i64
     }
-    -1 as i64
+    return -1 as i64
 }
 
 pub fn setSplitViewFrame(handle: i64, x: f64, y: f64, w: f64, h: f64) {

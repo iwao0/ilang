@@ -54,6 +54,7 @@ let NEXT_ID: i32 = 1000
 /// Called by wnd_proc on WM_COMMAND with lParam = 0 (no control
 /// HWND, so it's either a menu item or an accelerator). Returns
 /// `true` when `id` matched a known menu item.
+@extern(C) {
 pub fn tryMenuClick(id: i32): bool {
     // Plain command item.
     if let some(cb) = ITEM_ACTIONS.get(id) {
@@ -104,8 +105,6 @@ pub fn tryMenuClick(id: i32): bool {
     }
     false
 }
-
-@extern(C) {
 
 pub fn createNativeMenu(title: string): i64 {
     let h = CreatePopupMenu()

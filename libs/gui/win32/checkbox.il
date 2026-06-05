@@ -19,7 +19,7 @@ use util {
     applyExplorerTheme, applyGuiFont, noOpBool,
     vkToString, modCtrl, modShift, modAlt, modMeta,
 }
-use core { windowHwnd, noOp1 }
+use core { windowHwnd, noOp1, noOpEnterLeave, noOpClickMod, noOpWheel, noOpKey }
 
 class CheckboxSlot {
     pub hwnd:     HWND
@@ -56,10 +56,6 @@ class CheckboxSlot {
     }
 }
 
-fn noOpEnterLeave(x: f64, y: f64) {}
-fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let CHECKBOXES = new Map<i64, CheckboxSlot>()
 

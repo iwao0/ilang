@@ -11,15 +11,6 @@ use std.ffi { arrayFromCArray, readU16, writeU16 }
 const CF_UNICODETEXT: u32 = 13 as u32
 const GMEM_MOVEABLE:  u32 = 0x0042 as u32
 
-fn utf16BufToString(buf: *u16): string {
-    let len = 0 as i64
-    while readU16(buf as *const void, len * 2 as i64) != 0 as u16 {
-        len = len + 1
-    }
-    let units = arrayFromCArray(buf as *const u16, len as u64)
-    string.fromUtf16(units)
-}
-
 @extern(C) {
 
 pub fn setClipboardText(s: string) {
@@ -68,7 +59,12 @@ pub fn getClipboardText(): string {
         CloseClipboard()
         return ""
     }
-    let s = utf16BufToString(p)
+    let len = 0 as i64
+    while readU16(p as *const void, len * 2 as i64) != 0 as u16 {
+        len = len + 1
+    }
+    let units = arrayFromCArray(p as *const u16, len as u64)
+    let s = string.fromUtf16(units)
     GlobalUnlock(hMem)
     CloseClipboard()
     s

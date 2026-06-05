@@ -937,9 +937,6 @@ pub enum FontPitchFamily: u32 {
     /// `uState`: DFCS_* state flags.
     @lib pub fn DrawFrameControl(hdc: HDC, lprc: *void, uType: u32, uState: u32): i32
 
-    /// Draws a focus rect (XOR'd dotted rectangle).
-    @lib pub fn DrawFocusRect(hdc: HDC, lprc: *const void): i32
-
     // ── DC creation for device names ─────────────────────────────
 
     /// Creates a DC for a named device (e.g. a printer).

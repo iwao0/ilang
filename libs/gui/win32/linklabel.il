@@ -76,6 +76,8 @@ let LINK_CLASS_INITED: bool[] = [false]
 // WM_SETCURSOR is wasteful when the value never changes.
 let HAND_CURSOR: HCURSOR[] = [0 as HCURSOR]
 
+@extern(C) {
+
 fn ensureHandCursor(): HCURSOR {
     if HAND_CURSOR[0] as i64 == 0 as i64 {
         // IDC_HAND = 32649.
@@ -98,8 +100,6 @@ fn makeLinkFont(): HFONT {
         faceW
     )
 }
-
-@extern(C) {
 
 fn paintLink(hwnd: HWND, slot: LinkLabelSlot, hdc: HDC) {
     let rc = RECT { left: 0, top: 0, right: 0, bottom: 0 }
@@ -214,7 +214,7 @@ pub fn linkWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         WindowMessage.keydown {
             if let some(slot) = LINKLABELS.get(hwnd) {
                 let vk = wParam as u32 as VirtualKey
-                if vk == VirtualKey.space || vk == VirtualKey.returnKey {
+                if vk == VirtualKey.space || vk == VirtualKey.enter {
                     clickAndOpen(hwnd as HWND, slot, 0.0, 0.0)
                 }
             }

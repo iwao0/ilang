@@ -293,17 +293,47 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// `[a, b, ...]`. Trailing comma allowed.
+    /// `[a, b, ...]` (trailing comma allowed) or `[expr; N]` repeat
+    /// form, which the parser expands eagerly into N clones of `expr`
+    /// so downstream stages only see the plain list form.
     pub(in crate::expr) fn parse_array_literal(&mut self, span: Span) -> Result<Expr, ParseError> {
         self.bump();
+        if matches!(self.peek().kind, TokenKind::RBracket) {
+            self.bump();
+            return Ok(Expr::new(ExprKind::Array(Box::new([])), span));
+        }
+        let first = self.parse_expr(0)?;
+        if matches!(self.peek().kind, TokenKind::Semicolon) {
+            self.bump();
+            let count_tok = self.peek().clone();
+            let count = match count_tok.kind {
+                TokenKind::Int(n) if n >= 0 => {
+                    self.bump();
+                    n as usize
+                }
+                _ => {
+                    return Err(ParseError::Unexpected {
+                        span: count_tok.span,
+                        expected: "non-negative integer literal repeat count".into(),
+                        found: count_tok.kind,
+                    });
+                }
+            };
+            self.expect(&TokenKind::RBracket, "']'")?;
+            let mut elements = Vec::with_capacity(count);
+            for _ in 0..count {
+                elements.push(first.clone());
+            }
+            return Ok(Expr::new(ExprKind::Array(elements.into()), span));
+        }
         let mut elements = Vec::with_capacity(4);
-        while !matches!(self.peek().kind, TokenKind::RBracket) {
-            elements.push(self.parse_expr(0)?);
-            if matches!(self.peek().kind, TokenKind::Comma) {
-                self.bump();
-            } else {
+        elements.push(first);
+        while matches!(self.peek().kind, TokenKind::Comma) {
+            self.bump();
+            if matches!(self.peek().kind, TokenKind::RBracket) {
                 break;
             }
+            elements.push(self.parse_expr(0)?);
         }
         self.expect(&TokenKind::RBracket, "']'")?;
         Ok(Expr::new(ExprKind::Array(elements.into()), span))

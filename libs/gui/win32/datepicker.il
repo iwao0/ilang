@@ -48,6 +48,7 @@ fn dpNoOpYmd(y: i32, m: i32, d: i32) {}
 
 let DATE_PICKERS = new Map<i64, DatePickerSlot>()
 
+@extern(C) {
 pub fn tryDateTimeNotify(hwnd: i64, code: i32, lParam: i64): bool {
     if code != DTN_DATETIMECHANGE { return false }
     match DATE_PICKERS.get(hwnd) {
@@ -69,7 +70,7 @@ pub fn tryDateTimeNotify(hwnd: i64, code: i32, lParam: i64): bool {
     }
 }
 
-fn makeSystemTime(year: i32, month: i32, day: i32): SYSTEMTIME {
+fn makeDateSystemTime(year: i32, month: i32, day: i32): SYSTEMTIME {
     SYSTEMTIME {
         wYear:         year as u16,
         wMonth:        month as u16,
@@ -81,8 +82,6 @@ fn makeSystemTime(year: i32, month: i32, day: i32): SYSTEMTIME {
         wMilliseconds: 0 as u16,
     }
 }
-
-@extern(C) {
 
 pub fn createNativeDatePicker(
     windowHandle: i64,
@@ -114,7 +113,7 @@ pub fn createNativeDatePicker(
 
 pub fn setDatePickerValue(host: i64, year: i32, month: i32, day: i32) {
     if let some(slot) = DATE_PICKERS.get(host) {
-        let st = makeSystemTime(year, month, day)
+        let st = makeDateSystemTime(year, month, day)
         let p: *const SYSTEMTIME = &st
         SendMessageW(slot.hwnd, DTM_SETSYSTEMTIME, GDT_VALID, p as i64)
     }
@@ -168,8 +167,8 @@ fn applyRange(slot: DatePickerSlot) {
     // DTM_SETRANGE wants a SYSTEMTIME[2] (min, max). We use
     // two adjacent struct literals — the layout in ilang is
     // identical to the C contract.
-    let lo = makeSystemTime(slot.minY, slot.minM, slot.minD)
-    let hi = makeSystemTime(slot.maxY, slot.maxM, slot.maxD)
+    let lo = makeDateSystemTime(slot.minY, slot.minM, slot.minD)
+    let hi = makeDateSystemTime(slot.maxY, slot.maxM, slot.maxD)
     let pair: SYSTEMTIME[] = [lo, hi]
     let p: *const SYSTEMTIME = pair
     SendMessageW(slot.hwnd, DTM_SETRANGE, GDTR_MIN | GDTR_MAX, p as i64)

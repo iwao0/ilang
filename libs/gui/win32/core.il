@@ -131,12 +131,13 @@ pub class WindowSlot {
 pub let WINDOWS = new Map<i64, WindowSlot>()
 
 pub fn noOp1() {}
-fn noOp2(w: f64, h: f64) {}
-fn noOpKey(c: string, k1: bool, k2: bool, k3: bool, k4: bool) {}
-fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {}
-fn noOpEnterLeave(x: f64, y: f64) {}
-fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, k1: bool, k2: bool, k3: bool, k4: bool) {}
-fn noOpFilesDropped(files: string[], x: f64, y: f64) {}
+pub fn noOp2(w: f64, h: f64) {}
+pub fn noOpKey(c: string, k1: bool, k2: bool, k3: bool, k4: bool) {}
+pub fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {}
+pub fn noOpClickMod(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {}
+pub fn noOpEnterLeave(x: f64, y: f64) {}
+pub fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, k1: bool, k2: bool, k3: bool, k4: bool) {}
+pub fn noOpFilesDropped(files: string[], x: f64, y: f64) {}
 
 /// Lookup the raw HWND for `handle` — used by every widget's
 /// `createNative*` to find the parent for `CreateWindowExW`.
@@ -223,6 +224,7 @@ pub fn setOnWindowContextMenu(
 ) {
     if let some(slot) = WINDOWS.get(handle) { slot.onContextMenu = cb }
 }
+@extern(C) {
 pub fn setOnWindowFilesDropped(handle: i64, cb: fn(string[], f64, f64)) {
     if let some(slot) = WINDOWS.get(handle) {
         slot.onFilesDropped = cb
@@ -230,6 +232,7 @@ pub fn setOnWindowFilesDropped(handle: i64, cb: fn(string[], f64, f64)) {
         // wnd_proc's WM_DROPFILES arm reads the slot.
         DragAcceptFiles(slot.hwnd, 1 as i32)
     }
+}
 }
 pub fn dispatchFilesDropped(handle: i64, files: string[], x: f64, y: f64) {
     if let some(slot) = WINDOWS.get(handle) {

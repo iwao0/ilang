@@ -3,7 +3,7 @@
 
 use windows {
     HWND, HINSTANCE, HMENU, RECT,
-    WindowStyle, ShowCmd, GWL,
+    WindowStyle, ShowCmd, WindowLongIndex,
     TOOLINFOW, TTS_ALWAYSTIP, TTF_IDISHWND, TTF_SUBCLASS,
     TTM_ADDTOOLW, TTM_DELTOOLW, TTM_UPDATETIPTEXTW,
     GetModuleHandleA,
@@ -99,7 +99,7 @@ pub fn setProgressEnabled(handle: i64, enabled: bool) {
 }
 pub fn setProgressIndeterminate(handle: i64, on: bool) {
     if let some(slot) = PROGRESS.get(handle) {
-        let cur = GetWindowLongPtrW(slot.hwnd, GWL.style as i32)
+        let cur = GetWindowLongPtrW(slot.hwnd, WindowLongIndex.style as i32)
         // PBS_MARQUEE = 0x08. PBM_SETMARQUEE only animates when
         // the style bit is on; flip it in / out before posting.
         let next = if on {
@@ -107,7 +107,7 @@ pub fn setProgressIndeterminate(handle: i64, on: bool) {
         } else {
             cur & (~(0x08 as i64))
         }
-        SetWindowLongPtrW(slot.hwnd, GWL.style as i32, next)
+        SetWindowLongPtrW(slot.hwnd, WindowLongIndex.style as i32, next)
         // PBM_SETMARQUEE = 0x040A (wParam=enable, lParam=update-ms).
         SendMessageA(
             slot.hwnd, 0x040A as u32,
@@ -118,14 +118,14 @@ pub fn setProgressIndeterminate(handle: i64, on: bool) {
 }
 pub fn setProgressOrientation(handle: i64, vertical: bool) {
     if let some(slot) = PROGRESS.get(handle) {
-        let cur = GetWindowLongPtrW(slot.hwnd, GWL.style as i32)
+        let cur = GetWindowLongPtrW(slot.hwnd, WindowLongIndex.style as i32)
         // PBS_VERTICAL = 0x04.
         let next = if vertical {
             cur | (0x04 as i64)
         } else {
             cur & (~(0x04 as i64))
         }
-        SetWindowLongPtrW(slot.hwnd, GWL.style as i32, next)
+        SetWindowLongPtrW(slot.hwnd, WindowLongIndex.style as i32, next)
     }
 }
 pub fn setProgressTooltip(handle: i64, text: string) {

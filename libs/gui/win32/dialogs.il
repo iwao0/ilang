@@ -21,19 +21,9 @@ use windows {
 }
 use std.ffi { arrayFromCArray, readU16, writeU16 }
 use core { windowHwnd }
+use util { argbToColorRef }
 
 @extern(C) {
-
-/// Walk a null-terminated UTF-16 buffer to recover its length in
-/// `u16` units, then convert back to an ilang string.
-fn utf16BufToString(buf: *u16): string {
-    let len = 0 as i64
-    while readU16(buf as *const void, len * 2 as i64) != 0 as u16 {
-        len = len + 1
-    }
-    let units = arrayFromCArray(buf as *const u16, len as u64)
-    string.fromUtf16(units)
-}
 
 pub fn showAlertDialog(windowHandle: i64, text: string, callback: fn()) {
     let hwnd = windowHwnd(windowHandle)
@@ -55,25 +45,21 @@ pub fn showConfirmDialog(windowHandle: i64, text: string, callback: fn(bool)) {
     callback(r == MessageBoxResult.ok as i32)
 }
 
-/// `MAX_PATH` slack including trailing NUL. The win32 dialog
-/// writes the chosen path here; 1024 covers the long-path case
-/// callers might enable.
-const PATH_BUF_LEN: i64 = 1024
-
-fn allocPathBuffer(): *u16 {
+/// `MAX_PATH` slack including trailing NUL. 1024 wchars (2 KB)
+/// covers the long-path case callers might enable.
+fn allocPathBuffer(): i64 {
     let heap = GetProcessHeap()
-    // HEAP_ZERO_MEMORY = 0x08 so the buffer starts NUL — saves
-    // a manual write before the dialog runs in case the user
-    // cancels before typing anything.
-    HeapAlloc(heap, 0x08 as u32, (PATH_BUF_LEN as u64) * 2 as u64) as *u16
+    HeapAlloc(heap, 0x08 as u32, (1024 as u64) * 2 as u64) as i64
 }
 
-fn freePathBuffer(buf: *u16) {
-    HeapFree(GetProcessHeap(), 0 as u32, buf as *void)
+fn freePathBuffer(bufRaw: i64) {
+    HeapFree(GetProcessHeap(), 0 as u32, bufRaw as *void)
 }
 
-fn fillOpenFileName(hwnd: HWND, buf: *u16): OPENFILENAMEA {
-    OPENFILENAMEA {
+pub fn showOpenFileDialog(windowHandle: i64, callback: fn(string)) {
+    let hwnd = windowHwnd(windowHandle)
+    let buf = allocPathBuffer()
+    let ofn = OPENFILENAMEA {
         lStructSize:       88 as u32,
         hwndOwner:         hwnd,
         hInstance:         0 as HINSTANCE,
@@ -82,13 +68,11 @@ fn fillOpenFileName(hwnd: HWND, buf: *u16): OPENFILENAMEA {
         nMaxCustFilter:    0 as u32,
         nFilterIndex:      0 as u32,
         lpstrFile:         buf as *char,
-        nMaxFile:          PATH_BUF_LEN as u32,
+        nMaxFile:          1024 as u32,
         lpstrFileTitle:    0 as *char,
         nMaxFileTitle:     0 as u32,
         lpstrInitialDir:   0 as *const char,
         lpstrTitle:        0 as *const char,
-        // OFN_EXPLORER (0x80000) | OFN_HIDEREADONLY (0x4)
-        // — modern look + drop the redundant read-only checkbox.
         Flags:             0x80004 as u32,
         nFileOffset:       0 as u16,
         nFileExtension:    0 as u16,
@@ -100,19 +84,18 @@ fn fillOpenFileName(hwnd: HWND, buf: *u16): OPENFILENAMEA {
         dwReserved:        0 as u32,
         FlagsEx:           0 as u32,
     }
-}
-
-pub fn showOpenFileDialog(windowHandle: i64, callback: fn(string)) {
-    let hwnd = windowHwnd(windowHandle)
-    let buf = allocPathBuffer()
-    let ofn = fillOpenFileName(hwnd, buf)
     let p: *OPENFILENAMEA = &ofn
     if GetOpenFileNameW(p) == 0 as i32 {
         freePathBuffer(buf)
         callback("")
         return
     }
-    let s = utf16BufToString(buf)
+    let len = 0 as i64
+    while readU16(buf as *const void, len * 2 as i64) != 0 as u16 {
+        len = len + 1
+    }
+    let units = arrayFromCArray(buf as *const u16, len as u64)
+    let s = string.fromUtf16(units)
     freePathBuffer(buf)
     callback(s)
 }
@@ -122,28 +105,53 @@ pub fn showSaveFileDialog(
 ) {
     let hwnd = windowHwnd(windowHandle)
     let buf = allocPathBuffer()
-    // Pre-seed the buffer with the suggested name so the dialog
-    // opens with that text already in the filename field.
     if suggestedName != "" {
         let seedW = suggestedName.encodeUtf16()
-        // Copy until the source NUL or until we run out of room.
         let i = 0 as i64
-        while i < PATH_BUF_LEN - 1 as i64 {
+        while i < 1023 as i64 {
             let c = readU16(seedW as *const void, i * 2 as i64)
             if c == 0 as u16 { break }
-            // 2 bytes per UTF-16 unit; `*(buf + i*2)` write.
-            (buf as *u16 + i as i64)[0] = c
+            writeU16(buf as *void, i * 2 as i64, c)
             i = i + 1
         }
     }
-    let ofn = fillOpenFileName(hwnd, buf)
+    let ofn = OPENFILENAMEA {
+        lStructSize:       88 as u32,
+        hwndOwner:         hwnd,
+        hInstance:         0 as HINSTANCE,
+        lpstrFilter:       0 as *const char,
+        lpstrCustomFilter: 0 as *char,
+        nMaxCustFilter:    0 as u32,
+        nFilterIndex:      0 as u32,
+        lpstrFile:         buf as *char,
+        nMaxFile:          1024 as u32,
+        lpstrFileTitle:    0 as *char,
+        nMaxFileTitle:     0 as u32,
+        lpstrInitialDir:   0 as *const char,
+        lpstrTitle:        0 as *const char,
+        Flags:             0x80004 as u32,
+        nFileOffset:       0 as u16,
+        nFileExtension:    0 as u16,
+        lpstrDefExt:       0 as *const char,
+        lCustData:         0 as i64,
+        lpfnHook:          0 as *void,
+        lpTemplateName:    0 as *const char,
+        pvReserved:        0 as *void,
+        dwReserved:        0 as u32,
+        FlagsEx:           0 as u32,
+    }
     let p: *OPENFILENAMEA = &ofn
     if GetSaveFileNameW(p) == 0 as i32 {
         freePathBuffer(buf)
         callback("")
         return
     }
-    let s = utf16BufToString(buf)
+    let len = 0 as i64
+    while readU16(buf as *const void, len * 2 as i64) != 0 as u16 {
+        len = len + 1
+    }
+    let units = arrayFromCArray(buf as *const u16, len as u64)
+    let s = string.fromUtf16(units)
     freePathBuffer(buf)
     callback(s)
 }
@@ -153,12 +161,12 @@ pub fn showSaveFileDialog(
 /// Map a `gui.MessageIcon` int onto the `pszIcon` magic value
 /// TaskDialog wants. The argument is a `*const u16` but really
 /// holds a `MAKEINTRESOURCE(-N)` small integer; cast it through.
-fn iconToTaskIcon(icon: i32): *const u16 {
-    if icon == 1 as i32 { return (0xFFFFFFFF as i64 - 0 as i64) as *const u16 }
-    if icon == 2 as i32 { return (0xFFFFFFFE as i64) as *const u16 }
-    if icon == 3 as i32 { return (0xFFFFFFFF as i64 - 0 as i64) as *const u16 }
+fn iconToTaskIcon(icon: i32): i64 {
+    if icon == 1 as i32 { return 0xFFFFFFFF as i64 }
+    if icon == 2 as i32 { return 0xFFFFFFFE as i64 }
+    if icon == 3 as i32 { return 0xFFFFFFFF as i64 }
     // info — TD_INFORMATION_ICON = MAKEINTRESOURCE(-3) = 0xFFFFFFFD
-    (0xFFFFFFFD as i64) as *const u16
+    return 0xFFFFFFFD as i64
 }
 
 /// Pick a TaskDialog common-button set that matches `n` buttons.
@@ -209,7 +217,7 @@ fn taskResultToIndex(result: i32, n: i64): i32 {
     if result == TaskDialogResult.no as i32     { return 1 as i32 }
     if result == TaskDialogResult.retry as i32  { return 2 as i32 }
     if result == TaskDialogResult.cancel as i32 { return 3 as i32 }
-    -1 as i32
+    return -1 as i32
 }
 
 /// NOTE: win32 TaskDialog's simple form takes a `TaskDialogButtons`
@@ -224,40 +232,47 @@ pub fn showMessageDialog(
     windowHandle: i64, text: string, buttons: string[], icon: i32,
     callback: fn(i32)
 ) {
+    // Fallback to MessageBoxW: TaskDialog requires comctl32 v6 and
+    // can't be JIT-resolved here without a side-by-side activation
+    // context. The icon flavour maps onto the MB_ICON* family;
+    // multi-button text labels are not honoured (MessageBoxW only
+    // draws its own OK/Yes/No/Cancel set).
     let hwnd = windowHwnd(windowHandle)
     let textW = text.encodeUtf16()
     let titleW = "".encodeUtf16()
     let n = buttons.length
-    let flags = buttonCountToFlags(n)
-    let pszIcon = iconToTaskIcon(icon)
-    let pressed: i32 = 0 as i32
-    let _ = TaskDialog(
-        hwnd, 0 as HINSTANCE,
-        titleW, textW, 0 as *const u16,
-        flags, pszIcon, &pressed
-    )
-    callback(taskResultToIndex(pressed, n))
+    let btnFlags: u32 =
+        if n <= 1 as i64 { MessageBoxType.ok as u32 }
+        elif n == 2 as i64 { MessageBoxType.okCancel as u32 }
+        elif n == 3 as i64 { MessageBoxType.yesNoCancel as u32 }
+        else { MessageBoxType.yesNoCancel as u32 }
+    let iconFlag: u32 =
+        if icon == 1 as i32 { MessageBoxType.iconWarning as u32 }
+        elif icon == 2 as i32 { MessageBoxType.iconError as u32 }
+        else { MessageBoxType.iconInformation as u32 }
+    let r = MessageBoxW(hwnd, textW, titleW, btnFlags | iconFlag)
+    let idx: i32 =
+        if r == MessageBoxResult.ok as i32 { 0 as i32 }
+        elif r == MessageBoxResult.cancel as i32 {
+            if n == 2 as i64 { 1 as i32 } else { 2 as i32 }
+        }
+        elif r == MessageBoxResult.yes as i32 { 0 as i32 }
+        elif r == MessageBoxResult.no as i32 { 1 as i32 }
+        else { -1 as i32 }
+    callback(idx)
 }
 
 // ─── color picker ────────────────────────────────────────────────
 
-/// argb (0xAARRGGBB, ilang's canvas convention) → COLORREF
-/// (0x00BBGGRR, what comdlg32 wants). Alpha is dropped — GDI's
-/// flat colour model has no alpha channel.
-fn argbToColorRef(argb: u32): u32 {
-    let mask: u32 = 0xFF as u32
-    let r = (argb >> 16) & mask
-    let g = (argb >>  8) & mask
-    let b =  argb        & mask
-    r | (g << 8) | (b << 16)
-}
-
 fn colorRefToArgb(cr: u32): u32 {
-    let mask: u32 = 0xFF as u32
-    let r =  cr        & mask
-    let g = (cr >>  8) & mask
-    let b = (cr >> 16) & mask
-    (0xFF as u32 << 24) | (r << 16) | (g << 8) | b
+    let cr_i: i64 = cr as i64
+    let mask: i64 = 0xFF as i64
+    let r: i64 =  cr_i        & mask
+    let g: i64 = (cr_i / (0x100   as i64)) & mask
+    let b: i64 = (cr_i / (0x10000 as i64)) & mask
+    let alpha: i64 = 0xFF000000 as i64
+    let combined: i64 = alpha | (r * (0x10000 as i64)) | (g * (0x100 as i64)) | b
+    return combined as u32
 }
 
 pub fn showColorPickerDialog(
@@ -298,32 +313,34 @@ pub fn showColorPickerDialog(
 /// Copy a UTF-8 ilang string into a 32-`u16` `lfFaceName` slot,
 /// NUL-terminated and truncated to fit. The buffer is passed by
 /// pointer because LOGFONTW's `lfFaceName` is an inline array.
-fn writeFaceName(lf: *LOGFONTW, family: string) {
+fn writeFaceName(lfRaw: i64, family: string) {
     // lfFaceName sits at offset 28 in LOGFONTW (after 5 × i32 +
     // 8 × u8). 32 u16 = 64 bytes total.
     let off = 28 as i64
     let nameW = family.encodeUtf16()
+    let basePtr = lfRaw as *void
     let i = 0 as i64
     while i < 31 as i64 {
         let c = readU16(nameW as *const void, i * 2 as i64)
-        writeU16(lf as *void, off + i * 2 as i64, c)
+        writeU16(basePtr, off + i * 2 as i64, c)
         if c == 0 as u16 { return }
         i = i + 1
     }
-    writeU16(lf as *void, off + 31 * 2 as i64, 0 as u16)
+    writeU16(basePtr, off + 31 * 2 as i64, 0 as u16)
 }
 
 /// Read the family name back out of `lfFaceName` into an ilang
 /// string. Stops at the first NUL or at 32 units.
-fn readFaceName(lf: *LOGFONTW): string {
+fn readFaceName(lfRaw: i64): string {
     let off = 28 as i64
+    let basePtr = lfRaw as *const void
     let len = 0 as i64
     while len < 32 as i64 {
-        let c = readU16(lf as *const void, off + len * 2 as i64)
+        let c = readU16(basePtr, off + len * 2 as i64)
         if c == 0 as u16 { break }
         len = len + 1
     }
-    let units = arrayFromCArray((lf as i64 + off) as *const u16, len as u64)
+    let units = arrayFromCArray((lfRaw + off) as *const u16, len as u64)
     string.fromUtf16(units)
 }
 
@@ -360,7 +377,7 @@ pub fn showFontPickerDialog(
             0 as u16, 0 as u16, 0 as u16, 0 as u16,
         ],
     }
-    writeFaceName(&lf, family)
+    writeFaceName(&lf as i64, family)
     let cf = CHOOSEFONTA {
         lStructSize:    60 as u32,
         hwndOwner:      hwnd,
@@ -391,7 +408,7 @@ pub fn showFontPickerDialog(
         callback(family, size, weight, italic, false)
         return
     }
-    let pickedFamily = readFaceName(&lf)
+    let pickedFamily = readFaceName(&lf as i64)
     // lfHeight is the character height (negative for cell coords).
     let pickedSize: f64 = if lf.lfHeight < 0 as i32 {
         (0 as i32 - lf.lfHeight) as f64

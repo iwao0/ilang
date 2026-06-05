@@ -42,6 +42,7 @@ fn tpNoOpHms(h: i32, m: i32, s: i32) {}
 
 let TIME_PICKERS = new Map<i64, TimePickerSlot>()
 
+@extern(C) {
 pub fn tryDateTimePickTimeNotify(hwnd: i64, code: i32, lParam: i64): bool {
     if code != DTN_DATETIMECHANGE { return false }
     match TIME_PICKERS.get(hwnd) {
@@ -59,7 +60,7 @@ pub fn tryDateTimePickTimeNotify(hwnd: i64, code: i32, lParam: i64): bool {
     }
 }
 
-fn makeSystemTime(hour: i32, minute: i32, second: i32): SYSTEMTIME {
+fn makeTimeSystemTime(hour: i32, minute: i32, second: i32): SYSTEMTIME {
     SYSTEMTIME {
         wYear:         2000 as u16,
         wMonth:        1    as u16,
@@ -71,8 +72,6 @@ fn makeSystemTime(hour: i32, minute: i32, second: i32): SYSTEMTIME {
         wMilliseconds: 0 as u16,
     }
 }
-
-@extern(C) {
 
 pub fn createNativeTimePicker(
     windowHandle: i64,
@@ -109,7 +108,7 @@ pub fn createNativeTimePicker(
 
 pub fn setTimePickerValue(host: i64, hour: i32, minute: i32, second: i32) {
     if let some(slot) = TIME_PICKERS.get(host) {
-        let st = makeSystemTime(hour, minute, second)
+        let st = makeTimeSystemTime(hour, minute, second)
         let p: *const SYSTEMTIME = &st
         SendMessageW(slot.hwnd, DTM_SETSYSTEMTIME, GDT_VALID, p as i64)
     }
