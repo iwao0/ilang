@@ -12,7 +12,7 @@ use windows {
     ClassStyle, WindowStyle, WindowMessage,
     GetModuleHandleA, RegisterClassExW, CreateWindowExW,
     DefWindowProcW, DestroyWindow,
-    Shell_NotifyIconW, LoadImageW,
+    Shell_NotifyIconW, LoadImageW, LoadIconW, SystemIcon,
     SetForegroundWindow, GetCursorPos, TrackPopupMenu, TrackPopupMenuFlags,
 }
 use core { windowHwnd }
@@ -148,7 +148,13 @@ fn registerTrayClass() {
 }
 
 fn loadIcon(path: string): HICON {
-    if path == "" { return 0 as HICON }
+    // Empty path → fall back to the shared system IDI_APPLICATION
+    // icon (32512). Shell_NotifyIconW silently drops the icon
+    // when hIcon is NULL and `uFlags` includes NIF_ICON, which
+    // would leave the tray entry invisible.
+    if path == "" {
+        return LoadIconW(0 as HINSTANCE, 32512 as *const u16)
+    }
     let pathW = path.encodeUtf16()
     let raw = LoadImageW(
         0 as *void, pathW,
@@ -169,11 +175,16 @@ pub fn createNativeTrayIcon(
     let hInstance = GetModuleHandleA(0 as *const char)
     let classW = "IlangGuiTrayMsgWnd".encodeUtf16()
     let titleW = "".encodeUtf16()
+    // HWND_MESSAGE = (HWND)-3 on x64 — write the full 64-bit
+    // sign-extended pattern; a 32-bit literal cast to u64 zero-
+    // extends instead and produces an invalid HWND, which makes
+    // CreateWindowExW fail silently and the subsequent NIM_ADD
+    // reject the registration.
     let msgHwnd = CreateWindowExW(
         0,
         classW, titleW, 0 as u32,
         0 as i32, 0 as i32, 0 as i32, 0 as i32,
-        0xFFFFFFFD as u64 as HWND,   // HWND_MESSAGE
+        0xFFFFFFFFFFFFFFFD as u64 as HWND,   // HWND_MESSAGE
         0 as HMENU, hInstance as HINSTANCE, 0 as *void
     )
 
