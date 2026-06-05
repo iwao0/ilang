@@ -564,11 +564,16 @@ fn link_unix(
         }
     }
     // Strip symbol table (non-fatal). link.exe does this by default.
-    // Skip when ObjC IMP fns are present — strip would remove them
-    // and the runtime `dlsym` lookup in `register()` would NULL out.
-    if !has_objc_imp {
-        let _ = std::process::Command::new("strip").arg(output).status();
-    }
+    //
+    // Plain `strip` removes both local and global symbols, which
+    // breaks ObjC IMPs (the runtime resolves them by name via
+    // `dlsym`); use `-x` to drop just the local symbols and leave
+    // every exported `ilang_objc_imp__*` global intact. Shaves
+    // roughly 20–25% off the binary on AppKit-using programs.
+    let _ = std::process::Command::new("strip")
+        .arg("-x")
+        .arg(output)
+        .status();
     ExitCode::SUCCESS
 }
 
