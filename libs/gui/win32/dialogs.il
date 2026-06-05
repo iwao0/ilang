@@ -60,7 +60,7 @@ pub fn showOpenFileDialog(windowHandle: i64, callback: fn(string)) {
     let hwnd = windowHwnd(windowHandle)
     let buf = allocPathBuffer()
     let ofn = OPENFILENAMEA {
-        lStructSize:       88 as u32,
+        lStructSize:       152 as u32,
         hwndOwner:         hwnd,
         hInstance:         0 as HINSTANCE,
         lpstrFilter:       0 as *const char,
@@ -116,7 +116,7 @@ pub fn showSaveFileDialog(
         }
     }
     let ofn = OPENFILENAMEA {
-        lStructSize:       88 as u32,
+        lStructSize:       152 as u32,
         hwndOwner:         hwnd,
         hInstance:         0 as HINSTANCE,
         lpstrFilter:       0 as *const char,
@@ -289,7 +289,7 @@ pub fn showColorPickerDialog(
         0 as u32, 0 as u32, 0 as u32, 0 as u32,
     ]
     let cc = CHOOSECOLORA {
-        lStructSize:    36 as u32,
+        lStructSize:    72 as u32,
         hwndOwner:      hwnd,
         hInstance:      0 as HINSTANCE,
         rgbResult:      argbToColorRef(initial),
@@ -379,7 +379,7 @@ pub fn showFontPickerDialog(
     }
     writeFaceName(&lf as i64, family)
     let cf = CHOOSEFONTA {
-        lStructSize:    60 as u32,
+        lStructSize:    104 as u32,
         hwndOwner:      hwnd,
         hDC:            0 as i64 as HDC,
         // CHOOSEFONTA's `lpLogFont: *LOGFONTA` is the ANSI form;

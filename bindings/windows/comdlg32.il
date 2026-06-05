@@ -108,14 +108,16 @@ pub enum CommDlgError: u32 {
 use windef { HDC, HINSTANCE, HWND }
 use gdi32 { LOGFONTA }
 @extern(C, "comdlg32") {
-    // ── OPENFILENAMEA — 88 bytes on x64 ──────────────────────────
+    // ── OPENFILENAMEA — 152 bytes on x64 (Vista+ layout) ─────────
 
     /// File open/save dialog descriptor.
     /// `lpstrFilter`: pairs of NUL-terminated strings, e.g.
     ///   "Text Files\0*.txt\0All Files\0*.*\0\0"
     /// `lpstrFile`: output buffer for the selected path(s).
     /// `nMaxFile`: size of that buffer (use ≥ MAX_PATH = 260).
-    /// Set `lStructSize` = 88 before calling.
+    /// Set `lStructSize` = 152 (Vista+ x64) before calling — the
+    /// dialog uses it as a version flag and rejects anything
+    /// smaller than the exact sizeof.
     pub struct OPENFILENAMEA {
         lStructSize:       u32
         hwndOwner:         HWND
@@ -143,12 +145,12 @@ use gdi32 { LOGFONTA }
         FlagsEx:           u32
     }
 
-    // ── CHOOSECOLORA — 36 bytes on x64 ───────────────────────────
+    // ── CHOOSECOLORA — 72 bytes on x64 ───────────────────────────
 
     /// Colour-picker dialog descriptor.
     /// `lpCustColors`: pointer to an array of 16 COLORREF (u32) values
     /// for the custom-colour boxes; these are read and written back.
-    /// Set `lStructSize` = 36 before calling.
+    /// Set `lStructSize` = 72 (x64) before calling.
     pub struct CHOOSECOLORA {
         lStructSize:    u32
         hwndOwner:      HWND
@@ -161,11 +163,11 @@ use gdi32 { LOGFONTA }
         lpTemplateName: *const char
     }
 
-    // ── CHOOSEFONTA — 60 bytes on x64 ────────────────────────────
+    // ── CHOOSEFONTA — 104 bytes on x64 ───────────────────────────
 
     /// Font-chooser dialog descriptor.
     /// `lpLogFont` must point to a caller-allocated LOGFONTA.
-    /// Set `lStructSize` = 60 before calling.
+    /// Set `lStructSize` = 104 (x64) before calling.
     pub struct CHOOSEFONTA {
         lStructSize:      u32
         hwndOwner:        HWND
