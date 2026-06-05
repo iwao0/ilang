@@ -315,13 +315,16 @@ fn lower_to_mir(
             return Err(ExitCode::FAILURE);
         }
     };
-    if std::env::var("ILANG_TIMING").is_ok() {
+    let timing = std::env::var("ILANG_TIMING").is_ok();
+    if timing {
         eprintln!("[timing] parse+load: {:?}", t0.elapsed());
     }
     let display_path = path.display().to_string();
     let prog = if wrap_print { wrap_trailing_print(prog) } else { prog };
+    let t_tc = std::time::Instant::now();
     let mut tc = TypeChecker::new();
     let (_, errs) = tc.check(&prog);
+    if timing { eprintln!("[timing] typecheck: {:?}", t_tc.elapsed()); }
     if !errs.is_empty() {
         for e in &errs {
             let err_file = e.span().source_file.as_str();
@@ -346,6 +349,7 @@ fn lower_to_mir(
             w.span.line, w.span.col, w.message
         );
     }
+    let t_mangle = std::time::Instant::now();
     let prog = ilang_types::mangle::mangle_overloads(
         prog,
         &tc.fn_overload_picks(),
@@ -353,8 +357,30 @@ fn lower_to_mir(
         &tc.call_default_fills(),
         &tc.objc_invoke_obj_to_obj_spans(),
     );
+    if timing { eprintln!("[timing] mangle_overloads: {:?}", t_mangle.elapsed()); }
+    let t_slots = std::time::Instant::now();
     let slot_table = build_slot_table(&prog, &tc);
+    if timing { eprintln!("[timing] build_slot_table: {:?}", t_slots.elapsed()); }
+    let t_mono = std::time::Instant::now();
     let prog = monomorphize_with_template_reattach(prog, &tc);
+    if timing { eprintln!("[timing] monomorphize: {:?}", t_mono.elapsed()); }
+    let t_ast_dce = std::time::Instant::now();
+    let mut prog = prog;
+    let ast_dce_stats = if std::env::var_os("ILANG_NO_AST_DCE").is_some() {
+        ilang_mir::ast_dce::Stats::default()
+    } else {
+        ilang_mir::ast_dce::run(&mut prog)
+    };
+    let prog = prog;
+    if timing {
+        let n_items = prog.items.len();
+        eprintln!(
+            "[timing] ast_dce: {:?} (items_removed={}, kept={})",
+            t_ast_dce.elapsed(),
+            ast_dce_stats.items_removed,
+            n_items,
+        );
+    }
     if std::env::var("ILANG_PIPE_DEBUG").is_ok() {
         for item in &prog.items {
             match item {
@@ -377,6 +403,7 @@ fn lower_to_mir(
             }
         }
     }
+    let t_lower = std::time::Instant::now();
     let mir = match ilang_mir::lower_program_with_slots(&prog, &slot_table) {
         Ok(m) => m,
         Err(e) => {
@@ -384,6 +411,12 @@ fn lower_to_mir(
             return Err(ExitCode::FAILURE);
         }
     };
+    if timing {
+        let n_fn = mir.functions.len();
+        let n_extern: usize = mir.functions.iter().filter(|f| matches!(f.kind, ilang_mir::FunctionKind::Extern { .. })).count();
+        let n_insts: usize = mir.functions.iter().flat_map(|f| f.blocks.iter()).map(|b| b.insts.len()).sum();
+        eprintln!("[timing] mir lower: {:?} (fns={}, extern={}, insts={})", t_lower.elapsed(), n_fn, n_extern, n_insts);
+    }
     if std::env::var_os("ILANG_MIR_DUMP").is_some() {
         eprintln!(
             "--- MIR (post-lower, pre-pass) ---\n{}\n--- end MIR ---",
@@ -404,6 +437,9 @@ fn run_mir_opt_passes(mir: &mut ilang_mir::Program, display_path: &str) {
     } else {
         (0, 0)
     };
+    let dce_fn_stats = run_if_enabled("ILANG_NO_DCE_FN", || {
+        ilang_mir::passes::dce_fn::run_program(mir)
+    });
     let promote_stats = run_if_enabled("ILANG_NO_PROMOTE_LOCALS", || {
         ilang_mir::passes::promote_locals::run_program(mir)
     });
@@ -422,7 +458,9 @@ fn run_mir_opt_passes(mir: &mut ilang_mir::Program, display_path: &str) {
     let arc_stats = ilang_mir::passes::arc_peephole::run_program(mir);
     if dump_stats {
         eprintln!(
-            "{display_path}: promote_locals locals={} uses={} inline calls_inlined={} const_fold folds_applied={} branch_fold branches={} dce removed={}",
+            "{display_path}: dce_fn fns_removed={} classes_removed={} promote_locals locals={} uses={} inline calls_inlined={} const_fold folds_applied={} branch_fold branches={} dce removed={}",
+            dce_fn_stats.fns_removed,
+            dce_fn_stats.classes_removed,
             promote_stats.locals_promoted,
             promote_stats.uses_rewritten,
             inline_stats.calls_inlined,
@@ -965,11 +1003,20 @@ fn count_retain_release(prog: &ilang_mir::Program) -> (usize, usize) {
 
 fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
     let _ = mir_jit;
+    let timing = std::env::var("ILANG_TIMING").is_ok();
     let (mut mir, display_path) = match lower_to_mir(path, /*wrap_print=*/ true) {
         Ok(a) => a,
         Err(code) => return code,
     };
+    let t_opt = std::time::Instant::now();
     run_mir_opt_passes(&mut mir, &display_path);
+    if timing {
+        let n_fn = mir.functions.len();
+        let n_extern: usize = mir.functions.iter().filter(|f| matches!(f.kind, ilang_mir::FunctionKind::Extern { .. })).count();
+        let n_insts: usize = mir.functions.iter().flat_map(|f| f.blocks.iter()).map(|b| b.insts.len()).sum();
+        eprintln!("[timing] mir opt passes: {:?} (post-opt fns={}, extern={}, insts={})", t_opt.elapsed(), n_fn, n_extern, n_insts);
+    }
+    let t_cg = std::time::Instant::now();
     let compiled = match ilang_mir_codegen::compile_program(&mir) {
         Ok(c) => c,
         Err(e) => {
@@ -977,6 +1024,8 @@ fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if timing { eprintln!("[timing] cranelift compile: {:?}", t_cg.elapsed()); }
+    if timing { eprintln!("[timing] ---- entering run_main ----"); }
     let r = ilang_mir_codegen::run_main(&compiled);
     // The MIR pipeline returns __main's i64; print it only if
     // it's non-zero so stdout-capture-based tests stay clean.

@@ -16,6 +16,7 @@
 //! AST→MIR lowering, monomorphisation, and MIR→clif lowering land in
 //! follow-up steps.
 
+pub mod ast_dce;
 pub mod builder;
 pub mod inst;
 pub mod lower;
