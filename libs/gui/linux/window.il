@@ -158,6 +158,34 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
             // every flex child to zero width (buttons overlap). Only
             // forward a real, post-allocation size.
             if w > 0 as i32 && h > 0 as i32 {
+                // First-allocation fit correction: GTK's
+                // `set_default_size` covers the whole window
+                // (including the CSD header bar), but the public
+                // `width × height` is meant to be the client area
+                // — Cocoa's setContentSize: / Win32's
+                // AdjustWindowRect both do this implicitly. When
+                // the first real allocation comes in, compare the
+                // measured content height to the target and grow
+                // the window by the missing decoration height so
+                // children laid out at `y = h - margin` stay
+                // visible. Re-do the same for width in case the
+                // WM imposes side decorations (rare but possible).
+                if !slot.didFitCorrection
+                   && slot.targetH > 0 as i32
+                   && h < slot.targetH {
+                    let dh = slot.targetH - h
+                    let dw = if slot.targetW > w { slot.targetW - w } else { 0 as i32 }
+                    slot.didFitCorrection = true
+                    gtk_window_set_default_size(
+                        slot.win, slot.targetW + dw, slot.targetH + dh
+                    )
+                    // Skip dispatching onResize for this first
+                    // pass — the corrective `set_default_size`
+                    // will fire another `notify::default-height`
+                    // immediately and that one carries the real,
+                    // post-correction size.
+                    return
+                }
                 let cb = slot.onResize
                 cb(w as f64, h as f64)
                 // Pin the bottom-docked status bar (if any) so it
@@ -332,6 +360,14 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     // at construction.
     let win = gtk_window_new() as GtkWindow
     gtk_window_set_title(win, cstrFromString(title))
+    // `gtk_window_set_default_size` covers the whole window
+    // including the CSD header bar — Cocoa's setContentSize: /
+    // Win32's AdjustWindowRect path both treat the public
+    // `width × height` as the client area. The exact CSD height
+    // depends on theme + WM (Adwaita ~38px, breeze-gtk ~30px,
+    // no-decoration WMs 0), so seed at the requested size and
+    // let the first `map` handler grow the window by the
+    // measured shortfall.
     gtk_window_set_default_size(win, width as i32, height as i32)
 
     // Absolute-positioning container — every widget goes through
@@ -352,7 +388,10 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     gtk_window_set_child(win, scroll as GtkWidget)
 
     let handle = win as i64
-    WINDOWS[handle] = new WindowSlot(win, fixed, scroll)
+    let slot = new WindowSlot(win, fixed, scroll)
+    slot.targetW = width as i32
+    slot.targetH = height as i32
+    WINDOWS[handle] = slot
     g_signal_connect_data(
         win as GObject,
         cstrFromString("destroy"),
@@ -467,6 +506,9 @@ pub fn setWindowTitle(handle: i64, title: string) {
 pub fn setWindowSize(handle: i64, width: f64, height: f64) {
     if let some(slot) = WINDOWS.get(handle) {
         gtk_window_set_default_size(slot.win, width as i32, height as i32)
+        slot.targetW = width as i32
+        slot.targetH = height as i32
+        slot.didFitCorrection = false
     }
 }
 
@@ -672,6 +714,9 @@ pub fn setNativeWindowBounds(handle: i64, x: f64, y: f64, w: f64, h: f64) {
         slot.posX = x
         slot.posY = y
         gtk_window_set_default_size(slot.win, w as i32, h as i32)
+        slot.targetW = w as i32
+        slot.targetH = h as i32
+        slot.didFitCorrection = false
     }
 }
 

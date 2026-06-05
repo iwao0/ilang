@@ -73,6 +73,14 @@ pub class WindowSlot {
     pub maxW: f64
     pub maxH: f64
     pub hasMaxSize: bool
+    /// Wanted client-area size, kept around so the first-map
+    /// handler can compare the actual content allocation against
+    /// it and grow the window by the missing CSD decoration
+    /// height. Cleared (set to 0) once the correction has been
+    /// applied.
+    pub targetW: i32
+    pub targetH: i32
+    pub didFitCorrection: bool
 
     pub init(win: GtkWindow, fixed: GtkFixed, scroll: GtkScrolledWindow) {
         this.win               = win
@@ -114,6 +122,9 @@ pub class WindowSlot {
         this.maxW              = 0.0
         this.maxH              = 0.0
         this.hasMaxSize        = false
+        this.targetW           = 0 as i32
+        this.targetH           = 0 as i32
+        this.didFitCorrection  = false
     }
 }
 
