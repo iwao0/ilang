@@ -79,8 +79,7 @@ class NumericHandler : NSObject {
             if let some(slot) = NUMERICS.get(host) {
                 let v = slot.stepper.doubleValue
                 writeFieldValue(slot, v)
-                let cb = slot.onChange
-                cb(v)
+                slot.onChange(v)
             }
         }
     }
@@ -99,8 +98,7 @@ class NumericHandler : NSObject {
                 let clamped = clampValue(v, slot)
                 slot.stepper.doubleValue = clamped
                 writeFieldValue(slot, clamped)
-                let cb = slot.onChange
-                cb(clamped)
+                slot.onChange(clamped)
             }
         }
     }

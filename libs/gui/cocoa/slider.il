@@ -52,15 +52,13 @@ class FocusSlider : NSSlider {
     pub acceptsFirstResponder(): bool { true }
     pub becomeFirstResponder(): bool {
         if let some(slot) = SLIDERS.get(this.handle) {
-            let cb = slot.onFocus
-            cb()
+            slot.onFocus()
         }
         true
     }
     pub resignFirstResponder(): bool {
         if let some(slot) = SLIDERS.get(this.handle) {
-            let cb = slot.onBlur
-            cb()
+            slot.onBlur()
         }
         true
     }
@@ -74,8 +72,7 @@ class FocusSlider : NSSlider {
         let y = (this as NSView).frame.size.height - p.y
         let flags = e.modifierFlags as u64
         if let some(slot) = SLIDERS.get((this as NSView).handle) {
-            let cb = slot.onMouseDown
-            cb(p.x, y, 0,
+            slot.onMouseDown(p.x, y, 0,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.mouseDown(event)
@@ -86,8 +83,7 @@ class FocusSlider : NSSlider {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 0,
+            slot.onMouseUp(p.x, y, 0,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
             // Drag-end commit. NSSlider is continuous so the
             // change callback already fired during the drag; mirror
@@ -121,8 +117,7 @@ class FocusSlider : NSSlider {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 2,
+            slot.onMouseUp(p.x, y, 2,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.rightMouseUp(event)
@@ -133,8 +128,7 @@ class FocusSlider : NSSlider {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseDown
-            cb(p.x, y, 1,
+            slot.onMouseDown(p.x, y, 1,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.otherMouseDown(event)
@@ -145,8 +139,7 @@ class FocusSlider : NSSlider {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 1,
+            slot.onMouseUp(p.x, y, 1,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.otherMouseUp(event)
@@ -156,8 +149,7 @@ class FocusSlider : NSSlider {
         if let some(slot) = SLIDERS.get((this as NSView).handle) {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
-            let cb = slot.onMouseEnter
-            cb(p.x, y)
+            slot.onMouseEnter(p.x, y)
         }
     }
     pub override mouseExited(event: NSObject) {
@@ -165,8 +157,7 @@ class FocusSlider : NSSlider {
         if let some(slot) = SLIDERS.get((this as NSView).handle) {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
-            let cb = slot.onMouseLeave
-            cb(p.x, y)
+            slot.onMouseLeave(p.x, y)
         }
     }
     pub scrollWheel(event: NSEvent) {
@@ -174,16 +165,14 @@ class FocusSlider : NSSlider {
             let p = (this as NSView).convertPointFromView(event.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = event.modifierFlags as u64
-            let cb = slot.onMouseWheel
-            cb(event.deltaX, event.deltaY, p.x, y,
+            slot.onMouseWheel(event.deltaX, event.deltaY, p.x, y,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
     pub keyDown(event: NSEvent) {
         if let some(slot) = SLIDERS.get((this as NSView).handle) {
             let flags = event.modifierFlags as u64
-            let cb = slot.onKeyDown
-            cb(keyCodeToString(event.keyCode),
+            slot.onKeyDown(keyCodeToString(event.keyCode),
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         // Forward so arrow-key value increments stay alive.
@@ -192,8 +181,7 @@ class FocusSlider : NSSlider {
     pub keyUp(event: NSEvent) {
         if let some(slot) = SLIDERS.get((this as NSView).handle) {
             let flags = event.modifierFlags as u64
-            let cb = slot.onKeyUp
-            cb(keyCodeToString(event.keyCode),
+            slot.onKeyUp(keyCodeToString(event.keyCode),
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.keyUp(event)
@@ -203,8 +191,7 @@ class FocusSlider : NSSlider {
 class SliderHandler : NSObject {
     pub slid(sender: NSObject) {
         if let some(slot) = SLIDERS.get(sender.handle) {
-            let cb = slot.onChange
-            cb(slot.slider.doubleValue)
+            slot.onChange(slot.slider.doubleValue)
         }
     }
 }

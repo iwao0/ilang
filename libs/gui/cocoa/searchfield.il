@@ -53,31 +53,27 @@ let SEARCHFIELDS = new Map<i64, SearchFieldSlot>()
 class FocusSearchField : NSSearchField {
     pub becomeFirstResponder(): bool {
         if let some(slot) = SEARCHFIELDS.get(this.handle) {
-            let cb = slot.onFocus
-            cb()
+            slot.onFocus()
         }
         super.becomeFirstResponder()
     }
     pub resignFirstResponder(): bool {
         if let some(slot) = SEARCHFIELDS.get(this.handle) {
-            let cb = slot.onBlur
-            cb()
+            slot.onBlur()
         }
         super.resignFirstResponder()
     }
     pub keyDown(event: NSEvent) {
         if let some(slot) = SEARCHFIELDS.get(this.handle) {
             let flags = event.modifierFlags as u64
-            let cb = slot.onKeyDown
-            cb(keyCodeToString(event.keyCode),
+            slot.onKeyDown(keyCodeToString(event.keyCode),
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
     pub keyUp(event: NSEvent) {
         if let some(slot) = SEARCHFIELDS.get(this.handle) {
             let flags = event.modifierFlags as u64
-            let cb = slot.onKeyUp
-            cb(keyCodeToString(event.keyCode),
+            slot.onKeyUp(keyCodeToString(event.keyCode),
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
@@ -98,12 +94,10 @@ class SearchActionHandler : NSObject {
                 // the second one.
                 if slot.lastWasClear { return }
                 slot.lastWasClear = true
-                let cb = slot.onClear
-                cb()
+                slot.onClear()
             } else {
                 slot.lastWasClear = false
-                let cb = slot.onSearch
-                cb(v)
+                slot.onSearch(v)
             }
         }
     }
@@ -116,8 +110,7 @@ class SearchChangeDelegate : NSObject {
         if let some(slot) = SEARCHFIELDS.get(n.notificationObject.handle) {
             let v = ilstr(slot.field.stringValue)
             if v != "" { slot.lastWasClear = false }
-            let cb = slot.onChange
-            cb(v)
+            slot.onChange(v)
         }
     }
 }

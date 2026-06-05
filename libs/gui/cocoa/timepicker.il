@@ -60,8 +60,7 @@ class TimePickerHandler : NSObject {
         if let some(host) = TP_HANDLER_TO_PICKER.get(this.handle) {
             if let some(slot) = TIME_PICKERS.get(host) {
                 let parts = breakTime(slot.picker.dateValue)
-                let cb = slot.onChange
-                cb(parts[0] as i32, parts[1] as i32, parts[2] as i32)
+                slot.onChange(parts[0] as i32, parts[1] as i32, parts[2] as i32)
             }
         }
     }

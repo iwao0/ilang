@@ -54,15 +54,13 @@ class FocusSwitch : NSSwitch {
     pub acceptsFirstResponder(): bool { true }
     pub becomeFirstResponder(): bool {
         if let some(slot) = SWITCHES.get(this.handle) {
-            let cb = slot.onFocus
-            cb()
+            slot.onFocus()
         }
         true
     }
     pub resignFirstResponder(): bool {
         if let some(slot) = SWITCHES.get(this.handle) {
-            let cb = slot.onBlur
-            cb()
+            slot.onBlur()
         }
         true
     }
@@ -76,8 +74,7 @@ class FocusSwitch : NSSwitch {
         let y = (this as NSView).frame.size.height - p.y
         let flags = e.modifierFlags as u64
         if let some(slot) = SWITCHES.get(this.handle) {
-            let cb = slot.onMouseDown
-            cb(p.x, y, 0,
+            slot.onMouseDown(p.x, y, 0,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.mouseDown(event)
@@ -88,8 +85,7 @@ class FocusSwitch : NSSwitch {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 0,
+            slot.onMouseUp(p.x, y, 0,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.mouseUp(event)
@@ -117,8 +113,7 @@ class FocusSwitch : NSSwitch {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 2,
+            slot.onMouseUp(p.x, y, 2,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.rightMouseUp(event)
@@ -129,8 +124,7 @@ class FocusSwitch : NSSwitch {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseDown
-            cb(p.x, y, 1,
+            slot.onMouseDown(p.x, y, 1,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.otherMouseDown(event)
@@ -141,8 +135,7 @@ class FocusSwitch : NSSwitch {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 1,
+            slot.onMouseUp(p.x, y, 1,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.otherMouseUp(event)
@@ -152,8 +145,7 @@ class FocusSwitch : NSSwitch {
         if let some(slot) = SWITCHES.get(this.handle) {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
-            let cb = slot.onMouseEnter
-            cb(p.x, y)
+            slot.onMouseEnter(p.x, y)
         }
     }
     pub override mouseExited(event: NSObject) {
@@ -161,8 +153,7 @@ class FocusSwitch : NSSwitch {
         if let some(slot) = SWITCHES.get(this.handle) {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
-            let cb = slot.onMouseLeave
-            cb(p.x, y)
+            slot.onMouseLeave(p.x, y)
         }
     }
     pub scrollWheel(event: NSEvent) {
@@ -170,24 +161,21 @@ class FocusSwitch : NSSwitch {
             let p = (this as NSView).convertPointFromView(event.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = event.modifierFlags as u64
-            let cb = slot.onMouseWheel
-            cb(event.deltaX, event.deltaY, p.x, y,
+            slot.onMouseWheel(event.deltaX, event.deltaY, p.x, y,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
     pub keyDown(event: NSEvent) {
         if let some(slot) = SWITCHES.get(this.handle) {
             let flags = event.modifierFlags as u64
-            let cb = slot.onKeyDown
-            cb(keyCodeToString(event.keyCode),
+            slot.onKeyDown(keyCodeToString(event.keyCode),
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
     pub keyUp(event: NSEvent) {
         if let some(slot) = SWITCHES.get(this.handle) {
             let flags = event.modifierFlags as u64
-            let cb = slot.onKeyUp
-            cb(keyCodeToString(event.keyCode),
+            slot.onKeyUp(keyCodeToString(event.keyCode),
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
@@ -196,8 +184,7 @@ class FocusSwitch : NSSwitch {
 class SwitchToggleHandler : NSObject {
     pub toggled(sender: NSObject) {
         if let some(slot) = SWITCHES.get(sender.handle) {
-            let cb = slot.onToggle
-            cb(slot.sw.state == 1 as i64)
+            slot.onToggle(slot.sw.state == 1 as i64)
         }
     }
 }

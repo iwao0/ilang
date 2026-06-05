@@ -31,8 +31,7 @@ pub let TRAY_ICONS = new Map<i64, TrayIconSlot>()
 pub class TrayClickHandler : NSObject {
     pub trayClicked(sender: NSObject) {
         if let some(slot) = TRAY_ICONS.get(sender.handle) {
-            let cb = slot.onClick
-            cb()
+            slot.onClick()
         }
     }
 }

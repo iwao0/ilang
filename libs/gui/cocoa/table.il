@@ -101,8 +101,7 @@ class TableDelegate : NSObject {
     pub tableViewSelectionDidChange(n: NSNotification) {
         if let some(tk) = DS_TO_TABLE.get(this.handle) {
             if let some(slot) = TABLES.get(tk) {
-                let cb = slot.onSelect
-                cb(slot.table.selectedRow as i32)
+                slot.onSelect(slot.table.selectedRow as i32)
             }
         }
     }
@@ -160,8 +159,7 @@ class TableActionHandler : NSObject {
             if let some(slot) = TABLES.get(tk) {
                 let row = slot.table.clickedRow
                 if row >= 0 as i64 {
-                    let cb = slot.onActivate
-                    cb(row as i32)
+                    slot.onActivate(row as i32)
                 }
             }
         }

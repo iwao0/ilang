@@ -61,15 +61,13 @@ class ListSlot {
 class FocusList : NSTableView {
     pub becomeFirstResponder(): bool {
         if let some(slot) = LISTS.get(this.handle) {
-            let cb = slot.onFocus
-            cb()
+            slot.onFocus()
         }
         true
     }
     pub resignFirstResponder(): bool {
         if let some(slot) = LISTS.get(this.handle) {
-            let cb = slot.onBlur
-            cb()
+            slot.onBlur()
         }
         true
     }
@@ -79,8 +77,7 @@ class FocusList : NSTableView {
         let y = (this as NSView).frame.size.height - p.y
         let flags = e.modifierFlags as u64
         if let some(slot) = LISTS.get(this.handle) {
-            let cb = slot.onMouseDown
-            cb(p.x, y, 0,
+            slot.onMouseDown(p.x, y, 0,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.mouseDown(event)
@@ -91,8 +88,7 @@ class FocusList : NSTableView {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 0,
+            slot.onMouseUp(p.x, y, 0,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.mouseUp(event)
@@ -120,8 +116,7 @@ class FocusList : NSTableView {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 2,
+            slot.onMouseUp(p.x, y, 2,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.rightMouseUp(event)
@@ -132,8 +127,7 @@ class FocusList : NSTableView {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseDown
-            cb(p.x, y, 1,
+            slot.onMouseDown(p.x, y, 1,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.otherMouseDown(event)
@@ -144,8 +138,7 @@ class FocusList : NSTableView {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 1,
+            slot.onMouseUp(p.x, y, 1,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.otherMouseUp(event)
@@ -155,8 +148,7 @@ class FocusList : NSTableView {
         if let some(slot) = LISTS.get(this.handle) {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
-            let cb = slot.onMouseEnter
-            cb(p.x, y)
+            slot.onMouseEnter(p.x, y)
         }
     }
     pub override mouseExited(event: NSObject) {
@@ -164,8 +156,7 @@ class FocusList : NSTableView {
         if let some(slot) = LISTS.get(this.handle) {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
-            let cb = slot.onMouseLeave
-            cb(p.x, y)
+            slot.onMouseLeave(p.x, y)
         }
     }
     pub scrollWheel(event: NSEvent) {
@@ -173,16 +164,14 @@ class FocusList : NSTableView {
             let p = (this as NSView).convertPointFromView(event.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = event.modifierFlags as u64
-            let cb = slot.onMouseWheel
-            cb(event.deltaX, event.deltaY, p.x, y,
+            slot.onMouseWheel(event.deltaX, event.deltaY, p.x, y,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
     pub keyDown(event: NSEvent) {
         if let some(slot) = LISTS.get(this.handle) {
             let flags = event.modifierFlags as u64
-            let cb = slot.onKeyDown
-            cb(keyCodeToString(event.keyCode),
+            slot.onKeyDown(keyCodeToString(event.keyCode),
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         // Forward so arrow keys still navigate rows.
@@ -191,8 +180,7 @@ class FocusList : NSTableView {
     pub keyUp(event: NSEvent) {
         if let some(slot) = LISTS.get(this.handle) {
             let flags = event.modifierFlags as u64
-            let cb = slot.onKeyUp
-            cb(keyCodeToString(event.keyCode),
+            slot.onKeyUp(keyCodeToString(event.keyCode),
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.keyUp(event)
@@ -241,8 +229,7 @@ class ListDataSource : NSObject {
 class ListDelegate : NSObject {
     pub tableViewSelectionDidChange(n: NSNotification) {
         if let some(slot) = LISTS.get(n.notificationObject.handle) {
-            let cb = slot.onSelect
-            cb(slot.table.selectedRow as i32)
+            slot.onSelect(slot.table.selectedRow as i32)
         }
     }
 }

@@ -94,8 +94,7 @@ class AccordionHandler : NSObject {
                 slot.expanded = slot.header.state == 1 as i64
                 let rc = (slot.container as NSView).frame
                 applyFrames(slot, rc.origin.x, rc.origin.y)
-                let cb = slot.onToggle
-                cb(slot.expanded)
+                slot.onToggle(slot.expanded)
                 return
             }
         }

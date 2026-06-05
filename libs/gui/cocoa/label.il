@@ -46,8 +46,7 @@ class FocusLabel : NSTextField {
         let y = (this as NSView).frame.size.height - p.y
         let flags = e.modifierFlags as u64
         if let some(slot) = LABELS.get(this.handle) {
-            let cb = slot.onMouseDown
-            cb(p.x, y, 0,
+            slot.onMouseDown(p.x, y, 0,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         // Forward so a `selectable=true` label's drag-select still
@@ -65,8 +64,7 @@ class FocusLabel : NSTextField {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 0,
+            slot.onMouseUp(p.x, y, 0,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.mouseUp(event)
@@ -94,8 +92,7 @@ class FocusLabel : NSTextField {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 2,
+            slot.onMouseUp(p.x, y, 2,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.rightMouseUp(event)
@@ -106,8 +103,7 @@ class FocusLabel : NSTextField {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseDown
-            cb(p.x, y, 1,
+            slot.onMouseDown(p.x, y, 1,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.otherMouseDown(event)
@@ -118,8 +114,7 @@ class FocusLabel : NSTextField {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 1,
+            slot.onMouseUp(p.x, y, 1,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.otherMouseUp(event)
@@ -129,8 +124,7 @@ class FocusLabel : NSTextField {
         if let some(slot) = LABELS.get(this.handle) {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
-            let cb = slot.onMouseEnter
-            cb(p.x, y)
+            slot.onMouseEnter(p.x, y)
         }
     }
     pub override mouseExited(event: NSObject) {
@@ -138,8 +132,7 @@ class FocusLabel : NSTextField {
         if let some(slot) = LABELS.get(this.handle) {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
-            let cb = slot.onMouseLeave
-            cb(p.x, y)
+            slot.onMouseLeave(p.x, y)
         }
     }
     pub scrollWheel(event: NSEvent) {
@@ -147,8 +140,7 @@ class FocusLabel : NSTextField {
             let p = (this as NSView).convertPointFromView(event.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = event.modifierFlags as u64
-            let cb = slot.onMouseWheel
-            cb(event.deltaX, event.deltaY, p.x, y,
+            slot.onMouseWheel(event.deltaX, event.deltaY, p.x, y,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }

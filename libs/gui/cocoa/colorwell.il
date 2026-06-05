@@ -65,8 +65,7 @@ fn flushPendingColors() {
     for slot in COLORWELLS.values() {
         if slot.hasPending {
             slot.hasPending = false
-            let cb = slot.onChange
-            cb(slot.pendingColor)
+            slot.onChange(slot.pendingColor)
         }
     }
 }

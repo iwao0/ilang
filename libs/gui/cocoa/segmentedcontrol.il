@@ -29,8 +29,7 @@ let SEGMENTEDS = new Map<i64, SegmentedSlot>()
 class SegmentedHandler : NSObject {
     pub picked(sender: NSObject) {
         if let some(slot) = SEGMENTEDS.get(sender.handle) {
-            let cb = slot.onChange
-            cb(slot.ctl.selectedSegment() as i32)
+            slot.onChange(slot.ctl.selectedSegment() as i32)
         }
     }
 }

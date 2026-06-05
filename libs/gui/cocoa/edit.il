@@ -74,8 +74,7 @@ let EDITS = new Map<i64, EditSlot>()
 class FocusTextField : NSTextField {
     pub becomeFirstResponder(): bool {
         if let some(slot) = EDITS.get(this.handle) {
-            let cb = slot.onFocus
-            cb()
+            slot.onFocus()
         }
         // Forward to NSTextField's own becomeFirstResponder so the
         // field editor actually gets installed — without that
@@ -103,8 +102,7 @@ class FocusTextField : NSTextField {
         let ak = modAlt(flags)
         let mk = modMeta(flags)
         if let some(slot) = EDITS.get(this.handle) {
-            let cb = slot.onMouseDown
-            cb(p.x, y, 0, ck, sk, ak, mk)
+            slot.onMouseDown(p.x, y, 0, ck, sk, ak, mk)
         }
         super.mouseDown(event)
         // `super.mouseDown:` enters NSCell.trackMouse:..untilMouseUp:
@@ -130,8 +128,7 @@ class FocusTextField : NSTextField {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 0,
+            slot.onMouseUp(p.x, y, 0,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.mouseUp(event)
@@ -159,8 +156,7 @@ class FocusTextField : NSTextField {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 2,
+            slot.onMouseUp(p.x, y, 2,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.rightMouseUp(event)
@@ -171,8 +167,7 @@ class FocusTextField : NSTextField {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseDown
-            cb(p.x, y, 1,
+            slot.onMouseDown(p.x, y, 1,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.otherMouseDown(event)
@@ -183,8 +178,7 @@ class FocusTextField : NSTextField {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 1,
+            slot.onMouseUp(p.x, y, 1,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
         super.otherMouseUp(event)
@@ -194,8 +188,7 @@ class FocusTextField : NSTextField {
         if let some(slot) = EDITS.get(this.handle) {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
-            let cb = slot.onMouseEnter
-            cb(p.x, y)
+            slot.onMouseEnter(p.x, y)
         }
     }
     pub override mouseExited(event: NSObject) {
@@ -203,8 +196,7 @@ class FocusTextField : NSTextField {
         if let some(slot) = EDITS.get(this.handle) {
             let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
-            let cb = slot.onMouseLeave
-            cb(p.x, y)
+            slot.onMouseLeave(p.x, y)
         }
     }
     /// Wheel scroll over the field. NSResponder declares the
@@ -215,8 +207,7 @@ class FocusTextField : NSTextField {
             let p = (this as NSView).convertPointFromView(event.locationInWindow, nil)
             let y = (this as NSView).frame.size.height - p.y
             let flags = event.modifierFlags as u64
-            let cb = slot.onMouseWheel
-            cb(event.deltaX, event.deltaY, p.x, y,
+            slot.onMouseWheel(event.deltaX, event.deltaY, p.x, y,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
@@ -233,8 +224,7 @@ class ChangeHandler : NSObject {
     /// not pure focus transitions.
     pub controlTextDidEndEditing(n: NSNotification) {
         if let some(slot) = EDITS.get(n.notificationObject.handle) {
-            let cb = slot.onBlur
-            cb()
+            slot.onBlur()
         }
     }
     pub controlTextDidChange(n: NSNotification) {
@@ -250,12 +240,10 @@ class ChangeHandler : NSObject {
             if cap as i64 > 0 as i64 && s.length > cap as i64 {
                 let trimmed = s.slice(0 as i64, cap as i64)
                 slot.edit.stringValue = nsstr(trimmed)
-                let cb = slot.onChange
-                cb(trimmed)
+                slot.onChange(trimmed)
                 return
             }
-            let cb = slot.onChange
-            cb(s)
+            slot.onChange(s)
         }
     }
 }
@@ -329,11 +317,9 @@ pub fn createNativeEdit(
                     let ak = modAlt(flags)
                     let mk = modMeta(flags)
                     if (evt.eventType as u64) == 10 as u64 {
-                        let cb = slot.onKeyDown
-                        cb(code, ck, sk, ak, mk)
+                        slot.onKeyDown(code, ck, sk, ak, mk)
                     } else {
-                        let cb = slot.onKeyUp
-                        cb(code, ck, sk, ak, mk)
+                        slot.onKeyUp(code, ck, sk, ak, mk)
                     }
                 }
             }

@@ -35,8 +35,7 @@ class LinkTextField : NSTextField {
         let p = (this as NSView).convertPointFromView(e.locationInWindow, nil)
         let y = (this as NSView).frame.size.height - p.y
         if let some(slot) = LINKLABELS.get(this.handle) {
-            let cb = slot.onClick
-            cb(p.x, y)
+            slot.onClick(p.x, y)
             if slot.url != "" {
                 openURL(slot.url)
             }

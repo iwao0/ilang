@@ -41,20 +41,17 @@ fn currentUrlOf(view: WKWebView): string {
 class WebViewNavDelegate : NSObject {
     pub didCommitNavigation(webView: NSObject, navigation: WKNavigation) {
         if let some(slot) = WEBVIEWS.get(webView.handle) {
-            let cb = slot.onNavigate
-            cb(currentUrlOf(slot.view))
+            slot.onNavigate(currentUrlOf(slot.view))
         }
     }
     pub didFinishNavigation(webView: NSObject, navigation: WKNavigation) {
         if let some(slot) = WEBVIEWS.get(webView.handle) {
-            let cb = slot.onLoadFinish
-            cb(currentUrlOf(slot.view), false, "")
+            slot.onLoadFinish(currentUrlOf(slot.view), false, "")
         }
     }
     pub didFailNavigation(webView: NSObject, navigation: WKNavigation, error: NSError) {
         if let some(slot) = WEBVIEWS.get(webView.handle) {
-            let cb = slot.onLoadFinish
-            cb(currentUrlOf(slot.view), true, ilstr(error.localizedDescription))
+            slot.onLoadFinish(currentUrlOf(slot.view), true, ilstr(error.localizedDescription))
         }
     }
 }

@@ -60,8 +60,7 @@ class DatePickerHandler : NSObject {
         if let some(host) = DP_HANDLER_TO_PICKER.get(this.handle) {
             if let some(slot) = DATE_PICKERS.get(host) {
                 let comps = breakDate(slot.picker.dateValue)
-                let cb = slot.onChange
-                cb(comps[0] as i32, comps[1] as i32, comps[2] as i32)
+                slot.onChange(comps[0] as i32, comps[1] as i32, comps[2] as i32)
             }
         }
     }

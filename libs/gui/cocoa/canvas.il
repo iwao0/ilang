@@ -44,15 +44,13 @@ class CanvasView : NSView {
     }
     pub becomeFirstResponder(): bool {
         if let some(slot) = CANVASES.get(this.handle) {
-            let cb = slot.onFocus
-            cb()
+            slot.onFocus()
         }
         true
     }
     pub resignFirstResponder(): bool {
         if let some(slot) = CANVASES.get(this.handle) {
-            let cb = slot.onBlur
-            cb()
+            slot.onBlur()
         }
         true
     }
@@ -67,8 +65,7 @@ class CanvasView : NSView {
         if let some(slot) = CANVASES.get(this.handle) {
             if !slot.isEnabled { return }
             let flags = event.modifierFlags as u64
-            let cb = slot.onKeyDown
-            cb(keyCodeToString(event.keyCode),
+            slot.onKeyDown(keyCodeToString(event.keyCode),
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
@@ -76,8 +73,7 @@ class CanvasView : NSView {
         if let some(slot) = CANVASES.get(this.handle) {
             if !slot.isEnabled { return }
             let flags = event.modifierFlags as u64
-            let cb = slot.onKeyUp
-            cb(keyCodeToString(event.keyCode),
+            slot.onKeyUp(keyCodeToString(event.keyCode),
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
@@ -125,8 +121,7 @@ class CanvasView : NSView {
             if !slot.isEnabled { return }
             let e = NSEvent.__wrap_handle_unowned(event.handle)
             let p = this.convertPointFromView(e.locationInWindow, nil)
-            let cb = slot.onMouseEnter
-            cb(p.x, p.y)
+            slot.onMouseEnter(p.x, p.y)
         }
     }
     pub override mouseExited(event: NSObject) {
@@ -134,8 +129,7 @@ class CanvasView : NSView {
             if !slot.isEnabled { return }
             let e = NSEvent.__wrap_handle_unowned(event.handle)
             let p = this.convertPointFromView(e.locationInWindow, nil)
-            let cb = slot.onMouseLeave
-            cb(p.x, p.y)
+            slot.onMouseLeave(p.x, p.y)
         }
     }
     pub scrollWheel(event: NSEvent) {
@@ -143,8 +137,7 @@ class CanvasView : NSView {
             if !slot.isEnabled { return }
             let p = this.convertPointFromView(event.locationInWindow, nil)
             let flags = event.modifierFlags as u64
-            let cb = slot.onMouseWheel
-            cb(event.deltaX, event.deltaY, p.x, p.y,
+            slot.onMouseWheel(event.deltaX, event.deltaY, p.x, p.y,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
@@ -167,8 +160,7 @@ class CanvasView : NSView {
             }
             let loc = info.draggingLocation
             let p = this.convertPointFromView(loc, nil)
-            let cb = slot.onFilesDropped
-            cb(files, p.x, p.y)
+            slot.onFilesDropped(files, p.x, p.y)
         }
         true
     }
@@ -180,21 +172,18 @@ class CanvasView : NSView {
             let flags = event.modifierFlags as u64
             match kind {
                 0 {
-                    let cb = slot.onMouseMove
                     // `buttons` bitfield carries the current button
                     // snapshot; for the first pass we pass 0 and let
                     // future Canvas-side tracking layer on top.
-                    cb(p.x, p.y, 0 as u32,
+                    slot.onMouseMove(p.x, p.y, 0 as u32,
                        modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
                 }
                 1 {
-                    let cb = slot.onMouseDown
-                    cb(p.x, p.y, button,
+                    slot.onMouseDown(p.x, p.y, button,
                        modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
                 }
                 2 {
-                    let cb = slot.onMouseUp
-                    cb(p.x, p.y, button,
+                    slot.onMouseUp(p.x, p.y, button,
                        modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
                 }
                 _ {}

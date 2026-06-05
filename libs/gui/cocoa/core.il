@@ -232,16 +232,14 @@ pub class GuiDelegate : NSObject {
             if slot.isModal {
                 NSApplication.sharedApplication().stopModal()
             }
-            let cb = slot.onClose
-            cb()
+            slot.onClose()
         }
     }
 
     pub windowDidResize(n: NSNotification) {
         if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
             let frame = slot.win.contentView.frame
-            let cb = slot.onResize
-            cb(frame.size.width, frame.size.height)
+            slot.onResize(frame.size.width, frame.size.height)
             // AppKit has no `windowDidZoom:` delegate hook — the only
             // signal for a zoom transition is a `windowDidResize`
             // that flips `isZoomed`. Track the previous bit and
@@ -262,42 +260,36 @@ pub class GuiDelegate : NSObject {
 
     pub windowDidMiniaturize(n: NSNotification) {
         if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
-            let cb = slot.onMinimize
-            cb()
+            slot.onMinimize()
         }
     }
 
     pub windowDidDeminiaturize(n: NSNotification) {
         if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
-            let cb = slot.onRestore
-            cb()
+            slot.onRestore()
         }
     }
 
     pub windowDidEnterFullScreen(n: NSNotification) {
         if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
-            let cb = slot.onEnterFullScreen
-            cb()
+            slot.onEnterFullScreen()
         }
     }
 
     pub windowDidExitFullScreen(n: NSNotification) {
         if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
-            let cb = slot.onLeaveFullScreen
-            cb()
+            slot.onLeaveFullScreen()
         }
     }
 
     pub windowDidBecomeKey(n: NSNotification) {
         if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
-            let cb = slot.onFocus
-            cb()
+            slot.onFocus()
         }
     }
     pub windowDidResignKey(n: NSNotification) {
         if let some(slot) = WINDOWS.get(n.notificationObject.handle) {
-            let cb = slot.onBlur
-            cb()
+            slot.onBlur()
         }
     }
 
@@ -310,8 +302,7 @@ pub class GuiDelegate : NSObject {
             let wf = slot.win.frame
             let sf = NSScreen.mainScreen().frame
             let topLeftY = sf.size.height - (wf.origin.y + wf.size.height)
-            let cb = slot.onMove
-            cb(wf.origin.x, topLeftY)
+            slot.onMove(wf.origin.x, topLeftY)
         }
     }
 }
@@ -349,18 +340,16 @@ pub class GuiView : NSView {
 
     pub keyDown(event: NSEvent) {
         if let some(slot) = this.windowSlot() {
-            let cb = slot.onKeyDown
             let flags = event.modifierFlags as u64
-            cb(keyCodeToString(event.keyCode), modCtrl(flags), modShift(flags),
+            slot.onKeyDown(keyCodeToString(event.keyCode), modCtrl(flags), modShift(flags),
                modAlt(flags), modMeta(flags))
         }
     }
 
     pub keyUp(event: NSEvent) {
         if let some(slot) = this.windowSlot() {
-            let cb = slot.onKeyUp
             let flags = event.modifierFlags as u64
-            cb(keyCodeToString(event.keyCode), modCtrl(flags), modShift(flags),
+            slot.onKeyUp(keyCodeToString(event.keyCode), modCtrl(flags), modShift(flags),
                modAlt(flags), modMeta(flags))
         }
     }
@@ -406,24 +395,21 @@ pub class GuiView : NSView {
         if let some(slot) = this.windowSlot() {
             let e = NSEvent.__wrap_handle_unowned(event.handle)
             let p = this.convertPointFromView(e.locationInWindow, nil)
-            let cb = slot.onMouseEnter
-            cb(p.x, p.y)
+            slot.onMouseEnter(p.x, p.y)
         }
     }
     pub override mouseExited(event: NSObject) {
         if let some(slot) = this.windowSlot() {
             let e = NSEvent.__wrap_handle_unowned(event.handle)
             let p = this.convertPointFromView(e.locationInWindow, nil)
-            let cb = slot.onMouseLeave
-            cb(p.x, p.y)
+            slot.onMouseLeave(p.x, p.y)
         }
     }
     pub scrollWheel(event: NSEvent) {
         if let some(slot) = this.windowSlot() {
             let p = this.convertPointFromView(event.locationInWindow, nil)
             let flags = event.modifierFlags as u64
-            let cb = slot.onMouseWheel
-            cb(event.deltaX, event.deltaY, p.x, p.y,
+            slot.onMouseWheel(event.deltaX, event.deltaY, p.x, p.y,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
@@ -460,8 +446,7 @@ pub class GuiView : NSView {
             }
             let loc = info.draggingLocation
             let p = this.convertPointFromView(loc, nil)
-            let cb = slot.onFilesDropped
-            cb(files, p.x, p.y)
+            slot.onFilesDropped(files, p.x, p.y)
         }
         true
     }

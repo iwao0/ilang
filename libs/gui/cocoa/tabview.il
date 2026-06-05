@@ -40,8 +40,7 @@ class TabViewHandler : NSObject {
                 let i = 0
                 while i < n {
                     if slot.items[i] == item.handle {
-                        let cb = slot.onChange
-                        cb(i as i32)
+                        slot.onChange(i as i32)
                         return
                     }
                     i = i + 1

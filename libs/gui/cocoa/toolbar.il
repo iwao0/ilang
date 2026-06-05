@@ -211,8 +211,7 @@ pub fn createNativeToolbar(
                 fn(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {
                     if let some(info) = TOOLBAR_BUTTONS.get(entry.handle) {
                         if let some(slot) = TOOLBARS.get(info.toolbarHandle) {
-                            let cb = slot.onItemClick
-                            cb(info.index)
+                            slot.onItemClick(info.index)
                         }
                     }
                 })

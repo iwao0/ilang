@@ -75,8 +75,7 @@ class ClickHandler : NSObject {
             // (our `clickButton()` entrypoint) and the AppKit
             // Enter-on-default-button path.
             let flags = NSEvent.currentModifierFlags as u64
-            let cb = slot.onClick
-            cb(f.origin.x + f.size.width / 2.0,
+            slot.onClick(f.origin.x + f.size.width / 2.0,
                f.origin.y + f.size.height / 2.0,
                0,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
@@ -103,15 +102,13 @@ class FocusButton : NSButton {
     pub acceptsFirstResponder(): bool { true }
     pub becomeFirstResponder(): bool {
         if let some(slot) = BUTTONS.get(this.handle) {
-            let cb = slot.onFocus
-            cb()
+            slot.onFocus()
         }
         true
     }
     pub resignFirstResponder(): bool {
         if let some(slot) = BUTTONS.get(this.handle) {
-            let cb = slot.onBlur
-            cb()
+            slot.onBlur()
         }
         true
     }
@@ -149,8 +146,7 @@ class FocusButton : NSButton {
             // value matches the existing onClick payload.
             let y = this.frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseDown
-            cb(p.x, y, 0,
+            slot.onMouseDown(p.x, y, 0,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
             PENDING_CLICK[this.handle] = true
         }
@@ -193,8 +189,7 @@ class FocusButton : NSButton {
         if let some(slot) = BUTTONS.get(this.handle) {
             let p = this.convertPointFromView(e.locationInWindow, nil)
             let y = this.frame.size.height - p.y
-            let cb = slot.onMouseEnter
-            cb(p.x, y)
+            slot.onMouseEnter(p.x, y)
         }
     }
     pub override mouseExited(event: NSObject) {
@@ -202,8 +197,7 @@ class FocusButton : NSButton {
         if let some(slot) = BUTTONS.get(this.handle) {
             let p = this.convertPointFromView(e.locationInWindow, nil)
             let y = this.frame.size.height - p.y
-            let cb = slot.onMouseLeave
-            cb(p.x, y)
+            slot.onMouseLeave(p.x, y)
         }
     }
     /// Secondary (right) button. AppKit routes it through its own
@@ -223,8 +217,7 @@ class FocusButton : NSButton {
             let sk = modShift(flags)
             let ak = modAlt(flags)
             let mk = modMeta(flags)
-            let cb = slot.onMouseDown
-            cb(p.x, y, 2, ck, sk, ak, mk)
+            slot.onMouseDown(p.x, y, 2, ck, sk, ak, mk)
             // Web-style contextmenu: fire at the same instant as
             // the OS would start showing its own context menu.
             let ctx = slot.onContextMenu
@@ -237,8 +230,7 @@ class FocusButton : NSButton {
             let p = this.convertPointFromView(e.locationInWindow, nil)
             let y = this.frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 2,
+            slot.onMouseUp(p.x, y, 2,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
@@ -255,8 +247,7 @@ class FocusButton : NSButton {
             let p = this.convertPointFromView(e.locationInWindow, nil)
             let y = this.frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseDown
-            cb(p.x, y, 1,
+            slot.onMouseDown(p.x, y, 1,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
@@ -266,8 +257,7 @@ class FocusButton : NSButton {
             let p = this.convertPointFromView(e.locationInWindow, nil)
             let y = this.frame.size.height - p.y
             let flags = e.modifierFlags as u64
-            let cb = slot.onMouseUp
-            cb(p.x, y, 1,
+            slot.onMouseUp(p.x, y, 1,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
@@ -284,8 +274,7 @@ class FocusButton : NSButton {
         let alt   = modAlt(flags)
         let meta  = modMeta(flags)
         if let some(slot) = BUTTONS.get(this.handle) {
-            let cb = slot.onKeyDown
-            cb(code, ctrl, shift, alt, meta)
+            slot.onKeyDown(code, ctrl, shift, alt, meta)
         }
         // Restore NSButton's default Space-press → click activation
         // that we'd otherwise lose by replacing `keyDown:` without
@@ -301,8 +290,7 @@ class FocusButton : NSButton {
     pub keyUp(event: NSEvent) {
         let flags = event.modifierFlags as u64
         if let some(slot) = BUTTONS.get(this.handle) {
-            let cb = slot.onKeyUp
-            cb(keyCodeToString(event.keyCode),
+            slot.onKeyUp(keyCodeToString(event.keyCode),
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
@@ -317,8 +305,7 @@ class FocusButton : NSButton {
             let p = this.convertPointFromView(event.locationInWindow, nil)
             let y = this.frame.size.height - p.y
             let flags = event.modifierFlags as u64
-            let cb = slot.onMouseWheel
-            cb(event.deltaX, event.deltaY, p.x, y,
+            slot.onMouseWheel(event.deltaX, event.deltaY, p.x, y,
                modCtrl(flags), modShift(flags), modAlt(flags), modMeta(flags))
         }
     }
