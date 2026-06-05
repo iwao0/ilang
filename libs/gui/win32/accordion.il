@@ -16,6 +16,7 @@ use windows {
     RegisterClassExW, CreateWindowExW, DefWindowProcW,
     MoveWindow, ShowWindow, SetFocus, GetFocus, EnableWindow,
     GetClientRect, InvalidateRect,
+    SetWindowPos, SetWindowPosFlags,
     SendMessageW,
     BeginPaint, EndPaint, FillRect,
     CreateSolidBrush, CreatePen, SelectObject, DeleteObject,
@@ -193,11 +194,17 @@ pub fn accordionWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                 // Header strip is the only clickable area.
                 if hi < slot.headerH as i32 {
                     slot.expanded = !slot.expanded
-                    // Re-layout: hide / show the content + re-size
-                    // the host so parent layouts pick up the new
-                    // height on their next pass. We re-issue the
-                    // MoveWindow inline using GetWindowRect via a
-                    // simple width-preserving resize.
+                    let cmd: i32 = if slot.expanded {
+                        ShowCmd.show as i32
+                    } else {
+                        ShowCmd.hide as i32
+                    }
+                    ShowWindow(slot.content, cmd)
+                    // Shrink / grow the host itself so children that
+                    // used to sit over the content area don't leave
+                    // stale pixels behind on collapse. SetWindowPos
+                    // with NOMOVE | NOZORDER preserves the host's
+                    // parent-relative origin (we don't cache it).
                     let rect = RECT { left: 0, top: 0, right: 0, bottom: 0 }
                     GetClientRect(slot.host, &rect)
                     let curW = rect.right - rect.left
@@ -206,22 +213,12 @@ pub fn accordionWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                     } else {
                         slot.headerH as i32
                     }
-                    // Preserve top-left by querying via SetWindowPos
-                    // semantics — easier with MoveWindow using
-                    // existing x/y from a parent-relative read. Since
-                    // we cached width via slot.width and the host's
-                    // parent-relative position is whatever
-                    // setAccordionFrame last set, the simplest
-                    // correct path is: just resize using SetWindowPos
-                    // with SWP_NOMOVE. Without that flag exposed,
-                    // we re-issue MoveWindow at (0,0) and rely on
-                    // the host's stored frame — wrong. Instead the
-                    // caller's setAccordionFrame on the next render
-                    // will move us back. For now invalidate; toggle
-                    // visibility for content child.
-                    let cmd: i32 = if slot.expanded { ShowCmd.show as i32 } else { ShowCmd.hide as i32 }
-                    ShowWindow(slot.content, cmd)
-                    InvalidateRect(slot.host, 0 as *const RECT, 0)
+                    SetWindowPos(
+                        slot.host, 0 as HWND, 0, 0, curW, newH,
+                        (SetWindowPosFlags.noMove as u32) |
+                        (SetWindowPosFlags.noZOrder as u32)
+                    )
+                    InvalidateRect(slot.host, 0 as *const RECT, 1)
                     slot.onToggle(slot.expanded)
                 }
             }
