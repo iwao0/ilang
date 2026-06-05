@@ -69,6 +69,7 @@ use numericupdown { tryNumericUpDownNotify }
 use datepicker { tryDateTimeNotify }
 use timepicker { tryDateTimePickTimeNotify }
 use menu     { tryMenuClick }
+use dark     { notifyAppearanceMaybeChanged }
 use statusbar { forwardResizeToStatusBars }
 use toolbar { forwardResizeToToolbars }
 use super.events
@@ -84,6 +85,18 @@ pub fn guiWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
     // for WM_SIZE — same low/high u16 split, pulled here once.
     let lo = (lParam & 0xFFFF) as f64
     let hi = ((lParam >> 16) & 0xFFFF) as f64
+    // WM_SETTINGCHANGE = 0x001A — bindings/windows aliases the
+    // value to `WindowMessage.imeOff`, so match by literal to
+    // dodge the name. Shell broadcasts this to every top-level
+    // window when Settings → Personalization changes; we re-poll
+    // the dark-mode registry and let dark.il fan out to every
+    // custom-painted widget (each of which has registered a
+    // repaint listener at first use).
+    if msg == 0x001A as u32 {
+        notifyAppearanceMaybeChanged()
+        // Don't return — fall through to DefWindowProcW so any
+        // downstream subclasses also see the message.
+    }
     match msg as WindowMessage {
         WindowMessage.close {
             // Fire the user's onClose, then DestroyWindow so

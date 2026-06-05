@@ -4,6 +4,7 @@
 /// libs/gui/win32/gui_impl.il. Each widget owns a sibling file.
 
 pub use core.*
+pub use dark.*
 pub use window.*
 pub use button.*
 pub use label.*

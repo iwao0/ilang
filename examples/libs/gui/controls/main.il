@@ -150,5 +150,10 @@ cw.onChange.add(fn(e: gui.ColorEvent) {
 })
 w.addChild(cw)
 
+console.log("dark mode at start:", gui.isDarkMode())
+gui.onAppearanceChange(fn(isDark: bool) {
+    console.log("appearance flipped, isDark =", isDark)
+})
+
 w.show()
 gui.run()

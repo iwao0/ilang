@@ -21,6 +21,7 @@
 /// stable per-instance key.
 
 pub use core.*
+pub use dark.*
 pub use window.*
 pub use button.*
 pub use label.*

@@ -34,7 +34,10 @@
 /// `cocoa/` and `win32/` so the public surface above stays
 /// platform-independent. User code never imports `gui_impl`.
 
-use gui_impl { runEventLoop }
+use gui_impl {
+    runEventLoop,
+    isOSInDarkMode, installAppearanceWatcher,
+}
 
 pub use events.*
 pub use font.*
@@ -84,6 +87,28 @@ pub use clipboard.*
 // `use gui` alone and stay wgpu-free; apps that do need it
 // import `use gui.gpuview { GpuView, RenderEvent }` explicitly
 // and accept the dylib requirement.
+
+/// `true` when the OS is currently set to dark mode. Re-read on
+/// every call (cheap) — for "did this just flip?" checks register
+/// a listener with `onAppearanceChange`.
+pub fn isDarkMode(): bool {
+    isOSInDarkMode()
+}
+
+/// Register `cb` to fire whenever the OS appearance flips
+/// between light and dark while the app is running. The callback
+/// gets the new dark-mode boolean. AppKit and GTK ネイティブ
+/// widgets re-paint themselves on their own; the Win32
+/// custom-drawn widgets (Switch, SegmentedControl, …) re-paint
+/// through the same mechanism. User code typically wires this up
+/// to redraw a `Canvas` or recolour any constants it owns.
+///
+///     gui.onAppearanceChange(fn(isDark: bool) {
+///         console.log("dark =", isDark)
+///     })
+pub fn onAppearanceChange(cb: fn(bool)) {
+    installAppearanceWatcher(cb)
+}
 
 /// Run the platform event loop until every window has closed
 /// (macOS: `NSApp.run()` until `terminate:`; Windows:

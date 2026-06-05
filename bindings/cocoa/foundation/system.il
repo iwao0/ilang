@@ -152,10 +152,12 @@ pub enum NSProcessInfoThermalState: i64 {
         @objc("defaultCenter")
         pub static defaultCenter(): NSDistributedNotificationCenter
 
+        /// `object` is `id` in ObjC — pass any `NSObject` (or
+        /// `nil` typed as `NSObject` for "match every sender").
         @objc("addObserver:selector:name:object:")
         pub addObserverWithSelector(
             observer: NSObject, selector: i64,
-            name: NSString, object: NSString
+            name: NSString, object: NSObject
         )
 
         @objc("removeObserver:")

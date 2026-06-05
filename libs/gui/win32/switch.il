@@ -31,6 +31,7 @@ use util {
     vkToString, modCtrl, modShift, modAlt, modMeta, noOpBool, ensureGdiplus,
 }
 use core { windowHwnd, noOp1, noOpEnterLeave, noOpClickMod, noOpWheel, noOpKey }
+use dark { pickColor, registerAppearanceRepaintListener }
 use gdiplus {
     GpGraphics, GpSolidFill, GpBrush, GpPen, GpPath,
     SmoothingMode,
@@ -89,12 +90,19 @@ let SWITCHES = new Map<i64, SwitchSlot>()
 // `[false]` until the `IlangGuiSwitch` window class is registered.
 let SWITCH_CLASS_INITED: bool[] = [false]
 
-// Colours, GDI+ ARGB (0xAARRGGBB).
-const TRACK_OFF_ARGB:      u32 = 0xFFBFBFBF as u32   // light grey
-const TRACK_ON_ARGB:       u32 = 0xFF0078D4 as u32   // #0078D4
-const TRACK_DISABLED_ARGB: u32 = 0xFFDDDDDD as u32
-const THUMB_FILL_ARGB:     u32 = 0xFFFFFFFF as u32   // white
-const THUMB_EDGE_ARGB:     u32 = 0xFF808080 as u32   // mid grey
+// Colours, GDI+ ARGB (0xAARRGGBB). Two sets, picked via
+// `pickColor` at paint-time so a light/dark flip retones
+// the swatch without rebuilding the WNDCLASS.
+const TRACK_OFF_LIGHT:      u32 = 0xFFBFBFBF as u32
+const TRACK_OFF_DARK:       u32 = 0xFF505050 as u32
+const TRACK_ON_LIGHT:       u32 = 0xFF0078D4 as u32
+const TRACK_ON_DARK:        u32 = 0xFF0A84FF as u32
+const TRACK_DISABLED_LIGHT: u32 = 0xFFDDDDDD as u32
+const TRACK_DISABLED_DARK:  u32 = 0xFF303030 as u32
+const THUMB_FILL_LIGHT:     u32 = 0xFFFFFFFF as u32
+const THUMB_FILL_DARK:      u32 = 0xFFE6E6E6 as u32
+const THUMB_EDGE_LIGHT:     u32 = 0xFF808080 as u32
+const THUMB_EDGE_DARK:      u32 = 0xFF202020 as u32
 
 @extern(C) {
 
@@ -118,9 +126,13 @@ fn paintSwitch(hwnd: HWND, slot: SwitchSlot, hdc: HDC) {
     GdipSetSmoothingMode(g, SmoothingMode.antiAlias as i32)
 
     let trackArgb =
-        if !slot.enabled  { TRACK_DISABLED_ARGB }
-        elif slot.checked { TRACK_ON_ARGB }
-        else              { TRACK_OFF_ARGB }
+        if !slot.enabled {
+            pickColor(TRACK_DISABLED_LIGHT, TRACK_DISABLED_DARK)
+        } elif slot.checked {
+            pickColor(TRACK_ON_LIGHT, TRACK_ON_DARK)
+        } else {
+            pickColor(TRACK_OFF_LIGHT, TRACK_OFF_DARK)
+        }
     let trackBrush: *GpSolidFill = 0 as *GpSolidFill
     let pTrackBrush: **GpSolidFill = &trackBrush
     GdipCreateSolidFill(trackArgb, pTrackBrush)
@@ -152,13 +164,16 @@ fn paintSwitch(hwnd: HWND, slot: SwitchSlot, hdc: HDC) {
 
     let thumbBrush: *GpSolidFill = 0 as *GpSolidFill
     let pThumbBrush: **GpSolidFill = &thumbBrush
-    GdipCreateSolidFill(THUMB_FILL_ARGB, pThumbBrush)
+    GdipCreateSolidFill(pickColor(THUMB_FILL_LIGHT, THUMB_FILL_DARK), pThumbBrush)
     GdipFillEllipse(g, thumbBrush as *GpBrush, fx, fy, fd, fd)
     GdipDeleteBrush(thumbBrush as *GpBrush)
 
     let thumbPen: *GpPen = 0 as *GpPen
     let pThumbPen: **GpPen = &thumbPen
-    GdipCreatePen1(THUMB_EDGE_ARGB, 1.0 as f32, 0 as i32, pThumbPen)
+    GdipCreatePen1(
+        pickColor(THUMB_EDGE_LIGHT, THUMB_EDGE_DARK),
+        1.0 as f32, 0 as i32, pThumbPen
+    )
     GdipDrawEllipse(g, thumbPen, fx, fy, fd, fd)
     GdipDeletePen(thumbPen)
 
@@ -329,6 +344,12 @@ pub fn switchWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
     DefWindowProcW(hwnd as HWND, msg, wParam, lParam)
 }
 
+fn invalidateAllSwitches() {
+    for slot in SWITCHES.values() {
+        InvalidateRect(slot.hwnd, 0 as *const RECT, 0)
+    }
+}
+
 fn registerSwitchClass() {
     if SWITCH_CLASS_INITED[0] { return }
     SWITCH_CLASS_INITED[0] = true
@@ -351,6 +372,8 @@ fn registerSwitchClass() {
         hIconSm:       0 as HICON,
     }
     RegisterClassExW(&wc)
+    // Re-tint every live Switch when the OS appearance flips.
+    registerAppearanceRepaintListener(invalidateAllSwitches)
 }
 
 pub fn createNativeSwitch(
