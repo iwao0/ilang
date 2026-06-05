@@ -24,6 +24,7 @@
 ///   slider.il      — `Slider`
 ///   progressbar.il — `ProgressBar`
 ///   activityindicator.il — `ActivityIndicator`
+///   colorwell.il   — `ColorWell`
 ///   webview.il — `WebView`
 ///   combobox.il    — `ComboBox`
 ///   listbox.il     — `ListBox`
@@ -57,6 +58,7 @@ pub use radio.*
 pub use slider.*
 pub use progressbar.*
 pub use activityindicator.*
+pub use colorwell.*
 pub use webview.*
 pub use combobox.*
 pub use listbox.*

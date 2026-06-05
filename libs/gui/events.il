@@ -288,6 +288,17 @@ pub class TabChangeEvent : Event {
     }
 }
 
+/// Fired by `ColorWell` when the user picks a new colour. `color`
+/// is in 0xAARRGGBB format — same encoding used by `Window.colorPicker`
+/// / `Canvas.fillColor`.
+pub class ColorEvent : Event {
+    pub color: u32
+    pub init(sender: EventTarget, color: u32) {
+        super(sender)
+        this.color = color
+    }
+}
+
 /// Fired by `WebView` for navigation milestones. `url` is the
 /// page URL the event refers to. `onNavigate` fires once on
 /// commit with `isError = false`; `onLoadFinish` fires on

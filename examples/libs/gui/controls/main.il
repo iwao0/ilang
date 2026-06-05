@@ -1,6 +1,6 @@
 // 🎛 libs/gui — Checkbox, Slider, ProgressBar, ComboBox, Switch,
 //               SegmentedControl, LinkLabel, ActivityIndicator,
-//               SearchField.
+//               SearchField, ColorWell.
 //
 // A small "control panel" window:
 // - Checkbox toggles whether the slider's value drives the
@@ -22,7 +22,7 @@ use gui
 let w = new gui.Window()
 w.title  = "ilang × gui — controls"
 w.width  = 460.0
-w.height = 380.0
+w.height = 420.0
 
 let mirror = new gui.Checkbox()
 mirror.text   = "Drive progress from slider"
@@ -138,6 +138,17 @@ sf.onChange.add(fn(e: gui.ChangeEvent) { console.log("change:", e.value) })
 sf.onSearch.add(fn(e: gui.ChangeEvent) { console.log("search:", e.value) })
 sf.onClear.add(fn(e: gui.ChangeEvent)  { console.log("clear") })
 w.addChild(sf)
+
+let cw = new gui.ColorWell()
+cw.color  = 0xFFE74C3C as u32
+cw.x      = 20.0
+cw.y      = 310.0
+cw.width  = 44.0
+cw.height = 28.0
+cw.onChange.add(fn(e: gui.ColorEvent) {
+    console.log("color:", e.color)
+})
+w.addChild(cw)
 
 w.show()
 gui.run()

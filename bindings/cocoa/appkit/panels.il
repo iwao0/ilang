@@ -60,6 +60,17 @@ pub const AlertThirdButtonReturn: i64 = 1002
     /// `NSColorWell` — a colour swatch the user can click to open
     /// the system colour picker. We use it as an `NSAlert`
     /// accessory so the picker dialog stays OK / Cancel.
+    /// `NSColorPanel` — the floating system colour picker. AppKit
+    /// keeps a single shared instance; reach for it through
+    /// `sharedColorPanel()` whenever the colour-well code needs
+    /// to observe panel lifecycle (e.g. listen for "panel about
+    /// to close" to deliver a single committed colour rather than
+    /// the drag-blur of continuous changes).
+    @objc pub class NSColorPanel : NSWindow {
+        @objc("sharedColorPanel")
+        pub static sharedColorPanel(): NSColorPanel
+    }
+
     @objc pub class NSColorWell : NSView {
         @objc("alloc")
         pub static alloc(): NSColorWell
@@ -71,6 +82,14 @@ pub const AlertThirdButtonReturn: i64 = 1002
         pub setColor(c: NSColor)
         @objc("activate:")
         pub activate(exclusive: bool)
+        @objc("setTarget:")
+        pub setTarget(target: NSObject)
+        @objc("setAction:")
+        pub setAction(sel: i64)
+        @objc("setEnabled:")
+        pub setEnabled(flag: bool)
+        @objc("setContinuous:")
+        pub setContinuous(flag: bool)
     }
 
     /// `NSFontManager` — the global font-selection broker.

@@ -18,6 +18,7 @@ pub use radio.*
 pub use slider.*
 pub use progress.*
 pub use activityindicator.*
+pub use colorwell.*
 pub use webview.*
 pub use combo.*
 pub use list.*
