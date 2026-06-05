@@ -210,11 +210,18 @@ pub class Container : Control {
 
     /// Native container handle children should be parented under.
     /// `Window` returns its OS window handle; `ScrollView` returns
-    /// its documentView / inner-container handle. The default of
-    /// `-1` is a fail-soft sentinel — a container that doesn't
-    /// override this can't actually host native children, so any
-    /// `createNative*` call with this value should bail.
-    pub nativeChildHandle(): i64 { -1 }
+    /// its documentView / inner-container handle. Plain layout
+    /// containers (VBox / HBox / Grid) own no native peer — their
+    /// children attach to the nearest enclosing native host, so
+    /// they delegate up the `_root` chain until something with a
+    /// real native handle answers. `-1` is the fail-soft sentinel
+    /// when no root is attached yet.
+    pub nativeChildHandle(): i64 {
+        if let some(root) = this._root {
+            return root.nativeChildHandle()
+        }
+        return -1
+    }
 
     /// Register a child for layout. If the container already
     /// knows its root, the child's native peer is realised
