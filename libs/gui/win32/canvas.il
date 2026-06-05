@@ -155,7 +155,7 @@ fn canvasNoOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: boo
 let CANVASES = new Map<i64, CanvasSlot>()
 
 // `[false]` until the `IlangGuiCanvas` window class is registered.
-let CANVAS_CLASS_INITED: bool[] = [false]
+let CANVAS_CLASS_INITED: bool = false
 
 fn newOps(): i64[] { let a: i64[] = []; a }
 fn newArgs(): f64[][] { let a: f64[][] = []; a }
@@ -321,8 +321,8 @@ pub fn canvasWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
 }
 
 fn registerCanvasClass() {
-    if CANVAS_CLASS_INITED[0] { return }
-    CANVAS_CLASS_INITED[0] = true
+    if CANVAS_CLASS_INITED { return }
+    CANVAS_CLASS_INITED = true
 
     let hInstance = GetModuleHandleA(0 as *const char)
     let classNameW = "IlangGuiCanvas".encodeUtf16()

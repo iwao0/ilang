@@ -70,20 +70,20 @@ fn linkLabelNoOp(x: f64, y: f64) {}
 let LINKLABELS = new Map<i64, LinkLabelSlot>()
 
 // `[false]` until the `IlangGuiLink` window class is registered.
-let LINK_CLASS_INITED: bool[] = [false]
+let LINK_CLASS_INITED: bool = false
 
 // Cached hand cursor — LoadCursor is cheap but doing it on every
 // WM_SETCURSOR is wasteful when the value never changes.
-let HAND_CURSOR: HCURSOR[] = [0 as HCURSOR]
+let HAND_CURSOR: HCURSOR = 0 as HCURSOR
 
 @extern(C) {
 
 fn ensureHandCursor(): HCURSOR {
-    if HAND_CURSOR[0] as i64 == 0 as i64 {
+    if HAND_CURSOR as i64 == 0 as i64 {
         // IDC_HAND = 32649.
-        HAND_CURSOR[0] = LoadCursorW(0 as HINSTANCE, 32649 as *const u16)
+        HAND_CURSOR = LoadCursorW(0 as HINSTANCE, 32649 as *const u16)
     }
-    HAND_CURSOR[0]
+    HAND_CURSOR
 }
 
 fn makeLinkFont(): HFONT {
@@ -226,8 +226,8 @@ pub fn linkWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
 }
 
 fn registerLinkClass() {
-    if LINK_CLASS_INITED[0] { return }
-    LINK_CLASS_INITED[0] = true
+    if LINK_CLASS_INITED { return }
+    LINK_CLASS_INITED = true
 
     let hInstance = GetModuleHandleA(0 as *const char)
     let classNameW = "IlangGuiLink".encodeUtf16()

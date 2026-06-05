@@ -63,7 +63,7 @@ class ToolbarSlot {
 fn toolbarNoOp(idx: i32) {}
 
 let TOOLBARS = new Map<i64, ToolbarSlot>()
-let TOOLBAR_CLASS_INITED: bool[] = [false]
+let TOOLBAR_CLASS_INITED: bool = false
 
 @extern(C) {
 
@@ -142,8 +142,8 @@ pub fn toolbarWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
 }
 
 fn registerToolbarClass() {
-    if TOOLBAR_CLASS_INITED[0] { return }
-    TOOLBAR_CLASS_INITED[0] = true
+    if TOOLBAR_CLASS_INITED { return }
+    TOOLBAR_CLASS_INITED = true
     let hInstance = GetModuleHandleA(0 as *const char)
     let classNameW = "IlangGuiToolbar".encodeUtf16()
     let classNamePtr: *const u16 = classNameW

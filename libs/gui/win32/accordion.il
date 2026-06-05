@@ -66,7 +66,7 @@ class AccordionSlot {
 fn accordionNoOp(expanded: bool) {}
 
 let ACCORDIONS = new Map<i64, AccordionSlot>()
-let ACCORDION_CLASS_INITED: bool[] = [false]
+let ACCORDION_CLASS_INITED: bool = false
 
 @extern(C) {
 
@@ -224,8 +224,8 @@ pub fn accordionWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
 }
 
 fn registerAccordionClass() {
-    if ACCORDION_CLASS_INITED[0] { return }
-    ACCORDION_CLASS_INITED[0] = true
+    if ACCORDION_CLASS_INITED { return }
+    ACCORDION_CLASS_INITED = true
 
     let hInstance = GetModuleHandleA(0 as *const char)
     let classNameW = "IlangGuiAccordion".encodeUtf16()

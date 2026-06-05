@@ -75,8 +75,8 @@ pub let TRAY_ICONS = new Map<i64, TrayIconSlot>()
 /// Reverse: message HWND → tray handle, so the WndProc finds
 /// the slot without rescanning.
 pub let TRAY_BY_MSG_HWND = new Map<i64, i64>()
-let NEXT_TRAY_ID: u32[] = [1 as u32]
-let TRAY_CLASS_INITED: bool[] = [false]
+let NEXT_TRAY_ID: u32 = 1 as u32
+let TRAY_CLASS_INITED: bool = false
 
 @extern(C) {
 
@@ -125,8 +125,8 @@ pub fn trayMsgWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
 }
 
 fn registerTrayClass() {
-    if TRAY_CLASS_INITED[0] { return }
-    TRAY_CLASS_INITED[0] = true
+    if TRAY_CLASS_INITED { return }
+    TRAY_CLASS_INITED = true
     let hInstance = GetModuleHandleA(0 as *const char)
     let classNameW = "IlangGuiTrayMsgWnd".encodeUtf16()
     let classNamePtr: *const u16 = classNameW
@@ -188,8 +188,8 @@ pub fn createNativeTrayIcon(
         0 as HMENU, hInstance as HINSTANCE, 0 as *void
     )
 
-    let uID = NEXT_TRAY_ID[0]
-    NEXT_TRAY_ID[0] = uID + 1 as u32
+    let uID = NEXT_TRAY_ID
+    NEXT_TRAY_ID = uID + 1 as u32
 
     let nid = NOTIFYICONDATAW {
         cbSize:            976 as u32,

@@ -73,10 +73,10 @@ class RadioInfo {
     }
 }
 let RADIO_INFO = new Map<i64, RadioInfo>()
-let NEXT_ACTION_ID: i64[] = [1 as i64]
+let NEXT_ACTION_ID: i64 = 1 as i64
 /// Single GSimpleActionGroup shared by every menubar — installed
 /// on each window under the `"app"` prefix.
-let ACTION_GROUP: GSimpleActionGroup[] = []
+let ACTION_GROUP: GSimpleActionGroup? = none
 
 /// Pending `(detailed_action, accelerator)` pairs collected at
 /// addItem time. `setWindowMenuBar` installs them on the window's
@@ -161,10 +161,14 @@ fn formatAccel(s: string): string {
 @extern(C) {
 
 fn ensureActionGroup(): GSimpleActionGroup {
-    if ACTION_GROUP.length == 0 {
-        ACTION_GROUP.push(g_simple_action_group_new())
+    match ACTION_GROUP {
+        some(g) { g }
+        none {
+            let g = g_simple_action_group_new()
+            ACTION_GROUP = some(g)
+            g
+        }
     }
-    ACTION_GROUP[0]
 }
 
 pub fn createNativeMenu(title: string): i64 {
@@ -185,8 +189,8 @@ pub fn menuAddItemWithShortcut(
 ): i64 {
     match MENUS.get(menuHandle) {
         some(slot) {
-            let id = NEXT_ACTION_ID[0]
-            NEXT_ACTION_ID[0] = id + 1 as i64
+            let id = NEXT_ACTION_ID
+            NEXT_ACTION_ID = id + 1 as i64
             ITEM_ACTIONS[id] = onClick
 
             let actionName = "menu_" + id.toString()
@@ -225,8 +229,8 @@ pub fn menuAddCheckItem(
 ): i64 {
     match MENUS.get(menuHandle) {
         some(slot) {
-            let id = NEXT_ACTION_ID[0]
-            NEXT_ACTION_ID[0] = id + 1 as i64
+            let id = NEXT_ACTION_ID
+            NEXT_ACTION_ID = id + 1 as i64
             CHECK_ACTIONS[id] = onToggle
             ITEM_CHECKED[id] = initialChecked
 
@@ -264,8 +268,8 @@ pub fn menuAddRadioItem(
 ): i64 {
     match MENUS.get(menuHandle) {
         some(slot) {
-            let id = NEXT_ACTION_ID[0]
-            NEXT_ACTION_ID[0] = id + 1 as i64
+            let id = NEXT_ACTION_ID
+            NEXT_ACTION_ID = id + 1 as i64
             ITEM_ACTIONS[id] = onSelect
             RADIO_INFO[id] = new RadioInfo(menuHandle, groupName)
             ITEM_CHECKED[id] = false

@@ -71,7 +71,7 @@ class SplitterSlot {
 
 let SPLIT_VIEWS = new Map<i64, SplitViewSlot>()
 let SPLITTERS   = new Map<i64, SplitterSlot>()
-let SPLIT_VIEW_CLASSES_INITED: bool[] = [false]
+let SPLIT_VIEW_CLASSES_INITED: bool = false
 
 @extern(C) {
 
@@ -200,8 +200,8 @@ fn splitDefWndProcTrampoline(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64
 }
 
 fn registerSplitViewClasses() {
-    if SPLIT_VIEW_CLASSES_INITED[0] { return }
-    SPLIT_VIEW_CLASSES_INITED[0] = true
+    if SPLIT_VIEW_CLASSES_INITED { return }
+    SPLIT_VIEW_CLASSES_INITED = true
 
     let hInstance = GetModuleHandleA(0 as *const char)
 

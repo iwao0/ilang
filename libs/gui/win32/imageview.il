@@ -60,7 +60,7 @@ fn ivNoOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool
 fn ivNoOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 let IMAGE_VIEWS = new Map<i64, ImageViewSlot>()
-let CLASS_INITED: bool[] = [false]
+let CLASS_INITED: bool = false
 @extern(C) {
 
 pub fn imageViewWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
@@ -188,8 +188,8 @@ pub fn imageViewWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
 }
 
 fn registerImageViewClass() {
-    if CLASS_INITED[0] { return }
-    CLASS_INITED[0] = true
+    if CLASS_INITED { return }
+    CLASS_INITED = true
     let hInstance = GetModuleHandleA(0 as *const char)
     let classNameW = "IlangGuiImageView".encodeUtf16()
     let classNamePtr: *const u16 = classNameW

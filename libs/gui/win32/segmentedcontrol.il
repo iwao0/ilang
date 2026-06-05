@@ -65,7 +65,7 @@ fn segmentedNoOp(i: i32) {}
 let SEGMENTEDS = new Map<i64, SegmentedSlot>()
 
 // `[false]` until the `IlangGuiSegmented` window class is registered.
-let SEGMENTED_CLASS_INITED: bool[] = [false]
+let SEGMENTED_CLASS_INITED: bool = false
 
 // Colours (COLORREF = 0x00BBGGRR).
 const BG_NORMAL:   u32 = 0x00F0F0F0 as u32
@@ -278,8 +278,8 @@ pub fn segmentedWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
 }
 
 fn registerSegmentedClass() {
-    if SEGMENTED_CLASS_INITED[0] { return }
-    SEGMENTED_CLASS_INITED[0] = true
+    if SEGMENTED_CLASS_INITED { return }
+    SEGMENTED_CLASS_INITED = true
 
     let hInstance = GetModuleHandleA(0 as *const char)
     let classNameW = "IlangGuiSegmented".encodeUtf16()

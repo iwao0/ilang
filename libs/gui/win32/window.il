@@ -583,9 +583,9 @@ pub fn runNativeWindowModal(handle: i64) {
 /// the first `setProgressBar` call. Shared across every window in
 /// the process; the per-window state lives on the COM side, keyed
 /// by HWND.
-let TASKBAR_LIST:  ITaskbarList3[] = []
-let COM_INITED:    bool[]          = [false]
-let TASKBAR_READY: bool[]          = [false]
+let TASKBAR_LIST:  ITaskbarList3?  = none
+let COM_INITED:    bool          = false
+let TASKBAR_READY: bool          = false
 
 @extern(C) {
 
@@ -595,14 +595,14 @@ let TASKBAR_READY: bool[]          = [false]
 /// process. Returns the cached instance, or pushes an "unavailable"
 /// sentinel via `TASKBAR_READY = false` if any step fails.
 fn ensureTaskbarList(): bool {
-    if TASKBAR_READY[0] { return true }
-    if !COM_INITED[0] {
+    if TASKBAR_READY { return true }
+    if !COM_INITED {
         let hr = CoInitializeEx(NULL, CoInit.apartmentThreaded as u32)
         // S_OK (0) or S_FALSE (1) — both mean we now own a COM
         // apartment. Anything negative is a real failure; leave
         // the flag false so subsequent calls retry.
         if hr < 0 { return false }
-        COM_INITED[0] = true
+        COM_INITED = true
     }
     let raw: *void = NULL
     let chr = CoCreateInstance(
@@ -615,8 +615,8 @@ fn ensureTaskbarList(): bool {
     if chr != 0 { return false }
     let tb = raw as ITaskbarList3
     tb.HrInit()
-    TASKBAR_LIST.push(tb)
-    TASKBAR_READY[0] = true
+    TASKBAR_LIST = some(tb)
+    TASKBAR_READY = true
     true
 }
 
@@ -627,7 +627,7 @@ fn ensureTaskbarList(): bool {
 pub fn setNativeWindowProgressBar(handle: i64, progress: f64) {
     if let some(slot) = WINDOWS.get(handle) {
         if !ensureTaskbarList() { return }
-        let tb = TASKBAR_LIST[0]
+        let tb = match TASKBAR_LIST { some(t) { t } none { return } }
         if progress < 0.0 {
             tb.SetProgressState(slot.hwnd, TBPFLAG.noProgress as u32)
         } elif progress > 1.0 {

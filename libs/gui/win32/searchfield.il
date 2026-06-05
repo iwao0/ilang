@@ -77,7 +77,7 @@ class SearchFieldSlot {
 let SEARCHFIELDS = new Map<i64, SearchFieldSlot>()
 let EDIT_TO_HOST = new Map<i64, i64>()  // child EDIT hwnd → host hwnd
 
-let SEARCH_CLASS_INITED: bool[] = [false]
+let SEARCH_CLASS_INITED: bool = false
 
 const CANCEL_BTN_W: i32 = 20 as i32
 const EDIT_PAD_L:   i32 = 4 as i32
@@ -295,8 +295,8 @@ pub fn searchFieldWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
 }
 
 fn registerSearchFieldClass() {
-    if SEARCH_CLASS_INITED[0] { return }
-    SEARCH_CLASS_INITED[0] = true
+    if SEARCH_CLASS_INITED { return }
+    SEARCH_CLASS_INITED = true
 
     let hInstance = GetModuleHandleA(0 as *const char)
     let classNameW = "IlangGuiSearchField".encodeUtf16()

@@ -187,27 +187,27 @@ fn gpuButtonToW3C(b: u32): i32 {
 
 // Unique handle counter — GtkDrawingArea pointers double as keys
 // but we also want to stash one on a slot.
-let NEXT_HANDLE: i64[] = [1]
+let NEXT_HANDLE: i64 = 1
 
 fn allocHandle(): i64 {
-    let h = NEXT_HANDLE[0]
-    NEXT_HANDLE[0] = h + 1
+    let h = NEXT_HANDLE
+    NEXT_HANDLE = h + 1
     h
 }
 
 // ─── app-wide wgpu state ───────────────────────────────────────
 
-let WGPU_INST:    i64[]  = [0]
-let WGPU_ADAPTER: i64[]  = [0]
-let WGPU_DEVICE:  i64[]  = [0]
-let WGPU_QUEUE:   i64[]  = [0]
-let WGPU_READY:   bool[] = [false]
-let ADAPTER_OUT:  i64[]  = [0]
-let DEVICE_OUT:   i64[]  = [0]
+let WGPU_INST:    i64  = 0
+let WGPU_ADAPTER: i64  = 0
+let WGPU_DEVICE:  i64  = 0
+let WGPU_QUEUE:   i64  = 0
+let WGPU_READY:   bool = false
+let ADAPTER_OUT:  i64  = 0
+let DEVICE_OUT:   i64  = 0
 // Map-async status hand-off cell. The bare-fn callback can't
 // capture, so it stores the status here and the synchronous
 // caller reads it after `wgpuDevicePoll(..., wait=1, ...)`.
-let MAP_STATUS:   i64[] = [-1]
+let MAP_STATUS:   i64 = -1
 
 @extern(C) {
     pub fn _gpuOnLog(level: i32, msgData: i64, msgLen: i64, ud: i64) {
@@ -215,13 +215,13 @@ let MAP_STATUS:   i64[] = [-1]
                     stringFromCstr(msgData as *const char))
     }
     pub fn _gpuOnAdapter(s: i32, adapter: i64, md: i64, ml: i64, u1: i64, u2: i64) {
-        ADAPTER_OUT[0] = adapter
+        ADAPTER_OUT = adapter
     }
     pub fn _gpuOnDevice(s: i32, device: i64, md: i64, ml: i64, u1: i64, u2: i64) {
-        DEVICE_OUT[0] = device
+        DEVICE_OUT = device
     }
     pub fn _gpuOnMap(status: i32, md: i64, ml: i64, u1: i64, u2: i64) {
-        MAP_STATUS[0] = status as i64
+        MAP_STATUS = status as i64
     }
 
     /// First-call wgpu bring-up. No surface required — offscreen
@@ -229,13 +229,13 @@ let MAP_STATUS:   i64[] = [-1]
     /// device. We still ask for `AllowProcessEvents` mode so the
     /// adapter / device callbacks fire inside ProcessEvents.
     fn initWgpuDevice(): bool {
-        if WGPU_INST[0] == 0 {
+        if WGPU_INST == 0 {
             wgpuSetLogCallback(_gpuOnLog, 0 as *void)
             wgpuSetLogLevel(LogLevel.warn as u32)
             let inst = wgpuCreateInstance(0 as *void)
-            WGPU_INST[0] = inst as i64
+            WGPU_INST = inst as i64
         }
-        let inst = WGPU_INST[0] as WGPUInstance
+        let inst = WGPU_INST as WGPUInstance
 
         let aOpts = WGPURequestAdapterOptions {
             nextInChain:          0 as *void,
@@ -252,14 +252,14 @@ let MAP_STATUS:   i64[] = [-1]
             userdata1:   0 as *void,
             userdata2:   0 as *void,
         }
-        ADAPTER_OUT[0] = 0
+        ADAPTER_OUT = 0
         wgpuInstanceRequestAdapter(inst, (&aOpts) as *void, aInfo)
         wgpuInstanceProcessEvents(inst)
-        if ADAPTER_OUT[0] == 0 {
+        if ADAPTER_OUT == 0 {
             console.log("GpuView: wgpuInstanceRequestAdapter callback never fired")
             return false
         }
-        WGPU_ADAPTER[0] = ADAPTER_OUT[0]
+        WGPU_ADAPTER = ADAPTER_OUT
 
         let dInfo = WGPURequestDeviceCallbackInfo {
             nextInChain: 0 as *void,
@@ -268,17 +268,17 @@ let MAP_STATUS:   i64[] = [-1]
             userdata1:   0 as *void,
             userdata2:   0 as *void,
         }
-        DEVICE_OUT[0] = 0
-        wgpuAdapterRequestDevice(ADAPTER_OUT[0] as WGPUAdapter, 0 as *void, dInfo)
+        DEVICE_OUT = 0
+        wgpuAdapterRequestDevice(ADAPTER_OUT as WGPUAdapter, 0 as *void, dInfo)
         wgpuInstanceProcessEvents(inst)
-        if DEVICE_OUT[0] == 0 {
+        if DEVICE_OUT == 0 {
             console.log("GpuView: wgpuAdapterRequestDevice callback never fired")
             return false
         }
-        WGPU_DEVICE[0] = DEVICE_OUT[0]
-        let queue = wgpuDeviceGetQueue(DEVICE_OUT[0] as WGPUDevice)
-        WGPU_QUEUE[0] = queue as i64
-        WGPU_READY[0] = true
+        WGPU_DEVICE = DEVICE_OUT
+        let queue = wgpuDeviceGetQueue(DEVICE_OUT as WGPUDevice)
+        WGPU_QUEUE = queue as i64
+        WGPU_READY = true
         true
     }
 
@@ -292,13 +292,13 @@ let MAP_STATUS:   i64[] = [-1]
     /// view's CPU staging bytes → mark cairo dirty → queue redraw.
     /// All wgpu calls stay on the main (GTK) thread.
     fn renderOneFrame(handle: i64) {
-        if !WGPU_READY[0] { return }
+        if !WGPU_READY { return }
         let slot = match GPUVIEWS.get(handle) {
             some(s) { s }
             none    { return }
         }
-        let device = WGPU_DEVICE[0] as WGPUDevice
-        let queue  = WGPU_QUEUE[0] as WGPUQueue
+        let device = WGPU_DEVICE as WGPUDevice
+        let queue  = WGPU_QUEUE as WGPUQueue
 
         let enc = wgpuDeviceCreateCommandEncoder(device, 0 as *void)
         let tv  = slot.view as WGPUTextureView
@@ -370,18 +370,18 @@ let MAP_STATUS:   i64[] = [-1]
             userdata1:   0 as *void,
             userdata2:   0 as *void,
         }
-        MAP_STATUS[0] = -1
+        MAP_STATUS = -1
         let bufSize = (slot.wgpuStride as u64) * (slot.height as u64)
         wgpuBufferMapAsync(
             slot.buffer as WGPUBuffer, 1 as u64,    // MapMode_Read
             0 as u64, bufSize, mInfo
         )
         wgpuDevicePoll(device, 1 as u32, 0 as *const u64)
-        if MAP_STATUS[0] != 1 {
+        if MAP_STATUS != 1 {
             // 1 = Success (WGPUMapAsyncStatus_Success). Anything
             // else means the buffer isn't readable this frame —
             // skip the blit so we don't show stale bytes.
-            console.log("GpuView: map status=", MAP_STATUS[0])
+            console.log("GpuView: map status=", MAP_STATUS)
             wgpuCommandBufferRelease(cmd)
             wgpuRenderPassEncoderRelease(pass)
             wgpuCommandEncoderRelease(enc)
@@ -581,10 +581,10 @@ pub fn createNativeGpuView(
         none    { return -1 }
     }
 
-    if !WGPU_READY[0] {
+    if !WGPU_READY {
         if !initWgpuDevice() { return -1 }
     }
-    let device = WGPU_DEVICE[0] as WGPUDevice
+    let device = WGPU_DEVICE as WGPUDevice
 
     // Allocate the offscreen render texture (BGRA8Unorm). Usage
     // = RenderAttachment | CopySrc.
@@ -848,10 +848,10 @@ pub fn getGpuViewSurface(handle: i64): WGPUSurface {
     0 as WGPUSurface
 }
 pub fn getGpuViewDevice(handle: i64): WGPUDevice {
-    if WGPU_READY[0] { WGPU_DEVICE[0] as WGPUDevice } else { 0 as WGPUDevice }
+    if WGPU_READY { WGPU_DEVICE as WGPUDevice } else { 0 as WGPUDevice }
 }
 pub fn getGpuViewQueue(handle: i64): WGPUQueue {
-    if WGPU_READY[0] { WGPU_QUEUE[0] as WGPUQueue } else { 0 as WGPUQueue }
+    if WGPU_READY { WGPU_QUEUE as WGPUQueue } else { 0 as WGPUQueue }
 }
 pub fn getGpuViewFormat(handle: i64): u32 {
     BGRA8_UNORM

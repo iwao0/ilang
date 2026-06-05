@@ -37,14 +37,14 @@ class NotificationSlot {
 fn notifNoOp() {}
 
 let NOTIFICATIONS = new Map<i64, NotificationSlot>()
-let NEXT_NOTIF_ID: i64[] = [1 as i64]
-let NOTIFY_INITED: bool[] = [false]
+let NEXT_NOTIF_ID: i64 = 1 as i64
+let NOTIFY_INITED: bool = false
 
 @extern(C) {
 
 pub fn sendNativeNotification(title: string, body: string, iconPath: string): i64 {
-    if !NOTIFY_INITED[0] {
-        NOTIFY_INITED[0] = true
+    if !NOTIFY_INITED {
+        NOTIFY_INITED = true
         notify_init(cstrFromString("ilang"))
     }
     let icon: *const char = if iconPath == "" {
@@ -58,8 +58,8 @@ pub fn sendNativeNotification(title: string, body: string, iconPath: string): i6
         icon
     )
     notify_notification_show(n, 0 as *void)
-    let id = NEXT_NOTIF_ID[0]
-    NEXT_NOTIF_ID[0] = id + 1 as i64
+    let id = NEXT_NOTIF_ID
+    NEXT_NOTIF_ID = id + 1 as i64
     NOTIFICATIONS[id] = new NotificationSlot()
     id
 }

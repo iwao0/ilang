@@ -88,7 +88,7 @@ class SwitchSlot {
 let SWITCHES = new Map<i64, SwitchSlot>()
 
 // `[false]` until the `IlangGuiSwitch` window class is registered.
-let SWITCH_CLASS_INITED: bool[] = [false]
+let SWITCH_CLASS_INITED: bool = false
 
 // Colours, GDI+ ARGB (0xAARRGGBB). Two sets, picked via
 // `pickColor` at paint-time so a light/dark flip retones
@@ -351,8 +351,8 @@ fn invalidateAllSwitches() {
 }
 
 fn registerSwitchClass() {
-    if SWITCH_CLASS_INITED[0] { return }
-    SWITCH_CLASS_INITED[0] = true
+    if SWITCH_CLASS_INITED { return }
+    SWITCH_CLASS_INITED = true
 
     let hInstance = GetModuleHandleA(0 as *const char)
     let classNameW = "IlangGuiSwitch".encodeUtf16()

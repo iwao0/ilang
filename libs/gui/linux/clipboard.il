@@ -13,7 +13,7 @@ use gtk {
     gdk_clipboard_set_text,
 }
 
-let LAST_SET: string[] = [""]
+let LAST_SET: string = ""
 
 @extern(C) {
 
@@ -22,11 +22,11 @@ pub fn setClipboardText(s: string) {
     if display as i64 == 0 as i64 { return }
     let cb = gdk_display_get_clipboard(display)
     gdk_clipboard_set_text(cb, cstrFromString(s))
-    LAST_SET[0] = s
+    LAST_SET = s
 }
 
 pub fn getClipboardText(): string {
-    LAST_SET[0]
+    LAST_SET
 }
 
 } // @extern(C)

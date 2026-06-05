@@ -155,18 +155,18 @@ fn gpuNoOpResize(w: f64, h: f64) {}
 
 // ─── app-wide state ────────────────────────────────────────────
 
-let WGPU_INST:    i64[]  = [0]
-let WGPU_ADAPTER: i64[]  = [0]
-let WGPU_DEVICE:  i64[]  = [0]
-let WGPU_QUEUE:   i64[]  = [0]
-let WGPU_READY:   bool[] = [false]
-let ADAPTER_OUT:  i64[]  = [0]
-let DEVICE_OUT:   i64[]  = [0]
+let WGPU_INST:    i64  = 0
+let WGPU_ADAPTER: i64  = 0
+let WGPU_DEVICE:  i64  = 0
+let WGPU_QUEUE:   i64  = 0
+let WGPU_READY:   bool = false
+let ADAPTER_OUT:  i64  = 0
+let DEVICE_OUT:   i64  = 0
 
 /// `WM_USER + 1` — VBlank wake-up posted by the render thread.
 const GPU_REDRAW: u32 = 0x0401
 /// Class registered on first GpuView creation.
-let CLASS_INITED: bool[] = [false]
+let CLASS_INITED: bool = false
 
 @extern(C) {
     // ─── wgpu log + adapter/device request callbacks ──────────
@@ -175,15 +175,15 @@ let CLASS_INITED: bool[] = [false]
                     stringFromCstr(msgData as *const char))
     }
     pub fn _gpuOnAdapter(s: i32, adapter: i64, md: i64, ml: i64, u1: i64, u2: i64) {
-        ADAPTER_OUT[0] = adapter
+        ADAPTER_OUT = adapter
     }
     pub fn _gpuOnDevice(s: i32, device: i64, md: i64, ml: i64, u1: i64, u2: i64) {
-        DEVICE_OUT[0] = device
+        DEVICE_OUT = device
     }
 
     fn initWgpuDevice(surfacePtr: i64): bool {
         let surface = surfacePtr as WGPUSurface
-        let inst = WGPU_INST[0] as WGPUInstance
+        let inst = WGPU_INST as WGPUInstance
 
         let aOpts = WGPURequestAdapterOptions {
             nextInChain:          0 as *void,
@@ -200,15 +200,15 @@ let CLASS_INITED: bool[] = [false]
             userdata1:   0 as *void,
             userdata2:   0 as *void,
         }
-        ADAPTER_OUT[0] = 0
+        ADAPTER_OUT = 0
         wgpuInstanceRequestAdapter(inst, (&aOpts) as *void, aInfo)
         wgpuInstanceProcessEvents(inst)
-        if ADAPTER_OUT[0] == 0 {
+        if ADAPTER_OUT == 0 {
             console.log("GpuView: wgpuInstanceRequestAdapter callback never fired")
             return false
         }
-        WGPU_ADAPTER[0] = ADAPTER_OUT[0]
-        let adapter = ADAPTER_OUT[0] as WGPUAdapter
+        WGPU_ADAPTER = ADAPTER_OUT
+        let adapter = ADAPTER_OUT as WGPUAdapter
 
         let dInfo = WGPURequestDeviceCallbackInfo {
             nextInChain: 0 as *void,
@@ -217,29 +217,29 @@ let CLASS_INITED: bool[] = [false]
             userdata1:   0 as *void,
             userdata2:   0 as *void,
         }
-        DEVICE_OUT[0] = 0
+        DEVICE_OUT = 0
         wgpuAdapterRequestDevice(adapter, 0 as *void, dInfo)
         wgpuInstanceProcessEvents(inst)
-        if DEVICE_OUT[0] == 0 {
+        if DEVICE_OUT == 0 {
             console.log("GpuView: wgpuAdapterRequestDevice callback never fired")
             return false
         }
-        WGPU_DEVICE[0] = DEVICE_OUT[0]
-        let device = DEVICE_OUT[0] as WGPUDevice
+        WGPU_DEVICE = DEVICE_OUT
+        let device = DEVICE_OUT as WGPUDevice
         let queue = wgpuDeviceGetQueue(device)
-        WGPU_QUEUE[0] = queue as i64
-        WGPU_READY[0] = true
+        WGPU_QUEUE = queue as i64
+        WGPU_READY = true
         true
     }
 
     /// Build the HWND surface chain and create the WGPUSurface.
     /// Returns the surface pointer as `i64` (0 on failure).
     fn makeSurfaceForHwnd(hwnd: HWND, hInst: HINSTANCE): i64 {
-        if WGPU_INST[0] == 0 {
+        if WGPU_INST == 0 {
             wgpuSetLogCallback(_gpuOnLog, 0 as *void)
             wgpuSetLogLevel(LogLevel.warn as u32)
             let inst = wgpuCreateInstance(0 as *void)
-            WGPU_INST[0] = inst as i64
+            WGPU_INST = inst as i64
         }
         let winSrc = WGPUSurfaceSourceWindowsHWND {
             chain:     WGPUChainedStruct { next: 0 as *void, sType: SType.surfaceSourceWindowsHWND },
@@ -250,7 +250,7 @@ let CLASS_INITED: bool[] = [false]
             nextInChain: (&winSrc) as *void,
             label:       WGPUStringView { data: 0 as *void, length: 0 as u64 },
         }
-        let surf = wgpuInstanceCreateSurface(WGPU_INST[0] as WGPUInstance, &sdesc)
+        let surf = wgpuInstanceCreateSurface(WGPU_INST as WGPUInstance, &sdesc)
         surf as i64
     }
 
@@ -259,7 +259,7 @@ let CLASS_INITED: bool[] = [false]
     /// chosen format (0 on failure).
     fn configureSurfaceFor(surfacePtr: i64, pxW: u32, pxH: u32): u32 {
         let surface = surfacePtr as WGPUSurface
-        let adapter = WGPU_ADAPTER[0] as WGPUAdapter
+        let adapter = WGPU_ADAPTER as WGPUAdapter
         let caps = new WGPUSurfaceCapabilities()
         wgpuSurfaceGetCapabilities(surface, adapter, &caps)
         if caps.formatCount == 0 as u64 {
@@ -272,7 +272,7 @@ let CLASS_INITED: bool[] = [false]
 
         let cfg = WGPUSurfaceConfiguration {
             nextInChain:     0 as *void,
-            device:          WGPU_DEVICE[0] as WGPUDevice,
+            device:          WGPU_DEVICE as WGPUDevice,
             format:          fmt as TextureFormat,
             usage:           TextureUsage.renderAttachment,
             width:           pxW,
@@ -287,7 +287,7 @@ let CLASS_INITED: bool[] = [false]
     }
 
     fn renderOneFrame(hwndI64: i64) {
-        if !WGPU_READY[0] { return }
+        if !WGPU_READY { return }
         let slot = match GPUVIEWS.get(hwndI64) {
             some(s) { s }
             none    { return }
@@ -300,8 +300,8 @@ let CLASS_INITED: bool[] = [false]
         // Silent skip — next VBlank retries.
         if (st.texture as i64) == 0 { return }
 
-        let device = WGPU_DEVICE[0] as WGPUDevice
-        let queue  = WGPU_QUEUE[0] as WGPUQueue
+        let device = WGPU_DEVICE as WGPUDevice
+        let queue  = WGPU_QUEUE as WGPUQueue
 
         let tv = wgpuTextureCreateView(st.texture, 0 as *void)
         let enc = wgpuDeviceCreateCommandEncoder(device, 0 as *void)
@@ -377,7 +377,7 @@ let CLASS_INITED: bool[] = [false]
                     if w > 0.0 && h > 0.0 && (w != slot.width || h != slot.height) {
                         slot.width  = w
                         slot.height = h
-                        if WGPU_READY[0] {
+                        if WGPU_READY {
                             configureSurfaceFor(slot.surface, w as u32, h as u32)
                         }
                         let cb = slot.onResize
@@ -569,8 +569,8 @@ let CLASS_INITED: bool[] = [false]
     }
 
 fn registerGpuViewClass() {
-    if CLASS_INITED[0] { return }
-    CLASS_INITED[0] = true
+    if CLASS_INITED { return }
+    CLASS_INITED = true
 
     let hInstance = GetModuleHandleA(0 as *const char)
     let classNameW = "IlangGuiGpuView".encodeUtf16()
@@ -626,7 +626,7 @@ pub fn createNativeGpuView(
         DestroyWindow(hwnd)
         return -1
     }
-    if !WGPU_READY[0] {
+    if !WGPU_READY {
         if !initWgpuDevice(surfacePtr) {
             DestroyWindow(hwnd)
             return -1
@@ -782,10 +782,10 @@ pub fn getGpuViewSurface(handle: i64): WGPUSurface {
     }
 }
 pub fn getGpuViewDevice(handle: i64): WGPUDevice {
-    if WGPU_READY[0] { WGPU_DEVICE[0] as WGPUDevice } else { 0 as WGPUDevice }
+    if WGPU_READY { WGPU_DEVICE as WGPUDevice } else { 0 as WGPUDevice }
 }
 pub fn getGpuViewQueue(handle: i64): WGPUQueue {
-    if WGPU_READY[0] { WGPU_QUEUE[0] as WGPUQueue } else { 0 as WGPUQueue }
+    if WGPU_READY { WGPU_QUEUE as WGPUQueue } else { 0 as WGPUQueue }
 }
 pub fn getGpuViewFormat(handle: i64): u32 {
     match GPUVIEWS.get(handle) {

@@ -14,9 +14,9 @@ use windows {
     RegOpenKeyExA, RegQueryValueExA, RegCloseKey,
 }
 
-let APPEARANCE_INSTALLED: bool[] = [false]
-let APPEARANCE_CB: fn(bool)[] = [appearanceNoOp]
-let LAST_DARK: bool[] = [false]
+let APPEARANCE_INSTALLED: bool = false
+let APPEARANCE_CB: fn(bool) = appearanceNoOp
+let LAST_DARK: bool = false
 /// Internal repaint listeners — every custom-painted widget
 /// (Switch / Segmented / LinkLabel / SearchField / ColorWell)
 /// adds an entry here at first-use so a system-wide light/dark
@@ -72,10 +72,10 @@ pub fn isOSInDarkMode(): bool {
 }
 
 pub fn installAppearanceWatcher(cb: fn(bool)) {
-    APPEARANCE_CB[0] = cb
-    if APPEARANCE_INSTALLED[0] { return }
-    APPEARANCE_INSTALLED[0] = true
-    LAST_DARK[0] = isOSInDarkMode()
+    APPEARANCE_CB = cb
+    if APPEARANCE_INSTALLED { return }
+    APPEARANCE_INSTALLED = true
+    LAST_DARK = isOSInDarkMode()
 }
 
 /// Called from `wnd_proc.il` whenever a window receives
@@ -84,12 +84,12 @@ pub fn installAppearanceWatcher(cb: fn(bool)) {
 /// `onAppearanceChange` signal fires once per real flip.
 pub fn notifyAppearanceMaybeChanged() {
     let now = isOSInDarkMode()
-    if now != LAST_DARK[0] {
-        LAST_DARK[0] = now
+    if now != LAST_DARK {
+        LAST_DARK = now
         for r in APPEARANCE_REPAINT_LISTENERS {
             r()
         }
-        let cb = APPEARANCE_CB[0]
+        let cb = APPEARANCE_CB
         cb(now)
     }
 }

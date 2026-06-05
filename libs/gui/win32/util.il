@@ -40,7 +40,7 @@ use super.events
 // True once `enableComctl32V6` has run; subsequent calls bail
 // out so the activation context stays installed at most once
 // per process.
-let SXS_INITIALIZED: bool[] = [false]
+let SXS_INITIALIZED: bool = false
 
 // ─── shared no-op callbacks ──────────────────────────────────
 //
@@ -118,8 +118,8 @@ pub let GUI_FONT: i64[] = [0 as i64]
 /// context stays activated for the lifetime of the process (the
 /// cookie is leaked on purpose).
 pub fn enableComctl32V6() {
-    if SXS_INITIALIZED[0] { return }
-    SXS_INITIALIZED[0] = true
+    if SXS_INITIALIZED { return }
+    SXS_INITIALIZED = true
 
     let heap = GetProcessHeap()
 
