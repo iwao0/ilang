@@ -21,11 +21,19 @@ use windows {
     BeginPaint, EndPaint, FillRect,
     CreateSolidBrush, CreatePen, SelectObject, DeleteObject,
     GetStockObject, GetSysColorBrush,
-    Polygon, DrawTextW,
+    DrawTextW,
     SetTextColor, SetBkMode,
     LoadCursorW,
 }
-use util { applyGuiFont, ensureGuiFont }
+use util { applyGuiFont, ensureGuiFont, ensureGdiplus }
+use gdiplus {
+    GpGraphics, GpPen,
+    SmoothingMode,
+    GdipCreateFromHDC, GdipDeleteGraphics, GdipSetSmoothingMode,
+    GdipCreatePen1, GdipDeletePen,
+    GdipSetPenStartCap, GdipSetPenEndCap,
+    GdipDrawLine,
+}
 use core { windowHwnd }
 
 // DrawTextW flags (subset).
@@ -36,7 +44,6 @@ const DT_END_ELLIPSIS: u32 = 0x00008000 as u32
 
 const HEADER_BG:   u32 = 0x00F0F0F0 as u32
 const HEADER_FG:   u32 = 0x00000000 as u32
-const TRIANGLE_FG: u32 = 0x00404040 as u32
 const BORDER:      u32 = 0x00B0B0B0 as u32
 
 class AccordionSlot {
@@ -82,33 +89,50 @@ fn paintAccordion(hwnd: HWND, slot: AccordionSlot, hdc: HDC) {
     FillRect(hdc, &headerRc, hb)
     DeleteObject(hb as HGDIOBJ)
 
-    // Triangle — right-pointing when collapsed, down-pointing when
-    // expanded. Drawn at 8px next to the left edge.
-    let cx = 12 as i32
-    let cy = hH / 2 as i32
-    let sz = 5 as i32
-    let pts = if slot.expanded {
-        [
-            POINT { x: cx - sz, y: cy - sz / 2 as i32 },
-            POINT { x: cx + sz, y: cy - sz / 2 as i32 },
-            POINT { x: cx,      y: cy + sz },
-        ]
-    } else {
-        [
-            POINT { x: cx - sz / 2 as i32, y: cy - sz },
-            POINT { x: cx + sz,            y: cy },
-            POINT { x: cx - sz / 2 as i32, y: cy + sz },
-        ]
+    // Chevron — `>` when collapsed, `v` when expanded. Two
+    // anti-aliased line segments meeting at a vertex, drawn via
+    // GDI+ so the strokes look like macOS's disclosure indicator
+    // rather than a chunky filled triangle on Win32 GDI.
+    let cx: f64 = 14.0
+    let cy: f64 = (hH as f64) / 2.0
+    // Chevron arm half-length (px). macOS uses a small indicator;
+    // 4 px arms give a ~5×8 (collapsed) / 8×5 (expanded) chevron.
+    let arm: f64 = 4.0
+
+    ensureGdiplus()
+    let g: *GpGraphics = 0 as *GpGraphics
+    GdipCreateFromHDC(hdc, &g)
+    if g as i64 != 0 as i64 {
+        GdipSetSmoothingMode(g, SmoothingMode.antiAlias as i32)
+        // 0xFF6B6B6B — neutral mid-grey matching the rest of the
+        // gui-win32 chrome and roughly the macOS secondary label.
+        let pen: *GpPen = 0 as *GpPen
+        GdipCreatePen1(0xFF6B6B6B as u32, 1.5 as f32, 0 as i32, &pen)
+        // LineCap.Round = 2 — same constant the spinner uses.
+        GdipSetPenStartCap(pen, 2 as i32)
+        GdipSetPenEndCap(pen, 2 as i32)
+        if slot.expanded {
+            // `v`: two arms descending from (cx ∓ arm, cy − arm/2)
+            // to a vertex at (cx, cy + arm/2).
+            let yTop:    f32 = (cy - arm * 0.5) as f32
+            let yVertex: f32 = (cy + arm * 0.5) as f32
+            GdipDrawLine(g, pen,
+                (cx - arm) as f32, yTop, cx as f32, yVertex)
+            GdipDrawLine(g, pen,
+                (cx + arm) as f32, yTop, cx as f32, yVertex)
+        } else {
+            // `>`: two arms converging from (cx − arm/2, cy ∓ arm)
+            // to a vertex at (cx + arm/2, cy).
+            let xLeft:   f32 = (cx - arm * 0.5) as f32
+            let xVertex: f32 = (cx + arm * 0.5) as f32
+            GdipDrawLine(g, pen,
+                xLeft, (cy - arm) as f32, xVertex, cy as f32)
+            GdipDrawLine(g, pen,
+                xLeft, (cy + arm) as f32, xVertex, cy as f32)
+        }
+        GdipDeletePen(pen)
+        GdipDeleteGraphics(g)
     }
-    let triBrush = CreateSolidBrush(TRIANGLE_FG)
-    let triPen = CreatePen(PenStyle.solid as i32, 1, TRIANGLE_FG)
-    let oldBrush = SelectObject(hdc, triBrush as HGDIOBJ)
-    let oldPen = SelectObject(hdc, triPen as HGDIOBJ)
-    Polygon(hdc, pts as *POINT, 3 as i32)
-    SelectObject(hdc, oldBrush)
-    SelectObject(hdc, oldPen)
-    DeleteObject(triBrush as HGDIOBJ)
-    DeleteObject(triPen as HGDIOBJ)
 
     // Title text — leave room for the triangle on the left.
     // Select the cached Segoe UI 9pt font; HDCs default to the
