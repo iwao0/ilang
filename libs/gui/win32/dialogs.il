@@ -21,7 +21,7 @@ use windows {
 }
 use std.ffi { arrayFromCArray, readU16, writeU16 }
 use core { windowHwnd }
-use util { argbToColorRef }
+use util { argbToColorRef, colorRefToArgb }
 
 @extern(C) {
 
@@ -263,17 +263,6 @@ pub fn showMessageDialog(
 }
 
 // ─── color picker ────────────────────────────────────────────────
-
-fn colorRefToArgb(cr: u32): u32 {
-    let cr_i: i64 = cr as i64
-    let mask: i64 = 0xFF as i64
-    let r: i64 =  cr_i        & mask
-    let g: i64 = (cr_i / (0x100   as i64)) & mask
-    let b: i64 = (cr_i / (0x10000 as i64)) & mask
-    let alpha: i64 = 0xFF000000 as i64
-    let combined: i64 = alpha | (r * (0x10000 as i64)) | (g * (0x100 as i64)) | b
-    return combined as u32
-}
 
 pub fn showColorPickerDialog(
     windowHandle: i64, initial: u32, callback: fn(u32, bool)

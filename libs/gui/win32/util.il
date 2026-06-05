@@ -66,6 +66,19 @@ pub fn argbToColorRef(argb: u32): u32 {
     r | (g << 8) | (b << 16)
 }
 
+/// COLORREF (0x00BBGGRR) → GDI+ ARGB (0xFFRRGGBB) — re-installs
+/// a full alpha so GDI+ paints opaque against the GDI value.
+pub fn colorRefToArgb(cr_u: u32): u32 {
+    let cr: i64 = cr_u as i64
+    let mask: i64 = 0xFF as i64
+    let b: i64 = (cr / (0x10000 as i64)) & mask
+    let g: i64 = (cr / (0x100   as i64)) & mask
+    let r: i64 =  cr                     & mask
+    let alpha: i64 = 0xFF000000 as i64
+    let combined: i64 = alpha | (r * (0x10000 as i64)) | (g * (0x100 as i64)) | b
+    return combined as u32
+}
+
 /// Wide "Explorer" string (UTF-16, NUL-terminated) used by
 /// `SetWindowTheme`. Populated by `enableComctl32V6`; before that
 /// the inner array is empty and `applyExplorerTheme` short-

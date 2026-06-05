@@ -41,9 +41,21 @@ use windows {
     GetTextExtentPoint32W, GetTextMetricsW,
 }
 use util {
-    vkToString, modCtrl, modShift, modAlt, modMeta, argbToColorRef,
+    vkToString, modCtrl, modShift, modAlt, modMeta,
+    argbToColorRef, colorRefToArgb, ensureGdiplus,
 }
 use core { windowHwnd }
+use gdiplus {
+    GpGraphics, GpSolidFill, GpBrush, GpPen, GpPath,
+    SmoothingMode, FillMode,
+    GdipCreateFromHDC, GdipDeleteGraphics, GdipSetSmoothingMode,
+    GdipCreateSolidFill, GdipDeleteBrush,
+    GdipCreatePen1, GdipDeletePen,
+    GdipCreatePath, GdipDeletePath, GdipClosePathFigure,
+    GdipAddPathLine, GdipAddPathArc,
+    GdipFillPath, GdipDrawPath,
+    GdipFillRectangle, GdipDrawRectangle,
+}
 
 // 180 / π — radians (public API) → degrees (AngleArc).
 const RAD_TO_DEG: f64 = 57.29577951308232
@@ -492,26 +504,38 @@ pub fn canvasClear(handle: i64, argb: u32) {
 
 pub fn canvasFillRect(handle: i64, x: f64, y: f64, w: f64, h: f64) {
     if let some(slot) = CANVASES.get(handle) {
-        let brush = CreateSolidBrush(slot.fillColor)
-        let rc = RECT {
-            left: x as i32, top: y as i32,
-            right: (x + w) as i32, bottom: (y + h) as i32,
+        ensureGdiplus()
+        let g: *GpGraphics = 0 as *GpGraphics
+        let pg: **GpGraphics = &g
+        GdipCreateFromHDC(slot.mdc, pg)
+        if g as i64 != 0 as i64 {
+            GdipSetSmoothingMode(g, SmoothingMode.antiAlias as i32)
+            let brush: *GpSolidFill = 0 as *GpSolidFill
+            let pBrush: **GpSolidFill = &brush
+            GdipCreateSolidFill(colorRefToArgb(slot.fillColor), pBrush)
+            GdipFillRectangle(g, brush as *GpBrush, x as f32, y as f32, w as f32, h as f32)
+            GdipDeleteBrush(brush as *GpBrush)
+            GdipDeleteGraphics(g)
         }
-        FillRect(slot.mdc, &rc, brush)
-        DeleteObject(brush as HGDIOBJ)
         InvalidateRect(slot.hwnd, 0 as *const RECT, 0)
     }
 }
 
 pub fn canvasStrokeRect(handle: i64, x: f64, y: f64, w: f64, h: f64) {
     if let some(slot) = CANVASES.get(handle) {
-        let pen = CreatePen(PenStyle.solid as i32, slot.lineWidth as i32, slot.strokeColor)
-        let oldPen = SelectObject(slot.mdc, pen as HGDIOBJ)
-        let oldBrush = SelectObject(slot.mdc, GetStockObject(StockObject.nullBrush as i32))
-        Rectangle(slot.mdc, x as i32, y as i32, (x + w) as i32, (y + h) as i32)
-        SelectObject(slot.mdc, oldPen)
-        SelectObject(slot.mdc, oldBrush)
-        DeleteObject(pen as HGDIOBJ)
+        ensureGdiplus()
+        let g: *GpGraphics = 0 as *GpGraphics
+        let pg: **GpGraphics = &g
+        GdipCreateFromHDC(slot.mdc, pg)
+        if g as i64 != 0 as i64 {
+            GdipSetSmoothingMode(g, SmoothingMode.antiAlias as i32)
+            let pen: *GpPen = 0 as *GpPen
+            let pPen: **GpPen = &pen
+            GdipCreatePen1(colorRefToArgb(slot.strokeColor), slot.lineWidth as f32, 0 as i32, pPen)
+            GdipDrawRectangle(g, pen, x as f32, y as f32, w as f32, h as f32)
+            GdipDeletePen(pen)
+            GdipDeleteGraphics(g)
+        }
         InvalidateRect(slot.hwnd, 0 as *const RECT, 0)
     }
 }
@@ -552,6 +576,54 @@ pub fn canvasClosePath(handle: i64) {
         slot.pathOps.push(OP_CLOSE)
         slot.pathArgs.push([0.0])
     }
+}
+
+/// Walk the accumulated path ops and emit a GDI+ GpPath that
+/// mirrors them. Caller owns the returned path and must call
+/// `GdipDeletePath`. Uses GDI+ so the resulting fill / stroke
+/// anti-aliases (GDI's BeginPath / FillPath path is nearest-pixel).
+fn buildGdipPath(slot: CanvasSlot): i64 {
+    let path: *GpPath = 0 as *GpPath
+    let pPath: **GpPath = &path
+    GdipCreatePath(FillMode.alternate as i32, pPath)
+    let n = slot.pathOps.length
+    let i = 0 as i64
+    let cx: f64 = 0.0
+    let cy: f64 = 0.0
+    while i < n {
+        let op = slot.pathOps[i]
+        let a = slot.pathArgs[i]
+        if op == OP_MOVE {
+            cx = a[0]
+            cy = a[1]
+        }
+        if op == OP_LINE {
+            GdipAddPathLine(path, cx as f32, cy as f32, a[0] as f32, a[1] as f32)
+            cx = a[0]
+            cy = a[1]
+        }
+        if op == OP_ARC {
+            let acx = a[0]
+            let acy = a[1]
+            let r   = a[2]
+            let s   = a[3]
+            let e   = a[4]
+            let x = acx - r
+            let y = acy - r
+            let d = r * 2.0
+            GdipAddPathArc(
+                path, x as f32, y as f32, d as f32, d as f32,
+                (s * RAD_TO_DEG) as f32, ((e - s) * RAD_TO_DEG) as f32
+            )
+            cx = acx + r * math.cos(e)
+            cy = acy + r * math.sin(e)
+        }
+        if op == OP_CLOSE {
+            GdipClosePathFigure(path)
+        }
+        i = i + 1
+    }
+    path as i64
 }
 
 /// Replay the accumulated path into the memory DC inside a
@@ -599,24 +671,42 @@ fn replayPath(slot: CanvasSlot) {
 
 pub fn canvasFill(handle: i64) {
     if let some(slot) = CANVASES.get(handle) {
-        let brush = CreateSolidBrush(slot.fillColor)
-        let oldBrush = SelectObject(slot.mdc, brush as HGDIOBJ)
-        replayPath(slot)
-        FillPath(slot.mdc)
-        SelectObject(slot.mdc, oldBrush)
-        DeleteObject(brush as HGDIOBJ)
+        ensureGdiplus()
+        let g: *GpGraphics = 0 as *GpGraphics
+        let pg: **GpGraphics = &g
+        GdipCreateFromHDC(slot.mdc, pg)
+        if g as i64 != 0 as i64 {
+            GdipSetSmoothingMode(g, SmoothingMode.antiAlias as i32)
+            let path = buildGdipPath(slot) as *GpPath
+            let brush: *GpSolidFill = 0 as *GpSolidFill
+            let pBrush: **GpSolidFill = &brush
+            GdipCreateSolidFill(colorRefToArgb(slot.fillColor), pBrush)
+            GdipFillPath(g, brush as *GpBrush, path)
+            GdipDeleteBrush(brush as *GpBrush)
+            GdipDeletePath(path)
+            GdipDeleteGraphics(g)
+        }
         InvalidateRect(slot.hwnd, 0 as *const RECT, 0)
     }
 }
 
 pub fn canvasStroke(handle: i64) {
     if let some(slot) = CANVASES.get(handle) {
-        let pen = CreatePen(PenStyle.solid as i32, slot.lineWidth as i32, slot.strokeColor)
-        let oldPen = SelectObject(slot.mdc, pen as HGDIOBJ)
-        replayPath(slot)
-        StrokePath(slot.mdc)
-        SelectObject(slot.mdc, oldPen)
-        DeleteObject(pen as HGDIOBJ)
+        ensureGdiplus()
+        let g: *GpGraphics = 0 as *GpGraphics
+        let pg: **GpGraphics = &g
+        GdipCreateFromHDC(slot.mdc, pg)
+        if g as i64 != 0 as i64 {
+            GdipSetSmoothingMode(g, SmoothingMode.antiAlias as i32)
+            let path = buildGdipPath(slot) as *GpPath
+            let pen: *GpPen = 0 as *GpPen
+            let pPen: **GpPen = &pen
+            GdipCreatePen1(colorRefToArgb(slot.strokeColor), slot.lineWidth as f32, 0 as i32, pPen)
+            GdipDrawPath(g, pen, path)
+            GdipDeletePen(pen)
+            GdipDeletePath(path)
+            GdipDeleteGraphics(g)
+        }
         InvalidateRect(slot.hwnd, 0 as *const RECT, 0)
     }
 }
