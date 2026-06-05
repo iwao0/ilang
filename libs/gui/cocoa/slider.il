@@ -209,8 +209,7 @@ pub fn createNativeSlider(
     let s = makeSlider(min, max, value, x, y, width, height)
     s.setContinuous(true)
     s.setHidden(!visible)
-    let _ = enabled   // NSSlider has no setEnabled in our binding;
-                      // surface omitted on macOS for now.
+    s.setEnabled(enabled)
 
     SliderHandler.register()
     let h = SliderHandler.alloc().init()
@@ -284,8 +283,7 @@ pub fn setSliderFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {
     }
 }
 pub fn setSliderEnabled(handle: i64, enabled: bool) {
-    // NSSlider inherits setEnabled from NSControl; the binding
-    // doesn't expose it today, so this is a no-op on macOS.
+    if let some(slot) = SLIDERS.get(handle) { slot.slider.setEnabled(enabled) }
 }
 pub fn setSliderVisible(handle: i64, visible: bool) {
     if let some(slot) = SLIDERS.get(handle) { slot.slider.setHidden(!visible) }

@@ -287,6 +287,10 @@ pub enum NSDatePickerElementFlags: u64 {
         pub setTarget(target: NSObject)
         @objc("setAction:")
         pub setAction(sel: i64)
+        /// Inherited from NSControl. `false` greys the slider out
+        /// and stops it accepting mouse / keyboard input.
+        @objc("setEnabled:")
+        pub setEnabled(flag: bool)
 
         @objc("setNumberOfTickMarks:")
         pub setNumberOfTickMarks(n: i64)
