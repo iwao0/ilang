@@ -12,7 +12,7 @@ use windows {
     POINT, RECT, PAINTSTRUCT, WNDCLASSEXA,
     ClassStyle, WindowStyle, WindowMessage, ShowCmd, VirtualKey,
     PenStyle, StockObject, BackgroundMode,
-    GetModuleHandleA,
+    GetModuleHandleA, GetParent,
     RegisterClassExW, CreateWindowExW, DefWindowProcW,
     MoveWindow, ShowWindow, SetFocus, GetFocus, EnableWindow,
     GetClientRect, InvalidateRect,
@@ -26,6 +26,7 @@ use windows {
     LoadCursorW,
 }
 use util { applyGuiFont, ensureGuiFont, ensureGdiplus }
+use panel { registerPanelClass }
 use gdiplus {
     GpGraphics, GpPen,
     SmoothingMode,
@@ -213,6 +214,22 @@ pub fn accordionWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
             return 0
         }
         WindowMessage.eraseBkgnd { return 1 }
+        WindowMessage.command {
+            // Forward to the top-level Window so notifications from
+            // widgets the user nested inside the accordion (which
+            // bubble up first through the content panel, then here)
+            // reach gui-core's WM_COMMAND dispatch.
+            let p = GetParent(hwnd as HWND)
+            if (p as i64) != 0 as i64 {
+                return SendMessageW(p, msg, wParam, lParam) as i64
+            }
+        }
+        WindowMessage.notify {
+            let p = GetParent(hwnd as HWND)
+            if (p as i64) != 0 as i64 {
+                return SendMessageW(p, msg, wParam, lParam) as i64
+            }
+        }
         WindowMessage.lbuttonup {
             if let some(slot) = ACCORDIONS.get(hwnd) {
                 // Header strip is the only clickable area.
@@ -301,9 +318,13 @@ pub fn createNativeAccordion(
     )
     applyGuiFont(host)
 
-    // Content area — a STATIC class, used as a no-op child to host
-    // user-added widgets. Children parent under this HWND.
-    let contentClassW = "STATIC".encodeUtf16()
+    // Content area — IlangGuiPanel so that WM_COMMAND / WM_NOTIFY
+    // from buttons / checkboxes / list controls hosted inside the
+    // accordion bubble up to the top-level Window's wnd-proc. The
+    // STATIC class swallowed those notifications, leaving cb.onToggle
+    // and friends silently un-fired.
+    registerPanelClass()
+    let contentClassW = "IlangGuiPanel".encodeUtf16()
     let contentStyle: u32 = (WindowStyle.child as u32)
                           | (if expanded { WindowStyle.visible as u32 } else { 0 as u32 })
     let content = CreateWindowExW(

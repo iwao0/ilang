@@ -47,7 +47,7 @@ pub fn panelWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
     DefWindowProcW(hwnd as HWND, msg, wParam, lParam)
 }
 
-fn registerPanelClass() {
+pub fn registerPanelClass() {
     if PANEL_CLASS_INITED { return }
     PANEL_CLASS_INITED = true
     let hInstance = GetModuleHandleA(0 as *const char)
