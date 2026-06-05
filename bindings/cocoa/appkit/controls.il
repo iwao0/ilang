@@ -132,6 +132,11 @@ pub enum NSDatePickerElementFlags: u64 {
         /// feedback running without bouncing through `super`.
         @objc("setHighlighted:")
         pub setHighlighted(flag: bool)
+        /// Inherited from NSControl. `false` strips the button
+        /// bezel/border so the title renders as plain text — used
+        /// e.g. by `Accordion`'s clickable title label.
+        @objc("setBordered:")
+        pub setBordered(flag: bool)
     }
 
     /// NSSwitch. macOS 10.15+. Standalone on/off switch — separate

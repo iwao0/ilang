@@ -36,6 +36,7 @@ pub use numericupdown.*
 pub use datepicker.*
 pub use timepicker.*
 pub use groupbox.*
+pub use accordion.*
 pub use menu.*
 pub use canvas.*
 pub use imageview.*
