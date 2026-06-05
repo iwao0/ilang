@@ -19,12 +19,12 @@ use windows {
 }
 use gdiplus {
     GpImage, GpGraphics,
-    GdiplusStartupInput, GdiplusStartup, GdiplusShutdown,
     GdipLoadImageFromFile, GdipDisposeImage,
     GdipCreateFromHDC, GdipDeleteGraphics,
     GdipDrawImageRect,
     GpStatus,
 }
+use util { ensureGdiplus }
 use util { modCtrl, modShift, modAlt, modMeta }
 use core { windowHwnd }
 
@@ -61,26 +61,7 @@ fn ivNoOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, m
 
 let IMAGE_VIEWS = new Map<i64, ImageViewSlot>()
 let CLASS_INITED: bool[] = [false]
-/// GDI+ startup token. One per process; lazy-initialised on the
-/// first ImageView creation and never shut down (matches the
-/// rest of libs/gui's leak-until-quit lifetime).
-let GDIPLUS_TOKEN: u64[] = [0 as u64]
-
 @extern(C) {
-
-fn ensureGdiplus() {
-    if GDIPLUS_TOKEN[0] != 0 as u64 { return }
-    let input = GdiplusStartupInput {
-        GdiplusVersion:           1 as u32,
-        DebugEventCallback:       0 as *void,
-        SuppressBackgroundThread: 0 as i32,
-        SuppressExternalCodecs:   0 as i32,
-    }
-    let token: u64 = 0 as u64
-    let p: *u64 = &token
-    GdiplusStartup(p, &input, 0 as *void)
-    GDIPLUS_TOKEN[0] = token
-}
 
 pub fn imageViewWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
     let lo = (lParam & 0xFFFF) as f64

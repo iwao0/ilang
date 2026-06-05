@@ -28,9 +28,19 @@ use windows {
     LoadCursorW,
 }
 use util {
-    vkToString, modCtrl, modShift, modAlt, modMeta, noOpBool,
+    vkToString, modCtrl, modShift, modAlt, modMeta, noOpBool, ensureGdiplus,
 }
 use core { windowHwnd, noOp1, noOpEnterLeave, noOpClickMod, noOpWheel, noOpKey }
+use gdiplus {
+    GpGraphics, GpSolidFill, GpBrush, GpPen, GpPath,
+    SmoothingMode,
+    GdipCreateFromHDC, GdipDeleteGraphics, GdipSetSmoothingMode,
+    GdipCreateSolidFill, GdipDeleteBrush,
+    GdipCreatePen1, GdipDeletePen, GdipSetPenColor,
+    GdipCreatePath, GdipDeletePath, GdipClosePathFigure, GdipAddPathArc,
+    GdipFillPath, GdipDrawPath,
+    GdipFillEllipse, GdipDrawEllipse,
+}
 
 class SwitchSlot {
     pub hwnd:        HWND
@@ -79,12 +89,12 @@ let SWITCHES = new Map<i64, SwitchSlot>()
 // `[false]` until the `IlangGuiSwitch` window class is registered.
 let SWITCH_CLASS_INITED: bool[] = [false]
 
-// Colours (COLORREF = 0x00BBGGRR).
-const TRACK_OFF:   u32 = 0x00BFBFBF as u32   // light grey
-const TRACK_ON:    u32 = 0x00D47800 as u32   // #0078D4 in BGR
-const TRACK_DISABLED: u32 = 0x00DDDDDD as u32
-const THUMB_FILL:  u32 = 0x00FFFFFF as u32   // white
-const THUMB_EDGE:  u32 = 0x00808080 as u32   // mid grey
+// Colours, GDI+ ARGB (0xAARRGGBB).
+const TRACK_OFF_ARGB:      u32 = 0xFFBFBFBF as u32   // light grey
+const TRACK_ON_ARGB:       u32 = 0xFF0078D4 as u32   // #0078D4
+const TRACK_DISABLED_ARGB: u32 = 0xFFDDDDDD as u32
+const THUMB_FILL_ARGB:     u32 = 0xFFFFFFFF as u32   // white
+const THUMB_EDGE_ARGB:     u32 = 0xFF808080 as u32   // mid grey
 
 @extern(C) {
 
@@ -93,39 +103,66 @@ fn paintSwitch(hwnd: HWND, slot: SwitchSlot, hdc: HDC) {
     GetClientRect(hwnd, &rc)
     let w = rc.right - rc.left
     let h = rc.bottom - rc.top
-    // Fill background with dialog grey so the rounded track shows
-    // its rounded shape rather than sitting on raw black.
+    // Fill background with dialog grey so the rounded track blends
+    // in with its surroundings instead of sitting on raw black.
     FillRect(hdc, &rc, GetSysColorBrush(15 as i32))  // COLOR_BTNFACE
 
-    // Track: rounded rect inset by 1px so the right/bottom edges
-    // sit inside the client rect.
-    let trackColor =
-        if !slot.enabled { TRACK_DISABLED }
-        elif slot.checked { TRACK_ON }
-        else { TRACK_OFF }
-    let trackBrush = CreateSolidBrush(trackColor)
-    let oldBrush = SelectObject(hdc, trackBrush as HGDIOBJ)
-    let oldPen = SelectObject(hdc, GetStockObject(StockObject.nullPen as i32))
-    RoundRect(hdc, 0 as i32, 0 as i32, w, h, h, h)
-    SelectObject(hdc, oldPen)
-    SelectObject(hdc, oldBrush)
-    DeleteObject(trackBrush as HGDIOBJ)
+    // GDI+ pass for the pill track + circular thumb so the curved
+    // edges anti-alias instead of stair-stepping like raw GDI's
+    // RoundRect / Ellipse.
+    ensureGdiplus()
+    let g: *GpGraphics = 0 as *GpGraphics
+    let pg: **GpGraphics = &g
+    GdipCreateFromHDC(hdc, pg)
+    if g as i64 == 0 as i64 { return }
+    GdipSetSmoothingMode(g, SmoothingMode.antiAlias as i32)
 
-    // Thumb: circle inset 2px from the track edge, snapping to
+    let trackArgb =
+        if !slot.enabled  { TRACK_DISABLED_ARGB }
+        elif slot.checked { TRACK_ON_ARGB }
+        else              { TRACK_OFF_ARGB }
+    let trackBrush: *GpSolidFill = 0 as *GpSolidFill
+    let pTrackBrush: **GpSolidFill = &trackBrush
+    GdipCreateSolidFill(trackArgb, pTrackBrush)
+
+    // Pill outline: left half-circle + line across the top + right
+    // half-circle + line across the bottom (ClosePathFigure draws
+    // the final line back to the start point).
+    let path: *GpPath = 0 as *GpPath
+    let pPath: **GpPath = &path
+    GdipCreatePath(0 as i32, pPath)
+    let wf: f32 = w as f32
+    let hf: f32 = h as f32
+    GdipAddPathArc(path, 0.0 as f32,    0.0 as f32, hf, hf,  90.0 as f32, 180.0 as f32)
+    GdipAddPathArc(path, wf - hf,       0.0 as f32, hf, hf, 270.0 as f32, 180.0 as f32)
+    GdipClosePathFigure(path)
+    GdipFillPath(g, trackBrush as *GpBrush, path)
+    GdipDeletePath(path)
+    GdipDeleteBrush(trackBrush as *GpBrush)
+
+    // Thumb — circle inset 2px from the track edge, snapping to
     // the left when off and the right when on.
-    let pad = 2 as i32
-    let diam = h - 2 as i32 * pad
-    let thumbX = if slot.checked { w - pad - diam } else { pad }
-    let thumbY = pad
-    let thumbBrush = CreateSolidBrush(THUMB_FILL)
-    let thumbPen = CreatePen(PenStyle.solid as i32, 1, THUMB_EDGE)
-    let oldB2 = SelectObject(hdc, thumbBrush as HGDIOBJ)
-    let oldP2 = SelectObject(hdc, thumbPen as HGDIOBJ)
-    Ellipse(hdc, thumbX, thumbY, thumbX + diam, thumbY + diam)
-    SelectObject(hdc, oldP2)
-    SelectObject(hdc, oldB2)
-    DeleteObject(thumbBrush as HGDIOBJ)
-    DeleteObject(thumbPen as HGDIOBJ)
+    let pad: i32 = 2 as i32
+    let diam: i32 = h - 2 as i32 * pad
+    let thumbX: i32 = if slot.checked { w - pad - diam } else { pad }
+    let thumbY: i32 = pad
+    let fx: f32 = thumbX as f32
+    let fy: f32 = thumbY as f32
+    let fd: f32 = diam as f32
+
+    let thumbBrush: *GpSolidFill = 0 as *GpSolidFill
+    let pThumbBrush: **GpSolidFill = &thumbBrush
+    GdipCreateSolidFill(THUMB_FILL_ARGB, pThumbBrush)
+    GdipFillEllipse(g, thumbBrush as *GpBrush, fx, fy, fd, fd)
+    GdipDeleteBrush(thumbBrush as *GpBrush)
+
+    let thumbPen: *GpPen = 0 as *GpPen
+    let pThumbPen: **GpPen = &thumbPen
+    GdipCreatePen1(THUMB_EDGE_ARGB, 1.0 as f32, 0 as i32, pThumbPen)
+    GdipDrawEllipse(g, thumbPen, fx, fy, fd, fd)
+    GdipDeletePen(thumbPen)
+
+    GdipDeleteGraphics(g)
 
     // Focus ring — standard dotted rect, inset 1px.
     if slot.focused {

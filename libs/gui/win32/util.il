@@ -34,6 +34,7 @@ use windows {
     VirtualKey, GetKeyState,
 }
 use uxtheme { SetWindowTheme }
+use gdiplus { GdiplusStartupInput, GdiplusStartup }
 use super.events
 
 // True once `enableComctl32V6` has run; subsequent calls bail
@@ -244,7 +245,30 @@ pub fn applyGuiFont(hwnd: HWND) {
     )
 }
 
+/// One-shot GDI+ startup so any widget that wants anti-aliased
+/// painting (Switch / ImageView / Canvas effects) can just call
+/// this on demand. The startup token leaks for the rest of the
+/// process — matches the gui library's overall leak-until-quit
+/// lifetime model.
+pub fn ensureGdiplus() {
+    if GDIPLUS_TOKEN[0] != 0 as u64 { return }
+    let input = GdiplusStartupInput {
+        GdiplusVersion:           1 as u32,
+        DebugEventCallback:       0 as *void,
+        SuppressBackgroundThread: 0 as i32,
+        SuppressExternalCodecs:   0 as i32,
+    }
+    let token: u64 = 0 as u64
+    let p: *u64 = &token
+    GdiplusStartup(p, &input, 0 as *void)
+    GDIPLUS_TOKEN[0] = token
+}
+
 } // @extern(C)
+
+/// Process-wide GDI+ startup token. `0` while uninitialised;
+/// `ensureGdiplus` populates it lazily on the first call.
+pub let GDIPLUS_TOKEN: u64[] = [0 as u64]
 
 // ─── VirtualKey → W3C KeyboardEvent.code ────────────────────────
 // Lives in util so both wnd_proc (window-level keys) and the
