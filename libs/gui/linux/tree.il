@@ -47,7 +47,7 @@ use gtk {
     g_type_from_name,
     g_signal_connect_data, g_signal_connect_factory, g_signal_connect_notify,
 }
-use core { resolveGtkParent }
+use core { resolveGtkParent, stringObjectType }
 
 /// Per-node bookkeeping. The `handle` we hand the public side is
 /// the `GtkStringObject` pointer of `item`; `children` is the
@@ -139,10 +139,6 @@ let ROW_TO_NODE: Map<i64, i64> = new Map<i64, i64>()
 /// `GObject` type id for "GObject" — `g_list_store_new` wants a
 /// GType. We register the store with `GtkStringObject`'s type so
 /// it accepts the items we push.
-fn stringObjectType(): u64 {
-    g_type_from_name(cstrFromString("GtkStringObject"))
-}
-
 @extern(C) {
 
 pub fn tree_create_model_for_item(item: i64, treeKey: i64): i64 {
@@ -408,7 +404,7 @@ fn listStoreIndexOf(store: GListStore, item: GtkStringObject): i64 {
     let _ = item
     // TODO: implement once `g_list_model_get_n_items` /
     // `g_list_model_get_item` are surfaced in the bindings.
-    -1 as i64
+    return -1 as i64
 }
 
 fn forgetSubtree(nodeHandle: i64) {

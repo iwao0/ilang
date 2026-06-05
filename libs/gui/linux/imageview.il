@@ -23,7 +23,7 @@ use gtk {
     g_signal_connect_data, g_signal_connect_motion, g_signal_connect_click,
     g_signal_connect_scroll,
 }
-use core { WINDOWS, resolveGtkParent }
+use core { WINDOWS, resolveGtkParent, hasMod, gdkBtnToW3c }
 
 class ImageViewSlot {
     pub pic:   GtkPicture
@@ -54,15 +54,6 @@ const MOD_SHIFT: u32 = 0x00000001 as u32
 const MOD_CTRL:  u32 = 0x00000004 as u32
 const MOD_ALT:   u32 = 0x00000008 as u32
 const MOD_META:  u32 = 0x10000000 as u32
-fn hasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
-fn gdkBtnToW3c(gdk: u32): i32 {
-    match gdk {
-        1 as u32 { 0 as i32 }
-        2 as u32 { 1 as i32 }
-        3 as u32 { 2 as i32 }
-        _        { 0 as i32 }
-    }
-}
 
 let IMAGE_VIEWS = new Map<i64, ImageViewSlot>()
 
@@ -149,7 +140,7 @@ pub fn createNativeImageView(
 
     let motionCtl = gtk_event_controller_motion_new() as GtkEventControllerMotion
     gtk_widget_add_controller(pic as GtkWidget, motionCtl as GtkEventController)
-    g_signal_connect_data(
+    g_signal_connect_motion(
         motionCtl as GObject, cstrFromString("enter"),
         linux_imageview_motion_enter, 0 as *void, 0 as i64, 0 as u32
     )

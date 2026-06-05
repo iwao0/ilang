@@ -34,7 +34,7 @@ use gtk {
     g_signal_connect_key,
 }
 use window { keyvalToCode }
-use core { resolveGtkParent }
+use core { resolveGtkParent, gdkBtnToW3c, hasMod, noOp1, noOpClickMod, noOpEnterLeave, noOpKey, noOpWheel }
 
 class DateSlot {
     pub cal:       GtkCalendar
@@ -56,39 +56,25 @@ class DateSlot {
         this.fixed     = fixed
         this.winHandle = winHandle
         this.onChange = dpNoOpYmd
-        this.onFocus  = dpNoOp
-        this.onBlur   = dpNoOp
-        this.onMouseEnter = dpNoOpEnter
-        this.onMouseLeave = dpNoOpEnter
-        this.onMouseDown  = dpNoOpClick
-        this.onMouseUp    = dpNoOpClick
-        this.onContextMenu = dpNoOpClick
-        this.onMouseWheel = dpNoOpWheel
-        this.onKeyDown = dpNoOpKey
-        this.onKeyUp   = dpNoOpKey
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
+        this.onMouseDown  = noOpClickMod
+        this.onMouseUp    = noOpClickMod
+        this.onContextMenu = noOpClickMod
+        this.onMouseWheel = noOpWheel
+        this.onKeyDown = noOpKey
+        this.onKeyUp   = noOpKey
     }
 }
 
 fn dpNoOpYmd(y: i32, m: i32, d: i32) {}
-fn dpNoOp() {}
-fn dpNoOpEnter(x: f64, y: f64) {}
-fn dpNoOpClick(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn dpNoOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn dpNoOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 const DP_MOD_SHIFT: u32 = 0x00000001 as u32
 const DP_MOD_CTRL:  u32 = 0x00000004 as u32
 const DP_MOD_ALT:   u32 = 0x00000008 as u32
 const DP_MOD_META:  u32 = 0x10000000 as u32
-fn dpHasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
-fn dpGdkBtnToW3c(gdk: u32): i32 {
-    match gdk {
-        1 as u32 { 0 as i32 }
-        2 as u32 { 1 as i32 }
-        3 as u32 { 2 as i32 }
-        _        { 0 as i32 }
-    }
-}
 
 let DATE_PICKERS = new Map<i64, DateSlot>()
 
@@ -133,19 +119,19 @@ pub fn linux_dp_pressed(gesture: i64, nPress: i32, x: f64, y: f64, data: i64) {
     let w = gtk_event_controller_get_widget(gesture as GtkEventController)
     if let some(slot) = DATE_PICKERS.get(w as i64) {
         let btn = gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
-        let w3c = dpGdkBtnToW3c(btn)
+        let w3c = gdkBtnToW3c(btn)
         let st = gtk_event_controller_get_current_event_state(
             gesture as GtkEventController
         ) as u32
         let cb = slot.onMouseDown
         cb(x, y, w3c,
-           dpHasMod(st, DP_MOD_CTRL), dpHasMod(st, DP_MOD_SHIFT),
-           dpHasMod(st, DP_MOD_ALT),  dpHasMod(st, DP_MOD_META))
+           hasMod(st, DP_MOD_CTRL), hasMod(st, DP_MOD_SHIFT),
+           hasMod(st, DP_MOD_ALT),  hasMod(st, DP_MOD_META))
         if btn == 3 as u32 {
             let ctx = slot.onContextMenu
             ctx(x, y, w3c,
-                dpHasMod(st, DP_MOD_CTRL), dpHasMod(st, DP_MOD_SHIFT),
-                dpHasMod(st, DP_MOD_ALT),  dpHasMod(st, DP_MOD_META))
+                hasMod(st, DP_MOD_CTRL), hasMod(st, DP_MOD_SHIFT),
+                hasMod(st, DP_MOD_ALT),  hasMod(st, DP_MOD_META))
         }
     }
 }
@@ -157,9 +143,9 @@ pub fn linux_dp_released(gesture: i64, nPress: i32, x: f64, y: f64, data: i64) {
             gesture as GtkEventController
         ) as u32
         let cb = slot.onMouseUp
-        cb(x, y, dpGdkBtnToW3c(btn),
-           dpHasMod(st, DP_MOD_CTRL), dpHasMod(st, DP_MOD_SHIFT),
-           dpHasMod(st, DP_MOD_ALT),  dpHasMod(st, DP_MOD_META))
+        cb(x, y, gdkBtnToW3c(btn),
+           hasMod(st, DP_MOD_CTRL), hasMod(st, DP_MOD_SHIFT),
+           hasMod(st, DP_MOD_ALT),  hasMod(st, DP_MOD_META))
     }
 }
 pub fn linux_dp_scroll(ctl: i64, dx: f64, dy: f64, data: i64): i32 {
@@ -178,8 +164,8 @@ pub fn linux_dp_key_pressed(
         let code = keyvalToCode(gdk_keyval_to_lower(keyval))
         let cb = slot.onKeyDown
         cb(code,
-           dpHasMod(state, DP_MOD_CTRL), dpHasMod(state, DP_MOD_SHIFT),
-           dpHasMod(state, DP_MOD_ALT),  dpHasMod(state, DP_MOD_META))
+           hasMod(state, DP_MOD_CTRL), hasMod(state, DP_MOD_SHIFT),
+           hasMod(state, DP_MOD_ALT),  hasMod(state, DP_MOD_META))
     }
     0 as i32
 }
@@ -191,8 +177,8 @@ pub fn linux_dp_key_released(
         let code = keyvalToCode(gdk_keyval_to_lower(keyval))
         let cb = slot.onKeyUp
         cb(code,
-           dpHasMod(state, DP_MOD_CTRL), dpHasMod(state, DP_MOD_SHIFT),
-           dpHasMod(state, DP_MOD_ALT),  dpHasMod(state, DP_MOD_META))
+           hasMod(state, DP_MOD_CTRL), hasMod(state, DP_MOD_SHIFT),
+           hasMod(state, DP_MOD_ALT),  hasMod(state, DP_MOD_META))
     }
     0 as i32
 }
@@ -226,7 +212,7 @@ pub fn createNativeDatePicker(
 
     let motionCtl = gtk_event_controller_motion_new() as GtkEventControllerMotion
     gtk_widget_add_controller(cal as GtkWidget, motionCtl as GtkEventController)
-    g_signal_connect_data(motionCtl as GObject, cstrFromString("enter"),
+    g_signal_connect_motion(motionCtl as GObject, cstrFromString("enter"),
         linux_dp_motion_enter, 0 as *void, 0 as i64, 0 as u32)
     g_signal_connect_data(motionCtl as GObject, cstrFromString("leave"),
         linux_dp_motion_leave, 0 as *void, 0 as i64, 0 as u32)

@@ -36,7 +36,7 @@ use gtk {
     g_signal_connect_factory, g_signal_connect_notify,
     g_signal_connect_activate_u32,
 }
-use core { resolveGtkParent }
+use core { resolveGtkParent, stringObjectType }
 
 class TableSlot {
     pub scroll:    GtkScrolledWindow
@@ -96,10 +96,6 @@ let ITEM_TO_LABEL: Map<i64, i64> = new Map<i64, i64>()
 let ROW_TO_TABLE: Map<i64, i64> = new Map<i64, i64>()
 /// `rowItem.handle` → row index in the table.
 let ROW_TO_INDEX: Map<i64, i64> = new Map<i64, i64>()
-
-fn stringObjectType(): u64 {
-    g_type_from_name(cstrFromString("GtkStringObject"))
-}
 
 @extern(C) {
 

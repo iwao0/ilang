@@ -2,6 +2,7 @@
 
 use std.ffi { cstrFromString }
 use gtk {
+    g_signal_connect_click, g_signal_connect_motion,
     GtkWidget, GtkLabel, GtkFixed, GObject,
     GtkEventController, GtkEventControllerMotion,
     GtkEventControllerScroll, GtkEventControllerScrollFlags,
@@ -19,7 +20,7 @@ use gtk {
     gtk_gesture_single_set_button, gtk_gesture_single_get_current_button,
     g_signal_connect_data, g_signal_connect_scroll,
 }
-use core { WINDOWS, resolveGtkParent }
+use core { WINDOWS, resolveGtkParent, hasMod, gdkBtnToW3c, noOpEnterLeave, noOpWheel, noOpClickMod }
 
 class LabelSlot {
     pub label: GtkLabel
@@ -42,9 +43,6 @@ class LabelSlot {
     }
 }
 
-fn noOpEnterLeave(x: f64, y: f64) {}
-fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 // GdkModifierType bits — pulled out so the gesture handlers can
 // `& MOD_*` without going through the flags enum.
@@ -53,16 +51,7 @@ const MOD_CTRL:  u32 = 0x00000004 as u32
 const MOD_ALT:   u32 = 0x00000008 as u32
 const MOD_META:  u32 = 0x10000000 as u32
 
-fn hasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
 
-fn gdkBtnToW3c(gdk: u32): i32 {
-    match gdk {
-        1 as u32 { 0 as i32 }
-        2 as u32 { 1 as i32 }
-        3 as u32 { 2 as i32 }
-        _        { 0 as i32 }
-    }
-}
 
 let LABELS = new Map<i64, LabelSlot>()
 
@@ -161,7 +150,7 @@ pub fn createNativeLabel(
     // Motion controller for onMouseEnter / onMouseLeave.
     let motionCtl = gtk_event_controller_motion_new() as GtkEventControllerMotion
     gtk_widget_add_controller(label as GtkWidget, motionCtl as GtkEventController)
-    g_signal_connect_data(
+    g_signal_connect_motion(
         motionCtl as GObject, cstrFromString("enter"),
         linux_label_motion_enter, 0 as *void, 0 as i64, 0 as u32
     )
@@ -177,11 +166,11 @@ pub fn createNativeLabel(
     let clickGesture = gtk_gesture_click_new() as GtkGestureClick
     gtk_gesture_single_set_button(clickGesture as GtkGestureSingle, 0 as u32)
     gtk_widget_add_controller(label as GtkWidget, clickGesture as GtkEventController)
-    g_signal_connect_data(
+    g_signal_connect_click(
         clickGesture as GObject, cstrFromString("pressed"),
         linux_label_pressed, 0 as *void, 0 as i64, 0 as u32
     )
-    g_signal_connect_data(
+    g_signal_connect_click(
         clickGesture as GObject, cstrFromString("released"),
         linux_label_released, 0 as *void, 0 as i64, 0 as u32
     )

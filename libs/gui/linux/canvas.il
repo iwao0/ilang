@@ -54,7 +54,7 @@ use cairo {
     cairo_show_text, cairo_text_path,
     cairo_text_extents, cairo_font_extents,
 }
-use core { WINDOWS, resolveGtkParent }
+use core { WINDOWS, resolveGtkParent, hasMod, gdkBtnToW3c }
 
 // cairo_format_t.ARGB32 / cairo_operator_t.SOURCE.
 const CAIRO_FORMAT_ARGB32: i32 = 0
@@ -139,15 +139,6 @@ const MOD_SHIFT: u32 = 0x00000001 as u32
 const MOD_CTRL:  u32 = 0x00000004 as u32
 const MOD_ALT:   u32 = 0x00000008 as u32
 const MOD_META:  u32 = 0x10000000 as u32
-fn hasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
-fn gdkBtnToW3c(gdk: u32): i32 {
-    match gdk {
-        1 as u32 { 0 as i32 }
-        2 as u32 { 1 as i32 }
-        3 as u32 { 2 as i32 }
-        _        { 0 as i32 }
-    }
-}
 
 let CANVASES = new Map<i64, CanvasSlot>()
 
@@ -362,7 +353,7 @@ pub fn createNativeCanvas(
         motionCtl as GObject, cstrFromString("motion"),
         linux_canvas_motion, 0 as *void, 0 as i64, 0 as u32
     )
-    g_signal_connect_data(
+    g_signal_connect_motion(
         motionCtl as GObject, cstrFromString("enter"),
         linux_canvas_motion_enter, 0 as *void, 0 as i64, 0 as u32
     )

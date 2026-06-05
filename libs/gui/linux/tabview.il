@@ -4,6 +4,7 @@
 
 use std.ffi { cstrFromString }
 use gtk {
+    g_signal_connect_switch_page,
     GtkWidget, GtkNotebook, GtkBox, GtkLabel, GtkFixed, GObject,
     GtkOrientation,
     gtk_notebook_new, gtk_notebook_append_page,
@@ -60,7 +61,7 @@ pub fn createNativeTabView(
     gtk_widget_set_visible(nb as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
     gtk_fixed_put(parent.fixed, nb as GtkWidget, x, y)
 
-    g_signal_connect_data(
+    g_signal_connect_switch_page(
         nb as GObject, cstrFromString("switch-page"),
         linux_tabview_switch_page, 0 as *void, 0 as i64, 0 as u32
     )

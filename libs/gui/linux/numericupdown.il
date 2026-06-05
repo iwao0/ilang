@@ -31,7 +31,7 @@ use gtk {
     g_signal_connect_motion, g_signal_connect_click, g_signal_connect_scroll,
 }
 use window { keyvalToCode }
-use core { resolveGtkParent }
+use core { resolveGtkParent, gdkBtnToW3c, hasMod, noOp1, noOpClickMod, noOpEnterLeave, noOpF64, noOpKey, noOpWheel }
 
 class NumericSlot {
     pub spin:      GtkSpinButton
@@ -52,40 +52,25 @@ class NumericSlot {
         this.spin      = spin
         this.fixed     = fixed
         this.winHandle = winHandle
-        this.onChange = numNoOpF64
-        this.onFocus  = numNoOp
-        this.onBlur   = numNoOp
-        this.onMouseEnter  = numNoOpEnterLeave
-        this.onMouseLeave  = numNoOpEnterLeave
-        this.onMouseDown   = numNoOpClickMod
-        this.onMouseUp     = numNoOpClickMod
-        this.onContextMenu = numNoOpClickMod
-        this.onMouseWheel  = numNoOpWheel
-        this.onKeyDown = numNoOpKey
-        this.onKeyUp   = numNoOpKey
+        this.onChange = noOpF64
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
+        this.onMouseEnter  = noOpEnterLeave
+        this.onMouseLeave  = noOpEnterLeave
+        this.onMouseDown   = noOpClickMod
+        this.onMouseUp     = noOpClickMod
+        this.onContextMenu = noOpClickMod
+        this.onMouseWheel  = noOpWheel
+        this.onKeyDown = noOpKey
+        this.onKeyUp   = noOpKey
     }
 }
 
-fn numNoOpF64(v: f64) {}
-fn numNoOp() {}
-fn numNoOpEnterLeave(x: f64, y: f64) {}
-fn numNoOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn numNoOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn numNoOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 const NUM_MOD_SHIFT: u32 = 0x00000001 as u32
 const NUM_MOD_CTRL:  u32 = 0x00000004 as u32
 const NUM_MOD_ALT:   u32 = 0x00000008 as u32
 const NUM_MOD_META:  u32 = 0x10000000 as u32
-fn numHasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
-fn numGdkBtnToW3c(gdk: u32): i32 {
-    match gdk {
-        1 as u32 { 0 as i32 }
-        2 as u32 { 1 as i32 }
-        3 as u32 { 2 as i32 }
-        _        { 0 as i32 }
-    }
-}
 
 let NUMERICS = new Map<i64, NumericSlot>()
 
@@ -127,14 +112,14 @@ pub fn linux_num_pressed(gesture: i64, nPress: i32, x: f64, y: f64, data: i64) {
     let w = gtk_event_controller_get_widget(gesture as GtkEventController)
     if let some(slot) = NUMERICS.get(w as i64) {
         let btn = gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
-        let w3c = numGdkBtnToW3c(btn)
+        let w3c = gdkBtnToW3c(btn)
         let st = gtk_event_controller_get_current_event_state(
             gesture as GtkEventController
         ) as u32
-        let ck = numHasMod(st, NUM_MOD_CTRL)
-        let sk = numHasMod(st, NUM_MOD_SHIFT)
-        let ak = numHasMod(st, NUM_MOD_ALT)
-        let mk = numHasMod(st, NUM_MOD_META)
+        let ck = hasMod(st, NUM_MOD_CTRL)
+        let sk = hasMod(st, NUM_MOD_SHIFT)
+        let ak = hasMod(st, NUM_MOD_ALT)
+        let mk = hasMod(st, NUM_MOD_META)
         let cb = slot.onMouseDown; cb(x, y, w3c, ck, sk, ak, mk)
         if btn == 3 as u32 {
             let ctx = slot.onContextMenu; ctx(x, y, w3c, ck, sk, ak, mk)
@@ -149,9 +134,9 @@ pub fn linux_num_released(gesture: i64, nPress: i32, x: f64, y: f64, data: i64) 
             gesture as GtkEventController
         ) as u32
         let cb = slot.onMouseUp
-        cb(x, y, numGdkBtnToW3c(btn),
-           numHasMod(st, NUM_MOD_CTRL), numHasMod(st, NUM_MOD_SHIFT),
-           numHasMod(st, NUM_MOD_ALT),  numHasMod(st, NUM_MOD_META))
+        cb(x, y, gdkBtnToW3c(btn),
+           hasMod(st, NUM_MOD_CTRL), hasMod(st, NUM_MOD_SHIFT),
+           hasMod(st, NUM_MOD_ALT),  hasMod(st, NUM_MOD_META))
     }
 }
 pub fn linux_num_scroll(ctl: i64, dx: f64, dy: f64, data: i64): i32 {
@@ -169,8 +154,8 @@ pub fn linux_num_key_pressed(
         let code = keyvalToCode(gdk_keyval_to_lower(keyval))
         let cb = slot.onKeyDown
         cb(code,
-           numHasMod(state, NUM_MOD_CTRL), numHasMod(state, NUM_MOD_SHIFT),
-           numHasMod(state, NUM_MOD_ALT),  numHasMod(state, NUM_MOD_META))
+           hasMod(state, NUM_MOD_CTRL), hasMod(state, NUM_MOD_SHIFT),
+           hasMod(state, NUM_MOD_ALT),  hasMod(state, NUM_MOD_META))
     }
     0 as i32
 }
@@ -182,8 +167,8 @@ pub fn linux_num_key_released(
         let code = keyvalToCode(gdk_keyval_to_lower(keyval))
         let cb = slot.onKeyUp
         cb(code,
-           numHasMod(state, NUM_MOD_CTRL), numHasMod(state, NUM_MOD_SHIFT),
-           numHasMod(state, NUM_MOD_ALT),  numHasMod(state, NUM_MOD_META))
+           hasMod(state, NUM_MOD_CTRL), hasMod(state, NUM_MOD_SHIFT),
+           hasMod(state, NUM_MOD_ALT),  hasMod(state, NUM_MOD_META))
     }
     0 as i32
 }
@@ -217,7 +202,7 @@ pub fn createNativeNumericUpDown(
 
     let motionCtl = gtk_event_controller_motion_new() as GtkEventControllerMotion
     gtk_widget_add_controller(spin as GtkWidget, motionCtl as GtkEventController)
-    g_signal_connect_data(motionCtl as GObject, cstrFromString("enter"),
+    g_signal_connect_motion(motionCtl as GObject, cstrFromString("enter"),
         linux_num_motion_enter, 0 as *void, 0 as i64, 0 as u32)
     g_signal_connect_data(motionCtl as GObject, cstrFromString("leave"),
         linux_num_motion_leave, 0 as *void, 0 as i64, 0 as u32)

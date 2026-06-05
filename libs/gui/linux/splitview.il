@@ -181,7 +181,7 @@ pub fn splitViewBeginNewPane(handle: i64): i64 {
         GTK_PARENTS[pane as i64] = new GtkParent(pane, slot.parentWin)
         return pane as i64
     }
-    -1 as i64
+    return -1 as i64
 }
 
 pub fn splitViewDocumentHandle(handle: i64): i64 {
@@ -195,7 +195,7 @@ pub fn splitViewDocumentHandle(handle: i64): i64 {
         // GtkFixed — addChild then re-runs the chain.
         return slot.root as i64
     }
-    -1 as i64
+    return -1 as i64
 }
 
 pub fn setSplitViewFrame(handle: i64, x: f64, y: f64, w: f64, h: f64) {

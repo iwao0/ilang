@@ -55,7 +55,7 @@ fn findButtonIndex(slot: SegmentedSlot, btn: i64): i32 {
         }
         i = i + 1
     }
-    -1 as i32
+    return -1 as i32
 }
 
 @extern(C) {
@@ -167,7 +167,7 @@ pub fn segmentedGetSelectedIndex(handle: i64): i32 {
                 }
                 i = i + 1
             }
-            -1 as i32
+            return -1 as i32
         }
         none { -1 as i32 }
     }

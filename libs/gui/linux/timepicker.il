@@ -33,7 +33,7 @@ use gtk {
     g_signal_connect_key,
 }
 use window { keyvalToCode }
-use core { resolveGtkParent }
+use core { resolveGtkParent, gdkBtnToW3c, hasMod, noOp1, noOpClickMod, noOpEnterLeave, noOpKey, noOpWheel }
 
 class TimeSlot {
     pub box:       GtkBox
@@ -65,39 +65,25 @@ class TimeSlot {
         this.fixed     = fixed
         this.winHandle = winHandle
         this.onChange = tpNoOpHms
-        this.onFocus  = tpNoOp
-        this.onBlur   = tpNoOp
-        this.onMouseEnter = tpNoOpEnter
-        this.onMouseLeave = tpNoOpEnter
-        this.onMouseDown  = tpNoOpClick
-        this.onMouseUp    = tpNoOpClick
-        this.onContextMenu = tpNoOpClick
-        this.onMouseWheel = tpNoOpWheel
-        this.onKeyDown = tpNoOpKey
-        this.onKeyUp   = tpNoOpKey
+        this.onFocus  = noOp1
+        this.onBlur   = noOp1
+        this.onMouseEnter = noOpEnterLeave
+        this.onMouseLeave = noOpEnterLeave
+        this.onMouseDown  = noOpClickMod
+        this.onMouseUp    = noOpClickMod
+        this.onContextMenu = noOpClickMod
+        this.onMouseWheel = noOpWheel
+        this.onKeyDown = noOpKey
+        this.onKeyUp   = noOpKey
     }
 }
 
 fn tpNoOpHms(h: i32, m: i32, s: i32) {}
-fn tpNoOp() {}
-fn tpNoOpEnter(x: f64, y: f64) {}
-fn tpNoOpClick(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn tpNoOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn tpNoOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 const TP_MOD_SHIFT: u32 = 0x00000001 as u32
 const TP_MOD_CTRL:  u32 = 0x00000004 as u32
 const TP_MOD_ALT:   u32 = 0x00000008 as u32
 const TP_MOD_META:  u32 = 0x10000000 as u32
-fn tpHasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
-fn tpGdkBtnToW3c(gdk: u32): i32 {
-    match gdk {
-        1 as u32 { 0 as i32 }
-        2 as u32 { 1 as i32 }
-        3 as u32 { 2 as i32 }
-        _        { 0 as i32 }
-    }
-}
 
 let TIME_PICKERS = new Map<i64, TimeSlot>()
 /// Any one of the three spin button handles → owning box handle.
@@ -145,19 +131,19 @@ pub fn linux_tp_pressed(gesture: i64, nPress: i32, x: f64, y: f64, data: i64) {
     let w = gtk_event_controller_get_widget(gesture as GtkEventController)
     if let some(slot) = TIME_PICKERS.get(w as i64) {
         let btn = gtk_gesture_single_get_current_button(gesture as GtkGestureSingle)
-        let w3c = tpGdkBtnToW3c(btn)
+        let w3c = gdkBtnToW3c(btn)
         let st = gtk_event_controller_get_current_event_state(
             gesture as GtkEventController
         ) as u32
         let cb = slot.onMouseDown
         cb(x, y, w3c,
-           tpHasMod(st, TP_MOD_CTRL), tpHasMod(st, TP_MOD_SHIFT),
-           tpHasMod(st, TP_MOD_ALT),  tpHasMod(st, TP_MOD_META))
+           hasMod(st, TP_MOD_CTRL), hasMod(st, TP_MOD_SHIFT),
+           hasMod(st, TP_MOD_ALT),  hasMod(st, TP_MOD_META))
         if btn == 3 as u32 {
             let ctx = slot.onContextMenu
             ctx(x, y, w3c,
-                tpHasMod(st, TP_MOD_CTRL), tpHasMod(st, TP_MOD_SHIFT),
-                tpHasMod(st, TP_MOD_ALT),  tpHasMod(st, TP_MOD_META))
+                hasMod(st, TP_MOD_CTRL), hasMod(st, TP_MOD_SHIFT),
+                hasMod(st, TP_MOD_ALT),  hasMod(st, TP_MOD_META))
         }
     }
 }
@@ -169,9 +155,9 @@ pub fn linux_tp_released(gesture: i64, nPress: i32, x: f64, y: f64, data: i64) {
             gesture as GtkEventController
         ) as u32
         let cb = slot.onMouseUp
-        cb(x, y, tpGdkBtnToW3c(btn),
-           tpHasMod(st, TP_MOD_CTRL), tpHasMod(st, TP_MOD_SHIFT),
-           tpHasMod(st, TP_MOD_ALT),  tpHasMod(st, TP_MOD_META))
+        cb(x, y, gdkBtnToW3c(btn),
+           hasMod(st, TP_MOD_CTRL), hasMod(st, TP_MOD_SHIFT),
+           hasMod(st, TP_MOD_ALT),  hasMod(st, TP_MOD_META))
     }
 }
 pub fn linux_tp_scroll(ctl: i64, dx: f64, dy: f64, data: i64): i32 {
@@ -190,8 +176,8 @@ pub fn linux_tp_key_pressed(
         let code = keyvalToCode(gdk_keyval_to_lower(keyval))
         let cb = slot.onKeyDown
         cb(code,
-           tpHasMod(state, TP_MOD_CTRL), tpHasMod(state, TP_MOD_SHIFT),
-           tpHasMod(state, TP_MOD_ALT),  tpHasMod(state, TP_MOD_META))
+           hasMod(state, TP_MOD_CTRL), hasMod(state, TP_MOD_SHIFT),
+           hasMod(state, TP_MOD_ALT),  hasMod(state, TP_MOD_META))
     }
     0 as i32
 }
@@ -203,8 +189,8 @@ pub fn linux_tp_key_released(
         let code = keyvalToCode(gdk_keyval_to_lower(keyval))
         let cb = slot.onKeyUp
         cb(code,
-           tpHasMod(state, TP_MOD_CTRL), tpHasMod(state, TP_MOD_SHIFT),
-           tpHasMod(state, TP_MOD_ALT),  tpHasMod(state, TP_MOD_META))
+           hasMod(state, TP_MOD_CTRL), hasMod(state, TP_MOD_SHIFT),
+           hasMod(state, TP_MOD_ALT),  hasMod(state, TP_MOD_META))
     }
     0 as i32
 }
@@ -254,7 +240,7 @@ pub fn createNativeTimePicker(
 
     let motionCtl = gtk_event_controller_motion_new() as GtkEventControllerMotion
     gtk_widget_add_controller(box as GtkWidget, motionCtl as GtkEventController)
-    g_signal_connect_data(motionCtl as GObject, cstrFromString("enter"),
+    g_signal_connect_motion(motionCtl as GObject, cstrFromString("enter"),
         linux_tp_motion_enter, 0 as *void, 0 as i64, 0 as u32)
     g_signal_connect_data(motionCtl as GObject, cstrFromString("leave"),
         linux_tp_motion_leave, 0 as *void, 0 as i64, 0 as u32)

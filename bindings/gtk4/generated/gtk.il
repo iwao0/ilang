@@ -2788,7 +2788,7 @@ pub enum GtkWrapMode: u32 {
     @lib pub fn gtk_popover_set_has_arrow(self: GtkPopover, has_arrow: i32)
     @lib pub fn gtk_popover_set_mnemonics_visible(self: GtkPopover, mnemonics_visible: i32)
     @lib pub fn gtk_popover_set_offset(self: GtkPopover, x_offset: i32, y_offset: i32)
-    @lib pub fn gtk_popover_set_pointing_to(self: GtkPopover, rect: GdkRectangle)
+    @lib pub fn gtk_popover_set_pointing_to(self: GtkPopover, rect: *GdkRectangle)
     @lib pub fn gtk_popover_set_position(self: GtkPopover, position: GtkPositionType)
     @lib pub fn gtk_popover_bin_new(): GtkWidget
     @lib pub fn gtk_popover_bin_get_child(self: GtkPopoverBin): GtkWidget

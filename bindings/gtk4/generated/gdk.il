@@ -481,7 +481,12 @@ pub enum GdkVulkanError: u32 {
     @handle pub struct GdkPopupInterface {}
     @handle pub struct GdkPopupLayout {}
     @handle pub struct GdkRGBA {}
-    @handle pub struct GdkRectangle {}
+    pub struct GdkRectangle {
+        x:      i32
+        y:      i32
+        width:  i32
+        height: i32
+    }
     @handle pub struct GdkSnapshotClass {}
     @handle pub struct GdkSurfaceClass {}
     @handle pub struct GdkTextureClass {}

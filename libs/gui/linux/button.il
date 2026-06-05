@@ -10,6 +10,7 @@
 
 use std.ffi { cstrFromString }
 use gtk {
+    g_signal_connect_click, g_signal_connect_motion,
     GtkWidget, GtkButton, GtkFixed, GtkWindow, GObject,
     GtkEventController, GtkEventControllerKey, GtkEventControllerScroll,
     GtkEventControllerScrollFlags,
@@ -34,7 +35,7 @@ use gtk {
     gtk_gesture_single_get_current_button,
     g_signal_connect_data, g_signal_connect_key, g_signal_connect_scroll,
 }
-use core { WINDOWS, resolveGtkParent, noOpClick, noOpClose }
+use core { WINDOWS, resolveGtkParent, noOpClick, noOpClose, hasMod, gdkBtnToW3c, noOpEnterLeave, noOpWheel, noOpKey, noOpClickMod }
 use window { keyvalToCode }
 
 class ButtonSlot {
@@ -90,10 +91,6 @@ class ButtonSlot {
     }
 }
 
-fn noOpEnterLeave(x: f64, y: f64) {}
-fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 // GdkModifierType bits we need (same as window.il's). Pulled out
 // here so the key handler can `& MOD_*` without bouncing through
@@ -103,19 +100,7 @@ const MOD_CTRL:  u32 = 0x00000004 as u32
 const MOD_ALT:   u32 = 0x00000008 as u32
 const MOD_META:  u32 = 0x10000000 as u32
 
-fn hasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
 
-/// GDK button numbering → W3C `MouseEvent.button`. GDK uses 1
-/// for primary, 2 for middle, 3 for secondary; the DOM uses
-/// 0 / 1 / 2 respectively. Unknown buttons fall through to 0.
-fn gdkBtnToW3c(gdk: u32): i32 {
-    match gdk {
-        1 as u32 { 0 as i32 }
-        2 as u32 { 1 as i32 }
-        3 as u32 { 2 as i32 }
-        _        { 0 as i32 }
-    }
-}
 
 let BUTTONS = new Map<i64, ButtonSlot>()
 
@@ -345,7 +330,7 @@ pub fn createNativeButton(
     // way is a dedicated motion controller.
     let motionCtl = gtk_event_controller_motion_new()
     gtk_widget_add_controller(btn as GtkWidget, motionCtl)
-    g_signal_connect_data(
+    g_signal_connect_motion(
         motionCtl as GObject,
         cstrFromString("enter"),
         linux_button_motion_enter,
@@ -409,7 +394,7 @@ pub fn createNativeButton(
     let clickGesture = gtk_gesture_click_new()
     gtk_gesture_single_set_button(clickGesture as GtkGestureSingle, 0 as u32)
     gtk_widget_add_controller(btn as GtkWidget, clickGesture as GtkEventController)
-    g_signal_connect_data(
+    g_signal_connect_click(
         clickGesture as GObject,
         cstrFromString("pressed"),
         linux_button_pressed,
@@ -417,7 +402,7 @@ pub fn createNativeButton(
         0 as i64,
         0 as u32
     )
-    g_signal_connect_data(
+    g_signal_connect_click(
         clickGesture as GObject,
         cstrFromString("released"),
         linux_button_released,

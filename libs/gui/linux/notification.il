@@ -8,9 +8,9 @@
 
 use std.ffi { cstrFromString }
 
-@handle pub struct NotifyNotification {}
-
 @extern(C, "notify") {
+    @handle pub struct NotifyNotification {}
+
     /// Initialise libnotify with the application name. Idempotent
     /// — repeat calls just re-set the name. Returns non-zero on
     /// success.

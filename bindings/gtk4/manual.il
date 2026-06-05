@@ -231,6 +231,15 @@ pub enum Keyval: u32 {
         data: *void, destroy_data: i64, flags: u32
     ): u64
 
+    /// `void(GtkNotebook*, GtkWidget* page, guint page_num, gpointer)`
+    /// — the `switch-page` signal on `GtkNotebook`.
+    @symbol("g_signal_connect_data")
+    @lib pub fn g_signal_connect_switch_page(
+        instance: GObject, signal_name: *const char,
+        c_handler: fn(i64, i64, u32, i64),
+        data: *void, destroy_data: i64, flags: u32
+    ): u64
+
     // ─── GtkNative + GdkSurface accessors ─────────────────────
     // Needed by libs/gui/linux GpuView to extract the GdkSurface
     // backing a GtkWindow and, beneath it, the platform-native X11
@@ -291,11 +300,9 @@ pub enum Keyval: u32 {
         self: GtkAlertDialog, result: GAsyncResult, error_out: *void
     ): i32
 
-    @lib pub fn gtk_file_dialog_new(): GtkFileDialog
-    @lib pub fn gtk_file_dialog_set_title(self: GtkFileDialog, title: *const char)
-    @lib pub fn gtk_file_dialog_set_initial_name(
-        self: GtkFileDialog, name: *const char
-    )
+    // `gtk_file_dialog_new` / `set_title` / `set_initial_name` live in
+    // generated/gtk.il; only the async open/save calls (with callback
+    // signatures the generator can't express) are declared here.
     @lib pub fn gtk_file_dialog_open(
         self: GtkFileDialog,
         parent: GtkWindow,
@@ -425,9 +432,7 @@ pub enum Keyval: u32 {
     /// `gtk_single_selection_new(model): GtkSingleSelection` —
     /// the canonical "0 or 1 row selected" model wrapper.
     @lib pub fn gtk_single_selection_new(model: GListModel): GtkSingleSelection
-    @lib pub fn gtk_single_selection_get_selected(self: GtkSingleSelection): u32
-    @lib pub fn gtk_single_selection_set_selected(self: GtkSingleSelection, position: u32)
-    @lib pub fn gtk_single_selection_get_selected_item(self: GtkSingleSelection): GObject
+    // get_selected / set_selected / get_selected_item live in generated/gtk.il.
 
     /// `gtk_column_view_new(selection): GtkWidget`. Pass the
     /// selection model that wraps your data model. The view binds
@@ -440,7 +445,7 @@ pub enum Keyval: u32 {
     /// tree only needs one visual column.
     @lib pub fn gtk_list_view_new(model: GtkSelectionModel, factory: GtkListItemFactory): GtkWidget
     @lib pub fn gtk_list_view_set_model(self: GtkListView, model: GtkSelectionModel)
-    @lib pub fn gtk_list_view_set_factory(self: GtkListView, factory: GtkListItemFactory)
+    // gtk_list_view_set_factory lives in generated/gtk.il.
 
     /// `GtkSignalListItemFactory` setup / bind / unbind / teardown
     /// signal shape: `void(GtkSignalListItemFactory*, GtkListItem*,

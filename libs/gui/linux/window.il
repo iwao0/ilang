@@ -43,7 +43,7 @@ use gtk {
     g_signal_connect_data, g_signal_connect_data2, g_signal_connect_key,
     g_signal_connect_motion, g_signal_connect_click, g_signal_connect_scroll,
 }
-use core { WINDOWS, WindowSlot, GTK_INITED, LOOP_HOLDER }
+use core { WINDOWS, WindowSlot, GTK_INITED, LOOP_HOLDER, hasMod }
 use statusbar { linux_relayout_status_bar }
 use toolbar { linux_relayout_toolbar }
 use super.events
@@ -54,7 +54,6 @@ const MOD_CTRL:  u32 = 0x00000004 as u32
 const MOD_ALT:   u32 = 0x00000008 as u32
 const MOD_META:  u32 = 0x10000000 as u32
 
-fn hasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
 
 pub fn keyvalToCode(k: u32): string {
     keyvalToEnum(k as Keyval) as string
@@ -414,7 +413,7 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
         motionCtrl as GObject, cstrFromString("motion"),
         linux_motion, handle as *void, 0 as i64, 0 as u32
     )
-    g_signal_connect_data(
+    g_signal_connect_motion(
         motionCtrl as GObject, cstrFromString("enter"),
         linux_motion_enter, handle as *void, 0 as i64, 0 as u32
     )

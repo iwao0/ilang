@@ -4,6 +4,7 @@
 
 use std.ffi { cstrFromString }
 use gtk {
+    g_signal_connect_data2,
     GtkWidget, GtkSwitch, GtkFixed, GObject,
     GtkEventController, GtkEventControllerFocus, GtkEventControllerMotion,
     GtkEventControllerScroll, GtkEventControllerScrollFlags,
@@ -28,7 +29,7 @@ use gtk {
     g_signal_connect_motion, g_signal_connect_click, g_signal_connect_scroll,
 }
 use window { keyvalToCode }
-use core { WINDOWS, resolveGtkParent, noOp1, noOpBool }
+use core { WINDOWS, resolveGtkParent, noOp1, noOpBool, hasMod, gdkBtnToW3c, noOpEnterLeave, noOpWheel, noOpKey, noOpClickMod }
 
 class SwitchSlot {
     pub sw: GtkSwitch
@@ -63,24 +64,11 @@ class SwitchSlot {
     }
 }
 
-fn noOpEnterLeave(x: f64, y: f64) {}
-fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpWheel(dx: f64, dy: f64, x: f64, y: f64, ck: bool, sk: bool, ak: bool, mk: bool) {}
-fn noOpKey(c: string, ck: bool, sk: bool, ak: bool, mk: bool) {}
 
 const MOD_SHIFT: u32 = 0x00000001 as u32
 const MOD_CTRL:  u32 = 0x00000004 as u32
 const MOD_ALT:   u32 = 0x00000008 as u32
 const MOD_META:  u32 = 0x10000000 as u32
-fn hasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
-fn gdkBtnToW3c(gdk: u32): i32 {
-    match gdk {
-        1 as u32 { 0 as i32 }
-        2 as u32 { 1 as i32 }
-        3 as u32 { 2 as i32 }
-        _        { 0 as i32 }
-    }
-}
 
 let SWITCHES = new Map<i64, SwitchSlot>()
 
@@ -216,7 +204,7 @@ pub fn createNativeSwitch(
     gtk_widget_set_visible(sw as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
     gtk_fixed_put(parent.fixed, sw as GtkWidget, x, y)
 
-    g_signal_connect_data(
+    g_signal_connect_data2(
         sw as GObject,
         cstrFromString("notify::active"),
         linux_switch_notify_active,
@@ -236,7 +224,7 @@ pub fn createNativeSwitch(
 
     let motionCtl = gtk_event_controller_motion_new() as GtkEventControllerMotion
     gtk_widget_add_controller(sw as GtkWidget, motionCtl as GtkEventController)
-    g_signal_connect_data(
+    g_signal_connect_motion(
         motionCtl as GObject, cstrFromString("enter"),
         linux_switch_motion_enter, 0 as *void, 0 as i64, 0 as u32
     )

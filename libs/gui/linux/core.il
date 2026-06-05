@@ -8,7 +8,8 @@
 /// tables key off this i64 so signal handlers can resolve back to
 /// the user's callback in O(1).
 
-use gtk { GtkWidget, GtkWindow, GtkApplication, GtkFixed, GtkScrolledWindow, GMainLoop }
+use gtk { GtkWidget, GtkWindow, GtkApplication, GtkFixed, GtkScrolledWindow, GMainLoop, g_type_from_name }
+use std.ffi { cstrFromString }
 // ─── per-window state ─────────────────────────────────────────
 
 /// One row per top-level window. `WINDOWS` keys off the GtkWindow
@@ -168,6 +169,9 @@ pub let GTK_INITED: bool[] = [false]
 pub let LOOP_HOLDER: GMainLoop[] = []
 
 pub fn noOpClose() {}
+/// Zero-arg no-op shared with the cocoa / win32 backends under the
+/// `noOp1` name; widget slots use it for `onFocus` / `onBlur` defaults.
+pub fn noOp1() {}
 pub fn noOpResize(w: f64, h: f64) {}
 pub fn noOpKey(c: string, k1: bool, k2: bool, k3: bool, k4: bool) {}
 pub fn noOpMouse(x: f64, y: f64, b: i32, k1: bool, k2: bool, k3: bool, k4: bool) {}
@@ -178,6 +182,33 @@ pub fn noOpBool(b: bool) {}
 pub fn noOpText(s: string) {}
 pub fn noOpF64(v: f64) {}
 pub fn noOpI32(i: i32) {}
+pub fn noOpClickMod(x: f64, y: f64, b: i32, ck: bool, sk: bool, ak: bool, mk: bool) {}
+
+/// `state & mask != 0`, shared by every widget's GDK key/click
+/// handler so they can test `GdkModifierType` bits uniformly.
+pub fn hasMod(state: u32, mask: u32): bool { (state & mask) != 0 as u32 }
+
+/// GDK button numbering → W3C `MouseEvent.button`. GDK uses 1
+/// for primary, 2 for middle, 3 for secondary; the DOM uses
+/// 0 / 1 / 2 respectively. Unknown buttons fall through to 0.
+pub fn gdkBtnToW3c(gdk: u32): i32 {
+    match gdk {
+        1 { 0 as i32 }
+        2 { 1 as i32 }
+        3 { 2 as i32 }
+        _ { 0 as i32 }
+    }
+}
+
+@extern(C) {
+    /// Runtime `GType` for `GtkStringObject`, used to type the
+    /// `GListStore`s that back the tree / table row models. Shared
+    /// here because both wrappers need the same lookup; `g_type_from_name`
+    /// is a `@lib` extern so the call has to live in an `@extern` block.
+    pub fn stringObjectType(): u64 {
+        g_type_from_name(cstrFromString("GtkStringObject"))
+    }
+}
 
 // ─── per-window event setters ─────────────────────────────────
 
