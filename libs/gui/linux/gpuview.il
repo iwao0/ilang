@@ -703,7 +703,7 @@ pub fn createNativeGpuView(
         motionCtrl as GObject, cstrFromString("motion"),
         gpuLinuxMotion, handle as *void, 0 as i64, 0 as u32
     )
-    g_signal_connect_data(
+    g_signal_connect_motion(
         motionCtrl as GObject, cstrFromString("enter"),
         gpuLinuxMotionEnter, handle as *void, 0 as i64, 0 as u32
     )
