@@ -14,7 +14,7 @@
 ///   doesn't double-fire `onChange` with `""`).
 
 use windows {
-    HWND, HBRUSH, HFONT, HGDIOBJ,
+    HWND, HDC, HBRUSH, HFONT, HGDIOBJ,
     HINSTANCE, HMENU, HICON, HCURSOR,
     POINT, RECT, PAINTSTRUCT, WNDCLASSEXA,
     ClassStyle, WindowStyle, WindowMessage, ShowCmd, VirtualKey,
@@ -166,7 +166,7 @@ fn readEditText(edit: HWND): string {
         i = i + 1 as i32
     }
     GetWindowTextW(edit, buf, (len + 1 as i32))
-    string.fromUtf16(buf, len)
+    string.fromUtf16(buf.slice(0 as i64, len as i64))
 }
 
 /// EDIT subclass — only catches WM_KEYDOWN VK_RETURN so we can
@@ -179,7 +179,7 @@ pub fn searchFieldEditSubclass(
     match msg as WindowMessage {
         WindowMessage.keydown {
             let vk = wParam as u32 as VirtualKey
-            if vk == VirtualKey.returnKey {
+            if vk == VirtualKey.enter {
                 if let some(hostI) = EDIT_TO_HOST.get(hwnd) {
                     if let some(slot) = SEARCHFIELDS.get(hostI) {
                         slot.onSearch(readEditText(slot.edit))
@@ -277,7 +277,7 @@ pub fn searchFieldWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
                         slot.onClear()
                     }
                 } else {
-                    SetFocus(slot.edit)
+                    let _ = SetFocus(slot.edit)
                 }
             }
             return 0
@@ -353,7 +353,8 @@ pub fn createNativeSearchField(
     // Placeholder via EM_SETCUEBANNER = 0x1501.
     if placeholder != "" {
         let phW = placeholder.encodeUtf16()
-        SendMessageW(edit, 0x1501 as u32, 1 as u64, phW as i64)
+        let phPtr: *const u16 = phW
+        SendMessageW(edit, 0x1501 as u32, 1 as u64, phPtr as i64)
     }
 
     let handle = host as i64
@@ -380,11 +381,9 @@ pub fn setSearchFieldText(handle: i64, text: string) {
 }
 pub fn setSearchFieldPlaceholder(handle: i64, text: string) {
     if let some(slot) = SEARCHFIELDS.get(handle) {
-        if text == "" {
-            SendMessageW(slot.edit, 0x1501 as u32, 1 as u64, "".encodeUtf16() as i64)
-        } else {
-            SendMessageW(slot.edit, 0x1501 as u32, 1 as u64, text.encodeUtf16() as i64)
-        }
+        let phW = if text == "" { "".encodeUtf16() } else { text.encodeUtf16() }
+        let phPtr: *const u16 = phW
+        SendMessageW(slot.edit, 0x1501 as u32, 1 as u64, phPtr as i64)
     }
 }
 pub fn setSearchFieldFrame(handle: i64, x: f64, y: f64, width: f64, height: f64) {

@@ -627,7 +627,10 @@ fn ensureTaskbarList(): bool {
 pub fn setNativeWindowProgressBar(handle: i64, progress: f64) {
     if let some(slot) = WINDOWS.get(handle) {
         if !ensureTaskbarList() { return }
-        let tb = match TASKBAR_LIST { some(t) { t } none { return } }
+        let tb = match TASKBAR_LIST {
+            some(t) { t }
+            none    { return }
+        }
         if progress < 0.0 {
             tb.SetProgressState(slot.hwnd, TBPFLAG.noProgress as u32)
         } elif progress > 1.0 {

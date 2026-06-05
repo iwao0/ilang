@@ -6,7 +6,7 @@
 /// the colour fully opaque.
 
 use windows {
-    HWND, HBRUSH, HPEN, HGDIOBJ, HFONT,
+    HWND, HDC, HBRUSH, HPEN, HGDIOBJ, HFONT,
     HINSTANCE, HMENU, HICON, HCURSOR,
     RECT, PAINTSTRUCT, WNDCLASSEXA, CHOOSECOLORA, ChooseColorFlags,
     ClassStyle, WindowStyle, WindowMessage, ShowCmd, VirtualKey,
@@ -24,6 +24,7 @@ use windows {
 }
 use util {
     vkToString, modCtrl, modShift, modAlt, modMeta,
+    argbToColorRef, colorRefToArgb,
 }
 use core { windowHwnd }
 
@@ -58,24 +59,6 @@ let CUSTOM_COLORS: u32[] = [
 ]
 
 let COLORWELL_CLASS_INITED: bool = false
-
-// 0xAARRGGBB → 0x00BBGGRR (Win32 COLORREF).
-fn argbToColorRef(argb: u32): u32 {
-    let mask: u32 = 0xFF as u32
-    let r = (argb >> 16) & mask
-    let g = (argb >>  8) & mask
-    let b =  argb        & mask
-    r | (g << 8) | (b << 16)
-}
-
-// COLORREF (0x00BBGGRR) → opaque 0xFFRRGGBB.
-fn colorRefToArgb(cr: u32): u32 {
-    let mask: u32 = 0xFF as u32
-    let b = (cr >> 16) & mask
-    let g = (cr >>  8) & mask
-    let r =  cr        & mask
-    (0xFF as u32 << 24) | (r << 16) | (g << 8) | b
-}
 
 @extern(C) {
 
@@ -179,7 +162,7 @@ pub fn colorWellWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         WindowMessage.keydown {
             if let some(slot) = COLORWELLS.get(hwnd) {
                 let vk = wParam as u32 as VirtualKey
-                if vk == VirtualKey.space || vk == VirtualKey.returnKey {
+                if vk == VirtualKey.space || vk == VirtualKey.enter {
                     openPicker(slot)
                 }
             }

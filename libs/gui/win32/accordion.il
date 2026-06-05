@@ -86,7 +86,7 @@ fn paintAccordion(hwnd: HWND, slot: AccordionSlot, hdc: HDC) {
     let cx = 12 as i32
     let cy = hH / 2 as i32
     let sz = 5 as i32
-    let pts: POINT[] = if slot.expanded {
+    let pts = if slot.expanded {
         [
             POINT { x: cx - sz, y: cy - sz / 2 as i32 },
             POINT { x: cx + sz, y: cy - sz / 2 as i32 },

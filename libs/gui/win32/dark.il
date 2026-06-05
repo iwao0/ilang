@@ -13,6 +13,7 @@ use windows {
     HKEY,
     RegOpenKeyExA, RegQueryValueExA, RegCloseKey,
 }
+use std.ffi { cstrFromString }
 
 let APPEARANCE_INSTALLED: bool = false
 let APPEARANCE_CB: fn(bool) = appearanceNoOp
@@ -44,13 +45,14 @@ pub fn pickColor(light: u32, dark: u32): u32 {
 const HKCU_HANDLE: u64 = 0x80000001 as u64
 const KEY_QUERY_VALUE: u32 = 0x00000001 as u32
 
+@extern(C) {
 pub fn isOSInDarkMode(): bool {
-    let subKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"
-    let valName = "AppsUseLightTheme"
+    let subKey  = cstrFromString("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize")
+    let valName = cstrFromString("AppsUseLightTheme")
     let hKey: HKEY = 0 as HKEY
     let r = RegOpenKeyExA(
         HKCU_HANDLE as HKEY,
-        subKey as *const char,
+        subKey,
         0 as u32,
         KEY_QUERY_VALUE,
         &hKey
@@ -60,7 +62,7 @@ pub fn isOSInDarkMode(): bool {
     let size: u32 = 4 as u32
     let _ = RegQueryValueExA(
         hKey,
-        valName as *const char,
+        valName,
         0 as *u32,
         0 as *u32,
         &v as *void,
@@ -69,6 +71,7 @@ pub fn isOSInDarkMode(): bool {
     RegCloseKey(hKey)
     // AppsUseLightTheme = 0 means dark mode.
     v == 0 as u32
+}
 }
 
 pub fn installAppearanceWatcher(cb: fn(bool)) {
