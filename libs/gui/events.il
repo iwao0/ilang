@@ -288,6 +288,23 @@ pub class TabChangeEvent : Event {
     }
 }
 
+/// Fired by `WebView` for navigation milestones. `url` is the
+/// page URL the event refers to. `onNavigate` fires once on
+/// commit with `isError = false`; `onLoadFinish` fires on
+/// success with `isError = false` and on failure with
+/// `isError = true` plus a human-readable `errorMessage`.
+pub class NavigateEvent : Event {
+    pub url:          string
+    pub isError:      bool
+    pub errorMessage: string
+    pub init(sender: EventTarget, url: string, isError: bool, errorMessage: string) {
+        super(sender)
+        this.url          = url
+        this.isError      = isError
+        this.errorMessage = errorMessage
+    }
+}
+
 /// Fired when a `TreeView`'s selected node changes. `node` is the
 /// new `TreeNode` (or `none` if the selection was cleared).
 /// Defined here so user code can `use gui { TreeSelectEvent }`
