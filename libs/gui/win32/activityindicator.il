@@ -27,18 +27,22 @@ use windows {
 use core { windowHwnd }
 use util { ensureGdiplus }
 use gdiplus {
-    GpGraphics, GpSolidFill, GpBrush,
+    GpGraphics, GpSolidFill, GpBrush, GpPen,
     SmoothingMode,
     GdipCreateFromHDC, GdipDeleteGraphics, GdipSetSmoothingMode,
     GdipCreateSolidFill, GdipDeleteBrush, GdipFillEllipse,
+    GdipCreatePen1, GdipDeletePen, GdipSetPenStartCap, GdipSetPenEndCap,
+    GdipDrawLine,
 }
 use std.math as math
 
-// 12 dots arranged around the ring, advanced one slot per tick.
-const DOT_COUNT: i32 = 12 as i32
-const TIMER_INTERVAL_MS: u32 = 80 as u32
+// 8 radial bars (macOS-style spinner), advanced one slot per tick.
+const SEG_COUNT: i32 = 8 as i32
+const TIMER_INTERVAL_MS: u32 = 100 as u32
 const TIMER_ID: u64 = 1 as u64
 const TAU: f64 = 6.283185307179586
+// LineCap.Round on the GDI+ side.
+const LINE_CAP_ROUND: i32 = 2 as i32
 
 class ActivityIndicatorSlot {
     pub hwnd:        HWND
@@ -90,31 +94,44 @@ fn paintIndicator(hwnd: HWND, slot: ActivityIndicatorSlot, hdc: HDC) {
     let cx: f64 = (w as f64) / 2.0
     let cy: f64 = (h as f64) / 2.0
     let shortSide: f64 = if w < h { w as f64 } else { h as f64 }
-    // Outer ring radius leaves a small margin; dot diameter is a
-    // fraction of the radius so the dots don't touch each other.
-    let radius:  f64 = shortSide * 0.5 * 0.80
-    let dotSize: f64 = shortSide * 0.18
+    // Bar geometry — radial line from inner to outer radius.
+    // Tuned so the line caps don't crowd the centre at 16px; the
+    // inner radius leaves a noticeable hub of empty space at the
+    // middle (matches the macOS spinner's look).
+    let inner:   f64 = shortSide * 0.26
+    let outer:   f64 = shortSide * 0.46
+    let barWidth: f64 = shortSide * 0.12
+    let minBarWidth: f64 = 1.5
+    let strokeW: f64 = if barWidth < minBarWidth { minBarWidth } else { barWidth }
 
     let i = 0 as i32
-    while i < DOT_COUNT {
-        let ang  = (i as f64) * TAU / (DOT_COUNT as f64) - (TAU / 4.0)
-        let dx   = cx + radius * math.cos(ang) - dotSize / 2.0
-        let dy   = cy + radius * math.sin(ang) - dotSize / 2.0
+    while i < SEG_COUNT {
+        // Bar `i` sits at angle (i / SEG_COUNT) of a full turn,
+        // anchored at 12 o'clock (-π/2) so the active bar climbs
+        // clockwise from the top — same direction as NSProgressIndicator.
+        let ang  = (i as f64) * TAU / (SEG_COUNT as f64) - (TAU / 4.0)
+        let cos_ = math.cos(ang)
+        let sin_ = math.sin(ang)
+        let x1   = cx + inner * cos_
+        let y1   = cy + inner * sin_
+        let x2   = cx + outer * cos_
+        let y2   = cy + outer * sin_
 
-        // Position the "active" dot at `step`; trailing dots fade
-        // around the ring (alpha drops the further you go from the
-        // active one).
-        let rel: i32 = (slot.step - i + DOT_COUNT) % DOT_COUNT
-        let t:   f64 = (rel as f64) / (DOT_COUNT as f64)
+        // Bar `step` is the brightest; trailing bars fade around
+        // the ring (alpha drops the further you go from active).
+        let rel: i32 = (slot.step - i + SEG_COUNT) % SEG_COUNT
+        let t:   f64 = (rel as f64) / (SEG_COUNT as f64)
         let alpha8: i64 = (255.0 * (1.0 - 0.85 * t)) as i64
-        let argb_i: i64 = (alpha8 * (0x1000000 as i64)) | (0x808080 as i64)
+        let argb_i: i64 = (alpha8 * (0x1000000 as i64)) | (0x606060 as i64)
         let argb: u32 = argb_i as u32
 
-        let brush: *GpSolidFill = 0 as *GpSolidFill
-        let pBrush: **GpSolidFill = &brush
-        GdipCreateSolidFill(argb, pBrush)
-        GdipFillEllipse(g, brush as *GpBrush, dx as f32, dy as f32, dotSize as f32, dotSize as f32)
-        GdipDeleteBrush(brush as *GpBrush)
+        let pen: *GpPen = 0 as *GpPen
+        let pPen: **GpPen = &pen
+        GdipCreatePen1(argb, strokeW as f32, 0 as i32, pPen)
+        GdipSetPenStartCap(pen, LINE_CAP_ROUND)
+        GdipSetPenEndCap(pen, LINE_CAP_ROUND)
+        GdipDrawLine(g, pen, x1 as f32, y1 as f32, x2 as f32, y2 as f32)
+        GdipDeletePen(pen)
         i = i + 1 as i32
     }
     GdipDeleteGraphics(g)
@@ -141,7 +158,7 @@ pub fn indicatorWndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
         WindowMessage.eraseBkgnd { return 1 }
         WindowMessage.timer {
             if let some(slot) = INDICATORS.get(hwnd) {
-                slot.step = (slot.step + 1 as i32) % DOT_COUNT
+                slot.step = (slot.step + 1 as i32) % SEG_COUNT
                 InvalidateRect(hwnd as HWND, 0 as *const RECT, 0)
             }
             return 0

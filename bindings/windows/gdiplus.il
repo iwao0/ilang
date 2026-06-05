@@ -265,6 +265,10 @@ use windef { HDC, HWND }
     @lib pub fn GdipDeletePen(pen: *GpPen): i32
     @lib pub fn GdipSetPenColor(pen: *GpPen, color: u32): i32
     @lib pub fn GdipSetPenWidth(pen: *GpPen, width: f32): i32
+    /// Line-cap shape applied at the start / end of every stroke
+    /// the pen draws. Values: 0 Flat, 1 Square, 2 Round, 3 Triangle.
+    @lib pub fn GdipSetPenStartCap(pen: *GpPen, startCap: i32): i32
+    @lib pub fn GdipSetPenEndCap(pen: *GpPen, endCap: i32): i32
 
     @lib pub fn GdipCreateSolidFill(color: u32, brush: **GpSolidFill): i32
     @lib pub fn GdipDeleteBrush(brush: *GpBrush): i32
