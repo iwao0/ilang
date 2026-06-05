@@ -26,6 +26,11 @@ class SearchFieldSlot {
     pub onKeyUp:   fn(string, bool, bool, bool, bool)
     pub handler:  NSObject
     pub delegate: NSObject
+    /// `true` while the field is already known to be empty —
+    /// blocks the duplicate `onClear` AppKit fires after a
+    /// cancel-button click. Reset to `false` on any non-empty
+    /// content change.
+    pub lastWasClear: bool
     pub init(field: NSSearchField, handler: NSObject, delegate: NSObject) {
         this.field = field
         this.onChange = noOpText
@@ -37,6 +42,7 @@ class SearchFieldSlot {
         this.onKeyUp   = noOpKey
         this.handler = handler
         this.delegate = delegate
+        this.lastWasClear = false
     }
 }
 
@@ -86,9 +92,16 @@ class SearchActionHandler : NSObject {
         if let some(slot) = SEARCHFIELDS.get(sender.handle) {
             let v = ilstr(slot.field.stringValue)
             if v == "" {
+                // AppKit fires the action twice on cancel-button
+                // clicks (once for the button, once for the
+                // search committing the now-empty value). Collapse
+                // the second one.
+                if slot.lastWasClear { return }
+                slot.lastWasClear = true
                 let cb = slot.onClear
                 cb()
             } else {
+                slot.lastWasClear = false
                 let cb = slot.onSearch
                 cb(v)
             }
@@ -101,8 +114,10 @@ class SearchActionHandler : NSObject {
 class SearchChangeDelegate : NSObject {
     pub controlTextDidChange(n: NSNotification) {
         if let some(slot) = SEARCHFIELDS.get(n.notificationObject.handle) {
+            let v = ilstr(slot.field.stringValue)
+            if v != "" { slot.lastWasClear = false }
             let cb = slot.onChange
-            cb(ilstr(slot.field.stringValue))
+            cb(v)
         }
     }
 }
