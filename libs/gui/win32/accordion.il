@@ -24,7 +24,7 @@ use windows {
     SetTextColor, SetBkMode,
     LoadCursorW,
 }
-use util { applyGuiFont }
+use util { applyGuiFont, ensureGuiFont }
 use core { windowHwnd }
 
 // DrawTextW flags (subset).
@@ -110,17 +110,27 @@ fn paintAccordion(hwnd: HWND, slot: AccordionSlot, hdc: HDC) {
     DeleteObject(triPen as HGDIOBJ)
 
     // Title text — leave room for the triangle on the left.
+    // Select the cached Segoe UI 9pt font; HDCs default to the
+    // Win 3.x SYSTEM bitmap font, which looks blocky next to
+    // the rest of the gui-win32 widgets that use WM_SETFONT.
     let textRc = RECT {
         left:   24 as i32, top: 0 as i32,
         right:  w - 4 as i32, bottom: hH,
     }
     SetBkMode(hdc, BackgroundMode.transparent as i32)
     SetTextColor(hdc, HEADER_FG)
+    let guiFont = ensureGuiFont()
+    let oldFont = if guiFont != 0 as i64 {
+        SelectObject(hdc, guiFont as HFONT as HGDIOBJ)
+    } else {
+        0 as HGDIOBJ
+    }
     let titleW = slot.title.encodeUtf16(false)
     DrawTextW(
         hdc, titleW, titleW.length as i32, &textRc,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
     )
+    if guiFont != 0 as i64 { SelectObject(hdc, oldFont) }
 
     // Bottom border of the header — only visible when expanded so
     // the seam between header and content is obvious.
