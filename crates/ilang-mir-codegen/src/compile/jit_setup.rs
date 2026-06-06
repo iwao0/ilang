@@ -226,6 +226,8 @@ pub fn compile_with_builtins(
     // `__print_object` walks an object's fields via the runtime's
     // copy. AOT mirrors the same registrations from
     // `__ilang_aot_init` using data-symbol-backed strings.
+    let class_name_to_id: HashMap<ilang_ast::Symbol, ilang_mir::types::ClassId> =
+        prog.classes.iter().map(|c| (c.name, c.id)).collect();
     for class in &prog.classes {
         let gcid = global_cid(class.id.0) as i64;
         let name_ptr = ilang_runtime::leak_cstring(class.name.as_str().to_string());
@@ -324,6 +326,14 @@ pub fn compile_with_builtins(
             gcid,
             (class.fields.len() - parent_field_count) as i64,
         );
+        // Generic instance type args — recovered from the monomorphised
+        // class name, since the post-monomorph MIR ClassLayout doesn't
+        // carry the original `<T, U>` substitutions explicitly.
+        let arg_names = parse_class_name_type_args(class.name.as_str());
+        for (i, arg) in arg_names.iter().enumerate() {
+            let aid = type_arg_id_by_name(arg, &class_name_to_id, &global_cid);
+            ilang_runtime::__register_type_arg(gcid, i as i64, aid);
+        }
     }
     // Populate the enum print registry (`__register_enum_print_name`
     // / variant names / payload kinds) and the per-variant cascade
@@ -468,6 +478,69 @@ pub fn compile_with_builtins(
     let entry = *fn_ids.get(&prog.entry).expect("entry registered");
 
     Ok(Compiled { module, entry, entry_ret })
+}
+
+/// Split a mangled monomorph class name (e.g. `Box<i64>`,
+/// `Pair<string, i64>`, `Box<Box<i64>>`) into its top-level type
+/// arguments. Returns an empty vector for non-generic names.
+pub(crate) fn parse_class_name_type_args(name: &str) -> Vec<&str> {
+    let Some(start) = name.find('<') else { return Vec::new() };
+    let end = match name.rfind('>') {
+        Some(e) if e > start => e,
+        _ => return Vec::new(),
+    };
+    let inner = &name[start + 1..end];
+    let mut depth: i32 = 0;
+    let mut args: Vec<&str> = Vec::new();
+    let mut last = 0usize;
+    for (i, c) in inner.char_indices() {
+        match c {
+            '<' => depth += 1,
+            '>' => depth -= 1,
+            ',' if depth == 0 => {
+                args.push(inner[last..i].trim());
+                last = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    args.push(inner[last..].trim());
+    args
+}
+
+/// Resolve a single type-arg textual name to the reflection runtime's
+/// class id. Recognises every primitive name plus a class registered
+/// in `class_ids`; anything else falls back to 0 (unknown).
+pub(crate) fn type_arg_id_by_name(
+    name: &str,
+    class_ids: &HashMap<ilang_ast::Symbol, ilang_mir::types::ClassId>,
+    global_cid: &dyn Fn(u32) -> u32,
+) -> i64 {
+    use ilang_runtime::{
+        TYPE_ID_BOOL, TYPE_ID_F32, TYPE_ID_F64, TYPE_ID_I16, TYPE_ID_I32,
+        TYPE_ID_I64, TYPE_ID_I8, TYPE_ID_STRING, TYPE_ID_U16, TYPE_ID_U32,
+        TYPE_ID_U64, TYPE_ID_U8, TYPE_ID_UNIT,
+    };
+    match name {
+        "i8" => return TYPE_ID_I8,
+        "i16" => return TYPE_ID_I16,
+        "i32" => return TYPE_ID_I32,
+        "i64" => return TYPE_ID_I64,
+        "u8" => return TYPE_ID_U8,
+        "u16" => return TYPE_ID_U16,
+        "u32" => return TYPE_ID_U32,
+        "u64" => return TYPE_ID_U64,
+        "f32" => return TYPE_ID_F32,
+        "f64" => return TYPE_ID_F64,
+        "bool" => return TYPE_ID_BOOL,
+        "string" => return TYPE_ID_STRING,
+        "()" | "unit" => return TYPE_ID_UNIT,
+        _ => {}
+    }
+    if let Some(cid) = class_ids.get(&ilang_ast::Symbol::intern(name)) {
+        return global_cid(cid.0) as i64;
+    }
+    0
 }
 
 /// Map a `MirTy` to the `class_id` the reflection runtime uses. Real

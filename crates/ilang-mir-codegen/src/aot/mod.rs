@@ -22,6 +22,7 @@ use cranelift_frontend::{FunctionBuilder as ClifFnBuilder, FunctionBuilderContex
 use cranelift_module::{DataDescription, DataId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ilang_mir::{FuncId, MirTy, Program};
@@ -67,6 +68,7 @@ struct AotRegistry {
     type_method_return: cranelift_module::FuncId,
     type_method_param: cranelift_module::FuncId,
     type_declared_field_count: cranelift_module::FuncId,
+    type_arg: cranelift_module::FuncId,
     typekind_enum_id: cranelift_module::FuncId,
 }
 
@@ -97,6 +99,7 @@ struct AotRegistryRefs {
     type_method_return: cranelift_codegen::ir::FuncRef,
     type_method_param: cranelift_codegen::ir::FuncRef,
     type_declared_field_count: cranelift_codegen::ir::FuncRef,
+    type_arg: cranelift_codegen::ir::FuncRef,
     typekind_enum_id: cranelift_codegen::ir::FuncRef,
 }
 
@@ -145,6 +148,7 @@ impl AotRegistry {
                 module,
                 "$type.registerDeclaredFieldCount",
             )?,
+            type_arg: declare_ternary_i64_void(module, "$type.registerTypeArg")?,
             typekind_enum_id: crate::compile::declare_unit_i64(
                 module,
                 "$type.registerTypeKindEnumId",
@@ -186,6 +190,7 @@ impl AotRegistry {
                 .declare_func_in_func(self.type_method_param, fn_),
             type_declared_field_count: module
                 .declare_func_in_func(self.type_declared_field_count, fn_),
+            type_arg: module.declare_func_in_func(self.type_arg, fn_),
             typekind_enum_id: module
                 .declare_func_in_func(self.typekind_enum_id, fn_),
         }
@@ -866,8 +871,17 @@ fn emit_aot_init(
             type_method_return: reg_type_method_return_ref,
             type_method_param: reg_type_method_param_ref,
             type_declared_field_count: reg_type_declared_field_count_ref,
+            type_arg: reg_type_arg_ref,
             typekind_enum_id: reg_typekind_enum_id_ref,
         } = refs;
+        let class_name_to_id_for_aot: HashMap<
+            ilang_ast::Symbol,
+            ilang_mir::types::ClassId,
+        > = prog
+            .classes
+            .iter()
+            .map(|c| (c.name, c.id))
+            .collect();
 
         for (cls_idx, class) in prog.classes.iter().enumerate() {
             let global_cid = class_global[class.id.0 as usize] as i64;
@@ -1048,6 +1062,25 @@ fn emit_aot_init(
                 reg_type_declared_field_count_ref,
                 &[cid_v, declared_v],
             );
+            // Generic instance type args.
+            let arg_names =
+                crate::compile::parse_class_name_type_args(class.name.as_str());
+            for (i, arg) in arg_names.iter().enumerate() {
+                let aid = crate::compile::type_arg_id_by_name(
+                    arg,
+                    &class_name_to_id_for_aot,
+                    &global_cid_fn,
+                );
+                let cid_v = fb.ins().iconst(types::I64, global_cid);
+                let idx_v = fb.ins().iconst(types::I64, i as i64);
+                let aid_v = fb.ins().iconst(types::I64, aid);
+                // `__register_type_arg` is `(class_id, idx, arg_id) -> void`,
+                // same ABI as ternary i64 helpers — use the existing
+                // method-name registrar's signature shape (we reused
+                // `reg_type_method_ref` here would be wrong, declare a
+                // fresh import).
+                fb.ins().call(reg_type_arg_ref, &[cid_v, idx_v, aid_v]);
+            }
         }
 
         // Closure capture / size tables — keyed by fn_addr at runtime

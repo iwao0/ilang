@@ -62,6 +62,29 @@ if let some(_p) = ta.parent {
 test.expect(t.typeArgs.length, 0)
 test.expect(ta.typeArgs.length, 0)
 
+// Generic instances surface their concrete type arguments in order.
+class Box<T> { x: T; init(v: T) { this.x = v } }
+class Pair<A, B> {
+    a: A
+    b: B
+    init(x: A, y: B) { this.a = x; this.b = y }
+}
+let tb = typeof(new Box<i64>(0))
+test.expectStr(tb.name, "Box")
+test.expect(tb.typeArgs.length, 1)
+test.expectStr(tb.typeArgs[0].name, "i64")
+let tp = typeof(new Pair<string, i64>("k", 1))
+test.expectStr(tp.name, "Pair")
+test.expect(tp.typeArgs.length, 2)
+test.expectStr(tp.typeArgs[0].name, "string")
+test.expectStr(tp.typeArgs[1].name, "i64")
+// Nested generic — outer arg is "Box<i64>" which resolves to a real
+// monomorph class id, so `.name` (which strips the type-arg suffix)
+// reports the base class name.
+let tn = typeof(new Box<Box<i64>>(new Box<i64>(0)))
+test.expect(tn.typeArgs.length, 1)
+test.expectStr(tn.typeArgs[0].name, "Box")
+
 // `.fieldType(name)` — declared types of named fields.
 if let some(ft) = t.fieldType("breed") {
     test.expectStr(ft.name, "string")

@@ -22,7 +22,9 @@ mod print_kind;
 mod program_decl;
 
 pub use jit_setup::{compile_program, compile_with_builtins};
-pub(crate) use jit_setup::mir_ty_to_type_id;
+pub(crate) use jit_setup::{
+    mir_ty_to_type_id, parse_class_name_type_args, type_arg_id_by_name,
+};
 pub(crate) use program_decl::{
     lower_program_into, lower_program_into_with_missing, LoweringOutputs,
 };
