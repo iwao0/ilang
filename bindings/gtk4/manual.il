@@ -30,7 +30,7 @@
 use generated.gobject { GObject }
 use generated.glib { GMainLoop, GVariant }
 use generated.gtk { GtkWidget, GtkEntry, GtkDrawingArea, GtkWindow,
-                    GtkAlertDialog, GtkFileDialog }
+                    GtkAlertDialog, GtkFileDialog, GtkCssProvider }
 use generated.gio { GCancellable }
 use generated.gdk { GdkDisplay, GdkSurface, GdkFrameClock }
 
@@ -108,6 +108,19 @@ pub enum Keyval: u32 {
 
     @lib pub fn gtk_widget_insert_action_group(
         w: GtkWidget, name: *const char, group: GActionGroup
+    )
+
+    // ─── Display-wide CSS provider ────────────────────────────
+    // `gtk_style_context_add_provider_for_display(GdkDisplay*,
+    //  GtkStyleProvider*, guint)`. GIR skips it: the middle
+    // argument is the `GtkStyleProvider` <interface>, and the
+    // owning `GtkStyleContext` is deprecated in GTK4 so the
+    // generator drops the whole record. `GtkCssProvider`
+    // implements `GtkStyleProvider`, so we type the slot as the
+    // concrete provider — at the ABI it's just a pointer.
+    // `GTK_STYLE_PROVIDER_PRIORITY_APPLICATION` is 600.
+    @lib pub fn gtk_style_context_add_provider_for_display(
+        display: GdkDisplay, provider: GtkCssProvider, priority: u32
     )
 
     // ─── GMainLoop ────────────────────────────────────────────

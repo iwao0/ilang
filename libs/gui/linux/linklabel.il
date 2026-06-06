@@ -5,12 +5,17 @@
 
 use std.ffi { cstrFromString }
 use gtk {
-    GtkWidget, GtkLinkButton, GtkButton, GtkFixed, GObject,
+    GtkWidget, GtkLinkButton, GtkButton, GtkLabel, GtkFixed, GObject,
+    GtkAlign, GtkCssProvider, GdkDisplay,
     gtk_link_button_new_with_label, gtk_link_button_set_uri,
-    gtk_button_set_label,
+    gtk_button_set_label, gtk_button_get_child, gtk_label_set_xalign,
     gtk_fixed_put, gtk_fixed_move,
     gtk_widget_set_size_request, gtk_widget_set_sensitive,
     gtk_widget_set_visible, gtk_widget_set_tooltip_text,
+    gtk_widget_set_halign, gtk_widget_add_css_class,
+    gtk_css_provider_new, gtk_css_provider_load_from_string,
+    gtk_style_context_add_provider_for_display,
+    gdk_display_get_default,
     g_signal_connect_data,
 }
 use core { resolveGtkParent }
@@ -29,6 +34,13 @@ class LinkLabelSlot {
 fn linkLabelNoOp(x: f64, y: f64) {}
 
 let LINKLABELS = new Map<i64, LinkLabelSlot>()
+
+// `GtkLinkButton` inherits `GtkButton`'s theme padding, which on
+// top of the centred label pushes the text in from the left edge.
+// Other platforms hug the text flush left, so strip the padding /
+// min-size via a one-time, display-wide CSS provider keyed on the
+// `.ilang-linklabel` class we add to every link button.
+let LINKLABEL_CSS_INSTALLED: bool = false
 
 @extern(C) {
     pub fn linux_linklabel_clicked(btn: i64, data: i64) {
@@ -56,6 +68,26 @@ pub fn createNativeLinkLabel(
     let btn = gtk_link_button_new_with_label(
         cstrFromString(url), cstrFromString(text)
     ) as GtkLinkButton
+    // `GtkLinkButton`'s child label centres itself by default; other
+    // platforms left-align the link text, so match that here. The
+    // CSS class + provider strips the button padding so the text
+    // sits flush against the left edge.
+    if !LINKLABEL_CSS_INSTALLED {
+        let display = gdk_display_get_default()
+        if (display as i64) != 0 {
+            let provider = gtk_css_provider_new()
+            gtk_css_provider_load_from_string(provider, cstrFromString(
+                ".ilang-linklabel { padding: 0; margin: 0; min-width: 0; min-height: 0; }"
+            ))
+            // 600 == GTK_STYLE_PROVIDER_PRIORITY_APPLICATION
+            gtk_style_context_add_provider_for_display(display, provider, 600 as u32)
+            LINKLABEL_CSS_INSTALLED = true
+        }
+    }
+    gtk_widget_add_css_class(btn as GtkWidget, cstrFromString("ilang-linklabel"))
+    let child = gtk_button_get_child(btn as GtkButton)
+    gtk_widget_set_halign(child, GtkAlign.fill)
+    gtk_label_set_xalign(child as GtkLabel, 0.0 as f32)
     gtk_widget_set_size_request(btn as GtkWidget, width as i32, height as i32)
     gtk_widget_set_sensitive(btn as GtkWidget, if enabled { 1 as i32 } else { 0 as i32 })
     gtk_widget_set_visible(btn as GtkWidget, if visible { 1 as i32 } else { 0 as i32 })
@@ -76,6 +108,10 @@ pub fn createNativeLinkLabel(
 pub fn setLinkLabelText(handle: i64, text: string) {
     if let some(slot) = LINKLABELS.get(handle) {
         gtk_button_set_label(slot.btn as GtkButton, cstrFromString(text))
+        // set_label rebuilds the child label, so re-apply left-align.
+        let child = gtk_button_get_child(slot.btn as GtkButton)
+        gtk_widget_set_halign(child, GtkAlign.fill)
+        gtk_label_set_xalign(child as GtkLabel, 0.0 as f32)
     }
 }
 pub fn setLinkLabelUrl(handle: i64, url: string) {
