@@ -21,7 +21,7 @@ pub(super) fn lower_rtti_inst<M: Module>(
     vmap: &mut HashMap<ValueId, Value>,
     module: &mut M,
     prog_ctx: &super::super::ProgCtx,
-    _fn_ctx: &super::super::FnCtx,
+    fn_ctx: &super::super::FnCtx,
     inst: &Inst,
 ) -> Result<(), CompileError> {
     let super::super::ProgCtx {
@@ -30,14 +30,37 @@ pub(super) fn lower_rtti_inst<M: Module>(
         class_global,
         ..
     } = *prog_ctx;
+    let super::super::FnCtx { func, .. } = *fn_ctx;
+    use ilang_mir::MirTy;
     use super::super::layout::object_header as oh;
     match inst {
         Inst::TypeOf { dst, value } => {
-            // Return the dynamic class id (i64) — used as an opaque
-            // `Type` handle. Full `Type` API arrives with the runtime.
-            let p = vmap[value];
-            let cid = fb.ins().load(types::I64, MemFlags::trusted(), p, oh::CLASS_ID);
-            vmap.insert(*dst, cid);
+            // Object / Weak values carry a dynamic class id in their
+            // header. Everything else (primitives, arrays, enums,
+            // optionals, ...) is keyed by the static MirTy — return
+            // the matching virtual id so `__class_name` / `__type_kind`
+            // can still answer.
+            let value_ty = func.ty_of(*value).clone();
+            match &value_ty {
+                MirTy::Object(_) | MirTy::Weak(_) => {
+                    let p = vmap[value];
+                    let cid = fb.ins().load(
+                        types::I64,
+                        MemFlags::trusted(),
+                        p,
+                        oh::CLASS_ID,
+                    );
+                    vmap.insert(*dst, cid);
+                }
+                _ => {
+                    let id = crate::compile::mir_ty_to_type_id(
+                        &value_ty,
+                        &|c| class_global[c as usize],
+                    );
+                    let v = fb.ins().iconst(types::I64, id);
+                    vmap.insert(*dst, v);
+                }
+            }
         }
         Inst::IsInstance { dst, value, class } => {
             let p = vmap[value];
