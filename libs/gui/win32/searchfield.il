@@ -36,6 +36,15 @@ use windows {
 }
 use util {
     applyGuiFont, vkToString, modCtrl, modShift, modAlt, modMeta, noOpText,
+    ensureGdiplus,
+}
+use gdiplus {
+    GpGraphics, GpPen,
+    SmoothingMode,
+    GdipCreateFromHDC, GdipDeleteGraphics, GdipSetSmoothingMode,
+    GdipCreatePen1, GdipDeletePen,
+    GdipSetPenStartCap, GdipSetPenEndCap,
+    GdipDrawEllipse, GdipDrawLine,
 }
 use core { windowHwnd, noOp1, noOpKey }
 
@@ -79,19 +88,22 @@ let EDIT_TO_HOST = new Map<i64, i64>()  // child EDIT hwnd → host hwnd
 
 let SEARCH_CLASS_INITED: bool = false
 
-const CANCEL_BTN_W: i32 = 20 as i32
-const EDIT_PAD_L:   i32 = 4 as i32
-const EDIT_PAD_T:   i32 = 2 as i32
-const EDIT_PAD_B:   i32 = 2 as i32
-const BORDER:       u32 = 0x00B0B0B0 as u32
-const CANCEL_FG:    u32 = 0x00606060 as u32
+const SEARCH_ICON_W: i32 = 22 as i32
+const CANCEL_BTN_W:  i32 = 20 as i32
+const EDIT_PAD_T:    i32 = 3 as i32
+const EDIT_PAD_B:    i32 = 1 as i32
+const BORDER:        u32 = 0x00B0B0B0 as u32
+const CANCEL_FG:     u32 = 0x00606060 as u32
 const CANCEL_FG_DIS: u32 = 0x00B0B0B0 as u32
+// 0xFF6B6B6B — neutral mid-grey shared with the accordion chevron.
+const ICON_ARGB:     u32 = 0xFF6B6B6B as u32
+const ICON_ARGB_DIS: u32 = 0xFFB0B0B0 as u32
 
 @extern(C) {
 
 fn editRectFor(slot: SearchFieldSlot, w: i32, h: i32): RECT {
     RECT {
-        left:   EDIT_PAD_L,
+        left:   SEARCH_ICON_W,
         top:    EDIT_PAD_T,
         right:  w - CANCEL_BTN_W,
         bottom: h - EDIT_PAD_B,
@@ -129,19 +141,56 @@ fn paintSearchField(hwnd: HWND, slot: SearchFieldSlot, hdc: HDC) {
     SelectObject(hdc, oldBrush)
     DeleteObject(pen as HGDIOBJ)
 
-    // ✕ — drawn as two crossing lines inside a small square.
-    let len = GetWindowTextLengthW(slot.edit)
-    if len > 0 as i32 {
-        let cr = cancelRectFor(w, h)
-        let xColor = if slot.enabled { CANCEL_FG } else { CANCEL_FG_DIS }
-        let xPen = CreatePen(PenStyle.solid as i32, 2, xColor)
-        let oldXPen = SelectObject(hdc, xPen as HGDIOBJ)
-        MoveToEx(hdc, cr.left + 2 as i32, cr.top + 2 as i32, 0 as *POINT)
-        LineTo(hdc, cr.right - 2 as i32, cr.bottom - 2 as i32)
-        MoveToEx(hdc, cr.right - 2 as i32, cr.top + 2 as i32, 0 as *POINT)
-        LineTo(hdc, cr.left + 2 as i32, cr.bottom - 2 as i32)
-        SelectObject(hdc, oldXPen)
-        DeleteObject(xPen as HGDIOBJ)
+    // Magnifying-glass icon + ✕ via GDI+ so the strokes are
+    // anti-aliased and match the chevron rendering style.
+    ensureGdiplus()
+    let g: *GpGraphics = 0 as *GpGraphics
+    GdipCreateFromHDC(hdc, &g)
+    if g as i64 != 0 as i64 {
+        GdipSetSmoothingMode(g, SmoothingMode.antiAlias as i32)
+        let argb: u32 = if slot.enabled { ICON_ARGB } else { ICON_ARGB_DIS }
+        let glyphPen: *GpPen = 0 as *GpPen
+        GdipCreatePen1(argb, 1.4 as f32, 0 as i32, &glyphPen)
+        // LineCap.Round = 2 — keeps the handle stub from looking
+        // chipped at small sizes.
+        GdipSetPenStartCap(glyphPen, 2 as i32)
+        GdipSetPenEndCap(glyphPen, 2 as i32)
+
+        // Magnifier lens — a circle centred slightly left of the
+        // icon-area centre with a 4 px radius. Followed by the
+        // short diagonal handle off the bottom-right.
+        let icx: f64 = 9.0
+        let icy: f64 = (h as f64) / 2.0
+        let r:   f64 = 4.0
+        GdipDrawEllipse(g, glyphPen,
+            (icx - r) as f32, (icy - r) as f32,
+            (2.0 * r) as f32, (2.0 * r) as f32)
+        // Handle: from a point on the circle's lower-right
+        // tangent down to a stub end ~3 px away.
+        let hx1: f64 = icx + r * 0.707
+        let hy1: f64 = icy + r * 0.707
+        let hx2: f64 = hx1 + 3.0
+        let hy2: f64 = hy1 + 3.0
+        GdipDrawLine(g, glyphPen,
+            hx1 as f32, hy1 as f32, hx2 as f32, hy2 as f32)
+
+        // ✕ on the right when the field has any text.
+        let len = GetWindowTextLengthW(slot.edit)
+        if len > 0 as i32 {
+            let cr = cancelRectFor(w, h)
+            // Pull the strokes in 1 px from the hit-rect edges so
+            // the visible glyph stays comfortably inside the
+            // 12 px box.
+            let x1: f64 = (cr.left + 2 as i32) as f64
+            let y1: f64 = (cr.top  + 2 as i32) as f64
+            let x2: f64 = (cr.right - 2 as i32) as f64
+            let y2: f64 = (cr.bottom - 2 as i32) as f64
+            GdipDrawLine(g, glyphPen, x1 as f32, y1 as f32, x2 as f32, y2 as f32)
+            GdipDrawLine(g, glyphPen, x2 as f32, y1 as f32, x1 as f32, y2 as f32)
+        }
+
+        GdipDeletePen(glyphPen)
+        GdipDeleteGraphics(g)
     }
 }
 
