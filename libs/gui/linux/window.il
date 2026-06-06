@@ -26,6 +26,7 @@ use gtk {
     gtk_widget_get_width, gtk_widget_get_height,
     gtk_widget_set_opacity, gtk_widget_get_opacity,
     gtk_widget_add_controller,
+    gtk_widget_add_tick_callback,
     gtk_fixed_new,
     GtkScrolledWindow, GtkPolicyType,
     gtk_scrolled_window_new, gtk_scrolled_window_set_child,
@@ -155,36 +156,10 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
             // the allocation still reads back as 0. Forwarding that
             // would clobber the window's logical size to 0 and collapse
             // every flex child to zero width (buttons overlap). Only
-            // forward a real, post-allocation size.
+            // forward a real, post-allocation size. The first-map fit
+            // correction lives in `linux_window_fit` (a frame-clock
+            // tick) — this handler only relays live user resizes.
             if w > 0 as i32 && h > 0 as i32 {
-                // First-allocation fit correction: GTK's
-                // `set_default_size` covers the whole window
-                // (including the CSD header bar), but the public
-                // `width × height` is meant to be the client area
-                // — Cocoa's setContentSize: / Win32's
-                // AdjustWindowRect both do this implicitly. When
-                // the first real allocation comes in, compare the
-                // measured content height to the target and grow
-                // the window by the missing decoration height so
-                // children laid out at `y = h - margin` stay
-                // visible. Re-do the same for width in case the
-                // WM imposes side decorations (rare but possible).
-                if !slot.didFitCorrection
-                   && slot.targetH > 0 as i32
-                   && h < slot.targetH {
-                    let dh = slot.targetH - h
-                    let dw = if slot.targetW > w { slot.targetW - w } else { 0 as i32 }
-                    slot.didFitCorrection = true
-                    gtk_window_set_default_size(
-                        slot.win, slot.targetW + dw, slot.targetH + dh
-                    )
-                    // Skip dispatching onResize for this first
-                    // pass — the corrective `set_default_size`
-                    // will fire another `notify::default-height`
-                    // immediately and that one carries the real,
-                    // post-correction size.
-                    return
-                }
                 slot.onResize(w as f64, h as f64)
                 // Pin the bottom-docked status bar (if any) so it
                 // tracks the new content rectangle.
@@ -193,6 +168,67 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
                 linux_relayout_toolbar(data, w, h)
             }
         }
+    }
+
+    /// Frame-clock tick that performs the first-map fit correction.
+    /// GTK's `set_default_size` sizes the whole window including the
+    /// CSD header bar, but the public `width × height` is meant to be
+    /// the client area (Cocoa's setContentSize: / Win32's
+    /// AdjustWindowRect do this implicitly).
+    ///
+    /// Two GTK realities force this shape:
+    ///   * `notify::default-height` never carries the real post-map
+    ///     allocation under Wayland, so the size can only be measured
+    ///     from a tick (guaranteed to run once mapped and drawing).
+    ///   * `set_default_size` does NOT resize an already-mapped
+    ///     window under Wayland. The only thing that grows it is a
+    ///     minimum size on the content widget, which GTK must honour
+    ///     — so we pin `size_request` on the scrolled window to the
+    ///     target, let the window grow, then release the pin next
+    ///     frame so it stays freely shrinkable.
+    ///
+    /// Returns G_SOURCE_CONTINUE (1) while correcting, then dispatches
+    /// the initial onResize and removes itself (G_SOURCE_REMOVE = 0).
+    pub fn linux_window_fit(widget: i64, clock: i64, data: i64): i32 {
+        if let some(slot) = WINDOWS.get(data) {
+            let w = gtk_widget_get_width(slot.scroll as GtkWidget)
+            let h = gtk_widget_get_height(slot.scroll as GtkWidget)
+            // Not allocated yet — wait for a real frame.
+            if w <= 0 as i32 || h <= 0 as i32 { return 1 as i32 }
+            let short = (slot.targetH > 0 as i32 && h < slot.targetH)
+                     || (slot.targetW > 0 as i32 && w < slot.targetW)
+            if !slot.didFitCorrection {
+                slot.didFitCorrection = true
+                if short {
+                    // Pin a minimum on the content so GTK grows the
+                    // (CSD) window to satisfy it; re-measure next frame.
+                    gtk_widget_set_size_request(
+                        slot.scroll as GtkWidget, slot.targetW, slot.targetH
+                    )
+                    return 1 as i32
+                }
+                // Already at/above target (e.g. X11 server-side
+                // decorations) — nothing to grow; finalize below.
+            } else {
+                // Pin is in place — wait for the grow to land, capped
+                // so an unsatisfiable target can't spin forever.
+                if short && slot.fitTries < 30 as i32 {
+                    slot.fitTries = slot.fitTries + 1 as i32
+                    return 1 as i32
+                }
+                // Target reached (or gave up): release the pin so the
+                // window stays shrinkable, then finalize at this size.
+                gtk_widget_set_size_request(
+                    slot.scroll as GtkWidget, -1 as i32, -1 as i32
+                )
+            }
+            slot.onResize(w as f64, h as f64)
+            linux_relayout_status_bar(data, w, h)
+            linux_relayout_toolbar(data, w, h)
+            slot.fitTick = 0 as u32
+            return 0 as i32
+        }
+        0 as i32
     }
 
     /// `void(GObject* window, GParamSpec*, gpointer)` — fired on
@@ -486,6 +522,16 @@ pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
     )
     gtk_widget_add_controller(
         win as GtkWidget, click as GtkEventController
+    )
+
+    // First-map fit correction. Runs every frame once the window is
+    // mapped; grows the window so the content area matches the
+    // requested client size (CSD-aware), then removes itself. A tick
+    // is used rather than `notify::default-height` because that
+    // signal never carries the real post-map allocation under
+    // Wayland. See `linux_window_fit`.
+    slot.fitTick = gtk_widget_add_tick_callback(
+        win as GtkWidget, linux_window_fit, handle as *void, 0 as i64
     )
 
     handle

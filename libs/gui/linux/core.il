@@ -81,6 +81,17 @@ pub class WindowSlot {
     pub targetW: i32
     pub targetH: i32
     pub didFitCorrection: bool
+    /// Frame-clock tick id driving the first-map fit correction.
+    /// `0` once the correction has settled and the tick removed.
+    /// The tick path is used instead of `notify::default-height`
+    /// because that signal does NOT fire with the real content
+    /// allocation under Wayland (only the 0×0 setup pass), so the
+    /// CSD-height compensation would never run there. See window.il.
+    pub fitTick: u32
+    /// Frames waited for the pinned content size_request to actually
+    /// grow the window; caps the fit loop so a screen too small to
+    /// satisfy the target can't spin the tick forever.
+    pub fitTries: i32
 
     pub init(win: GtkWindow, fixed: GtkFixed, scroll: GtkScrolledWindow) {
         this.win               = win
@@ -125,6 +136,8 @@ pub class WindowSlot {
         this.targetW           = 0 as i32
         this.targetH           = 0 as i32
         this.didFitCorrection  = false
+        this.fitTick           = 0 as u32
+        this.fitTries          = 0 as i32
     }
 }
 
