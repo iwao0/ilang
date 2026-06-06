@@ -240,6 +240,27 @@ pub enum Keyval: u32 {
         data: *void, destroy_data: i64, flags: u32
     ): u64
 
+    /// `void(WebKitWebView*, WebKitLoadEvent, gpointer)` — the
+    /// `load-changed` signal. `WebKitLoadEvent` is a 4-value C enum
+    /// (STARTED=0, REDIRECTED=1, COMMITTED=2, FINISHED=3) so the
+    /// middle slot is a `u32`, not a pointer.
+    @symbol("g_signal_connect_data")
+    @lib pub fn g_signal_connect_load_changed(
+        instance: GObject, signal_name: *const char,
+        c_handler: fn(i64, u32, i64),
+        data: *void, destroy_data: i64, flags: u32
+    ): u64
+
+    /// `gboolean(WebKitWebView*, WebKitLoadEvent, char* failing_uri,
+    /// GError*, gpointer)` — the `load-failed` signal. Returning
+    /// nonzero suppresses WebKit's default error page.
+    @symbol("g_signal_connect_data")
+    @lib pub fn g_signal_connect_load_failed(
+        instance: GObject, signal_name: *const char,
+        c_handler: fn(i64, u32, i64, i64, i64): i32,
+        data: *void, destroy_data: i64, flags: u32
+    ): u64
+
     // ─── GtkNative + GdkSurface accessors ─────────────────────
     // Needed by libs/gui/linux GpuView to extract the GdkSurface
     // backing a GtkWindow and, beneath it, the platform-native X11
@@ -486,4 +507,26 @@ pub enum Keyval: u32 {
         c_handler: fn(i64, u32, i64),
         data: *void, destroy_data: i64, flags: u32
     ): u64
+}
+
+// ─── WebKitGTK 6.0 (the GTK4 port) ───────────────────────────
+// Backs libs/gui/linux WebView. Lives in its own shared library
+// (`libwebkitgtk-6.0.so`, distinct from `libgtk-4`), so it gets its
+// own @extern lib name — the JIT dlopens `libwebkitgtk-6.0.so.N` and
+// the AOT linker passes `-lwebkitgtk-6.0`. Only the slice WebView
+// needs is bound; `webkit_web_view_new` returns a plain `GtkWidget*`.
+@extern(C, "webkitgtk-6.0") {
+    @handle pub struct WebKitWebView {}
+
+    @lib pub fn webkit_web_view_new(): GtkWidget
+    @lib pub fn webkit_web_view_load_uri(self: WebKitWebView, uri: *const char)
+    @lib pub fn webkit_web_view_get_uri(self: WebKitWebView): *const char
+    @lib pub fn webkit_web_view_load_html(
+        self: WebKitWebView, content: *const char, base_uri: *const char
+    )
+    @lib pub fn webkit_web_view_go_back(self: WebKitWebView)
+    @lib pub fn webkit_web_view_go_forward(self: WebKitWebView)
+    @lib pub fn webkit_web_view_reload(self: WebKitWebView)
+    @lib pub fn webkit_web_view_can_go_back(self: WebKitWebView): i32
+    @lib pub fn webkit_web_view_can_go_forward(self: WebKitWebView): i32
 }

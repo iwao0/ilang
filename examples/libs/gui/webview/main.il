@@ -4,10 +4,16 @@
 // filling the rest of the window. Hit Enter in the URL field to
 // navigate; the load lifecycle prints to the console.
 //
-// macOS only — the linux / win32 backends ship as no-op stubs.
+// macOS (WKWebView) and Linux (WebKitGTK 6.0) are live; the win32
+// backend still ships as a no-op stub.
 //
 // Run with:
 //   ilang run examples/libs/gui/webview/main.il
+//
+// Linux note: WebKitGTK runs its web content in a bubblewrap
+// sandbox. Inside a container / VM where user namespaces are
+// restricted it can't start (bwrap "Permission denied"); export
+// WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 there.
 
 use gui
 

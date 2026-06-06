@@ -38,12 +38,19 @@ pub(super) fn try_open_lib(name: &str) -> Option<*mut u8> {
     if let Some(h) = try_one(name) {
         return Some(h);
     }
-    // Bare name like "c" / "SDL2" — try OS-specific candidate
-    // filenames and Homebrew install dirs (Apple Silicon
-    // `/opt/homebrew`, Intel `/usr/local`) so user-installed libs
-    // resolve out of the box. Mirrors the candidates the legacy
-    // `crates/ilang-codegen/src/native_extern.rs` walks.
-    if !name.contains('.') && !name.contains('/') {
+    // Bare name like "c" / "SDL2" / "webkitgtk-6.0" — try
+    // OS-specific candidate filenames and Homebrew install dirs
+    // (Apple Silicon `/opt/homebrew`, Intel `/usr/local`) so
+    // user-installed libs resolve out of the box. Mirrors the
+    // candidates the legacy `crates/ilang-codegen/src/native_extern.rs`
+    // walks. Skip only when the name is already a full filename
+    // (`.so`/`.dylib`/`.dll`) or path — a bare `.` in the name (e.g.
+    // the `6.0` of a versioned soname stem) must still expand.
+    let already_filename = name.contains('/')
+        || name.contains(".so")
+        || name.contains(".dylib")
+        || name.contains(".dll");
+    if !already_filename {
         let candidates: Vec<String> = if cfg!(target_os = "macos") {
             vec![
                 format!("lib{name}.dylib"),

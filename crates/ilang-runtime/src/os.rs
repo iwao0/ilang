@@ -142,7 +142,15 @@ fn try_open_lib(name: &str) -> bool {
             .insert(name.to_string());
         return true;
     }
-    if !name.contains('.') && !name.contains('/') {
+    // Expand to OS-specific filenames unless the name is already a
+    // full filename (`.so`/`.dylib`/`.dll`) or path — a versioned
+    // soname stem like `webkitgtk-6.0` carries a bare `.` yet must
+    // still expand to `libwebkitgtk-6.0.so.N`.
+    let already_filename = name.contains('/')
+        || name.contains(".so")
+        || name.contains(".dylib")
+        || name.contains(".dll");
+    if !already_filename {
         let candidates: Vec<String> = if cfg!(target_os = "macos") {
             vec![
                 format!("lib{name}.dylib"),
