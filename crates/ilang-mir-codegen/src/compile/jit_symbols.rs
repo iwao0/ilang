@@ -250,6 +250,41 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("$print.object", ilang_runtime::__print_object as *const u8);
     jit_builder.symbol("$print.struct", ilang_runtime::__print_struct as *const u8);
     jit_builder.symbol("$class.name", ilang_runtime::__class_name as *const u8);
+    jit_builder.symbol("$type.fields", ilang_runtime::__type_fields as *const u8);
+    jit_builder.symbol("$type.methods", ilang_runtime::__type_methods as *const u8);
+    jit_builder.symbol("$type.parent", ilang_runtime::__type_parent as *const u8);
+    jit_builder.symbol("$type.typeArgs", ilang_runtime::__type_type_args as *const u8);
+    jit_builder.symbol("$type.fieldType", ilang_runtime::__type_field_type as *const u8);
+    jit_builder.symbol("$type.methodReturn", ilang_runtime::__type_method_return as *const u8);
+    jit_builder.symbol("$type.methodParams", ilang_runtime::__type_method_params as *const u8);
+    jit_builder.symbol(
+        "$type.registerDeclaredFieldCount",
+        ilang_runtime::__register_type_declared_field_count as *const u8,
+    );
+    jit_builder.symbol(
+        "$type.registerMethod",
+        ilang_runtime::__register_type_method as *const u8,
+    );
+    jit_builder.symbol(
+        "$type.registerParent",
+        ilang_runtime::__register_type_parent as *const u8,
+    );
+    jit_builder.symbol(
+        "$type.registerTypeArg",
+        ilang_runtime::__register_type_arg as *const u8,
+    );
+    jit_builder.symbol(
+        "$type.registerFieldType",
+        ilang_runtime::__register_type_field_type as *const u8,
+    );
+    jit_builder.symbol(
+        "$type.registerMethodReturn",
+        ilang_runtime::__register_type_method_return as *const u8,
+    );
+    jit_builder.symbol(
+        "$type.registerMethodParam",
+        ilang_runtime::__register_type_method_param as *const u8,
+    );
     jit_builder.symbol("$print.weak", ilang_runtime::__print_weak as *const u8);
     jit_builder.symbol("$print.enum", ilang_runtime::__print_enum as *const u8);
     jit_builder.symbol("$print.fn", ilang_runtime::__print_fn as *const u8);

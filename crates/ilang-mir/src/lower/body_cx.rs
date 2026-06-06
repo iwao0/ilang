@@ -223,6 +223,17 @@ impl<'a> BodyCx<'a> {
         true
     }
 
+    /// Type-only peek for a binding — no SSA materialisation, so it
+    /// can be called from AST-walking branches without committing to
+    /// the binding being used.
+    pub(in crate::lower) fn peek_var_ty(&self, name: Symbol) -> Option<MirTy> {
+        match self.env.lookup_binding(name)? {
+            Binding::Ssa(_, t) => Some(t),
+            Binding::Local(_, t) => Some(t),
+            Binding::Cell(_, t) => Some(t),
+        }
+    }
+
     pub(in crate::lower) fn lookup_var(&mut self, name: Symbol) -> Option<(ValueId, MirTy)> {
         match self.env.lookup_binding(name)? {
             Binding::Ssa(v, t) => Some((v, t)),

@@ -597,22 +597,74 @@ impl<'a> BodyCx<'a> {
         name: Symbol,
         _span: Span,
     ) -> Result<(ValueId, MirTy), LowerError> {
-        // `typeof(x).name` — pseudo-property on the Type handle that
-        // `typeof` returns. Now keyed off the value's MirTy
-        // (`MirTy::TypeHandle`) rather than the syntactic shape of
-        // `obj`, so `let t = typeof(x); t.name` works the same as
-        // the direct `typeof(x).name` chain.
-        {
-            let cid = obj_type_handle(self, obj)?;
-            if let Some(cid) = cid {
-                if name.as_str() == "name" {
-                    let v = self.fb.new_value(MirTy::Str);
-                    self.fb.push_inst(Inst::Call {
-                        dst: Some(v),
-                        callee: FuncRef::Builtin(Symbol::intern("class_name")),
-                        args: Box::new([cid]),
-                    });
-                    return Ok((v, MirTy::Str));
+        // `typeof(x).<member>` — pseudo-properties on the Type
+        // handle. Keyed off the value's MirTy (`MirTy::TypeHandle`)
+        // rather than the syntactic shape of `obj`, so let-binding
+        // the handle works the same as a direct chain. The peek
+        // avoids lowering `obj` here so the normal field path below
+        // doesn't re-emit it; only the reflection branches that
+        // actually fire take ownership of the lowered value.
+        if is_type_handle_obj(self, obj) {
+            let (cid, _) = self.lower_expr(obj)?;
+            {
+                match name.as_str() {
+                    "name" => {
+                        let v = self.fb.new_value(MirTy::Str);
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(v),
+                            callee: FuncRef::Builtin(Symbol::intern("class_name")),
+                            args: Box::new([cid]),
+                        });
+                        return Ok((v, MirTy::Str));
+                    }
+                    "fields" => {
+                        let ty = MirTy::Array { elem: Box::new(MirTy::Str), len: None };
+                        let v = self.fb.new_value(ty.clone());
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(v),
+                            callee: FuncRef::Builtin(Symbol::intern("type_fields")),
+                            args: Box::new([cid]),
+                        });
+                        return Ok((v, ty));
+                    }
+                    "methods" => {
+                        let ty = MirTy::Array { elem: Box::new(MirTy::Str), len: None };
+                        let v = self.fb.new_value(ty.clone());
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(v),
+                            callee: FuncRef::Builtin(Symbol::intern("type_methods")),
+                            args: Box::new([cid]),
+                        });
+                        return Ok((v, ty));
+                    }
+                    "parent" => {
+                        let ty = MirTy::Optional(Box::new(MirTy::TypeHandle));
+                        let v = self.fb.new_value(ty.clone());
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(v),
+                            callee: FuncRef::Builtin(Symbol::intern("type_parent")),
+                            args: Box::new([cid]),
+                        });
+                        return Ok((v, ty));
+                    }
+                    "typeArgs" => {
+                        let ty = MirTy::Array {
+                            elem: Box::new(MirTy::TypeHandle),
+                            len: None,
+                        };
+                        let v = self.fb.new_value(ty.clone());
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(v),
+                            callee: FuncRef::Builtin(Symbol::intern("type_typeargs")),
+                            args: Box::new([cid]),
+                        });
+                        return Ok((v, ty));
+                    }
+                    other => {
+                        return Err(LowerError::Other(format!(
+                            "unsupported reflection member `.{other}` on Type"
+                        )))
+                    }
                 }
             }
         }
@@ -677,6 +729,72 @@ impl<'a> BodyCx<'a> {
         }
         let obj_is_fresh = self.is_fresh_object_expr(obj);
         let (ov, oty) = self.lower_expr(obj)?;
+        // Reflection on lowered Type handles whose AST shape wasn't
+        // an obvious typeof() call or Var — covers `ps[0].name`,
+        // `xs[i].fields`, and other indirection through Index /
+        // MethodCall whose post-lowering type is `TypeHandle`.
+        if matches!(oty, MirTy::TypeHandle) {
+            let cid = ov;
+            match name.as_str() {
+                "name" => {
+                    let v = self.fb.new_value(MirTy::Str);
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(v),
+                        callee: FuncRef::Builtin(Symbol::intern("class_name")),
+                        args: Box::new([cid]),
+                    });
+                    return Ok((v, MirTy::Str));
+                }
+                "fields" => {
+                    let ty = MirTy::Array { elem: Box::new(MirTy::Str), len: None };
+                    let v = self.fb.new_value(ty.clone());
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(v),
+                        callee: FuncRef::Builtin(Symbol::intern("type_fields")),
+                        args: Box::new([cid]),
+                    });
+                    return Ok((v, ty));
+                }
+                "methods" => {
+                    let ty = MirTy::Array { elem: Box::new(MirTy::Str), len: None };
+                    let v = self.fb.new_value(ty.clone());
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(v),
+                        callee: FuncRef::Builtin(Symbol::intern("type_methods")),
+                        args: Box::new([cid]),
+                    });
+                    return Ok((v, ty));
+                }
+                "parent" => {
+                    let ty = MirTy::Optional(Box::new(MirTy::TypeHandle));
+                    let v = self.fb.new_value(ty.clone());
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(v),
+                        callee: FuncRef::Builtin(Symbol::intern("type_parent")),
+                        args: Box::new([cid]),
+                    });
+                    return Ok((v, ty));
+                }
+                "typeArgs" => {
+                    let ty = MirTy::Array {
+                        elem: Box::new(MirTy::TypeHandle),
+                        len: None,
+                    };
+                    let v = self.fb.new_value(ty.clone());
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(v),
+                        callee: FuncRef::Builtin(Symbol::intern("type_typeargs")),
+                        args: Box::new([cid]),
+                    });
+                    return Ok((v, ty));
+                }
+                other => {
+                    return Err(LowerError::Other(format!(
+                        "unsupported reflection member `.{other}` on Type"
+                    )))
+                }
+            }
+        }
         // Property getter on an instance.
         if let MirTy::Object(cid) = &oty {
             let meta = self.class_meta.get(cid).expect("class meta");
@@ -867,27 +985,19 @@ impl<'a> BodyCx<'a> {
     }
 }
 
-/// Cheap AST / env check for "is the receiver a `MirTy::TypeHandle`
-/// value?" Used by the field-access lowering to route
-/// `typeof(x).<member>` and `let t = typeof(x); t.<member>` through
-/// the same runtime calls without double-lowering `obj`.
-fn obj_type_handle(
-    cx: &mut BodyCx,
-    obj: &Expr,
-) -> Result<Option<ValueId>, LowerError> {
-    let is_handle = match &obj.kind {
+/// AST / env peek for "is the receiver a `MirTy::TypeHandle` value?"
+/// Caller is responsible for lowering `obj` afterwards (so a Var
+/// binding's UseLocal isn't emitted twice when reflection doesn't
+/// match).
+fn is_type_handle_obj(cx: &mut BodyCx, obj: &Expr) -> bool {
+    match &obj.kind {
         ExprKind::Call { callee, args } => {
             callee.as_str() == "typeof" && args.len() == 1
         }
         ExprKind::Var(name) => matches!(
-            cx.lookup_var(*name),
-            Some((_, MirTy::TypeHandle))
+            cx.peek_var_ty(*name),
+            Some(MirTy::TypeHandle)
         ),
         _ => false,
-    };
-    if !is_handle {
-        return Ok(None);
     }
-    let (v, _) = cx.lower_expr(obj)?;
-    Ok(Some(v))
 }

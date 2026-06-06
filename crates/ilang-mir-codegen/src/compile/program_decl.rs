@@ -597,6 +597,35 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         builtin_ids.insert("float_to_string_f64".to_string(), (cid, s_f64));
     }
 
+    // Reflection builtins fed by the `typeof(x).<member>` lowering.
+    // Each takes the class id (i64) and returns a heap value (i64).
+    {
+        let mut unary_sig = module.make_signature();
+        unary_sig.params.push(AbiParam::new(types::I64));
+        unary_sig.returns.push(AbiParam::new(types::I64));
+        let mut binary_sig = module.make_signature();
+        binary_sig.params.push(AbiParam::new(types::I64));
+        binary_sig.params.push(AbiParam::new(types::I64));
+        binary_sig.returns.push(AbiParam::new(types::I64));
+
+        let cid = declare_unary_i64(module, "$type.fields")?;
+        builtin_ids.insert("type_fields".to_string(), (cid, unary_sig.clone()));
+        let cid = declare_unary_i64(module, "$type.methods")?;
+        builtin_ids.insert("type_methods".to_string(), (cid, unary_sig.clone()));
+        let cid = declare_unary_i64(module, "$type.parent")?;
+        builtin_ids.insert("type_parent".to_string(), (cid, unary_sig.clone()));
+        let cid = declare_unary_i64(module, "$type.typeArgs")?;
+        builtin_ids.insert("type_typeargs".to_string(), (cid, unary_sig));
+
+        // `(class_id, name_ptr) -> i64`.
+        let cid = module.declare_function("$type.fieldType", Linkage::Import, &binary_sig)?;
+        builtin_ids.insert("type_field_type".to_string(), (cid, binary_sig.clone()));
+        let cid = module.declare_function("$type.methodReturn", Linkage::Import, &binary_sig)?;
+        builtin_ids.insert("type_method_return".to_string(), (cid, binary_sig.clone()));
+        let cid = module.declare_function("$type.methodParams", Linkage::Import, &binary_sig)?;
+        builtin_ids.insert("type_method_params".to_string(), (cid, binary_sig));
+    }
+
     // Pre-collect every string literal in the program; each gets a
     // Cranelift data symbol laid out as
     //   [ i64 length ][ UTF-8 bytes ][ \0 ]

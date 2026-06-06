@@ -201,6 +201,13 @@ impl<'a> BodyCx<'a> {
         let obj_is_fresh = self.is_fresh_object_expr(obj);
         let (ov, oty) = self.lower_expr(obj)?;
 
+        // Type handle methods: `.fieldType(name)` / `.methodReturn(name)`
+        // / `.methodParams(name)` route to the reflection builtins.
+        if matches!(oty, MirTy::TypeHandle) {
+            if let Some(out) = self.try_lower_type_handle_method(ov, method, args)? {
+                return Ok(out);
+            }
+        }
         if let Some(out) = self.try_lower_objc_block_invoke(ov, &oty, method, args)? {
             return Ok(out);
         }
@@ -236,5 +243,54 @@ impl<'a> BodyCx<'a> {
         Err(LowerError::Unsupported(
             "method call on this type / unhandled builtin",
         ))
+    }
+
+    /// Reflection methods on a `Type` handle: `fieldType(name)`,
+    /// `methodReturn(name)`, `methodParams(name)`. All take one string
+    /// argument and return an Optional (heap cell or 0).
+    fn try_lower_type_handle_method(
+        &mut self,
+        cid: ValueId,
+        method: Symbol,
+        args: &[Expr],
+    ) -> Result<Option<(ValueId, MirTy)>, LowerError> {
+        let (builtin, ret_ty): (&str, MirTy) = match method.as_str() {
+            "fieldType" => (
+                "type_field_type",
+                MirTy::Optional(Box::new(MirTy::TypeHandle)),
+            ),
+            "methodReturn" => (
+                "type_method_return",
+                MirTy::Optional(Box::new(MirTy::TypeHandle)),
+            ),
+            "methodParams" => (
+                "type_method_params",
+                MirTy::Optional(Box::new(MirTy::Array {
+                    elem: Box::new(MirTy::TypeHandle),
+                    len: None,
+                })),
+            ),
+            _ => return Ok(None),
+        };
+        if args.len() != 1 {
+            return Err(LowerError::Other(format!(
+                "Type.{}: expected 1 string argument",
+                method.as_str()
+            )));
+        }
+        let (name_v, name_ty) = self.lower_expr(&args[0])?;
+        if !matches!(name_ty, MirTy::Str) {
+            return Err(LowerError::Other(format!(
+                "Type.{}: argument must be a string",
+                method.as_str()
+            )));
+        }
+        let v = self.fb.new_value(ret_ty.clone());
+        self.fb.push_inst(Inst::Call {
+            dst: Some(v),
+            callee: FuncRef::Builtin(Symbol::intern(builtin)),
+            args: Box::new([cid, name_v]),
+        });
+        Ok(Some((v, ret_ty)))
     }
 }

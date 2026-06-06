@@ -283,8 +283,400 @@ fn class_basename_cache() -> &'static RwLock<HashMap<u32, i64>> {
     CLASS_BASENAME_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
+// --------------------------------------------------------------------
+// Reflection meta tables
+// --------------------------------------------------------------------
+//
+// `typeof(x).<member>` for `.methods` / `.parent` / `.typeArgs` and
+// the per-member lookup methods reads from these side-tables. Each is
+// populated once per class at JIT setup / AOT init time, alongside
+// the existing print-info registrations.
+
+static CLASS_METHODS_TABLE: OnceLock<RwLock<HashMap<u32, Vec<String>>>> = OnceLock::new();
+static CLASS_PARENT_TABLE: OnceLock<RwLock<HashMap<u32, i64>>> = OnceLock::new();
+static CLASS_TYPEARGS_TABLE: OnceLock<RwLock<HashMap<u32, Vec<i64>>>> = OnceLock::new();
+static CLASS_FIELD_TYPE_TABLE: OnceLock<RwLock<HashMap<u32, HashMap<String, i64>>>> = OnceLock::new();
+static CLASS_METHOD_RETURN_TABLE: OnceLock<RwLock<HashMap<u32, HashMap<String, i64>>>> = OnceLock::new();
+static CLASS_METHOD_PARAMS_TABLE: OnceLock<RwLock<HashMap<u32, HashMap<String, Vec<i64>>>>> = OnceLock::new();
+
+fn class_methods_table() -> &'static RwLock<HashMap<u32, Vec<String>>> {
+    CLASS_METHODS_TABLE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+fn class_parent_table() -> &'static RwLock<HashMap<u32, i64>> {
+    CLASS_PARENT_TABLE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+fn class_typeargs_table() -> &'static RwLock<HashMap<u32, Vec<i64>>> {
+    CLASS_TYPEARGS_TABLE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+fn class_field_type_table() -> &'static RwLock<HashMap<u32, HashMap<String, i64>>> {
+    CLASS_FIELD_TYPE_TABLE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+fn class_method_return_table() -> &'static RwLock<HashMap<u32, HashMap<String, i64>>> {
+    CLASS_METHOD_RETURN_TABLE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+fn class_method_params_table() -> &'static RwLock<HashMap<u32, HashMap<String, Vec<i64>>>> {
+    CLASS_METHOD_PARAMS_TABLE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+static CLASS_DECLARED_FIELD_COUNT: OnceLock<RwLock<HashMap<u32, i64>>> = OnceLock::new();
+
+fn class_declared_field_count() -> &'static RwLock<HashMap<u32, i64>> {
+    CLASS_DECLARED_FIELD_COUNT.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// Number of fields declared on this class itself (i.e. excluding
+/// fields inherited from the parent chain). Set once per class at
+/// registration time so `__type_fields` reports only the syntactic
+/// declared set.
+#[unsafe(export_name = "$type.registerDeclaredFieldCount")]
+pub extern "C" fn __register_type_declared_field_count(class_id: i64, count: i64) {
+    let mut t = class_declared_field_count().write().expect("declared count table poisoned");
+    t.insert(class_id as u32, count);
+}
+
+#[unsafe(export_name = "$type.registerMethod")]
+pub extern "C" fn __register_type_method(class_id: i64, _idx: i64, name_ptr: i64) {
+    let name = cstr_to_str(name_ptr).to_string();
+    {
+        let mut t = class_methods_table().write().expect("methods table poisoned");
+        t.entry(class_id as u32).or_default().push(name.clone());
+    }
+    // Seed an empty params entry so `methodParams("zero_arg")` can
+    // tell "method exists, zero args" from "method not declared". The
+    // entry stays empty until `__register_type_method_param` pushes.
+    let mut t = class_method_params_table().write().expect("method-params table poisoned");
+    t.entry(class_id as u32)
+        .or_default()
+        .entry(name)
+        .or_default();
+}
+
+#[unsafe(export_name = "$type.registerParent")]
+pub extern "C" fn __register_type_parent(class_id: i64, parent_id: i64) {
+    let mut t = class_parent_table().write().expect("parent table poisoned");
+    t.insert(class_id as u32, parent_id);
+}
+
+#[unsafe(export_name = "$type.registerTypeArg")]
+pub extern "C" fn __register_type_arg(class_id: i64, _idx: i64, arg_id: i64) {
+    let mut t = class_typeargs_table().write().expect("typeargs table poisoned");
+    t.entry(class_id as u32).or_default().push(arg_id);
+}
+
+#[unsafe(export_name = "$type.registerFieldType")]
+pub extern "C" fn __register_type_field_type(class_id: i64, name_ptr: i64, type_id: i64) {
+    let name = cstr_to_str(name_ptr).to_string();
+    let mut t = class_field_type_table().write().expect("field-type table poisoned");
+    t.entry(class_id as u32).or_default().insert(name, type_id);
+}
+
+#[unsafe(export_name = "$type.registerMethodReturn")]
+pub extern "C" fn __register_type_method_return(class_id: i64, name_ptr: i64, ret_id: i64) {
+    let name = cstr_to_str(name_ptr).to_string();
+    let mut t = class_method_return_table().write().expect("method-return table poisoned");
+    t.entry(class_id as u32).or_default().insert(name, ret_id);
+}
+
+#[unsafe(export_name = "$type.registerMethodParam")]
+pub extern "C" fn __register_type_method_param(
+    class_id: i64,
+    name_ptr: i64,
+    _idx: i64,
+    param_id: i64,
+) {
+    let name = cstr_to_str(name_ptr).to_string();
+    let mut t = class_method_params_table().write().expect("method-params table poisoned");
+    t.entry(class_id as u32)
+        .or_default()
+        .entry(name)
+        .or_default()
+        .push(param_id);
+}
+
+#[unsafe(export_name = "$type.methods")]
+pub extern "C" fn __type_methods(class_id: i64) -> i64 {
+    let names: Vec<String> = {
+        let t = class_methods_table().read().expect("methods table poisoned");
+        t.get(&(class_id as u32)).cloned().unwrap_or_default()
+    };
+    new_string_array(&names)
+}
+
+/// `typeof(x).parent` — `Type?` (none for root classes / non-class
+/// types). Layout matches a primitive Optional cell:
+///   [ value | rc | kind_tag=Object ].
+#[unsafe(export_name = "$type.parent")]
+pub extern "C" fn __type_parent(class_id: i64) -> i64 {
+    use crate::alloc::__mir_alloc;
+    let parent: Option<i64> = {
+        let t = class_parent_table().read().expect("parent table poisoned");
+        t.get(&(class_id as u32)).copied().filter(|p| *p != 0)
+    };
+    match parent {
+        None => 0,
+        Some(p) => {
+            // Allocate a 3-cell Optional. kind_tag follows the same
+            // PrintKind::Object cascade tag (1) used by WeakUpgrade.
+            let cell = __mir_alloc(24);
+            unsafe {
+                let h = cell as *mut i64;
+                *h = p;       // value
+                *h.add(1) = 1; // rc
+                *h.add(2) = 1; // kind_tag (Object cascade)
+            }
+            cell
+        }
+    }
+}
+
+/// `typeof(x).typeArgs` — `Type[]` of generic-instance arguments.
+/// Empty for non-generic types.
+#[unsafe(export_name = "$type.typeArgs")]
+pub extern "C" fn __type_type_args(class_id: i64) -> i64 {
+    use crate::alloc::__mir_alloc;
+    let ids: Vec<i64> = {
+        let t = class_typeargs_table().read().expect("typeargs table poisoned");
+        t.get(&(class_id as u32)).cloned().unwrap_or_default()
+    };
+    // `Type` values are i64 in the ABI; build an i64[] (kind_tag = 0).
+    let n = ids.len() as i64;
+    let header = __mir_alloc(48);
+    let data = __mir_alloc((n * 8).max(8));
+    unsafe {
+        for (i, id) in ids.iter().enumerate() {
+            *((data + (i as i64) * 8) as *mut i64) = *id;
+        }
+        let h = header as *mut i64;
+        *h = n;
+        *h.add(1) = n;
+        *h.add(2) = data;
+        *h.add(3) = 1;
+        *h.add(4) = 0; // PK_I64_SIG — Type handles are scalar i64
+        *h.add(5) = 8;
+    }
+    header
+}
+
+/// `typeof(x).fieldType(name)` — `Type?`. Caller passes the field
+/// name pointer; returns an Optional<Type> heap cell or 0 (none).
+#[unsafe(export_name = "$type.fieldType")]
+pub extern "C" fn __type_field_type(class_id: i64, name_ptr: i64) -> i64 {
+    use crate::alloc::__mir_alloc;
+    let name = cstr_to_str(name_ptr);
+    let ty: Option<i64> = {
+        let t = class_field_type_table().read().expect("field-type table poisoned");
+        t.get(&(class_id as u32)).and_then(|m| m.get(name).copied())
+    };
+    match ty {
+        None => 0,
+        Some(p) => {
+            let cell = __mir_alloc(24);
+            unsafe {
+                let h = cell as *mut i64;
+                *h = p;
+                *h.add(1) = 1;
+                *h.add(2) = 0; // i64 scalar, no cascade
+            }
+            cell
+        }
+    }
+}
+
+/// `typeof(x).methodReturn(name)` — `Type?`.
+#[unsafe(export_name = "$type.methodReturn")]
+pub extern "C" fn __type_method_return(class_id: i64, name_ptr: i64) -> i64 {
+    use crate::alloc::__mir_alloc;
+    let name = cstr_to_str(name_ptr);
+    let ty: Option<i64> = {
+        let t = class_method_return_table().read().expect("method-return table poisoned");
+        t.get(&(class_id as u32)).and_then(|m| m.get(name).copied())
+    };
+    match ty {
+        None => 0,
+        Some(p) => {
+            let cell = __mir_alloc(24);
+            unsafe {
+                let h = cell as *mut i64;
+                *h = p;
+                *h.add(1) = 1;
+                *h.add(2) = 0;
+            }
+            cell
+        }
+    }
+}
+
+/// `typeof(x).methodParams(name)` — `Type[]?`. Returns an
+/// Optional<Type[]> heap cell or 0.
+#[unsafe(export_name = "$type.methodParams")]
+pub extern "C" fn __type_method_params(class_id: i64, name_ptr: i64) -> i64 {
+    use crate::alloc::__mir_alloc;
+    let name = cstr_to_str(name_ptr);
+    let params: Option<Vec<i64>> = {
+        let t = class_method_params_table().read().expect("method-params table poisoned");
+        t.get(&(class_id as u32)).and_then(|m| m.get(name).cloned())
+    };
+    let Some(ids) = params else {
+        return 0;
+    };
+    // Build the inner Type[] (i64[]).
+    let n = ids.len() as i64;
+    let arr_header = __mir_alloc(48);
+    let arr_data = __mir_alloc((n * 8).max(8));
+    unsafe {
+        for (i, id) in ids.iter().enumerate() {
+            *((arr_data + (i as i64) * 8) as *mut i64) = *id;
+        }
+        let h = arr_header as *mut i64;
+        *h = n;
+        *h.add(1) = n;
+        *h.add(2) = arr_data;
+        *h.add(3) = 1;
+        *h.add(4) = 0;
+        *h.add(5) = 8;
+    }
+    // Wrap in an Optional cell. kind_tag uses the array cascade tag
+    // (PrintKind::Array → 2 in the existing scheme) so a release of
+    // the Optional triggers `__release_array` on the payload.
+    let cell = __mir_alloc(24);
+    unsafe {
+        let h = cell as *mut i64;
+        *h = arr_header;
+        *h.add(1) = 1;
+        *h.add(2) = 2; // Array cascade
+    }
+    cell
+}
+
+/// `typeof(x).fields` — `string[]` of declared field names on `class_id`.
+/// Inherited fields are NOT included (callers chase `.parent` for those).
+/// The names are pulled out of `class_print_info` (populated by
+/// `$class.registerPrintField`); we leak a fresh heap string per slot
+/// because the consumer owns a +1 rc on each element.
+///
+/// Layout mirrors `__c_array_to_array`: 48-byte header + n × 8-byte
+/// data buffer, `kind_tag = 11` (PK_STR mirror from mir-codegen) so
+/// the release cascade drops each string at array-rc 0.
+#[unsafe(export_name = "$type.fields")]
+pub extern "C" fn __type_fields(class_id: i64) -> i64 {
+    let declared: usize = {
+        let t = class_declared_field_count().read().expect("declared count table poisoned");
+        t.get(&(class_id as u32))
+            .copied()
+            .map(|n| n.max(0) as usize)
+            .unwrap_or(usize::MAX)
+    };
+    let names: Vec<String> = {
+        let t = class_print_info().read().expect("class print info poisoned");
+        match t.get(&(class_id as u32)) {
+            None => Vec::new(),
+            Some(info) => {
+                // Last `declared` entries are the names declared on
+                // this class (the rest came from the inheritance
+                // prefix). When the registry hasn't recorded a count
+                // — e.g. struct CRepr classes — fall through to "all".
+                let total = info.fields.len();
+                let take = declared.min(total);
+                let skip = total - take;
+                info.fields
+                    .iter()
+                    .skip(skip)
+                    .map(|(n, _)| n.clone())
+                    .collect()
+            }
+        }
+    };
+    new_string_array(&names)
+}
+
+/// Build an ilang `string[]` from a slice of owned strings. Used by
+/// every reflection getter that returns a name list (`.fields`,
+/// `.methods`, ...).
+pub(crate) fn new_string_array(names: &[String]) -> i64 {
+    use crate::alloc::__mir_alloc;
+    const PK_STR: i64 = 11;
+    let n = names.len() as i64;
+    let header = __mir_alloc(48);
+    let data = __mir_alloc((n * 8).max(8));
+    unsafe {
+        for (i, name) in names.iter().enumerate() {
+            let ptr = leak_cstring(name.clone());
+            *((data + (i as i64) * 8) as *mut i64) = ptr;
+        }
+        let h = header as *mut i64;
+        *h = n;            // len
+        *h.add(1) = n;     // cap
+        *h.add(2) = data;  // data ptr
+        *h.add(3) = 1;     // rc
+        *h.add(4) = PK_STR; // kind_tag
+        *h.add(5) = 8;     // stride
+    }
+    header
+}
+
+/// Virtual class ids for primitive / structural type names surfaced
+/// through `typeof(x).name`. These ids never collide with real
+/// `ClassId`s (which are non-negative); reflection lowering picks the
+/// matching id for each non-class `MirTy` so a single `__class_name`
+/// path can serve both classes and primitives.
+pub const TYPE_ID_STRING: i64 = -1;
+pub const TYPE_ID_BOOL: i64 = -2;
+pub const TYPE_ID_I64: i64 = -3;
+pub const TYPE_ID_U64: i64 = -4;
+pub const TYPE_ID_I32: i64 = -5;
+pub const TYPE_ID_U32: i64 = -6;
+pub const TYPE_ID_I16: i64 = -7;
+pub const TYPE_ID_U16: i64 = -8;
+pub const TYPE_ID_I8: i64 = -9;
+pub const TYPE_ID_U8: i64 = -10;
+pub const TYPE_ID_F64: i64 = -11;
+pub const TYPE_ID_F32: i64 = -12;
+pub const TYPE_ID_UNIT: i64 = -13;
+pub const TYPE_ID_ARRAY: i64 = -14;
+pub const TYPE_ID_TUPLE: i64 = -15;
+pub const TYPE_ID_FN: i64 = -16;
+pub const TYPE_ID_OPTIONAL: i64 = -17;
+pub const TYPE_ID_MAP: i64 = -18;
+pub const TYPE_ID_SET: i64 = -19;
+pub const TYPE_ID_PROMISE: i64 = -20;
+pub const TYPE_ID_ENUM: i64 = -21;
+pub const TYPE_ID_WEAK: i64 = -22;
+
+fn primitive_type_name(class_id: i64) -> Option<&'static str> {
+    Some(match class_id {
+        TYPE_ID_STRING => "string",
+        TYPE_ID_BOOL => "bool",
+        TYPE_ID_I64 => "i64",
+        TYPE_ID_U64 => "u64",
+        TYPE_ID_I32 => "i32",
+        TYPE_ID_U32 => "u32",
+        TYPE_ID_I16 => "i16",
+        TYPE_ID_U16 => "u16",
+        TYPE_ID_I8 => "i8",
+        TYPE_ID_U8 => "u8",
+        TYPE_ID_F64 => "f64",
+        TYPE_ID_F32 => "f32",
+        TYPE_ID_UNIT => "()",
+        TYPE_ID_ARRAY => "array",
+        TYPE_ID_TUPLE => "tuple",
+        TYPE_ID_FN => "fn",
+        TYPE_ID_OPTIONAL => "optional",
+        TYPE_ID_MAP => "Map",
+        TYPE_ID_SET => "Set",
+        TYPE_ID_PROMISE => "Promise",
+        TYPE_ID_ENUM => "enum",
+        TYPE_ID_WEAK => "weak",
+        _ => return None,
+    })
+}
+
 #[unsafe(export_name = "$class.name")]
 pub extern "C" fn __class_name(class_id: i64) -> i64 {
+    // Primitive virtual ids — return a static leaked string.
+    if let Some(prim) = primitive_type_name(class_id) {
+        let ptr = leak_cstring(prim.to_string());
+        return ptr;
+    }
     let key = class_id as u32;
     {
         let cache = class_basename_cache().read().expect("class name cache poisoned");

@@ -278,6 +278,52 @@ pub fn compile_with_builtins(
                 );
             }
         }
+        // Reflection meta — parent class id, method names, and the
+        // per-field / per-method types so `typeof(x).fieldType("name")`
+        // / `methodReturn(...)` / `methodParams(...)` can resolve.
+        // Parent: 0 means "no parent" on the runtime side.
+        let parent_id = class
+            .parent
+            .map(|p| global_cid(p.0) as i64)
+            .unwrap_or(0);
+        ilang_runtime::__register_type_parent(gcid, parent_id);
+        for (i, m) in class.methods.iter().enumerate() {
+            let mname_ptr = ilang_runtime::leak_cstring(m.name.as_str().to_string());
+            ilang_runtime::__register_type_method(gcid, i as i64, mname_ptr);
+            let func = &prog.functions[m.func.0 as usize];
+            let ret_id = mir_ty_to_type_id(&func.ret, &global_cid);
+            let mname_ptr_ret = ilang_runtime::leak_cstring(m.name.as_str().to_string());
+            ilang_runtime::__register_type_method_return(gcid, mname_ptr_ret, ret_id);
+            for (pi, p) in func.params.iter().enumerate() {
+                // Skip the leading `this` parameter on non-static
+                // methods so `methodParams` reports the user-visible
+                // signature.
+                if !m.is_static && pi == 0 {
+                    continue;
+                }
+                let pid = mir_ty_to_type_id(&p.ty, &global_cid);
+                let mname_ptr_p = ilang_runtime::leak_cstring(m.name.as_str().to_string());
+                ilang_runtime::__register_type_method_param(
+                    gcid, mname_ptr_p, pi as i64, pid,
+                );
+            }
+        }
+        // Skip parent fields — MIR's `class.fields` prepends every
+        // inherited field for layout reasons, but reflection reports
+        // only the names declared on this class itself.
+        let parent_field_count = class
+            .parent
+            .map(|p| prog.classes[p.0 as usize].fields.len())
+            .unwrap_or(0);
+        for f in class.fields.iter().skip(parent_field_count) {
+            let fty_id = mir_ty_to_type_id(&f.ty, &global_cid);
+            let fname_ptr_t = ilang_runtime::leak_cstring(f.name.as_str().to_string());
+            ilang_runtime::__register_type_field_type(gcid, fname_ptr_t, fty_id);
+        }
+        ilang_runtime::__register_type_declared_field_count(
+            gcid,
+            (class.fields.len() - parent_field_count) as i64,
+        );
     }
     // Populate the enum print registry (`__register_enum_print_name`
     // / variant names / payload kinds) and the per-variant cascade
@@ -416,4 +462,47 @@ pub fn compile_with_builtins(
     let entry = *fn_ids.get(&prog.entry).expect("entry registered");
 
     Ok(Compiled { module, entry, entry_ret })
+}
+
+/// Map a `MirTy` to the `class_id` the reflection runtime uses. Real
+/// classes report their JIT-global cid; primitives / structural types
+/// report a negative virtual id whose name `__class_name` resolves.
+pub(super) fn mir_ty_to_type_id(
+    ty: &MirTy,
+    global_cid: &dyn Fn(u32) -> u32,
+) -> i64 {
+    use ilang_runtime::{
+        TYPE_ID_ARRAY, TYPE_ID_BOOL, TYPE_ID_ENUM, TYPE_ID_F32, TYPE_ID_F64,
+        TYPE_ID_FN, TYPE_ID_I16, TYPE_ID_I32, TYPE_ID_I64, TYPE_ID_I8,
+        TYPE_ID_MAP, TYPE_ID_OPTIONAL, TYPE_ID_PROMISE, TYPE_ID_SET,
+        TYPE_ID_STRING, TYPE_ID_TUPLE, TYPE_ID_U16, TYPE_ID_U32, TYPE_ID_U64,
+        TYPE_ID_U8, TYPE_ID_UNIT, TYPE_ID_WEAK,
+    };
+    match ty {
+        MirTy::Object(c) => global_cid(c.0) as i64,
+        MirTy::Weak(_) => TYPE_ID_WEAK,
+        MirTy::Enum(_) => TYPE_ID_ENUM,
+        MirTy::Str => TYPE_ID_STRING,
+        MirTy::Bool => TYPE_ID_BOOL,
+        MirTy::I64 | MirTy::SSize => TYPE_ID_I64,
+        MirTy::U64 | MirTy::Size => TYPE_ID_U64,
+        MirTy::I32 => TYPE_ID_I32,
+        MirTy::U32 => TYPE_ID_U32,
+        MirTy::I16 => TYPE_ID_I16,
+        MirTy::U16 => TYPE_ID_U16,
+        MirTy::I8 | MirTy::CChar => TYPE_ID_I8,
+        MirTy::U8 => TYPE_ID_U8,
+        MirTy::F64 => TYPE_ID_F64,
+        MirTy::F32 => TYPE_ID_F32,
+        MirTy::Unit | MirTy::CVoid => TYPE_ID_UNIT,
+        MirTy::Array { .. } => TYPE_ID_ARRAY,
+        MirTy::Tuple(_) => TYPE_ID_TUPLE,
+        MirTy::Optional(_) => TYPE_ID_OPTIONAL,
+        MirTy::Map { .. } => TYPE_ID_MAP,
+        MirTy::Set { .. } => TYPE_ID_SET,
+        MirTy::Promise(_) => TYPE_ID_PROMISE,
+        MirTy::Fn(_) | MirTy::RawFn(_) => TYPE_ID_FN,
+        MirTy::RawPtr { .. } | MirTy::TypeVar(_) | MirTy::Simd { .. }
+        | MirTy::TypeHandle => 0,
+    }
 }
