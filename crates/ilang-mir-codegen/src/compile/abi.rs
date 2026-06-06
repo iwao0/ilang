@@ -438,6 +438,21 @@ pub(super) fn elem_clif_type(t: &MirTy) -> Option<cranelift::prelude::Type> {
     }
 }
 
+/// Cranelift scalar type for a single SIMD lane. Unlike
+/// `elem_clif_type`, this covers `i64` / `u64` lanes (used by
+/// `simd.i64x2`) — those are deliberately left out of the array-cell
+/// path because i64 fields elsewhere use the `i64`-cell catch-all,
+/// but they're valid lane scalars in their own right.
+pub(super) fn simd_lane_clif_type(
+    t: &MirTy,
+) -> Option<cranelift::prelude::Type> {
+    use cranelift::prelude::types as ct;
+    match t {
+        MirTy::I64 | MirTy::U64 => Some(ct::I64),
+        _ => elem_clif_type(t),
+    }
+}
+
 /// `elem_clif_type` extended to see through unit-only enums. A
 /// `MirTy::Enum` is reduced to its underlying repr (`u8`/`u16`/
 /// `u32`/`i32`/...) so CRepr struct fields typed against an enum

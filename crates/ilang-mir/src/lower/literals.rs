@@ -454,6 +454,13 @@ impl<'a> BodyCx<'a> {
             (ExprKind::Array(items), MirTy::Array { elem, len }) => {
                 Some(self.lower_array_literal_with_hint(items, Some((**elem).clone()), *len))
             }
+            // `[a, b, c, d]` against a SIMD hint (e.g. a function's
+            // declared return `simd.f32x4`, or a struct-field slot)
+            // packs into a single vector value via NewSimd, the same
+            // way `let v: simd.f32x4 = [..]` already does.
+            (ExprKind::Array(items), MirTy::Simd { elem, lanes }) => {
+                Some(self.lower_simd_from_array_literal(items, *elem, *lanes, expr.span))
+            }
             (ExprKind::Tuple(items), MirTy::Tuple(elems)) => {
                 Some(self.lower_tuple_literal_with_hint(items, elems))
             }
@@ -591,12 +598,14 @@ impl<'a> BodyCx<'a> {
         _span: Span,
     ) -> Result<(ValueId, MirTy), LowerError> {
         // `typeof(x).name` — pseudo-property on the Type handle that
-        // `typeof` returns. Lower obj (yields the dynamic class id),
-        // then call `class_name` builtin to get the class name.
-        if name.as_str() == "name" {
-            if let ExprKind::Call { callee, args } = &obj.kind {
-                if callee.as_str() == "typeof" && args.len() == 1 {
-                    let (cid, _) = self.lower_expr(obj)?;
+        // `typeof` returns. Now keyed off the value's MirTy
+        // (`MirTy::TypeHandle`) rather than the syntactic shape of
+        // `obj`, so `let t = typeof(x); t.name` works the same as
+        // the direct `typeof(x).name` chain.
+        {
+            let cid = obj_type_handle(self, obj)?;
+            if let Some(cid) = cid {
+                if name.as_str() == "name" {
                     let v = self.fb.new_value(MirTy::Str);
                     self.fb.push_inst(Inst::Call {
                         dst: Some(v),
@@ -856,4 +865,29 @@ impl<'a> BodyCx<'a> {
             "field `{name}` on unsupported type {oty}"
         )))
     }
+}
+
+/// Cheap AST / env check for "is the receiver a `MirTy::TypeHandle`
+/// value?" Used by the field-access lowering to route
+/// `typeof(x).<member>` and `let t = typeof(x); t.<member>` through
+/// the same runtime calls without double-lowering `obj`.
+fn obj_type_handle(
+    cx: &mut BodyCx,
+    obj: &Expr,
+) -> Result<Option<ValueId>, LowerError> {
+    let is_handle = match &obj.kind {
+        ExprKind::Call { callee, args } => {
+            callee.as_str() == "typeof" && args.len() == 1
+        }
+        ExprKind::Var(name) => matches!(
+            cx.lookup_var(*name),
+            Some((_, MirTy::TypeHandle))
+        ),
+        _ => false,
+    };
+    if !is_handle {
+        return Ok(None);
+    }
+    let (v, _) = cx.lower_expr(obj)?;
+    Ok(Some(v))
 }

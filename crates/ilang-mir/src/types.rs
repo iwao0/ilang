@@ -72,6 +72,15 @@ pub enum MirTy {
     /// literal coercion; values flow through cranelift as the
     /// matching `F32X4` / `I32X4` etc. type.
     Simd { elem: SimdElem, lanes: u32 },
+    /// Runtime type handle returned by `typeof(x)`. At ABI level
+    /// it's a plain i64 (the dynamic class / enum / primitive id);
+    /// the dedicated MirTy variant lets the field / method access
+    /// lowering recognise it even when the value has been bound to
+    /// a local (`let t = typeof(x); t.name`) so we can route
+    /// `.name` / `.kind` / `.fields` / `.methods` / `.parent` /
+    /// `.typeArgs` and the per-member lookup methods through their
+    /// runtime builtins.
+    TypeHandle,
 }
 
 /// MIR-side lane element type for `MirTy::Simd`. Mirrors
@@ -291,6 +300,7 @@ impl std::fmt::Display for MirTy {
                 };
                 write!(f, "simd.{p}x{lanes}")
             }
+            MirTy::TypeHandle => write!(f, "Type"),
         }
     }
 }

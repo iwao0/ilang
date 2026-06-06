@@ -127,6 +127,7 @@ pub(super) fn mangle_ty_atom(t: &MirTy) -> String {
             };
             format!("simd_{p}x{lanes}")
         }
+        MirTy::TypeHandle => "type_handle".into(),
     }
 }
 

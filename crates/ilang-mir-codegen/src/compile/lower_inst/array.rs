@@ -17,7 +17,7 @@ use crate::ty::mir_to_clif;
 
 use super::super::abi::{
     crepr_struct_c_size, elem_byte_stride, elem_clif_type, extend_to_i64, ireduce_or_pass,
-    reduce_from_i64,
+    reduce_from_i64, simd_lane_clif_type,
 };
 use super::super::print_emit::emit_panic_if;
 use super::super::print_kind::kind_tag_of;
@@ -185,7 +185,7 @@ pub(super) fn lower_array_inst<M: Module>(
                 total,
                 0,
             ));
-            let lane_scalar_ct = elem_clif_type(&lane_elem.as_scalar_mir())
+            let lane_scalar_ct = simd_lane_clif_type(&lane_elem.as_scalar_mir())
                 .ok_or(CompileError::Unsupported("SIMD lane has no clif scalar type"))?;
             for (i, lane) in lanes.iter().enumerate() {
                 let off = (i as i64 * lane_bytes) as i32;

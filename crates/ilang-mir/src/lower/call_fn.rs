@@ -46,9 +46,9 @@ impl<'a> BodyCx<'a> {
         // Built-in pseudo-functions handled before generic resolution.
         if callee.as_str() == "typeof" && args.len() == 1 {
             let (v, _) = self.lower_expr(&args[0])?;
-            let dst = self.fb.new_value(MirTy::I64);
+            let dst = self.fb.new_value(MirTy::TypeHandle);
             self.fb.push_inst(Inst::TypeOf { dst, value: v });
-            return Ok((dst, MirTy::I64));
+            return Ok((dst, MirTy::TypeHandle));
         }
         // `ffi.arrayFromCArray<T>(p: *const T, n: size_t)` —
         // declared as `@intrinsic("ffi.arrayFromCArray")` inside

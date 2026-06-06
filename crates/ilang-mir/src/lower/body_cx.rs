@@ -111,7 +111,7 @@ impl<'a> BodyCx<'a> {
     ) -> Result<ValueId, LowerError> {
         use crate::inst::CastKind;
         match from {
-            MirTy::I64 | MirTy::U64 => Ok(v),
+            MirTy::I64 | MirTy::U64 | MirTy::TypeHandle => Ok(v),
             MirTy::Object(_)
             | MirTy::Array { .. }
             | MirTy::Tuple(_)
@@ -165,7 +165,7 @@ impl<'a> BodyCx<'a> {
     ) -> Result<ValueId, LowerError> {
         use crate::inst::CastKind;
         match to {
-            MirTy::I64 | MirTy::U64 => Ok(raw),
+            MirTy::I64 | MirTy::U64 | MirTy::TypeHandle => Ok(raw),
             MirTy::Object(_)
             | MirTy::Array { .. }
             | MirTy::Tuple(_)

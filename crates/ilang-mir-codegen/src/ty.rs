@@ -42,6 +42,8 @@ pub fn mir_to_clif(t: &MirTy) -> Option<ClifType> {
         MirTy::Unit => return None,
         MirTy::TypeVar(_) => return None,
         MirTy::Simd { elem, lanes } => simd_to_clif(*elem, *lanes)?,
+        // `typeof(x)` handle — pointer-sized id, identical ABI to i64.
+        MirTy::TypeHandle => ct::I64,
     })
 }
 
