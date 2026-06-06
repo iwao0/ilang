@@ -20,6 +20,7 @@ use gtk {
     gtk_event_controller_key_new,
     gtk_event_controller_scroll_new,
     gtk_event_controller_get_widget,
+    gtk_event_controller_set_propagation_phase, GtkPropagationPhase,
     gtk_event_controller_get_current_event_state,
     gdk_keyval_to_lower,
     gtk_gesture_click_new,
@@ -260,6 +261,14 @@ pub fn createNativeEdit(
     // Button-side wiring; the controller is bound to the entry,
     // so events only flow while the entry has focus.
     let keyCtl = gtk_event_controller_key_new() as GtkEventControllerKey
+    // Capture phase so the entry's controller sees key-pressed
+    // before the inner GtkText consumes it — otherwise Enter (and
+    // Tab) are swallowed by GtkText's activate / focus-move handling
+    // and never reach onKeyDown. The handler returns 0 (propagate),
+    // so the entry still processes the key normally afterwards.
+    gtk_event_controller_set_propagation_phase(
+        keyCtl as GtkEventController, GtkPropagationPhase.capture
+    )
     gtk_widget_add_controller(entry as GtkWidget, keyCtl as GtkEventController)
     g_signal_connect_key(
         keyCtl as GObject, cstrFromString("key-pressed"),
