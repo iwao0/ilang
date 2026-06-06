@@ -8,7 +8,7 @@
 /// tables key off this i64 so signal handlers can resolve back to
 /// the user's callback in O(1).
 
-use gtk { GtkWidget, GtkWindow, GtkApplication, GtkFixed, GtkScrolledWindow, GMainLoop, g_type_from_name }
+use gtk { GtkWidget, GtkWindow, GtkFixed, GtkScrolledWindow, g_type_from_name }
 use std.ffi { cstrFromString }
 // ─── per-window state ─────────────────────────────────────────
 
@@ -178,19 +178,19 @@ pub fn resolveGtkParent(handle: i64): GtkParent? {
     none
 }
 
-/// Singleton GtkApplication. Created on first `createNativeWindow`,
-/// owned by the process. (Currently unused — see window.il for the
-/// manual gtk_init + GMainLoop path.)
-pub let APP_HOLDER: GtkApplication[] = []
+/// Singleton GtkApplication pointer, or `0` until created on first
+/// `createNativeWindow`; owned by the process. (Currently unused —
+/// see window.il for the manual gtk_init + GMainLoop path.)
+pub let APP_HOLDER: i64 = 0
 
-/// `[true]` once `gtk_init()` has been called. Window creation
-/// runs `gtk_init` lazily on the first invocation.
-pub let GTK_INITED: bool[] = [false]
+/// `true` once `gtk_init()` has been called. Window creation runs
+/// `gtk_init` lazily on the first invocation.
+pub let GTK_INITED: bool = false
 
-/// Singleton GMainLoop. `runEventLoop` builds one on demand and
-/// blocks inside `g_main_loop_run` until the window count drops
-/// to zero.
-pub let LOOP_HOLDER: GMainLoop[] = []
+/// Singleton GMainLoop pointer, or `0` until built. `runEventLoop`
+/// builds one on demand and blocks inside `g_main_loop_run` until
+/// the window count drops to zero.
+pub let LOOP_HOLDER: i64 = 0
 
 pub fn noOpClose() {}
 /// Zero-arg no-op shared with the cocoa / win32 backends under the

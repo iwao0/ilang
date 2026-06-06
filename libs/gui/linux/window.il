@@ -133,7 +133,7 @@ fn keyvalToEnum(k: Keyval): events.KeyCode {
             WINDOWS.delete(win)
         }
         if WINDOWS.size() == 0 as i64 {
-            if LOOP_HOLDER.length > 0 { g_main_loop_quit(LOOP_HOLDER[0]) }
+            if LOOP_HOLDER != 0 { g_main_loop_quit(LOOP_HOLDER as GMainLoop) }
         }
     }
 
@@ -381,9 +381,9 @@ fn dispatchClick(gesture: i64, winH: i64, x: f64, y: f64, down: bool) {
 @extern(C) {
 
 pub fn createNativeWindow(title: string, width: f64, height: f64): i64 {
-    if !GTK_INITED[0] {
+    if !GTK_INITED {
         gtk_init()
-        GTK_INITED[0] = true
+        GTK_INITED = true
     }
     // GIR types `gtk_window_new` as returning the parent `GtkWidget`;
     // every window-side call expects a `GtkWindow`, so down-cast once
@@ -565,11 +565,11 @@ pub fn hideNativeWindow(handle: i64) {
 }
 
 pub fn runEventLoop() {
-    if !GTK_INITED[0] { return }
-    if LOOP_HOLDER.length == 0 {
-        LOOP_HOLDER.push(g_main_loop_new(0 as *void, 0 as i32))
+    if !GTK_INITED { return }
+    if LOOP_HOLDER == 0 {
+        LOOP_HOLDER = g_main_loop_new(0 as *void, 0 as i32) as i64
     }
-    g_main_loop_run(LOOP_HOLDER[0])
+    g_main_loop_run(LOOP_HOLDER as GMainLoop)
 }
 
 // ─── window state actions ──────────────────────────────────────
