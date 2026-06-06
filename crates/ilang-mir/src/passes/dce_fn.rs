@@ -59,7 +59,22 @@ pub fn run_program(prog: &mut Program) -> Stats {
             .as_ref()
             .map(|s| s.as_str())
             .unwrap_or_else(|| f.name.as_str());
-        if sym.starts_with("$objc.imp.") || matches!(f.kind, FunctionKind::ExternBody) {
+        // Roots:
+        //   - `$objc.imp.*` IMPs (registered by name with the runtime)
+        //   - `@extern(C) fn body` (callable from C)
+        //   - every `Extern { sig_only: true }` declaration. These
+        //     are pure dlsym/`@lib` imports; codegen also runs a
+        //     per-extern `try_open_lib` / `__register_lib_group_*` /
+        //     `@optional`-stub pass in `jit_setup` keyed off the
+        //     extern's `libs` / `c_symbol` metadata. Dropping an
+        //     extern silently skips those side-table updates, which
+        //     breaks foundation bindings that arrange the side
+        //     tables once per binding block. The compile cost is
+        //     negligible (no body to lower), so keep them all live.
+        if sym.starts_with("$objc.imp.")
+            || matches!(f.kind, FunctionKind::ExternBody)
+            || matches!(f.kind, FunctionKind::Extern { .. })
+        {
             mark_fn(i as u32, &mut live_fn, &mut fn_wq);
         }
     }
