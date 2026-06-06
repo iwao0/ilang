@@ -17,6 +17,7 @@ use super::super::abi::{
     ireduce_or_pass, reduce_from_i64, struct_byval_size_with_max, struct_chunks_with_max,
     struct_hfa,
 };
+use super::super::print_kind::kind_tag_of;
 use super::super::{CompileError, OBJECT_HEADER_BYTES};
 
 pub(super) fn lower_new_object<M: Module>(
@@ -128,6 +129,39 @@ pub(super) fn lower_new_object<M: Module>(
     let rc_init: i64 = if stack_local.contains(dst) { -1 } else { 1 };
     let rc_v = fb.ins().iconst(types::I64, rc_init);
     fb.ins().store(MemFlags::trusted(), rc_v, ptr, oh::RC);
+
+    // Dynamic-array fields default to an empty array (syntax.md §7
+    // "Field defaults"). `__mir_alloc` only zeroed the slot, so without
+    // this the field reads back as a NULL pointer and the first
+    // `.length` / `.push` call dereferences zero.
+    //
+    // `__c_array_to_array(0, 0, stride, kind_tag)` produces a fresh
+    // 48 B header / 0-length buffer matching the layout a non-default
+    // array literal would. Any `init` that subsequently overwrites the
+    // field falls through `StoreField`, which releases this placeholder
+    // before installing the user's value (same path that array
+    // re-assignments already use).
+    let c_array_id = prog_ctx
+        .builtin_ids
+        .get("c_array_to_array")
+        .map(|(id, _)| *id);
+    if let Some(c_array_id) = c_array_id {
+        let c_array_ref = module.declare_func_in_func(c_array_id, fb.func);
+        for (fi, f) in layout.fields.iter().enumerate() {
+            if let MirTy::Array { elem, len: None } = &f.ty {
+                let stride = elem_byte_stride(elem);
+                let kind_tag = kind_tag_of(elem, &prog.classes);
+                let zero = fb.ins().iconst(types::I64, 0);
+                let stride_v = fb.ins().iconst(types::I64, stride);
+                let kind_v = fb.ins().iconst(types::I64, kind_tag);
+                let call =
+                    fb.ins().call(c_array_ref, &[zero, zero, stride_v, kind_v]);
+                let arr_ptr = fb.inst_results(call)[0];
+                let off = OBJECT_HEADER_BYTES + (fi as i32) * 8;
+                fb.ins().store(MemFlags::trusted(), arr_ptr, ptr, off);
+            }
+        }
+    }
 
     if init.0 != u32::MAX {
         let cid = *fn_ids.get(init).ok_or_else(|| {

@@ -21,11 +21,7 @@ class Child: Parent {
     extra_str: string        // default ""
     extra_flag: bool         // default false
     extra_opt: i64?          // default none
-    // NOTE: `extra_arr: i64[]` is documented as defaulting to `[]`
-    // in syntax.md, but the inherited-init path skips its
-    // initialisation today and reads back a dangling pointer.
-    // Left out until the lowering for child-class dyn-array
-    // defaults is fixed.
+    extra_arr: i64[]         // default []
 }
 
 let c = new Child("kid", 7)
@@ -39,8 +35,16 @@ test.expect(c.extra_int, 0)
 test.expectStr(c.extra_str, "")
 test.expectBool(c.extra_flag, false)
 test.expectBool(c.extra_opt.isNone, true)
+test.expect(c.extra_arr.length, 0)
 
-// They're still writable post-construction.
+// Push goes through the synthesised empty placeholder.
+c.extra_arr.push(7)
+c.extra_arr.push(8)
+test.expect(c.extra_arr.length, 2)
+test.expect(c.extra_arr[0], 7)
+test.expect(c.extra_arr[1], 8)
+
+// Other fields stay writable post-construction.
 c.extra_int = 99
 c.extra_str = "hi"
 test.expect(c.extra_int, 99)

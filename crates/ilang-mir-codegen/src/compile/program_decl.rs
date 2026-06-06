@@ -268,21 +268,27 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         decl_unary("$array.dataPtr", false)?;
         decl_unary("$enum.box", false)?;
     }
-    {
-        // `arrayFromCArray<T>` — user-facing surface lives in
-        // `libs/std/ffi.il` as `@intrinsic("ffi.arrayFromCArray")` with
-        // a 2-arg generic signature; the runtime helper takes the
-        // 4-arg `(src, n, stride, kind_tag)` form and the MIR special
-        // case (call_fn.rs) synthesises stride / kind_tag from the
-        // call-site pointer type before dispatching here.
+    // `arrayFromCArray<T>` — user-facing surface lives in
+    // `libs/std/ffi.il` as `@intrinsic("ffi.arrayFromCArray")` with a
+    // 2-arg generic signature; the runtime helper takes the 4-arg
+    // `(src, n, stride, kind_tag)` form and the MIR special case
+    // (call_fn.rs) synthesises stride / kind_tag from the call-site
+    // pointer type before dispatching here. The `(FuncId, Signature)`
+    // is also stashed into `builtin_ids` below (key
+    // "c_array_to_array") so the `NewObject` codegen can call it
+    // directly to synthesise empty-array defaults for declared
+    // `T[]` fields.
+    let c_array_to_array_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
-        module.declare_function("$ffi.arrayFromCArray", Linkage::Import, &sig)?;
-    }
+        let id = module
+            .declare_function("$ffi.arrayFromCArray", Linkage::Import, &sig)?;
+        (id, sig)
+    };
     // `$ffi.cstrFromString` — parser-synthesised by the @objc desugar
     // (see ilang-parser `extern_objc::build_cstr`). Declared as an
     // Import here so the bare-name lookup path in MIR codegen
@@ -545,6 +551,10 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     // sites can resolve via `module.declare_func_in_func`.
     let mut builtin_ids: HashMap<String, (cranelift_module::FuncId, Signature)> =
         HashMap::new();
+    builtin_ids.insert(
+        "c_array_to_array".to_string(),
+        c_array_to_array_id,
+    );
     for b in builtins {
         let mut sig = module.make_signature();
         for p in &b.params {
