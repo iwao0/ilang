@@ -59,7 +59,7 @@ shadowing them at top-level is rejected:
 | Float | `3.14`, `1.5e10`, `2.5_f32` | the suffix's type if present, otherwise `f64` |
 | bool | `true`, `false` | `bool` |
 | String | `"hello"`, `"line\nbreak"` (`\n` `\t` `\r` `\\` `\"` `\0`) | `string` |
-| Unit | `()` (produced by expressions, not written by hand) | `()` |
+| Unit | *no value-position literal* — produced only by void fns, an empty block `{}`, and value-less `return` | `()` |
 | Optional | `none`, `some(x)` | `T?` |
 | Array | `[1, 2, 3]`, `[1, 2, 3,]` (trailing comma allowed) | `T[]` |
 | Tuple | `(1, "hello")`, `(true, 3.14, [1,2])` | `(T1, T2, ...)` (≥ 2 elements) |
@@ -74,7 +74,7 @@ i8  i16  i32  i64
 u8  u16  u32  u64
 f32  f64
 bool  string
-()                  // Unit (return types etc.)
+()                  // Unit — type annotation only (no `()` literal in value position)
 ClassName           // class instance
 T[]                 // dynamic array (push-able)
 T[N]                // fixed-length array
