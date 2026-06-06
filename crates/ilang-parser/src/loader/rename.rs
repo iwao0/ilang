@@ -348,7 +348,17 @@ fn rename_in_expr(e: &mut Expr, rules: &HashMap<Symbol, Symbol>) {
                 rename_in_expr(e, rules);
             }
         }
-        ExprKind::Assign { value, .. } => rename_in_expr(value, rules),
+        ExprKind::Assign { target, value } => {
+            // The target is a bare identifier (Symbol), not an Expr,
+            // so it isn't reached by recursion — qualify it the same
+            // way `Var` reads are, or a write to an imported / module-
+            // qualified global keeps its bare name and the checker
+            // can't resolve it (read works, write fails).
+            if let Some(new_name) = rename_sym(target, rules) {
+                *target = new_name;
+            }
+            rename_in_expr(value, rules);
+        }
         ExprKind::AssignField { obj, value, .. } => {
             rename_in_expr(obj, rules);
             rename_in_expr(value, rules);
