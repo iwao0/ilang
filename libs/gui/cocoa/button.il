@@ -15,7 +15,7 @@ use core {
     noOpEnterLeave, noOpClickMod, noOpWheel,
     keyCodeToString, modCtrl, modShift, modAlt, modMeta,
 }
-use events { KeyCode }
+use super.events { KeyCode }
 
 /// Per-button state. Stored in `BUTTONS` keyed by the NSButton's
 /// raw ObjC pointer (`btn.handle`). Same key gui-core sees as the
