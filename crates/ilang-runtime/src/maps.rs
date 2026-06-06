@@ -43,6 +43,18 @@ struct ObjectMapStore {
     count: usize,
 }
 
+/// Call the user's `equals` and read its truthiness. An ilang `bool`
+/// lives in the low byte of the return register; on SysV x86_64 a
+/// `setcc` result leaves the upper bits of `rax` undefined, so a
+/// full-width `!= 0` would read garbage. Mask to the low byte
+/// (mirrors `arrays::call_predicate_1`). Only ever exercised on a hash
+/// collision, which is why it slipped through. Free fn (not a `&self`
+/// method) so the caller can pass `eq_fn` while `buckets` is borrowed.
+#[inline]
+fn eq_bool(eq_fn: extern "C" fn(i64, i64) -> i64, a: i64, b: i64) -> bool {
+    (eq_fn(a, b) as u8) != 0
+}
+
 impl ObjectMapStore {
     /// `(value, replaced_previous)` on insertion. The caller handles
     /// the value's kind-based retain/release around this; key
@@ -54,7 +66,7 @@ impl ObjectMapStore {
         let hash = (self.hash_fn)(key);
         let bucket = self.buckets.entry(hash).or_default();
         for slot in bucket.iter_mut() {
-            if (self.eq_fn)(slot.0, key) != 0 {
+            if eq_bool(self.eq_fn, slot.0, key) {
                 let prev = std::mem::replace(&mut slot.1, value);
                 return Some(prev);
             }
@@ -72,7 +84,7 @@ impl ObjectMapStore {
         let hash = (self.hash_fn)(key);
         let bucket = self.buckets.get(&hash)?;
         for (k, v) in bucket {
-            if (self.eq_fn)(*k, key) != 0 {
+            if eq_bool(self.eq_fn, *k, key) {
                 return Some(*v);
             }
         }
@@ -86,7 +98,7 @@ impl ObjectMapStore {
         let hash = (self.hash_fn)(key);
         let bucket = self.buckets.get_mut(&hash)?;
         for i in 0..bucket.len() {
-            if (self.eq_fn)(bucket[i].0, key) != 0 {
+            if eq_bool(self.eq_fn, bucket[i].0, key) {
                 let (k, v) = bucket.swap_remove(i);
                 if bucket.is_empty() {
                     self.buckets.remove(&hash);

@@ -50,6 +50,19 @@ struct ObjectStore {
     count: usize,
 }
 
+/// Call the user's `equals` and read its truthiness. An ilang `bool`
+/// lives in the low byte of the return register; on SysV x86_64 a
+/// `setcc` result leaves the upper bits of `rax` undefined, so a
+/// full-width `!= 0` would read garbage. Mask to the low byte
+/// (mirrors `arrays::call_predicate_1`). Only ever exercised on a hash
+/// collision — same-bucket distinct elements — which is why the
+/// missing mask slipped through. Free fn (not a `&self` method) so the
+/// caller can pass the `eq_fn` field while `buckets` is borrowed.
+#[inline]
+fn eq_bool(eq_fn: extern "C" fn(i64, i64) -> i64, a: i64, b: i64) -> bool {
+    (eq_fn(a, b) as u8) != 0
+}
+
 impl ObjectStore {
     fn empty_like(&self) -> Self {
         ObjectStore {
@@ -67,7 +80,7 @@ impl ObjectStore {
         let hash = (self.hash_fn)(obj);
         if let Some(bucket) = self.buckets.get(&hash) {
             for &existing in bucket {
-                if (self.eq_fn)(existing, obj) != 0 {
+                if eq_bool(self.eq_fn, existing, obj) {
                     return true;
                 }
             }
@@ -85,7 +98,7 @@ impl ObjectStore {
         let hash = (self.hash_fn)(obj);
         let bucket = self.buckets.entry(hash).or_default();
         for &existing in bucket.iter() {
-            if (self.eq_fn)(existing, obj) != 0 {
+            if eq_bool(self.eq_fn, existing, obj) {
                 return false;
             }
         }
@@ -105,7 +118,7 @@ impl ObjectStore {
             return false;
         };
         for i in 0..bucket.len() {
-            if (self.eq_fn)(bucket[i], obj) != 0 {
+            if eq_bool(self.eq_fn, bucket[i], obj) {
                 let removed = bucket.swap_remove(i);
                 if bucket.is_empty() {
                     self.buckets.remove(&hash);
