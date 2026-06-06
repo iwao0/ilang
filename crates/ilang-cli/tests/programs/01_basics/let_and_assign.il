@@ -40,3 +40,15 @@ n -= 3;  test.expect(n, 12)
 n *= 2;  test.expect(n, 24)
 n /= 4;  test.expect(n, 6)
 n %= 4;  test.expect(n, 2)
+
+// Empty array literal requires a type annotation.
+let empty: i64[] = []
+test.expect(empty.length, 0)
+empty.push(7)
+test.expect(empty[0], 7)
+
+// Parenthesised single value is grouping, not a 1-tuple.
+let grouped = (42)
+test.expect(grouped, 42)
+let grouped_str = ("hi")
+test.expectStr(grouped_str, "hi")

@@ -36,3 +36,22 @@ for i in 0..100 {
     collected = collected + i
 }
 test.expect(collected, 4)   // 1 + 3
+
+// 範囲の境界は負の整数でもよい。
+let neg_excl = 0
+for i in -3..3 {
+    neg_excl = neg_excl + i
+}
+test.expect(neg_excl, -3)   // -3 + -2 + -1 + 0 + 1 + 2
+
+let neg_incl = 0
+for i in -3..=3 {
+    neg_incl = neg_incl + i
+}
+test.expect(neg_incl, 0)    // -3 + -2 + -1 + 0 + 1 + 2 + 3
+
+let only_neg = 0
+for i in -5..-1 {
+    only_neg = only_neg + i
+}
+test.expect(only_neg, -14)  // -5 + -4 + -3 + -2

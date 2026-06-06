@@ -14,6 +14,12 @@ test.expectBool(false || false, false)
 test.expectBool(!true, false)
 test.expectBool(!false, true)
 test.expectBool(!!true, true)
+// Chained `!`s — every step toggles.
+test.expectBool(!!!true, false)
+test.expectBool(!!!!true, true)
+test.expectBool(!!!false, true)
+test.expectBool(!(true && false), true)
+test.expectBool(!(false || false), true)
 
 // Precedence: ! > && > ||.
 test.expectBool(!false && true, true)
