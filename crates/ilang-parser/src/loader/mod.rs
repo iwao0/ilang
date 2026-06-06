@@ -431,18 +431,16 @@ pub fn load_program_full(
 
     // Keep the entry in `loaded` (clone instead of remove) so any
     // circular `use <entry>` from a sibling resolves to the entry's
-    // items here. The outer loop below appends `entry_stmts` to
-    // `merged.stmts` once, unprefixed — we then *clear* the
-    // in-`loaded` copy's stmts so a circular `use entry` going
-    // through apply_use's stmt-merge branch doesn't re-execute the
-    // same body under a prefixed name.
+    // items here. `apply_use` is given `entry_canon` so when a dep's
+    // `use <entry>` lands back on this file, it still prefix-merges
+    // items but skips the stmt-merge — the outer loop below runs
+    // `entry_stmts` exactly once, unprefixed, and we don't want
+    // those side-effect statements to re-execute under a prefixed
+    // alias.
     let entry_prog = loaded
         .get(&entry_canon)
         .cloned()
         .expect("entry just loaded");
-    if let Some(p) = loaded.get_mut(&entry_canon) {
-        p.stmts.clear();
-    }
     // Process the entry's use items into actual merged content.
     // Sub-module top-level stmts are appended to `merged.stmts` first
     // (in dependency order) by `apply_use`, then the entry's own
@@ -479,6 +477,7 @@ pub fn load_program_full(
                 &mut rename_rules,
                 &sibling_class_maps,
                 &exported_names,
+                &entry_canon,
             )?,
             other => merged.items.push(other),
         }

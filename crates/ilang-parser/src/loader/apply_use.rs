@@ -54,6 +54,15 @@ pub(super) fn apply_use(
     // selective branch's per-name existence check be a single
     // HashSet lookup.
     exported_names: &HashMap<PathBuf, HashSet<Symbol>>,
+    // The entry file's canonical path. When `canon` equals this,
+    // `apply_use` still prefix-merges the items (so deps reaching
+    // back through a circular `use` see the entry's fns / classes
+    // under the prefixed name) but skips the stmt-merge — the
+    // outer loop in `load_program_full` runs `entry_stmts` exactly
+    // once, unprefixed, and we'd otherwise re-execute side-effect
+    // statements like `test.expect(...)` or `console.log(...)`
+    // under the prefixed alias.
+    entry_canon: &Path,
 ) -> Result<(), LoadError> {
     let t_prologue = Instant::now();
     let importer_dir = importer_canon
@@ -240,6 +249,7 @@ pub(super) fn apply_use(
                 &mut module_rename_rules,
                 sibling_class_maps,
                 exported_names,
+                entry_canon,
             )?;
         }
         super::add_ns_pub(&super::T_AU_NESTED, t_nested);
@@ -356,31 +366,43 @@ pub(super) fn apply_use(
         // only goes through this branch once, so each module's
         // initialization runs exactly once even if multiple `use`
         // sites reach it.
-        let t = Instant::now();
-        for stmt in module_prog.stmts {
-            let mut s = stmt;
-            qualify_var_refs_in_stmt(&mut s, &effective_prefix, &named_globals);
-            if !module_rename_rules.is_empty() {
-                rename_in_stmt(&mut s, &module_rename_rules);
+        // Stmt-merge is skipped when this module is the entry: the
+        // outer `load_program_full` loop appends `entry_stmts` once
+        // unprefixed, so re-merging the same statements here under a
+        // prefixed alias would either run side effects twice
+        // (`console.log` / `test.expect`) or create a duplicate
+        // global binding for a `pub let X`. Cross-module references
+        // to entry-defined `pub let` from circular deps therefore
+        // don't resolve — this is a known limitation; the original
+        // loader rejected the cycle outright so it was never
+        // reachable.
+        if canon != entry_canon {
+            let t = Instant::now();
+            for stmt in module_prog.stmts {
+                let mut s = stmt;
+                qualify_var_refs_in_stmt(&mut s, &effective_prefix, &named_globals);
+                if !module_rename_rules.is_empty() {
+                    rename_in_stmt(&mut s, &module_rename_rules);
+                }
+                let mut s = prefix_stmt(s, &effective_prefix);
+                // Top-level `let X = ...` becomes `let prefix.X = ...`
+                // so cross-module references (Var("prefix.X")) resolve
+                // to the same global slot.
+                if let StmtKind::Let { name, .. } = &mut s.kind {
+                    *name = Symbol::intern(&format!("{effective_prefix}.{name}")).into();
+                }
+                // Tag the merged stmt with its source module so the
+                // type checker judges access from that module's
+                // perspective. Without this, the module's own
+                // top-level stmts (e.g. `let X = Class.c` referring
+                // to a non-pub static of the SAME module) get
+                // judged from the entry module and falsely fail the
+                // cross-module visibility rule.
+                s.source_module = Some(Symbol::intern(&effective_prefix));
+                merged.stmts.push(s);
             }
-            let mut s = prefix_stmt(s, &effective_prefix);
-            // Top-level `let X = ...` becomes `let prefix.X = ...`
-            // so cross-module references (Var("prefix.X")) resolve
-            // to the same global slot.
-            if let StmtKind::Let { name, .. } = &mut s.kind {
-                *name = Symbol::intern(&format!("{effective_prefix}.{name}")).into();
-            }
-            // Tag the merged stmt with its source module so the
-            // type checker judges access from that module's
-            // perspective. Without this, the module's own
-            // top-level stmts (e.g. `let X = Class.c` referring
-            // to a non-pub static of the SAME module) get
-            // judged from the entry module and falsely fail the
-            // cross-module visibility rule.
-            s.source_module = Some(Symbol::intern(&effective_prefix));
-            merged.stmts.push(s);
+            super::add_ns_pub(&super::T_AU_STMTS, t);
         }
-        super::add_ns_pub(&super::T_AU_STMTS, t);
     }
 
     // Wildcard selective import (`use M { * }`): pull every
