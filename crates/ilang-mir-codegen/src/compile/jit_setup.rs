@@ -473,7 +473,7 @@ pub fn compile_with_builtins(
 /// Map a `MirTy` to the `class_id` the reflection runtime uses. Real
 /// classes report their JIT-global cid; primitives / structural types
 /// report a negative virtual id whose name `__class_name` resolves.
-pub(super) fn mir_ty_to_type_id(
+pub(crate) fn mir_ty_to_type_id(
     ty: &MirTy,
     global_cid: &dyn Fn(u32) -> u32,
 ) -> i64 {

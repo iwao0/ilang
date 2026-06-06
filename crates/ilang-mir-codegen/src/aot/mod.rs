@@ -59,6 +59,15 @@ struct AotRegistry {
     enum_disc_str: cranelift_module::FuncId,
     lib_group_begin: cranelift_module::FuncId,
     lib_group_member: cranelift_module::FuncId,
+    // Reflection — populated by `typeof(x).<member>` lowering on JIT;
+    // emitted from `__ilang_aot_init` here for parity at AOT build.
+    type_parent: cranelift_module::FuncId,
+    type_method: cranelift_module::FuncId,
+    type_field_type: cranelift_module::FuncId,
+    type_method_return: cranelift_module::FuncId,
+    type_method_param: cranelift_module::FuncId,
+    type_declared_field_count: cranelift_module::FuncId,
+    typekind_enum_id: cranelift_module::FuncId,
 }
 
 /// `FuncRef`s that bind each `AotRegistry` import into a specific
@@ -82,6 +91,13 @@ struct AotRegistryRefs {
     enum_disc_str: cranelift_codegen::ir::FuncRef,
     lib_group_begin: cranelift_codegen::ir::FuncRef,
     lib_group_member: cranelift_codegen::ir::FuncRef,
+    type_parent: cranelift_codegen::ir::FuncRef,
+    type_method: cranelift_codegen::ir::FuncRef,
+    type_field_type: cranelift_codegen::ir::FuncRef,
+    type_method_return: cranelift_codegen::ir::FuncRef,
+    type_method_param: cranelift_codegen::ir::FuncRef,
+    type_declared_field_count: cranelift_codegen::ir::FuncRef,
+    typekind_enum_id: cranelift_codegen::ir::FuncRef,
 }
 
 impl AotRegistry {
@@ -114,6 +130,25 @@ impl AotRegistry {
             enum_disc_str: declare_ternary_i64_void(module, "$enum.registerDiscStr")?,
             lib_group_begin: declare_returns_i64(module, "$os.registerLibGroupBegin")?,
             lib_group_member: declare_binary_i64_void(module, "$os.registerLibGroupMember")?,
+            type_parent: declare_binary_i64_void(module, "$type.registerParent")?,
+            type_method: declare_ternary_i64_void(module, "$type.registerMethod")?,
+            type_field_type: declare_ternary_i64_void(module, "$type.registerFieldType")?,
+            type_method_return: declare_ternary_i64_void(
+                module,
+                "$type.registerMethodReturn",
+            )?,
+            type_method_param: declare_quad_i64_void(
+                module,
+                "$type.registerMethodParam",
+            )?,
+            type_declared_field_count: declare_binary_i64_void(
+                module,
+                "$type.registerDeclaredFieldCount",
+            )?,
+            typekind_enum_id: crate::compile::declare_unit_i64(
+                module,
+                "$type.registerTypeKindEnumId",
+            )?,
         })
     }
 
@@ -142,6 +177,17 @@ impl AotRegistry {
             enum_disc_str: module.declare_func_in_func(self.enum_disc_str, fn_),
             lib_group_begin: module.declare_func_in_func(self.lib_group_begin, fn_),
             lib_group_member: module.declare_func_in_func(self.lib_group_member, fn_),
+            type_parent: module.declare_func_in_func(self.type_parent, fn_),
+            type_method: module.declare_func_in_func(self.type_method, fn_),
+            type_field_type: module.declare_func_in_func(self.type_field_type, fn_),
+            type_method_return: module
+                .declare_func_in_func(self.type_method_return, fn_),
+            type_method_param: module
+                .declare_func_in_func(self.type_method_param, fn_),
+            type_declared_field_count: module
+                .declare_func_in_func(self.type_declared_field_count, fn_),
+            typekind_enum_id: module
+                .declare_func_in_func(self.typekind_enum_id, fn_),
         }
     }
 }
@@ -702,6 +748,8 @@ fn emit_aot_init(
     let mut class_name_data: Vec<DataId> = Vec::with_capacity(prog.classes.len());
     let mut class_field_name_data: Vec<Vec<DataId>> =
         Vec::with_capacity(prog.classes.len());
+    let mut class_method_name_data: Vec<Vec<DataId>> =
+        Vec::with_capacity(prog.classes.len());
     for class in &prog.classes {
         class_name_data.push(declare_ilang_string_data(module, class.name.as_str())?);
         let mut per_class = Vec::with_capacity(class.fields.len());
@@ -709,6 +757,12 @@ fn emit_aot_init(
             per_class.push(declare_ilang_string_data(module, f.name.as_str())?);
         }
         class_field_name_data.push(per_class);
+        let mut per_class_methods = Vec::with_capacity(class.methods.len());
+        for m in &class.methods {
+            per_class_methods
+                .push(declare_ilang_string_data(module, m.name.as_str())?);
+        }
+        class_method_name_data.push(per_class_methods);
     }
     // For `__register_fn_name`: data symbols holding the user-facing
     // (un-mangled) name of every non-extern user fn, keyed by the
@@ -806,6 +860,13 @@ fn emit_aot_init(
             enum_disc_str: reg_enum_disc_str_ref,
             lib_group_begin: reg_lib_group_begin_ref,
             lib_group_member: reg_lib_group_member_ref,
+            type_parent: reg_type_parent_ref,
+            type_method: reg_type_method_ref,
+            type_field_type: reg_type_field_type_ref,
+            type_method_return: reg_type_method_return_ref,
+            type_method_param: reg_type_method_param_ref,
+            type_declared_field_count: reg_type_declared_field_count_ref,
+            typekind_enum_id: reg_typekind_enum_id_ref,
         } = refs;
 
         for (cls_idx, class) in prog.classes.iter().enumerate() {
@@ -916,6 +977,77 @@ fn emit_aot_init(
                     fb.ins().call(reg_drop_ref, &[cid_v, addr]);
                 }
             }
+            // Reflection meta — mirrors `jit_setup.rs`'s class-loop
+            // emits so AOT binaries see the same `typeof(x).<member>`
+            // tables JIT does.
+            let parent_id = class
+                .parent
+                .map(|p| class_global[p.0 as usize] as i64)
+                .unwrap_or(0);
+            let cid_v = fb.ins().iconst(types::I64, global_cid);
+            let parent_v = fb.ins().iconst(types::I64, parent_id);
+            fb.ins().call(reg_type_parent_ref, &[cid_v, parent_v]);
+
+            let global_cid_fn = |c: u32| class_global[c as usize];
+            for (mi, m) in class.methods.iter().enumerate() {
+                let mname_did = class_method_name_data[cls_idx][mi];
+                let mname_body = ilang_string_body(module, &mut fb, mname_did);
+                let cid_v = fb.ins().iconst(types::I64, global_cid);
+                let idx_v = fb.ins().iconst(types::I64, mi as i64);
+                fb.ins().call(
+                    reg_type_method_ref,
+                    &[cid_v, idx_v, mname_body],
+                );
+                let func = &prog.functions[m.func.0 as usize];
+                let ret_id =
+                    crate::compile::mir_ty_to_type_id(&func.ret, &global_cid_fn);
+                let mname_body_r = ilang_string_body(module, &mut fb, mname_did);
+                let cid_v = fb.ins().iconst(types::I64, global_cid);
+                let ret_v = fb.ins().iconst(types::I64, ret_id);
+                fb.ins().call(
+                    reg_type_method_return_ref,
+                    &[cid_v, mname_body_r, ret_v],
+                );
+                for (pi, p) in func.params.iter().enumerate() {
+                    if !m.is_static && pi == 0 {
+                        continue;
+                    }
+                    let pid = crate::compile::mir_ty_to_type_id(&p.ty, &global_cid_fn);
+                    let mname_body_p = ilang_string_body(module, &mut fb, mname_did);
+                    let cid_v = fb.ins().iconst(types::I64, global_cid);
+                    let idx_v = fb.ins().iconst(types::I64, pi as i64);
+                    let pid_v = fb.ins().iconst(types::I64, pid);
+                    fb.ins().call(
+                        reg_type_method_param_ref,
+                        &[cid_v, mname_body_p, idx_v, pid_v],
+                    );
+                }
+            }
+            // Skip parent fields when reporting types (the MIR layout
+            // vector prepends inherited fields for layout reasons).
+            let parent_field_count = class
+                .parent
+                .map(|p| prog.classes[p.0 as usize].fields.len())
+                .unwrap_or(0);
+            for (fi, f) in class.fields.iter().enumerate().skip(parent_field_count) {
+                let fty_id =
+                    crate::compile::mir_ty_to_type_id(&f.ty, &global_cid_fn);
+                let fname_did = class_field_name_data[cls_idx][fi];
+                let fname_body = ilang_string_body(module, &mut fb, fname_did);
+                let cid_v = fb.ins().iconst(types::I64, global_cid);
+                let fty_v = fb.ins().iconst(types::I64, fty_id);
+                fb.ins().call(
+                    reg_type_field_type_ref,
+                    &[cid_v, fname_body, fty_v],
+                );
+            }
+            let declared = (class.fields.len() - parent_field_count) as i64;
+            let cid_v = fb.ins().iconst(types::I64, global_cid);
+            let declared_v = fb.ins().iconst(types::I64, declared);
+            fb.ins().call(
+                reg_type_declared_field_count_ref,
+                &[cid_v, declared_v],
+            );
         }
 
         // Closure capture / size tables — keyed by fn_addr at runtime
@@ -959,6 +1091,12 @@ fn emit_aot_init(
             // Print: enum name.
             let ename_body = ilang_string_body(module, &mut fb, enum_name_data[idx]);
             fb.ins().call(reg_enum_print_name_ref, &[eid_v, ename_body]);
+            // Reflection: route `typeof(x).kind` through this global
+            // for the injected TypeKind enum.
+            if e.name.as_str() == "TypeKind" {
+                let eid_v2 = fb.ins().iconst(types::I64, global_id);
+                fb.ins().call(reg_typekind_enum_id_ref, &[eid_v2]);
+            }
             for (vi, v) in e.variants.iter().enumerate() {
                 let disc_v = fb.ins().iconst(types::I64, v.discriminant);
                 // Print: variant name.
