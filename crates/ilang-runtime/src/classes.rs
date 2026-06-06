@@ -548,6 +548,65 @@ pub extern "C" fn __type_method_params(class_id: i64, name_ptr: i64) -> i64 {
     cell
 }
 
+/// Global enum id for the built-in `TypeKind` enum, set once per
+/// process by the codegen during init. `__type_kind` reads it to
+/// route through the shared `__enum_unit_get` cache so the result
+/// is a real MIR enum cell (and `match` works the same way as on
+/// any user-declared enum).
+static TYPEKIND_ENUM_GLOBAL: OnceLock<AtomicI64> = OnceLock::new();
+
+fn typekind_enum_global() -> &'static AtomicI64 {
+    TYPEKIND_ENUM_GLOBAL.get_or_init(|| AtomicI64::new(-1))
+}
+
+#[unsafe(export_name = "$type.registerTypeKindEnumId")]
+pub extern "C" fn __register_typekind_enum_id(global_eid: i64) {
+    typekind_enum_global().store(global_eid, Ordering::SeqCst);
+}
+
+/// Discriminant of the `TypeKind` enum corresponding to `class_id`,
+/// boxed into an enum-cell pointer the same way `Inst::NewEnum`
+/// would for a user enum.
+///
+/// Must agree with the variant order in
+/// `crates/ilang-mir/src/lower/lower_state.rs::inject_typekind_enum`
+/// and the type-checker's enum sig in `builtins.rs`:
+///   0 = primitive, 1 = class, 2 = enum, 3 = optional, 4 = array,
+///   5 = fn, 6 = tuple, 7 = string, 8 = unit.
+#[unsafe(export_name = "$type.kind")]
+pub extern "C" fn __type_kind(class_id: i64) -> i64 {
+    let disc: i64 = match class_id {
+        TYPE_ID_STRING => 7,
+        TYPE_ID_BOOL
+        | TYPE_ID_I64
+        | TYPE_ID_U64
+        | TYPE_ID_I32
+        | TYPE_ID_U32
+        | TYPE_ID_I16
+        | TYPE_ID_U16
+        | TYPE_ID_I8
+        | TYPE_ID_U8
+        | TYPE_ID_F64
+        | TYPE_ID_F32 => 0,
+        TYPE_ID_UNIT => 8,
+        TYPE_ID_ARRAY => 4,
+        TYPE_ID_TUPLE => 6,
+        TYPE_ID_FN => 5,
+        TYPE_ID_OPTIONAL => 3,
+        TYPE_ID_ENUM => 2,
+        TYPE_ID_WEAK | TYPE_ID_MAP | TYPE_ID_SET | TYPE_ID_PROMISE => 1,
+        _ => 1, // every real class id reports as `class`
+    };
+    let global = typekind_enum_global().load(Ordering::SeqCst);
+    if global < 0 {
+        // Init hasn't run — return the bare discriminant so the
+        // caller at least gets a non-null value. Won't match through
+        // EnumTag (which deref-loads), but keeps tests deterministic.
+        return disc;
+    }
+    crate::enums::__enum_unit_get(global, disc)
+}
+
 /// `typeof(x).fields` — `string[]` of declared field names on `class_id`.
 /// Inherited fields are NOT included (callers chase `.parent` for those).
 /// The names are pulled out of `class_print_info` (populated by

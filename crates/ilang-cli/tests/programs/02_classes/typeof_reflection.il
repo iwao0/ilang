@@ -1,7 +1,5 @@
 // `typeof(x).<member>` reflection on a class instance. Per
-// syntax.md §13a. `.kind` is intentionally left out for now —
-// it returns a `TypeKind` enum and the runtime-enum constructor
-// path isn't wired yet.
+// syntax.md §13a.
 use std.test as test
 
 class Animal {
@@ -23,6 +21,15 @@ let t = typeof(new Dog("Rex", "lab"))
 
 // `.name` works through let-bound handles.
 test.expectStr(t.name, "Dog")
+
+// `.kind` — TypeKind enum. A class instance reports `class`.
+let kind_label = match t.kind {
+    class { "class" }
+    primitive { "primitive" }
+    enum { "enum" }
+    _ { "other" }
+}
+test.expectStr(kind_label, "class")
 
 // `.fields` — only declared on this class (no inherited `name`).
 test.expect(t.fields.length, 1)

@@ -660,6 +660,22 @@ impl<'a> BodyCx<'a> {
                         });
                         return Ok((v, ty));
                     }
+                    "kind" => {
+                        let eid = *self
+                            .enum_ids
+                            .get(&Symbol::intern("TypeKind"))
+                            .ok_or_else(|| LowerError::Other(
+                                "TypeKind enum not registered".into(),
+                            ))?;
+                        let ty = MirTy::Enum(eid);
+                        let v = self.fb.new_value(ty.clone());
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(v),
+                            callee: FuncRef::Builtin(Symbol::intern("type_kind")),
+                            args: Box::new([cid]),
+                        });
+                        return Ok((v, ty));
+                    }
                     other => {
                         return Err(LowerError::Other(format!(
                             "unsupported reflection member `.{other}` on Type"
@@ -784,6 +800,22 @@ impl<'a> BodyCx<'a> {
                     self.fb.push_inst(Inst::Call {
                         dst: Some(v),
                         callee: FuncRef::Builtin(Symbol::intern("type_typeargs")),
+                        args: Box::new([cid]),
+                    });
+                    return Ok((v, ty));
+                }
+                "kind" => {
+                    let eid = *self
+                        .enum_ids
+                        .get(&Symbol::intern("TypeKind"))
+                        .ok_or_else(|| LowerError::Other(
+                            "TypeKind enum not registered".into(),
+                        ))?;
+                    let ty = MirTy::Enum(eid);
+                    let v = self.fb.new_value(ty.clone());
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(v),
+                        callee: FuncRef::Builtin(Symbol::intern("type_kind")),
                         args: Box::new([cid]),
                     });
                     return Ok((v, ty));

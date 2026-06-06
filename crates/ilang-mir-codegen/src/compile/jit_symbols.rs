@@ -251,6 +251,11 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("$print.struct", ilang_runtime::__print_struct as *const u8);
     jit_builder.symbol("$class.name", ilang_runtime::__class_name as *const u8);
     jit_builder.symbol("$type.fields", ilang_runtime::__type_fields as *const u8);
+    jit_builder.symbol("$type.kind", ilang_runtime::__type_kind as *const u8);
+    jit_builder.symbol(
+        "$type.registerTypeKindEnumId",
+        ilang_runtime::__register_typekind_enum_id as *const u8,
+    );
     jit_builder.symbol("$type.methods", ilang_runtime::__type_methods as *const u8);
     jit_builder.symbol("$type.parent", ilang_runtime::__type_parent as *const u8);
     jit_builder.symbol("$type.typeArgs", ilang_runtime::__type_type_args as *const u8);

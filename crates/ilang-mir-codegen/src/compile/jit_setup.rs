@@ -334,6 +334,12 @@ pub fn compile_with_builtins(
         let global_id = global_eid(e.id.0);
         let name_ptr = ilang_runtime::leak_cstring(e.name.as_str().to_string());
         ilang_runtime::__register_enum_print_name(global_id as i64, name_ptr);
+        // Tell the reflection runtime which global enum id maps to
+        // the injected TypeKind so `__type_kind` can box discriminants
+        // through `__enum_unit_get`.
+        if e.name.as_str() == "TypeKind" {
+            ilang_runtime::__register_typekind_enum_id(global_id as i64);
+        }
         let is_str_repr = matches!(e.repr, MirTy::Str);
         for v in &e.variants {
             // Keep the payload's actual MIR types alongside the print

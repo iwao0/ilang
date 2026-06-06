@@ -610,6 +610,8 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
 
         let cid = declare_unary_i64(module, "$type.fields")?;
         builtin_ids.insert("type_fields".to_string(), (cid, unary_sig.clone()));
+        let cid = declare_unary_i64(module, "$type.kind")?;
+        builtin_ids.insert("type_kind".to_string(), (cid, unary_sig.clone()));
         let cid = declare_unary_i64(module, "$type.methods")?;
         builtin_ids.insert("type_methods".to_string(), (cid, unary_sig.clone()));
         let cid = declare_unary_i64(module, "$type.parent")?;

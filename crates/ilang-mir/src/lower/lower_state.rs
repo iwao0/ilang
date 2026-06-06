@@ -97,7 +97,7 @@ pub(in crate::lower) struct Lower {
 
 impl Lower {
     pub(in crate::lower) fn new() -> Self {
-        Self {
+        let mut lower = Self {
             funcs: Vec::new(),
             fn_ids: HashMap::new(),
             fn_sigs: HashMap::new(),
@@ -121,7 +121,59 @@ impl Lower {
             overloads: HashMap::new(),
             repl_slots: HashMap::new(),
             repl_slot_ast: HashMap::new(),
+        };
+        lower.inject_typekind_enum();
+        lower
+    }
+
+    /// Built-in `TypeKind` enum surfaced by `typeof(x).kind`. The
+    /// type checker registers a matching enum sig under the same
+    /// name; mirroring it on the MIR side means `.kind` can return
+    /// `MirTy::Enum(typekind_eid)` and user code can `match` on the
+    /// variant names exactly the same way it `match`es on a
+    /// user-declared enum.
+    ///
+    /// Variants and discriminants must match the order the type
+    /// checker uses in `builtins.rs` so a `match` arm with name
+    /// `class` resolves to discriminant 1 here too (which is what
+    /// `$type.kind` reports for a class instance).
+    fn inject_typekind_enum(&mut self) {
+        use crate::inst::VariantId;
+        use crate::program::{EnumLayout, VariantDecl, VariantPayload};
+        use crate::types::EnumId;
+        use super::meta::{EnumVariantMeta, VariantPayloadMeta};
+        const VARIANTS: &[&str] = &[
+            "primitive", "class", "enum", "optional", "array", "fn", "tuple",
+            "string", "unit",
+        ];
+        let eid = EnumId(self.enums.len() as u32);
+        let name = Symbol::intern("TypeKind");
+        let mut variants = Vec::with_capacity(VARIANTS.len());
+        let mut meta = EnumMeta::default();
+        for (i, vname) in VARIANTS.iter().enumerate() {
+            let vid = VariantId(i as u32);
+            let sym = Symbol::intern(vname);
+            variants.push(VariantDecl {
+                id: vid,
+                name: sym,
+                discriminant: i as i64,
+                discriminant_str: None,
+                payload: VariantPayload::Unit,
+            });
+            meta.variants.insert(
+                sym,
+                EnumVariantMeta { id: vid, payload: VariantPayloadMeta::Unit },
+            );
         }
+        self.enum_ids.insert(name, eid);
+        self.enum_meta.insert(eid, meta);
+        self.enums.push(EnumLayout {
+            id: eid,
+            name,
+            repr: MirTy::I64,
+            variants,
+            is_flags: false,
+        });
     }
 
     pub(in crate::lower) fn finish(mut self) -> Program {
