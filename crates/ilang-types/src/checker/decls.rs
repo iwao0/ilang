@@ -5,8 +5,8 @@
 use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
-    Block, ClassDecl, CtorArgs, EnumDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param,
-    PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, Symbol, Type, UnOp,
+    Block, ClassDecl, CtorArgs, DiscriminantLit, EnumDecl, Expr, ExprKind, FieldDecl, FnDecl,
+    Item, Param, PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, Symbol, Type, UnOp,
     VariantPayload,
 };
 
@@ -17,6 +17,46 @@ use super::*;
 
 impl TypeChecker {
     pub(super) fn check_enum(&self, e: &EnumDecl) -> Result<(), TypeError> {
+        // Repr / `@flags` / discriminant well-formedness. These mirror
+        // the MIR lowerer's `register_enum` checks, but run here so they
+        // fire for EVERY declared enum: the lowerer only sees enums that
+        // survive AST dead-code elimination (`ast_dce`, which runs after
+        // type-checking), so an unused-but-malformed enum would slip
+        // through with no diagnostic. Keep the messages byte-for-byte in
+        // sync with `register_enum` so either layer reports identically.
+        let is_str_repr = matches!(e.repr_ty, Some(Type::Str));
+        if is_str_repr && e.flags {
+            return Err(TypeError::Unsupported {
+                what: "@flags is not allowed on `: string`-repr enums (bitwise ops are int-only)"
+                    .into(),
+                span: e.span,
+            });
+        }
+        for v in &e.variants {
+            match (&v.discriminant, is_str_repr) {
+                (Some(DiscriminantLit::Int(_)), true) => {
+                    return Err(TypeError::Unsupported {
+                        what: "integer discriminant used on a `: string` repr enum".into(),
+                        span: v.span,
+                    });
+                }
+                (Some(DiscriminantLit::Str(_)), false) => {
+                    return Err(TypeError::Unsupported {
+                        what: "string discriminant used on a non-string-repr enum".into(),
+                        span: v.span,
+                    });
+                }
+                (None, true) => {
+                    return Err(TypeError::Unsupported {
+                        what: "enum with `: string` repr requires an explicit `= \"…\"` \
+                               discriminant on every variant"
+                            .into(),
+                        span: v.span,
+                    });
+                }
+                _ => {}
+            }
+        }
         // Validate every payload type now that all class/enum names are
         // known. Duplicate variant names are rejected — they'd make
         // pattern matching ambiguous.
