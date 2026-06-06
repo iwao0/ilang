@@ -90,7 +90,7 @@ let SEARCH_CLASS_INITED: bool = false
 
 const SEARCH_ICON_W: i32 = 22 as i32
 const CANCEL_BTN_W:  i32 = 20 as i32
-const EDIT_PAD_T:    i32 = 3 as i32
+const EDIT_PAD_T:    i32 = 5 as i32
 const EDIT_PAD_B:    i32 = 1 as i32
 const BORDER:        u32 = 0x00B0B0B0 as u32
 const CANCEL_FG:     u32 = 0x00606060 as u32
@@ -160,7 +160,10 @@ fn paintSearchField(hwnd: HWND, slot: SearchFieldSlot, hdc: HDC) {
         // icon-area centre with a 4 px radius. Followed by the
         // short diagonal handle off the bottom-right.
         let icx: f64 = 9.0
-        let icy: f64 = (h as f64) / 2.0
+        // Lens centre lifted ~2 px above the geometric centre so
+        // the handle's mass below doesn't drag the visual centre
+        // down.
+        let icy: f64 = (h as f64) / 2.0 - 2.0
         let r:   f64 = 4.0
         GdipDrawEllipse(g, glyphPen,
             (icx - r) as f32, (icy - r) as f32,
