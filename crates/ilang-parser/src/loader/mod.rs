@@ -25,7 +25,7 @@
 //! exprs / types), plus the older passes already split off (`consts`,
 //! `dup_pub`, `rename`, `spans`, `target_filter`).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -171,7 +171,7 @@ mod target_filter;
 use apply_use::apply_use;
 use consts::inline_constants;
 use prescan::{build_dir_objc_scan, collect_objc_class_names, expand_embeds,
-    pre_scan_use_modules, DirObjcScan};
+    pre_scan_use_modules, scan_objc_classes_in_tokens, DirObjcScan};
 use rename::rename_in_program;
 use resolve::{canonicalize, read_source, resolve_module};
 use spans::tag_program_spans;
@@ -363,13 +363,11 @@ pub fn load_program_full(
     dep_names_to_dirs: &HashMap<String, PathBuf>,
     overlay: &HashMap<PathBuf, String>,
 ) -> Result<Program, LoadError> {
-    let mut visiting: HashSet<PathBuf> = HashSet::new();
-    let mut chain: Vec<Symbol> = Vec::new();
     let mut loaded: HashMap<PathBuf, Program> = HashMap::new();
     let mut objc_registry: HashSet<Symbol> = HashSet::new();
     let mut objc_class_modules: HashMap<Symbol, Symbol> = HashMap::new();
     // Per-source-file sibling-class map. Populated during the
-    // load_recursive's prescan; consumed by `apply_use` (via the
+    // discover_phase prescan; consumed by `apply_use` (via the
     // helper `qualify_sibling_class_refs_in_item`) after rename and
     // before prefix to qualify bare @objc class refs that target a
     // sibling category file the source didn't (and can't) `use`.
@@ -378,15 +376,35 @@ pub fn load_program_full(
     // siblings are read + tokenized once here instead of once per
     // sibling that gets parsed (which was O(N²) in folder size).
     let mut objc_dir_cache: HashMap<PathBuf, DirObjcScan> = HashMap::new();
+    // Token cache from Phase 1 → Phase 2. Each file is tokenized once
+    // in discover_phase, then handed to parse_phase verbatim.
+    let mut tokens: HashMap<PathBuf, Vec<ilang_lexer::Token>> = HashMap::new();
+    // BFS visited set — replaces the old `visiting` stack guard.
+    // Cycles are not an error: a file already in `seen` simply
+    // doesn't get re-enqueued.
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    // Per-file implicit_modules list (sibling stems for folder
+    // bindings). Carried into parse_phase so each file is parsed
+    // with the same implicit-import set the old load_recursive
+    // computed on the spot.
+    let mut implicit_modules_by_file: HashMap<PathBuf, Vec<Symbol>> = HashMap::new();
     let entry_dir = entry.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
     let entry_canon = canonicalize(entry)?;
     let extra_paths: Vec<PathBuf> = extra_paths.to_vec();
 
+    // Phase 1 + Phase 2 run inside a single timing bucket so the
+    // `T_LOAD_RECURSIVE` LoaderTiming field carries the same
+    // wall-clock semantics consumers used to see (it's now the
+    // sum of discover + parse). Sub-buckets (`T_READ`, `T_TOK`,
+    // `T_PARSE`, …) are filled by the phase bodies below.
     let t_lr = Instant::now();
-    load_recursive(
-        &entry_canon, &entry_dir, &extra_paths, parents, dep_names_to_dirs,
-        &mut visiting, &mut chain, &mut loaded, overlay, &mut objc_registry,
-        &mut objc_class_modules, &mut sibling_class_maps, &mut objc_dir_cache,
+    discover_phase(
+        &entry_canon, &entry_dir, &extra_paths, parents, dep_names_to_dirs, overlay,
+        &mut tokens, &mut seen, &mut objc_registry, &mut objc_class_modules,
+        &mut sibling_class_maps, &mut objc_dir_cache, &mut implicit_modules_by_file,
+    )?;
+    parse_phase(
+        &tokens, &mut objc_registry, &implicit_modules_by_file, &mut loaded,
     )?;
     add_ns(&T_LOAD_RECURSIVE, t_lr);
 
@@ -411,7 +429,20 @@ pub fn load_program_full(
     );
     add_ns(&T_PRECOMP_EXPORTS, t);
 
-    let entry_prog = loaded.remove(&entry_canon).expect("entry just loaded");
+    // Keep the entry in `loaded` (clone instead of remove) so any
+    // circular `use <entry>` from a sibling resolves to the entry's
+    // items here. The outer loop below appends `entry_stmts` to
+    // `merged.stmts` once, unprefixed — we then *clear* the
+    // in-`loaded` copy's stmts so a circular `use entry` going
+    // through apply_use's stmt-merge branch doesn't re-execute the
+    // same body under a prefixed name.
+    let entry_prog = loaded
+        .get(&entry_canon)
+        .cloned()
+        .expect("entry just loaded");
+    if let Some(p) = loaded.get_mut(&entry_canon) {
+        p.stmts.clear();
+    }
     // Process the entry's use items into actual merged content.
     // Sub-module top-level stmts are appended to `merged.stmts` first
     // (in dependency order) by `apply_use`, then the entry's own
@@ -531,166 +562,182 @@ pub fn load_program_full(
     res
 }
 
+/// Phase 1 of the loader: BFS through every reachable source file,
+/// tokenize it, and harvest cross-module info that the parser needs
+/// in Phase 2. Parses no file. Tolerates circular `use` graphs by
+/// keying the worklist on a `seen: HashSet<PathBuf>` rather than the
+/// old "visiting" stack guard — a file already enqueued is simply
+/// skipped, so A.il and B.il can `use` each other without erroring.
+///
+/// The cross-module info this phase fills in mirrors what the old
+/// `load_recursive` collected before parse:
+///   - `objc_registry`: every `@objc [pub] class <Name>` declared in
+///     any reachable file (token-level scan via
+///     `scan_objc_classes_in_tokens`). Parser-synthesised @objc
+///     classes (the auto-lift on `class C : SomeObjcInterface`) are
+///     picked up in Phase 2's post-parse `collect_objc_class_names`.
+///   - `objc_class_modules` / `sibling_class_maps`: folder-binding
+///     pre-scan via `build_dir_objc_scan` (cached in `objc_dir_cache`).
+///   - `implicit_modules_by_file`: per-file sibling stems for
+///     `parse_with_implicit_modules` in Phase 2.
+///   - `tokens`: token streams stashed per file so Phase 2 doesn't
+///     re-read / re-tokenize anything.
 #[allow(clippy::too_many_arguments)]
-fn load_recursive(
-    file: &Path,
-    base_dir: &Path,
+fn discover_phase(
+    entry: &Path,
+    entry_dir: &Path,
     extra_paths: &[PathBuf],
     parents: &HashMap<PathBuf, PathBuf>,
     dep_names_to_dirs: &HashMap<String, PathBuf>,
-    visiting: &mut HashSet<PathBuf>,
-    chain: &mut Vec<Symbol>,
-    loaded: &mut HashMap<PathBuf, Program>,
     overlay: &HashMap<PathBuf, String>,
+    tokens: &mut HashMap<PathBuf, Vec<ilang_lexer::Token>>,
+    seen: &mut HashSet<PathBuf>,
     objc_registry: &mut HashSet<Symbol>,
     objc_class_modules: &mut HashMap<Symbol, Symbol>,
     sibling_class_maps: &mut HashMap<PathBuf, HashMap<Symbol, Symbol>>,
     objc_dir_cache: &mut HashMap<PathBuf, DirObjcScan>,
+    implicit_modules_by_file: &mut HashMap<PathBuf, Vec<Symbol>>,
 ) -> Result<(), LoadError> {
-    if loaded.contains_key(file) {
-        return Ok(());
+    let mut wq: VecDeque<(PathBuf, PathBuf)> = VecDeque::new();
+    if seen.insert(entry.to_path_buf()) {
+        wq.push_back((entry.to_path_buf(), entry_dir.to_path_buf()));
     }
-    if !visiting.insert(file.to_path_buf()) {
-        chain.push(file.display().to_string().into());
-        return Err(LoadError::CircularImport { chain: chain.clone() });
-    }
-    chain.push(file.display().to_string().into());
-    // Tokenize once. We need two passes over the same token stream:
-    // a cheap scan to discover `use` deps (so we can load them before
-    // parsing this file, populating `objc_registry`), then the full
-    // parse that consults the registry inside `@extern(ObjC)` blocks.
-    T_FILES.fetch_add(1, Ordering::Relaxed);
-    let t = Instant::now();
-    let src = read_source(file, overlay)?;
-    add_ns(&T_READ, t);
-    let t = Instant::now();
-    let toks = ilang_lexer::tokenize(&src)
-        .map_err(|e| LoadError::LexError(e.to_string()))?;
-    add_ns(&T_TOK, t);
-    let dir = file.parent().unwrap_or(base_dir).to_path_buf();
-    let t = Instant::now();
-    let use_modules: Vec<_> = pre_scan_use_modules(&toks).into_iter().collect();
-    add_ns(&T_PRESCAN_USE, t);
-    for (super_count, dep_name, subpath) in use_modules {
-        let canon = resolve_module(
-            &dep_name, &subpath, &dir, extra_paths, super_count, parents, dep_names_to_dirs,
-        )?;
-        load_recursive(
-            &canon, &dir, extra_paths, parents, dep_names_to_dirs, visiting, chain, loaded, overlay,
-            objc_registry, objc_class_modules, sibling_class_maps, objc_dir_cache,
-        )?;
-    }
-    // Folder-module sibling pre-scan: when `<dir>/mod.il` exists, peek
-    // at every sibling `<dir>/*.il` (without parsing) and harvest
-    // `@objc pub class <Name>` declarations into the registry. Lets the
-    // current file's auto-lift recognise an @objc class type declared
-    // in a sibling category file even though the two don't `use` each
-    // other (which would create a circular import). Without this, e.g.
-    // `physicsWorld(): SKPhysicsWorld` in spritekit/node.il would fall
-    // through `is_objc_class_ty` and the auto-lift would skip the
-    // raw-pointer / wrap-handle dance, producing a garbage handle.
-    //
-    // Also records the sibling's basename in `objc_class_modules` so
-    // the auto-lift can emit `new <module>.<Class>(...)` when wrapping
-    // a sibling-file class — the loader's prefix pass would otherwise
-    // re-tag the bare `<Class>` with the *importer's* module name and
-    // the type checker would fail to resolve it.
-    // Per-file sibling-class map. Built fresh per file (excluding the
-    // file currently being parsed) from the cached directory scan, so a
-    // class defined in the file currently being parsed doesn't carry
-    // over a stale mapping.
-    let mut file_class_modules: HashMap<Symbol, Symbol> = HashMap::new();
-    let mut implicit_modules: Vec<Symbol> = Vec::new();
-    if dir.join("mod.il").exists() {
-        // Umbrella module name = containing directory's basename.
-        // Folder-bindings flatten everything through `mod.il`'s
-        // `pub use sibling.*` (wildcard re-export), which merges every
-        // sibling's items under the umbrella's prefix, NOT under each
-        // sibling's file stem (so `spritekit/actions.il`'s `SKAction`
-        // becomes `spritekit.SKAction`). Pointing the qualified ref at
-        // the umbrella gives a name the merged Program will carry.
-        let umbrella = dir.file_name().and_then(|n| n.to_str()).map(Symbol::intern);
-        // Scan the directory's siblings once (reads + tokenizes each
-        // file a single time), then reuse the cache for every other
-        // sibling in the same folder.
+    while let Some((file, base_dir)) = wq.pop_front() {
+        T_FILES.fetch_add(1, Ordering::Relaxed);
         let t = Instant::now();
-        let scan = objc_dir_cache
-            .entry(dir.clone())
-            .or_insert_with(|| build_dir_objc_scan(&dir));
-        add_ns(&T_DIR_OBJC, t);
-        let current_canon = file.canonicalize().ok();
-        for e in &scan.entries {
-            // Skip the file currently being parsed — its own @objc
-            // classes are harvested post-parse by
-            // `collect_objc_class_names`; matching the old per-file
-            // prescan which excluded `current`.
-            let is_current = match (&current_canon, &e.canon) {
-                (Some(a), Some(b)) => a == b,
-                _ => false,
-            };
-            if is_current {
-                continue;
-            }
-            if let Some(um) = umbrella {
-                for &cls in &e.classes {
-                    objc_registry.insert(cls);
-                    file_class_modules.entry(cls).or_insert(um);
+        let src = read_source(&file, overlay)?;
+        add_ns(&T_READ, t);
+        let t = Instant::now();
+        let toks = ilang_lexer::tokenize(&src)
+            .map_err(|e| LoadError::LexError(e.to_string()))?;
+        add_ns(&T_TOK, t);
+        // Harvest @objc classes from THIS file's tokens. The old
+        // load_recursive did the equivalent post-parse via
+        // `collect_objc_class_names`; doing it up-front here means
+        // the registry is complete before any file is parsed, so
+        // parse order in Phase 2 doesn't matter for `@extern(ObjC)`
+        // type recognition.
+        for sym in scan_objc_classes_in_tokens(&toks) {
+            objc_registry.insert(sym);
+        }
+        let dir = file.parent().unwrap_or(&base_dir).to_path_buf();
+        // Folder-module sibling pre-scan: same as the old
+        // load_recursive's `<dir>/mod.il` branch. Builds
+        // per-file `file_class_modules` (→ `sibling_class_maps`) and
+        // `implicit_modules`, plus extends the global
+        // `objc_class_modules`. Cached at directory granularity in
+        // `objc_dir_cache` to amortise across siblings.
+        let mut file_class_modules: HashMap<Symbol, Symbol> = HashMap::new();
+        let mut implicit_modules: Vec<Symbol> = Vec::new();
+        if dir.join("mod.il").exists() {
+            let umbrella = dir.file_name().and_then(|n| n.to_str()).map(Symbol::intern);
+            let t = Instant::now();
+            let scan = objc_dir_cache
+                .entry(dir.clone())
+                .or_insert_with(|| build_dir_objc_scan(&dir));
+            add_ns(&T_DIR_OBJC, t);
+            let current_canon = file.canonicalize().ok();
+            for e in &scan.entries {
+                let is_current = match (&current_canon, &e.canon) {
+                    (Some(a), Some(b)) => a == b,
+                    _ => false,
+                };
+                if is_current {
+                    continue;
                 }
+                if let Some(um) = umbrella {
+                    for &cls in &e.classes {
+                        objc_registry.insert(cls);
+                        file_class_modules.entry(cls).or_insert(um);
+                    }
+                }
+                implicit_modules.push(e.stem);
             }
-            // Every sibling stem becomes an implicit `use <stem>` for
-            // normalize's dotted-ref validation, so the auto-lift's
-            // synthetic `new physics.SKPhysicsWorld(...)` passes the
-            // "this file does not `use physics`" check without an
-            // actual (circular) import.
-            implicit_modules.push(e.stem);
+            for (k, v) in &file_class_modules {
+                objc_class_modules.entry(*k).or_insert(*v);
+            }
         }
-        // Also seed the cumulative cross-file map for any downstream
-        // consumers that still consult it.
-        for (k, v) in &file_class_modules {
-            objc_class_modules.entry(*k).or_insert(*v);
+        if !file_class_modules.is_empty() {
+            sibling_class_maps.insert(file.clone(), file_class_modules);
+        }
+        implicit_modules_by_file.insert(file.clone(), implicit_modules);
+        // Discover deps from the same token stream and enqueue them.
+        // Cycles are absorbed by the `seen.insert` guard: a file
+        // already enqueued (mid-traversal or earlier) simply won't
+        // be re-pushed, terminating the walk naturally.
+        let t = Instant::now();
+        let use_modules = pre_scan_use_modules(&toks);
+        add_ns(&T_PRESCAN_USE, t);
+        tokens.insert(file.clone(), toks);
+        for (super_count, dep_name, subpath) in use_modules {
+            let canon = resolve_module(
+                &dep_name, &subpath, &dir, extra_paths, super_count, parents, dep_names_to_dirs,
+            )?;
+            if seen.insert(canon.clone()) {
+                wq.push_back((canon, dir.clone()));
+            }
         }
     }
-    let file_symbol = Symbol::intern(&file.display().to_string());
-    let t = Instant::now();
-    let mut prog = crate::parse_with_implicit_modules(
-        &toks,
-        objc_registry,
-        &implicit_modules,
-    )
-    .map_err(|mut e| {
-        // The parser doesn't know paths; stamp the real file so the
-        // diagnostic points at this module, not the entry file.
-        e.set_source_file(file_symbol);
-        LoadError::ParseError(e)
-    })?;
-    add_ns(&T_PARSE, t);
-    // Drop items annotated with `@target(...)` whose OS doesn't match
-    // the build host. Runs before embed / objc-class harvesting so
-    // those passes never see classes / fns that don't survive the
-    // filter (and so per-OS same-name decls don't collide downstream).
-    let t = Instant::now();
-    target_filter::filter_program(&mut prog)?;
-    add_ns(&T_TARGET, t);
-    let t = Instant::now();
-    expand_embeds(&mut prog, file)?;
-    add_ns(&T_EMBED, t);
-    let t = Instant::now();
-    collect_objc_class_names(&prog, objc_registry);
-    add_ns(&T_COLLECT_OBJC, t);
-    // Stamp every span in this file's Program with the canonical
-    // path so cross-module errors report the right source. Parser-
-    // generated spans (which borrow line / col of the closest
-    // user token) inherit the file too; that's accurate enough —
-    // they always live in the same file as the trigger token.
-    let t = Instant::now();
-    tag_program_spans(&mut prog, file_symbol);
-    add_ns(&T_TAG, t);
-    if !file_class_modules.is_empty() {
-        sibling_class_maps.insert(file.to_path_buf(), file_class_modules);
+    Ok(())
+}
+
+/// Phase 2 of the loader: parse every file Phase 1 collected. Each
+/// parse sees the COMPLETE `objc_registry` (token-scan harvest from
+/// Phase 1), so the order in which files are parsed doesn't affect
+/// `@extern(ObjC)` type recognition. The per-file `target_filter` /
+/// `expand_embeds` / `collect_objc_class_names` / `tag_program_spans`
+/// passes are the same the old `load_recursive` ran inline after
+/// each parse.
+///
+/// `tokens` is iterated in sorted-key order so a parse error in
+/// either of two files surfaces deterministically (matches what the
+/// old depth-first order achieved by accident).
+fn parse_phase(
+    tokens: &HashMap<PathBuf, Vec<ilang_lexer::Token>>,
+    objc_registry: &mut HashSet<Symbol>,
+    implicit_modules_by_file: &HashMap<PathBuf, Vec<Symbol>>,
+    loaded: &mut HashMap<PathBuf, Program>,
+) -> Result<(), LoadError> {
+    let mut paths: Vec<&PathBuf> = tokens.keys().collect();
+    paths.sort();
+    let empty_implicits: Vec<Symbol> = Vec::new();
+    for file in paths {
+        let toks = &tokens[file];
+        let implicit = implicit_modules_by_file
+            .get(file)
+            .unwrap_or(&empty_implicits);
+        let file_symbol = Symbol::intern(&file.display().to_string());
+        let t = Instant::now();
+        let mut prog = crate::parse_with_implicit_modules(
+            toks,
+            objc_registry,
+            implicit,
+        )
+        .map_err(|mut e| {
+            e.set_source_file(file_symbol);
+            LoadError::ParseError(e)
+        })?;
+        add_ns(&T_PARSE, t);
+        let t = Instant::now();
+        target_filter::filter_program(&mut prog)?;
+        add_ns(&T_TARGET, t);
+        let t = Instant::now();
+        expand_embeds(&mut prog, file)?;
+        add_ns(&T_EMBED, t);
+        // After parse: register any @objc classes the parser
+        // synthesised (auto-lift converts `class C : SomeObjcInterface`
+        // into an `@extern(ObjC) { @objc class C ... }` block whose
+        // class name isn't visible to the token scan). Keeps the
+        // registry complete for later parses in this loop and for
+        // the post-load `auto_lift_objc_subclasses` pass.
+        let t = Instant::now();
+        collect_objc_class_names(&prog, objc_registry);
+        add_ns(&T_COLLECT_OBJC, t);
+        let t = Instant::now();
+        tag_program_spans(&mut prog, file_symbol);
+        add_ns(&T_TAG, t);
+        loaded.insert(file.clone(), prog);
     }
-    loaded.insert(file.to_path_buf(), prog);
-    visiting.remove(file);
-    chain.pop();
     Ok(())
 }
 

@@ -159,36 +159,49 @@ pub(super) fn build_dir_objc_scan(dir: &Path) -> DirObjcScan {
         let mut classes = Vec::new();
         if let Ok(src) = std::fs::read_to_string(&p) {
             if let Ok(toks) = ilang_lexer::tokenize(&src) {
-                // Scan for `@objc ... class <Ident>` patterns. The `...`
-                // is either nothing or `pub` (the only modifier the
-                // parser accepts between `@objc` and `class` here).
-                let mut i = 0;
-                while i + 2 < toks.len() {
-                    // `@` (At) + `objc` (Ident "objc")
-                    if matches!(toks[i].kind, TokenKind::At) {
-                        if let TokenKind::Ident(n) = &toks[i + 1].kind {
-                            if n.as_str() == "objc" {
-                                let mut j = i + 2;
-                                if matches!(toks.get(j).map(|t| &t.kind), Some(TokenKind::Pub)) {
-                                    j += 1;
-                                }
-                                if matches!(toks.get(j).map(|t| &t.kind), Some(TokenKind::Class)) {
-                                    if let Some(TokenKind::Ident(cls)) =
-                                        toks.get(j + 1).map(|t| &t.kind)
-                                    {
-                                        classes.push(Symbol::intern(cls.as_str()));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    i += 1;
-                }
+                classes = scan_objc_classes_in_tokens(&toks);
             }
         }
         entries.push(SiblingObjcEntry { canon, stem, classes });
     }
     DirObjcScan { entries }
+}
+
+/// Scan a token stream for `@objc [pub] class <Ident>` patterns and
+/// return every class name found. Cheap (no parse, no allocation per
+/// non-match), shared by the directory-wide sibling pre-scan and the
+/// per-file discovery phase that builds the cross-module `@objc`
+/// registry up-front (so circular `use` graphs don't have to be
+/// rejected before parse).
+///
+/// Pattern matched: `@` `objc` (`pub`)? `class` `<Ident>`. Misses
+/// typo'd attributes or anything dynamically synthesised — those
+/// fall through to the post-parse `collect_objc_class_names` pass.
+pub(super) fn scan_objc_classes_in_tokens(toks: &[ilang_lexer::Token]) -> Vec<Symbol> {
+    let mut classes = Vec::new();
+    let mut i = 0;
+    while i + 2 < toks.len() {
+        // `@` (At) + `objc` (Ident "objc")
+        if matches!(toks[i].kind, TokenKind::At) {
+            if let TokenKind::Ident(n) = &toks[i + 1].kind {
+                if n.as_str() == "objc" {
+                    let mut j = i + 2;
+                    if matches!(toks.get(j).map(|t| &t.kind), Some(TokenKind::Pub)) {
+                        j += 1;
+                    }
+                    if matches!(toks.get(j).map(|t| &t.kind), Some(TokenKind::Class)) {
+                        if let Some(TokenKind::Ident(cls)) =
+                            toks.get(j + 1).map(|t| &t.kind)
+                        {
+                            classes.push(Symbol::intern(cls.as_str()));
+                        }
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    classes
 }
 
 /// Collect every `@objc class` name declared in `prog` (i.e. classes

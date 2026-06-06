@@ -81,7 +81,7 @@ pub(super) fn apply_use(
     let mut module_prog = loaded
         .get(&canon)
         .cloned()
-        .expect("loaded before via load_recursive");
+        .expect("loaded before via discover_phase / parse_phase");
     super::add_ns_pub(&super::T_AU_CLONE, t);
     // For path-style imports (`use a.b.c` → module="a",
     // subpath=["b", "c"]), the merged module's items live under the

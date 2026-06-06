@@ -162,15 +162,20 @@ fn use_selective_struct_inside_extern_c() {
 }
 
 #[test]
-fn use_circular_is_error() {
+fn use_circular_is_allowed() {
+    // The loader's discover + parse split tolerates circular `use`
+    // graphs. A.il `use b`, B.il `use a`, both used to abort with
+    // `LoadError::CircularImport`; now both files load successfully
+    // and the merged program type-checks and runs.
     let dir = std::env::temp_dir().join(format!("ilang_cyc_test_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    write_module(&dir, "a", "use b\nfn from_a(): i64 { 1 }");
-    write_module(&dir, "b", "use a\nfn from_b(): i64 { 2 }");
+    write_module(&dir, "a", "use b\npub fn from_a(): i64 { 1 + b.from_b() }");
+    write_module(&dir, "b", "use a\npub fn from_b(): i64 { 41 }");
     let main = write_module(&dir, "main", "use a\na.from_a()");
     let out = Command::new(ilang_bin()).arg("run").arg(&main).output().unwrap();
-    assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("circular import"));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {stderr}");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "42");
 }
 
 #[test]
