@@ -235,14 +235,13 @@ fn register_continuation(
         // Calling .then on a null promise — propagate as never-settled.
         return downstream;
     }
-    // Take +1 on every reference we're about to stash in the
-    // continuation list.
-    if on_resolve != 0 {
-        retain_closure_arg(on_resolve);
-    }
-    if on_reject != 0 {
-        retain_closure_arg(on_reject);
-    }
+    // `on_resolve` / `on_reject` arrive with the caller's +1 — we
+    // transfer that reference directly into the waiter (or the
+    // pool task below) without adding a second retain, since the
+    // caller releases its local copy after the call returns and
+    // the firing path releases exactly once. A retain here was a
+    // refcount leak (the second +1 had no matching release once
+    // the waiter fired or was drained on a never-settled promise).
     __retain_promise(downstream);
 
     let pr = unsafe { promise_ref(upstream) };
