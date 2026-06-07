@@ -97,7 +97,7 @@ pub(in crate::lower) struct Lower {
 
 impl Lower {
     pub(in crate::lower) fn new() -> Self {
-        let mut lower = Self {
+        Self {
             funcs: Vec::new(),
             fn_ids: HashMap::new(),
             fn_sigs: HashMap::new(),
@@ -121,9 +121,7 @@ impl Lower {
             overloads: HashMap::new(),
             repl_slots: HashMap::new(),
             repl_slot_ast: HashMap::new(),
-        };
-        lower.inject_typekind_enum();
-        lower
+        }
     }
 
     /// Built-in `TypeKind` enum surfaced by `typeof(x).kind`. The
@@ -137,7 +135,7 @@ impl Lower {
     /// checker uses in `builtins.rs` so a `match` arm with name
     /// `class` resolves to discriminant 1 here too (which is what
     /// `$type.kind` reports for a class instance).
-    fn inject_typekind_enum(&mut self) {
+    pub(in crate::lower) fn inject_typekind_enum(&mut self) {
         use crate::inst::VariantId;
         use crate::program::{EnumLayout, VariantDecl, VariantPayload};
         use crate::types::EnumId;

@@ -346,6 +346,10 @@ pub fn lower_program_with_slots(
             _ => {}
         }
     }
+    // Inject the built-in `TypeKind` enum AFTER user enums have been
+    // registered so user-declared enums keep stable ids starting at 0
+    // (the `.kind` lowering looks up TypeKind by name, not by id).
+    lower.inject_typekind_enum();
 
     // Resolve interface method signatures now that class / enum
     // types they reference are registered. Walk both top-level
