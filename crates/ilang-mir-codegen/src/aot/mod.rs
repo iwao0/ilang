@@ -22,7 +22,6 @@ use cranelift_frontend::{FunctionBuilder as ClifFnBuilder, FunctionBuilderContex
 use cranelift_module::{DataDescription, DataId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ilang_mir::{FuncId, MirTy, Program};
@@ -42,6 +41,123 @@ use crate::ty::mir_to_clif;
 /// points (vtable, drop, size, object-field, closure capture / size,
 /// enum payload-kind / print metadata, lib-group). Populated once via
 /// `import_all` so `emit_aot_init` stays readable.
+/// Subset of `AotRegistryRefs` consumed by `AotReflectionSink`.
+/// Keeping the reflection sink dependent on just these seven func
+/// refs (instead of the whole registry) keeps the lifetime / borrow
+/// shape simple — the sink lives only as long as the surrounding
+/// `__ilang_aot_init` body emit.
+struct AotReflectionRefs {
+    type_parent: cranelift_codegen::ir::FuncRef,
+    type_method: cranelift_codegen::ir::FuncRef,
+    type_method_return: cranelift_codegen::ir::FuncRef,
+    type_method_param: cranelift_codegen::ir::FuncRef,
+    type_field_type: cranelift_codegen::ir::FuncRef,
+    type_declared_field_count: cranelift_codegen::ir::FuncRef,
+    type_arg: cranelift_codegen::ir::FuncRef,
+}
+
+/// AOT-side sink: each reflection event becomes a `call $type.register*`
+/// IR instruction inside the `__ilang_aot_init` body. Method / field
+/// names reach the runtime via the pre-allocated data symbols stashed
+/// in `class_method_name_data` / `class_field_name_data` (one per
+/// class * member), reused through `ilang_string_body`.
+struct AotReflectionSink<'a, 'fb> {
+    module: &'a mut ObjectModule,
+    fb: &'a mut ClifFnBuilder<'fb>,
+    refs: AotReflectionRefs,
+    class_method_name_data: &'a [Vec<DataId>],
+    class_field_name_data: &'a [Vec<DataId>],
+}
+
+impl<'a, 'fb>
+    crate::compile::reflection::ReflectionSink
+    for AotReflectionSink<'a, 'fb>
+{
+    fn type_parent(&mut self, gcid: i64, parent_gcid: i64) {
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        let p_v = self.fb.ins().iconst(types::I64, parent_gcid);
+        self.fb.ins().call(self.refs.type_parent, &[cid_v, p_v]);
+    }
+    fn type_method(
+        &mut self,
+        class_idx: usize,
+        method_idx: usize,
+        gcid: i64,
+        _method_name: &str,
+    ) {
+        let did = self.class_method_name_data[class_idx][method_idx];
+        let body = ilang_string_body(self.module, self.fb, did);
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        let idx_v = self.fb.ins().iconst(types::I64, method_idx as i64);
+        self.fb
+            .ins()
+            .call(self.refs.type_method, &[cid_v, idx_v, body]);
+    }
+    fn type_method_return(
+        &mut self,
+        class_idx: usize,
+        method_idx: usize,
+        gcid: i64,
+        _method_name: &str,
+        ret_id: i64,
+    ) {
+        let did = self.class_method_name_data[class_idx][method_idx];
+        let body = ilang_string_body(self.module, self.fb, did);
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        let ret_v = self.fb.ins().iconst(types::I64, ret_id);
+        self.fb
+            .ins()
+            .call(self.refs.type_method_return, &[cid_v, body, ret_v]);
+    }
+    fn type_method_param(
+        &mut self,
+        class_idx: usize,
+        method_idx: usize,
+        gcid: i64,
+        _method_name: &str,
+        param_idx: i64,
+        param_id: i64,
+    ) {
+        let did = self.class_method_name_data[class_idx][method_idx];
+        let body = ilang_string_body(self.module, self.fb, did);
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        let i_v = self.fb.ins().iconst(types::I64, param_idx);
+        let p_v = self.fb.ins().iconst(types::I64, param_id);
+        self.fb
+            .ins()
+            .call(self.refs.type_method_param, &[cid_v, body, i_v, p_v]);
+    }
+    fn type_field_type(
+        &mut self,
+        class_idx: usize,
+        field_idx: usize,
+        gcid: i64,
+        _field_name: &str,
+        fty_id: i64,
+    ) {
+        let did = self.class_field_name_data[class_idx][field_idx];
+        let body = ilang_string_body(self.module, self.fb, did);
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        let ty_v = self.fb.ins().iconst(types::I64, fty_id);
+        self.fb
+            .ins()
+            .call(self.refs.type_field_type, &[cid_v, body, ty_v]);
+    }
+    fn type_declared_field_count(&mut self, gcid: i64, count: i64) {
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        let c_v = self.fb.ins().iconst(types::I64, count);
+        self.fb
+            .ins()
+            .call(self.refs.type_declared_field_count, &[cid_v, c_v]);
+    }
+    fn type_arg(&mut self, gcid: i64, idx: i64, arg_id: i64) {
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        let i_v = self.fb.ins().iconst(types::I64, idx);
+        let a_v = self.fb.ins().iconst(types::I64, arg_id);
+        self.fb.ins().call(self.refs.type_arg, &[cid_v, i_v, a_v]);
+    }
+}
+
 struct AotRegistry {
     vtable: cranelift_module::FuncId,
     drop_: cranelift_module::FuncId,
@@ -874,14 +990,6 @@ fn emit_aot_init(
             type_arg: reg_type_arg_ref,
             typekind_enum_id: reg_typekind_enum_id_ref,
         } = refs;
-        let class_name_to_id_for_aot: HashMap<
-            ilang_ast::Symbol,
-            ilang_mir::types::ClassId,
-        > = prog
-            .classes
-            .iter()
-            .map(|c| (c.name, c.id))
-            .collect();
 
         for (cls_idx, class) in prog.classes.iter().enumerate() {
             let global_cid = class_global[class.id.0 as usize] as i64;
@@ -991,96 +1099,33 @@ fn emit_aot_init(
                     fb.ins().call(reg_drop_ref, &[cid_v, addr]);
                 }
             }
-            // Reflection meta — mirrors `jit_setup.rs`'s class-loop
-            // emits so AOT binaries see the same `typeof(x).<member>`
-            // tables JIT does.
-            let parent_id = class
-                .parent
-                .map(|p| class_global[p.0 as usize] as i64)
-                .unwrap_or(0);
-            let cid_v = fb.ins().iconst(types::I64, global_cid);
-            let parent_v = fb.ins().iconst(types::I64, parent_id);
-            fb.ins().call(reg_type_parent_ref, &[cid_v, parent_v]);
-
-            let global_cid_fn = |c: u32| class_global[c as usize];
-            for (mi, m) in class.methods.iter().enumerate() {
-                let mname_did = class_method_name_data[cls_idx][mi];
-                let mname_body = ilang_string_body(module, &mut fb, mname_did);
-                let cid_v = fb.ins().iconst(types::I64, global_cid);
-                let idx_v = fb.ins().iconst(types::I64, mi as i64);
-                fb.ins().call(
-                    reg_type_method_ref,
-                    &[cid_v, idx_v, mname_body],
-                );
-                let func = &prog.functions[m.func.0 as usize];
-                let ret_id =
-                    crate::compile::mir_ty_to_type_id(&func.ret, &global_cid_fn);
-                let mname_body_r = ilang_string_body(module, &mut fb, mname_did);
-                let cid_v = fb.ins().iconst(types::I64, global_cid);
-                let ret_v = fb.ins().iconst(types::I64, ret_id);
-                fb.ins().call(
-                    reg_type_method_return_ref,
-                    &[cid_v, mname_body_r, ret_v],
-                );
-                for (pi, p) in func.params.iter().enumerate() {
-                    if !m.is_static && pi == 0 {
-                        continue;
-                    }
-                    let pid = crate::compile::mir_ty_to_type_id(&p.ty, &global_cid_fn);
-                    let mname_body_p = ilang_string_body(module, &mut fb, mname_did);
-                    let cid_v = fb.ins().iconst(types::I64, global_cid);
-                    let idx_v = fb.ins().iconst(types::I64, pi as i64);
-                    let pid_v = fb.ins().iconst(types::I64, pid);
-                    fb.ins().call(
-                        reg_type_method_param_ref,
-                        &[cid_v, mname_body_p, idx_v, pid_v],
-                    );
-                }
-            }
-            // Skip parent fields when reporting types (the MIR layout
-            // vector prepends inherited fields for layout reasons).
-            let parent_field_count = class
-                .parent
-                .map(|p| prog.classes[p.0 as usize].fields.len())
-                .unwrap_or(0);
-            for (fi, f) in class.fields.iter().enumerate().skip(parent_field_count) {
-                let fty_id =
-                    crate::compile::mir_ty_to_type_id(&f.ty, &global_cid_fn);
-                let fname_did = class_field_name_data[cls_idx][fi];
-                let fname_body = ilang_string_body(module, &mut fb, fname_did);
-                let cid_v = fb.ins().iconst(types::I64, global_cid);
-                let fty_v = fb.ins().iconst(types::I64, fty_id);
-                fb.ins().call(
-                    reg_type_field_type_ref,
-                    &[cid_v, fname_body, fty_v],
-                );
-            }
-            let declared = (class.fields.len() - parent_field_count) as i64;
-            let cid_v = fb.ins().iconst(types::I64, global_cid);
-            let declared_v = fb.ins().iconst(types::I64, declared);
-            fb.ins().call(
-                reg_type_declared_field_count_ref,
-                &[cid_v, declared_v],
+        }
+        // Reflection-meta registrations — parent / methods / field
+        // types / declared field count / generic instance args. The
+        // walker lives in `compile::reflection`; the AOT sink below
+        // adapts each event to a clif IR call inside this init body.
+        {
+            let mut sink = AotReflectionSink {
+                module: &mut *module,
+                fb: &mut fb,
+                refs: AotReflectionRefs {
+                    type_parent: reg_type_parent_ref,
+                    type_method: reg_type_method_ref,
+                    type_method_return: reg_type_method_return_ref,
+                    type_method_param: reg_type_method_param_ref,
+                    type_field_type: reg_type_field_type_ref,
+                    type_declared_field_count:
+                        reg_type_declared_field_count_ref,
+                    type_arg: reg_type_arg_ref,
+                },
+                class_method_name_data: &class_method_name_data,
+                class_field_name_data: &class_field_name_data,
+            };
+            crate::compile::reflection::emit_reflection_registrations(
+                prog,
+                &class_global,
+                &mut sink,
             );
-            // Generic instance type args.
-            let arg_names =
-                crate::compile::parse_class_name_type_args(class.name.as_str());
-            for (i, arg) in arg_names.iter().enumerate() {
-                let aid = crate::compile::type_arg_id_by_name(
-                    arg,
-                    &class_name_to_id_for_aot,
-                    &global_cid_fn,
-                );
-                let cid_v = fb.ins().iconst(types::I64, global_cid);
-                let idx_v = fb.ins().iconst(types::I64, i as i64);
-                let aid_v = fb.ins().iconst(types::I64, aid);
-                // `__register_type_arg` is `(class_id, idx, arg_id) -> void`,
-                // same ABI as ternary i64 helpers — use the existing
-                // method-name registrar's signature shape (we reused
-                // `reg_type_method_ref` here would be wrong, declare a
-                // fresh import).
-                fb.ins().call(reg_type_arg_ref, &[cid_v, idx_v, aid_v]);
-            }
         }
 
         // Closure capture / size tables — keyed by fn_addr at runtime

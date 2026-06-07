@@ -226,8 +226,6 @@ pub fn compile_with_builtins(
     // `__print_object` walks an object's fields via the runtime's
     // copy. AOT mirrors the same registrations from
     // `__ilang_aot_init` using data-symbol-backed strings.
-    let class_name_to_id: HashMap<ilang_ast::Symbol, ilang_mir::types::ClassId> =
-        prog.classes.iter().map(|c| (c.name, c.id)).collect();
     for class in &prog.classes {
         let gcid = global_cid(class.id.0) as i64;
         let name_ptr = ilang_runtime::leak_cstring(class.name.as_str().to_string());
@@ -280,60 +278,18 @@ pub fn compile_with_builtins(
                 );
             }
         }
-        // Reflection meta — parent class id, method names, and the
-        // per-field / per-method types so `typeof(x).fieldType("name")`
-        // / `methodReturn(...)` / `methodParams(...)` can resolve.
-        // Parent: 0 means "no parent" on the runtime side.
-        let parent_id = class
-            .parent
-            .map(|p| global_cid(p.0) as i64)
-            .unwrap_or(0);
-        ilang_runtime::__register_type_parent(gcid, parent_id);
-        for (i, m) in class.methods.iter().enumerate() {
-            let mname_ptr = ilang_runtime::leak_cstring(m.name.as_str().to_string());
-            ilang_runtime::__register_type_method(gcid, i as i64, mname_ptr);
-            let func = &prog.functions[m.func.0 as usize];
-            let ret_id = mir_ty_to_type_id(&func.ret, &global_cid);
-            let mname_ptr_ret = ilang_runtime::leak_cstring(m.name.as_str().to_string());
-            ilang_runtime::__register_type_method_return(gcid, mname_ptr_ret, ret_id);
-            for (pi, p) in func.params.iter().enumerate() {
-                // Skip the leading `this` parameter on non-static
-                // methods so `methodParams` reports the user-visible
-                // signature.
-                if !m.is_static && pi == 0 {
-                    continue;
-                }
-                let pid = mir_ty_to_type_id(&p.ty, &global_cid);
-                let mname_ptr_p = ilang_runtime::leak_cstring(m.name.as_str().to_string());
-                ilang_runtime::__register_type_method_param(
-                    gcid, mname_ptr_p, pi as i64, pid,
-                );
-            }
-        }
-        // Skip parent fields — MIR's `class.fields` prepends every
-        // inherited field for layout reasons, but reflection reports
-        // only the names declared on this class itself.
-        let parent_field_count = class
-            .parent
-            .map(|p| prog.classes[p.0 as usize].fields.len())
-            .unwrap_or(0);
-        for f in class.fields.iter().skip(parent_field_count) {
-            let fty_id = mir_ty_to_type_id(&f.ty, &global_cid);
-            let fname_ptr_t = ilang_runtime::leak_cstring(f.name.as_str().to_string());
-            ilang_runtime::__register_type_field_type(gcid, fname_ptr_t, fty_id);
-        }
-        ilang_runtime::__register_type_declared_field_count(
-            gcid,
-            (class.fields.len() - parent_field_count) as i64,
+    }
+    // Reflection-meta registrations — parent / methods / field
+    // types / declared field count / generic instance args. Shared
+    // walker; the JIT sink dispatches each event straight to the
+    // `ilang_runtime::__register_type_*` host fn.
+    {
+        let mut sink = super::reflection::ReflectionSink_JIT;
+        super::reflection::emit_reflection_registrations(
+            prog,
+            &class_global,
+            &mut sink,
         );
-        // Generic instance type args — recovered from the monomorphised
-        // class name, since the post-monomorph MIR ClassLayout doesn't
-        // carry the original `<T, U>` substitutions explicitly.
-        let arg_names = parse_class_name_type_args(class.name.as_str());
-        for (i, arg) in arg_names.iter().enumerate() {
-            let aid = type_arg_id_by_name(arg, &class_name_to_id, &global_cid);
-            ilang_runtime::__register_type_arg(gcid, i as i64, aid);
-        }
     }
     // Populate the enum print registry (`__register_enum_print_name`
     // / variant names / payload kinds) and the per-variant cascade
