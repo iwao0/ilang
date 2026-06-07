@@ -257,7 +257,24 @@ impl<'a> BodyCx<'a> {
         for (i, a) in args.iter().enumerate() {
             let arg_is_fresh = self.is_fresh_object_expr(a);
             let (coerced, vty) = self.lower_arg_to(a, sig.params.get(i + 1))?;
-            if arg_is_fresh && matches!(vty, MirTy::Object(_)) {
+            // Same fresh-transfer rule as `lower_new`: every heap arg
+            // whose field-assign path retains (Object / Fn / Array /
+            // Tuple / Map / Optional / Str) needs a post-call release
+            // when the caller passed a fresh transient. Without it,
+            // `obj.method(fresh_heap)` leaks one cell per call
+            // whenever the method stashes the arg into a field (or
+            // any callee path that retains).
+            let needs_post_release = matches!(
+                vty,
+                MirTy::Object(_)
+                    | MirTy::Fn(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Optional(_)
+                    | MirTy::Str
+            );
+            if arg_is_fresh && needs_post_release {
                 fresh_obj_args.push(coerced);
             }
             arg_vals_all.push(coerced);

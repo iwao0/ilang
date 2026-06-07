@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
-use crate::closures::__release_closure;
+use crate::closures::{__release_closure, __retain_closure};
 use crate::pool;
 
 /// Per-timer cancellation flag — shared between the public
@@ -87,9 +87,13 @@ pub extern "C" fn time_set_timeout(ms: i64, callback: i64) -> i64 {
     let cancelled = Arc::new(AtomicBool::new(false));
     st.timers.lock().expect("timer table poisoned")
         .insert(id, Arc::clone(&cancelled));
-    // The caller's +1 on `callback` transfers into the pool task —
-    // the pool releases exactly once after firing, so a retain here
-    // would be a permanent refcount leak.
+    // ilang passes `callback` as a borrowed ref (params follow the
+    // borrow convention — caller still owns the +1 across the
+    // call). The pool task needs its own +1 to survive past the
+    // caller's post-call release; without the retain the cell would
+    // be freed before the worker fires it. The caller-side fresh
+    // release happens at the `lower_call` site.
+    __retain_closure(callback);
     let sleep_ms = if ms > 0 { ms as u64 } else { 0 };
     pool::submit(move || {
         if sleep_ms > 0 {
@@ -127,8 +131,8 @@ pub extern "C" fn time_set_interval(ms: i64, callback: i64) -> i64 {
     let cancelled = Arc::new(AtomicBool::new(false));
     st.timers.lock().expect("timer table poisoned")
         .insert(id, Arc::clone(&cancelled));
-    // The caller's +1 on `callback` transfers into the pool task —
-    // see `set_timeout` above for the same convention.
+    // See `set_timeout` above for the borrow / retain rationale.
+    __retain_closure(callback);
     let interval = Duration::from_millis(if ms > 0 { ms as u64 } else { 1 });
     pool::submit(move || {
         loop {

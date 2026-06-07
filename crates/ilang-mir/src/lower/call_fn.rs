@@ -315,7 +315,23 @@ impl<'a> BodyCx<'a> {
                 } else {
                     self.lower_expr(a)?
                 };
-                if arg_is_fresh && matches!(vty, MirTy::Object(_) | MirTy::Str) {
+                // Same fresh-transfer rule as `lower_new` /
+                // `lower_object_method`: the caller's +1 on a fresh
+                // heap arg needs releasing after the call. Heap
+                // types that participate match the field-assign
+                // retain set (Object / Fn / Array / Tuple / Map /
+                // Optional / Str).
+                let needs_post_release = matches!(
+                    vty,
+                    MirTy::Object(_)
+                        | MirTy::Fn(_)
+                        | MirTy::Array { .. }
+                        | MirTy::Tuple(_)
+                        | MirTy::Map { .. }
+                        | MirTy::Optional(_)
+                        | MirTy::Str
+                );
+                if arg_is_fresh && needs_post_release {
                     fresh_obj_args.push(coerced);
                 }
                 // Re-forwarding an ilang `fn(...)` value to an
