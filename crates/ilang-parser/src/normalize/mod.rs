@@ -188,12 +188,40 @@ pub fn renormalize_merged(prog: Program) -> Program {
     // rewrite pass uses this to identify multi-level dotted refs
     // (`umbrella.inner.fn`) introduced by namespaced `pub use`.
     for item in &prog.items {
-        match item {
-            Item::Fn(f) => { ctx.items.insert(f.name.clone()); }
-            Item::Class(c) => { ctx.items.insert(c.name.clone()); }
-            Item::Enum(e) => { ctx.items.insert(e.name.clone()); }
-            Item::Const(c) => { ctx.items.insert(c.name.clone()); }
-            _ => {}
+        let item_name: Option<&str> = match item {
+            Item::Fn(f) => {
+                ctx.items.insert(f.name.clone());
+                Some(f.name.as_str())
+            }
+            Item::Class(c) => {
+                ctx.items.insert(c.name.clone());
+                Some(c.name.as_str())
+            }
+            Item::Enum(e) => {
+                ctx.items.insert(e.name.clone());
+                Some(e.name.as_str())
+            }
+            Item::Const(c) => {
+                ctx.items.insert(c.name.clone());
+                Some(c.name.as_str())
+            }
+            _ => None,
+        };
+        // Register every dotted prefix of an item's mangled name as
+        // a module — `pub use` chains land items under deep paths
+        // like `top.mid.core.echo3`, and `rewrite_field`'s dotted-
+        // chain collapse needs each intermediate prefix (`top`,
+        // `top.mid`, `top.mid.core`) to be visible in `ctx.modules`
+        // so an entry's `top.mid.core.echo3(...)` references resolve
+        // through the chain.
+        if let Some(s) = item_name {
+            let mut start = 0;
+            while let Some(pos) = s[start..].find('.') {
+                let end = start + pos;
+                let prefix = Symbol::intern(&s[..end]);
+                ctx.modules.entry(prefix).or_insert(prefix);
+                start = end + 1;
+            }
         }
     }
     rewrite_program(prog, &ctx)
