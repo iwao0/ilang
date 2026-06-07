@@ -622,3 +622,130 @@ impl EnumRegistrationSink for EnumRegistrationSink_JIT {
         ilang_runtime::__register_typekind_enum_id(gid);
     }
 }
+
+// --------------------------------------------------------------------
+// Closure capture / size + fn-name registrations
+// --------------------------------------------------------------------
+
+/// Backend-specific receiver for closure / fn-name registrations.
+/// Both events identify the function by `MirFnId`; sinks resolve
+/// the actual fn address themselves (JIT uses
+/// `module.get_finalized_function`, AOT emits a `func_addr` IR).
+pub(crate) trait ClosureFnSink {
+    fn closure_capture(
+        &mut self,
+        fn_id: ilang_mir::FuncId,
+        off: i64,
+        tag: i64,
+    );
+    fn closure_size(
+        &mut self,
+        fn_id: ilang_mir::FuncId,
+        total_size: i64,
+    );
+    fn fn_name(
+        &mut self,
+        fn_id: ilang_mir::FuncId,
+        name: &str,
+        fn_idx: usize,
+    );
+}
+
+/// Walk every function: emit closure capture / size registrations
+/// for the ones with an env, and `fn_name` registrations for every
+/// non-extern user fn whose name should appear in `<fn NAME>`
+/// formatting. Extern / synthetic / `__main` names are filtered out
+/// here so sinks don't carry the rules.
+pub(crate) fn emit_closure_fn_registrations<S, KT>(
+    prog: &Program,
+    payload_kind: KT,
+    sink: &mut S,
+) where
+    S: ClosureFnSink,
+    KT: Fn(&MirTy) -> i64,
+{
+    for (idx, func) in prog.functions.iter().enumerate() {
+        if matches!(func.kind, ilang_mir::FunctionKind::Extern { .. }) {
+            continue;
+        }
+        let fn_id = ilang_mir::FuncId(idx as u32);
+        // Closure capture / size (only for fns with a non-empty env).
+        if let Some(env) = &func.closure_env {
+            for (i, cap) in env.captures.iter().enumerate() {
+                if cap.is_cell {
+                    continue;
+                }
+                let tag = payload_kind(&cap.ty);
+                if tag == 0 {
+                    continue;
+                }
+                let off = 16 + (i as i64) * 8;
+                sink.closure_capture(fn_id, off, tag);
+            }
+            let total_size = (2 + env.captures.len() as i64) * 8;
+            sink.closure_size(fn_id, total_size);
+        }
+        // fn_name — skip anon / __main / extern (already filtered).
+        let name = func.name.as_str();
+        if name.starts_with("$anon.fn_") || name.starts_with("$main") {
+            continue;
+        }
+        let plain = name.split("__").next().unwrap_or(name);
+        sink.fn_name(fn_id, plain, idx);
+    }
+}
+
+/// JIT-side sink for `ClosureFnSink`. Resolves each `FuncId` to a
+/// runtime host address through `module.get_finalized_function`.
+/// `'a` keeps the borrow on the JIT module / id-tables alive for
+/// the duration of the call.
+#[allow(non_camel_case_types)]
+pub(crate) struct ClosureFnSink_JIT<'a> {
+    pub(crate) module: &'a cranelift_jit::JITModule,
+    pub(crate) fn_ids: &'a std::collections::HashMap<
+        ilang_mir::FuncId,
+        cranelift_module::FuncId,
+    >,
+}
+
+impl<'a> ClosureFnSink for ClosureFnSink_JIT<'a> {
+    fn closure_capture(
+        &mut self,
+        fn_id: ilang_mir::FuncId,
+        off: i64,
+        tag: i64,
+    ) {
+        let cl_id = match self.fn_ids.get(&fn_id) {
+            Some(id) => *id,
+            None => return,
+        };
+        let addr = self.module.get_finalized_function(cl_id) as i64;
+        ilang_runtime::__register_closure_capture(addr, off, tag);
+    }
+    fn closure_size(
+        &mut self,
+        fn_id: ilang_mir::FuncId,
+        total_size: i64,
+    ) {
+        let cl_id = match self.fn_ids.get(&fn_id) {
+            Some(id) => *id,
+            None => return,
+        };
+        let addr = self.module.get_finalized_function(cl_id) as i64;
+        ilang_runtime::__register_closure_size(addr, total_size);
+    }
+    fn fn_name(
+        &mut self,
+        fn_id: ilang_mir::FuncId,
+        name: &str,
+        _fn_idx: usize,
+    ) {
+        let cl_id = match self.fn_ids.get(&fn_id) {
+            Some(id) => *id,
+            None => return,
+        };
+        let addr = self.module.get_finalized_function(cl_id) as i64;
+        let ptr = ilang_runtime::leak_cstring(name.to_string());
+        ilang_runtime::__register_fn_name(addr, ptr);
+    }
+}

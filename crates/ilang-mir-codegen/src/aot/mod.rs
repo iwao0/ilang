@@ -379,6 +379,77 @@ impl<'a, 'fb>
     }
 }
 
+/// Subset of `AotRegistryRefs` consumed by `AotClosureFnSink`.
+struct AotClosureFnRefs {
+    closure_capture: cranelift_codegen::ir::FuncRef,
+    closure_size: cranelift_codegen::ir::FuncRef,
+    fn_name: cranelift_codegen::ir::FuncRef,
+}
+
+struct AotClosureFnSink<'a, 'fb> {
+    module: &'a mut ObjectModule,
+    fb: &'a mut ClifFnBuilder<'fb>,
+    refs: AotClosureFnRefs,
+    fn_ids: &'a std::collections::HashMap<
+        ilang_mir::FuncId,
+        cranelift_module::FuncId,
+    >,
+    fn_display_name_data: &'a [Option<DataId>],
+}
+
+impl<'a, 'fb> AotClosureFnSink<'a, 'fb> {
+    fn fn_addr(&mut self, fn_id: ilang_mir::FuncId) -> Option<Value> {
+        let cl_id = *self.fn_ids.get(&fn_id)?;
+        let fr = self.module.declare_func_in_func(cl_id, self.fb.func);
+        Some(self.fb.ins().func_addr(types::I64, fr))
+    }
+}
+
+impl<'a, 'fb>
+    crate::compile::registration::ClosureFnSink
+    for AotClosureFnSink<'a, 'fb>
+{
+    fn closure_capture(
+        &mut self,
+        fn_id: ilang_mir::FuncId,
+        off: i64,
+        tag: i64,
+    ) {
+        let Some(fn_addr) = self.fn_addr(fn_id) else { return };
+        let off_v = self.fb.ins().iconst(types::I64, off);
+        let tag_v = self.fb.ins().iconst(types::I64, tag);
+        self.fb
+            .ins()
+            .call(self.refs.closure_capture, &[fn_addr, off_v, tag_v]);
+    }
+    fn closure_size(
+        &mut self,
+        fn_id: ilang_mir::FuncId,
+        total_size: i64,
+    ) {
+        let Some(fn_addr) = self.fn_addr(fn_id) else { return };
+        let s_v = self.fb.ins().iconst(types::I64, total_size);
+        self.fb
+            .ins()
+            .call(self.refs.closure_size, &[fn_addr, s_v]);
+    }
+    fn fn_name(
+        &mut self,
+        fn_id: ilang_mir::FuncId,
+        _name: &str,
+        fn_idx: usize,
+    ) {
+        // Pre-allocated `[i64 cap | i64 rc | i64 len | bytes | \0]`
+        // body for the un-mangled fn name. Sites where the table
+        // entry is `None` correspond to extern / anon / `__main` —
+        // the driver already filters those, but stay defensive.
+        let Some(did) = self.fn_display_name_data[fn_idx] else { return };
+        let Some(fn_addr) = self.fn_addr(fn_id) else { return };
+        let body = ilang_string_body(self.module, self.fb, did);
+        self.fb.ins().call(self.refs.fn_name, &[fn_addr, body]);
+    }
+}
+
 struct AotRegistry {
     vtable: cranelift_module::FuncId,
     drop_: cranelift_module::FuncId,
@@ -1292,37 +1363,27 @@ fn emit_aot_init(
             );
         }
 
-        // Closure capture / size tables — keyed by fn_addr at runtime
-        // so `__release_closure` can walk the cell's heap-shaped
-        // captures and free the right block size.
-        for (idx, func) in prog.functions.iter().enumerate() {
-            let env = match &func.closure_env {
-                Some(e) => e,
-                None => continue,
+        // Closure capture / size + fn-name registrations — shared
+        // walker. The AOT sink emits each event as a clif IR call
+        // (resolving each FuncId to a `func_addr` IR Value on the
+        // fly through `module.declare_func_in_func`).
+        {
+            let mut sink = AotClosureFnSink {
+                module: &mut *module,
+                fb: &mut fb,
+                refs: AotClosureFnRefs {
+                    closure_capture: reg_closure_capture_ref,
+                    closure_size: reg_closure_size_ref,
+                    fn_name: reg_fn_name_ref,
+                },
+                fn_ids: &fn_ids,
+                fn_display_name_data: &fn_display_name_data,
             };
-            let mid = FuncId(idx as u32);
-            let cl_id = match fn_ids.get(&mid) {
-                Some(c) => *c,
-                None => continue,
-            };
-            let fr = module.declare_func_in_func(cl_id, fb.func);
-            let fn_addr = fb.ins().func_addr(types::I64, fr);
-            for (i, cap) in env.captures.iter().enumerate() {
-                if cap.is_cell {
-                    continue; // cells stay outside the registry
-                }
-                let tag = field_kind_tag(&cap.ty);
-                if tag == 0 {
-                    continue;
-                }
-                let off = 16 + (i as i64) * 8;
-                let off_v = fb.ins().iconst(types::I64, off);
-                let tag_v = fb.ins().iconst(types::I64, tag);
-                fb.ins().call(reg_closure_capture_ref, &[fn_addr, off_v, tag_v]);
-            }
-            let total_size = (2 + env.captures.len() as i64) * 8;
-            let size_v = fb.ins().iconst(types::I64, total_size);
-            fb.ins().call(reg_closure_size_ref, &[fn_addr, size_v]);
+            crate::compile::registration::emit_closure_fn_registrations(
+                prog,
+                |ty| field_kind_tag(ty),
+                &mut sink,
+            );
         }
 
         // Enum print + payload-kind + disc-str + TypeKind-id
@@ -1354,25 +1415,8 @@ fn emit_aot_init(
             );
         }
 
-        // Register the user-facing name of every non-extern fn so
-        // `__print_fn` can spell out `<fn NAME>` on closure print.
-        for (idx, _func) in prog.functions.iter().enumerate() {
-            let did = match fn_display_name_data[idx] {
-                Some(d) => d,
-                None => continue,
-            };
-            let mid = FuncId(idx as u32);
-            let cl_id = match fn_ids.get(&mid) {
-                Some(c) => *c,
-                None => continue,
-            };
-            let fr = module.declare_func_in_func(cl_id, fb.func);
-            let fn_addr = fb.ins().func_addr(types::I64, fr);
-            let name_body = ilang_string_body(module, &mut fb, did);
-            fb.ins().call(reg_fn_name_ref, &[fn_addr, name_body]);
-        }
-        // (Enum disc-str registrations for `: string`-repr enums are
-        // emitted by the shared walker above through the same sink.)
+        // (fn-name registrations are emitted by the shared
+        // closure/fn walker above.)
 
         // Register every `@lib(...)` fallback group so the runtime's
         // `os.libLoaded(name)` can fall through to alternates.

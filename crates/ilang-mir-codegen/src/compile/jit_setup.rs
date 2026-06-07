@@ -16,7 +16,7 @@ use ilang_mir::{FuncId, MirTy, Program};
 use super::host_misc::{host_optional_missing_stub, lookup_symbol_in_process, process_symbol_exists};
 use super::host_os::try_open_lib;
 use super::print_kind::{
-    kind_tag_of, print_kind_id, print_kind_id_for_print_kind, print_kind_of, KIND_NONE,
+    kind_tag_of, print_kind_id, print_kind_id_for_print_kind, print_kind_of,
 };
 use super::{
     alloc_global_class_id, alloc_global_enum_id, lower_program_into, BuiltinDecl, Compiled,
@@ -225,57 +225,20 @@ pub fn compile_with_builtins(
             &mut sink,
         );
     }
-    // Populate closure capture / size tables in the runtime crate —
-    // `ilang_runtime::__release_closure` walks the captures table at
-    // rc-zero. AOT mirrors these registrations from
-    // `__ilang_aot_init`; both backends share one map.
-    for (idx, func) in prog.functions.iter().enumerate() {
-        if extern_fn_ids.contains(&FuncId(idx as u32)) {
-            continue;
-        }
-        let env = match &func.closure_env {
-            Some(e) => e,
-            None => continue,
+    // Closure capture / size + fn-name registrations — shared
+    // walker. The JIT sink resolves each FuncId to its finalized
+    // host address; AOT lowers each event as a `func_addr` IR.
+    {
+        let mut sink = super::registration::ClosureFnSink_JIT {
+            module: &module,
+            fn_ids: &fn_ids,
         };
-        let mid = FuncId(idx as u32);
-        let cl_id = match fn_ids.get(&mid) {
-            Some(c) => *c,
-            None => continue,
-        };
-        let addr = module.get_finalized_function(cl_id) as i64;
-        for (i, cap) in env.captures.iter().enumerate() {
-            if cap.is_cell {
-                // Cells are 1-element arrays — leak for now.
-                continue;
-            }
-            let tag = kind_tag_of(&cap.ty, &prog.classes);
-            if tag == KIND_NONE {
-                continue;
-            }
-            let off = 16 + (i as i64) * 8;
-            ilang_runtime::__register_closure_capture(addr, off, tag);
-        }
-        let total_size = (2 + env.captures.len() as i64) * 8;
-        ilang_runtime::__register_closure_size(addr, total_size);
-    }
-    // Populate fn-name registry — `__print_fn` looks up the fn
-    // address (closure[0]) and prints "<fn NAME>" / "<fn>". Lives
-    // in `ilang-runtime` so AOT-built programs see the same table.
-    // Skip extern fns (no compiled body) and synthetic names.
-    for (idx, func) in prog.functions.iter().enumerate() {
-        if extern_fn_ids.contains(&FuncId(idx as u32)) {
-            continue;
-        }
-        let mid = FuncId(idx as u32);
-        if let Some(cl_id) = fn_ids.get(&mid) {
-            let addr = module.get_finalized_function(*cl_id) as i64;
-            let name = func.name.as_str();
-            if !name.starts_with("$anon.fn_") && !name.starts_with("$main") {
-                let plain = name.split("__").next().unwrap_or(name);
-                let name_ptr = ilang_runtime::leak_cstring(plain.to_string());
-                ilang_runtime::__register_fn_name(addr, name_ptr);
-            }
-        }
+        let classes = &prog.classes;
+        super::registration::emit_closure_fn_registrations(
+            prog,
+            |ty| kind_tag_of(ty, classes),
+            &mut sink,
+        );
     }
     // Populate the class-id → drop fn registry. `drop_fn` is set by
     // the lowering whenever a class declares `deinit`. Subclasses
