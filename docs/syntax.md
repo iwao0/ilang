@@ -862,7 +862,10 @@ let p = Vec2.of(3.0, 4.0)
 let d = Vec2.dot(z, p)
 ```
 
-- Not overloadable (multiple `static foo` errors).
+- Overloadable on arity and parameter types — the resolution and
+  mangling rules match [§6 Function overloading](#function-overloading)
+  and the instance-method case in §7. Variants are mangled to
+  `name__<param_types>` after type checking.
 - Cannot share a name with a field, instance method, or property.
 - Static methods on generic classes are unsupported (type
   parameters aren't visible in static context).
