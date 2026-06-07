@@ -669,22 +669,30 @@ pub(crate) fn emit_closure_fn_registrations<S, KT>(
             continue;
         }
         let fn_id = ilang_mir::FuncId(idx as u32);
-        // Closure capture / size (only for fns with a non-empty env).
-        if let Some(env) = &func.closure_env {
-            for (i, cap) in env.captures.iter().enumerate() {
-                if cap.is_cell {
-                    continue;
-                }
-                let tag = payload_kind(&cap.ty);
-                if tag == 0 {
-                    continue;
-                }
-                let off = 16 + (i as i64) * 8;
-                sink.closure_capture(fn_id, off, tag);
+        // Closure capture / size. Captures only emit when an env
+        // exists, but the size *always* registers — `MakeClosure`
+        // allocates a 16-byte header (`[fn_addr | rc]`) even for
+        // no-capture closures (anonymous fn literals + top-level fn
+        // trampolines), and `__release_closure` skips the
+        // `__mir_free` step without a size entry, leaking the cell.
+        let captures: &[_] = func
+            .closure_env
+            .as_ref()
+            .map(|e| e.captures.as_slice())
+            .unwrap_or(&[]);
+        for (i, cap) in captures.iter().enumerate() {
+            if cap.is_cell {
+                continue;
             }
-            let total_size = (2 + env.captures.len() as i64) * 8;
-            sink.closure_size(fn_id, total_size);
+            let tag = payload_kind(&cap.ty);
+            if tag == 0 {
+                continue;
+            }
+            let off = 16 + (i as i64) * 8;
+            sink.closure_capture(fn_id, off, tag);
         }
+        let total_size = (2 + captures.len() as i64) * 8;
+        sink.closure_size(fn_id, total_size);
         // fn_name — skip anon / __main / extern (already filtered).
         let name = func.name.as_str();
         if name.starts_with("$anon.fn_") || name.starts_with("$main") {

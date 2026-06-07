@@ -621,6 +621,15 @@ impl<'a> BodyCx<'a> {
                     .unwrap_or(false);
                 then_fresh && else_fresh
             }
+            // A bare reference to a top-level `fn` lowers to a
+            // `MakeClosure` (trampoline) — fresh allocation with
+            // rc=1 each time. A local / param / captured Var of
+            // the same name shadows the top-level fn and is NOT
+            // fresh (the lookup_binding path lowers to a borrow).
+            ExprKind::Var(name) => {
+                self.env.lookup_binding(*name).is_none()
+                    && self.fn_ids.contains_key(name)
+            }
             _ => false,
         }
     }
