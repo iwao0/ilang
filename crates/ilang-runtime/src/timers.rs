@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
-use crate::closures::{__release_closure, __retain_closure};
+use crate::closures::__release_closure;
 use crate::pool;
 
 /// Per-timer cancellation flag — shared between the public
@@ -87,7 +87,9 @@ pub extern "C" fn time_set_timeout(ms: i64, callback: i64) -> i64 {
     let cancelled = Arc::new(AtomicBool::new(false));
     st.timers.lock().expect("timer table poisoned")
         .insert(id, Arc::clone(&cancelled));
-    __retain_closure(callback);
+    // The caller's +1 on `callback` transfers into the pool task —
+    // the pool releases exactly once after firing, so a retain here
+    // would be a permanent refcount leak.
     let sleep_ms = if ms > 0 { ms as u64 } else { 0 };
     pool::submit(move || {
         if sleep_ms > 0 {
@@ -125,7 +127,8 @@ pub extern "C" fn time_set_interval(ms: i64, callback: i64) -> i64 {
     let cancelled = Arc::new(AtomicBool::new(false));
     st.timers.lock().expect("timer table poisoned")
         .insert(id, Arc::clone(&cancelled));
-    __retain_closure(callback);
+    // The caller's +1 on `callback` transfers into the pool task —
+    // see `set_timeout` above for the same convention.
     let interval = Duration::from_millis(if ms > 0 { ms as u64 } else { 1 });
     pool::submit(move || {
         loop {

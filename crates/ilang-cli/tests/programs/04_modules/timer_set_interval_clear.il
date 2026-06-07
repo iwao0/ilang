@@ -20,9 +20,10 @@ let id = time.setInterval(fn() {
 }, 1)
 id_holder[0] = id
 
-// Block briefly so the interval can fire its three ticks before
-// we read the result. `sleep` blocks the main thread; the worker
-// keeps running on the pool.
-time.sleep(60)
+// Block long enough for the interval to fire its three ticks
+// before we read the result. `sleep` blocks the main thread; the
+// worker keeps running on the pool. Generous to absorb scheduler
+// jitter under CI load.
+time.sleep(300)
 test.expectTrue(counter[0] >= 3)
 console.log("ticked")
