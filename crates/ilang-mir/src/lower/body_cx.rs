@@ -436,7 +436,32 @@ impl<'a> BodyCx<'a> {
             this.fb.push_inst(c);
             v
         };
+        // A heap-typed tail in a Unit-returning fn is a discarded
+        // expression-statement — its value would otherwise leak
+        // (lower_stmt's `Expr` arm releases discarded fresh heap
+        // results, but the tail position doesn't go through that
+        // path). Release it here, matching the stmt-discard rule.
+        let unit_tail_needs_release = |ty: &MirTy| {
+            matches!(
+                ty,
+                MirTy::Object(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Set { .. }
+                    | MirTy::Optional(_)
+                    | MirTy::Fn(_)
+                    | MirTy::Promise(_)
+                    | MirTy::Weak(_)
+                    | MirTy::Str
+                    | MirTy::Enum(_)
+            )
+        };
         let value = match (&self.ret_ty, tail) {
+            (MirTy::Unit, Some((v, vty))) if unit_tail_needs_release(&vty) => {
+                self.fb.push_inst(Inst::Release { value: v });
+                None
+            }
             (MirTy::Unit, _) => None,
             // Tail expression has unit type (e.g. `return X` desugars
             // to a unit value in a dead block) — fabricate a real
@@ -525,7 +550,16 @@ impl<'a> BodyCx<'a> {
             ExprKind::Var(name) => Some(*name),
             _ => None,
         });
-        let tail_aliases_local = tail_alias_name.is_some();
+        // Retain when the tail Var resolves to a `Local` / `Cell`
+        // binding (a let-bound storage slot that some scope's exit
+        // pass will release). Skip params (`Binding::Ssa`) — they
+        // aren't owned by any release sweep, so retaining for them
+        // would leave a permanent +1 on the returned cell (visible
+        // as a per-call leak in `fn f(x: Box): Box { x }`).
+        let tail_aliases_local = tail_alias_name
+            .and_then(|name| self.env.lookup_binding(name))
+            .map(|b| matches!(b, Binding::Local(..) | Binding::Cell(..)))
+            .unwrap_or(false);
         // Heap-typed tails that **borrow** into a still-live owner
         // (e.g. `arr[i]` reads from `arr`'s element area;
         // `obj.field` reads from `obj`'s slot) need an extra +1
