@@ -62,6 +62,9 @@ impl<'a> BodyCx<'a> {
         // adopts its own +1 (host_set_add retains string elements), so
         // the caller's transient is released after the call.
         let mut fresh_elem: Option<(ValueId, MirTy)> = None;
+        // forEach's callback closure: the runtime consumes the +1.
+        // Track whether to retain a borrowed reference.
+        let mut foreach_cb: Option<(ValueId, bool)> = None;
         for (idx, a) in args.iter().enumerate() {
             let arg_is_fresh = self.is_fresh_object_expr(a);
             let (v, vty) = self.lower_expr(a)?;
@@ -89,7 +92,17 @@ impl<'a> BodyCx<'a> {
             if m == "add" && idx == 0 && arg_is_fresh && self.is_arc_heap(&vty) {
                 fresh_elem = Some((v_ext, vty.clone()));
             }
+            if m == "forEach" && idx == 0 {
+                foreach_cb = Some((v_ext, arg_is_fresh));
+            }
             arg_vals.push(v_ext);
+        }
+        // Runtime takes ownership of the forEach callback's +1 — retain
+        // when the caller passes a borrowed reference.
+        if let Some((cb_v, is_fresh)) = foreach_cb {
+            if !is_fresh {
+                self.fb.push_inst(Inst::Retain { value: cb_v });
+            }
         }
         let dst = if matches!(ret_ty, MirTy::Unit) {
             None

@@ -514,6 +514,9 @@ pub extern "C" fn __array_map(
     ret_fk: i64,
 ) -> i64 {
     if arr == 0 || closure == 0 {
+        if closure != 0 {
+            crate::closures::__release_closure(closure);
+        }
         return build_packed_array(&[], result_kind, result_stride);
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
@@ -524,12 +527,18 @@ pub extern "C" fn __array_map(
         let v = unsafe { call_closure_1(closure, cell, arg_fk, ret_fk) };
         out.push(v);
     }
+    // Consume the +1 the caller transferred — borrowed closures get
+    // retained at the lowering side before the call.
+    crate::closures::__release_closure(closure);
     build_packed_array(&out, result_kind, result_stride)
 }
 
 #[unsafe(export_name = "$array.filter")]
 pub extern "C" fn __array_filter(arr: i64, closure: i64, arg_fk: i64) -> i64 {
     if arr == 0 || closure == 0 {
+        if closure != 0 {
+            crate::closures::__release_closure(closure);
+        }
         return build_i64_array(&[], KIND_NONE);
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
@@ -546,6 +555,7 @@ pub extern "C" fn __array_filter(arr: i64, closure: i64, arg_fk: i64) -> i64 {
             out.push(cell);
         }
     }
+    crate::closures::__release_closure(closure);
     build_packed_array(&out, elem_kind, stride)
 }
 
@@ -574,6 +584,9 @@ pub extern "C" fn __array_slice(arr: i64, start: i64, end: i64) -> i64 {
 #[unsafe(export_name = "$array.forEach")]
 pub extern "C" fn __array_for_each(arr: i64, closure: i64, arg_fk: i64) {
     if arr == 0 || closure == 0 {
+        if closure != 0 {
+            crate::closures::__release_closure(closure);
+        }
         return;
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
@@ -582,6 +595,7 @@ pub extern "C" fn __array_for_each(arr: i64, closure: i64, arg_fk: i64) {
         let cell = unsafe { load_packed(data, i, stride) };
         unsafe { call_closure_1(closure, cell, arg_fk, 0) };
     }
+    crate::closures::__release_closure(closure);
 }
 
 /// First cell for which `pred(cell)` returns non-zero, boxed as
@@ -591,19 +605,25 @@ pub extern "C" fn __array_for_each(arr: i64, closure: i64, arg_fk: i64) {
 #[unsafe(export_name = "$array.find")]
 pub extern "C" fn __array_find(arr: i64, closure: i64, arg_fk: i64) -> i64 {
     if arr == 0 || closure == 0 {
+        if closure != 0 {
+            crate::closures::__release_closure(closure);
+        }
         return 0;
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
     let elem_kind = unsafe { *((arr + 32) as *const i64) };
     let stride = unsafe { array_stride(arr) };
+    let mut result: i64 = 0;
     for i in 0..len {
         let cell = unsafe { load_packed(data, i, stride) };
         let hit = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if hit {
-            return box_optional_cell(cell, elem_kind);
+            result = box_optional_cell(cell, elem_kind);
+            break;
         }
     }
-    0
+    crate::closures::__release_closure(closure);
+    result
 }
 
 /// Index of the first cell for which `pred(cell)` returns non-zero,
@@ -611,18 +631,24 @@ pub extern "C" fn __array_find(arr: i64, closure: i64, arg_fk: i64) -> i64 {
 #[unsafe(export_name = "$array.findIndex")]
 pub extern "C" fn __array_find_index(arr: i64, closure: i64, arg_fk: i64) -> i64 {
     if arr == 0 || closure == 0 {
+        if closure != 0 {
+            crate::closures::__release_closure(closure);
+        }
         return -1;
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
     let stride = unsafe { array_stride(arr) };
+    let mut result: i64 = -1;
     for i in 0..len {
         let cell = unsafe { load_packed(data, i, stride) };
         let hit = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if hit {
-            return i;
+            result = i;
+            break;
         }
     }
-    -1
+    crate::closures::__release_closure(closure);
+    result
 }
 
 /// `1` when `pred(cell)` returns non-zero for every cell (vacuously
@@ -630,18 +656,24 @@ pub extern "C" fn __array_find_index(arr: i64, closure: i64, arg_fk: i64) -> i64
 #[unsafe(export_name = "$array.every")]
 pub extern "C" fn __array_every(arr: i64, closure: i64, arg_fk: i64) -> i64 {
     if arr == 0 || closure == 0 {
+        if closure != 0 {
+            crate::closures::__release_closure(closure);
+        }
         return 1;
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
     let stride = unsafe { array_stride(arr) };
+    let mut result: i64 = 1;
     for i in 0..len {
         let cell = unsafe { load_packed(data, i, stride) };
         let hit = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if !hit {
-            return 0;
+            result = 0;
+            break;
         }
     }
-    1
+    crate::closures::__release_closure(closure);
+    result
 }
 
 /// `1` when `pred(cell)` returns non-zero for at least one cell;
@@ -649,18 +681,24 @@ pub extern "C" fn __array_every(arr: i64, closure: i64, arg_fk: i64) -> i64 {
 #[unsafe(export_name = "$array.some")]
 pub extern "C" fn __array_some(arr: i64, closure: i64, arg_fk: i64) -> i64 {
     if arr == 0 || closure == 0 {
+        if closure != 0 {
+            crate::closures::__release_closure(closure);
+        }
         return 0;
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
     let stride = unsafe { array_stride(arr) };
+    let mut result: i64 = 0;
     for i in 0..len {
         let cell = unsafe { load_packed(data, i, stride) };
         let hit = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if hit {
-            return 1;
+            result = 1;
+            break;
         }
     }
-    0
+    crate::closures::__release_closure(closure);
+    result
 }
 
 /// Build a fresh array containing every cell of `a` followed by
@@ -857,6 +895,9 @@ pub extern "C" fn __array_fill(arr: i64, value: i64) {
 #[unsafe(export_name = "$array.sort")]
 pub extern "C" fn __array_sort(arr: i64, closure: i64, arg_fk: i64) -> i64 {
     if arr == 0 {
+        if closure != 0 {
+            crate::closures::__release_closure(closure);
+        }
         return build_i64_array(&[], KIND_NONE);
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
@@ -875,6 +916,7 @@ pub extern "C" fn __array_sort(arr: i64, closure: i64, arg_fk: i64) -> i64 {
             let r = unsafe { call_closure_2(closure, *a, *b, arg_fk) };
             r.cmp(&0)
         });
+        crate::closures::__release_closure(closure);
     }
     build_packed_array(&buf, elem_kind, stride)
 }

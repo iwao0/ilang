@@ -93,10 +93,18 @@ impl<'a> BodyCx<'a> {
         // `forEach`'s callback is `fn(key, value, env)`; float key /
         // value params travel in float registers, so pass their
         // float-kind tags (0=int/ptr, 1=f32, 2=f64) for the runtime to
-        // call the closure through a matching ABI.
+        // call the closure through a matching ABI. The runtime takes
+        // ownership of the callback's +1 and releases after the
+        // iteration, so retain when the caller passes a borrowed
+        // reference.
         if m == "forEach" {
             arg_vals.push(self.const_int(MirTy::I64, key.float_kind()));
             arg_vals.push(self.const_int(MirTy::I64, val.float_kind()));
+            if let Some((is_fresh, cb_v, _)) = arg_meta.first() {
+                if !*is_fresh {
+                    self.fb.push_inst(Inst::Retain { value: *cb_v });
+                }
+            }
         }
         let dst = if matches!(ret_ty, MirTy::Unit) {
             None

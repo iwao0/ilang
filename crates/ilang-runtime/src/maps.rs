@@ -645,6 +645,9 @@ unsafe fn call_closure_kv(closure: i64, k: i64, v: i64, key_fk: i64, val_fk: i64
 #[unsafe(export_name = "$map.forEach")]
 pub extern "C" fn __map_for_each(map: i64, closure: i64, key_fk: i64, val_fk: i64) {
     if map == 0 || closure == 0 {
+        if closure != 0 {
+            crate::closures::__release_closure(closure);
+        }
         return;
     }
     let m = unsafe { &*(map as *const ManagedMap) };
@@ -680,6 +683,7 @@ pub extern "C" fn __map_for_each(map: i64, closure: i64, key_fk: i64, val_fk: i6
             crate::classes::__release_object(key_raw);
         }
     }
+    crate::closures::__release_closure(closure);
 }
 
 #[unsafe(export_name = "$print.map")]

@@ -524,6 +524,9 @@ unsafe fn call_closure_1_f64(closure: i64, arg: f64) {
 #[unsafe(export_name = "$set.forEach")]
 pub extern "C" fn __set_for_each(set: i64, closure: i64) {
     if set == 0 || closure == 0 {
+        if closure != 0 {
+            crate::closures::__release_closure(closure);
+        }
         return;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
@@ -559,11 +562,15 @@ pub extern "C" fn __set_for_each(set: i64, closure: i64) {
             crate::classes::__release_object(arg);
         }
     }
+    crate::closures::__release_closure(closure);
 }
 
 #[unsafe(export_name = "$set.forEachF32")]
 pub extern "C" fn __set_for_each_f32(set: i64, closure: i64) {
     if set == 0 || closure == 0 {
+        if closure != 0 {
+            crate::closures::__release_closure(closure);
+        }
         return;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
@@ -575,11 +582,15 @@ pub extern "C" fn __set_for_each_f32(set: i64, closure: i64) {
         let v = f32::from_bits(b as u32);
         unsafe { call_closure_1_f32(closure, v) };
     }
+    crate::closures::__release_closure(closure);
 }
 
 #[unsafe(export_name = "$set.forEachF64")]
 pub extern "C" fn __set_for_each_f64(set: i64, closure: i64) {
     if set == 0 || closure == 0 {
+        if closure != 0 {
+            crate::closures::__release_closure(closure);
+        }
         return;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
@@ -591,6 +602,7 @@ pub extern "C" fn __set_for_each_f64(set: i64, closure: i64) {
         let v = f64::from_bits(b as u64);
         unsafe { call_closure_1_f64(closure, v) };
     }
+    crate::closures::__release_closure(closure);
 }
 
 /// Allocate an empty `ManagedSet` whose Object store inherits the

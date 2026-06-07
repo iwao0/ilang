@@ -197,6 +197,7 @@ impl<'a> BodyCx<'a> {
         if args.len() != 1 {
             return Err(LowerError::Other("Array.map takes 1 arg".into()));
         }
+        let cb_is_fresh = self.is_fresh_object_expr(&args[0]);
         let (fv, fty) = self.lower_expr(&args[0])?;
         // Result element type is the closure's return type.
         let ret_ty = if let MirTy::Fn(ft) = &fty {
@@ -214,6 +215,12 @@ impl<'a> BodyCx<'a> {
         // ABI matching its (input) parameter and (output) return type.
         let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
         let ret_fk_v = self.const_int(MirTy::I64, ret_ty.float_kind());
+        // Runtime takes ownership of the closure's +1 and releases
+        // at the end of iteration — retain when the caller passes a
+        // borrowed reference so the original binding stays valid.
+        if !cb_is_fresh {
+            self.fb.push_inst(Inst::Retain { value: fv });
+        }
         let v = self.fb.new_value(arr_ty.clone());
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
@@ -233,8 +240,12 @@ impl<'a> BodyCx<'a> {
             return Err(LowerError::Other("Array.filter takes 1 arg".into()));
         }
         let arr_ty = MirTy::Array { elem: Box::new(elem.clone()), len: None };
+        let cb_is_fresh = self.is_fresh_object_expr(&args[0]);
         let (fv, _) = self.lower_expr(&args[0])?;
         let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
+        if !cb_is_fresh {
+            self.fb.push_inst(Inst::Retain { value: fv });
+        }
         let v = self.fb.new_value(arr_ty.clone());
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
@@ -253,8 +264,12 @@ impl<'a> BodyCx<'a> {
         if args.len() != 1 {
             return Err(LowerError::Other("Array.forEach takes 1 arg".into()));
         }
+        let cb_is_fresh = self.is_fresh_object_expr(&args[0]);
         let (fv, _) = self.lower_expr(&args[0])?;
         let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
+        if !cb_is_fresh {
+            self.fb.push_inst(Inst::Retain { value: fv });
+        }
         self.fb.push_inst(Inst::Call {
             dst: None,
             callee: FuncRef::Builtin(Symbol::intern("array_for_each")),
@@ -273,8 +288,12 @@ impl<'a> BodyCx<'a> {
             return Err(LowerError::Other("Array.find takes 1 arg".into()));
         }
         let opt_ty = MirTy::Optional(Box::new(elem.clone()));
+        let cb_is_fresh = self.is_fresh_object_expr(&args[0]);
         let (fv, _) = self.lower_expr(&args[0])?;
         let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
+        if !cb_is_fresh {
+            self.fb.push_inst(Inst::Retain { value: fv });
+        }
         let v = self.fb.new_value(opt_ty.clone());
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
@@ -293,8 +312,12 @@ impl<'a> BodyCx<'a> {
         if args.len() != 1 {
             return Err(LowerError::Other("Array.findIndex takes 1 arg".into()));
         }
+        let cb_is_fresh = self.is_fresh_object_expr(&args[0]);
         let (fv, _) = self.lower_expr(&args[0])?;
         let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
+        if !cb_is_fresh {
+            self.fb.push_inst(Inst::Retain { value: fv });
+        }
         let v = self.fb.new_value(MirTy::I64);
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
@@ -314,8 +337,12 @@ impl<'a> BodyCx<'a> {
         if args.len() != 1 {
             return Err(LowerError::Other(format!("Array.{m} takes 1 arg")));
         }
+        let cb_is_fresh = self.is_fresh_object_expr(&args[0]);
         let (fv, _) = self.lower_expr(&args[0])?;
         let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
+        if !cb_is_fresh {
+            self.fb.push_inst(Inst::Retain { value: fv });
+        }
         let builtin = if m == "every" { "array_every" } else { "array_some" };
         let v = self.fb.new_value(MirTy::Bool);
         self.fb.push_inst(Inst::Call {
@@ -444,8 +471,12 @@ impl<'a> BodyCx<'a> {
             return Err(LowerError::Other("Array.sort takes 1 arg".into()));
         }
         let arr_ty = MirTy::Array { elem: Box::new(elem.clone()), len: None };
+        let cb_is_fresh = self.is_fresh_object_expr(&args[0]);
         let (fv, _) = self.lower_expr(&args[0])?;
         let arg_fk_v = self.const_int(MirTy::I64, elem.float_kind());
+        if !cb_is_fresh {
+            self.fb.push_inst(Inst::Retain { value: fv });
+        }
         let v = self.fb.new_value(arr_ty.clone());
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
