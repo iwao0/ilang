@@ -438,3 +438,187 @@ impl ClassLayoutSink for ClassLayoutSink_JIT {
         ilang_runtime::__register_object_field(gcid, off, tag);
     }
 }
+
+// --------------------------------------------------------------------
+// Enum print / payload registrations
+// --------------------------------------------------------------------
+
+/// Backend-specific receiver for the enum-side registrations:
+/// `$enum.registerPrintName` / `…PrintVariantName` /
+/// `…PrintVariantPayloadPk` / `$enum.registerPayloadKind` /
+/// `$enum.registerDiscStr`, plus the one-shot
+/// `$type.registerTypeKindEnumId` for the built-in TypeKind.
+///
+/// `enum_idx` / `variant_idx` index into
+/// `prog.enums[enum_idx].variants[variant_idx]` so AOT sinks can
+/// reuse the pre-allocated DataIds for the name / disc-str bodies.
+pub(crate) trait EnumRegistrationSink {
+    fn enum_print_name(&mut self, enum_idx: usize, gid: i64, name: &str);
+    fn enum_print_variant_name(
+        &mut self,
+        enum_idx: usize,
+        variant_idx: usize,
+        gid: i64,
+        disc: i64,
+        name: &str,
+    );
+    fn enum_print_variant_payload_pk(
+        &mut self,
+        gid: i64,
+        disc: i64,
+        slot: i64,
+        pk: i64,
+    );
+    fn enum_payload_kind(
+        &mut self,
+        gid: i64,
+        disc: i64,
+        slot: i64,
+        cascade_tag: i64,
+    );
+    fn enum_disc_str(
+        &mut self,
+        enum_idx: usize,
+        variant_idx: usize,
+        gid: i64,
+        disc: i64,
+        disc_str: &str,
+    );
+    /// One-shot: the built-in `TypeKind` enum's global id, used by
+    /// `$type.kind` to box discriminants through `__enum_unit_get`.
+    fn typekind_enum_id(&mut self, gid: i64);
+}
+
+/// Walk every enum and emit the print / payload registrations.
+/// `payload_kind` resolves a payload MirTy to its release-cascade
+/// tag (`KIND_*`); `print_kind` produces the print PK_* for a
+/// payload type. Both helpers stay in the calling backend so the
+/// driver doesn't reach across crate boundaries for them.
+pub(crate) fn emit_enum_registrations<S, PK, KT>(
+    prog: &Program,
+    enum_global: &[u32],
+    print_kind: PK,
+    payload_kind: KT,
+    sink: &mut S,
+) where
+    S: EnumRegistrationSink,
+    PK: Fn(&MirTy) -> i64,
+    KT: Fn(&MirTy) -> i64,
+{
+    for (enum_idx, e) in prog.enums.iter().enumerate() {
+        let gid = enum_global[e.id.0 as usize] as i64;
+        sink.enum_print_name(enum_idx, gid, e.name.as_str());
+        if e.name.as_str() == "TypeKind" {
+            sink.typekind_enum_id(gid);
+        }
+        let is_str_repr = matches!(e.repr, MirTy::Str);
+        for (variant_idx, v) in e.variants.iter().enumerate() {
+            let payload_tys: Vec<MirTy> = match &v.payload {
+                ilang_mir::VariantPayload::Unit => Vec::new(),
+                ilang_mir::VariantPayload::Tuple(tys) => tys.to_vec(),
+                ilang_mir::VariantPayload::Struct(fs) => {
+                    fs.iter().map(|(_, t)| t.clone()).collect()
+                }
+            };
+            sink.enum_print_variant_name(
+                enum_idx,
+                variant_idx,
+                gid,
+                v.discriminant,
+                v.name.as_str(),
+            );
+            for (i, ty) in payload_tys.iter().enumerate() {
+                let cascade = payload_kind(ty);
+                if cascade != 0 {
+                    sink.enum_payload_kind(
+                        gid,
+                        v.discriminant,
+                        i as i64,
+                        cascade,
+                    );
+                }
+                let pk = print_kind(ty);
+                sink.enum_print_variant_payload_pk(
+                    gid,
+                    v.discriminant,
+                    i as i64,
+                    pk,
+                );
+            }
+            if is_str_repr {
+                if let Some(s) = v.discriminant_str.as_ref() {
+                    sink.enum_disc_str(
+                        enum_idx,
+                        variant_idx,
+                        gid,
+                        v.discriminant,
+                        s.as_str(),
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// JIT-side sink for `EnumRegistrationSink`.
+#[allow(non_camel_case_types)]
+pub(crate) struct EnumRegistrationSink_JIT;
+
+impl EnumRegistrationSink for EnumRegistrationSink_JIT {
+    fn enum_print_name(
+        &mut self,
+        _enum_idx: usize,
+        gid: i64,
+        name: &str,
+    ) {
+        let ptr = ilang_runtime::leak_cstring(name.to_string());
+        ilang_runtime::__register_enum_print_name(gid, ptr);
+    }
+    fn enum_print_variant_name(
+        &mut self,
+        _enum_idx: usize,
+        _variant_idx: usize,
+        gid: i64,
+        disc: i64,
+        name: &str,
+    ) {
+        let ptr = ilang_runtime::leak_cstring(name.to_string());
+        ilang_runtime::__register_enum_print_variant_name(gid, disc, ptr);
+    }
+    fn enum_print_variant_payload_pk(
+        &mut self,
+        gid: i64,
+        disc: i64,
+        slot: i64,
+        pk: i64,
+    ) {
+        ilang_runtime::__register_enum_print_variant_payload_pk(
+            gid, disc, slot, pk,
+        );
+    }
+    fn enum_payload_kind(
+        &mut self,
+        gid: i64,
+        disc: i64,
+        slot: i64,
+        cascade_tag: i64,
+    ) {
+        ilang_runtime::__register_enum_payload_kind(
+            gid, disc, slot, cascade_tag,
+        );
+    }
+    fn enum_disc_str(
+        &mut self,
+        _enum_idx: usize,
+        _variant_idx: usize,
+        gid: i64,
+        disc: i64,
+        disc_str: &str,
+    ) {
+        let ptr = ilang_runtime::leak_cstring(disc_str.to_string());
+        ilang_runtime::__register_enum_disc_str(gid, disc, ptr);
+    }
+    fn typekind_enum_id(&mut self, gid: i64) {
+        ilang_runtime::__register_typekind_enum_id(gid);
+    }
+}

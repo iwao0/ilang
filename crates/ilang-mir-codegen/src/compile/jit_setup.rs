@@ -16,8 +16,7 @@ use ilang_mir::{FuncId, MirTy, Program};
 use super::host_misc::{host_optional_missing_stub, lookup_symbol_in_process, process_symbol_exists};
 use super::host_os::try_open_lib;
 use super::print_kind::{
-    kind_tag_of, print_kind_id, print_kind_id_for_print_kind,
-    print_kind_of, PrintKind, KIND_NONE,
+    kind_tag_of, print_kind_id, print_kind_id_for_print_kind, print_kind_of, KIND_NONE,
 };
 use super::{
     alloc_global_class_id, alloc_global_enum_id, lower_program_into, BuiltinDecl, Compiled,
@@ -53,7 +52,6 @@ pub fn compile_with_builtins(
         .map(|_| alloc_global_enum_id())
         .collect();
     let global_cid = |local: u32| class_global[local as usize];
-    let global_eid = |local: u32| enum_global[local as usize];
 
     // Pre-build a per-(global_class_id, slot) → method-fn-id map from
     // the MIR. The actual function addresses are filled in after
@@ -213,78 +211,19 @@ pub fn compile_with_builtins(
             &mut sink,
         );
     }
-    // Populate the enum print registry (`__register_enum_print_name`
-    // / variant names / payload kinds) and the per-variant cascade
-    // table in `ilang-runtime` so both backends see the same enum
-    // metadata. AOT mirrors these registrations from
-    // `__ilang_aot_init`.
-    for e in &prog.enums {
-        let global_id = global_eid(e.id.0);
-        let name_ptr = ilang_runtime::leak_cstring(e.name.as_str().to_string());
-        ilang_runtime::__register_enum_print_name(global_id as i64, name_ptr);
-        // Tell the reflection runtime which global enum id maps to
-        // the injected TypeKind so `__type_kind` can box discriminants
-        // through `__enum_unit_get`.
-        if e.name.as_str() == "TypeKind" {
-            ilang_runtime::__register_typekind_enum_id(global_id as i64);
-        }
-        let is_str_repr = matches!(e.repr, MirTy::Str);
-        for v in &e.variants {
-            // Keep the payload's actual MIR types alongside the print
-            // kinds: the release cascade is len-sensitive (fixed vs
-            // dynamic arrays differ), but `PrintKind` collapses both to
-            // `Array`, so the cascade tag is derived from the MIR type.
-            let payload_tys: Vec<MirTy> = match &v.payload {
-                ilang_mir::VariantPayload::Unit => Vec::new(),
-                ilang_mir::VariantPayload::Tuple(tys) => tys.to_vec(),
-                ilang_mir::VariantPayload::Struct(fs) => {
-                    fs.iter().map(|(_, t)| t.clone()).collect()
-                }
-            };
-            let kinds: Vec<PrintKind> =
-                payload_tys.iter().map(print_kind_of).collect();
-            let vname_ptr = ilang_runtime::leak_cstring(v.name.as_str().to_string());
-            ilang_runtime::__register_enum_print_variant_name(
-                global_id as i64,
-                v.discriminant,
-                vname_ptr,
-            );
-            for (i, k) in kinds.iter().enumerate() {
-                // Cascade tag (KIND_*) for release cascade — derived
-                // from the MIR type so fixed-length array payloads
-                // (inline, no heap header) aren't freed as heap arrays.
-                let cascade_tag = kind_tag_of(&payload_tys[i], &prog.classes);
-                if cascade_tag != KIND_NONE {
-                    ilang_runtime::__register_enum_payload_kind(
-                        global_id as i64,
-                        v.discriminant,
-                        i as i64,
-                        cascade_tag,
-                    );
-                }
-                // Print tag (PK_*) for `__print_enum`.
-                let pk = print_kind_id_for_print_kind(k);
-                ilang_runtime::__register_enum_print_variant_payload_pk(
-                    global_id as i64,
-                    v.discriminant,
-                    i as i64,
-                    pk,
-                );
-            }
-            if is_str_repr {
-                if let Some(s) = v.discriminant_str.as_ref() {
-                    // Mirror into the runtime registry that
-                    // `__enum_disc_str` reads so AOT-built programs
-                    // see the same mapping.
-                    let sp = ilang_runtime::leak_cstring(s.clone());
-                    ilang_runtime::__register_enum_disc_str(
-                        global_id as i64,
-                        v.discriminant,
-                        sp,
-                    );
-                }
-            }
-        }
+    // Enum print + cascade + disc-str + TypeKind-id registrations.
+    // Shared walker; the JIT sink dispatches each event to the
+    // matching `ilang_runtime::__register_enum_*` extern.
+    {
+        let mut sink = super::registration::EnumRegistrationSink_JIT;
+        let classes = &prog.classes;
+        super::registration::emit_enum_registrations(
+            prog,
+            &enum_global,
+            |ty| print_kind_id_for_print_kind(&print_kind_of(ty)),
+            |ty| kind_tag_of(ty, classes),
+            &mut sink,
+        );
     }
     // Populate closure capture / size tables in the runtime crate —
     // `ilang_runtime::__release_closure` walks the captures table at

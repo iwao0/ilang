@@ -258,6 +258,127 @@ impl<'a, 'fb>
     }
 }
 
+/// Subset of `AotRegistryRefs` consumed by `AotEnumRegistrationSink`.
+struct AotEnumRegistrationRefs {
+    enum_print_name: cranelift_codegen::ir::FuncRef,
+    enum_print_variant_name: cranelift_codegen::ir::FuncRef,
+    enum_print_variant_payload_pk: cranelift_codegen::ir::FuncRef,
+    enum_payload_kind: cranelift_codegen::ir::FuncRef,
+    enum_disc_str: cranelift_codegen::ir::FuncRef,
+    typekind_enum_id: cranelift_codegen::ir::FuncRef,
+}
+
+struct AotEnumRegistrationSink<'a, 'fb> {
+    module: &'a mut ObjectModule,
+    fb: &'a mut ClifFnBuilder<'fb>,
+    refs: AotEnumRegistrationRefs,
+    enum_name_data: &'a [DataId],
+    enum_variant_name_data: &'a [Vec<DataId>],
+    enum_variant_disc_str_data: &'a [Vec<Option<DataId>>],
+}
+
+impl<'a, 'fb>
+    crate::compile::registration::EnumRegistrationSink
+    for AotEnumRegistrationSink<'a, 'fb>
+{
+    fn enum_print_name(
+        &mut self,
+        enum_idx: usize,
+        gid: i64,
+        _name: &str,
+    ) {
+        let body = ilang_string_body(
+            self.module,
+            self.fb,
+            self.enum_name_data[enum_idx],
+        );
+        let cid_v = self.fb.ins().iconst(types::I64, gid);
+        self.fb
+            .ins()
+            .call(self.refs.enum_print_name, &[cid_v, body]);
+    }
+    fn enum_print_variant_name(
+        &mut self,
+        enum_idx: usize,
+        variant_idx: usize,
+        gid: i64,
+        disc: i64,
+        _name: &str,
+    ) {
+        let body = ilang_string_body(
+            self.module,
+            self.fb,
+            self.enum_variant_name_data[enum_idx][variant_idx],
+        );
+        let cid_v = self.fb.ins().iconst(types::I64, gid);
+        let d_v = self.fb.ins().iconst(types::I64, disc);
+        self.fb
+            .ins()
+            .call(self.refs.enum_print_variant_name, &[cid_v, d_v, body]);
+    }
+    fn enum_print_variant_payload_pk(
+        &mut self,
+        gid: i64,
+        disc: i64,
+        slot: i64,
+        pk: i64,
+    ) {
+        let cid_v = self.fb.ins().iconst(types::I64, gid);
+        let d_v = self.fb.ins().iconst(types::I64, disc);
+        let s_v = self.fb.ins().iconst(types::I64, slot);
+        let pk_v = self.fb.ins().iconst(types::I64, pk);
+        self.fb.ins().call(
+            self.refs.enum_print_variant_payload_pk,
+            &[cid_v, d_v, s_v, pk_v],
+        );
+    }
+    fn enum_payload_kind(
+        &mut self,
+        gid: i64,
+        disc: i64,
+        slot: i64,
+        cascade_tag: i64,
+    ) {
+        let cid_v = self.fb.ins().iconst(types::I64, gid);
+        let d_v = self.fb.ins().iconst(types::I64, disc);
+        let s_v = self.fb.ins().iconst(types::I64, slot);
+        let t_v = self.fb.ins().iconst(types::I64, cascade_tag);
+        self.fb.ins().call(
+            self.refs.enum_payload_kind,
+            &[cid_v, d_v, s_v, t_v],
+        );
+    }
+    fn enum_disc_str(
+        &mut self,
+        enum_idx: usize,
+        variant_idx: usize,
+        gid: i64,
+        disc: i64,
+        _disc_str: &str,
+    ) {
+        // Pre-allocated data symbol for the disc string body. Falls
+        // back to a no-op when the table entry is `None` (driver only
+        // calls us for `is_str_repr` variants that had an explicit
+        // `discriminant_str`, so this is defensive).
+        let Some(did) = self.enum_variant_disc_str_data[enum_idx][variant_idx]
+        else {
+            return;
+        };
+        let body = ilang_string_body(self.module, self.fb, did);
+        let cid_v = self.fb.ins().iconst(types::I64, gid);
+        let d_v = self.fb.ins().iconst(types::I64, disc);
+        self.fb
+            .ins()
+            .call(self.refs.enum_disc_str, &[cid_v, d_v, body]);
+    }
+    fn typekind_enum_id(&mut self, gid: i64) {
+        let cid_v = self.fb.ins().iconst(types::I64, gid);
+        self.fb
+            .ins()
+            .call(self.refs.typekind_enum_id, &[cid_v]);
+    }
+}
+
 struct AotRegistry {
     vtable: cranelift_module::FuncId,
     drop_: cranelift_module::FuncId,
@@ -1204,60 +1325,33 @@ fn emit_aot_init(
             fb.ins().call(reg_closure_size_ref, &[fn_addr, size_v]);
         }
 
-        // Enum payload kinds (cascade) + enum print info (name +
-        // per-variant name + per-payload PK_*).
-        for (idx, e) in prog.enums.iter().enumerate() {
-            let global_id = enum_global[idx] as i64;
-            let eid_v = fb.ins().iconst(types::I64, global_id);
-            // Print: enum name.
-            let ename_body = ilang_string_body(module, &mut fb, enum_name_data[idx]);
-            fb.ins().call(reg_enum_print_name_ref, &[eid_v, ename_body]);
-            // Reflection: route `typeof(x).kind` through this global
-            // for the injected TypeKind enum.
-            if e.name.as_str() == "TypeKind" {
-                let eid_v2 = fb.ins().iconst(types::I64, global_id);
-                fb.ins().call(reg_typekind_enum_id_ref, &[eid_v2]);
-            }
-            for (vi, v) in e.variants.iter().enumerate() {
-                let disc_v = fb.ins().iconst(types::I64, v.discriminant);
-                // Print: variant name.
-                let vname_body = ilang_string_body(
-                    module,
-                    &mut fb,
-                    enum_variant_name_data[idx][vi],
-                );
-                fb.ins().call(
-                    reg_enum_print_variant_name_ref,
-                    &[eid_v, disc_v, vname_body],
-                );
-                let payload_tys: Vec<&MirTy> = match &v.payload {
-                    ilang_mir::VariantPayload::Unit => Vec::new(),
-                    ilang_mir::VariantPayload::Tuple(tys) => tys.iter().collect(),
-                    ilang_mir::VariantPayload::Struct(fs) => {
-                        fs.iter().map(|(_, t)| t).collect()
-                    }
-                };
-                for (i, ty) in payload_tys.iter().enumerate() {
-                    // Cascade tag.
-                    let tag = field_kind_tag(ty);
-                    if tag != 0 {
-                        let slot_v = fb.ins().iconst(types::I64, i as i64);
-                        let tag_v = fb.ins().iconst(types::I64, tag);
-                        fb.ins().call(
-                            reg_enum_payload_kind_ref,
-                            &[eid_v, disc_v, slot_v, tag_v],
-                        );
-                    }
-                    // Print tag (PK_*).
-                    let pk = print_kind_id_for_ty(ty);
-                    let slot_v = fb.ins().iconst(types::I64, i as i64);
-                    let pk_v = fb.ins().iconst(types::I64, pk);
-                    fb.ins().call(
+        // Enum print + payload-kind + disc-str + TypeKind-id
+        // registrations. Shared walker; the AOT sink lowers each
+        // event as a clif IR call inside this init body.
+        {
+            let mut sink = AotEnumRegistrationSink {
+                module: &mut *module,
+                fb: &mut fb,
+                refs: AotEnumRegistrationRefs {
+                    enum_print_name: reg_enum_print_name_ref,
+                    enum_print_variant_name: reg_enum_print_variant_name_ref,
+                    enum_print_variant_payload_pk:
                         reg_enum_print_variant_payload_pk_ref,
-                        &[eid_v, disc_v, slot_v, pk_v],
-                    );
-                }
-            }
+                    enum_payload_kind: reg_enum_payload_kind_ref,
+                    enum_disc_str: reg_enum_disc_str_ref,
+                    typekind_enum_id: reg_typekind_enum_id_ref,
+                },
+                enum_name_data: &enum_name_data,
+                enum_variant_name_data: &enum_variant_name_data,
+                enum_variant_disc_str_data: &enum_variant_disc_str_data,
+            };
+            crate::compile::registration::emit_enum_registrations(
+                prog,
+                &enum_global,
+                |ty| print_kind_id_for_ty(ty),
+                |ty| field_kind_tag(ty),
+                &mut sink,
+            );
         }
 
         // Register the user-facing name of every non-extern fn so
@@ -1277,24 +1371,8 @@ fn emit_aot_init(
             let name_body = ilang_string_body(module, &mut fb, did);
             fb.ins().call(reg_fn_name_ref, &[fn_addr, name_body]);
         }
-        // Register discriminant strings for `: string`-repr enums so
-        // `enum as string` casts succeed at runtime.
-        for (idx, e) in prog.enums.iter().enumerate() {
-            if !matches!(e.repr, MirTy::Str) {
-                continue;
-            }
-            let global_id = enum_global[idx] as i64;
-            let eid_v = fb.ins().iconst(types::I64, global_id);
-            for (vi, v) in e.variants.iter().enumerate() {
-                let did = match enum_variant_disc_str_data[idx][vi] {
-                    Some(d) => d,
-                    None => continue,
-                };
-                let s_body = ilang_string_body(module, &mut fb, did);
-                let disc_v = fb.ins().iconst(types::I64, v.discriminant);
-                fb.ins().call(reg_enum_disc_str_ref, &[eid_v, disc_v, s_body]);
-            }
-        }
+        // (Enum disc-str registrations for `: string`-repr enums are
+        // emitted by the shared walker above through the same sink.)
 
         // Register every `@lib(...)` fallback group so the runtime's
         // `os.libLoaded(name)` can fall through to alternates.
