@@ -529,10 +529,14 @@ pub extern "C" fn __promise_with_executor(executor_closure: i64, value_kind: i64
         // executor signature: ilang env-trailing — `fn(resolve, reject, env)`.
         let f: extern "C" fn(i64, i64, i64) = unsafe { std::mem::transmute(fn_addr) };
         f(r_cb, j_cb, exec);
-        // Drop the +1 references the worker held.
+        // `r_cb` / `j_cb` are owned by the executor body — ilang
+        // releases its closure parameters at body exit, which drops
+        // each cell (and cascades to release the captured promise).
+        // Releasing them again here was a double-free that surfaced
+        // as `pthread_mutex_lock: Invalid argument` whenever the
+        // freed promise memory was reused before the dependent
+        // continuation locked its mutex.
         release_closure_arg(exec);
-        release_closure_arg(r_cb);
-        release_closure_arg(j_cb);
     });
 
     promise
