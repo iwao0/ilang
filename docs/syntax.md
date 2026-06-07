@@ -61,7 +61,7 @@ shadowing them at top-level is rejected:
 | String | `"hello"`, `"line\nbreak"` (`\n` `\t` `\r` `\\` `\"` `\0`) | `string` |
 | Unit | *no value-position literal* — produced only by void fns, an empty block `{}`, and value-less `return` | `()` |
 | Optional | `none`, `some(x)` | `T?` |
-| Array | `[1, 2, 3]`, `[1, 2, 3,]` (trailing comma allowed) | `T[]` |
+| Array | `[1, 2, 3]`, `[1, 2, 3,]` (trailing comma allowed) | `T[N]` (fixed) — annotate `T[]` for dynamic |
 | Tuple | `(1, "hello")`, `(true, 3.14, [1,2])` | `(T1, T2, ...)` (≥ 2 elements) |
 | Map | `{"a": 1, "b": 2}` | `Map<K, V>` |
 
@@ -1059,14 +1059,25 @@ render(s)                                  // "square"
 ## 8. Arrays
 
 ```rust
-let xs: i32[] = [10, 20, 30]    // dynamic-array literal
+let xs: i32[] = [10, 20, 30]    // dynamic-array literal (annotation opts in)
 let ys: i32[3] = [1, 2, 3]      // fixed-length (length is part of the type)
 let zs: i32[] = []              // empty needs annotation
-let trailing = [1, 2, 3,]       // trailing comma allowed
+let inferred = [1, 2, 3]        // no annotation → fixed-length `i64[3]`
+let trailing = [1, 2, 3,]       // trailing comma allowed (still fixed-length)
 
 xs[1]                            // index read
 xs[0] = 100                      // index write
 xs.length                        // returns i64 (built-in)
+```
+
+Inference picks **fixed-length** for an array literal with no
+annotation: `let a = [1, 2, 3]` is `i64[3]`, not `i64[]`. The
+mutating ops listed below (`push` / `pop` / `shift` / `unshift` /
+`remove` / `removeAt` / `fill`) reject a fixed-length receiver, so
+a literal that needs to grow must declare the dynamic type
+explicitly (`let a: i64[] = [1, 2, 3]`).
+
+```rust
 
 // Mutating ops (dynamic arrays only — fixed-length errors)
 xs.push(40)                                  // append, ()
