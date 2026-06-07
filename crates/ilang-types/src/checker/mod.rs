@@ -124,6 +124,16 @@ where
             return true;
         }
     }
+    // Strong subclass → weak parent slot. `assignable` already
+    // covers the same-class auto-downgrade; subtype-aware ARC
+    // slots (`Parent.weak ← Child`) need the subclass check here.
+    if let (Type::Object(c), Type::Weak(inner)) = (vt, target) {
+        if let Type::Object(p) = inner.as_ref() {
+            if is_sub(*c, *p) {
+                return true;
+            }
+        }
+    }
     // `let x: T? = literal` — auto-wrap. The literal is assignable to T?
     // iff it's assignable to the inner T (with literal coercions).
     if let Type::Optional(inner) = target {

@@ -82,7 +82,7 @@ fn(T1, T2): R       // 関数値 (キャプチャなし)
 | 符号またぎ (`i32` ↔ `u32` 等) | **no** (`as` 必須) |
 | 浮動 → 整数 | **no** (`as` 必須) |
 | `T` → `T?` (Optional 自動 wrap) | yes |
-| `Foo` → `Foo.weak` (strong → weak 自動 downgrade) | yes (同一クラスのみ) |
+| `Foo` → `Bar.weak` (strong → weak 自動 downgrade) | `Foo` が `Bar` か `Bar` のサブクラスなら yes |
 
 `expr as Type` で明示キャスト。`if`/`else` の枝合流では暗黙の数値拡張を許さない (整数リテラルのみ例外的に他方の型へ coerce)。
 
@@ -427,7 +427,7 @@ fn make(s: string, suffix: string): string { s + suffix }
 - 整数 → float = 2
 - リテラル幅変換 = 2
 - `T → T?` (auto-wrap) = 3
-- `Object → Weak` = 4
+- `Object → Weak` (同一クラス) = 4。サブクラスを親の `Bar.weak` スロットへ降ろす場合は継承距離も加算 (`4 + steps`)
 
 最良スコアが複数のオーバーロードで同点の場合は **ambiguous エラー** で拒否されます。完全一致するオーバーロードがあれば常に勝つので、よくある「明示的に書いた版が選ばれる」期待と一致します。
 

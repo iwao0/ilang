@@ -100,7 +100,7 @@ The postfix modifiers `[]` `[N]` `?` `.weak` stack: `Foo[]?`,
 | Sign-crossing (`i32` ↔ `u32` etc.) | **no** (`as` required) |
 | Float → integer | **no** (`as` required) |
 | `T` → `T?` (Optional auto-wrap) | yes |
-| `Foo` → `Foo.weak` (strong → weak auto-downgrade) | yes (same class only) |
+| `Foo` → `Bar.weak` (strong → weak auto-downgrade) | yes when `Foo` is `Bar` or a subclass of `Bar` |
 
 `expr as Type` performs an explicit cast. `if`/`else` arm joins
 don't allow implicit numeric widening (integer literals are the
@@ -515,7 +515,9 @@ the lowest-scoring one.
 - Integer → float = 2
 - Literal-fitting narrowing = 2
 - `T → T?` (auto-wrap) = 3
-- `Object → Weak` = 4
+- `Object → Weak` (same-class) = 4; a subclass weakening into the
+  parent's `Bar.weak` slot pays the subclass distance on top
+  (`4 + steps`).
 
 If multiple overloads tie for best score, the call is rejected
 as **ambiguous**. Exact matches always win, matching the usual

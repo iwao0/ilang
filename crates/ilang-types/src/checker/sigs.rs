@@ -277,11 +277,17 @@ where
             return Some(inner_score + 3);
         }
     }
-    // Object → Weak downgrade (same class).
+    // Object → Weak downgrade. Same-class is cost 4; a subclass
+    // downgrading into the parent's weak slot pays the subclass
+    // distance on top (so an exact-class weak overload still wins
+    // over a subclass one if both exist).
     if let (Type::Object(a), Type::Weak(b_inner)) = (arg_ty, param_ty) {
         if let Type::Object(b) = b_inner.as_ref() {
             if a == b {
                 return Some(4);
+            }
+            if let Some(d) = is_sub(*a, *b) {
+                return Some(4 + d);
             }
         }
     }

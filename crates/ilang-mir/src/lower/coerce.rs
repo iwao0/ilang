@@ -301,9 +301,23 @@ impl<'a> BodyCx<'a> {
             self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrCast, src: v });
             return Ok(dst);
         }
-        // Strong → weak (same class).
+        // Strong → weak. Same class is the no-op auto-downgrade;
+        // a subclass strong reference may also land in a parent
+        // weak slot — the value is the same i64 heap pointer and a
+        // single StrongToWeak cast preserves the weak-rc protocol.
         if let (MirTy::Object(c1), MirTy::Weak(c2)) = (from, to) {
-            if c1 == c2 {
+            let mut is_sub = c1 == c2;
+            if !is_sub {
+                let mut cur = self.classes[c1.0 as usize].parent;
+                while let Some(p) = cur {
+                    if p == *c2 {
+                        is_sub = true;
+                        break;
+                    }
+                    cur = self.classes[p.0 as usize].parent;
+                }
+            }
+            if is_sub {
                 let dst = self.fb.new_value(to.clone());
                 self.fb.push_inst(Inst::Cast { dst, kind: CastKind::StrongToWeak, src: v });
                 return Ok(dst);

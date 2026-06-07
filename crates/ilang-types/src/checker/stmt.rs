@@ -56,7 +56,37 @@ impl TypeChecker {
                         }
                     }
                 }
-                let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+                // Array literal hinted by an `T[]` / `T[N]`
+                // annotation: each element is checked against `T`
+                // directly so subclass / interface-implementing
+                // siblings can share the same literal. The unhinted
+                // path unifies on the first element's class only.
+                let vt = if let (Some(Type::Array { elem, .. }), ExprKind::Array(items)) =
+                    (ty.as_ref(), &value.kind)
+                {
+                    if items.is_empty() {
+                        self.check_expr(value, env, ret_ty, in_class, loop_depth)?
+                    } else {
+                        let tps = self.current_type_params.borrow();
+                        let elem_rewritten = if tps.is_empty() {
+                            (**elem).clone()
+                        } else {
+                            rewrite_type_params(elem, &tps)
+                        };
+                        drop(tps);
+                        self.check_array_with_hint(
+                            items,
+                            Some(&elem_rewritten),
+                            env,
+                            ret_ty,
+                            in_class,
+                            loop_depth,
+                            value.span,
+                        )?
+                    }
+                } else {
+                    self.check_expr(value, env, ret_ty, in_class, loop_depth)?
+                };
                 // `let f = fn(...) { ... f(...) ... }` — drop a self-
                 // reference from the FnExpr's capture list. The closure
                 // can't capture its own value (it's still being built);

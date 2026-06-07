@@ -342,6 +342,27 @@ impl TypeChecker {
         loop_depth: u32,
         _span: Span,
     ) -> Result<Type, TypeError> {
+        self.check_array_with_hint(elements, None, env, ret_ty, in_class, loop_depth, _span)
+    }
+
+    /// `check_array` plus an explicit element-type hint sourced from
+    /// the surrounding `let xs: T[] = [...]` annotation. With a hint
+    /// each element is checked against `T` directly via
+    /// `value_assignable`, which lets distinct subclasses / classes
+    /// that share an implemented interface coexist in the same
+    /// literal — the unhinted path picks the first element's class as
+    /// the element type and rejects siblings unless they share a
+    /// class ancestor.
+    pub(in crate::checker) fn check_array_with_hint(
+        &self,
+        elements: &[Expr],
+        hint_elem: Option<&Type>,
+        env: &Vars,
+        ret_ty: Option<&Type>,
+        in_class: Option<Symbol>,
+        loop_depth: u32,
+        _span: Span,
+    ) -> Result<Type, TypeError> {
         if elements.is_empty() {
             // Element type is unknown; surface a marker
             // (`Any`-element array) and let `literal_assignable`
@@ -351,6 +372,25 @@ impl TypeChecker {
             return Ok(Type::Array {
                 elem: Box::new(Type::Any),
                 fixed: Some(0),
+            });
+        }
+        // Hinted path: each element checked against the declared
+        // element type. No common-ancestor lifting required — the
+        // annotation tells us what slot every element lands in.
+        if let Some(target_elem) = hint_elem {
+            for e in elements {
+                let et = self.check_expr(e, env, ret_ty, in_class, loop_depth)?;
+                if !self.value_assignable(e, &et, target_elem) {
+                    return Err(TypeError::Mismatch {
+                        expected: target_elem.clone(),
+                        got: et,
+                        span: e.span,
+                    });
+                }
+            }
+            return Ok(Type::Array {
+                elem: Box::new(target_elem.clone()),
+                fixed: Some(elements.len()),
             });
         }
         let mut elem_ty =

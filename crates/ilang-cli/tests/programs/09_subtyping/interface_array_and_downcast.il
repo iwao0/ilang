@@ -18,12 +18,10 @@ class Square: Drawable {
     pub draw(): string { "square" }
 }
 
-// Drawable[] built by push — mixed concrete classes dispatch
-// their own `draw` overrides.
-let xs: Drawable[] = []
-xs.push(new Circle())
-xs.push(new Square())
-xs.push(new Circle())
+// Drawable[] literal — distinct concrete classes share the same
+// implemented interface, so the annotation routes each element
+// through the interface upcast.
+let xs: Drawable[] = [new Circle(), new Square(), new Circle()]
 test.expect(xs.length, 3)
 test.expectStr(xs[0].draw(), "circle")
 test.expectStr(xs[1].draw(), "square")
