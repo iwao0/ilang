@@ -152,13 +152,23 @@ impl<'a> BodyCx<'a> {
             // Fresh heap args transfer ownership of their +1 into the
             // init; init's field assignment takes its own retain, so
             // the caller-side temp needs releasing after the call.
-            // Limited to `Object` and `Fn` for now — the field-assign
-            // lowering at expr.rs only retains those (plus a few
-            // others); extending the post-`new` release set in lock-
-            // step would cause use-after-free for types whose field
-            // assignment doesn't retain (Promise being the headline
-            // case).
-            if arg_is_fresh && matches!(vty, MirTy::Object(_) | MirTy::Fn(_)) {
+            // The release set must match the field-assign retain set
+            // at `expr.rs::AssignField`: Object / Fn / Array / Tuple /
+            // Map / Optional / Str. `Promise` is intentionally out —
+            // its field assignment doesn't retain (separate path)
+            // and adding a release here would free the value the
+            // field is about to store.
+            let needs_post_release = matches!(
+                vty,
+                MirTy::Object(_)
+                    | MirTy::Fn(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Optional(_)
+                    | MirTy::Str
+            );
+            if arg_is_fresh && needs_post_release {
                 fresh_obj_args.push(final_v);
             }
             arg_vals.push(final_v);
