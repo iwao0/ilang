@@ -982,8 +982,12 @@ introduce(d)                                   // OK — Dog is-a Animal (subtyp
 - `super(args)` inside a child's `init` calls the parent's init.
 - Field inheritance: parent fields come first, child additions
   follow.
-- Method overloading isn't supported across the inheritance
-  hierarchy (only on the root class).
+- Method overloading is allowed on a subclass as long as none of
+  the overloaded variants share a name with a parent method —
+  `override` is single-signature, so adding an extra sibling
+  overload to an overridden name trips the "hides a parent method"
+  rule. (Earlier the restriction was "root class only"; this has
+  been relaxed.)
 - `init` and `deinit` are per-class (not subject to override
   rules).
 - Inheriting static members isn't supported.
@@ -3163,8 +3167,10 @@ the project-file section for the array-of-tables form.
   arguments are implemented; named-call sites are not.
 - **Operator overloading** (`class Vec2 { + (other: Vec2): Vec2 { ... } }`).
 - **Generic constraints (bounds)**.
-- **Method overloading across the inheritance hierarchy** (only
-  the root class supports overloading today).
+- **Overloading a parent-declared method name from a subclass** —
+  subclasses can now overload names they introduce themselves
+  (see §7), but reusing a parent method name still requires the
+  single-signature `override` form.
 - **Inheritance of static fields / methods**.
 - **Inheritance / static members / properties on generic
   classes** — blocked by type-parameter resolution.
