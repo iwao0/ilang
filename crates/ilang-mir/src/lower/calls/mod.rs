@@ -149,7 +149,16 @@ impl<'a> BodyCx<'a> {
             let arg_is_fresh = self.is_fresh_object_expr(a);
             let target = init_sig.as_ref().and_then(|sig| sig.params.get(i + 1));
             let (final_v, vty) = self.lower_arg_to(a, target)?;
-            if arg_is_fresh && matches!(vty, MirTy::Object(_)) {
+            // Fresh heap args transfer ownership of their +1 into the
+            // init; init's field assignment takes its own retain, so
+            // the caller-side temp needs releasing after the call.
+            // Limited to `Object` and `Fn` for now — the field-assign
+            // lowering at expr.rs only retains those (plus a few
+            // others); extending the post-`new` release set in lock-
+            // step would cause use-after-free for types whose field
+            // assignment doesn't retain (Promise being the headline
+            // case).
+            if arg_is_fresh && matches!(vty, MirTy::Object(_) | MirTy::Fn(_)) {
                 fresh_obj_args.push(final_v);
             }
             arg_vals.push(final_v);
