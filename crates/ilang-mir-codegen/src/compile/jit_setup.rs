@@ -51,22 +51,12 @@ pub fn compile_with_builtins(
     let enum_global: Vec<u32> = (0..prog.enums.len())
         .map(|_| alloc_global_enum_id())
         .collect();
-    let global_cid = |local: u32| class_global[local as usize];
 
-    // Pre-build a per-(global_class_id, slot) → method-fn-id map from
-    // the MIR. The actual function addresses are filled in after
-    // `finalize_definitions()` and exposed to JIT code via the
-    // `__virt_dispatch` host helper.
-    let mut vtable_entries: HashMap<(u32, u32), FuncId> = HashMap::new();
-    for class in &prog.classes {
-        for m in &class.methods {
-            if let Some(slot) = m.slot {
-                vtable_entries.insert((global_cid(class.id.0), slot.0), m.func);
-            }
-        }
-    }
+    // Vtable entries get registered after `finalize_definitions()`
+    // (see `VtableDropSink_JIT` below); the shared walker reads
+    // `class.methods` directly, so no pre-built map is needed.
 
-    let mut jit_builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+let mut jit_builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     // On Windows, Cranelift's built-in resolver only checks the main
     // executable and ucrtbase.dll. Register a custom lookup that
     // searches all loaded modules so DLLs opened via LoadLibraryA
@@ -147,16 +137,19 @@ pub fn compile_with_builtins(
         .finalize_definitions()
         .map_err(CompileError::Module)?;
 
-    // Populate the runtime vtable now that fn addresses are stable.
-    // Don't clear — entries are keyed by GLOBAL (class_id, slot) and
-    // accumulate so parallel modules coexist without trampling.
+    // Vtable + drop entries — fn addresses are stable by now.
+    // Shared walker dispatches via the JIT sink, which resolves
+    // each FuncId to a finalized host address.
     {
-        for ((cid, slot), fid) in &vtable_entries {
-            if let Some(cl_id) = fn_ids.get(fid) {
-                let addr = module.get_finalized_function(*cl_id) as i64;
-                ilang_runtime::__register_vtable_entry(*cid as i64, *slot as i64, addr);
-            }
-        }
+        let mut sink = super::registration::VtableDropSink_JIT {
+            module: &module,
+            fn_ids: &fn_ids,
+        };
+        super::registration::emit_vtable_drop_registrations(
+            prog,
+            &class_global,
+            &mut sink,
+        );
     }
     // Register `@objc class : Parent` IMP function addresses with
     // the runtime so the parser-generated `register()` body can
@@ -240,19 +233,6 @@ pub fn compile_with_builtins(
             &mut sink,
         );
     }
-    // Populate the class-id → drop fn registry. `drop_fn` is set by
-    // the lowering whenever a class declares `deinit`. Subclasses
-    // that don't redefine deinit inherit the parent's via the
-    // method table — read it back from the lowered class.
-    for class in &prog.classes {
-        if class.drop_fn.0 != u32::MAX {
-            if let Some(cl_id) = fn_ids.get(&class.drop_fn) {
-                let addr = module.get_finalized_function(*cl_id) as i64;
-                ilang_runtime::__register_drop(global_cid(class.id.0) as i64, addr);
-            }
-        }
-    }
-
     let entry_fn = &prog.functions[prog.entry.0 as usize];
     let entry_ret = entry_fn.ret.clone();
     let entry = *fn_ids.get(&prog.entry).expect("entry registered");

@@ -749,3 +749,74 @@ impl<'a> ClosureFnSink for ClosureFnSink_JIT<'a> {
         ilang_runtime::__register_fn_name(addr, ptr);
     }
 }
+
+// --------------------------------------------------------------------
+// Vtable + drop registrations
+// --------------------------------------------------------------------
+
+/// Backend-specific receiver for `$class.registerVtableEntry` /
+/// `$class.registerDrop`. Sinks resolve each `FuncId` to a fn
+/// address themselves (JIT uses `module.get_finalized_function`,
+/// AOT emits `func_addr` IR).
+pub(crate) trait VtableDropSink {
+    fn vtable_entry(
+        &mut self,
+        gcid: i64,
+        slot: i64,
+        fn_id: ilang_mir::FuncId,
+    );
+    fn drop_entry(&mut self, gcid: i64, fn_id: ilang_mir::FuncId);
+}
+
+/// Walk every class and emit its vtable + drop registrations.
+pub(crate) fn emit_vtable_drop_registrations<S: VtableDropSink>(
+    prog: &Program,
+    class_global: &[u32],
+    sink: &mut S,
+) {
+    for class in &prog.classes {
+        let gcid = class_global[class.id.0 as usize] as i64;
+        for m in &class.methods {
+            if let Some(slot) = m.slot {
+                sink.vtable_entry(gcid, slot.0 as i64, m.func);
+            }
+        }
+        if class.drop_fn.0 != u32::MAX {
+            sink.drop_entry(gcid, class.drop_fn);
+        }
+    }
+}
+
+/// JIT-side sink for `VtableDropSink`.
+#[allow(non_camel_case_types)]
+pub(crate) struct VtableDropSink_JIT<'a> {
+    pub(crate) module: &'a cranelift_jit::JITModule,
+    pub(crate) fn_ids: &'a std::collections::HashMap<
+        ilang_mir::FuncId,
+        cranelift_module::FuncId,
+    >,
+}
+
+impl<'a> VtableDropSink for VtableDropSink_JIT<'a> {
+    fn vtable_entry(
+        &mut self,
+        gcid: i64,
+        slot: i64,
+        fn_id: ilang_mir::FuncId,
+    ) {
+        let cl_id = match self.fn_ids.get(&fn_id) {
+            Some(id) => *id,
+            None => return,
+        };
+        let addr = self.module.get_finalized_function(cl_id) as i64;
+        ilang_runtime::__register_vtable_entry(gcid, slot, addr);
+    }
+    fn drop_entry(&mut self, gcid: i64, fn_id: ilang_mir::FuncId) {
+        let cl_id = match self.fn_ids.get(&fn_id) {
+            Some(id) => *id,
+            None => return,
+        };
+        let addr = self.module.get_finalized_function(cl_id) as i64;
+        ilang_runtime::__register_drop(gcid, addr);
+    }
+}

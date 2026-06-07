@@ -450,6 +450,54 @@ impl<'a, 'fb>
     }
 }
 
+/// Subset of `AotRegistryRefs` consumed by `AotVtableDropSink`.
+struct AotVtableDropRefs {
+    vtable: cranelift_codegen::ir::FuncRef,
+    drop_: cranelift_codegen::ir::FuncRef,
+}
+
+struct AotVtableDropSink<'a, 'fb> {
+    module: &'a mut ObjectModule,
+    fb: &'a mut ClifFnBuilder<'fb>,
+    refs: AotVtableDropRefs,
+    fn_ids: &'a std::collections::HashMap<
+        ilang_mir::FuncId,
+        cranelift_module::FuncId,
+    >,
+}
+
+impl<'a, 'fb>
+    crate::compile::registration::VtableDropSink
+    for AotVtableDropSink<'a, 'fb>
+{
+    fn vtable_entry(
+        &mut self,
+        gcid: i64,
+        slot: i64,
+        fn_id: ilang_mir::FuncId,
+    ) {
+        let cl_id = match self.fn_ids.get(&fn_id) {
+            Some(id) => *id,
+            None => return,
+        };
+        let fr = self.module.declare_func_in_func(cl_id, self.fb.func);
+        let addr = self.fb.ins().func_addr(types::I64, fr);
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        let s_v = self.fb.ins().iconst(types::I64, slot);
+        self.fb.ins().call(self.refs.vtable, &[cid_v, s_v, addr]);
+    }
+    fn drop_entry(&mut self, gcid: i64, fn_id: ilang_mir::FuncId) {
+        let cl_id = match self.fn_ids.get(&fn_id) {
+            Some(id) => *id,
+            None => return,
+        };
+        let fr = self.module.declare_func_in_func(cl_id, self.fb.func);
+        let addr = self.fb.ins().func_addr(types::I64, fr);
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        self.fb.ins().call(self.refs.drop_, &[cid_v, addr]);
+    }
+}
+
 struct AotRegistry {
     vtable: cranelift_module::FuncId,
     drop_: cranelift_module::FuncId,
@@ -1313,27 +1361,21 @@ fn emit_aot_init(
         // `func_addr` resolution that the registration sinks
         // intentionally don't see.
         let _ = &weakable_classes;
-        for class in &prog.classes {
-            let global_cid = class_global[class.id.0 as usize] as i64;
-            for m in &class.methods {
-                if let Some(slot) = m.slot {
-                    if let Some(&cl_id) = fn_ids.get(&m.func) {
-                        let fr = module.declare_func_in_func(cl_id, fb.func);
-                        let addr = fb.ins().func_addr(types::I64, fr);
-                        let cid_v = fb.ins().iconst(types::I64, global_cid);
-                        let slot_v = fb.ins().iconst(types::I64, slot.0 as i64);
-                        fb.ins().call(reg_vtable_ref, &[cid_v, slot_v, addr]);
-                    }
-                }
-            }
-            if class.drop_fn.0 != u32::MAX {
-                if let Some(&cl_id) = fn_ids.get(&class.drop_fn) {
-                    let fr = module.declare_func_in_func(cl_id, fb.func);
-                    let addr = fb.ins().func_addr(types::I64, fr);
-                    let cid_v = fb.ins().iconst(types::I64, global_cid);
-                    fb.ins().call(reg_drop_ref, &[cid_v, addr]);
-                }
-            }
+        {
+            let mut sink = AotVtableDropSink {
+                module: &mut *module,
+                fb: &mut fb,
+                refs: AotVtableDropRefs {
+                    vtable: reg_vtable_ref,
+                    drop_: reg_drop_ref,
+                },
+                fn_ids: &fn_ids,
+            };
+            crate::compile::registration::emit_vtable_drop_registrations(
+                prog,
+                &class_global,
+                &mut sink,
+            );
         }
         // Reflection-meta registrations — parent / methods / field
         // types / declared field count / generic instance args. The
