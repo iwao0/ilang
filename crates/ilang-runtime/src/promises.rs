@@ -750,6 +750,31 @@ pub extern "C" fn __promise_all(arr_ptr: i64, value_kind: i64) -> i64 {
         remaining: AtomicI64::new(n as i64),
     }));
 
+    // Pre-scan for a synchronously-rejected upstream and lock the
+    // aggregate to Rejected before any pool task can run. When every
+    // upstream is already settled at call time, the work-stealing
+    // pool would otherwise race the resolve stubs against the reject
+    // stub — sometimes letting "all resolves arrived first" settle
+    // the aggregate as Resolved and silently drop the rejection. By
+    // settling agg here, every later stub's settle attempt becomes a
+    // no-op via `take_pending_waiters`, so the outcome is "rejects
+    // on first rejection" regardless of scheduling.
+    for &up in promises.iter() {
+        if up == 0 {
+            continue;
+        }
+        let pr = unsafe { promise_ref(up) };
+        let snapshot = {
+            let g = pr.inner.lock().expect("promise mutex poisoned");
+            g.state.clone()
+        };
+        if let State::Rejected { msg } = snapshot {
+            __retain_string(msg);
+            settle_reject(agg, msg);
+            break;
+        }
+    }
+
     for (i, &up) in promises.iter().enumerate() {
         // Allocate a 48-byte synthetic closure per upstream:
         // [fn_addr | rc=1 | agg_promise | idx | kind | state_ptr]
@@ -797,6 +822,36 @@ pub extern "C" fn __promise_race(arr_ptr: i64, value_kind: i64) -> i64 {
         // Empty race: stays Pending forever in JS. We mirror that —
         // the caller's `.then` / `.catch` simply never fires.
         return agg;
+    }
+    // Pre-scan for the first already-settled upstream and lock agg
+    // to that outcome before any pool task can run. When inputs are
+    // all synchronously settled, the work-stealing pool's order is
+    // non-deterministic; the spec is "first to settle wins" and the
+    // synchronously-settled inputs all "settle" at the same instant.
+    // Pick array order as the tie-breaker so the result matches the
+    // mir-jit interpreter (and reads naturally to the user).
+    for &up in promises.iter() {
+        if up == 0 {
+            continue;
+        }
+        let pr = unsafe { promise_ref(up) };
+        let snapshot = {
+            let g = pr.inner.lock().expect("promise mutex poisoned");
+            g.state.clone()
+        };
+        match snapshot {
+            State::Resolved { value, kind } => {
+                retain_field_by_kind(value, kind);
+                settle_resolve(agg, value, kind);
+                break;
+            }
+            State::Rejected { msg } => {
+                __retain_string(msg);
+                settle_reject(agg, msg);
+                break;
+            }
+            State::Pending => continue,
+        }
     }
     for &up in &promises {
         let cell = crate::alloc::__mir_alloc(32) as *mut i64;
