@@ -7,7 +7,8 @@
 // but stays inside the input set.
 //
 // expect: caught: first
-// expect-skip: race-prone
+// jit: skip
+// aot: skip
 
 fn mk_reject(msg: string): Promise<string> {
     new Promise<string>(fn(resolve: fn(string), reject: fn(string)) {
