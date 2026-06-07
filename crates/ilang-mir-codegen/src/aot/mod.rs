@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use ilang_mir::{FuncId, MirTy, Program};
 
 mod helpers;
+mod name_table;
 
 use helpers::{coerce_to_i32, field_kind_tag, print_kind_id_for_ty, validate_subset};
 
@@ -59,14 +60,13 @@ struct AotReflectionRefs {
 /// AOT-side sink: each reflection event becomes a `call $type.register*`
 /// IR instruction inside the `__ilang_aot_init` body. Method / field
 /// names reach the runtime via the pre-allocated data symbols stashed
-/// in `class_method_name_data` / `class_field_name_data` (one per
-/// class * member), reused through `ilang_string_body`.
+/// in `name_table` (the shared per-program registry), reused through
+/// `ilang_string_body`.
 struct AotReflectionSink<'a, 'fb> {
     module: &'a mut ObjectModule,
     fb: &'a mut ClifFnBuilder<'fb>,
     refs: AotReflectionRefs,
-    class_method_name_data: &'a [Vec<DataId>],
-    class_field_name_data: &'a [Vec<DataId>],
+    name_table: &'a name_table::NameTable,
 }
 
 impl<'a, 'fb>
@@ -85,7 +85,7 @@ impl<'a, 'fb>
         gcid: i64,
         _method_name: &str,
     ) {
-        let did = self.class_method_name_data[class_idx][method_idx];
+        let did = self.name_table.class_method(class_idx, method_idx);
         let body = ilang_string_body(self.module, self.fb, did);
         let cid_v = self.fb.ins().iconst(types::I64, gcid);
         let idx_v = self.fb.ins().iconst(types::I64, method_idx as i64);
@@ -101,7 +101,7 @@ impl<'a, 'fb>
         _method_name: &str,
         ret_id: i64,
     ) {
-        let did = self.class_method_name_data[class_idx][method_idx];
+        let did = self.name_table.class_method(class_idx, method_idx);
         let body = ilang_string_body(self.module, self.fb, did);
         let cid_v = self.fb.ins().iconst(types::I64, gcid);
         let ret_v = self.fb.ins().iconst(types::I64, ret_id);
@@ -118,7 +118,7 @@ impl<'a, 'fb>
         param_idx: i64,
         param_id: i64,
     ) {
-        let did = self.class_method_name_data[class_idx][method_idx];
+        let did = self.name_table.class_method(class_idx, method_idx);
         let body = ilang_string_body(self.module, self.fb, did);
         let cid_v = self.fb.ins().iconst(types::I64, gcid);
         let i_v = self.fb.ins().iconst(types::I64, param_idx);
@@ -135,7 +135,7 @@ impl<'a, 'fb>
         _field_name: &str,
         fty_id: i64,
     ) {
-        let did = self.class_field_name_data[class_idx][field_idx];
+        let did = self.name_table.class_field(class_idx, field_idx);
         let body = ilang_string_body(self.module, self.fb, did);
         let cid_v = self.fb.ins().iconst(types::I64, gcid);
         let ty_v = self.fb.ins().iconst(types::I64, fty_id);
@@ -171,8 +171,7 @@ struct AotClassLayoutSink<'a, 'fb> {
     module: &'a mut ObjectModule,
     fb: &'a mut ClifFnBuilder<'fb>,
     refs: AotClassLayoutRefs,
-    class_name_data: &'a [DataId],
-    class_field_name_data: &'a [Vec<DataId>],
+    name_table: &'a name_table::NameTable,
 }
 
 impl<'a, 'fb>
@@ -188,7 +187,7 @@ impl<'a, 'fb>
         let body = ilang_string_body(
             self.module,
             self.fb,
-            self.class_name_data[class_idx],
+            self.name_table.class(class_idx),
         );
         let cid_v = self.fb.ins().iconst(types::I64, gcid);
         self.fb
@@ -207,7 +206,7 @@ impl<'a, 'fb>
         let body = ilang_string_body(
             self.module,
             self.fb,
-            self.class_field_name_data[class_idx][field_idx],
+            self.name_table.class_field(class_idx, field_idx),
         );
         let cid_v = self.fb.ins().iconst(types::I64, gcid);
         let idx_v = self.fb.ins().iconst(types::I64, idx);
@@ -231,7 +230,7 @@ impl<'a, 'fb>
         let body = ilang_string_body(
             self.module,
             self.fb,
-            self.class_field_name_data[class_idx][field_idx],
+            self.name_table.class_field(class_idx, field_idx),
         );
         let cid_v = self.fb.ins().iconst(types::I64, gcid);
         let idx_v = self.fb.ins().iconst(types::I64, idx);
@@ -272,9 +271,7 @@ struct AotEnumRegistrationSink<'a, 'fb> {
     module: &'a mut ObjectModule,
     fb: &'a mut ClifFnBuilder<'fb>,
     refs: AotEnumRegistrationRefs,
-    enum_name_data: &'a [DataId],
-    enum_variant_name_data: &'a [Vec<DataId>],
-    enum_variant_disc_str_data: &'a [Vec<Option<DataId>>],
+    name_table: &'a name_table::NameTable,
 }
 
 impl<'a, 'fb>
@@ -290,7 +287,7 @@ impl<'a, 'fb>
         let body = ilang_string_body(
             self.module,
             self.fb,
-            self.enum_name_data[enum_idx],
+            self.name_table.enum_(enum_idx),
         );
         let cid_v = self.fb.ins().iconst(types::I64, gid);
         self.fb
@@ -308,7 +305,7 @@ impl<'a, 'fb>
         let body = ilang_string_body(
             self.module,
             self.fb,
-            self.enum_variant_name_data[enum_idx][variant_idx],
+            self.name_table.enum_variant(enum_idx, variant_idx),
         );
         let cid_v = self.fb.ins().iconst(types::I64, gid);
         let d_v = self.fb.ins().iconst(types::I64, disc);
@@ -360,7 +357,8 @@ impl<'a, 'fb>
         // back to a no-op when the table entry is `None` (driver only
         // calls us for `is_str_repr` variants that had an explicit
         // `discriminant_str`, so this is defensive).
-        let Some(did) = self.enum_variant_disc_str_data[enum_idx][variant_idx]
+        let Some(did) =
+            self.name_table.enum_variant_disc_str(enum_idx, variant_idx)
         else {
             return;
         };
@@ -394,7 +392,7 @@ struct AotClosureFnSink<'a, 'fb> {
         ilang_mir::FuncId,
         cranelift_module::FuncId,
     >,
-    fn_display_name_data: &'a [Option<DataId>],
+    name_table: &'a name_table::NameTable,
 }
 
 impl<'a, 'fb> AotClosureFnSink<'a, 'fb> {
@@ -443,7 +441,7 @@ impl<'a, 'fb>
         // body for the un-mangled fn name. Sites where the table
         // entry is `None` correspond to extern / anon / `__main` —
         // the driver already filters those, but stay defensive.
-        let Some(did) = self.fn_display_name_data[fn_idx] else { return };
+        let Some(did) = self.name_table.fn_display(fn_idx) else { return };
         let Some(fn_addr) = self.fn_addr(fn_id) else { return };
         let body = ilang_string_body(self.module, self.fb, did);
         self.fb.ins().call(self.refs.fn_name, &[fn_addr, body]);
@@ -1201,93 +1199,11 @@ fn emit_aot_init(
         set
     };
 
-    // Pre-allocate data symbols for every class / field / enum /
-    // variant name so init-body IR can hand body pointers to the
-    // runtime registrations. Done before the function-body block so
-    // module-level declarations don't fight the FunctionBuilder for
-    // module access.
-    let mut class_name_data: Vec<DataId> = Vec::with_capacity(prog.classes.len());
-    let mut class_field_name_data: Vec<Vec<DataId>> =
-        Vec::with_capacity(prog.classes.len());
-    let mut class_method_name_data: Vec<Vec<DataId>> =
-        Vec::with_capacity(prog.classes.len());
-    for class in &prog.classes {
-        class_name_data.push(declare_ilang_string_data(module, class.name.as_str())?);
-        let mut per_class = Vec::with_capacity(class.fields.len());
-        for f in &class.fields {
-            per_class.push(declare_ilang_string_data(module, f.name.as_str())?);
-        }
-        class_field_name_data.push(per_class);
-        let mut per_class_methods = Vec::with_capacity(class.methods.len());
-        for m in &class.methods {
-            per_class_methods
-                .push(declare_ilang_string_data(module, m.name.as_str())?);
-        }
-        class_method_name_data.push(per_class_methods);
-    }
-    // For `__register_fn_name`: data symbols holding the user-facing
-    // (un-mangled) name of every non-extern user fn, keyed by the
-    // same FuncId index used in `fn_ids`. `None` for synthetic /
-    // anon / `__main` / extern (those don't get a printable name or
-    // would force the linker to resolve a non-existent symbol).
-    let mut fn_display_name_data: Vec<Option<DataId>> =
-        Vec::with_capacity(prog.functions.len());
-    for func in prog.functions.iter() {
-        if matches!(func.kind, ilang_mir::FunctionKind::Extern { .. }) {
-            fn_display_name_data.push(None);
-            continue;
-        }
-        let name = func.name.as_str();
-        if name.starts_with("$anon.fn_") || name.starts_with("$main") {
-            fn_display_name_data.push(None);
-            continue;
-        }
-        let plain = name.split("__").next().unwrap_or(name);
-        fn_display_name_data
-            .push(Some(declare_ilang_string_data(module, plain)?));
-    }
-    let mut enum_name_data: Vec<DataId> = Vec::with_capacity(prog.enums.len());
-    let mut enum_variant_name_data: Vec<Vec<DataId>> =
-        Vec::with_capacity(prog.enums.len());
-    // For `: string`-repr enums: data symbol per (enum, variant) for
-    // the discriminant string used by `enum as string` casts.
-    let mut enum_variant_disc_str_data: Vec<Vec<Option<DataId>>> =
-        Vec::with_capacity(prog.enums.len());
-    for e in &prog.enums {
-        enum_name_data.push(declare_ilang_string_data(module, e.name.as_str())?);
-        let is_str_repr = matches!(e.repr, MirTy::Str);
-        let mut per_enum = Vec::with_capacity(e.variants.len());
-        let mut per_enum_disc: Vec<Option<DataId>> = Vec::with_capacity(e.variants.len());
-        for v in &e.variants {
-            per_enum.push(declare_ilang_string_data(module, v.name.as_str())?);
-            if is_str_repr {
-                if let Some(s) = v.discriminant_str.as_ref() {
-                    per_enum_disc.push(Some(declare_ilang_string_data(module, s)?));
-                } else {
-                    per_enum_disc.push(None);
-                }
-            } else {
-                per_enum_disc.push(None);
-            }
-        }
-        enum_variant_name_data.push(per_enum);
-        enum_variant_disc_str_data.push(per_enum_disc);
-    }
-
-    // Pre-allocate one data symbol per name inside every `@lib(a, b,
-    // ...)` fallback group so `os.libLoaded` can be queried at
-    // runtime. Stored as `Vec<Vec<DataId>>` matching the `(group,
-    // member)` indices used in the init body below.
-    let mut lib_group_data: Vec<Vec<DataId>> = Vec::new();
-    for f in prog.functions.iter() {
-        if matches!(f.kind, ilang_mir::FunctionKind::Extern { .. }) && f.libs.len() > 1 {
-            let mut members = Vec::with_capacity(f.libs.len());
-            for sym in f.libs.iter() {
-                members.push(declare_ilang_string_data(module, sym.as_str())?);
-            }
-            lib_group_data.push(members);
-        }
-    }
+    // Pre-allocate data symbols for every class / field / method /
+    // enum / variant / disc-str / fn-name / lib-group name. The
+    // resulting `NameTable` is the single source the AOT init body
+    // (and every sink defined below) reads from.
+    let name_table = name_table::NameTable::pre_allocate(module, prog)?;
 
     let init_sig = module.make_signature();
     let init_id =
@@ -1345,8 +1261,7 @@ fn emit_aot_init(
                     class_size: reg_class_size_ref,
                     object_field: reg_object_field_ref,
                 },
-                class_name_data: &class_name_data,
-                class_field_name_data: &class_field_name_data,
+                name_table: &name_table,
             };
             crate::compile::registration::emit_class_layout_registrations(
                 prog,
@@ -1395,8 +1310,7 @@ fn emit_aot_init(
                         reg_type_declared_field_count_ref,
                     type_arg: reg_type_arg_ref,
                 },
-                class_method_name_data: &class_method_name_data,
-                class_field_name_data: &class_field_name_data,
+                name_table: &name_table,
             };
             crate::compile::registration::emit_reflection_registrations(
                 prog,
@@ -1419,7 +1333,7 @@ fn emit_aot_init(
                     fn_name: reg_fn_name_ref,
                 },
                 fn_ids: &fn_ids,
-                fn_display_name_data: &fn_display_name_data,
+                name_table: &name_table,
             };
             crate::compile::registration::emit_closure_fn_registrations(
                 prog,
@@ -1444,9 +1358,7 @@ fn emit_aot_init(
                     enum_disc_str: reg_enum_disc_str_ref,
                     typekind_enum_id: reg_typekind_enum_id_ref,
                 },
-                enum_name_data: &enum_name_data,
-                enum_variant_name_data: &enum_variant_name_data,
-                enum_variant_disc_str_data: &enum_variant_disc_str_data,
+                name_table: &name_table,
             };
             crate::compile::registration::emit_enum_registrations(
                 prog,
@@ -1462,7 +1374,7 @@ fn emit_aot_init(
 
         // Register every `@lib(...)` fallback group so the runtime's
         // `os.libLoaded(name)` can fall through to alternates.
-        for members in &lib_group_data {
+        for members in name_table.lib_groups() {
             let begin_call = fb.ins().call(reg_lib_group_begin_ref, &[]);
             let g = fb.inst_results(begin_call)[0];
             for did in members {
