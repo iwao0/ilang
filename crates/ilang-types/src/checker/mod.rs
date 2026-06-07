@@ -8,6 +8,7 @@ use crate::ops::{assignable, int_literal_fits};
 
 mod builtins;
 mod check;
+mod coercion;
 mod decls;
 mod expr;
 mod extern_c;
@@ -67,7 +68,7 @@ pub(super) fn numeric_literal_fits(value: &Expr, target: &Type) -> bool {
 }
 
 pub(super) fn literal_assignable(value: &Expr, vt: &Type, target: &Type) -> bool {
-    literal_assignable_with(value, vt, target, &|_, _| false)
+    literal_assignable_with(value, vt, target, &|_, _| None)
 }
 
 /// Same as `literal_assignable` but folds in a class-subtype test at
@@ -83,7 +84,12 @@ pub(super) fn literal_assignable_with<F>(
     is_sub: &F,
 ) -> bool
 where
-    F: Fn(Symbol, Symbol) -> bool,
+    // `is_sub(child, ancestor)` returns the inheritance / interface-
+    // implementation distance when the relation holds. The bool-only
+    // sites here just call `.is_some()`; sharing the same signature
+    // with `score_arg` lets both bind into the centralised
+    // `class_pair_coercion` rule table.
+    F: Fn(Symbol, Symbol) -> Option<u32>,
 {
     // Error sentinel on either side: absorb so we don't generate a
     // follow-up Mismatch on top of the original failure.
@@ -117,21 +123,11 @@ where
     if assignable(vt, target) {
         return true;
     }
-    // Object-vs-Object subtype: `B extends A` ⇒ B can flow into an
-    // A slot. Mirrors `assignable_obj` at the leaves.
-    if let (Type::Object(c), Type::Object(p)) = (vt, target) {
-        if is_sub(*c, *p) {
+    // Object → Object subtype, Object → Weak (same-class or
+    // subclass) — shared with overload scoring via `class_pair_coercion`.
+    if let Type::Object(c) = vt {
+        if coercion::class_pair_coercion(*c, target, is_sub).is_some() {
             return true;
-        }
-    }
-    // Strong subclass → weak parent slot. `assignable` already
-    // covers the same-class auto-downgrade; subtype-aware ARC
-    // slots (`Parent.weak ← Child`) need the subclass check here.
-    if let (Type::Object(c), Type::Weak(inner)) = (vt, target) {
-        if let Type::Object(p) = inner.as_ref() {
-            if is_sub(*c, *p) {
-                return true;
-            }
         }
     }
     // `let x: T? = literal` — auto-wrap. The literal is assignable to T?

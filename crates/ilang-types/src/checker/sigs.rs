@@ -261,34 +261,21 @@ where
     if matches!((arg_ty, param_ty), (Type::F32, Type::F64) | (Type::F64, Type::F32)) {
         return Some(1);
     }
-    // Class subtype upcast: `B` flowing into a parameter typed
-    // `A` where `B extends A`. Cost rises with inheritance
-    // distance so a closer parent outranks a further one
-    // (a `f(B)` overload beats `f(A)` when the arg is a `C`
-    // deriving through B → A).
-    if let (Type::Object(c), Type::Object(p)) = (arg_ty, param_ty) {
-        if let Some(d) = is_sub(*c, *p) {
-            return Some(5 + d);
+    // Class-pair conversions (Object → Object subtype upcast,
+    // Object → Weak same-class / subclass). Shared rule table
+    // lives in `checker::coercion` so the same costs apply at
+    // assignment sites (`literal_assignable_with`).
+    if let Type::Object(c) = arg_ty {
+        if let Some(score) =
+            super::coercion::class_pair_coercion(*c, param_ty, is_sub)
+        {
+            return Some(score);
         }
     }
     // T → T? auto-wrap.
     if let Type::Optional(inner) = param_ty {
         if let Some(inner_score) = score_arg(arg, arg_ty, inner, is_sub) {
             return Some(inner_score + 3);
-        }
-    }
-    // Object → Weak downgrade. Same-class is cost 4; a subclass
-    // downgrading into the parent's weak slot pays the subclass
-    // distance on top (so an exact-class weak overload still wins
-    // over a subclass one if both exist).
-    if let (Type::Object(a), Type::Weak(b_inner)) = (arg_ty, param_ty) {
-        if let Type::Object(b) = b_inner.as_ref() {
-            if a == b {
-                return Some(4);
-            }
-            if let Some(d) = is_sub(*a, *b) {
-                return Some(4 + d);
-            }
         }
     }
     // Fall back to literal_assignable: catches int-literal widening

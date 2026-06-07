@@ -165,9 +165,19 @@ impl TypeChecker {
     /// flowing into a `Parent[]` slot, `(new Child(),)` into
     /// `(Parent,)`, and `some(new Child())` into `Parent?`.
     pub(super) fn value_assignable(&self, value: &Expr, vt: &Type, target: &Type) -> bool {
-        literal_assignable_with(value, vt, target, &|c, p| {
-            self.is_subclass(c, p) || self.class_implements(c, p)
-        })
+        // `subclass_distance` answers the class chain; interface
+        // implementations report distance 0 so they fold into the
+        // same path without re-shaping the call.
+        let is_sub = |c: Symbol, p: Symbol| -> Option<u32> {
+            self.subclass_distance(c, p).or_else(|| {
+                if self.class_implements(c, p) {
+                    Some(0)
+                } else {
+                    None
+                }
+            })
+        };
+        literal_assignable_with(value, vt, target, &is_sub)
             || self.enum_repr_assignable(vt, target)
             || self.handle_void_ptr_assignable(vt, target)
     }
