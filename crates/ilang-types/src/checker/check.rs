@@ -269,7 +269,17 @@ impl TypeChecker {
                         Ok(s) => s,
                         Err(e) => {
                             self.record(e);
-                            continue;
+                            // Register a partial sig so the body
+                            // pass still sees the declared parent
+                            // link — without this, every `super(...)`
+                            // / `super.method(...)` in the failed
+                            // class piles on a misleading "super used
+                            // in class X, which has no parent" error
+                            // on top of the real diagnostic.
+                            let mut partial = ClassSig::default();
+                            partial.parent = c.parent.clone();
+                            partial.type_params = c.type_params.to_vec();
+                            partial
                         }
                     };
                     // `is_sub`'s shared borrow of `self.classes` ends
