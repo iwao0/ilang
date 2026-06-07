@@ -1,15 +1,22 @@
-//! Driver for the per-class reflection-metadata registrations that
-//! back `typeof(x).<member>`. JIT setup and the AOT init-body
-//! emitter previously each contained a hand-copied class loop that
-//! walked the same data and called the same eight `$type.register*`
-//! entry points; this module captures the walk as a single function
-//! that yields the registration events to a backend-specific sink.
+//! Driver for the per-class / per-enum registrations the runtime
+//! needs at startup. JIT setup and the AOT init-body emitter
+//! previously each contained hand-copied class / enum loops that
+//! walked the same data and called the same `$class.register*` /
+//! `$type.register*` entry points; this module captures the walks
+//! as single functions that yield registration events to
+//! backend-specific sinks.
 //!
-//! Print info (`$class.registerPrintName` / `$class.registerPrintField`
-//! / `$class.registerStructPrintField`), vtable / drop / class-size /
-//! object-field / closure / enum tables intentionally stay outside
-//! this module — those weren't part of the reflection refactor and
-//! still live in each backend.
+//! - `ReflectionSink` covers `typeof(x).<member>` (`$type.register*`).
+//! - `ClassLayoutSink` covers print info + heap-layout tables
+//!   (`$class.registerPrintName` / `$class.registerPrintField` /
+//!   `$class.registerStructPrintField` / `$class.registerSize` /
+//!   `$class.registerObjectField`).
+//!
+//! Vtable / drop registrations stay outside this module — they
+//! require `FuncId → fn_addr` resolution that JIT does only after
+//! `finalize_definitions()`, while AOT emits `func_addr` IR inline.
+//! Closure / fn-name / lib-group tables likewise still live in
+//! each backend.
 
 use std::collections::HashMap;
 
@@ -242,5 +249,192 @@ impl ReflectionSink for ReflectionSink_JIT {
     }
     fn type_arg(&mut self, gcid: i64, idx: i64, arg_id: i64) {
         ilang_runtime::__register_type_arg(gcid, idx, arg_id);
+    }
+}
+
+// --------------------------------------------------------------------
+// Class layout (print info + class size + heap-field cascade)
+// --------------------------------------------------------------------
+
+/// Backend-specific receiver for the class-layout registrations:
+/// `$class.registerPrintName` / `$class.registerPrintField` /
+/// `$class.registerStructPrintField` / `$class.registerSize` /
+/// `$class.registerObjectField`. `class_idx` and `field_idx` index
+/// into `prog.classes[class_idx].fields[field_idx]` so AOT sinks
+/// can reuse the pre-allocated DataIds for the name bodies.
+pub(crate) trait ClassLayoutSink {
+    fn class_print_name(&mut self, class_idx: usize, gcid: i64, name: &str);
+    fn class_print_field(
+        &mut self,
+        class_idx: usize,
+        field_idx: usize,
+        gcid: i64,
+        idx: i64,
+        name: &str,
+        pk: i64,
+    );
+    fn struct_print_field(
+        &mut self,
+        class_idx: usize,
+        field_idx: usize,
+        gcid: i64,
+        idx: i64,
+        name: &str,
+        pk: i64,
+        offset: i64,
+        nested_cid: i64,
+    );
+    /// Total heap allocation size in bytes. Not emitted for CRepr /
+    /// packed / union classes (their lifetime goes through direct
+    /// `__mir_free(ptr, c_size)` instead of the runtime drop path).
+    fn class_size(&mut self, gcid: i64, size: i64);
+    fn object_field(&mut self, gcid: i64, off: i64, tag: i64);
+}
+
+/// Walk every class and emit the layout registrations the runtime
+/// needs at startup. `print_kind_id_for_ty(ty)` is folded through
+/// the caller because the helpers live in each backend (JIT keeps
+/// `print_kind_id` in `compile`, AOT keeps `print_kind_id_for_ty`
+/// in `aot::helpers`) — the rules differ slightly for enum-bool
+/// reprs, so wiring two functions instead of unifying them keeps
+/// each backend honest.
+pub(crate) fn emit_class_layout_registrations<S, PK, KT>(
+    prog: &Program,
+    class_global: &[u32],
+    print_kind: PK,
+    field_kind_tag: KT,
+    sink: &mut S,
+) where
+    S: ClassLayoutSink,
+    PK: Fn(&MirTy) -> i64,
+    KT: Fn(&MirTy) -> i64,
+{
+    for (class_idx, class) in prog.classes.iter().enumerate() {
+        let gcid = class_global[class.id.0 as usize] as i64;
+        sink.class_print_name(class_idx, gcid, class.name.as_str());
+        let is_struct = matches!(
+            class.repr,
+            ilang_mir::ClassRepr::CRepr
+                | ilang_mir::ClassRepr::CPacked
+                | ilang_mir::ClassRepr::CUnion
+        );
+        for (field_idx, f) in class.fields.iter().enumerate() {
+            let pk = print_kind(&f.ty);
+            sink.class_print_field(
+                class_idx,
+                field_idx,
+                gcid,
+                field_idx as i64,
+                f.name.as_str(),
+                pk,
+            );
+            if is_struct && f.bit_field.is_none() {
+                let off = class
+                    .c_field_offsets
+                    .get(field_idx)
+                    .copied()
+                    .unwrap_or(0);
+                let nested_cid: i64 = if let MirTy::Object(nc) = &f.ty {
+                    let nested = &prog.classes[nc.0 as usize];
+                    if matches!(
+                        nested.repr,
+                        ilang_mir::ClassRepr::CRepr
+                            | ilang_mir::ClassRepr::CPacked
+                            | ilang_mir::ClassRepr::CUnion
+                    ) {
+                        class_global[nc.0 as usize] as i64
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+                sink.struct_print_field(
+                    class_idx,
+                    field_idx,
+                    gcid,
+                    field_idx as i64,
+                    f.name.as_str(),
+                    pk,
+                    off,
+                    nested_cid,
+                );
+            }
+        }
+        // Heap-typed field cascade table — one row per field whose
+        // type carries a non-`KIND_NONE` cascade tag.
+        for (i, f) in class.fields.iter().enumerate() {
+            let tag = field_kind_tag(&f.ty);
+            if tag == 0 {
+                continue;
+            }
+            let off = 16 + (i as i64) * 8;
+            sink.object_field(gcid, off, tag);
+        }
+        // class_size — skipped for CRepr / packed / union (their
+        // lifetime is tracked via direct `__mir_free(ptr, c_size)`
+        // emits at codegen time, not the runtime drop path).
+        let skip_free = matches!(
+            class.repr,
+            ilang_mir::ClassRepr::CRepr
+                | ilang_mir::ClassRepr::CPacked
+                | ilang_mir::ClassRepr::CUnion
+        );
+        if !skip_free {
+            let size = 16 + (class.fields.len() as i64) * 8;
+            sink.class_size(gcid, size);
+        }
+    }
+}
+
+/// JIT-side sink for `ClassLayoutSink`. Each event dispatches to the
+/// matching `ilang_runtime::__register_class_*` extern; names reach
+/// the runtime through `leak_cstring`'s persistent buffer.
+#[allow(non_camel_case_types)]
+pub(crate) struct ClassLayoutSink_JIT;
+
+impl ClassLayoutSink for ClassLayoutSink_JIT {
+    fn class_print_name(
+        &mut self,
+        _class_idx: usize,
+        gcid: i64,
+        name: &str,
+    ) {
+        let ptr = ilang_runtime::leak_cstring(name.to_string());
+        ilang_runtime::__register_class_print_name(gcid, ptr);
+    }
+    fn class_print_field(
+        &mut self,
+        _class_idx: usize,
+        _field_idx: usize,
+        gcid: i64,
+        idx: i64,
+        name: &str,
+        pk: i64,
+    ) {
+        let ptr = ilang_runtime::leak_cstring(name.to_string());
+        ilang_runtime::__register_class_print_field(gcid, idx, ptr, pk);
+    }
+    fn struct_print_field(
+        &mut self,
+        _class_idx: usize,
+        _field_idx: usize,
+        gcid: i64,
+        idx: i64,
+        name: &str,
+        pk: i64,
+        offset: i64,
+        nested_cid: i64,
+    ) {
+        let ptr = ilang_runtime::leak_cstring(name.to_string());
+        ilang_runtime::__register_struct_print_field(
+            gcid, idx, ptr, pk, offset, nested_cid,
+        );
+    }
+    fn class_size(&mut self, gcid: i64, size: i64) {
+        ilang_runtime::__register_class_size(gcid, size);
+    }
+    fn object_field(&mut self, gcid: i64, off: i64, tag: i64) {
+        ilang_runtime::__register_object_field(gcid, off, tag);
     }
 }

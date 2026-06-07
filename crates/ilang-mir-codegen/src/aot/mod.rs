@@ -70,7 +70,7 @@ struct AotReflectionSink<'a, 'fb> {
 }
 
 impl<'a, 'fb>
-    crate::compile::reflection::ReflectionSink
+    crate::compile::registration::ReflectionSink
     for AotReflectionSink<'a, 'fb>
 {
     fn type_parent(&mut self, gcid: i64, parent_gcid: i64) {
@@ -155,6 +155,106 @@ impl<'a, 'fb>
         let i_v = self.fb.ins().iconst(types::I64, idx);
         let a_v = self.fb.ins().iconst(types::I64, arg_id);
         self.fb.ins().call(self.refs.type_arg, &[cid_v, i_v, a_v]);
+    }
+}
+
+/// Subset of `AotRegistryRefs` consumed by `AotClassLayoutSink`.
+struct AotClassLayoutRefs {
+    class_print_name: cranelift_codegen::ir::FuncRef,
+    class_print_field: cranelift_codegen::ir::FuncRef,
+    struct_print_field: cranelift_codegen::ir::FuncRef,
+    class_size: cranelift_codegen::ir::FuncRef,
+    object_field: cranelift_codegen::ir::FuncRef,
+}
+
+struct AotClassLayoutSink<'a, 'fb> {
+    module: &'a mut ObjectModule,
+    fb: &'a mut ClifFnBuilder<'fb>,
+    refs: AotClassLayoutRefs,
+    class_name_data: &'a [DataId],
+    class_field_name_data: &'a [Vec<DataId>],
+}
+
+impl<'a, 'fb>
+    crate::compile::registration::ClassLayoutSink
+    for AotClassLayoutSink<'a, 'fb>
+{
+    fn class_print_name(
+        &mut self,
+        class_idx: usize,
+        gcid: i64,
+        _name: &str,
+    ) {
+        let body = ilang_string_body(
+            self.module,
+            self.fb,
+            self.class_name_data[class_idx],
+        );
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        self.fb
+            .ins()
+            .call(self.refs.class_print_name, &[cid_v, body]);
+    }
+    fn class_print_field(
+        &mut self,
+        class_idx: usize,
+        field_idx: usize,
+        gcid: i64,
+        idx: i64,
+        _name: &str,
+        pk: i64,
+    ) {
+        let body = ilang_string_body(
+            self.module,
+            self.fb,
+            self.class_field_name_data[class_idx][field_idx],
+        );
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        let idx_v = self.fb.ins().iconst(types::I64, idx);
+        let pk_v = self.fb.ins().iconst(types::I64, pk);
+        self.fb.ins().call(
+            self.refs.class_print_field,
+            &[cid_v, idx_v, body, pk_v],
+        );
+    }
+    fn struct_print_field(
+        &mut self,
+        class_idx: usize,
+        field_idx: usize,
+        gcid: i64,
+        idx: i64,
+        _name: &str,
+        pk: i64,
+        offset: i64,
+        nested_cid: i64,
+    ) {
+        let body = ilang_string_body(
+            self.module,
+            self.fb,
+            self.class_field_name_data[class_idx][field_idx],
+        );
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        let idx_v = self.fb.ins().iconst(types::I64, idx);
+        let pk_v = self.fb.ins().iconst(types::I64, pk);
+        let off_v = self.fb.ins().iconst(types::I64, offset);
+        let nested_v = self.fb.ins().iconst(types::I64, nested_cid);
+        self.fb.ins().call(
+            self.refs.struct_print_field,
+            &[cid_v, idx_v, body, pk_v, off_v, nested_v],
+        );
+    }
+    fn class_size(&mut self, gcid: i64, size: i64) {
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        let s_v = self.fb.ins().iconst(types::I64, size);
+        self.fb.ins().call(self.refs.class_size, &[cid_v, s_v]);
+    }
+    fn object_field(&mut self, gcid: i64, off: i64, tag: i64) {
+        let cid_v = self.fb.ins().iconst(types::I64, gcid);
+        let off_v = self.fb.ins().iconst(types::I64, off);
+        let tag_v = self.fb.ins().iconst(types::I64, tag);
+        self.fb
+            .ins()
+            .call(self.refs.object_field, &[cid_v, off_v, tag_v]);
     }
 }
 
@@ -991,94 +1091,38 @@ fn emit_aot_init(
             typekind_enum_id: reg_typekind_enum_id_ref,
         } = refs;
 
-        for (cls_idx, class) in prog.classes.iter().enumerate() {
+        // Class layout — print info, heap-cascade table, class size.
+        // Shared walker in `compile::registration`; the AOT sink
+        // below lowers each event as a clif IR call.
+        {
+            let mut sink = AotClassLayoutSink {
+                module: &mut *module,
+                fb: &mut fb,
+                refs: AotClassLayoutRefs {
+                    class_print_name: reg_class_print_name_ref,
+                    class_print_field: reg_class_print_field_ref,
+                    struct_print_field: reg_struct_print_field_ref,
+                    class_size: reg_class_size_ref,
+                    object_field: reg_object_field_ref,
+                },
+                class_name_data: &class_name_data,
+                class_field_name_data: &class_field_name_data,
+            };
+            crate::compile::registration::emit_class_layout_registrations(
+                prog,
+                &class_global,
+                print_kind_id_for_ty,
+                field_kind_tag,
+                &mut sink,
+            );
+        }
+        // Vtable + drop — still inline because each entry needs
+        // `module.declare_func_in_func(cl_id, fb.func)` +
+        // `func_addr` resolution that the registration sinks
+        // intentionally don't see.
+        let _ = &weakable_classes;
+        for class in &prog.classes {
             let global_cid = class_global[class.id.0 as usize] as i64;
-            // Print info: class name + per-field (name, PK_*).
-            let cid_v = fb.ins().iconst(types::I64, global_cid);
-            let name_did = class_name_data[cls_idx];
-            let name_body = ilang_string_body(module, &mut fb, name_did);
-            fb.ins().call(reg_class_print_name_ref, &[cid_v, name_body]);
-            let is_struct = matches!(
-                class.repr,
-                ilang_mir::ClassRepr::CRepr
-                    | ilang_mir::ClassRepr::CPacked
-                    | ilang_mir::ClassRepr::CUnion
-            );
-            for (fi, f) in class.fields.iter().enumerate() {
-                let pk = print_kind_id_for_ty(&f.ty);
-                let fname_did = class_field_name_data[cls_idx][fi];
-                let fname_body = ilang_string_body(module, &mut fb, fname_did);
-                let idx_v = fb.ins().iconst(types::I64, fi as i64);
-                let pk_v = fb.ins().iconst(types::I64, pk);
-                fb.ins().call(
-                    reg_class_print_field_ref,
-                    &[cid_v, idx_v, fname_body, pk_v],
-                );
-                if is_struct && f.bit_field.is_none() {
-                    let off = class.c_field_offsets.get(fi).copied().unwrap_or(0);
-                    let nested_cid: i64 = if let MirTy::Object(nc) = &f.ty {
-                        let nested = &prog.classes[nc.0 as usize];
-                        if matches!(
-                            nested.repr,
-                            ilang_mir::ClassRepr::CRepr
-                                | ilang_mir::ClassRepr::CPacked
-                                | ilang_mir::ClassRepr::CUnion
-                        ) {
-                            class_global[nc.0 as usize] as i64
-                        } else {
-                            0
-                        }
-                    } else {
-                        0
-                    };
-                    let fname_body2 = ilang_string_body(module, &mut fb, fname_did);
-                    let idx_v2 = fb.ins().iconst(types::I64, fi as i64);
-                    let pk_v2 = fb.ins().iconst(types::I64, pk);
-                    let off_v = fb.ins().iconst(types::I64, off);
-                    let nested_v = fb.ins().iconst(types::I64, nested_cid);
-                    fb.ins().call(
-                        reg_struct_print_field_ref,
-                        &[cid_v, idx_v2, fname_body2, pk_v2, off_v, nested_v],
-                    );
-                }
-            }
-            // Heap-typed fields go into the runtime's
-            // `OBJECT_FIELD_TABLE` so `__release_object_fields`
-            // cascades through them at rc=0. Each entry is the byte
-            // offset within the cell (header 16 B + 8 B * idx) plus
-            // the `KIND_*` tag.
-            for (i, f) in class.fields.iter().enumerate() {
-                let tag = field_kind_tag(&f.ty);
-                if tag == 0 {
-                    continue; // KIND_NONE — primitive, no cascade.
-                }
-                let off = 16 + (i as i64) * 8;
-                let cid_v = fb.ins().iconst(types::I64, global_cid);
-                let off_v = fb.ins().iconst(types::I64, off);
-                let tag_v = fb.ins().iconst(types::I64, tag);
-                fb.ins().call(reg_object_field_ref, &[cid_v, off_v, tag_v]);
-            }
-            // Register the byte size of this class's heap allocation
-            // so `__release_object` can reclaim the buffer at rc=0.
-            // Skip CRepr / packed / union classes — their lifetime is
-            // already tracked at the codegen level via direct
-            // `__mir_free(ptr, c_size)` emits.
-            let _ = &weakable_classes;
-            let skip_free = matches!(
-                class.repr,
-                ilang_mir::ClassRepr::CRepr
-                    | ilang_mir::ClassRepr::CPacked
-                    | ilang_mir::ClassRepr::CUnion
-            );
-            if !skip_free {
-                // 16-byte header (class_id + rc) + 8 bytes per field.
-                let size = 16 + (class.fields.len() as i64) * 8;
-                let cid_v = fb.ins().iconst(types::I64, global_cid);
-                let size_v = fb.ins().iconst(types::I64, size);
-                fb.ins().call(reg_class_size_ref, &[cid_v, size_v]);
-            }
-            // Vtable entries: every method with a slot maps to its fn
-            // address at the global (class_id, slot) key.
             for m in &class.methods {
                 if let Some(slot) = m.slot {
                     if let Some(&cl_id) = fn_ids.get(&m.func) {
@@ -1090,7 +1134,6 @@ fn emit_aot_init(
                     }
                 }
             }
-            // Drop entry, if the class has a deinit lowered to a fn.
             if class.drop_fn.0 != u32::MAX {
                 if let Some(&cl_id) = fn_ids.get(&class.drop_fn) {
                     let fr = module.declare_func_in_func(cl_id, fb.func);
@@ -1102,7 +1145,7 @@ fn emit_aot_init(
         }
         // Reflection-meta registrations — parent / methods / field
         // types / declared field count / generic instance args. The
-        // walker lives in `compile::reflection`; the AOT sink below
+        // walker lives in `compile::registration`; the AOT sink below
         // adapts each event to a clif IR call inside this init body.
         {
             let mut sink = AotReflectionSink {
@@ -1121,7 +1164,7 @@ fn emit_aot_init(
                 class_method_name_data: &class_method_name_data,
                 class_field_name_data: &class_field_name_data,
             };
-            crate::compile::reflection::emit_reflection_registrations(
+            crate::compile::registration::emit_reflection_registrations(
                 prog,
                 &class_global,
                 &mut sink,

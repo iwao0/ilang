@@ -20,7 +20,7 @@ mod fmt_emit;
 mod print_emit;
 mod print_kind;
 mod program_decl;
-pub(crate) mod reflection;
+pub(crate) mod registration;
 
 pub use jit_setup::{compile_program, compile_with_builtins};
 pub(crate) use jit_setup::{

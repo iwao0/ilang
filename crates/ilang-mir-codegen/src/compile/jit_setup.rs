@@ -21,7 +21,7 @@ use super::print_kind::{
 };
 use super::{
     alloc_global_class_id, alloc_global_enum_id, lower_program_into, BuiltinDecl, Compiled,
-    CompileError, LoweringOutputs, OBJECT_HEADER_BYTES,
+    CompileError, LoweringOutputs,
 };
 
 pub fn compile_program(prog: &Program) -> Result<Compiled, CompileError> {
@@ -182,110 +182,32 @@ pub fn compile_with_builtins(
             ilang_runtime::__register_objc_imp(symbol_name.to_string(), addr);
         }
     }
-    // Populate Object field table — host_release_object_fields uses
-    // it to cascade releases through heap-shaped fields.
+    // Class layout — print info (`$class.registerPrintName` /
+    // `…PrintField` / `…StructPrintField`), heap-cascade table
+    // (`$class.registerObjectField`), and total allocation size
+    // (`$class.registerSize`). Shared walker in
+    // `compile::registration`; the JIT sink dispatches each event
+    // straight to the matching `ilang_runtime::__register_class_*`
+    // extern. AOT emits the same events as IR calls from
+    // `__ilang_aot_init`.
     {
-        // Populate the runtime's per-class cascade table so
-        // `__release_object_fields` walks heap-shaped fields at
-        // rc = 0. Both backends populate the same `ilang-runtime`
-        // registry (AOT mirrors these calls from `__ilang_aot_init`).
-        for class in &prog.classes {
-            for (i, f) in class.fields.iter().enumerate() {
-                let cascade_tag = kind_tag_of(&f.ty, &prog.classes);
-                if cascade_tag != KIND_NONE {
-                    let off = OBJECT_HEADER_BYTES as i64 + (i as i64) * 8;
-                    ilang_runtime::__register_object_field(
-                        global_cid(class.id.0) as i64,
-                        off,
-                        cascade_tag,
-                    );
-                }
-            }
-            // Mirror NewObject codegen: regular classes alloc
-            // header + n_fields*8 bytes. Skip CRepr/packed/union
-            // (different free path). Weakable classes also register
-            // here — `__release_object` defers the free when any weak
-            // refs are pending, and `__release_weak`'s final decrement
-            // performs the free once the last weak observer is gone.
-            let skip_free = matches!(
-                class.repr,
-                ilang_mir::ClassRepr::CRepr
-                    | ilang_mir::ClassRepr::CPacked
-                    | ilang_mir::ClassRepr::CUnion
-            );
-            if !skip_free {
-                let size = OBJECT_HEADER_BYTES as i64 + (class.fields.len() as i64) * 8;
-                ilang_runtime::__register_class_size(
-                    global_cid(class.id.0) as i64,
-                    size,
-                );
-            }
-        }
-    }
-    // Populate the class-print-info registry in `ilang-runtime` —
-    // `__print_object` walks an object's fields via the runtime's
-    // copy. AOT mirrors the same registrations from
-    // `__ilang_aot_init` using data-symbol-backed strings.
-    for class in &prog.classes {
-        let gcid = global_cid(class.id.0) as i64;
-        let name_ptr = ilang_runtime::leak_cstring(class.name.as_str().to_string());
-        ilang_runtime::__register_class_print_name(gcid, name_ptr);
-        let is_struct = matches!(
-            class.repr,
-            ilang_mir::ClassRepr::CRepr
-                | ilang_mir::ClassRepr::CPacked
-                | ilang_mir::ClassRepr::CUnion
+        let mut sink = super::registration::ClassLayoutSink_JIT;
+        let classes = &prog.classes;
+        super::registration::emit_class_layout_registrations(
+            prog,
+            &class_global,
+            print_kind_id,
+            |ty| kind_tag_of(ty, classes),
+            &mut sink,
         );
-        for (i, f) in class.fields.iter().enumerate() {
-            let pk = print_kind_id(&f.ty);
-            let fname_ptr = ilang_runtime::leak_cstring(f.name.as_str().to_string());
-            ilang_runtime::__register_class_print_field(gcid, i as i64, fname_ptr, pk);
-            if is_struct {
-                // CRepr / CPacked / CUnion: also populate the struct
-                // print registry with each field's natural byte
-                // offset so `__print_struct` can read with C layout.
-                // Bit-field fields don't have a byte slot of their
-                // own — skip them rather than report a fake offset.
-                if f.bit_field.is_some() {
-                    continue;
-                }
-                let off = class
-                    .c_field_offsets
-                    .get(i)
-                    .copied()
-                    .unwrap_or(0);
-                // Inline nested struct: pass the nested global cid so
-                // the formatter recurses on its inlined bytes rather
-                // than misreading the cell as a heap pointer.
-                let nested_cid: i64 = if let MirTy::Object(nc) = &f.ty {
-                    let nested = &prog.classes[nc.0 as usize];
-                    if matches!(
-                        nested.repr,
-                        ilang_mir::ClassRepr::CRepr
-                            | ilang_mir::ClassRepr::CPacked
-                            | ilang_mir::ClassRepr::CUnion
-                    ) {
-                        global_cid(nc.0) as i64
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                };
-                let fname_ptr = ilang_runtime::leak_cstring(f.name.as_str().to_string());
-                ilang_runtime::__register_struct_print_field(
-                    gcid, i as i64, fname_ptr, pk, off, nested_cid,
-                );
-            }
-        }
     }
     // Reflection-meta registrations — parent / methods / field
     // types / declared field count / generic instance args. Shared
     // walker; the JIT sink dispatches each event straight to the
     // `ilang_runtime::__register_type_*` host fn.
     {
-        let mut sink = super::reflection::ReflectionSink_JIT;
-        super::reflection::emit_reflection_registrations(
+        let mut sink = super::registration::ReflectionSink_JIT;
+        super::registration::emit_reflection_registrations(
             prog,
             &class_global,
             &mut sink,
