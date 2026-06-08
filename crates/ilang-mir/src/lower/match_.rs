@@ -39,6 +39,24 @@ fn arm_body_diverges(e: &Expr) -> bool {
     }
 }
 
+/// `true` when `e`'s tail expression is `Var(name)`. Used by the
+/// `match` / `if let` lowerers to decide whether the arm hands the
+/// pattern binding straight back as its result — that's the case
+/// where the binding's borrow into the soon-to-be-released
+/// scrutinee cell needs an extra +1 to survive past the cascade.
+/// Block-shaped bodies look at their tail; bare expressions are
+/// their own tail.
+fn arm_tail_is_var(e: &Expr, name: Symbol) -> bool {
+    let tail = match &e.kind {
+        ExprKind::Block(b) => match b.tail.as_deref() {
+            Some(t) => t,
+            None => return false,
+        },
+        _ => e,
+    };
+    matches!(&tail.kind, ExprKind::Var(n) if *n == name)
+}
+
 impl<'a> BodyCx<'a> {
     pub(super) fn lower_match(
         &mut self,
@@ -156,6 +174,20 @@ impl<'a> BodyCx<'a> {
             }
             let diverges = arm_body_diverges(&arm.body);
             let (bv, bty) = self.lower_expr(&arm.body)?;
+            // `some(v) { v }` hands the binding's borrow straight
+            // back as the arm's result. The `Release(sv)` below
+            // would cascade the Optional cell, freeing the inner
+            // the binding still aliases — bump rc so the caller's
+            // returned value survives. Only matters when the
+            // scrutinee was fresh (otherwise the source binding
+            // still owns its +1) and the inner is heap-typed.
+            if scrut_is_fresh && self.is_arc_heap(&bty) {
+                if let Some(bn) = some_binding {
+                    if arm_tail_is_var(&arm.body, bn) {
+                        self.fb.push_inst(Inst::Retain { value: bv });
+                    }
+                }
+            }
             if scrut_is_fresh {
                 self.fb.push_inst(Inst::Release { value: sv });
             }
@@ -759,6 +791,23 @@ impl<'a> BodyCx<'a> {
         self.env.enter_scope();
         self.env.bind(name, unwrapped, inner_ty.clone());
         let then_tail = self.lower_block(then_branch)?;
+        // `if let some(v) = expr { v }` hands the binding's borrow
+        // straight back as the result. The `Release(sv)` below
+        // would cascade-release the Optional cell, freeing the
+        // inner the caller still aliases — bump rc so the
+        // returned value survives. Mirrors the `lower_match_optional`
+        // arm-tail retain.
+        if scrut_is_fresh {
+            if let Some((tv, tty)) = &then_tail {
+                let tail_returns_binding = then_branch
+                    .tail
+                    .as_ref()
+                    .is_some_and(|t| matches!(&t.kind, ExprKind::Var(n) if *n == name));
+                if tail_returns_binding && self.is_arc_heap(tty) {
+                    self.fb.push_inst(Inst::Retain { value: *tv });
+                }
+            }
+        }
         if scrut_is_fresh {
             self.fb.push_inst(Inst::Release { value: sv });
         }
