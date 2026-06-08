@@ -444,7 +444,22 @@ impl<'a> BodyCx<'a> {
                 // dance — `BodyCx::is_arc_slot` is the authoritative
                 // predicate (heap kind ∧ not COM iface ∧ not CRepr /
                 // CPacked / CUnion `Object`).
-                let is_heap = self.is_arc_slot(&fty);
+                //
+                // CRepr / CPacked / CUnion parents store unit-only
+                // enum fields inline at repr width (see commit
+                // d65fec00) — they aren't heap enum cells. The Enum
+                // retain/release set added in df51064a would otherwise
+                // try to `__release_enum` the inline integer value
+                // and trash the struct's memory; exclude them here.
+                let parent_is_crepr = matches!(
+                    self.classes[class_id.0 as usize].repr,
+                    crate::program::ClassRepr::CRepr
+                        | crate::program::ClassRepr::CPacked
+                        | crate::program::ClassRepr::CUnion
+                );
+                let inline_enum_in_crepr =
+                    parent_is_crepr && matches!(&fty, MirTy::Enum(_));
+                let is_heap = self.is_arc_slot(&fty) && !inline_enum_in_crepr;
                 if is_heap {
                     if !value_is_fresh {
                         self.fb.push_inst(Inst::Retain { value: vv });
