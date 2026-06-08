@@ -210,17 +210,7 @@ impl<'a> BodyCx<'a> {
                 // Release. Otherwise the loop's exit-block receives
                 // a pointer the scope is about to free (only matters
                 // for Array/Tuple/etc. which actually free memory).
-                let needs_retain = !value_is_fresh
-                    && matches!(
-                        ty,
-                        MirTy::Object(_)
-                            | MirTy::Array { .. }
-                            | MirTy::Tuple(_)
-                            | MirTy::Map { .. }
-                            | MirTy::Optional(_)
-                            | MirTy::Fn(_)
-                            | MirTy::Str
-                    );
+                let needs_retain = !value_is_fresh && ty.is_heap();
                 if needs_retain {
                     self.fb.push_inst(Inst::Retain { value: v });
                 }
@@ -245,19 +235,7 @@ impl<'a> BodyCx<'a> {
         // scope-exit release pass is bypassed by the early jump.
         // Snapshot first to avoid the &mut self borrow conflict
         // on `self.fb` inside the release calls.
-        let needs_release = |ty: &MirTy| {
-            matches!(
-                ty,
-                MirTy::Object(_)
-                    | MirTy::Fn(_)
-                    | MirTy::Array { .. }
-                    | MirTy::Optional(_)
-                    | MirTy::Tuple(_)
-                    | MirTy::Map { .. }
-                    | MirTy::Str
-                    | MirTy::Enum(_)
-            )
-        };
+        let needs_release = |ty: &MirTy| ty.is_heap();
         let mut to_release: Vec<Binding> = Vec::new();
         for scope in self.env.scopes.iter().skip(frame_depth.saturating_sub(0)) {
             for (_n, b) in scope.iter().rev() {

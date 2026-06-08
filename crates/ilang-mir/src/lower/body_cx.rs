@@ -297,17 +297,7 @@ impl<'a> BodyCx<'a> {
                 // the new value's share goes unaccounted. Caught by
                 // ASan as a UAF in `host_retain_object` while
                 // re-assigning closure-captured Box instances.
-                let heap_slot = matches!(
-                    slot_ty,
-                    MirTy::Object(_)
-                        | MirTy::Fn(_)
-                        | MirTy::Array { .. }
-                        | MirTy::Optional(_)
-                        | MirTy::Tuple(_)
-                        | MirTy::Map { .. }
-                        | MirTy::Str
-                        | MirTy::Enum(_)
-                );
+                let heap_slot = slot_ty.is_heap();
                 if heap_slot {
                     let old = self.fb.new_value(slot_ty.clone());
                     self.fb.push_inst(Inst::ArrayLoad {
@@ -398,20 +388,7 @@ impl<'a> BodyCx<'a> {
 
     pub(in crate::lower) fn emit_callee_retain(&mut self, tail: &Option<(ValueId, MirTy)>) {
         if let Some((v, ty)) = tail.as_ref() {
-            if matches!(
-                ty,
-                MirTy::Object(_)
-                    | MirTy::Array { .. }
-                    | MirTy::Tuple(_)
-                    | MirTy::Map { .. }
-                    | MirTy::Set { .. }
-                    | MirTy::Optional(_)
-                    | MirTy::Fn(_)
-                    | MirTy::Promise(_)
-                    | MirTy::Weak(_)
-                    | MirTy::Str
-                    | MirTy::Enum(_)
-            ) {
+            if ty.is_heap() {
                 self.fb.push_inst(Inst::Retain { value: *v });
             }
         }
@@ -441,22 +418,7 @@ impl<'a> BodyCx<'a> {
         // (lower_stmt's `Expr` arm releases discarded fresh heap
         // results, but the tail position doesn't go through that
         // path). Release it here, matching the stmt-discard rule.
-        let unit_tail_needs_release = |ty: &MirTy| {
-            matches!(
-                ty,
-                MirTy::Object(_)
-                    | MirTy::Array { .. }
-                    | MirTy::Tuple(_)
-                    | MirTy::Map { .. }
-                    | MirTy::Set { .. }
-                    | MirTy::Optional(_)
-                    | MirTy::Fn(_)
-                    | MirTy::Promise(_)
-                    | MirTy::Weak(_)
-                    | MirTy::Str
-                    | MirTy::Enum(_)
-            )
-        };
+        let unit_tail_needs_release = |ty: &MirTy| ty.is_heap();
         let value = match (&self.ret_ty, tail) {
             (MirTy::Unit, Some((v, vty))) if unit_tail_needs_release(&vty) => {
                 self.fb.push_inst(Inst::Release { value: v });
@@ -530,22 +492,7 @@ impl<'a> BodyCx<'a> {
         // `Var` resolving to a binding in this block's scope —
         // otherwise we'd over-retain transient values that nothing
         // releases.
-        let tail_needs_retain = |ty: &MirTy| {
-            matches!(
-                ty,
-                MirTy::Object(_)
-                    | MirTy::Fn(_)
-                    | MirTy::Array { .. }
-                    | MirTy::Optional(_)
-                    | MirTy::Tuple(_)
-                    | MirTy::Map { .. }
-                    | MirTy::Set { .. }
-                    | MirTy::Promise(_)
-                    | MirTy::Weak(_)
-                    | MirTy::Str
-                    | MirTy::Enum(_)
-            )
-        };
+        let tail_needs_retain = |ty: &MirTy| ty.is_heap();
         let tail_alias_name = blk.tail.as_ref().and_then(|e| match &e.kind {
             ExprKind::Var(name) => Some(*name),
             _ => None,
@@ -705,22 +652,7 @@ impl<'a> BodyCx<'a> {
             .last()
             .cloned()
             .unwrap_or_default();
-        let needs_release = |ty: &MirTy| {
-            matches!(
-                ty,
-                MirTy::Object(_)
-                    | MirTy::Fn(_)
-                    | MirTy::Array { .. }
-                    | MirTy::Optional(_)
-                    | MirTy::Tuple(_)
-                    | MirTy::Map { .. }
-                    | MirTy::Set { .. }
-                    | MirTy::Promise(_)
-                    | MirTy::Weak(_)
-                    | MirTy::Str
-                    | MirTy::Enum(_)
-            )
-        };
+        let needs_release = |ty: &MirTy| ty.is_heap();
         for (_name, binding) in scope.into_iter().rev() {
             match binding {
                 Binding::Local(lid, ty) if needs_release(&ty) => {

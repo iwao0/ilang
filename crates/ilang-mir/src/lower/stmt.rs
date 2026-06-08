@@ -193,16 +193,7 @@ impl<'a> BodyCx<'a> {
                         // and the exit-time slot release can't drive
                         // the value to drop. See
                         // top_level_let_used_in_fn_deinit_once.il.
-                        if matches!(
-                            bind_ty,
-                            MirTy::Object(_)
-                                | MirTy::Array { .. }
-                                | MirTy::Tuple(_)
-                                | MirTy::Map { .. }
-                                | MirTy::Optional(_)
-                                | MirTy::Fn(_)
-                        ) && !value_is_fresh_object
-                        {
+                        if bind_ty.is_heap() && !value_is_fresh_object {
                             self.fb.push_inst(Inst::Retain { value: bound });
                         }
                         self.fb.push_inst(Inst::Call {
@@ -283,16 +274,7 @@ impl<'a> BodyCx<'a> {
                 // method call result like `xs.map(fn(...){...})`
                 // (its fresh array, plus the fresh closure arg)
                 // leaks every iteration of a long-running loop.
-                let is_heap = matches!(
-                    ty,
-                    MirTy::Object(_)
-                        | MirTy::Array { .. }
-                        | MirTy::Tuple(_)
-                        | MirTy::Map { .. }
-                        | MirTy::Optional(_)
-                        | MirTy::Fn(_)
-                );
-                if is_heap && self.is_fresh_object_expr(e) {
+                if ty.is_heap() && self.is_fresh_object_expr(e) {
                     self.fb.push_inst(Inst::Release { value: v });
                 }
                 Ok(())

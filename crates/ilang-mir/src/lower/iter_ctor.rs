@@ -246,21 +246,7 @@ impl<'a> BodyCx<'a> {
                     // enum value owns its own +1. Required now that
                     // host_release_array actually frees memory at
                     // rc==0 (match_fresh_scrutinee.il regression).
-                    let needs_retain = !arg_is_fresh
-                        && matches!(
-                            tys[i],
-                            MirTy::Object(_)
-                                | MirTy::Array { .. }
-                                | MirTy::Tuple(_)
-                                | MirTy::Map { .. }
-                                | MirTy::Set { .. }
-                                | MirTy::Optional(_)
-                                | MirTy::Fn(_)
-                                | MirTy::Str
-                                | MirTy::Enum(_)
-                                | MirTy::Promise(_)
-                                | MirTy::Weak(_)
-                        );
+                    let needs_retain = !arg_is_fresh && tys[i].is_heap();
                     if needs_retain {
                         self.fb.push_inst(Inst::Retain { value: coerced });
                     }
@@ -291,21 +277,7 @@ impl<'a> BodyCx<'a> {
                     // See tuple-variant branch above — same composite
                     // hint propagation reason.
                     let (coerced, _) = self.lower_arg_to(ae, Some(&fty))?;
-                    let needs_retain = !arg_is_fresh
-                        && matches!(
-                            fty,
-                            MirTy::Object(_)
-                                | MirTy::Array { .. }
-                                | MirTy::Tuple(_)
-                                | MirTy::Map { .. }
-                                | MirTy::Set { .. }
-                                | MirTy::Optional(_)
-                                | MirTy::Fn(_)
-                                | MirTy::Str
-                                | MirTy::Enum(_)
-                                | MirTy::Promise(_)
-                                | MirTy::Weak(_)
-                        );
+                    let needs_retain = !arg_is_fresh && fty.is_heap();
                     if needs_retain {
                         self.fb.push_inst(Inst::Retain { value: coerced });
                     }

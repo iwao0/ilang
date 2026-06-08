@@ -456,42 +456,12 @@ impl<'a> BodyCx<'a> {
                 } else {
                     false
                 };
-                let is_heap = !fty_is_crepr_obj
-                    && matches!(
-                        fty,
-                        MirTy::Object(_)
-                            | MirTy::Array { .. }
-                            | MirTy::Tuple(_)
-                            | MirTy::Map { .. }
-                            | MirTy::Optional(_)
-                            | MirTy::Fn(_)
-                            // Str was missing here: assigning a
-                            // function-local `let s = fnReturning(); ...
-                            // this.f = s` skipped the retain, so when `s`
-                            // released at scope exit the field's pointer
-                            // dangled. Treat string fields like every
-                            // other heap-typed field.
-                            | MirTy::Str
-                            // Enum / Set: every kind the runtime
-                            // cascade releases must also retain here
-                            // so the field's +1 survives the prior
-                            // slot's release. Pairs with the matching
-                            // `needs_post_release` entries in
-                            // call_fn.rs / calls/object.rs /
-                            // calls/mod.rs — caller-side fresh release
-                            // and field-side retain are one contract.
-                            | MirTy::Enum(_)
-                            | MirTy::Set { .. }
-                            // Weak: the field's pointer aliases a
-                            // strong-owned object, but its weak-count
-                            // table entry still needs a +1 so the
-                            // strong-owner's release-time
-                            // `has_weaks` check sees us. Pairs with
-                            // the matching `needs_post_release` Weak
-                            // entry — caller-side fresh release and
-                            // field-side retain are one contract.
-                            | MirTy::Weak(_)
-                    );
+                // Every rc-slot kind needs the retain-new / release-old
+                // dance — see `MirTy::is_heap` for the authoritative
+                // list. CRepr / CPacked / CUnion `Object` fields are
+                // inline struct bytes, not heap pointers, so they're
+                // excluded above.
+                let is_heap = !fty_is_crepr_obj && fty.is_heap();
                 if is_heap {
                     if !value_is_fresh {
                         self.fb.push_inst(Inst::Retain { value: vv });
@@ -565,26 +535,34 @@ impl<'a> BodyCx<'a> {
                     }
                 }
                 let value_is_fresh = self.is_fresh_object_expr(value);
-                // Snapshot the old value if the target binds an Object
-                // — we need to Release it after the new value lands.
-                let old_obj = self.env.lookup_binding(*target).and_then(|b| match b {
-                    Binding::Local(lid, ty) if matches!(ty, MirTy::Object(_)) => {
-                        let v = self.fb.new_value(ty.clone());
-                        self.fb.push_inst(Inst::UseLocal { dst: v, local: lid });
-                        Some(v)
-                    }
-                    Binding::Cell(cell_v, ty) if matches!(ty, MirTy::Object(_)) => {
-                        let zero = self.const_int(MirTy::I64, 0);
-                        let v = self.fb.new_value(ty.clone());
-                        self.fb.push_inst(Inst::ArrayLoad {
-                            dst: v,
-                            arr: cell_v,
-                            idx: zero,
-                        });
-                        Some(v)
-                    }
-                    _ => None,
-                });
+                // Snapshot the old value when the target slot owns rc.
+                // The authoritative slot-rc kind list is `MirTy::is_heap`
+                // (mirrored by `release_field_by_kind` in
+                // runtime/cascade.rs and the scope-exit `needs_release`
+                // lists in this crate). Object-only was a longstanding
+                // gap — every other heap kind leaked the previous
+                // slot's value on `xs = ...` reassignment.
+                let old_obj_ty: Option<(ValueId, MirTy)> = self
+                    .env
+                    .lookup_binding(*target)
+                    .and_then(|b| match b {
+                        Binding::Local(lid, ty) if ty.is_heap() => {
+                            let v = self.fb.new_value(ty.clone());
+                            self.fb.push_inst(Inst::UseLocal { dst: v, local: lid });
+                            Some((v, ty))
+                        }
+                        Binding::Cell(cell_v, ty) if ty.is_heap() => {
+                            let zero = self.const_int(MirTy::I64, 0);
+                            let v = self.fb.new_value(ty.clone());
+                            self.fb.push_inst(Inst::ArrayLoad {
+                                dst: v,
+                                arr: cell_v,
+                                idx: zero,
+                            });
+                            Some((v, ty))
+                        }
+                        _ => None,
+                    });
                 let target_ty = match self.env.lookup_binding(*target) {
                     Some(Binding::Ssa(_, ty))
                     | Some(Binding::Local(_, ty))
@@ -598,12 +576,27 @@ impl<'a> BodyCx<'a> {
                     Some(res) => res?,
                     None => self.lower_expr(value)?,
                 };
-                if self.assign_var(*target, v, vty.clone()) {
-                    if matches!(vty, MirTy::Object(_)) {
+                // Coerce up-front so retain dispatches on the slot's
+                // kind, not the source's. `let w: T.weak = c` where
+                // `c: T` needs `__retain_weak` (a weak-table bump) —
+                // a raw `Retain(v)` on the source `Object` would
+                // bump strong rc instead, leaking the strong owner.
+                let (v_slot, slot_ty) = match target_ty.as_ref() {
+                    Some(t) if t != &vty => {
+                        let coerced = self
+                            .coerce(v, &vty, t, value.span)
+                            .unwrap_or(v);
+                        (coerced, t.clone())
+                    }
+                    Some(t) => (v, t.clone()),
+                    None => (v, vty.clone()),
+                };
+                if self.assign_var(*target, v_slot, slot_ty.clone()) {
+                    if slot_ty.is_heap() {
                         if !value_is_fresh {
-                            self.fb.push_inst(Inst::Retain { value: v });
+                            self.fb.push_inst(Inst::Retain { value: v_slot });
                         }
-                        if let Some(old) = old_obj {
+                        if let Some((old, _)) = old_obj_ty {
                             self.fb.push_inst(Inst::Release { value: old });
                         }
                     }
@@ -638,6 +631,9 @@ impl<'a> BodyCx<'a> {
                                     | MirTy::Optional(_)
                                     | MirTy::Tuple(_)
                                     | MirTy::Map { .. }
+                                    | MirTy::Set { .. }
+                                    | MirTy::Promise(_)
+                                    | MirTy::Weak(_)
                                     | MirTy::Str
                                     | MirTy::Enum(_)
                             );
@@ -672,15 +668,7 @@ impl<'a> BodyCx<'a> {
                     } else {
                         self.coerce(v, &vty, &slot_ty, expr.span)?
                     };
-                    let is_heap = matches!(
-                        slot_ty,
-                        MirTy::Object(_)
-                            | MirTy::Array { .. }
-                            | MirTy::Tuple(_)
-                            | MirTy::Map { .. }
-                            | MirTy::Optional(_)
-                            | MirTy::Fn(_)
-                    );
+                    let is_heap = slot_ty.is_heap();
                     // Snapshot the prior slot value so the old heap
                     // owner gets released after the new value lands.
                     let old_v = if is_heap {
@@ -717,22 +705,12 @@ impl<'a> BodyCx<'a> {
                         let (this_v, _) = self.lookup_var(Symbol::intern("this")).unwrap();
                         // Heap field write: take ownership of `value`
                         // (retain if aliased) and release whatever was
-                        // there before (if any). Covers every heap
-                        // type — Object / Array / Tuple / Map /
-                        // Optional / Fn — so re-assigning a field
-                        // doesn't leak the prior occupant. Crucial
-                        // for game-loop code that swaps arrays /
-                        // optionals on every frame.
+                        // there before (if any). Authoritative kind
+                        // list is `MirTy::is_heap` — covers every
+                        // rc-slot kind so re-assigning a field doesn't
+                        // leak the prior occupant.
                         let value_is_fresh = self.is_fresh_object_expr(value);
-                        let is_heap = matches!(
-                            vty,
-                            MirTy::Object(_)
-                                | MirTy::Array { .. }
-                                | MirTy::Tuple(_)
-                                | MirTy::Map { .. }
-                                | MirTy::Optional(_)
-                                | MirTy::Fn(_)
-                        );
+                        let is_heap = vty.is_heap();
                         if is_heap {
                             if !value_is_fresh {
                                 self.fb.push_inst(Inst::Retain { value: v });
@@ -829,17 +807,7 @@ impl<'a> BodyCx<'a> {
                 // host_release_array now actually freeing memory at
                 // rc==0, omitting this retain caused use-after-free
                 // in some_aliased_inner.il.
-                let needs_retain = !value_is_fresh
-                    && matches!(
-                        ity,
-                        MirTy::Object(_)
-                            | MirTy::Array { .. }
-                            | MirTy::Tuple(_)
-                            | MirTy::Map { .. }
-                            | MirTy::Optional(_)
-                            | MirTy::Fn(_)
-                            | MirTy::Str
-                    );
+                let needs_retain = !value_is_fresh && ity.is_heap();
                 if needs_retain {
                     self.fb.push_inst(Inst::Retain { value: iv });
                 }
@@ -866,17 +834,7 @@ impl<'a> BodyCx<'a> {
                         // drop. Without this, `arr[i] = borrowed` would
                         // share rc with the source slot (UAF) and
                         // `arr[i] = fresh` would leak the old occupant.
-                        let elem_is_heap = matches!(
-                            elem_ty,
-                            MirTy::Object(_)
-                                | MirTy::Array { .. }
-                                | MirTy::Tuple(_)
-                                | MirTy::Map { .. }
-                                | MirTy::Optional(_)
-                                | MirTy::Fn(_)
-                                | MirTy::Str
-                                | MirTy::Enum(_)
-                        );
+                        let elem_is_heap = elem_ty.is_heap();
                         if elem_is_heap {
                             if !value_is_fresh {
                                 self.fb.push_inst(Inst::Retain { value: vv });
@@ -1007,17 +965,7 @@ impl<'a> BodyCx<'a> {
                     // these field types — the type-checker rejects
                     // them — so this branch only fires on ARC class
                     // literals.
-                    let is_heap = matches!(
-                        fty,
-                        MirTy::Object(_)
-                            | MirTy::Array { .. }
-                            | MirTy::Tuple(_)
-                            | MirTy::Map { .. }
-                            | MirTy::Optional(_)
-                            | MirTy::Fn(_)
-                            | MirTy::Str
-                    );
-                    if is_heap && !value_is_fresh {
+                    if fty.is_heap() && !value_is_fresh {
                         self.fb.push_inst(Inst::Retain { value: coerced });
                     }
                     self.fb.push_inst(Inst::StoreField { obj: dst, field: fid, value: coerced });

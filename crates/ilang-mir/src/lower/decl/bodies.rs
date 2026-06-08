@@ -534,19 +534,7 @@ impl Lower {
             .first()
             .cloned()
             .unwrap_or_default();
-        let needs_release = |ty: &MirTy| {
-            matches!(
-                ty,
-                MirTy::Object(_)
-                    | MirTy::Fn(_)
-                    | MirTy::Array { .. }
-                    | MirTy::Optional(_)
-                    | MirTy::Tuple(_)
-                    | MirTy::Map { .. }
-                    | MirTy::Str
-                    | MirTy::Enum(_)
-            )
-        };
+        let needs_release = |ty: &MirTy| ty.is_heap();
         for (_name, binding) in top_scope.into_iter().rev() {
             match binding {
                 Binding::Local(lid, ty) if needs_release(&ty) => {
