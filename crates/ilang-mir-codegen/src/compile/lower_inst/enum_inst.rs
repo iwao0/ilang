@@ -14,10 +14,6 @@ use cranelift_module::Module;
 use ilang_mir::{Inst, ValueId};
 
 use super::super::abi::{extend_to_i64, reduce_from_i64};
-use super::super::print_kind::{
-    kind_tag_of, KIND_ARRAY, KIND_CLOSURE, KIND_ENUM, KIND_MAP, KIND_NONE, KIND_OBJECT,
-    KIND_OPTIONAL, KIND_PROMISE, KIND_STR, KIND_TUPLE,
-};
 use super::super::CompileError;
 
 pub(super) fn lower_enum_inst<M: Module>(
@@ -103,33 +99,22 @@ pub(super) fn lower_enum_inst<M: Module>(
             vmap.insert(*dst, v);
         }
         Inst::EnumPayload { dst, value, variant: _, idx } => {
+            // Pure load of the payload slot — same shape as
+            // `LoadField` / `TupleExtract` / `ArrayLoad`. The
+            // extracted value is a borrow into the enum cell's
+            // payload area; if the caller stores it past the
+            // cell's lifetime, the surrounding lowering emits a
+            // MIR `Retain` (e.g. the `let b = match …` non-fresh
+            // retain in `stmt.rs`) and the matching scope-exit
+            // release closes the loop. Auto-retaining here would
+            // hide a +1 from MIR-level analyses (`arc_peephole`,
+            // freshness propagation) and leak when no balancing
+            // release exists — see `leak_match_payload_binding.il`.
             let p = vmap[value];
             let off = eh::PAYLOAD_BASE + (*idx as i32) * 8;
             let raw = fb.ins().load(types::I64, MemFlags::trusted(), p, off);
             let dst_ty = func.ty_of(*dst).clone();
             let v = reduce_from_i64(fb, &dst_ty, raw);
-            // Heap-typed payload extraction transfers ownership: the
-            // extract sees the cell's stored +1 and gives the caller
-            // its own +1. Pairs with `host_release_enum`'s cascade
-            // on the cell's drop — without the retain, the arm-scope
-            // release of the extracted binding would double-decrement.
-            let kind = kind_tag_of(&dst_ty, &prog.classes);
-            if kind != KIND_NONE {
-                let r = match kind {
-                    KIND_OBJECT => panic_aux.retain_obj,
-                    KIND_ARRAY => panic_aux.retain_array,
-                    KIND_OPTIONAL => panic_aux.retain_optional,
-                    KIND_TUPLE => panic_aux.retain_tuple,
-                    KIND_MAP => panic_aux.retain_map,
-                    KIND_CLOSURE => panic_aux.retain_closure,
-                    KIND_STR => panic_aux.retain_string,
-                    KIND_ENUM => panic_aux.retain_enum,
-                    KIND_PROMISE => panic_aux.retain_promise,
-                    _ => unreachable!(),
-                };
-                let f = module.declare_func_in_func(r, fb.func);
-                fb.ins().call(f, &[v]);
-            }
             vmap.insert(*dst, v);
         }
         _ => unreachable!("lower_enum_inst called with non-enum inst"),

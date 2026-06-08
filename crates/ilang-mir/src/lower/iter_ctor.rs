@@ -253,9 +253,13 @@ impl<'a> BodyCx<'a> {
                                 | MirTy::Array { .. }
                                 | MirTy::Tuple(_)
                                 | MirTy::Map { .. }
+                                | MirTy::Set { .. }
                                 | MirTy::Optional(_)
                                 | MirTy::Fn(_)
                                 | MirTy::Str
+                                | MirTy::Enum(_)
+                                | MirTy::Promise(_)
+                                | MirTy::Weak(_)
                         );
                     if needs_retain {
                         self.fb.push_inst(Inst::Retain { value: coerced });
@@ -294,9 +298,13 @@ impl<'a> BodyCx<'a> {
                                 | MirTy::Array { .. }
                                 | MirTy::Tuple(_)
                                 | MirTy::Map { .. }
+                                | MirTy::Set { .. }
                                 | MirTy::Optional(_)
                                 | MirTy::Fn(_)
                                 | MirTy::Str
+                                | MirTy::Enum(_)
+                                | MirTy::Promise(_)
+                                | MirTy::Weak(_)
                         );
                     if needs_retain {
                         self.fb.push_inst(Inst::Retain { value: coerced });
