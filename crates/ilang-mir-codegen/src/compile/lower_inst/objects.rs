@@ -383,35 +383,43 @@ pub(super) fn lower_load_field<M: Module>(
         // of the underlying integer is a valid value, so the
         // check is skipped and the unchecked unit-cell lookup
         // is used directly.
-        if let MirTy::Enum(eid) = &dst_ty_mir {
+        //
+        // The inline-slot kind is now a static MirTy probe — the
+        // field's metadata carries `CReprEnum(eid)` whenever
+        // `decl/extern_c.rs::is_inline_repr_enum` would be true,
+        // so we no longer have to recompute the unit-only /
+        // int-repr check at every codegen call.
+        let field_meta_ty = if let MirTy::Object(cid) = &obj_ty_mir {
+            prog.classes[cid.0 as usize]
+                .fields
+                .get(field.0 as usize)
+                .map(|fd| fd.ty.clone())
+        } else {
+            None
+        };
+        if let Some(MirTy::CReprEnum(eid)) = field_meta_ty {
             let layout = &prog.enums[eid.0 as usize];
-            let unit_only = layout
-                .variants
-                .iter()
-                .all(|v| matches!(v.payload, ilang_mir::VariantPayload::Unit));
-            if unit_only {
-                let repr_ct = elem_clif_type(&layout.repr).unwrap_or(types::I64);
-                let raw = fb.ins().load(repr_ct, MemFlags::trusted(), obj_v, c_off as i32);
-                let disc_i64 = if repr_ct == types::I64 {
-                    raw
-                } else if layout.repr.is_signed_int() {
-                    fb.ins().sextend(types::I64, raw)
-                } else {
-                    fb.ins().uextend(types::I64, raw)
-                };
-                let global = enum_global[eid.0 as usize] as i64;
-                let global_v = fb.ins().iconst(types::I64, global);
-                let helper = if layout.is_flags {
-                    panic_aux.enum_unit_get
-                } else {
-                    panic_aux.enum_unit_get_checked
-                };
-                let f = module.declare_func_in_func(helper, fb.func);
-                let call = fb.ins().call(f, &[global_v, disc_i64]);
-                let v = fb.inst_results(call)[0];
-                vmap.insert(*dst, v);
-                return Ok(());
-            }
+            let repr_ct = elem_clif_type(&layout.repr).unwrap_or(types::I64);
+            let raw = fb.ins().load(repr_ct, MemFlags::trusted(), obj_v, c_off as i32);
+            let disc_i64 = if repr_ct == types::I64 {
+                raw
+            } else if layout.repr.is_signed_int() {
+                fb.ins().sextend(types::I64, raw)
+            } else {
+                fb.ins().uextend(types::I64, raw)
+            };
+            let global = enum_global[eid.0 as usize] as i64;
+            let global_v = fb.ins().iconst(types::I64, global);
+            let helper = if layout.is_flags {
+                panic_aux.enum_unit_get
+            } else {
+                panic_aux.enum_unit_get_checked
+            };
+            let f = module.declare_func_in_func(helper, fb.func);
+            let call = fb.ins().call(f, &[global_v, disc_i64]);
+            let v = fb.inst_results(call)[0];
+            vmap.insert(*dst, v);
+            return Ok(());
         }
         // CRepr: load with the field's natural type at the
         // computed byte offset. Nested CRepr struct fields
@@ -723,20 +731,27 @@ pub(super) fn lower_store_field<M: Module>(
         // pointer; the C struct slot wants the underlying
         // discriminant. Load tag from the box (offset 0) and
         // narrow to the field's repr width before storing.
-        let raw = if let MirTy::Enum(eid) = &val_ty_mir {
-            let layout = &prog.enums[eid.0 as usize];
-            let unit_only = layout
-                .variants
-                .iter()
-                .all(|v| matches!(v.payload, ilang_mir::VariantPayload::Unit));
-            if unit_only {
-                fb.ins().load(types::I64, MemFlags::trusted(), raw, 0)
-            } else {
-                raw
-            }
+        //
+        // Uses the static `field_meta_ty == CReprEnum` probe
+        // instead of the historical `val_ty_mir + unit_only`
+        // dynamic check — `decl/extern_c.rs` already decided
+        // the inline layout at field declaration time.
+        let field_meta_ty = if let MirTy::Object(cid) = &obj_ty_mir {
+            prog.classes[cid.0 as usize]
+                .fields
+                .get(field.0 as usize)
+                .map(|fd| fd.ty.clone())
         } else {
-            raw
+            None
         };
+        if let Some(MirTy::CReprEnum(eid)) = &field_meta_ty {
+            let layout = &prog.enums[eid.0 as usize];
+            let repr_ct = elem_clif_type(&layout.repr).unwrap_or(types::I64);
+            let disc = fb.ins().load(types::I64, MemFlags::trusted(), raw, 0);
+            let truncated = ireduce_or_pass(fb, disc, repr_ct);
+            fb.ins().store(MemFlags::trusted(), truncated, obj_v, c_off as i32);
+            return Ok(());
+        }
         match celem_clif_type_with_enum(prog, &val_ty_mir) {
             Some(elem_ct) if elem_ct != types::I64 => {
                 let truncated = ireduce_or_pass(fb, raw, elem_ct);
