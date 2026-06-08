@@ -247,6 +247,11 @@ impl<'a> BodyCx<'a> {
                 let keep = match b {
                     Binding::Local(_, ty) => needs_release(ty),
                     Binding::Ssa(_, ty) => needs_release(ty),
+                    // PatternBinding borrows into the scrutinee —
+                    // releasing here would double-account the
+                    // inner the arm lowerer is already pairing
+                    // against `Release(scrutinee)`.
+                    Binding::PatternBinding(..) => false,
                     Binding::Cell(_, ty) => needs_release(ty),
                 };
                 if keep {
@@ -264,6 +269,7 @@ impl<'a> BodyCx<'a> {
                 Binding::Ssa(v, _) => {
                     self.fb.push_inst(Inst::Release { value: v });
                 }
+                Binding::PatternBinding(..) => unreachable!("filtered out above"),
                 Binding::Cell(cell_v, ty) => {
                     let zero = self.const_int(MirTy::I64, 0);
                     let v = self.fb.new_value(ty.clone());

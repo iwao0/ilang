@@ -39,24 +39,6 @@ fn arm_body_diverges(e: &Expr) -> bool {
     }
 }
 
-/// `true` when `e`'s tail expression is `Var(name)`. Used by the
-/// `match` / `if let` lowerers to decide whether the arm hands the
-/// pattern binding straight back as its result — that's the case
-/// where the binding's borrow into the soon-to-be-released
-/// scrutinee cell needs an extra +1 to survive past the cascade.
-/// Block-shaped bodies look at their tail; bare expressions are
-/// their own tail.
-fn arm_tail_is_var(e: &Expr, name: Symbol) -> bool {
-    let tail = match &e.kind {
-        ExprKind::Block(b) => match b.tail.as_deref() {
-            Some(t) => t,
-            None => return false,
-        },
-        _ => e,
-    };
-    matches!(&tail.kind, ExprKind::Var(n) if *n == name)
-}
-
 impl<'a> BodyCx<'a> {
     pub(super) fn lower_match(
         &mut self,
@@ -69,7 +51,7 @@ impl<'a> BodyCx<'a> {
         let (sv, sty) = self.lower_expr(scrutinee)?;
 
         match &sty {
-            MirTy::Enum(eid) => self.lower_match_enum(sv, *eid, arms),
+            MirTy::Enum(eid) => self.lower_match_enum(sv, *eid, arms, scrut_is_fresh),
             MirTy::I8 | MirTy::I16 | MirTy::I32 | MirTy::I64
             | MirTy::U8 | MirTy::U16 | MirTy::U32 | MirTy::U64
             | MirTy::Size | MirTy::SSize => self.lower_match_int(sv, sty.clone(), arms),
@@ -170,24 +152,16 @@ impl<'a> BodyCx<'a> {
                 // rc share to drop.
                 let unwrapped = self.fb.new_value(inner_ty.clone());
                 self.fb.push_inst(Inst::OptionalUnwrap { dst: unwrapped, opt: sv });
-                self.env.bind(name, unwrapped, inner_ty.clone());
+                self.env.bind_pattern(name, unwrapped, inner_ty.clone(), scrut_is_fresh);
             }
             let diverges = arm_body_diverges(&arm.body);
             let (bv, bty) = self.lower_expr(&arm.body)?;
-            // `some(v) { v }` hands the binding's borrow straight
-            // back as the arm's result. The `Release(sv)` below
-            // would cascade the Optional cell, freeing the inner
-            // the binding still aliases — bump rc so the caller's
-            // returned value survives. Only matters when the
-            // scrutinee was fresh (otherwise the source binding
-            // still owns its +1) and the inner is heap-typed.
-            if scrut_is_fresh && self.is_arc_heap(&bty) {
-                if let Some(bn) = some_binding {
-                    if arm_tail_is_var(&arm.body, bn) {
-                        self.fb.push_inst(Inst::Retain { value: bv });
-                    }
-                }
-            }
+            // `Release(sv)` below cascades the Optional cell. The
+            // pattern binding was registered with
+            // `needs_retain_on_tail = scrut_is_fresh`, so
+            // `lower_block_hinted` has already paired any tail
+            // `Var(binding)` with the matching `Retain` — no extra
+            // accounting needed here.
             if scrut_is_fresh {
                 self.fb.push_inst(Inst::Release { value: sv });
             }
@@ -244,6 +218,7 @@ impl<'a> BodyCx<'a> {
         sv: ValueId,
         eid: crate::types::EnumId,
         arms: &[ast::MatchArm],
+        scrut_is_fresh: bool,
     ) -> Result<(ValueId, MirTy), LowerError> {
         let layout = &self.enums[eid.0 as usize];
         // For each arm, find which variant it matches (or wildcard).
@@ -336,7 +311,7 @@ impl<'a> BodyCx<'a> {
                                 variant: vid,
                                 idx: i as u32,
                             });
-                            self.env.bind(*n, v, ty);
+                            self.env.bind_pattern(*n, v, ty, scrut_is_fresh);
                         }
                     }
                     (VariantPayloadMeta::Struct(fields), ast::PatternBindings::Struct(named)) => {
@@ -355,7 +330,7 @@ impl<'a> BodyCx<'a> {
                                 variant: vid,
                                 idx: idx as u32,
                             });
-                            self.env.bind(*bind_name, v, ty);
+                            self.env.bind_pattern(*bind_name, v, ty, scrut_is_fresh);
                         }
                     }
                     _ => {
@@ -789,25 +764,13 @@ impl<'a> BodyCx<'a> {
         let unwrapped = self.fb.new_value(inner_ty.clone());
         self.fb.push_inst(Inst::OptionalUnwrap { dst: unwrapped, opt: sv });
         self.env.enter_scope();
-        self.env.bind(name, unwrapped, inner_ty.clone());
+        self.env.bind_pattern(name, unwrapped, inner_ty.clone(), scrut_is_fresh);
         let then_tail = self.lower_block(then_branch)?;
-        // `if let some(v) = expr { v }` hands the binding's borrow
-        // straight back as the result. The `Release(sv)` below
-        // would cascade-release the Optional cell, freeing the
-        // inner the caller still aliases — bump rc so the
-        // returned value survives. Mirrors the `lower_match_optional`
-        // arm-tail retain.
-        if scrut_is_fresh {
-            if let Some((tv, tty)) = &then_tail {
-                let tail_returns_binding = then_branch
-                    .tail
-                    .as_ref()
-                    .is_some_and(|t| matches!(&t.kind, ExprKind::Var(n) if *n == name));
-                if tail_returns_binding && self.is_arc_heap(tty) {
-                    self.fb.push_inst(Inst::Retain { value: *tv });
-                }
-            }
-        }
+        // `Release(sv)` below cascades the Optional cell. The
+        // pattern binding was registered with
+        // `needs_retain_on_tail = scrut_is_fresh`, so
+        // `lower_block_hinted` has already paired any tail
+        // `Var(name)` with the matching `Retain`.
         if scrut_is_fresh {
             self.fb.push_inst(Inst::Release { value: sv });
         }

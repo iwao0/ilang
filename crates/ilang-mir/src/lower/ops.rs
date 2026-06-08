@@ -137,7 +137,7 @@ impl<'a> BodyCx<'a> {
                         None
                     }
                 }
-                Some(Binding::Ssa(v, t)) => {
+                Some(Binding::Ssa(v, t)) | Some(Binding::PatternBinding(v, t, _)) => {
                     if let MirTy::Object(cid) = &t {
                         if is_crepr_or_com(*cid, self.classes, self.com_interfaces) {
                             Some((v, t))
@@ -232,7 +232,7 @@ impl<'a> BodyCx<'a> {
                 self.fb.push_inst(Inst::UseLocal { dst: v, local: lid });
                 (v, t)
             }
-            Some(Binding::Ssa(v, t)) => (v, t),
+            Some(Binding::Ssa(v, t)) | Some(Binding::PatternBinding(v, t, _)) => (v, t),
             Some(Binding::Cell(cell_v, t)) => {
                 // Cell-captured root: load through the cell.
                 let zero = self.const_int(MirTy::I64, 0);

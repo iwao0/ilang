@@ -20,8 +20,25 @@ use crate::types::MirTy;
 
 #[derive(Clone)]
 pub(super) enum Binding {
-    /// Immutable let — directly carries the SSA value.
+    /// Immutable let — directly carries the SSA value. Also used
+    /// for function-entry parameters: those are bound in the fn's
+    /// outermost scope and never visited by
+    /// `release_top_scope_objects`, so their +1 stays with the
+    /// caller (caller-releases-fresh contract).
     Ssa(ValueId, MirTy),
+    /// Pattern binding from `match` / `if let` — borrows into the
+    /// scrutinee cell's inner slot.
+    ///
+    /// The `bool` flag is `needs_retain_on_tail`: `true` when the
+    /// arm lowerer will emit `Release(scrutinee)` at the arm's exit
+    /// (i.e. the scrutinee was fresh). In that case the
+    /// scrutinee's cascade would free the inner the binding
+    /// aliases — `tail_aliases_local` flips on so a tail `Var(binding)`
+    /// gets a matching `Retain` before the cascade fires. When the
+    /// scrutinee was borrowed the cascade doesn't run and the
+    /// borrow's rc share keeps coming from the surrounding `let`'s
+    /// retain (Match-is-not-fresh path in `stmt.rs::Let`).
+    PatternBinding(ValueId, MirTy, bool),
     /// Mutable local — backed by a `LocalId` slot. Reads emit
     /// `UseLocal`; writes emit `DefLocal`.
     Local(LocalId, MirTy),
@@ -78,6 +95,27 @@ impl Env {
             .last_mut()
             .unwrap()
             .push((name, Binding::Local(lid, ty)));
+    }
+    /// Bind a pattern-introduced name (match arm / if let). The
+    /// `needs_retain_on_tail` flag = "the arm lowerer will
+    /// `Release(scrutinee)` after the body" (i.e. scrutinee was
+    /// fresh). When set, `tail_aliases_local` retains a tail
+    /// `Var(name)` so the cascade doesn't free the inner the
+    /// caller still holds.
+    pub(super) fn bind_pattern(
+        &mut self,
+        name: Symbol,
+        v: ValueId,
+        ty: MirTy,
+        needs_retain_on_tail: bool,
+    ) {
+        if self.scopes.is_empty() {
+            self.scopes.push(Vec::new());
+        }
+        self.scopes
+            .last_mut()
+            .unwrap()
+            .push((name, Binding::PatternBinding(v, ty, needs_retain_on_tail)));
     }
     /// Returns true if the binding existed (a fresh value was placed).
     /// For immutable bindings the value replaces the slot's payload;

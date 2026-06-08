@@ -548,6 +548,7 @@ impl<'a> BodyCx<'a> {
                     });
                 let target_ty = match self.env.lookup_binding(*target) {
                     Some(Binding::Ssa(_, ty))
+                    | Some(Binding::PatternBinding(_, ty, _))
                     | Some(Binding::Local(_, ty))
                     | Some(Binding::Cell(_, ty)) => Some(ty),
                     None => self.repl_slots.get(target).map(|(_, ty)| ty.clone()),

@@ -253,7 +253,7 @@ impl<'a> BodyCx<'a> {
     /// the binding being used.
     pub(in crate::lower) fn peek_var_ty(&self, name: Symbol) -> Option<MirTy> {
         match self.env.lookup_binding(name)? {
-            Binding::Ssa(_, t) => Some(t),
+            Binding::Ssa(_, t) | Binding::PatternBinding(_, t, _) => Some(t),
             Binding::Local(_, t) => Some(t),
             Binding::Cell(_, t) => Some(t),
         }
@@ -261,7 +261,7 @@ impl<'a> BodyCx<'a> {
 
     pub(in crate::lower) fn lookup_var(&mut self, name: Symbol) -> Option<(ValueId, MirTy)> {
         match self.env.lookup_binding(name)? {
-            Binding::Ssa(v, t) => Some((v, t)),
+            Binding::Ssa(v, t) | Binding::PatternBinding(v, t, _) => Some((v, t)),
             Binding::Local(lid, t) => {
                 let v = self.fb.new_value(t.clone());
                 self.fb.push_inst(Inst::UseLocal { dst: v, local: lid });
@@ -328,7 +328,7 @@ impl<'a> BodyCx<'a> {
                 });
                 true
             }
-            Some(Binding::Ssa(_, _)) => {
+            Some(Binding::Ssa(_, _)) | Some(Binding::PatternBinding(_, _, _)) => {
                 self.env.rebind(name, v, ty);
                 true
             }
@@ -525,12 +525,23 @@ impl<'a> BodyCx<'a> {
             ExprKind::Var(name) => Some(*name),
             _ => None,
         });
-        // Retain when the tail Var resolves to a `Local` / `Cell`
-        // binding (a let-bound storage slot that some scope's exit
-        // pass will release). Skip params (`Binding::Ssa`) — they
+        // Retain when the tail Var resolves to one of:
+        //   - `Local` / `Cell`: a let-bound storage slot whose
+        //     scope-exit release drops the +1 we hand back here.
+        //   - `PatternBinding(_, _, true)`: a match arm / if let
+        //     binding whose surrounding arm will issue
+        //     `Release(scrutinee)`. The cascade would free the
+        //     inner the binding aliases — the retain pairs with
+        //     that release so the returned value survives.
+        //     `false` means the scrutinee was borrowed; cascade
+        //     never runs and the outer `let`'s retain
+        //     (Match-is-not-fresh path) already keeps the rc
+        //     balanced — retaining here would double-account.
+        //
+        // `Binding::Ssa` (fn-entry params) is excluded — they
         // aren't owned by any release sweep, so retaining for them
-        // would leave a permanent +1 on the returned cell (visible
-        // as a per-call leak in `fn f(x: Box): Box { x }`).
+        // would leave a permanent +1 on the returned cell
+        // (per-call leak in `fn f(x: Box): Box { x }`).
         //
         // Captured cells from the enclosing scope are missing from
         // this body's `env` (closures use `captures_in_scope` for
@@ -542,7 +553,11 @@ impl<'a> BodyCx<'a> {
         let tail_aliases_local = tail_alias_name
             .and_then(|name| {
                 if let Some(b) = self.env.lookup_binding(name) {
-                    return Some(matches!(b, Binding::Local(..) | Binding::Cell(..)));
+                    return Some(match b {
+                        Binding::Local(..) | Binding::Cell(..) => true,
+                        Binding::PatternBinding(_, _, needs_retain) => needs_retain,
+                        Binding::Ssa(..) => false,
+                    });
                 }
                 if let Some(caps) = self.captures_in_scope {
                     if caps.get(&name).is_some() {
@@ -742,6 +757,14 @@ impl<'a> BodyCx<'a> {
                         }
                     }
                     self.fb.push_inst(Inst::Release { value: v });
+                }
+                Binding::PatternBinding(..) => {
+                    // Match-arm / if-let bindings borrow into the
+                    // scrutinee cell — release is the scrutinee's
+                    // job (the arm lowerer pairs
+                    // `Release(scrutinee)` with the matching
+                    // `Retain` from `tail_aliases_local` when the
+                    // body returns the binding directly).
                 }
                 Binding::Cell(..) => {
                     // A cell is a heap 1-element array shared between
