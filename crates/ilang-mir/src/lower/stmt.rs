@@ -258,7 +258,12 @@ impl<'a> BodyCx<'a> {
                     let &fid = meta.field_ix.get(fname).ok_or_else(|| {
                         LowerError::Other(format!("no field {fname} on {class}"))
                     })?;
-                    let fty = meta.field_ty.get(&fid).cloned().unwrap();
+                    let meta_fty = meta.field_ty.get(&fid).cloned().unwrap();
+                    // Promote `CReprEnum` → `Enum` for the SSA
+                    // binding so let-struct destructure flows the
+                    // heap-box form downstream (mirrors
+                    // `lower_field`).
+                    let fty = super::BodyCx::loaded_field_ty(&meta_fty);
                     let dst = self.fb.new_value(fty.clone());
                     self.fb.push_inst(Inst::LoadField { dst, obj: v, field: fid });
                     self.env.bind(*fname, dst, fty);

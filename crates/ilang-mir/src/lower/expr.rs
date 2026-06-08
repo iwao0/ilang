@@ -445,21 +445,14 @@ impl<'a> BodyCx<'a> {
                 // predicate (heap kind ∧ not COM iface ∧ not CRepr /
                 // CPacked / CUnion `Object`).
                 //
-                // CRepr / CPacked / CUnion parents store unit-only
-                // enum fields inline at repr width (see commit
-                // d65fec00) — they aren't heap enum cells. The Enum
-                // retain/release set added in df51064a would otherwise
-                // try to `__release_enum` the inline integer value
-                // and trash the struct's memory; exclude them here.
-                let parent_is_crepr = matches!(
-                    self.classes[class_id.0 as usize].repr,
-                    crate::program::ClassRepr::CRepr
-                        | crate::program::ClassRepr::CPacked
-                        | crate::program::ClassRepr::CUnion
-                );
-                let inline_enum_in_crepr =
-                    parent_is_crepr && matches!(&fty, MirTy::Enum(_));
-                let is_heap = self.is_arc_slot(&fty) && !inline_enum_in_crepr;
+                // CRepr-family parents whose field is a unit-only
+                // int-repr enum are represented as `MirTy::CReprEnum`
+                // (28f7060f introduced it; extern_c.rs decides per
+                // field). `is_arc_slot(CReprEnum) = false` by design,
+                // so the f2eea6e3 point fix (`parent_is_crepr &&
+                // matches!(fty, Enum(_))`) is no longer needed —
+                // the variant itself encodes "inline integer slot".
+                let is_heap = self.is_arc_slot(&fty);
                 if is_heap {
                     if !value_is_fresh {
                         self.fb.push_inst(Inst::Retain { value: vv });
@@ -1123,7 +1116,8 @@ impl<'a> BodyCx<'a> {
             let meta = self.class_meta.get(&cid).expect("class meta");
             if let Some(&fid) = meta.field_ix.get(&name) {
                 let (this_v, _) = self.lookup_var(Symbol::intern("this")).unwrap();
-                let fty = meta.field_ty.get(&fid).cloned().unwrap();
+                let meta_fty = meta.field_ty.get(&fid).cloned().unwrap();
+                let fty = super::BodyCx::loaded_field_ty(&meta_fty);
                 let v = self.fb.new_value(fty.clone());
                 self.fb.push_inst(Inst::LoadField { dst: v, obj: this_v, field: fid });
                 return Ok((v, fty));

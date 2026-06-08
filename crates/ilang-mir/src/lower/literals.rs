@@ -901,7 +901,13 @@ impl<'a> BodyCx<'a> {
         if let MirTy::Object(cid) = &oty {
             let meta = self.class_meta.get(cid).expect("class meta");
             if let Some(&fid) = meta.field_ix.get(&name) {
-                let fty = meta.field_ty.get(&fid).cloned().unwrap();
+                // `loaded_field_ty` promotes the CRepr inline-enum
+                // slot kind (`CReprEnum`) to the heap-box `Enum`
+                // form codegen actually returns from a LoadField —
+                // downstream SSA stays unaware of the inline
+                // representation.
+                let meta_fty = meta.field_ty.get(&fid).cloned().unwrap();
+                let fty = super::BodyCx::loaded_field_ty(&meta_fty);
                 let v = self.fb.new_value(fty.clone());
                 self.fb.push_inst(Inst::LoadField { dst: v, obj: ov, field: fid });
                 // Release a fresh-receiver Object after extracting

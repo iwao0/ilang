@@ -153,6 +153,21 @@ impl<'a> BodyCx<'a> {
         self.statics[id.0 as usize].clone()
     }
 
+    /// Promote `class_meta.field_ty` (which may carry
+    /// `MirTy::CReprEnum` for inline enum slots inside CRepr family
+    /// structs) to the SSA-value MirTy a field read produces. The
+    /// codegen-side `LoadField` for a `CReprEnum` slot calls
+    /// `__enum_unit_get_checked` and returns a heap-box pointer, so
+    /// downstream MIR ops see a regular `Enum(_)`. Callers that
+    /// instead need the inline storage kind (e.g. AssignField's
+    /// retain/release predicate) should keep the raw metadata.
+    pub(in crate::lower) fn loaded_field_ty(meta_ty: &MirTy) -> MirTy {
+        match meta_ty {
+            MirTy::CReprEnum(e) => MirTy::Enum(*e),
+            other => other.clone(),
+        }
+    }
+
     pub(in crate::lower) fn overloads_lookup(&self, name: Symbol) -> Option<Vec<Symbol>> {
         self.overloads.get(&name).cloned()
     }

@@ -63,7 +63,12 @@ impl Lower {
                     let mut field_decls = Vec::with_capacity(fields.len());
                     for (i, fd) in fields.iter().enumerate() {
                         let fid = crate::inst::FieldId(i as u32);
-                        let fty = self.resolve_ty(&fd.ty)?;
+                        // Unit-only int-repr enum fields become
+                        // `CReprEnum(_)`: layout = repr width, rc
+                        // predicates skip them. `Enum(_)` keeps the
+                        // 8-byte heap pointer ABI for payload-bearing
+                        // / string-repr enums.
+                        let fty = self.promote_field_ty_for_crepr(self.resolve_ty(&fd.ty)?);
                         meta.field_ix.insert(fd.name, fid);
                         meta.field_ty.insert(fid, fty.clone());
                         let bit_field = fd.bits.map(|w| crate::program::BitField {
@@ -94,7 +99,10 @@ impl Lower {
                     let mut field_decls = Vec::with_capacity(fields.len());
                     for (i, fd) in fields.iter().enumerate() {
                         let fid = crate::inst::FieldId(i as u32);
-                        let fty = self.resolve_ty(&fd.ty)?;
+                        // Same `CReprEnum` promotion as the Struct
+                        // branch above — union field layouts share
+                        // the inline-vs-heap-box rule.
+                        let fty = self.promote_field_ty_for_crepr(self.resolve_ty(&fd.ty)?);
                         meta.field_ix.insert(fd.name, fid);
                         meta.field_ty.insert(fid, fty.clone());
                         field_decls.push(crate::program::FieldDecl {
@@ -311,20 +319,53 @@ impl Lower {
             // hint enum back from a struct, but we keep the size
             // unambiguous.
             MirTy::Enum(eid) => {
-                let layout = &self.enums[eid.0 as usize];
-                let unit_only = layout
-                    .variants
-                    .iter()
-                    .all(|v| matches!(v.payload, crate::program::VariantPayload::Unit));
-                let int_repr = !matches!(layout.repr, MirTy::Str);
-                if unit_only && int_repr {
+                if self.is_inline_repr_enum(*eid) {
+                    let layout = &self.enums[eid.0 as usize];
                     self.c_size_align_of(&layout.repr)
                 } else {
+                    // Payload-bearing or string-repr enum — heap
+                    // pointer width.
                     (8, 8)
                 }
             }
+            // `CReprEnum` is the variant we hand out to CRepr struct
+            // field declarations exactly when `is_inline_repr_enum`
+            // would be true. Re-derive the repr to avoid duplicating
+            // the unit-only / int-repr check.
+            MirTy::CReprEnum(eid) => {
+                let layout = &self.enums[eid.0 as usize];
+                self.c_size_align_of(&layout.repr)
+            }
             _ => (8, 8),
         }
+    }
+
+    /// `true` when the enum is laid out inline at the repr's natural
+    /// width inside a CRepr / CPacked / CUnion struct field (i.e.
+    /// every variant is `Unit` and the repr is an integer kind).
+    /// Mirrors the historical `c_size_align_of` arm.
+    pub(in crate::lower) fn is_inline_repr_enum(&self, eid: crate::types::EnumId) -> bool {
+        let layout = &self.enums[eid.0 as usize];
+        let unit_only = layout
+            .variants
+            .iter()
+            .all(|v| matches!(v.payload, crate::program::VariantPayload::Unit));
+        let int_repr = !matches!(layout.repr, MirTy::Str);
+        unit_only && int_repr
+    }
+
+    /// `Enum(eid)` → `CReprEnum(eid)` if `is_inline_repr_enum`,
+    /// otherwise the type is returned unchanged. Used by the
+    /// `@extern(C)` struct / union field decl loops so the metadata
+    /// records the inline slot kind statically.
+    pub(in crate::lower) fn promote_field_ty_for_crepr(&self, ty: MirTy) -> MirTy {
+        if let MirTy::Enum(eid) = ty {
+            if self.is_inline_repr_enum(eid) {
+                return MirTy::CReprEnum(eid);
+            }
+            return MirTy::Enum(eid);
+        }
+        ty
     }
 
     /// By-value `@extern(C) struct` ABI checker: refuse to register an

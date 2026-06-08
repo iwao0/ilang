@@ -31,6 +31,25 @@ impl<'a> BodyCx<'a> {
         if from == to {
             return Ok(v);
         }
+        // `MirTy::CReprEnum(eid)` and `MirTy::Enum(eid)` over the
+        // same `eid` are the same value at the SSA / clif level —
+        // the codegen-side `LoadField` for a CReprEnum slot returns
+        // a heap-box pointer, and `StoreField` extracts the
+        // discriminant before writing the inline integer. The MirTy
+        // distinction exists only for the rc-slot predicate
+        // (`is_heap` / `is_arc_slot`). Treat the pair as a no-op
+        // coerce so an `AssignField` with `fty = CReprEnum` lower
+        // path doesn't reject the enum-typed rhs.
+        match (from, to) {
+            (MirTy::Enum(a), MirTy::CReprEnum(b))
+            | (MirTy::CReprEnum(a), MirTy::Enum(b))
+            | (MirTy::CReprEnum(a), MirTy::CReprEnum(b))
+                if a == b =>
+            {
+                return Ok(v);
+            }
+            _ => {}
+        }
         use crate::inst::CastKind;
         // Same-signed integer resize.
         if (from.is_signed_int() && to.is_signed_int())

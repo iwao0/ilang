@@ -282,10 +282,18 @@ impl<'a> BodyCx<'a> {
                 .ok_or_else(|| LowerError::Other("field type missing".to_string()))?;
 
             if idx + 1 < fields.len() {
-                let next_v = self.fb.new_value(fty.clone());
+                // Intermediate hop in a `&obj.f1.f2` chain — promote
+                // a `CReprEnum` field to its heap-box `Enum` form so
+                // the next hop can still be a struct-typed access if
+                // ever extended. (CReprEnum itself has no fields, so
+                // the type-checker rejects the chain, but the
+                // promotion keeps the MirTy consistent with the
+                // other LoadField call sites.)
+                let load_ty = super::BodyCx::loaded_field_ty(&fty);
+                let next_v = self.fb.new_value(load_ty.clone());
                 self.fb.push_inst(Inst::LoadField { dst: next_v, obj: cur_v, field: fid });
                 cur_v = next_v;
-                cur_ty = fty;
+                cur_ty = load_ty;
             } else {
                 let ptr_ty = MirTy::RawPtr { is_const: false, inner: Box::new(fty) };
                 let dst = self.fb.new_value(ptr_ty.clone());
