@@ -154,7 +154,7 @@ impl<'a> BodyCx<'a> {
             // the caller-side temp needs releasing after the call.
             // The release set must match the field-assign retain set
             // at `expr.rs::AssignField`: Object / Fn / Array / Tuple /
-            // Map / Optional / Str / Enum / Set. `Promise` is
+            // Map / Optional / Str / Enum / Set / Weak. `Promise` is
             // intentionally out — its field assignment doesn't retain
             // (separate path) and adding a release here would free
             // the value the field is about to store.
@@ -169,6 +169,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Str
                     | MirTy::Enum(_)
                     | MirTy::Set { .. }
+                    | MirTy::Weak(_)
             );
             if arg_is_fresh && needs_post_release {
                 fresh_obj_args.push(final_v);

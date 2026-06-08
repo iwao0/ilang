@@ -577,8 +577,29 @@ impl<'a> BodyCx<'a> {
                 if tail_needs_retain(&ty)
                     && (tail_aliases_local || tail_is_borrow) =>
             {
-                self.fb.push_inst(Inst::Retain { value: v });
-                Some((v, ty))
+                // When the block has a hint that doesn't match the
+                // tail's runtime kind, apply the coerce BEFORE the
+                // retain so the Retain dispatches to the hint's
+                // runtime convention. The only mismatch that needs
+                // this today is Object → Weak: `retain v_obj` would
+                // bump strong rc on the value the scope-exit release
+                // is about to drop to zero, leaving the caller with
+                // an orphaned strong +1 typed as Weak (caller's
+                // `__release_weak` doesn't decrement strong rc, so
+                // the object body leaks). Coercing first lets Retain
+                // emit `__retain_weak`, matching the caller side.
+                let span = blk.tail.as_ref().map(|e| e.span).unwrap_or(Span::dummy());
+                let (v_use, ty_use) = match (tail_hint, &ty) {
+                    (Some(h @ MirTy::Weak(_)), MirTy::Object(_)) => {
+                        match self.coerce(v, &ty, h, span) {
+                            Ok(coerced) => (coerced, h.clone()),
+                            Err(_) => (v, ty.clone()),
+                        }
+                    }
+                    _ => (v, ty.clone()),
+                };
+                self.fb.push_inst(Inst::Retain { value: v_use });
+                Some((v_use, ty_use))
             }
             other => other,
         };

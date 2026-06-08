@@ -410,6 +410,16 @@ impl<'a> BodyCx<'a> {
                     &fty,
                     MirTy::Optional(inner) if **inner == vty
                 );
+                // Object → Weak: clif-level identity but the
+                // value's MIR type must switch BEFORE the retain
+                // below, otherwise `Retain` lowers to
+                // `__retain_object` and we leak a strong +1 onto
+                // a weak-counted slot. Pre-coerce, then let the
+                // generic retain path dispatch via `__retain_weak`.
+                let needs_strong_to_weak = matches!(
+                    (&vty, &fty),
+                    (MirTy::Object(_), MirTy::Weak(_))
+                );
                 let (vv, value_is_fresh) = if needs_optional_wrap {
                     let coerced = self.coerce(vv0, &vty, &fty, value.span)?;
                     // `coerce` already inserted the heap retain for
@@ -418,6 +428,9 @@ impl<'a> BodyCx<'a> {
                     // as fresh so the caller below doesn't add a
                     // second retain on the outer Optional.
                     (coerced, true)
+                } else if needs_strong_to_weak {
+                    let coerced = self.coerce(vv0, &vty, &fty, value.span)?;
+                    (coerced, src_is_fresh)
                 } else {
                     (vv0, src_is_fresh)
                 };
@@ -469,6 +482,15 @@ impl<'a> BodyCx<'a> {
                             // and field-side retain are one contract.
                             | MirTy::Enum(_)
                             | MirTy::Set { .. }
+                            // Weak: the field's pointer aliases a
+                            // strong-owned object, but its weak-count
+                            // table entry still needs a +1 so the
+                            // strong-owner's release-time
+                            // `has_weaks` check sees us. Pairs with
+                            // the matching `needs_post_release` Weak
+                            // entry — caller-side fresh release and
+                            // field-side retain are one contract.
+                            | MirTy::Weak(_)
                     );
                 if is_heap {
                     if !value_is_fresh {
