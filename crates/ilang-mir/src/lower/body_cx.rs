@@ -531,9 +531,30 @@ impl<'a> BodyCx<'a> {
         // aren't owned by any release sweep, so retaining for them
         // would leave a permanent +1 on the returned cell (visible
         // as a per-call leak in `fn f(x: Box): Box { x }`).
+        //
+        // Captured cells from the enclosing scope are missing from
+        // this body's `env` (closures use `captures_in_scope` for
+        // those instead), but their slot share is still owned by
+        // the outer scope, so a tail `Var` reading one needs the
+        // same +1 — without it the caller would see the captured
+        // cell's rc=1 share, release it, and the cell would
+        // dangle on the next read.
         let tail_aliases_local = tail_alias_name
-            .and_then(|name| self.env.lookup_binding(name))
-            .map(|b| matches!(b, Binding::Local(..) | Binding::Cell(..)))
+            .and_then(|name| {
+                if let Some(b) = self.env.lookup_binding(name) {
+                    return Some(matches!(b, Binding::Local(..) | Binding::Cell(..)));
+                }
+                if let Some(caps) = self.captures_in_scope {
+                    if caps.get(&name).is_some() {
+                        let is_cell = self
+                            .cell_captures
+                            .map(|s| s.contains(&name))
+                            .unwrap_or(false);
+                        return Some(is_cell);
+                    }
+                }
+                None
+            })
             .unwrap_or(false);
         // Heap-typed tails that **borrow** into a still-live owner
         // (e.g. `arr[i]` reads from `arr`'s element area;

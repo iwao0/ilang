@@ -615,7 +615,18 @@ impl<'a> BodyCx<'a> {
                                     idx: zero,
                                 });
                                 self.fb.push_inst(Inst::Release { value: old });
-                                self.fb.push_inst(Inst::Retain { value: v });
+                                // Fresh rhs already owns its +1 — letting
+                                // it ride into the cell as the cell's
+                                // share keeps the accounting tight. The
+                                // tail-Var Retain in `lower_block_hinted`
+                                // covers the symmetric case where the
+                                // closure body returns the captured cell
+                                // via a `Var` tail (it now treats Cell
+                                // captures the same as `Binding::Cell`,
+                                // adding the caller's +1).
+                                if !value_is_fresh {
+                                    self.fb.push_inst(Inst::Retain { value: v });
+                                }
                             }
                             self.fb.push_inst(Inst::ArrayStore {
                                 arr: cell_v,
