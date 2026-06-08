@@ -41,13 +41,19 @@ pub(super) fn print_kind_id_for_ty(ty: &MirTy) -> i64 {
 /// Map a MIR field type to the runtime's `KIND_*` cascade tag.
 /// Returns 0 (`KIND_NONE`) for primitives that need no cascade.
 pub(super) fn field_kind_tag(ty: &MirTy) -> i64 {
+    // Must mirror `compile::print_kind::kind_tag_of` — divergence
+    // here means AOT registers heap-typed fields as KIND_NONE and
+    // the release-cascade silently skips them. Pre-fix, Weak / Set
+    // / Promise all fell through to 0, so AOT classes with weak /
+    // set / promise fields leaked their owning object body
+    // (object's `__release_object` sees `has_weaks=true` because
+    // no `__release_weak` ever fires).
     match ty {
         MirTy::Object(_) => 1, // KIND_OBJECT
         // Only dynamic arrays (`len: None`) are standalone heap blocks
         // with an ARC header; fixed-length arrays (`T[N]`) are inline
         // value data freed with their container, so they must not be
         // cascaded as a heap array pointer (→ bogus free / corruption).
-        // Mirrors `print_kind::kind_tag_of`.
         MirTy::Array { len: None, .. } => 2, // KIND_ARRAY
         MirTy::Array { len: Some(_), .. } => 0, // KIND_NONE (inline)
         MirTy::Optional(_) => 3, // KIND_OPTIONAL
@@ -56,6 +62,9 @@ pub(super) fn field_kind_tag(ty: &MirTy) -> i64 {
         MirTy::Fn(_) => 6,       // KIND_CLOSURE
         MirTy::Str => 7,         // KIND_STR
         MirTy::Enum(_) => 8,     // KIND_ENUM
+        MirTy::Promise(_) => 9,  // KIND_PROMISE
+        MirTy::Set { .. } => 10, // KIND_SET
+        MirTy::Weak(_) => 11,    // KIND_WEAK
         _ => 0,                  // KIND_NONE
     }
 }
