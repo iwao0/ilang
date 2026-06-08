@@ -342,6 +342,15 @@ impl<'a> BodyCx<'a> {
             }
             let diverges = arm_body_diverges(&arm.body);
             let (bv, bty) = self.lower_expr(&arm.body)?;
+            // Mirror `lower_match_optional`: when the scrutinee
+            // was fresh, release the enum cell at arm exit so its
+            // cascade reclaims the payload the binding aliased.
+            // Without this, the fresh enum cell stays at rc=1
+            // forever (caller-releases-fresh isn't a Match
+            // scrutinee contract — the match takes ownership).
+            if scrut_is_fresh && !diverges {
+                self.fb.push_inst(Inst::Release { value: sv });
+            }
             self.env.exit_scope();
             // Pin the result type from the first arm we encounter.
             // A diverging arm (early `return` / `break` / `continue`)
@@ -360,6 +369,9 @@ impl<'a> BodyCx<'a> {
             self.fb.switch_to(blk);
             let diverges = arm_body_diverges(&arm.body);
             let (bv, bty) = self.lower_expr(&arm.body)?;
+            if scrut_is_fresh && !diverges {
+                self.fb.push_inst(Inst::Release { value: sv });
+            }
             if !diverges {
                 if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
                     result_ty = Some(bty.clone());

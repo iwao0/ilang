@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use ilang_ast::{Block as AstBlock, Expr, ExprKind, Span, Symbol, Type};
+use ilang_ast::{self as ast, Block as AstBlock, Expr, ExprKind, Span, Symbol, Type};
 
 use crate::builder::FunctionBuilder;
 use crate::inst::{FuncId, Inst, MirConst, Terminator, ValueId};
@@ -20,6 +20,63 @@ use super::env::{Binding, Env, LoopFrame};
 use super::meta::{class_id_by_name, ClassMeta, EnumMeta, FnSig, PendingClosure};
 use super::utils::ty_to_mir;
 use super::LowerError;
+
+/// `true` when the arm's body returns one of its own pattern
+/// bindings via a `Var` tail (`some(v) { v }` /
+/// `has(inner) { inner }` / `boxed { b: x } { x }`). Used by
+/// `is_fresh_object_expr`'s Match arm to treat such arms as
+/// fresh when the scrutinee is fresh — the arm lowerer's
+/// `PatternBinding`-with-`needs_retain_on_tail` Retain has
+/// already minted the +1 the caller will release.
+fn arm_returns_own_binding(arm: &ast::MatchArm) -> bool {
+    let mut binds: Vec<Symbol> = Vec::new();
+    if let ast::PatternKind::Variant { bindings, .. } = &arm.pattern.kind {
+        match bindings {
+            ast::PatternBindings::Unit => {}
+            ast::PatternBindings::Tuple(names) => {
+                for n in names.iter() {
+                    if n.as_str() != "_" {
+                        binds.push(*n);
+                    }
+                }
+            }
+            ast::PatternBindings::Struct(pairs) => {
+                for (_, bn) in pairs.iter() {
+                    if bn.as_str() != "_" {
+                        binds.push(*bn);
+                    }
+                }
+            }
+        }
+    }
+    if binds.is_empty() {
+        return false;
+    }
+    let tail = match &arm.body.kind {
+        ExprKind::Block(b) => match b.tail.as_deref() {
+            Some(t) => t,
+            None => return false,
+        },
+        _ => &arm.body,
+    };
+    matches!(&tail.kind, ExprKind::Var(n) if binds.contains(n))
+}
+
+/// `true` when `e`'s tail expression is a static `Str` literal.
+/// `__release_string` is a no-op on rc=-1 (the static-cstring
+/// marker), so a branch ending in a literal string contributes a
+/// caller-side-Release-safe value to a Match / IfLet result —
+/// same accounting role as a fresh string but without the alloc.
+fn expr_tail_is_str_literal(e: &Expr) -> bool {
+    let tail = match &e.kind {
+        ExprKind::Block(b) => match b.tail.as_deref() {
+            Some(t) => t,
+            None => return false,
+        },
+        _ => e,
+    };
+    matches!(&tail.kind, ExprKind::Str(_))
+}
 
 pub(in crate::lower) struct BodyCx<'a> {
     pub(in crate::lower) fb: &'a mut FunctionBuilder,
@@ -692,9 +749,57 @@ impl<'a> BodyCx<'a> {
             // non-fresh; that's strictly conservative — a match whose
             // only non-diverging arm is fresh will miss the
             // optimisation, but never over-frees.
-            ExprKind::Match { arms, .. } => {
+            //
+            // Additionally, when the scrutinee is fresh and an arm
+            // hands its own pattern binding straight back as the tail
+            // (`some(v) { v }`, `has(inner) { inner }`), the arm's
+            // `Binding::PatternBinding(_, _, needs_retain_on_tail=true)`
+            // path has already emitted a `Retain(bv)` (via the
+            // `lower_block_hinted` tail-Var pair). The arm's effective
+            // result therefore owns its own +1 — fresh from the
+            // caller's standpoint — even though the AST tail is a
+            // plain `Var`. Treat that case as fresh so that
+            // `caller-releases-fresh` (call_arg release / `let _ = ...`
+            // release / etc.) closes the loop instead of double-
+            // retaining via the stmt.rs::Let path.
+            ExprKind::Match { scrutinee, arms } => {
+                let scrut_fresh = self.is_fresh_object_expr(scrutinee);
                 !arms.is_empty()
-                    && arms.iter().all(|arm| self.is_fresh_object_expr(&arm.body))
+                    && arms.iter().all(|arm| {
+                        self.is_fresh_object_expr(&arm.body)
+                            || (scrut_fresh && arm_returns_own_binding(arm))
+                            || expr_tail_is_str_literal(&arm.body)
+                    })
+            }
+            // Mirror Match: `if let some(name) = scrut { ... } else { ... }`
+            // is fresh iff both branches are fresh. The then branch can
+            // also count as fresh when the scrutinee is fresh and its
+            // tail is a `Var(name)` (the pattern binding) — the
+            // PatternBinding tail-Var Retain has already minted a +1
+            // the caller will release. Str-literal tails (rc=-1)
+            // count too — `__release_string` is a no-op on static
+            // literals, so handing one back as a branch result keeps
+            // the caller's `Release` safe.
+            ExprKind::IfLet { name, expr: scrut, then_branch, else_branch } => {
+                let scrut_fresh = self.is_fresh_object_expr(scrut);
+                let then_fresh = then_branch
+                    .tail
+                    .as_ref()
+                    .map(|t| {
+                        self.is_fresh_object_expr(t)
+                            || (scrut_fresh
+                                && matches!(&t.kind, ExprKind::Var(n) if *n == *name))
+                            || matches!(&t.kind, ExprKind::Str(_))
+                    })
+                    .unwrap_or(false);
+                let else_fresh = else_branch
+                    .as_ref()
+                    .map(|e| {
+                        self.is_fresh_object_expr(e)
+                            || expr_tail_is_str_literal(e)
+                    })
+                    .unwrap_or(false);
+                then_fresh && else_fresh
             }
             // A bare reference to a top-level `fn` lowers to a
             // `MakeClosure` (trampoline) — fresh allocation with
