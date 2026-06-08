@@ -179,7 +179,12 @@ impl<'a> BodyCx<'a> {
             | MirTy::Fn(_)
             | MirTy::RawFn(_)
             | MirTy::Str
+            // `CReprEnum` should never reach a REPL slot — LoadField
+            // promotes it to `Enum` before the value flows further.
+            // Treat it like `Enum` defensively (heap-pointer pass-
+            // through) so a stray invariant break doesn't crash.
             | MirTy::Enum(_)
+            | MirTy::CReprEnum(_)
             | MirTy::Weak(_)
             | MirTy::RawPtr { .. } => Ok(v),
             MirTy::I8 | MirTy::I16 | MirTy::I32 | MirTy::SSize => {
@@ -234,6 +239,8 @@ impl<'a> BodyCx<'a> {
             | MirTy::RawFn(_)
             | MirTy::Str
             | MirTy::Enum(_)
+            // Defensive — see the `value_to_i64` comment.
+            | MirTy::CReprEnum(_)
             | MirTy::Weak(_)
             | MirTy::RawPtr { .. } => {
                 let dst = self.fb.new_value(to.clone());

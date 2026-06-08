@@ -96,6 +96,11 @@ pub(super) fn mangle_ty_atom(t: &MirTy) -> String {
         MirTy::Object(c) => format!("o{}", c.0),
         MirTy::Weak(c) => format!("w{}", c.0),
         MirTy::Enum(e) => format!("e{}", e.0),
+        // Same mangling as `Enum` — `CReprEnum` is only used inside
+        // CRepr struct field metadata, never in a generic
+        // monomorph substitution; the alias keeps the suffix
+        // stable if it ever leaks through.
+        MirTy::CReprEnum(e) => format!("e{}", e.0),
         MirTy::Array { elem, .. } => format!("arr_{}", mangle_ty_atom(elem)),
         MirTy::Tuple(es) => {
             let parts: Vec<String> = es.iter().map(mangle_ty_atom).collect();

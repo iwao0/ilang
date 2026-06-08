@@ -28,6 +28,21 @@ pub enum MirTy {
     Weak(ClassId),
     /// `enum E` instance, after monomorph.
     Enum(EnumId),
+    /// Inline enum slot inside a CRepr / CPacped / CUnion struct
+    /// field. Carries the same `EnumId` as `Enum(_)` but is laid
+    /// out at the underlying repr's width (`u8` / `u16` / `u32` /
+    /// `i32`...) instead of as an 8-byte heap-box pointer.
+    ///
+    /// Only appears in `meta.field_ty` for CRepr-family struct
+    /// fields whose declared type is a unit-only, int-repr enum.
+    /// SSA values **never** carry this variant — `LoadField` lower
+    /// promotes the field to `MirTy::Enum(eid)` via
+    /// `BodyCx::loaded_field_ty` so every downstream op sees a
+    /// regular heap enum cell. The variant exists so the
+    /// retain/release predicates (`is_heap` / `is_arc_slot`) can
+    /// statically exclude the inline slot without each call site
+    /// re-deriving "is the parent class CRepr?".
+    CReprEnum(EnumId),
     /// Dynamic / fixed array. `len = None` is dynamic, `Some(n)` is
     /// `T[N]` (length is part of the type).
     Array { elem: Box<MirTy>, len: Option<usize> },
@@ -238,6 +253,7 @@ impl std::fmt::Display for MirTy {
             MirTy::Object(c) => write!(f, "obj#{}", c.0),
             MirTy::Weak(c) => write!(f, "weak#{}", c.0),
             MirTy::Enum(e) => write!(f, "enum#{}", e.0),
+            MirTy::CReprEnum(e) => write!(f, "crepr_enum#{}", e.0),
             MirTy::Array { elem, len: None } => write!(f, "{elem}[]"),
             MirTy::Array { elem, len: Some(n) } => write!(f, "{elem}[{n}]"),
             MirTy::Tuple(elems) => {

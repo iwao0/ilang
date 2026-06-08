@@ -27,6 +27,11 @@ pub fn mir_to_clif(t: &MirTy) -> Option<ClifType> {
         | MirTy::Object(_)
         | MirTy::Weak(_)
         | MirTy::Enum(_)
+        // `CReprEnum` only appears in CRepr struct field metadata,
+        // never as a SSA value type — but if it ever leaks here,
+        // treat it like `Enum` (an i64 heap pointer) rather than
+        // crash the compiler.
+        | MirTy::CReprEnum(_)
         | MirTy::Array { .. }
         | MirTy::Tuple(_)
         | MirTy::Optional(_)

@@ -320,7 +320,7 @@ pub(crate) fn mir_ty_to_type_id(
     match ty {
         MirTy::Object(c) => global_cid(c.0) as i64,
         MirTy::Weak(_) => TYPE_ID_WEAK,
-        MirTy::Enum(_) => TYPE_ID_ENUM,
+        MirTy::Enum(_) | MirTy::CReprEnum(_) => TYPE_ID_ENUM,
         MirTy::Str => TYPE_ID_STRING,
         MirTy::Bool => TYPE_ID_BOOL,
         MirTy::I64 | MirTy::SSize => TYPE_ID_I64,
