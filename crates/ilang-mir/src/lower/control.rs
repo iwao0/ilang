@@ -210,7 +210,7 @@ impl<'a> BodyCx<'a> {
                 // Release. Otherwise the loop's exit-block receives
                 // a pointer the scope is about to free (only matters
                 // for Array/Tuple/etc. which actually free memory).
-                let needs_retain = !value_is_fresh && ty.is_heap();
+                let needs_retain = !value_is_fresh && self.is_arc_slot(&ty);
                 if needs_retain {
                     self.fb.push_inst(Inst::Retain { value: v });
                 }
@@ -233,8 +233,13 @@ impl<'a> BodyCx<'a> {
         // Release every heap-typed binding introduced in scopes
         // pushed since the loop frame's entry — `lower_block`'s
         // scope-exit release pass is bypassed by the early jump.
-        // Snapshot first to avoid the &mut self borrow conflict
-        // on `self.fb` inside the release calls.
+        // Stays on `MirTy::is_heap` (not `is_arc_slot`) because the
+        // matching scope-exit sweep also uses the broader predicate
+        // and handles CRepr / COM exclusion downstream of the
+        // `needs_release` filter; switching the predicate here
+        // without porting the downstream filter would change the
+        // observable behaviour (owned CRepr Locals would silently
+        // leak on `break`).
         let needs_release = |ty: &MirTy| ty.is_heap();
         let mut to_release: Vec<Binding> = Vec::new();
         for scope in self.env.scopes.iter().skip(frame_depth.saturating_sub(0)) {

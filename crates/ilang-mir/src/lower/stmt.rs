@@ -193,7 +193,7 @@ impl<'a> BodyCx<'a> {
                         // and the exit-time slot release can't drive
                         // the value to drop. See
                         // top_level_let_used_in_fn_deinit_once.il.
-                        if bind_ty.is_heap() && !value_is_fresh_object {
+                        if self.is_arc_slot(&bind_ty) && !value_is_fresh_object {
                             self.fb.push_inst(Inst::Retain { value: bound });
                         }
                         self.fb.push_inst(Inst::Call {
@@ -274,7 +274,7 @@ impl<'a> BodyCx<'a> {
                 // method call result like `xs.map(fn(...){...})`
                 // (its fresh array, plus the fresh closure arg)
                 // leaks every iteration of a long-running loop.
-                if ty.is_heap() && self.is_fresh_object_expr(e) {
+                if self.is_arc_slot(&ty) && self.is_fresh_object_expr(e) {
                     self.fb.push_inst(Inst::Release { value: v });
                 }
                 Ok(())

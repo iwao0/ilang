@@ -246,7 +246,7 @@ impl<'a> BodyCx<'a> {
                     // enum value owns its own +1. Required now that
                     // host_release_array actually frees memory at
                     // rc==0 (match_fresh_scrutinee.il regression).
-                    let needs_retain = !arg_is_fresh && tys[i].is_heap();
+                    let needs_retain = !arg_is_fresh && self.is_arc_slot(&tys[i]);
                     if needs_retain {
                         self.fb.push_inst(Inst::Retain { value: coerced });
                     }
@@ -277,7 +277,7 @@ impl<'a> BodyCx<'a> {
                     // See tuple-variant branch above — same composite
                     // hint propagation reason.
                     let (coerced, _) = self.lower_arg_to(ae, Some(&fty))?;
-                    let needs_retain = !arg_is_fresh && fty.is_heap();
+                    let needs_retain = !arg_is_fresh && self.is_arc_slot(&fty);
                     if needs_retain {
                         self.fb.push_inst(Inst::Retain { value: coerced });
                     }

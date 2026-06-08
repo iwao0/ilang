@@ -202,8 +202,6 @@ impl<'a> BodyCx<'a> {
         }
     }
 
-    /// Resolve a name to its current value, emitting `UseLocal` for
-    /// mutable bindings. Returns `None` if the name is unbound.
     /// `true` when a value of `ty` participates in ilang's ARC.
     /// Almost the same as `MirTy::is_heap`, except that
     /// `MirTy::Object(@com_iface)` is treated as a non-ARC handle
@@ -217,6 +215,33 @@ impl<'a> BodyCx<'a> {
         if let MirTy::Object(cid) = ty {
             let name = self.classes[cid.0 as usize].name;
             if self.com_interfaces.contains(&name) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// `true` when a slot of `ty` owns an rc share that the lower
+    /// has to retain on borrow-in and release on overwrite. Same
+    /// as `is_arc_heap`, with the additional exclusion of
+    /// inline-struct `Object` reprs (CRepr / CPacked / CUnion):
+    /// those have no ARC header, and `Retain` / `Release` on them
+    /// would walk off the front of an inline payload. Use this
+    /// at every rc-slot judgement site (`ExprKind::Assign`,
+    /// `AssignField`, `AssignIndex`, `StructLit`, scope-exit
+    /// `needs_release`, etc.).
+    pub(in crate::lower) fn is_arc_slot(&self, ty: &MirTy) -> bool {
+        if !self.is_arc_heap(ty) {
+            return false;
+        }
+        if let MirTy::Object(cid) = ty {
+            let layout = &self.classes[cid.0 as usize];
+            if matches!(
+                layout.repr,
+                crate::program::ClassRepr::CRepr
+                    | crate::program::ClassRepr::CPacked
+                    | crate::program::ClassRepr::CUnion
+            ) {
                 return false;
             }
         }
@@ -290,24 +315,12 @@ impl<'a> BodyCx<'a> {
                     self.coerce(v, &ty, &slot_ty, Span::dummy()).unwrap_or(v)
                 };
                 let zero = self.const_int(MirTy::I64, 0);
-                // For heap-typed cells the cell owns the slot's rc:
-                // release the previous occupant and retain the new
-                // one. Without these, the old value's share leaks
-                // (or worse, double-frees on later cell release) and
-                // the new value's share goes unaccounted. Caught by
-                // ASan as a UAF in `host_retain_object` while
-                // re-assigning closure-captured Box instances.
-                let heap_slot = slot_ty.is_heap();
-                if heap_slot {
-                    let old = self.fb.new_value(slot_ty.clone());
-                    self.fb.push_inst(Inst::ArrayLoad {
-                        dst: old,
-                        arr: cell_v,
-                        idx: zero,
-                    });
-                    self.fb.push_inst(Inst::Release { value: old });
-                    self.fb.push_inst(Inst::Retain { value: coerced });
-                }
+                // The rc swap (release old, retain new) is the
+                // caller's job — `ExprKind::Assign` already
+                // snapshots the prior slot and applies the
+                // fresh-aware retain. Doing the swap here as well
+                // would double-account (a borrowed rhs would be
+                // retained twice, a fresh rhs would lose its +1).
                 self.fb.push_inst(Inst::ArrayStore {
                     arr: cell_v,
                     idx: zero,
@@ -388,7 +401,7 @@ impl<'a> BodyCx<'a> {
 
     pub(in crate::lower) fn emit_callee_retain(&mut self, tail: &Option<(ValueId, MirTy)>) {
         if let Some((v, ty)) = tail.as_ref() {
-            if ty.is_heap() {
+            if self.is_arc_slot(ty) {
                 self.fb.push_inst(Inst::Retain { value: *v });
             }
         }
@@ -418,12 +431,21 @@ impl<'a> BodyCx<'a> {
         // (lower_stmt's `Expr` arm releases discarded fresh heap
         // results, but the tail position doesn't go through that
         // path). Release it here, matching the stmt-discard rule.
-        let unit_tail_needs_release = |ty: &MirTy| ty.is_heap();
-        let value = match (&self.ret_ty, tail) {
-            (MirTy::Unit, Some((v, vty))) if unit_tail_needs_release(&vty) => {
-                self.fb.push_inst(Inst::Release { value: v });
-                None
+        // Done up-front so the main match below can stay shaped
+        // around `&self.ret_ty` without needing self-borrow for
+        // the predicate.
+        let tail = if matches!(self.ret_ty, MirTy::Unit) {
+            match tail {
+                Some((v, vty)) if self.is_arc_slot(&vty) => {
+                    self.fb.push_inst(Inst::Release { value: v });
+                    None
+                }
+                _ => None,
             }
+        } else {
+            tail
+        };
+        let value = match (&self.ret_ty, tail) {
             (MirTy::Unit, _) => None,
             // Tail expression has unit type (e.g. `return X` desugars
             // to a unit value in a dead block) — fabricate a real
@@ -492,7 +514,13 @@ impl<'a> BodyCx<'a> {
         // `Var` resolving to a binding in this block's scope —
         // otherwise we'd over-retain transient values that nothing
         // releases.
-        let tail_needs_retain = |ty: &MirTy| ty.is_heap();
+        // Closure captures self for use_local conflicts; precompute
+        // the predicate against `tail` once so the match below can
+        // stay shaped as guards without borrowing self twice.
+        let tail_needs_retain_flag = tail
+            .as_ref()
+            .map(|(_, ty)| self.is_arc_slot(ty))
+            .unwrap_or(false);
         let tail_alias_name = blk.tail.as_ref().and_then(|e| match &e.kind {
             ExprKind::Var(name) => Some(*name),
             _ => None,
@@ -521,7 +549,7 @@ impl<'a> BodyCx<'a> {
         });
         let tail = match tail {
             Some((v, ty))
-                if tail_needs_retain(&ty)
+                if tail_needs_retain_flag
                     && (tail_aliases_local || tail_is_borrow) =>
             {
                 // When the block has a hint that doesn't match the
