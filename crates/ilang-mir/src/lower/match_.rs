@@ -137,6 +137,19 @@ impl<'a> BodyCx<'a> {
         if let Some(arm) = some_arm {
             self.env.enter_scope();
             if let Some(name) = some_binding {
+                // The pattern binding is a borrow into the
+                // Optional cell's inner slot — ownership flows
+                // through whatever the arm body returns (caller's
+                // let-retain or post-call release closes the
+                // loop). Same policy as `lower_match_enum` after
+                // the EnumPayload codegen-retain removal:
+                // `OptionalUnwrap` codegen MUST NOT call
+                // `__retain_*` here, otherwise the +1 has no
+                // matching release path and leaks. The
+                // env.exit_scope below skips the
+                // `release_top_scope_objects` sweep on purpose —
+                // the binding is `Binding::Ssa` and carries no
+                // rc share to drop.
                 let unwrapped = self.fb.new_value(inner_ty.clone());
                 self.fb.push_inst(Inst::OptionalUnwrap { dst: unwrapped, opt: sv });
                 self.env.bind(name, unwrapped, inner_ty.clone());
@@ -733,6 +746,13 @@ impl<'a> BodyCx<'a> {
         // release the scrutinee opt at the some-branch exit so the
         // cell's cascade fires and reclaims the inner ourselves
         // (`iflet_heap_release`).
+        //
+        // Mirrors the `lower_match_enum` policy: pattern bindings
+        // are borrows, `OptionalUnwrap` codegen MUST NOT call
+        // `__retain_*` on its dst. If that contract gets broken,
+        // the +1 has no matching release path here and leaks
+        // (the same bug class as the pre-fix `EnumPayload`
+        // auto-retain, see commit 08989aba).
         self.fb.switch_to(some_blk);
         let unwrapped = self.fb.new_value(inner_ty.clone());
         self.fb.push_inst(Inst::OptionalUnwrap { dst: unwrapped, opt: sv });
