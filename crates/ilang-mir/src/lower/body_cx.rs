@@ -676,6 +676,15 @@ impl<'a> BodyCx<'a> {
                     .unwrap_or(false);
                 then_fresh && else_fresh
             }
+            // Same all-arms-fresh rule as `If` above. Divergent arms
+            // (`return` / `panic`) aren't tracked here and read as
+            // non-fresh; that's strictly conservative — a match whose
+            // only non-diverging arm is fresh will miss the
+            // optimisation, but never over-frees.
+            ExprKind::Match { arms, .. } => {
+                !arms.is_empty()
+                    && arms.iter().all(|arm| self.is_fresh_object_expr(&arm.body))
+            }
             // A bare reference to a top-level `fn` lowers to a
             // `MakeClosure` (trampoline) — fresh allocation with
             // rc=1 each time. A local / param / captured Var of
