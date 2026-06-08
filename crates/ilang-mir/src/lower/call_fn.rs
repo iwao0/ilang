@@ -330,6 +330,7 @@ impl<'a> BodyCx<'a> {
                         | MirTy::Map { .. }
                         | MirTy::Optional(_)
                         | MirTy::Str
+                        | MirTy::Enum(_)
                 );
                 if arg_is_fresh && needs_post_release {
                     fresh_obj_args.push(coerced);

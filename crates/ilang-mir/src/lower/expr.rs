@@ -459,6 +459,15 @@ impl<'a> BodyCx<'a> {
                             // dangled. Treat string fields like every
                             // other heap-typed field.
                             | MirTy::Str
+                            // Enum: every kind the runtime cascade
+                            // releases must also retain here so the
+                            // field's +1 survives the prior slot's
+                            // release. Pairs with the
+                            // `needs_post_release` Enum entry in
+                            // call_fn.rs / calls/object.rs /
+                            // calls/mod.rs — caller-side fresh release
+                            // and field-side retain are one contract.
+                            | MirTy::Enum(_)
                     );
                 if is_heap {
                     if !value_is_fresh {
