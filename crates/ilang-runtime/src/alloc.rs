@@ -12,6 +12,20 @@ static FREE_BYTES: AtomicI64 = AtomicI64::new(0);
 static ALLOC_COUNT: AtomicI64 = AtomicI64::new(0);
 static FREE_COUNT: AtomicI64 = AtomicI64::new(0);
 
+/// Read once and cache: did the user set `ILANG_HEAP_TRACE` to any
+/// non-empty value? Used to gate the per-call `eprintln!` instruments
+/// in `__mir_alloc` / `__mir_free`. Reading env vars per call would
+/// dominate runtime cost; one `OnceLock` read is essentially free.
+fn heap_trace_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var_os("ILANG_HEAP_TRACE")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
+    })
+}
+
 /// Allocate `size` zero-initialised bytes via Rust's global allocator
 /// and leak the `Vec<u8>`'s data pointer. Mirrored by `__mir_free`,
 /// which reconstructs the same `Vec` to drop. Tracked in the live-
@@ -24,6 +38,9 @@ pub extern "C" fn __mir_alloc(size: i64) -> i64 {
     std::mem::forget(v);
     ALLOC_BYTES.fetch_add(size, Ordering::Relaxed);
     ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
+    if heap_trace_enabled() {
+        eprintln!("[alloc] size={size} ptr=0x{ptr:x}");
+    }
     ptr
 }
 
@@ -33,6 +50,9 @@ pub extern "C" fn __mir_alloc(size: i64) -> i64 {
 #[unsafe(export_name = "$alloc.free")]
 pub extern "C" fn __mir_free(ptr: i64, size: i64) {
     if ptr == 0 || size <= 0 {
+        if heap_trace_enabled() {
+            eprintln!("[free:skip] ptr=0x{ptr:x} size={size}");
+        }
         return;
     }
     unsafe {
@@ -40,6 +60,9 @@ pub extern "C" fn __mir_free(ptr: i64, size: i64) {
     }
     FREE_BYTES.fetch_add(size, Ordering::Relaxed);
     FREE_COUNT.fetch_add(1, Ordering::Relaxed);
+    if heap_trace_enabled() {
+        eprintln!("[free] size={size} ptr=0x{ptr:x}");
+    }
 }
 
 /// Bytes currently outstanding via `__mir_alloc`. Used by the
