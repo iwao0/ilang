@@ -24,7 +24,19 @@ impl<'a> BodyCx<'a> {
                 if name.as_str() == "_" {
                     let value_is_fresh = self.is_fresh_object_expr(value);
                     let (v, vty) = self.lower_expr(value)?;
-                    if value_is_fresh && self.is_arc_heap(&vty) {
+                    // Fire `Release` for both ARC-heap kinds (the
+                    // usual `__release_object` / cascade dispatch)
+                    // and CRepr-family `Object` values (which take
+                    // the `__mir_free(buffer, c_size)` arm in
+                    // `lower_inst/arc.rs::Release`). Without the
+                    // second case, `let _ = make_crepr_box()` leaks
+                    // the `__mir_alloc`'d buffer — caller-side
+                    // ownership transferred away from the callee's
+                    // tail-alias `crepr_owned_locals` remove, and
+                    // no other path reclaims it.
+                    let needs_release =
+                        self.is_arc_heap(&vty) || self.is_crepr_object_kind(&vty);
+                    if value_is_fresh && needs_release {
                         self.fb.push_inst(Inst::Release { value: v });
                     }
                     return Ok(());

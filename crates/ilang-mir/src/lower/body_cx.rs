@@ -309,6 +309,27 @@ impl<'a> BodyCx<'a> {
     /// at every rc-slot judgement site (`ExprKind::Assign`,
     /// `AssignField`, `AssignIndex`, `StructLit`, scope-exit
     /// `needs_release`, etc.).
+    /// `true` when `ty` is `MirTy::Object(cid)` whose class layout
+    /// is one of the inline-struct reprs (`CRepr` / `CPacked` /
+    /// `CUnion`). These don't carry an ARC header, so they're
+    /// excluded from `is_arc_slot` — but the backing buffer was
+    /// `__mir_alloc`'d on `new T()`, so a discarded fresh value
+    /// still needs a paired `Release` to reach `__mir_free` in
+    /// `lower_inst/arc.rs::Release`. Distinct from `is_arc_heap`
+    /// (which means "real refcount, real cascade").
+    pub(in crate::lower) fn is_crepr_object_kind(&self, ty: &MirTy) -> bool {
+        if let MirTy::Object(cid) = ty {
+            let layout = &self.classes[cid.0 as usize];
+            return matches!(
+                layout.repr,
+                crate::program::ClassRepr::CRepr
+                    | crate::program::ClassRepr::CPacked
+                    | crate::program::ClassRepr::CUnion
+            );
+        }
+        false
+    }
+
     pub(in crate::lower) fn is_arc_slot(&self, ty: &MirTy) -> bool {
         if !self.is_arc_heap(ty) {
             return false;

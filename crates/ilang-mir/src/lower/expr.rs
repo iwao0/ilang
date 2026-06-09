@@ -473,6 +473,23 @@ impl<'a> BodyCx<'a> {
                     }
                 }
                 self.fb.push_inst(Inst::StoreField { obj: ov, field: fid, value: vv });
+                // CRepr inline enum field: `StoreField` codegen
+                // extracts the discriminant out of the SSA Enum
+                // heap-box (`MirTy::Enum`, lowered from
+                // `lower_enum_ctor`) and narrows it into the
+                // struct slot. The heap-box itself is left dangling
+                // — its rc=1 from `NewEnum` never reaches a paired
+                // Release. Drop it now when the rhs was fresh
+                // (a literal `Mode.foo` ctor). Borrowed rhs (e.g.
+                // `obj.field = otherCRepr.kind` where the load
+                // already promoted to `Enum`) keeps the source
+                // owner's +1, so no release here.
+                if matches!(&fty, MirTy::CReprEnum(_))
+                    && value_is_fresh
+                    && matches!(&vty, MirTy::Enum(_))
+                {
+                    self.fb.push_inst(Inst::Release { value: vv });
+                }
                 Ok((self.const_unit(), MirTy::Unit))
             }
             ExprKind::Unary { op, expr } => self.lower_unary(*op, expr, expr.span),
