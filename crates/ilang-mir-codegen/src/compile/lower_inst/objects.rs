@@ -752,7 +752,19 @@ pub(super) fn lower_store_field<M: Module>(
             fb.ins().store(MemFlags::trusted(), truncated, obj_v, c_off as i32);
             return Ok(());
         }
-        match celem_clif_type_with_enum(prog, &val_ty_mir) {
+        // Decide the store width from the FIELD's declared type, not
+        // the value's. A CRepr struct field declared `i32` must be
+        // written with a 4-byte store even when the rhs is an i64
+        // const (Rust-side `iconst.i64 99` flowing into `seq: i32 = 99`).
+        // Using the value type let an i64 const through unchanged,
+        // emitting an 8-byte store at `c_off`, which overran the field
+        // by 4 bytes and corrupted whatever sat in the next 4 bytes —
+        // for `Slot[]` data buffer (16 byte = 2 × 8) the overrun
+        // landed in the heap's tail-guard region, which decayed to
+        // SIGABRT under `__mir_free`'s libmalloc consistency checks
+        // ~8% of the time (race confirmed by `ILANG_HEAP_GUARD=1`).
+        let store_ty_mir = field_meta_ty.as_ref().unwrap_or(&val_ty_mir);
+        match celem_clif_type_with_enum(prog, store_ty_mir) {
             Some(elem_ct) if elem_ct != types::I64 => {
                 let truncated = ireduce_or_pass(fb, raw, elem_ct);
                 fb.ins().store(MemFlags::trusted(), truncated, obj_v, c_off as i32);

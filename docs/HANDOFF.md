@@ -33,7 +33,9 @@
 
 ## 未解決の引き継ぎ事項
 
-### nextest 並列実行下で `crepr_struct_assign_index_field.il` と `nested_generic.il` が確率的失敗
+(本セッション完了時点でなし。 並列起動下の確率的失敗は [objects.rs::StoreField](crates/ilang-mir-codegen/src/compile/lower_inst/objects.rs:755) の **field width 誤判定によるオーバーラン書き込み** を pin point して修正、 400 並列 + nextest 10 連続 + workspace 525/525 すべて緑。)
+
+### [解決済み記録] `crepr_struct_assign_index_field.il` 系の確率的失敗
 
 **現状の観測**(本セッションで `programs.rs::check()` に signal 出力を追加して観測力強化済み):
 
@@ -118,7 +120,27 @@ malloc error: `pointer being freed was not allocated`, address `0x16fdf6700` (st
 
 ただし `crepr_struct_assign_index_field.il` は generic を使わないので mono pass は事実上 no-op になるはず → **lower か codegen** が最有力。
 
-**[本ラウンドで突破] heap guard 計装で真因 path を pin point**:
+**[真因確定 + 修正完了]** [crates/ilang-mir-codegen/src/compile/lower_inst/objects.rs:755](crates/ilang-mir-codegen/src/compile/lower_inst/objects.rs:755) の `StoreField` codegen が **field の宣言型 (`field_meta_ty`) ではなく value の型 (`val_ty_mir`) で store size を選んでいた** のが真因。 例えば `seq: i32 = 99` の lower:
+
+- 右辺 `99` の MirTy は `I64` (const のデフォルト)
+- 旧コード: `celem_clif_type_with_enum(prog, &val_ty_mir)` で I64 → `Some(I64)` の guard が `!= I64` 不一致で `_` arm に流れ、 **i64 store (8 byte)** を発行
+- 結果: `Slot.seq` (offset 4..8) を書くつもりが、 store 命令は `c_off+8 = offset 4..12` を書く → CRepr struct buffer (8 byte) を 4 byte 越境
+- `Slot[]` data buffer (= 2 × 8 byte) の場合、 `arr[1].seq = 99` で `(data_ptr + 8) + 4 = data_ptr + 12` に 8 byte 書き込み = **offset 12..20** = **buffer の offset 16..20 (4 byte) を tail に踏み出す**
+
+heap guard で 100% 確認した「offset 16 への single byte zero write」 は、 実は **「offset 12..20 への 8 byte i64 store」の高位 4 byte (うち最下位 1 byte が `0xBE → 0x00` に書き換わって見えた)**だった。 (`99 = 0x00000000_00000063` の little-endian で高位 4 byte は全 0 なので、 guard の最下位 byte 0xBE が `0x00` に書かれて見える。)
+
+**修正**: `field_meta_ty.as_ref().unwrap_or(&val_ty_mir)` で field 宣言型を優先して store 幅を選ぶ。 i32 field なら ireduce で 4 byte に truncate してから store。
+
+**検証結果**:
+
+- `ILANG_HEAP_GUARD=1` で 400 並列起動: **0/400 abort** (修正前 400/400)
+- guard なしで 400 並列起動: **0/400 race** (修正前 ~33/400)
+- nextest `run_all_program_fixtures` 10 連続: **10/10 PASS**
+- workspace 全体: **525/525 PASS**
+
+---
+
+### [研究記録] heap guard 計装で真因 path を pin point
 
 [crates/ilang-runtime/src/alloc.rs](crates/ilang-runtime/src/alloc.rs:34) に `ILANG_HEAP_GUARD=1` で各 alloc の前後に 16 byte ずつ `0xDEADBEEFCAFEBABE` の guard を埋める計装を追加。 free 時に guard を検査して破壊を検出。
 
