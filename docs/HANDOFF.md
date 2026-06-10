@@ -57,6 +57,18 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 **罠を設置済み**: [crates/ilang-cli/tests/programs.rs](crates/ilang-cli/tests/programs.rs) が失敗時に fixture 名・出力・タイムスタンプ・AOT フラグを `target/fixture-failures.log` へ自動追記してから panic する。次に自然発生したらこのファイルを見ること。
 
+### [解決済み記録] fixture 増殖ラウンド第 6 弾: is/as? の ARC・reflection の kind tag・iteration snapshot (2026-06-11、 `e83ca1fc`〜`3fbf7667`)
+
+probe 対象を `is` / `as?`、 reflection (`typeof`)、 regex、 iteration 中の mutation、 generic fn + heap、 Promise.all/race、 const 畳み込み、 string メソッドの端へ拡張した。 3 系統のバグ:
+
+1. **`as?` の Optional セルが不正な 8 byte 形** (`e83ca1fc`)。 `DowncastOrNone` codegen が rc も kind tag も無い `[value]` 8 byte セルを確保 — 誰も release できず 8 bytes/hit leak、 release されたら範囲外読み、 inner の retain も無し。 WeakUpgrade と同じ 24 byte `[value | rc | kind=Object]` + inner retain に変更し、 `as?` を fresh 分類。 `is` / `as?` の fresh operand (`makeB() is B`) の transient release も追加 (旧: オブジェクト丸ごと leak/call)。
+2. **reflection の ARC 3 点** (`3437012f`)。 (a) `new_string_array` の header kind tag が PK_STR(11) — release cascade の KIND_* 系では **11 = WEAK** で、 `.fields` / `.methods` の要素文字列の release が weak-table no-op になり 1 個/読み leak。 KIND_STR(7) に修正。 (b) `__type_parent` の Optional セルが中身 = TypeHandle id (整数) なのに kind=Object — release されたら整数に `__release_object` して暴走する形。 KIND_NONE に修正。 (c) reflection member 読み (`t.name` / `t.fields` 等、 全部 owned を返す) が借用分類で leak — `field_is_property_access` が TypeHandle member 読みを fresh と認識するよう拡張 (`.kind` の interned enum box は rc=-1 で release no-op なので一律 fresh で安全)。
+3. **callback 駆動 iteration の use-after-free** (`3fbf7667`)。 配列の forEach / map / filter / find / findIndex / every / some が `(len, data)` を 1 回だけ読んで生バッファを歩く — callback 内の push (realloc) / pop で**解放済みメモリを走査** (`arr.forEach` 内の `arr.push` で walk が途中で止まる)。 共通 `CellSnapshot` (セルを先にコピー + heap 要素は iteration 中 +1 保持、 `__map_for_each` と同じ規約) に統一。 Map の forEach も key しか retain しておらず、 callback 内 delete で snapshot の **value** が解放されて読みが実行ごとに揺れていた — value も retain。 さらに `lower_index` の fresh receiver 経路が Object 要素限定で release していたため、 `freshStrArray()[0]` で配列丸ごと leak — 全要素種で release + `is_arc_slot` 要素は retain に一般化。
+
+**検証**: workspace nextest 530/530、 AOT arm 全 fixture PASS、 nested_generic.il 400 並列 0/400。 回帰 fixture 3 件: `05_edge_cases/downcast_arc.il`、 `02_classes/typeof_reflection_arc.il`、 `05_edge_cases/iter_mutation_snapshot.il`。
+
+**probe で問題なしを確認した周辺** (再調査不要): regex (compile/test/find/findAll/split/replace churn)、 generic fn + heap 引数/戻り churn、 Promise.all / race (型注釈付き — 注釈なしは既知の desugar 制限で適切な診断あり)、 const 畳み込み (連鎖参照 ✓、 0 除算は実行時 panic に遅延)、 string split/indexOf/lastIndexOf/slice/charAt の端、 Set forEach (element retain 実装済み)、 `i64::MIN / -1` 等の数値の罠 (第 5 弾で確認済み)。
+
 ### [解決済み記録] fn 本体内の自己再帰 closure を `ClosureSelf` で対応 (2026-06-11、 `70b6dde8`)
 
 **旧状態**: `let fib: fn(i64): i64 = fn(n) { ... fib(...) }` はトップレベル (slot 経由の遅延解決) のみ対応。 fn 本体内では型注釈があっても `undefined function` で型検査落ち。 capture では原理的に解決できない (構築前の値の snapshot になるか、 cell 経由だと closure ↔ cell の retain 循環になる)。
