@@ -9,9 +9,17 @@ use ilang_ast::{Block, Expr, ExprKind, Stmt, StmtKind, Symbol};
 
 pub(super) fn lift_subexpr_awaits(body: Block) -> Block {
     let mut counter: u64 = 0;
+    lift_block(body, &mut counter)
+}
+
+/// Block-level lift. Hoisted `let __await_tN` statements stay inside
+/// the block they were found in — a nested while / if-branch block
+/// keeps its awaits per-iteration / per-branch. The counter is shared
+/// across the whole fn body so the synthesised names stay unique.
+fn lift_block(body: Block, counter: &mut u64) -> Block {
     let mut new_stmts: Vec<Stmt> = Vec::new();
     for s in body.stmts {
-        lift_stmt(s, &mut counter, &mut new_stmts);
+        lift_stmt(s, counter, &mut new_stmts);
     }
     let new_tail = body.tail.map(|t| {
         let span = t.span;
@@ -21,7 +29,7 @@ pub(super) fn lift_subexpr_awaits(body: Block) -> Block {
         // to be a sync expression — the let-await becomes the
         // body's last suspend point and the tail reduces to
         // `__await_tN`).
-        let tail_lifted = lift_in_expr(*t, &mut lifts, &mut counter, /*at_let_rhs=*/ false);
+        let tail_lifted = lift_in_expr(*t, &mut lifts, counter, /*at_let_rhs=*/ false);
         for s in lifts {
             new_stmts.push(s);
         }
@@ -237,6 +245,28 @@ fn lift_in_expr(
             let new_opt = opt.map(|e| Box::new(lift_in_expr(*e, lifts, counter, false)));
             Expr::new(ExprKind::Return(new_opt), span)
         }
+        // Assignments: lift awaits out of the RHS (and the receiver /
+        // index sub-exprs) so `total = total + await p` becomes
+        //   let __await_t0 = await p
+        //   total = total + __await_t0
+        // Without these arms the await stayed nested, the segment
+        // builder saw a single segment, and lower_async_fn hit its
+        // "NoAwait after body_contains_await" panic.
+        ExprKind::Assign { target, value } => {
+            let value = Box::new(lift_in_expr(*value, lifts, counter, false));
+            Expr::new(ExprKind::Assign { target, value }, span)
+        }
+        ExprKind::AssignField { obj, field, value, is_init } => {
+            let obj = Box::new(lift_in_expr(*obj, lifts, counter, false));
+            let value = Box::new(lift_in_expr(*value, lifts, counter, false));
+            Expr::new(ExprKind::AssignField { obj, field, value, is_init }, span)
+        }
+        ExprKind::AssignIndex { obj, index, value } => {
+            let obj = Box::new(lift_in_expr(*obj, lifts, counter, false));
+            let index = Box::new(lift_in_expr(*index, lifts, counter, false));
+            let value = Box::new(lift_in_expr(*value, lifts, counter, false));
+            Expr::new(ExprKind::AssignIndex { obj, index, value }, span)
+        }
         // `if` cond and `match` scrutinee are evaluated
         // unconditionally before any arm runs, so we CAN lift
         // awaits there. The arm bodies themselves are NOT
@@ -246,6 +276,13 @@ fn lift_in_expr(
         // (re-evaluated each iter) — leave those alone.
         ExprKind::If { cond, then_branch, else_branch } => {
             let cond = Box::new(lift_in_expr(*cond, lifts, counter, false));
+            // Branch blocks lift in place — hoisted lets stay inside
+            // their branch, so the awaits remain conditional. The
+            // else side is an Expr (block or elif chain); both shapes
+            // recurse through the matching arms here.
+            let then_branch = lift_block(then_branch, counter);
+            let else_branch =
+                else_branch.map(|e| Box::new(lift_in_expr(*e, lifts, counter, false)));
             Expr::new(
                 ExprKind::If { cond, then_branch, else_branch },
                 span,
@@ -253,12 +290,51 @@ fn lift_in_expr(
         }
         ExprKind::Match { scrutinee, arms } => {
             let scrutinee = Box::new(lift_in_expr(*scrutinee, lifts, counter, false));
-            Expr::new(ExprKind::Match { scrutinee, arms }, span)
+            // Block-bodied arms lift in place (per-arm scope). Bare
+            // expression arms stay untouched — hoisting those into
+            // the surrounding block would evaluate them
+            // unconditionally.
+            let arms: Vec<_> = arms
+                .into_vec()
+                .into_iter()
+                .map(|mut a| {
+                    if let ExprKind::Block(b) = a.body.kind {
+                        let b_span = a.body.span;
+                        a.body = Expr::new(
+                            ExprKind::Block(lift_block(b, counter)),
+                            b_span,
+                        );
+                    }
+                    a
+                })
+                .collect();
+            Expr::new(
+                ExprKind::Match { scrutinee, arms: arms.into_boxed_slice() },
+                span,
+            )
         }
-        // Everything else that introduces a new scope (blocks, while,
-        // loop, closures) is NOT descended into. Awaits inside are
-        // either rejected by the analyser or handled by the
-        // state-machine builder.
+        // Loop-shaped bodies are their own blocks: lift inside them
+        // (the hoisted lets stay per-iteration). The while cond is
+        // re-evaluated every lap, so awaits there are left alone —
+        // the segment builder rejects await-bearing conds.
+        ExprKind::While { cond, body } => {
+            let body = lift_block(body, counter);
+            Expr::new(ExprKind::While { cond, body }, span)
+        }
+        ExprKind::Loop { body } => {
+            let body = lift_block(body, counter);
+            Expr::new(ExprKind::Loop { body }, span)
+        }
+        ExprKind::ForIn { var, iter, body } => {
+            let body = lift_block(body, counter);
+            Expr::new(ExprKind::ForIn { var, iter, body }, span)
+        }
+        ExprKind::Block(b) => {
+            Expr::new(ExprKind::Block(lift_block(b, counter)), span)
+        }
+        // Everything else that introduces a new scope (closures) is
+        // NOT descended into. Awaits inside are rejected by the
+        // analyser.
         kind => Expr::new(kind, span),
     }
 }

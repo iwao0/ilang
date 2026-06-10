@@ -337,8 +337,24 @@ fn lower_async_fn(
             state_enum: Some(out.state_enum),
         }),
         state_machine::LowerOutput::NoAwait => {
-            // Defensive: body_contains_await above should have caught this.
-            unreachable!("v2 returned NoAwait after body_contains_await=true")
+            // The body contains an await (checked above) but the
+            // segment builder didn't split on it — the await sits in
+            // a position `lift_subexpr_awaits` doesn't hoist (e.g.
+            // the rhs of a short-circuiting `&&` / `||`). Report it
+            // instead of panicking the compiler.
+            let reason = format!(
+                "async fn `{}`: an `await` sits in a position the \
+                 state-machine lowering can't reach (e.g. the right \
+                 side of `&&` / `||`, or inside a closure body). \
+                 Hoist it into its own `let v = await ...` statement \
+                 first.",
+                f.name.as_str(),
+            );
+            Err(AsyncLowerError {
+                fn_name: f.name,
+                span: f.span,
+                reason,
+            })
         }
         state_machine::LowerOutput::NeedsFallback => {
             // `NeedsFallback` now means the body shape isn't covered
