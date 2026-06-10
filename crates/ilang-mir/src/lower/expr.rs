@@ -1132,7 +1132,27 @@ impl<'a> BodyCx<'a> {
         if let Some(cid) = self.this_class {
             let meta = self.class_meta.get(&cid).expect("class meta");
             if let Some(&fid) = meta.field_ix.get(&name) {
-                let (this_v, _) = self.lookup_var(Symbol::intern("this")).unwrap();
+                // `this` lives in `env` for a regular method body,
+                // but in a method-internal closure it's a capture
+                // (the `E::This` arm above walks captures_in_scope
+                // for the same reason). Try env first; fall back to
+                // a `LoadCapture` if the surrounding closure captured
+                // `this`.
+                let this_sym = Symbol::intern("this");
+                let (this_v, _) = if let Some(pair) = self.lookup_var(this_sym) {
+                    pair
+                } else if let Some(caps) = self.captures_in_scope {
+                    let &(cap_idx, ref this_ty) = caps
+                        .get(&this_sym)
+                        .expect("class method closure must capture `this` for implicit field ref");
+                    let dst = self.fb.new_value(this_ty.clone());
+                    self.fb.push_inst(Inst::LoadCapture { dst, idx: cap_idx });
+                    (dst, this_ty.clone())
+                } else {
+                    return Err(LowerError::Other(format!(
+                        "cannot resolve `this` for implicit field reference `{name}`"
+                    )));
+                };
                 let meta_fty = meta.field_ty.get(&fid).cloned().unwrap();
                 let fty = super::BodyCx::loaded_field_ty(&meta_fty);
                 let v = self.fb.new_value(fty.clone());

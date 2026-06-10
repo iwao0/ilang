@@ -385,6 +385,17 @@ pub(super) fn collect_free_vars_expr(
             if !bound.contains(n) && !frees.contains(n) {
                 frees.push(*n);
             }
+            // A bare `n` inside a class method body desugars to
+            // `this.n` when `n` is a field — the class context isn't
+            // available here, so add `this` as a candidate free var
+            // alongside `n`. The lower_fn_expr filter drops `this`
+            // when the surrounding env can't resolve it (top-level
+            // closures, free-fn bodies), so this only takes effect
+            // where it's actually needed.
+            let this_sym = Symbol::intern("this");
+            if !bound.contains(&this_sym) && !frees.contains(&this_sym) {
+                frees.push(this_sym);
+            }
         }
         E::Unary { expr, .. } => collect_free_vars_expr(expr, bound, frees),
         E::Binary { lhs, rhs, .. } | E::Logical { lhs, rhs, .. } => {
