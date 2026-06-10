@@ -152,6 +152,13 @@ pub(in crate::lower) struct BodyCx<'a> {
     /// lookup inside the body resolves through the slot at call
     /// time instead.
     pub(in crate::lower) binding_self_name: Option<Symbol>,
+    /// True when this body is a property getter (`prop::get` synthetic
+    /// method). Property access at the call site already retains the
+    /// borrowed return value — the `tail_is_borrow` retain that
+    /// `lower_block_hinted` emits for ordinary method tails would
+    /// double-count and leak one rc share per call. Setters are unaffected
+    /// (their return is Unit).
+    pub(in crate::lower) is_property_getter: bool,
 }
 
 impl<'a> BodyCx<'a> {
@@ -703,8 +710,14 @@ impl<'a> BodyCx<'a> {
             // `name` resolves to neither a local/cell binding nor a
             // closure capture (= really a field) and we're inside a
             // class method (`this_class` set).
+            //
+            // Property getters are excluded: at the call site
+            // (`obj.prop`), property access already retains the
+            // borrowed return value, so adding the borrow-tail retain
+            // here would double-count and leak one rc share per call.
             ExprKind::Var(name) => {
-                self.this_class.is_some()
+                !self.is_property_getter
+                    && self.this_class.is_some()
                     && self.env.lookup_binding(*name).is_none()
                     && self
                         .captures_in_scope

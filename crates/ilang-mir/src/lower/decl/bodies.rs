@@ -28,7 +28,7 @@ impl Lower {
             if !m.type_params.is_empty() {
                 continue;
             }
-            self.lower_method(class_id, cd.name, m)?;
+            self.lower_method(class_id, cd.name, m, false)?;
         }
         // Static methods → lower like a free fn (no `this` injection).
         for sm in cd.static_methods.iter() {
@@ -51,7 +51,7 @@ impl Lower {
                     self.lower_static_method(class_id, cd.name, &g2)?;
                 } else {
                     g2.name = Symbol::intern(&format!("{}::get", prop.name));
-                    self.lower_method(class_id, cd.name, &g2)?;
+                    self.lower_method(class_id, cd.name, &g2, true)?;
                 }
             }
             if let Some(s) = &prop.setter {
@@ -61,7 +61,7 @@ impl Lower {
                     self.lower_static_method(class_id, cd.name, &s2)?;
                 } else {
                     s2.name = Symbol::intern(&format!("{}::set", prop.name));
-                    self.lower_method(class_id, cd.name, &s2)?;
+                    self.lower_method(class_id, cd.name, &s2, false)?;
                 }
             }
         }
@@ -135,6 +135,7 @@ impl Lower {
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
+            is_property_getter: false,
         };
         let needs_retain = pc
             .body
@@ -235,6 +236,7 @@ impl Lower {
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
+            is_property_getter: false,
         };
         let needs_retain = m
             .body
@@ -259,6 +261,7 @@ impl Lower {
         class_id: crate::types::ClassId,
         _class_name: Symbol,
         m: &FnDecl,
+        is_property_getter: bool,
     ) -> Result<(), LowerError> {
         let id = *self
             .class_meta
@@ -340,6 +343,7 @@ impl Lower {
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
+            is_property_getter,
         };
         let needs_retain = m
             .body
@@ -455,6 +459,7 @@ impl Lower {
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
+            is_property_getter: false,
         };
         let needs_retain = fd
             .body
@@ -521,6 +526,7 @@ impl Lower {
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
+            is_property_getter: false,
         };
         for stmt in stmts {
             bcx.lower_stmt(stmt)?;
