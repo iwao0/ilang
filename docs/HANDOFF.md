@@ -51,11 +51,16 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### AOT arm の確率的失敗 (監視中 — 捕捉用の罠を設置済み)
+### AOT arm の確率的失敗 (監視中 — 環境起因 2 経路を retry + 記録で hardening 済み)
 
-`ILANG_TEST_AOT=1` の fixture 一斉実行が確率的に FAIL する (2026-06-11 までに 2 回観測、いずれも直後の再実行は PASS)。どちらも失敗 fixture 名を取り逃した。再現試行: 同一ビルドで 8 連続 + 強制リビルド込み 3 連続 = **11 連続 PASS で再現せず** (「失敗はビルド直後の初回実行」という仮説も棄却できず確認もできず)。
+`ILANG_TEST_AOT=1` の fixture 一斉実行が確率的に FAIL する事象 (2026-06-11 までに 2 回観測、いずれも直後の再実行は PASS)。意図的な再現は **計 27 連続 PASS で一度も成功せず** (同一ビルド 8 + 強制リビルド込み 3 + hardening 後 1 + キャンペーン 15)。
 
-**罠を設置済み**: [crates/ilang-cli/tests/programs.rs](crates/ilang-cli/tests/programs.rs) が失敗時に fixture 名・出力・タイムスタンプ・AOT フラグを `target/fixture-failures.log` へ自動追記してから panic する。次に自然発生したらこのファイルを見ること。
+**静的調査の結論** (`39d87ad7`): 出力パス・中間 `.o` の並列衝突は無い (どちらも pid + 連番で一意)。残る有力候補は環境起因の 2 つで、「再実行は必ず PASS」「失敗詳細の記録罠のログが空のまま」という観測と整合する:
+
+1. **spawn の一時失敗** — 1 回の suite で数千プロセス (JIT 実行 + build + cc + AOT バイナリ) を fork しており、一時失敗が `.expect("failed to spawn ...")` で harness ごと panic していた (記録罠より手前の経路 = ログが残らない)。
+2. **macOS の署名検証 race** — リンク直後のバイナリ実行が稀に SIGKILL される CI 既知の現象。
+
+**hardening 済み** ([crates/ilang-cli/tests/programs.rs](crates/ilang-cli/tests/programs.rs)): spawn 失敗と「リンク直後の SIGKILL(9)」だけ 1 回 retry し、発生を必ず `target/fixture-failures.log` に追記する。SIGSEGV / SIGABRT (本物の製品バグの兆候) は retry しない。fixture 自体の失敗は従来どおり詳細を同ファイルへ記録してから panic する。**次に何が起きても自己記録される**: 揺らぎが retry で吸収されたら transient 行が残り、本物の失敗なら fixture 名と出力が残る。時々 `target/fixture-failures.log` を確認すること。
 
 ### [解決済み記録] fixture 増殖ラウンド第 7 弾: for-in の live 化・分解束縛の ARC・テンプレート part 入力 (2026-06-11、 `ced57791`〜`52c6bb8f`)
 
