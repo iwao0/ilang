@@ -89,7 +89,21 @@ pub fn lower_program_with_slots(
     prog: &AstProgram,
     slots: &HashMap<Symbol, (u32, ilang_ast::Type)>,
 ) -> Result<Program, LowerError> {
+    lower_program_with_slots_opts(prog, slots, /*release_slots_at_exit=*/ true)
+}
+
+/// Like [`lower_program_with_slots`], with control over whether
+/// __main's epilogue releases the heap-typed slots. File / AOT runs
+/// pass `true` (deinits fire before the process exits); the
+/// interactive REPL passes `false` so slot values survive into the
+/// next chunk.
+pub fn lower_program_with_slots_opts(
+    prog: &AstProgram,
+    slots: &HashMap<Symbol, (u32, ilang_ast::Type)>,
+    release_slots_at_exit: bool,
+) -> Result<Program, LowerError> {
     let mut lower = Lower::new();
+    lower.release_slots_at_exit = release_slots_at_exit;
     // Defer slot-type resolution: classes/enums/etc. need the
     // class_ids/enum_ids tables that are populated during the
     // pre-passes below. We resolve and stash them right after

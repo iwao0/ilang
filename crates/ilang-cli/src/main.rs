@@ -981,8 +981,12 @@ impl ReplSession {
             &prog,
             &self.tc.method_call_type_args(),
         );
-        let mut mir = ilang_mir::lower_program_with_slots(&prog, &self.slot_table)
-            .map_err(|e| format!("<repl> mir: {e}"))?;
+        let mut mir = ilang_mir::lower_program_with_slots_opts(
+            &prog,
+            &self.slot_table,
+            /*release_slots_at_exit=*/ false,
+        )
+        .map_err(|e| format!("<repl> mir: {e}"))?;
         ilang_mir::passes::promote_locals::run_program(&mut mir);
         ilang_mir::passes::inline::run_program(&mut mir);
         ilang_mir::passes::const_fold::run_program(&mut mir);

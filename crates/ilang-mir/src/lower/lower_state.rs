@@ -93,6 +93,12 @@ pub(in crate::lower) struct Lower {
     /// converted to `repl_slots[name]` once the lowerer's class /
     /// enum tables are populated.
     pub(in crate::lower) repl_slot_ast: HashMap<Symbol, (u32, ilang_ast::Type)>,
+    /// When `true` (file / AOT runs), __main's epilogue releases
+    /// every heap-typed slot so class deinits fire before the
+    /// process exits. The interactive REPL passes `false`: slots
+    /// outlive the chunk, and releasing them per chunk left the
+    /// next chunk reading freed memory.
+    pub(in crate::lower) release_slots_at_exit: bool,
 }
 
 impl Lower {
@@ -121,6 +127,7 @@ impl Lower {
             overloads: HashMap::new(),
             repl_slots: HashMap::new(),
             repl_slot_ast: HashMap::new(),
+            release_slots_at_exit: true,
         }
     }
 

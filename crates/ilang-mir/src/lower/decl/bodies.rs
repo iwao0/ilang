@@ -479,6 +479,7 @@ impl Lower {
     }
 
     pub(in crate::lower) fn lower_main(&mut self, stmts: &[Stmt], tail: Option<&Expr>) -> Result<(), LowerError> {
+        let release_slots_at_exit = self.release_slots_at_exit;
         let main_name = Symbol::intern("$main");
         let mut fb = FunctionBuilder::new(main_name, main_name, MirTy::I64, FunctionKind::Local);
         let entry = fb.new_block();
@@ -572,15 +573,12 @@ impl Lower {
                 Binding::Ssa(v, ty) if needs_release(&ty) => {
                     bcx.fb.push_inst(Inst::Release { value: v });
                 }
-                Binding::Cell(cell_v, ty) if needs_release(&ty) => {
-                    let zero = bcx.const_int(MirTy::I64, 0);
-                    let v = bcx.fb.new_value(ty.clone());
-                    bcx.fb.push_inst(Inst::ArrayLoad {
-                        dst: v,
-                        arr: cell_v,
-                        idx: zero,
-                    });
-                    bcx.fb.push_inst(Inst::Release { value: v });
+                Binding::Cell(cell_v, _) => {
+                    // Drop the scope's share of the cell itself (the
+                    // value type is the `T[]` cell array, so the
+                    // release cascades into the inner) — mirrors
+                    // `release_top_scope_objects` / the break sweep.
+                    bcx.fb.push_inst(Inst::Release { value: cell_v });
                 }
                 _ => {}
             }
@@ -589,12 +587,20 @@ impl Lower {
         // store-time with a release at process exit so any class
         // `deinit` fires before main returns. Emitted in
         // descending-slot order to mirror reverse-bind LIFO release.
-        let mut slot_releases: Vec<(u32, MirTy)> = bcx
-            .repl_slots
-            .iter()
-            .filter(|(_, (_, ty))| needs_release(ty))
-            .map(|(_, (idx, ty))| (*idx, ty.clone()))
-            .collect();
+        // Interactive REPL chunks skip the slot sweep
+        // (`release_slots_at_exit` = false): slots must outlive the
+        // chunk, and releasing them here handed the next chunk a
+        // freed pointer (`let arr = [1,2,3]` then `arr[1]` on the
+        // following line read freed memory).
+        let mut slot_releases: Vec<(u32, MirTy)> = if release_slots_at_exit {
+            bcx.repl_slots
+                .iter()
+                .filter(|(_, (_, ty))| needs_release(ty))
+                .map(|(_, (idx, ty))| (*idx, ty.clone()))
+                .collect()
+        } else {
+            Vec::new()
+        };
         slot_releases.sort_by(|a, b| b.0.cmp(&a.0));
         for (idx, ty) in slot_releases {
             let idx_v = bcx.const_int(MirTy::I64, idx as i64);
