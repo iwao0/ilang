@@ -67,11 +67,18 @@ pub extern "C" fn test_fail(msg: i64) {
 
 #[unsafe(export_name = "$test.liveAllocBytes")]
 pub extern "C" fn test_live_alloc_bytes() -> i64 {
+    // Drain the work-stealing pool first: async / Promise fixtures
+    // submit continuations there even on a synchronously-resolved
+    // `.then`, and an undrained pool leaves callback-pending allocs
+    // visible to the leak counter as if they were leaks. Pool fast-
+    // paths to a no-op when the pool has never been touched.
+    crate::pool::drain();
     live_alloc_bytes()
 }
 
 #[unsafe(export_name = "$test.liveAllocCount")]
 pub extern "C" fn test_live_alloc_count() -> i64 {
+    crate::pool::drain();
     live_alloc_count()
 }
 
