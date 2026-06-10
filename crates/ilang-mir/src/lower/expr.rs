@@ -1004,21 +1004,31 @@ impl<'a> BodyCx<'a> {
         // route through the `fmt_value` builtin; the codegen layer
         // looks at the MIR type of the value to pick the right host
         // conversion (mirroring `console.log`'s emit_print_value).
+        //
+        // rc bookkeeping: `fmt_value` always mints a fresh registry
+        // string (even for Str input — `$fmt.str` copies), and so
+        // does every `str_concat`. Those transients drop right after
+        // the concat that consumed them; only interned `Const` string
+        // literals (the part literals and the leading "") must not be
+        // released. The final `acc` keeps its +1 — `Template` is
+        // classified fresh in `is_fresh_object_expr`, so the consumer
+        // releases it like any other fresh string.
         let empty = self.fb.new_value(MirTy::Str);
         self.fb.push_inst(Inst::Const {
             dst: empty,
             value: MirConst::Str(Symbol::intern("")),
         });
         let mut acc = empty;
+        let mut acc_is_fresh = false;
         for part in parts {
-            let piece = match part {
+            let (piece, piece_is_fresh) = match part {
                 ilang_ast::TemplatePart::Str(s) => {
                     let v = self.fb.new_value(MirTy::Str);
                     self.fb.push_inst(Inst::Const {
                         dst: v,
                         value: MirConst::Str(Symbol::intern(s)),
                     });
-                    v
+                    (v, false)
                 }
                 ilang_ast::TemplatePart::Expr(e) => {
                     let (val, _) = self.lower_expr(e)?;
@@ -1028,7 +1038,7 @@ impl<'a> BodyCx<'a> {
                         callee: FuncRef::Builtin(Symbol::intern("fmt_value")),
                         args: Box::new([val]),
                     });
-                    s
+                    (s, true)
                 }
             };
             let next = self.fb.new_value(MirTy::Str);
@@ -1037,7 +1047,26 @@ impl<'a> BodyCx<'a> {
                 callee: FuncRef::Builtin(Symbol::intern("str_concat")),
                 args: Box::new([acc, piece]),
             });
+            if acc_is_fresh {
+                self.fb.push_inst(Inst::Release { value: acc });
+            }
+            if piece_is_fresh {
+                self.fb.push_inst(Inst::Release { value: piece });
+            }
             acc = next;
+            acc_is_fresh = true;
+        }
+        // Zero-part template: `acc` is still the interned "" literal,
+        // which the consumer must not release. Mint a fresh copy so
+        // the fresh-Template contract holds unconditionally.
+        if !acc_is_fresh {
+            let s = self.fb.new_value(MirTy::Str);
+            self.fb.push_inst(Inst::Call {
+                dst: Some(s),
+                callee: FuncRef::Builtin(Symbol::intern("fmt_value")),
+                args: Box::new([acc]),
+            });
+            acc = s;
         }
         Ok((acc, MirTy::Str))
     }

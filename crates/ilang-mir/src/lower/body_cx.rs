@@ -844,6 +844,12 @@ impl<'a> BodyCx<'a> {
             | ExprKind::None
             | ExprKind::EnumCtor { .. }
             | ExprKind::FnExpr { .. } => true,
+            // Template literals fold through `str_concat` /
+            // `fmt_value`, both of which mint fresh registry strings;
+            // `lower_template` releases every intermediate and
+            // guarantees the final value owns its own +1 (zero-part
+            // templates get a fresh copy of "").
+            ExprKind::Template { .. } => true,
             // Indexing a fresh tuple / array donates ownership of the
             // selected element to the caller — the lowerer retains
             // that element exactly once on the fresh-receiver path.
