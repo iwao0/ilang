@@ -385,6 +385,29 @@ impl<'a> BodyCx<'a> {
     /// fields; for a property it means the getter's +1 is never
     /// dropped (a leak, never a use-after-free).
     fn field_is_property_access(&self, obj: &Expr, name: Symbol) -> bool {
+        // Reflection members on a `Type` handle all hand the consumer
+        // an owned value: `.name` retains a registry string,
+        // `.fields` / `.methods` / `.typeArgs` mint fresh arrays,
+        // `.parent` mints a fresh Optional cell, and `.kind` returns
+        // an interned unit-enum box whose release is a no-op
+        // (rc = -1). Classified borrowed they all leaked per read.
+        if matches!(
+            name.as_str(),
+            "name" | "fields" | "methods" | "parent" | "typeArgs" | "kind"
+        ) {
+            let obj_is_typehandle = match &obj.kind {
+                ExprKind::Var(n) => matches!(
+                    self.peek_var_ty(*n)
+                        .or_else(|| self.repl_slots.get(n).map(|(_, t)| t.clone())),
+                    Some(MirTy::TypeHandle)
+                ),
+                ExprKind::Call { callee, .. } => callee.as_str() == "typeof",
+                _ => false,
+            };
+            if obj_is_typehandle {
+                return true;
+            }
+        }
         let obj_cid = match &obj.kind {
             ExprKind::This => self.this_class,
             ExprKind::Var(n) => {
@@ -908,6 +931,10 @@ impl<'a> BodyCx<'a> {
             // break new Box(i) }` stack a binding retain on top and
             // leak one occupant per evaluation.
             ExprKind::Loop { .. } => true,
+            // `x as? C` boxes into a fresh Optional cell that owns a
+            // +1 of the value (DowncastOrNone codegen mirrors
+            // WeakUpgrade) — the consumer drops the cell's share.
+            ExprKind::TypeDowncast { .. } => true,
             // Property-getter reads are owned: the getter's tail
             // retains like any method tail (fresh tails own their +1
             // anyway), so `h.prop` hands the consumer a share to

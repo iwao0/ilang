@@ -86,12 +86,26 @@ pub(super) fn lower_rtti_inst<M: Module>(
 
             fb.switch_to_block(some_blk);
             fb.seal_block(some_blk);
-            // Allocate one i64 cell containing the value.
-            let bytes = fb.ins().iconst(types::I64, 8);
+            // Box into a regular Optional cell [value | rc=1 |
+            // kind_tag=Object] — mirrors WeakUpgrade. The cell owns
+            // its own +1 of the value (rc bumped here) so releasing
+            // the Optional cascades into the object. The old shape
+            // was a bare 8-byte [value] cell with no rc / kind tag:
+            // nothing ever released it (8 bytes leaked per `as?`
+            // hit), and a release would have read past the alloc.
+            use super::super::layout::optional_header as opth;
+            let rc_old = fb.ins().load(types::I64, MemFlags::trusted(), p, oh::RC);
+            let one = fb.ins().iconst(types::I64, 1);
+            let rc_new = fb.ins().iadd(rc_old, one);
+            fb.ins().store(MemFlags::trusted(), rc_new, p, oh::RC);
+            let bytes = fb.ins().iconst(types::I64, opth::SIZE);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
             let call = fb.ins().call(alloc_ref, &[bytes]);
             let ptr = fb.inst_results(call)[0];
-            fb.ins().store(MemFlags::trusted(), p, ptr, 0);
+            fb.ins().store(MemFlags::trusted(), p, ptr, opth::VALUE);
+            fb.ins().store(MemFlags::trusted(), one, ptr, opth::RC);
+            let kind = fb.ins().iconst(types::I64, 1); // KIND_OBJECT cascade
+            fb.ins().store(MemFlags::trusted(), kind, ptr, opth::KIND_TAG);
             fb.ins().jump(cont_blk, [cranelift_codegen::ir::BlockArg::from(ptr)].iter());
 
             fb.switch_to_block(none_blk);

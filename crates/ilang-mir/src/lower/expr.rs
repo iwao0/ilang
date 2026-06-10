@@ -770,7 +770,8 @@ impl<'a> BodyCx<'a> {
                 Ok((out, actual_ty))
             }
             ExprKind::TypeTest { expr: inner, ty } => {
-                let (v, _) = self.lower_expr(inner)?;
+                let value_is_fresh = self.is_fresh_object_expr(inner);
+                let (v, vty) = self.lower_expr(inner)?;
                 let dst_ty = self.resolve_ty(ty)?;
                 let class = match &dst_ty {
                     MirTy::Object(c) => *c,
@@ -782,10 +783,17 @@ impl<'a> BodyCx<'a> {
                 };
                 let dst = self.fb.new_value(MirTy::Bool);
                 self.fb.push_inst(Inst::IsInstance { dst, value: v, class });
+                // `is` only reads the class id — a fresh operand's
+                // transient +1 drops here (`makeB() is B` leaked the
+                // whole object per call).
+                if value_is_fresh && self.is_arc_heap(&vty) {
+                    self.fb.push_inst(Inst::Release { value: v });
+                }
                 Ok((dst, MirTy::Bool))
             }
             ExprKind::TypeDowncast { expr: inner, ty } => {
-                let (v, _) = self.lower_expr(inner)?;
+                let value_is_fresh = self.is_fresh_object_expr(inner);
+                let (v, vty) = self.lower_expr(inner)?;
                 let dst_ty = self.resolve_ty(ty)?;
                 let class = match &dst_ty {
                     MirTy::Object(c) => *c,
@@ -798,6 +806,12 @@ impl<'a> BodyCx<'a> {
                 let opt_ty = MirTy::Optional(Box::new(MirTy::Object(class)));
                 let dst = self.fb.new_value(opt_ty.clone());
                 self.fb.push_inst(Inst::DowncastOrNone { dst, value: v, class });
+                // The Optional cell takes its own +1 on the hit path
+                // (and on a miss the operand is untouched) — a fresh
+                // operand's transient +1 drops here either way.
+                if value_is_fresh && self.is_arc_heap(&vty) {
+                    self.fb.push_inst(Inst::Release { value: v });
+                }
                 Ok((dst, opt_ty))
             }
             ExprKind::Array(items) => self.lower_array_literal(items),
