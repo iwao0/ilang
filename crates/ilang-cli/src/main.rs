@@ -48,11 +48,27 @@ enum Cmd {
 }
 
 fn main() -> ExitCode {
-    // Opt-in Windows crash reporter: set `ILANG_TRACE_CRASH=1` to get
-    // a stack trace + offending RIP printed to stderr when the JIT'd
-    // program faults (typically `STATUS_ACCESS_VIOLATION`). No-op
-    // when the env var is unset or on non-Windows hosts.
+    // Opt-in crash reporter (`ILANG_TRACE_CRASH=1`): Windows vectored
+    // exception handler / Unix sigaction that print signal/exception
+    // details to stderr before the OS terminates. Safe to call cold.
     ilang_runtime::crash_handler::install_if_enabled();
+
+    // Always install a panic hook so Rust panics from the lower /
+    // codegen / runtime print location + a forced backtrace before
+    // exit, even when `RUST_BACKTRACE` is unset. Cheap (just registers
+    // a callback) and helps the parallel-spawn harnesses surface the
+    // panic site instead of "command failed: <empty>".
+    std::panic::set_hook(Box::new(|info| {
+        eprintln!("ilang: panic: {info}");
+        if let Some(loc) = info.location() {
+            eprintln!("  at {}:{}:{}", loc.file(), loc.line(), loc.column());
+        }
+        eprintln!("backtrace:");
+        eprintln!("{}", std::backtrace::Backtrace::force_capture());
+        use std::io::Write;
+        let _ = std::io::stderr().flush();
+    }));
+
     let cli = Cli::parse();
     match cli.command {
         None => run_repl(),

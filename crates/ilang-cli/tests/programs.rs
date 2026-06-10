@@ -68,6 +68,12 @@ fn parse_spec(src: &str) -> Spec {
 fn run(path: &Path) -> Output {
     let mut cmd = Command::new(ilang_bin());
     cmd.arg("run").arg("--mir-jit").arg(path);
+    // Always opt children into the signal/exception crash reporter and
+    // a forced Rust backtrace. When a fixture flakes under parallel
+    // spawn, the parent harness needs every byte of diagnostic — both
+    // are cheap when the child exits cleanly.
+    cmd.env("ILANG_TRACE_CRASH", "1");
+    cmd.env("RUST_BACKTRACE", "full");
     cmd.output().expect("failed to spawn ilang")
 }
 
@@ -119,6 +125,7 @@ fn check(spec: &Spec, out: &Output) -> Result<String, String> {
     }
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
         let code = out.status.code();
         #[cfg(unix)]
         let sig = {
@@ -128,7 +135,11 @@ fn check(spec: &Spec, out: &Output) -> Result<String, String> {
         #[cfg(not(unix))]
         let sig: Option<i32> = None;
         return Err(format!(
-            "command failed (exit={code:?} signal={sig:?}):\n{stderr}"
+            "command failed (exit={code:?} signal={sig:?})\n\
+             ---- stdout ({stdout_len} bytes) ----\n{stdout}\n\
+             ---- stderr ({stderr_len} bytes) ----\n{stderr}",
+            stdout_len = out.stdout.len(),
+            stderr_len = out.stderr.len(),
         ));
     }
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
