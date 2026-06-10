@@ -51,18 +51,17 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### 継承時に親クラスの `deinit` が連鎖しない (仕様判断待ち)
+(現在なし)
 
-`class Derived: Base` で両方に `deinit` がある場合、**派生側の deinit だけ**が走り、親側は走らない (Base 型の束縛経由でも class_id による動的選択で派生側が選ばれる点は正常)。Swift は派生 → 親の順で自動連鎖する。[docs/syntax.md](syntax.md) は「init / deinit は per-class (override 規則の対象外)」とだけ書いており、連鎖の有無は未規定。**連鎖させるか・現状 (置き換え) を仕様として明文化するかはユーザーの設計判断待ち**。再現:
+### [解決済み記録] 継承時の `deinit` を Swift と同様の自動連鎖に変更 (2026-06-10 後続セッション、 `37a4e8b9`)
 
-```il
-class Base { init() {}; deinit() { console.log("base") } }
-class Derived: Base { init() { super() }; deinit() { console.log("derived") } }
-fn f() { let b: Base = new Derived(); let _ = b }
-f()   // "derived" のみ出力。親の後始末 (リソース解放等) は走らない
-```
+**旧挙動**: `class Derived: Base` で両方に `deinit` がある場合、 派生側の deinit が親側を**置き換え**、 親の後始末は走らなかった (明示の `super.deinit()` が連鎖手段だった — 旧 `inheritance_deinit_chain.il` がその挙動を pin していた)。
 
-連鎖させる場合の実装方向: deinit の synth drop fn (`__drop_dispatch` が返す per-class fn) が自身の本体の後に親 class の drop fn を呼ぶ。
+**新仕様 (ユーザー判断)**: Swift と同様の自動連鎖。 破棄時に最派生クラスの deinit → 各祖先の deinit の順で自動実行。 deinit を持たないクラスは連鎖を切らずにスキップ。 `super.deinit()` は自動連鎖と二重実行になるため、 他の明示 deinit 呼び出しと同じく型検査で拒否 (`CannotCallDeinit`)。
+
+**実装**: [crates/ilang-mir/src/lower/decl/class.rs](crates/ilang-mir/src/lower/decl/class.rs) の class decl で、 自前 deinit + 祖先 deinit の両方があるクラスに `Class.deinit$chain` wrapper (自前 deinit を呼んでから直近祖先の drop_fn を呼ぶ合成 MIR fn) を生成して `drop_fn` に据える。 祖先側の drop_fn は処理順 (親が先) により既に連鎖済みなので再帰的に根まで届く。 deinit 本体内の早期 `return` でも連鎖が切れないよう、 tail への呼び出し追記ではなく wrapper 方式を採用。 `super.deinit()` の拒否は [crates/ilang-types/src/checker/expr/mod.rs](crates/ilang-types/src/checker/expr/mod.rs) の SuperCall arm。
+
+**検証**: workspace nextest 525/525、 nested_generic.il 16×25×2 = 0/800。 fixture: `02_classes/inheritance_deinit_chain.il` (新仕様に書き換え)、 `02_classes/inheritance_super_deinit_error.il` (拒否の pin)、 `09_subtyping/deinit_chain_to_parent.il` (Base 型束縛経由・deinit なし中間クラス・早期 return・200 周 churn)。 docs: syntax.md / syntax_ja.md のクラス基本節と継承節に連鎖規則を明記。 ilang-lsp も release ビルド済み。
 
 ### [解決済み記録] fixture 増殖ラウンド第 2 弾で検出した 3 系統 (2026-06-10 後続セッション、 `7ba1d28f`〜`9912a69c`)
 
