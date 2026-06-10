@@ -126,9 +126,6 @@ impl<'a> BodyCx<'a> {
                         )))
                     }
                 };
-                let len = self.fb.new_value(MirTy::I64);
-                self.fb.push_inst(Inst::ArrayLen { dst: len, arr: av });
-
                 let header = self.fb.new_block();
                 let body_blk = self.fb.new_block();
                 let exit = self.fb.new_block();
@@ -140,6 +137,15 @@ impl<'a> BodyCx<'a> {
                     args: Box::new([zero]),
                 });
                 self.fb.switch_to(header);
+                // Re-read the length every lap (live semantics, like
+                // JS `for..of`): the body may push (the loop then
+                // visits the appended elements) or pop (the loop ends
+                // early instead of tripping the stale-length bounds
+                // panic the old loop-invariant ArrayLen caused).
+                // ArrayLoad re-reads the data pointer per access, so
+                // a push-triggered realloc is already safe.
+                let len = self.fb.new_value(MirTy::I64);
+                self.fb.push_inst(Inst::ArrayLen { dst: len, arr: av });
                 let c = self.fb.new_value(MirTy::Bool);
                 self.fb.push_inst(Inst::BinOp {
                     dst: c,
