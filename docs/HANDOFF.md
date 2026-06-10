@@ -51,7 +51,11 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-(現在なし)
+### [計画済み・実装待ち] Promise/async 実行モデルを JS 型 (run-to-completion・シングルスレッド) へ移行する
+
+ユーザー決定 (2026-06-11)。現行は executor / `.then` 継続 / await 再開が worker pool 上で**メインスレッドと並行に**走り、 (a) 同期コードからの promise 状態観測が非決定的 (`promise_print_state.il` の race を高負荷 1/400 で実測)、 (b) callback がメインと同じ容器を触るとデータ競合になり得る (同期プリミティブが無いため防げない)。 JS / Node と同じ「ユーザーコードは全部メインスレッド・継続はメインの FIFO queue・executor は構築時に同期実行・タイマーは timer heap + drain が期限まで待つ・非ブロッキング `time.tick()` (pump) を新設して GUI のフレームループから呼ぶ」へ移行する。
+
+**詳細な実装計画 (調査済みの file:line・既存テスト/docs への影響・検証手順・作業規約込み) は `/Users/iwao/.claude/plans/tingly-puzzling-dusk.md`**。実装セッションはまずこのファイルを読むこと。主要変更点: `crates/ilang-runtime/src/pool.rs` (シングルスレッド queue + timer heap へ書き換え、 `submit`/`drain` の API は維持、 `pump` 追加)、 `promises.rs:526-539` (executor 同期化)、 `timers.rs` (heap 化)、 `libs/std/time.il` (`tick()` 追加)、 fixture `timer_set_interval_clear.il` の JS 流書き換え、 `examples/libs/gui/window_state_demo` の追従、 syntax.md / syntax_ja.md の実行モデル節更新。
 
 ### [解決済み記録] AOT arm の確率的失敗は `promise_print_state.il` のタイミング依存期待だった (2026-06-11、 `df797334`)
 
