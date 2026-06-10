@@ -33,7 +33,31 @@
 
 ## 未解決の引き継ぎ事項
 
-### `nested_generic.il` 系の SIGABRT は `cranelift_module::ModuleDeclarations` の drop が真因方向
+### [解決済み記録] `nested_generic.il` 系の SIGABRT は class method body の bare-var tail に retain が抜けていた
+
+**真因 (2026-06-10 本セッションで確定 + 修正)**:
+
+`class Box<T> { x: T; get(): T { x } }` のように **class method body の tail expression が bare var (= 暗黙の `this.field`)** のとき、 [crates/ilang-mir/src/lower/body_cx.rs:695](crates/ilang-mir/src/lower/body_cx.rs:695) の `tail_is_borrow` 判定が `ExprKind::Index { .. } | ExprKind::Field { .. }` の 2 形だけを borrow として扱い、 **`ExprKind::Var(name)` だが env / capture 解決できない (= class field) ケースを取りこぼしていた**。 その結果、 lower_block_hinted の scope-exit retain (L698-) が走らず、 戻り値が aliased のまま caller に返り、 caller は `lower_block` の scope-exit release で `release v7` を発行 → b1 の rc が 1 不足 → 後続の `release(b2)` の drop_fn による field release で b1 が freed → 直後の `release(b1)` (= let scope exit) が use-after-free。 malloc が同 slot の reuse 順序を ASLR で踏むかどうかで ~15% の確率 race として観測されていた。
+
+`Box<i64>.get` (戻り値型 i64) は heap でないので発火条件を満たさず、 1 段 Box (= `Box<i64>` のみ) では race 0/400、 2 段 Box (= `Box<Box<i64>>` の field load が heap pointer) で初めて発火していた。
+
+**修正**:
+
+[crates/ilang-mir/src/lower/body_cx.rs::lower_block_hinted](crates/ilang-mir/src/lower/body_cx.rs:695) の `tail_is_borrow` に `ExprKind::Var(name)` arm を追加: `self.this_class.is_some() && env.lookup_binding(name).is_none() && capture にも居ない` ときは borrow とみなして scope-exit retain を発行する。 callee 側で正しい fresh +1 を caller に渡せて ARC が均衡する。
+
+**検証結果**:
+
+- nested_generic.il 最小再現 16 並列 × 25 batch × 2 連続: **0/800** (修正前 ~6% 発火、 dd40bc49 の `forget(compiled)` 撤去状態で再計測)
+- workspace nextest: **525 / 525 PASS**
+- 同時に dd40bc49 の `crates/ilang-cli/src/main.rs::run_file` の `std::mem::forget(compiled)` を撤去 (race 真因が消えたので drop も無罪)
+- 周辺切り分けで得た事実 (本セッション保管用):
+  - cranelift 0.131.1 → 0.132.1 への上げは race 確率不変で経路 A / B どちらにも効かず (= cranelift_module 自体は無罪)。 fix とは独立に依存上げは温存
+  - Program / Function::value_tys / EnumLayout の MirTy は run_main 前後で完全一致 → ilang MIR data は intact、 corruption は ARC ref count 側
+  - `process::exit(0)` で std rt cleanup を skip しても race が残った点が「真因は run_main 中」 を示唆していた
+
+### [参考記録] 旧仮説と切り分け過程 (解決後の保管用)
+
+`cranelift_module::ModuleDeclarations` の drop が真因方向 — という当初仮説の根拠と、 そこから真因へ辿った試行は次の通り。 同じパターンの race を将来踏んだときの足場として残す。
 
 **最小再現** (約 15% で SIGABRT を 16 並列 × 25 batch で再現):
 
@@ -93,7 +117,11 @@ ilang::main at main.rs:75
 - `ILANG_HEAP_GUARD=1` で 400/400 PASS → ilang runtime の `__mir_alloc` 経由ではない
 - panic hook も呼ばれない → Rust panic 経由ではない
 
-つまり cranelift_module / hashbrown のクライアント API の呼び方が壊している(declare_function / declare_data の重複登録、 ライフタイム違反、 ASLR-aware な内部状態を踏むサイズ依存)もしくは cranelift_module 0.131.1 自身の bug。
+つまり cranelift_module / hashbrown のクライアント API の呼び方が壊している(declare_function / declare_data の重複登録、 ライフタイム違反、 ASLR-aware な内部状態を踏むサイズ依存)もしくは cranelift_module 自身の bug。
+
+**cranelift バージョン上げは無関係と確定 (2026-06-10 本セッション)**:
+
+`crates/ilang-mir-codegen/Cargo.toml` の cranelift 系 7 行を `0.131` → `0.132` に上げ (Cargo.lock 上は 0.132.1 で解決、 API breaking なし) て同じ最小再現を 16 並列 × 25 batch を 2 連続流したところ、 forget(compiled) を撤去した状態で 65/400 (16.25%) と 64/400 (16.00%) で発火、 0.131.1 時代の ~15% と統計差なし。 crash stack も `hashbrown::raw::RawTable::drop → drop_in_place<ModuleDeclarations> → drop_in_place<Compiled>` で 0.131.1 と完全に同じ経路。 → **cranelift_module 側の修正は 0.132.1 までに入っていない**ことが確認できたので、 依存上げは温存したまま forget(compiled) を戻して dd40bc49 状態を維持。
 
 **次にやるべきこと**:
 
@@ -103,7 +131,7 @@ ilang::main at main.rs:75
 - 「2 段 .get() chain → test.expect」 path で mono 化された method の declare_function を全部 dump して、 重複 declare がないかを確認:
   - `Box_i64.get`, `Box_Box_i64.get` のような mangled name が unique か
   - declaration 順序、 linkage、 signature の一貫性
-- cranelift / cranelift_module / cranelift_jit のバージョンを 0.131.1 から 0.132 / 0.133 等に上げて、 race が消えるかどうか試行(`crates/ilang-mir-codegen/Cargo.toml` の cranelift 依存)
+- 次に試すなら cranelift 0.133 以降 (本セッションでは最新が 0.132.1 だったが無効)。 ただし 0.131 → 0.132 で何も改善しなかった事実から、 期待値は低い
 - もしくは hashbrown のバージョン固定で minimal reproducer を作って cranelift / hashbrown 側に issue report
 
 **確認手順(最小再現)**:

@@ -1094,13 +1094,5 @@ fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
     if r != 0 {
         println!("{r}");
     }
-    // Skip dropping `Compiled`. The child is microseconds away from
-    // exit; the OS will reclaim the JIT module + every hashbrown
-    // HashMap inside `cranelift_module::ModuleDeclarations` in one
-    // shot. Letting `Drop` run instead hit an intermittent SIGABRT
-    // under parallel-spawn load (HANDOFF for the symbolicated stack
-    // — hashbrown::RawTable::drop in ModuleDeclarations). Long-lived
-    // hosts (`run_repl`) deliberately keep Drop.
-    std::mem::forget(compiled);
     ExitCode::SUCCESS
 }

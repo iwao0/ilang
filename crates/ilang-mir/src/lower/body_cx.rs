@@ -692,8 +692,26 @@ impl<'a> BodyCx<'a> {
         // know are borrows (`Index` / `Field`); other non-`Var`
         // shapes (calls, `super(...)`, literals) already manage
         // their own ownership and would over-retain.
-        let tail_is_borrow = blk.tail.as_ref().is_some_and(|e| {
-            matches!(&e.kind, ExprKind::Index { .. } | ExprKind::Field { .. })
+        let tail_is_borrow = blk.tail.as_ref().is_some_and(|e| match &e.kind {
+            ExprKind::Index { .. } | ExprKind::Field { .. } => true,
+            // Bare `name` inside a class method body desugars to
+            // `this.name` at the field-resolution layer (lowering
+            // emits `load_field this.x` for the method `get(): T { x }`).
+            // It IS a borrow of `this`'s slot, so the scope-exit
+            // release would drop the rc of the field's contents
+            // without a paired retain. Restrict to the case where
+            // `name` resolves to neither a local/cell binding nor a
+            // closure capture (= really a field) and we're inside a
+            // class method (`this_class` set).
+            ExprKind::Var(name) => {
+                self.this_class.is_some()
+                    && self.env.lookup_binding(*name).is_none()
+                    && self
+                        .captures_in_scope
+                        .and_then(|c| c.get(name))
+                        .is_none()
+            }
+            _ => false,
         });
         let tail = match tail {
             Some((v, ty))
