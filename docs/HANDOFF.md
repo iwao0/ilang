@@ -66,6 +66,8 @@ test.expect(b2.get().get(), 7)
 
 **stack trace (本セッションの crash_handler で取得 + `atos` 解決)**:
 
+最初に検出した stack:
+
 ```
 hashbrown::raw::RawTable::drop                                  ← SIGABRT 発火点
 drop_in_place<cranelift_module::module::ModuleDeclarations>
@@ -73,7 +75,17 @@ drop_in_place<ilang_mir_codegen::compile::Compiled>
 ilang::main at main.rs:75
 ```
 
-元 fixture `nested_generic.il` も最小再現 v6 も **完全に同じ stack**。 つまり真因の subsystem は cranelift_module::ModuleDeclarations 内の HashMap で確定。
+これは `crates/ilang-cli/src/main.rs::run_file` で `std::mem::forget(compiled)` を追加して回避済み(子プロセスは数µs 後に exit するので drop しなくても OS が JIT メモリを回収する)。
+
+ただし forget 後にも **別の drop path で同じ確率 (~6%) で再発**:
+
+```
+drop_in_place<ilang_mir::program::Function> + 384 (= 内部 Vec の drop)
+drop_in_place<ilang_mir::program::Program>
+ilang::main at main.rs:75
+```
+
+`Program::drop` 経路でも heap corruption 検出 → `__mir_alloc` の `__ILANG_HEAP_GUARD=1` ではこの path も 400/400 PASS なので、 こちらも `__mir_alloc` overrun ではない。 ASLR 依存で「特定 layout のときに Function 内の Vec が壊れる」path。 cranelift JIT generated code が ilang コンパイラ side の Vec を踏みうる layout 衝突を疑っているが未確定。
 
 **ilang 側の影響**:
 
@@ -85,6 +97,9 @@ ilang::main at main.rs:75
 
 **次にやるべきこと**:
 
+- 残る `Program::drop` race の真因究明: heap guard が捕まえない以上、 ilang コンパイラ side の Vec の中身が壊れている = `__mir_alloc` 由来でない別の overrun(JIT generated code が cranelift JIT page 経由で書き出すアドレス計算の bug が一番濃い)。 一段切り分けには次の手:
+  - `Program` 自身も `std::mem::forget` してみて race が消えるかで「真因が drop の中か別か」を判別(本セッションでは Plan を守って forget(compiled) のみ commit)
+  - 残る方なら `process::exit(0)` で全 drop を skip し、 fixture suite の flake を完全に消す(JIT child は短命なので無害)
 - 「2 段 .get() chain → test.expect」 path で mono 化された method の declare_function を全部 dump して、 重複 declare がないかを確認:
   - `Box_i64.get`, `Box_Box_i64.get` のような mangled name が unique か
   - declaration 順序、 linkage、 signature の一貫性
