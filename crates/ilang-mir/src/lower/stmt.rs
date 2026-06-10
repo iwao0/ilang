@@ -54,6 +54,13 @@ impl<'a> BodyCx<'a> {
                 let saved_self = self.binding_self_name;
                 if self.is_main_body && self.repl_slots.contains_key(name) {
                     self.binding_self_name = Some(*name);
+                } else if matches!(value.kind, ExprKind::FnExpr { .. }) {
+                    // Non-slot `let f = fn(..) { ... f(..) ... }` —
+                    // the FnExpr lowering skips the self capture and
+                    // records a `self_ref` on the pending closure;
+                    // the body's `f` then resolves to ClosureSelf
+                    // (the closure's own env pointer).
+                    self.binding_self_name = Some(*name);
                 }
                 let (v, mty) = if let (
                     ExprKind::Array(items),

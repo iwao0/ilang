@@ -115,6 +115,7 @@ fn check_branch(
 fn inst_defs(inst: &Inst) -> Vec<ValueId> {
     match inst {
         Inst::Const { dst, .. }
+        | Inst::ClosureSelf { dst }
         | Inst::BinOp { dst, .. }
         | Inst::UnOp { dst, .. }
         | Inst::Cast { dst, .. }

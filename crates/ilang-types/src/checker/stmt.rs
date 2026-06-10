@@ -61,6 +61,28 @@ impl TypeChecker {
                 // directly so subclass / interface-implementing
                 // siblings can share the same literal. The unhinted
                 // path unifies on the first element's class only.
+                // Self-recursive closure: `let f: fn(..): T =
+                // fn(..) { ... f(...) ... }` — the body must see `f`
+                // while it's being checked. Pre-bind the annotated fn
+                // type into the env used for the RHS. Requires the
+                // explicit annotation (the recursive type can't be
+                // inferred); unannotated self-references still report
+                // an unknown name.
+                let self_rec_env: Option<Vars> = match (ty.as_ref(), &value.kind) {
+                    (Some(ann @ Type::Fn(_)), ExprKind::FnExpr { .. }) => {
+                        let tps = self.current_type_params.borrow();
+                        let ann_rewritten = if tps.is_empty() {
+                            ann.clone()
+                        } else {
+                            rewrite_type_params(ann, &tps)
+                        };
+                        drop(tps);
+                        let mut e = env.clone();
+                        e.insert(*name, ann_rewritten);
+                        Some(e)
+                    }
+                    _ => None,
+                };
                 let vt = if let (Some(Type::Array { elem, .. }), ExprKind::Array(items)) =
                     (ty.as_ref(), &value.kind)
                 {
@@ -85,7 +107,35 @@ impl TypeChecker {
                         )?
                     }
                 } else {
-                    self.check_expr(value, env, ret_ty, in_class, loop_depth)?
+                    match self.check_expr(
+                        value,
+                        self_rec_env.as_ref().unwrap_or(env),
+                        ret_ty,
+                        in_class,
+                        loop_depth,
+                    ) {
+                        Ok(t) => t,
+                        // Unannotated self-reference: the closure
+                        // body named its own binding, but with no
+                        // annotation there's no type to pre-bind.
+                        // Point at the actual fix instead of a bare
+                        // "undefined function".
+                        Err(
+                            TypeError::UndefinedFunction { name: n, span }
+                            | TypeError::UndefinedVariable { name: n, span },
+                        ) if n == *name
+                            && ty.is_none()
+                            && matches!(value.kind, ExprKind::FnExpr { .. }) =>
+                        {
+                            return Err(
+                                TypeError::SelfRecursiveClosureNeedsAnnotation {
+                                    name: *name,
+                                    span,
+                                },
+                            );
+                        }
+                        Err(e) => return Err(e),
+                    }
                 };
                 // `let f = fn(...) { ... f(...) ... }` — drop a self-
                 // reference from the FnExpr's capture list. The closure

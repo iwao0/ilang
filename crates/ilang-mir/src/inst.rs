@@ -234,6 +234,13 @@ pub enum Inst {
     /// Build a closure with the given function pointer + captures.
     /// Captures' MirTy comes from the function's `closure_env` layout.
     MakeClosure { dst: ValueId, func: FuncId, captures: Box<[ValueId]> },
+    /// The running closure's own cell pointer (the hidden trailing
+    /// env param), typed as the closure's fn type. Resolves a
+    /// self-recursive closure's reference to its own binding
+    /// (`let fib: fn(i64): i64 = fn(n) { ... fib(...) }`) without
+    /// capturing it — a capture would either snapshot an unbuilt
+    /// value or create a closure ↔ cell retain cycle.
+    ClosureSelf { dst: ValueId },
     /// Bare C function pointer — the 8-byte code address of `func`,
     /// no closure box. Used when assigning a top-level fn to an
     /// `@extern(C)` struct field of `fn(...)` type so that C code

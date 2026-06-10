@@ -152,6 +152,11 @@ pub(in crate::lower) struct BodyCx<'a> {
     /// lookup inside the body resolves through the slot at call
     /// time instead.
     pub(in crate::lower) binding_self_name: Option<Symbol>,
+    /// `Some((name, fn_ty))` inside a closure body whose source
+    /// references its own (non-slot) binding name. `lower_var_expr`
+    /// resolves that name to `Inst::ClosureSelf` (the hidden env
+    /// param) typed as `fn_ty`. None everywhere else.
+    pub(in crate::lower) closure_self: Option<(Symbol, MirTy)>,
     /// True only during the **immediate** `lower_block_hinted` call
     /// that lowers an fn body's outermost block (the one whose tail
     /// becomes the function's return value). Sub-block calls
@@ -785,6 +790,17 @@ impl<'a> BodyCx<'a> {
             // consumer side classifies `obj.prop` as fresh
             // (`field_is_property_access`) and drops that share.
             ExprKind::Var(name) => {
+                // `fn(): T { self_name }` — returning the running
+                // closure itself: ClosureSelf is a borrow of the
+                // caller's share, so the tail needs its own +1.
+                if self
+                    .closure_self
+                    .as_ref()
+                    .is_some_and(|(n, _)| n == name)
+                    && self.env.lookup_binding(*name).is_none()
+                {
+                    return is_fn_body_top;
+                }
                 is_fn_body_top
                     && self.this_class.is_some()
                     && self.env.lookup_binding(*name).is_none()

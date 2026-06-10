@@ -13,6 +13,10 @@ pub enum TypeError {
     UndefinedVariable { name: Symbol, span: Span },
     #[error("{span}: undefined function {name:?}")]
     UndefinedFunction { name: Symbol, span: Span },
+    #[error(
+        "{span}: self-recursive closure: `let {name} = fn(...)` references itself, which needs an explicit fn-type annotation — write `let {name}: fn(...): T = fn(...) {{ ... }}` so the body can be checked against it"
+    )]
+    SelfRecursiveClosureNeedsAnnotation { name: Symbol, span: Span },
     #[error("{span}: function {name:?} expects {expected} arguments but got {got}")]
     ArityMismatch {
         name: Symbol,
@@ -71,6 +75,7 @@ impl TypeError {
             TypeError::Mismatch { span, .. }
             | TypeError::UndefinedVariable { span, .. }
             | TypeError::UndefinedFunction { span, .. }
+            | TypeError::SelfRecursiveClosureNeedsAnnotation { span, .. }
             | TypeError::ArityMismatch { span, .. }
             | TypeError::BadUnary { span, .. }
             | TypeError::BadBinary { span, .. }

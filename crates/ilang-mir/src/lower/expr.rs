@@ -1162,6 +1162,19 @@ impl<'a> BodyCx<'a> {
             let v = self.i64_to_slot_value(raw, &slot_ty)?;
             return Ok((v, slot_ty));
         }
+        // Self-recursive closure: the body's reference to its own
+        // (non-slot) binding name is the running closure itself —
+        // materialise the hidden env param instead of a capture
+        // (a capture would snapshot an unbuilt value or retain-cycle
+        // through a cell). Borrowed: the caller's share keeps the
+        // closure alive for the duration of the call.
+        if let Some((sname, sty)) = self.closure_self.clone() {
+            if name == sname {
+                let v = self.fb.new_value(sty.clone());
+                self.fb.push_inst(Inst::ClosureSelf { dst: v });
+                return Ok((v, sty));
+            }
+        }
         // Closure capture (only when lowering a closure body).
         if let Some(caps) = self.captures_in_scope {
             if let Some((idx, cty)) = caps.get(&name).cloned() {

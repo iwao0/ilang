@@ -131,6 +131,7 @@ fn fmt_inst(f: &Function, inst: &Inst) -> String {
     };
     match inst {
         Inst::Const { dst, value } => format!("{}const {}", dst_pre(*dst), print_const(value)),
+        Inst::ClosureSelf { dst } => format!("{}closure_self", dst_pre(*dst)),
         Inst::BinOp { dst, op, lhs, rhs } => {
             format!(
                 "{}{} {}, {}",

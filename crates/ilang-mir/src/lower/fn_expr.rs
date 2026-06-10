@@ -49,6 +49,9 @@ impl<'a> BodyCx<'a> {
         // resolved globally, not captured).
         let mut captures: Vec<crate::program::EnvCapture> = Vec::new();
         let mut capture_vals: Vec<ValueId> = Vec::new();
+        // Set when the body references its own (non-slot) binding —
+        // see the binding_self_name skip below.
+        let mut self_ref_name: Option<Symbol> = None;
         // Private cells minted right here (snapshot-initialised, no
         // other owner) — the closure adopts their creation +1, so the
         // construction-retain loop below must skip them. Shared cells
@@ -189,7 +192,32 @@ impl<'a> BodyCx<'a> {
             //    call time, which is the standard "late binding"
             //    semantics expected for self-reference.
             if Some(name) == self.binding_self_name {
+                // Non-slot bindings (fn-body lets) have no slot to
+                // fall back to — resolve through ClosureSelf instead.
+                if !self.repl_slots.contains_key(&name) {
+                    self_ref_name = Some(name);
+                }
                 continue;
+            }
+            // A nested closure referencing the ENCLOSING closure's
+            // own binding name (`let f: .. = fn() { let g = fn() {
+            // f() } .. }`): materialise the enclosing closure via
+            // ClosureSelf and capture it as a value snapshot. The
+            // construction retain below gives the nested closure its
+            // own share — real ownership, not a cycle (the enclosing
+            // closure doesn't hold the nested one).
+            if let Some((sname, sty)) = self.closure_self.clone() {
+                if name == sname {
+                    let v = self.fb.new_value(sty.clone());
+                    self.fb.push_inst(Inst::ClosureSelf { dst: v });
+                    capture_vals.push(v);
+                    captures.push(crate::program::EnvCapture {
+                        name,
+                        ty: sty,
+                        is_cell: false,
+                    });
+                    continue;
+                }
             }
             // A top-level slot that some closure mutates is shared
             // global storage: don't snapshot it. Skipping the capture
@@ -258,6 +286,15 @@ impl<'a> BodyCx<'a> {
 
         // Push to the pending queue — body lowered after the outer
         // fn finishes.
+        let self_ref = self_ref_name.map(|n| {
+            (
+                n,
+                MirTy::Fn(Box::new(crate::types::MirFnTy {
+                    params: param_tys.iter().map(|(_, t)| t.clone()).collect(),
+                    ret: ret_ty.clone(),
+                })),
+            )
+        });
         self.pending.push(PendingClosure {
             func_id: id,
             name,
@@ -267,6 +304,7 @@ impl<'a> BodyCx<'a> {
             body: body.clone(),
             span,
             enclosing_this_class: self.this_class,
+            self_ref,
         });
 
         // Emit the MakeClosure instruction.

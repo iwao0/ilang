@@ -132,6 +132,19 @@ impl<'a> BodyCx<'a> {
         // captured from the outer scope) and REPL persistent slots
         // (a fn value bound at top level in a prior chunk).
         let local_or_capture = self.lookup_var(callee).or_else(|| {
+            // Self-recursive closure: `f(...)` inside `let f = fn(..)
+            // { ... }` resolves to the running closure's own env
+            // pointer (ClosureSelf) — no capture, no slot.
+            self.closure_self.clone().and_then(|(sname, sty)| {
+                if callee == sname {
+                    let v = self.fb.new_value(sty.clone());
+                    self.fb.push_inst(Inst::ClosureSelf { dst: v });
+                    Some((v, sty))
+                } else {
+                    None
+                }
+            })
+        }).or_else(|| {
             self.captures_in_scope.and_then(|caps| {
                 caps.get(&callee).cloned().map(|(idx, cty)| {
                     let v = self.fb.new_value(cty.clone());

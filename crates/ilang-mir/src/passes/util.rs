@@ -18,6 +18,7 @@ pub fn remap_inst(inst: &mut Inst, mut remap: impl FnMut(&mut ValueId)) {
     use Inst::*;
     match inst {
         Const { dst, .. } => remap(dst),
+        ClosureSelf { dst } => remap(dst),
         BinOp { dst, lhs, rhs, .. } => {
             remap(dst);
             remap(lhs);

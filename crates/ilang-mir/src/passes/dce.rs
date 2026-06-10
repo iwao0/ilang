@@ -92,6 +92,7 @@ fn is_dead_pure(inst: &Inst, used: &HashSet<ValueId>) -> bool {
             ..
         } => false,
         Const { dst, .. }
+        | ClosureSelf { dst }
         | BinOp { dst, .. }
         | UnOp { dst, .. }
         | Cast { dst, .. }
@@ -162,7 +163,8 @@ fn collect_uses(inst: &Inst, set: &mut HashSet<ValueId>) {
     use Inst::*;
     match inst {
         Const { .. } | NewArrayEmpty { .. } | LoadCapture { .. }
-        | LoadStatic { .. } | Panic { .. } | FuncAddr { .. } => {}
+        | LoadStatic { .. } | Panic { .. } | FuncAddr { .. }
+        | ClosureSelf { .. } => {}
         BinOp { lhs, rhs, .. } => {
             set.insert(*lhs);
             set.insert(*rhs);

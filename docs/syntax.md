@@ -601,6 +601,14 @@ apply(double, 7)                     // 14
 - Referring to a top-level function as a function value
   (`let f = some_fn`) auto-wraps it in a trampoline closure that
   ignores the env slot and forwards to the target.
+- **Self-recursive closures** need an explicit fn-type annotation
+  (`let fib: fn(i64): i64 = fn(n: i64): i64 { ... fib(n - 1) ... }`)
+  — the recursive reference can't be type-inferred. With the
+  annotation they work at top level, inside fn bodies, and from
+  nested closures referencing the enclosing closure's name. The
+  self-reference isn't a capture: the body resolves it to the
+  running closure itself, so there's no retain cycle and an
+  escaping self-recursive closure stays valid.
 
 ### Attributes / annotations (parse-only unless noted)
 

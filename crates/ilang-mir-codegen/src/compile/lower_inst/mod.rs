@@ -180,7 +180,8 @@ pub(super) fn lower_inst<M: Module>(
         }
         Inst::MakeClosure { .. }
         | Inst::FuncAddr { .. }
-        | Inst::LoadCapture { .. } => {
+        | Inst::LoadCapture { .. }
+        | Inst::ClosureSelf { .. } => {
             closure::lower_closure_inst(fb, vmap, module, prog_ctx, fn_ctx, inst)?;
         }
         // ARC operations are stubbed in M1: refcount machinery

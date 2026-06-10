@@ -33,6 +33,13 @@ pub(in crate::lower) struct PendingClosure {
     /// Outer-method class context — preserved so `super.method(...)`
     /// inside the closure body can resolve to the parent class.
     pub(in crate::lower) enclosing_this_class: Option<crate::types::ClassId>,
+    /// `Some((name, fn_ty))` when the closure body references its own
+    /// binding name (`let f = fn(..) { ... f(..) ... }`) and that
+    /// binding is NOT a top-level slot. The body's `Var(name)` then
+    /// resolves to `Inst::ClosureSelf` (the hidden env param) typed
+    /// as `fn_ty` — no capture, no retain cycle. Slot-backed
+    /// top-level bindings keep the late-binding slot fallback.
+    pub(in crate::lower) self_ref: Option<(Symbol, MirTy)>,
 }
 
 #[derive(Default)]

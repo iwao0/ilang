@@ -69,6 +69,12 @@ pub(super) fn lower_closure_inst<M: Module>(
             let addr = fb.ins().func_addr(types::I64, local_ref);
             vmap.insert(*dst, addr);
         }
+        Inst::ClosureSelf { dst } => {
+            // The running closure's own cell pointer — the hidden
+            // trailing env param. Self-recursive closures resolve
+            // their own name to this instead of capturing it.
+            vmap.insert(*dst, env_value);
+        }
         Inst::LoadCapture { dst, idx } => {
             // Captures live at `env + CAPTURE_BASE + idx*8`; env is
             // the closure block pointer (the trailing hidden param).
