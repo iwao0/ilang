@@ -118,7 +118,43 @@ malloc error: `pointer being freed was not allocated`, address `0x16fdf6700` (st
 
 ただし `crepr_struct_assign_index_field.il` は generic を使わないので mono pass は事実上 no-op になるはず → **lower か codegen** が最有力。
 
-**全箇所レビュー結果(本ラウンドで実施)**:
+**[本ラウンドで突破] heap guard 計装で真因 path を pin point**:
+
+[crates/ilang-runtime/src/alloc.rs](crates/ilang-runtime/src/alloc.rs:34) に `ILANG_HEAP_GUARD=1` で各 alloc の前後に 16 byte ずつ `0xDEADBEEFCAFEBABE` の guard を埋める計装を追加。 free 時に guard を検査して破壊を検出。
+
+並列 400 試行で **400 / 400 が exit 134** (= SIGABRT)、 全 run で **同一の corruption pattern**:
+
+- 場所: **`size=16` の buffer の tail guard (offset 16)**
+- 破壊値: `0xDEADBEEFCAFEBA00`
+- 元値: `0xDEADBEEFCAFEBABE`
+- 差分: **最下位 1 byte だけ `0xBE → 0x00`** = **off-by-one single byte zero write**
+
+`ILANG_HEAP_TRACE=1 ILANG_HEAP_GUARD=1` の組合せで死亡直前の alloc 順序を取得:
+
+```
+[alloc] size=8   ptr=0x154009880   ← s0
+[alloc] size=32  ptr=0x154009a70   ← Mode.idle cached enum box
+[alloc] size=8   ptr=0x15400c1a0   ← s1
+[alloc] size=48  ptr=0x15400c1d0   ← array header
+[alloc] size=16  ptr=0x15400c220   ← array data
+[alloc] size=32  ptr=0x15400c250   ← Mode.active cached enum box
+[guard] CORRUPTION at ptr=0x15400c220 size=16: [("tail", 0, ...)]
+```
+
+`Mode.active` enum box alloc 後、 array data (size=16) を free しようとした時に guard check が発火。 つまり **array data alloc → Mode.active alloc → arr[1].kind = active 系の JIT generated 操作 → array data free** の流れで、 何かが 1 byte 0 を array data の offset 16 に write している。
+
+`size=16` は `Slot[] = [s0, s1]` の 2 要素 × 8 byte stride の data buffer。 corruption が **offset 16 ジャスト**(= データ末尾の直後) ということは、 cranelift JIT が出した ARM64 命令の中に「`strb wzr, [data_ptr, #16]`」相当の **off-by-one byte store** がある。
+
+最小化 fixture で 1 byte zero store を出しうる codegen path:
+
+- `crepr_struct_copy` の最後の 1-byte ループ([lower_inst/mod.rs:58-62](crates/ilang-mir-codegen/src/compile/lower_inst/mod.rs:58)) — total=8 では到達しないはず
+- StoreField の CReprEnum (kind: u16) は `store(I16, ...)` で 2 byte
+- NewArray の `crepr_struct_copy(fb, raw, dst_addr, total=8)` を `i=0, 1` で 2 回
+- ArrayLoad は読み出しのみ
+
+cranelift IR dump (`fb.func.display()` 相当)を取って、 array data buffer 周辺の store 命令の offset を全部確認するのが次の手。
+
+**全箇所レビュー結果(同ラウンド前半で実施)**:
 
 **A. `Function::value_tys: Vec<MirTy>` を mutate する production code は 5 箇所のみ**:
 
