@@ -291,6 +291,8 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
         ilang_runtime::__register_type_method_param as *const u8,
     );
     jit_builder.symbol("$print.weak", ilang_runtime::__print_weak as *const u8);
+    jit_builder.symbol("$print.promise", ilang_runtime::__print_promise as *const u8);
+    jit_builder.symbol("$fmt.promise", ilang_runtime::__fmt_promise as *const u8);
     jit_builder.symbol("$print.enum", ilang_runtime::__print_enum as *const u8);
     jit_builder.symbol("$print.fn", ilang_runtime::__print_fn as *const u8);
     jit_builder.symbol("$class.releaseObject", ilang_runtime::__release_object as *const u8);

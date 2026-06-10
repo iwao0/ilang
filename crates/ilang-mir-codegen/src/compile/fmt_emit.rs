@@ -297,6 +297,11 @@ pub(super) fn emit_format_value<M: Module>(
             let call = fb.ins().call(r, &[av]);
             fb.inst_results(call)[0]
         }
+        MirTy::Promise(_) => {
+            let r = module.declare_func_in_func(fmt_ids.promise, fb.func);
+            let call = fb.ins().call(r, &[av]);
+            fb.inst_results(call)[0]
+        }
         MirTy::Enum(eid) => {
             let global = enum_global[eid.0 as usize] as i64;
             let id_v = fb.ins().iconst(types::I64, global);

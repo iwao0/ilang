@@ -969,3 +969,32 @@ mod tests {
         __release_promise(p);
     }
 }
+
+/// Human-readable promise state for `console.log(p)` / trailing
+/// prints and `${p}` template interpolation. Without these, the
+/// print/format dispatch fell back to the raw-int arm and a Promise
+/// rendered as its pointer value.
+fn promise_state_label(p: i64) -> &'static str {
+    if p == 0 {
+        return "<promise <null>>";
+    }
+    let pr = unsafe { &*(p as *const ManagedPromise) };
+    let g = pr.inner.lock().expect("promise mutex poisoned");
+    match g.state {
+        State::Pending => "<promise pending>",
+        State::Resolved { .. } => "<promise resolved>",
+        State::Rejected { .. } => "<promise rejected>",
+    }
+}
+
+#[unsafe(export_name = "$print.promise")]
+pub extern "C" fn __print_promise(p: i64) {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_all(promise_state_label(p).as_bytes());
+}
+
+#[unsafe(export_name = "$fmt.promise")]
+pub extern "C" fn __fmt_promise(p: i64) -> i64 {
+    crate::strings::leak_cstring(promise_state_label(p).to_string())
+}

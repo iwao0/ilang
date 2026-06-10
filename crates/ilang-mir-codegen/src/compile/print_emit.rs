@@ -223,6 +223,10 @@ pub(super) fn emit_print_value<M: Module>(
             let r = module.declare_func_in_func(print_ids.weak, fb.func);
             fb.ins().call(r, &[av]);
         }
+        MirTy::Promise(_) => {
+            let r = module.declare_func_in_func(print_ids.promise, fb.func);
+            fb.ins().call(r, &[av]);
+        }
         MirTy::Enum(eid) => {
             let global = enum_global[eid.0 as usize] as i64;
             let id_v = fb.ins().iconst(types::I64, global);

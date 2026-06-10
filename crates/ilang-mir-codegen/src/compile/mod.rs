@@ -285,6 +285,7 @@ pub(super) struct PrintIds {
     pub(super) set: cranelift_module::FuncId,
     pub(super) weak: cranelift_module::FuncId,
     pub(super) enum_: cranelift_module::FuncId,
+    pub(super) promise: cranelift_module::FuncId,
 }
 
 /// Terminal value-to-string formatters used by backtick template
@@ -304,6 +305,7 @@ pub(super) struct FmtIds {
     pub(super) map: cranelift_module::FuncId,
     pub(super) set: cranelift_module::FuncId,
     pub(super) enum_: cranelift_module::FuncId,
+    pub(super) promise: cranelift_module::FuncId,
 }
 
 #[derive(Clone, Copy)]

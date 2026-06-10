@@ -526,6 +526,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         set: print_set_id,
         weak: print_weak_id,
         enum_: print_enum_id,
+        promise: declare_unit_i64(module, "$print.promise")?,
     };
     let fmt_ids = FmtIds {
         int: declare_unary_i64(module, "$fmt.int")?,
@@ -543,6 +544,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         object: declare_unary_i64(module, "$fmt.object")?,
         struct_: declare_binary_i64(module, "$fmt.struct")?,
         map: declare_unary_i64(module, "$fmt.map")?,
+        promise: declare_unary_i64(module, "$fmt.promise")?,
         set: declare_unary_i64(module, "$fmt.set")?,
         enum_: declare_binary_i64(module, "$fmt.enum")?,
     };
