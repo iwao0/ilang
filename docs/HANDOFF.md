@@ -51,7 +51,22 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-(現在なし)
+### fn 本体内の自己再帰 closure が未対応 (機能判断待ち)
+
+`let fib: fn(i64): i64 = fn(n) { ... fib(...) }` の自己再帰 closure は**トップレベル (slot 経由の遅延解決) でのみ**動く。fn 本体内では型注釈があっても `undefined function "fib"` で型検査落ち。対応するなら cell 経由の自己参照を実装する設計判断が必要。診断メッセージの改善 (「自己再帰 closure はトップレベル + 型注釈が必要」) だけでも価値はある。トップレベルでも**型注釈なしだと**同じ `undefined function` になる点も診断改善の対象。
+
+### AOT arm の確率的失敗を 1 回観測 (詳細未捕捉)
+
+2026-06-11 の検証中、`ILANG_TEST_AOT=1` の fixture 一斉実行が 1 回 FAIL → 連続 2 回の再実行は PASS (1342 runs each)。失敗 fixture 名と出力は取り逃した。再発したら `--no-capture` で fixture 名を確保すること。
+
+### [解決済み記録] fixture 増殖ラウンド第 5 弾: 深い解放 cascade の stack overflow と REPL の chunk 跨ぎ解放 (2026-06-11、 `6c5437dd` + `80736da5`)
+
+probe 対象を数値演算の罠 (`i64::MIN / -1`・shift 64・float→int の NaN/inf)、 深い連結構造の解放、 自己再帰 closure、 range の端、 対話 REPL へ拡張した。 2 件の重大バグ:
+
+1. **~10 万リンクの連結構造を解放すると native stack overflow** (`6c5437dd`)。 [crates/ilang-runtime/src/cascade.rs::release_field_by_kind](crates/ilang-runtime/src/cascade.rs) が object → optional → object と 1 リンクごとに再帰していた。 入れ子の release を thread-local の worklist に積んで最外フレームだけが drain する反復方式に変更 — 呼び出し深さはグラフ深さに依らず O(1)。 解放順は深さ優先から幅優先寄りに変わるが、 ARC は兄弟間の解放順を保証しないし、 deinit から届く値は未解放のまま (保守方向)。 deinit は 1 ノード 1 回 (fixture の 5 万連鎖カウンタで pin)。 fixture: `05_edge_cases/deep_release_iterative.il` (Optional 連結 10 万 / enum cons 連鎖 10 万 / deinit カウント 5 万)。
+2. **対話 REPL で heap 値の slot が chunk 終了ごとに解放され、 次の行が解放済みメモリを読む** (`80736da5`)。 __main のエピローグ (slot 一掃 release — ファイル実行では「終了前に deinit を発火」として正しい) が REPL の chunk ごとに走っていた。 `let arr = [1,2,3]` の次の行で `arr[1]` が無言の SIGSEGV、 `arr.length` が 0、 object の field 読みが garbage、 Map 読みが死ぬ。 `lower_program_with_slots_opts(.., release_slots_at_exit)` を追加し REPL は false。 同エピローグの Cell arm が「cell の中身だけ release」する旧規約のままだった点も第 2 弾のモデルに統一。 回帰テスト: `crates/ilang-cli/tests/repl.rs` (セッションをパイプで流して primitive / array / object / map / string の chunk 跨ぎを pin、 nextest 対象に +5 件)。
+
+**問題なしを確認した周辺** (再調査不要): `i64::MIN / -1` (= MIN、 trap せず) と `% -1` (= 0)、 整数 0 除算の panic 診断、 `<< 63/64`、 float→int の飽和 (`1e300 as i64` = MAX、 NaN = 0)、 range の端 (`5..2` / `3..3` 空、 `0..=0` 1 回、 負範囲)、 配列リテラルの固定長型と `push` の型エラー (run / REPL 一致)。
 
 ### [解決済み記録] fixture 増殖ラウンド第 4 弾: async desugar の await 位置と Promise 印字 (2026-06-10 後続セッション、 `87a8ea2a` + `65ff1e4c`)
 
