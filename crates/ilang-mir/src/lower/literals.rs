@@ -543,11 +543,16 @@ impl<'a> BodyCx<'a> {
                 let v = self.fb.new_value(elem_ty.clone());
                 self.fb.push_inst(Inst::ArrayLoad { dst: v, arr: av, idx: iv });
                 // Fresh-array index: retain the selected element so
-                // the array's own Release (cascading deinit on every
-                // stored Object) doesn't drop it. The unselected
-                // elements get their deinits via the cascade.
-                if obj_is_fresh && matches!(elem_ty, MirTy::Object(_)) {
-                    self.fb.push_inst(Inst::Retain { value: v });
+                // the array's own Release (cascading every stored
+                // heap element) doesn't drop it, then release the
+                // soon-to-be-orphan array. The release must fire for
+                // EVERY element kind — gating both on Object (the old
+                // shape) leaked the whole array for string / array /
+                // optional elements (`typeof(x).fields[0]`).
+                if obj_is_fresh {
+                    if self.is_arc_slot(&elem_ty) {
+                        self.fb.push_inst(Inst::Retain { value: v });
+                    }
                     self.fb.push_inst(Inst::Release { value: av });
                 }
                 Ok((v, elem_ty))

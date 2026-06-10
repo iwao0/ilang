@@ -654,10 +654,13 @@ pub extern "C" fn __map_for_each(map: i64, closure: i64, key_fk: i64, val_fk: i6
     let m = unsafe { &*(map as *const ManagedMap) };
     let key_is_str = m.key_print_kind == PK_STR;
     let key_is_object = matches!(&m.store, MapStore::Object(_));
+    let val_kind = m.val_kind;
     // Snapshot as raw (key, value) pairs so the callback can mutate
     // the map without aliasing our iterator. String / object keys
-    // keep a +1 rc through the call so mid-iteration `delete` can't
-    // free them out from under the callback.
+    // AND heap-typed values keep a +1 rc through the call — a
+    // mid-iteration `delete` / overwrite releases the entry's value,
+    // and without the value retain the callback's later visits read
+    // freed memory.
     let pairs: Vec<(i64, i64)> = match &m.store {
         MapStore::Int(t) => t.iter().map(|(&k, &v)| (k, v)).collect(),
         MapStore::Str(t) => t
@@ -676,12 +679,20 @@ pub extern "C" fn __map_for_each(map: i64, closure: i64, key_fk: i64, val_fk: i6
             })
             .collect(),
     };
+    if val_kind != KIND_NONE {
+        for (_, v) in pairs.iter() {
+            retain_field_by_kind(*v, val_kind);
+        }
+    }
     for (key_raw, v) in pairs {
         unsafe { call_closure_kv(closure, key_raw, v, key_fk, val_fk) };
         if key_is_str {
             crate::strings::__release_string(key_raw);
         } else if key_is_object {
             crate::classes::__release_object(key_raw);
+        }
+        if val_kind != KIND_NONE {
+            release_field_by_kind(v, val_kind);
         }
     }
     crate::closures::__release_closure(closure);

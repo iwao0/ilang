@@ -526,6 +526,59 @@ fn box_optional_cell(value: i64, elem_tag: i64) -> i64 {
     box_optional_cell_transferred(value, elem_tag)
 }
 
+
+/// Snapshot of an array's cells for callback-driven iteration
+/// (forEach / map / filter / find / findIndex / every / some). The
+/// user callback may mutate the array — a push can reallocate the
+/// data buffer and a pop / removeAt / clear can release elements —
+/// so iterating the live buffer read freed memory (an
+/// `arr.push(..)` inside `arr.forEach(..)` truncated the walk over
+/// a dangling pointer). The snapshot copies the cell bytes up front
+/// and holds a +1 on every heap element for the iteration's
+/// lifetime, mirroring `__map_for_each`'s snapshot semantics.
+struct CellSnapshot {
+    buf: Vec<u8>,
+    len: i64,
+    stride: i64,
+    elem_kind: i64,
+}
+
+fn snapshot_cells(arr: i64) -> CellSnapshot {
+    let (len, _cap, data) = unsafe { array_header(arr) };
+    let stride = unsafe { array_stride(arr) };
+    let elem_kind = unsafe { *((arr + 32) as *const i64) };
+    let bytes = (len * stride).max(0) as usize;
+    let mut buf = vec![0u8; bytes];
+    unsafe {
+        std::ptr::copy_nonoverlapping(data as *const u8, buf.as_mut_ptr(), bytes);
+    }
+    let snap = CellSnapshot { buf, len, stride, elem_kind };
+    if stride == 8 && elem_kind != KIND_NONE {
+        for i in 0..len {
+            retain_field_by_kind(snap.cell(i), elem_kind);
+        }
+    }
+    snap
+}
+
+impl CellSnapshot {
+    /// Cell `i` — the raw value for stride-8 arrays, or the address
+    /// of the copied inline struct for CRepr arrays (stride > 8).
+    fn cell(&self, i: i64) -> i64 {
+        unsafe { load_packed(self.buf.as_ptr() as i64, i, self.stride) }
+    }
+}
+
+impl Drop for CellSnapshot {
+    fn drop(&mut self) {
+        if self.stride == 8 && self.elem_kind != KIND_NONE {
+            for i in 0..self.len {
+                release_field_by_kind(self.cell(i), self.elem_kind);
+            }
+        }
+    }
+}
+
 #[unsafe(export_name = "$array.map")]
 pub extern "C" fn __array_map(
     arr: i64,
@@ -541,12 +594,10 @@ pub extern "C" fn __array_map(
         }
         return build_packed_array(&[], result_kind, result_stride);
     }
-    let (len, _cap, data) = unsafe { array_header(arr) };
-    let stride = unsafe { array_stride(arr) };
-    let mut out: Vec<i64> = Vec::with_capacity(len as usize);
-    for i in 0..len {
-        let cell = unsafe { load_packed(data, i, stride) };
-        let v = unsafe { call_closure_1(closure, cell, arg_fk, ret_fk) };
+    let snap = snapshot_cells(arr);
+    let mut out: Vec<i64> = Vec::with_capacity(snap.len as usize);
+    for i in 0..snap.len {
+        let v = unsafe { call_closure_1(closure, snap.cell(i), arg_fk, ret_fk) };
         out.push(v);
     }
     // Consume the +1 the caller transferred — borrowed closures get
@@ -563,22 +614,20 @@ pub extern "C" fn __array_filter(arr: i64, closure: i64, arg_fk: i64) -> i64 {
         }
         return build_i64_array(&[], KIND_NONE);
     }
-    let (len, _cap, data) = unsafe { array_header(arr) };
-    let elem_kind = unsafe { *((arr + 32) as *const i64) };
-    let stride = unsafe { array_stride(arr) };
+    let snap = snapshot_cells(arr);
     let mut out: Vec<i64> = Vec::new();
-    for i in 0..len {
-        let cell = unsafe { load_packed(data, i, stride) };
+    for i in 0..snap.len {
+        let cell = snap.cell(i);
         let keep = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if keep {
-            if elem_kind != KIND_NONE {
-                retain_field_by_kind(cell, elem_kind);
+            if snap.elem_kind != KIND_NONE {
+                retain_field_by_kind(cell, snap.elem_kind);
             }
             out.push(cell);
         }
     }
     crate::closures::__release_closure(closure);
-    build_packed_array(&out, elem_kind, stride)
+    build_packed_array(&out, snap.elem_kind, snap.stride)
 }
 
 #[unsafe(export_name = "$array.slice")]
@@ -611,11 +660,9 @@ pub extern "C" fn __array_for_each(arr: i64, closure: i64, arg_fk: i64) {
         }
         return;
     }
-    let (len, _cap, data) = unsafe { array_header(arr) };
-    let stride = unsafe { array_stride(arr) };
-    for i in 0..len {
-        let cell = unsafe { load_packed(data, i, stride) };
-        unsafe { call_closure_1(closure, cell, arg_fk, 0) };
+    let snap = snapshot_cells(arr);
+    for i in 0..snap.len {
+        unsafe { call_closure_1(closure, snap.cell(i), arg_fk, 0) };
     }
     crate::closures::__release_closure(closure);
 }
@@ -632,15 +679,13 @@ pub extern "C" fn __array_find(arr: i64, closure: i64, arg_fk: i64) -> i64 {
         }
         return 0;
     }
-    let (len, _cap, data) = unsafe { array_header(arr) };
-    let elem_kind = unsafe { *((arr + 32) as *const i64) };
-    let stride = unsafe { array_stride(arr) };
+    let snap = snapshot_cells(arr);
     let mut result: i64 = 0;
-    for i in 0..len {
-        let cell = unsafe { load_packed(data, i, stride) };
+    for i in 0..snap.len {
+        let cell = snap.cell(i);
         let hit = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if hit {
-            result = box_optional_cell(cell, elem_kind);
+            result = box_optional_cell(cell, snap.elem_kind);
             break;
         }
     }
@@ -658,11 +703,10 @@ pub extern "C" fn __array_find_index(arr: i64, closure: i64, arg_fk: i64) -> i64
         }
         return -1;
     }
-    let (len, _cap, data) = unsafe { array_header(arr) };
-    let stride = unsafe { array_stride(arr) };
+    let snap = snapshot_cells(arr);
     let mut result: i64 = -1;
-    for i in 0..len {
-        let cell = unsafe { load_packed(data, i, stride) };
+    for i in 0..snap.len {
+        let cell = snap.cell(i);
         let hit = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if hit {
             result = i;
@@ -683,11 +727,10 @@ pub extern "C" fn __array_every(arr: i64, closure: i64, arg_fk: i64) -> i64 {
         }
         return 1;
     }
-    let (len, _cap, data) = unsafe { array_header(arr) };
-    let stride = unsafe { array_stride(arr) };
+    let snap = snapshot_cells(arr);
     let mut result: i64 = 1;
-    for i in 0..len {
-        let cell = unsafe { load_packed(data, i, stride) };
+    for i in 0..snap.len {
+        let cell = snap.cell(i);
         let hit = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if !hit {
             result = 0;
@@ -708,11 +751,10 @@ pub extern "C" fn __array_some(arr: i64, closure: i64, arg_fk: i64) -> i64 {
         }
         return 0;
     }
-    let (len, _cap, data) = unsafe { array_header(arr) };
-    let stride = unsafe { array_stride(arr) };
+    let snap = snapshot_cells(arr);
     let mut result: i64 = 0;
-    for i in 0..len {
-        let cell = unsafe { load_packed(data, i, stride) };
+    for i in 0..snap.len {
+        let cell = snap.cell(i);
         let hit = unsafe { call_predicate_1(closure, cell, arg_fk) };
         if hit {
             result = 1;
