@@ -118,12 +118,58 @@ malloc error: `pointer being freed was not allocated`, address `0x16fdf6700` (st
 
 ただし `crepr_struct_assign_index_field.il` は generic を使わないので mono pass は事実上 no-op になるはず → **lower か codegen** が最有力。
 
-**次にやるべきこと(opt pass を除外したので lower / codegen に絞り込み済み)**:
+**全箇所レビュー結果(本ラウンドで実施)**:
 
-- [crates/ilang-mir/src/builder.rs:68](crates/ilang-mir/src/builder.rs:68) の `value_tys.push` 呼び出し元すべてを audit。 特に 2 段 `Box<MirTy>` nest (`Array<Array<T>>` / `Array<Optional<T>>` / `RawPtr<Optional<T>>` 等) を生成する lower path。
-- [crates/ilang-mir-codegen/src/](crates/ilang-mir-codegen/src/) で内部 side-table を作る際に MirTy を clone / push する path を全部レビュー。
-- Miri 試行(`cargo +nightly miri run -p ilang -- run fixture.il`)— 但し cranelift JIT が含まれるので動作するか不明。
-- 並列で多数 child を起動した中で **どの child PID が踏むか** を比較し、 `ILANG_MIR_DUMP=1` で MIR が round によって変わるかを確認(non-deterministic MIR 生成の検出)。
+**A. `Function::value_tys: Vec<MirTy>` を mutate する production code は 5 箇所のみ**:
+
+| 場所 | 操作 | 入力 ty の出所 |
+| --- | --- | --- |
+| [builder.rs:68](crates/ilang-mir/src/builder.rs:68) | `value_tys.push(ty)` | lower 全箇所から(BodyCx::new_value) |
+| [lower/decl/enum_fn.rs:203](crates/ilang-mir/src/lower/decl/enum_fn.rs:203) | `value_tys.push(params[i].clone())` | enum fn synth の param type |
+| [lower/decl/extern_c.rs:442](crates/ilang-mir/src/lower/decl/extern_c.rs:442), [539](crates/ilang-mir/src/lower/decl/extern_c.rs:539) | `value_tys.push(pty.clone())` | extern C struct method synth |
+| [passes/inline.rs:270](crates/ilang-mir/src/passes/inline.rs:270) | `caller.value_tys.push(ty)` | `cand.value_tys.get(v.0).cloned()` の結果 |
+| [passes/dce_fn.rs:223](crates/ilang-mir/src/passes/dce_fn.rs:223) | `for ty in &mut f.value_tys { remap_ty(ty, ...) }` | in-place mutate (`Object(cid)` の cid 書き換えのみ) |
+
+opt pass の elimination matrix から 4, 5 はすでに除外。 残るは **1, 2, 3 (lower 系) で push される ty の出所**。
+
+**B. `Box<MirTy>` を持つ MirTy variant の構築箇所**:
+
+- 静的 (`Box::new(MirTy::primitive)`): 22 箇所、 全部 1 段 nest、 safe。
+- **動的** (`Box::new(self.resolve_ty(...))`): [lower_state.rs:210-281](crates/ilang-mir/src/lower/lower_state.rs:210), [body_cx.rs:973-1028](crates/ilang-mir/src/lower/body_cx.rs:973) で再帰呼び出し。 ilang ソースの型注釈の深さに応じて任意段の nest を構築 (例: `Array<Optional<Box<T>>>`)。
+
+**C. 2 段 `Box<MirTy>` nest を生成しうる入口**:
+
+- ソース内の `let x: Array<Optional<T>>` のような明示的多段型注釈
+- 暗黙的に Optional を包む path (例: `Array<T?>`、 stdlib `Promise<T>` chain、 Map の key/val)
+- 最小化 fixture (`crepr_struct_assign_index_field.il`) では明示的にはない → **`use std.test as test` 経由の stdlib lower で動的に 2 段 nest が作られる可能性**
+
+**D. ilang-mir / mir-codegen / lower すべてに `unsafe` 一切なし** (改めて確認)。 つまり Rust safe code 範囲で起きる UB:
+
+- 依存 crate (cranelift / hashbrown 等) の `unsafe` が source の可能性
+- Vec の grow / shrink が valid な範囲を超える(`usize::MAX`)系の panic は別経路で死ぬ
+- `mem::take` → `extend` → 各種 mutation で **意図しない alias** ができている path(grep 限界、 動的解析必要)
+
+**E. opt pass の elimination matrix(本ラウンドで取得)**:
+
+| 環境変数 | 異常終了率 |
+| --- | --- |
+| baseline (no env) | 33 / 400 (8.25%) |
+| ILANG_NO_DCE_FN=1 | 36 / 400 |
+| ILANG_NO_PROMOTE_LOCALS=1 | 31 / 400 |
+| ILANG_NO_INLINE=1 | 35 / 400 + 1 SIGSEGV |
+| ILANG_NO_CONST_FOLD=1 | 32 / 400 |
+| ILANG_NO_BRANCH_FOLD=1 | 27 / 400 |
+| ILANG_NO_DCE=1 | 39 / 400 |
+
+統計的有意差なし。 opt pass はすべて真因から除外。
+
+**次にやるべきこと**:
+
+- **動的解析が必須**: 静的レビューでは pin point 不可。
+  - **Miri** (`cargo +nightly miri run -p ilang -- run fixture.il`) — 但し cranelift JIT を含むため動作するかは未確認。
+  - **AddressSanitizer の wall-clock 緩和**: ASAN debug / release ともに timing が変わり race 引かない既存実績。 `RUSTFLAGS=-Zsanitizer=address -C opt-level=3 -C target-cpu=native` 等のチューニングで縮められる可能性。
+  - **printf debug**: `Vec<MirTy>` の grow タイミングごとに `len/cap/ptr` を stderr に吐く instrumentation を入れて、 並列起動で踏んだ run の Vec 状態を比較。
+- ASAN なしの最終手段: ilang コンパイラ内の Vec / Box 全部を `with_capacity` で十分大きく確保 → grow を抑制 → 並列で再現するか比較(真因仮説「grow 中の何か」の検証)。
 
 **真因追跡で試して効かなかった手段** (次セッションで違う方法を考えること):
 
