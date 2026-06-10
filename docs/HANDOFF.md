@@ -21,6 +21,12 @@
 
 直近のセッション (2026-06-10、 ARC ラウンド) で main に landing した変更:
 
+- **fixture 増殖ラウンド** (`480ed47a`〜`ac91f68b`、 後続セッション)。 leak / 別名健全性の probe を Map / Set / Array / Optional / weak / template literal へ網羅的に当てて 5 系統のバグを検出・修正。 回帰 fixture 8 件追加。 詳細は下の解決済み記録「fixture 増殖ラウンドで検出した 5 系統」:
+  - `arc_peephole` が「他値の Release は跨いで安全」と誤判定 → `makeMap()["k"].n` が解放済みメモリを読む (**正しさバグ**、 `480ed47a`)
+  - `__release_object` の field cascade 中に weak back-ref の `__release_weak` が本体を解放 → 二重解放 SIGSEGV (**既存の潜在バグ**、 `d3b1d2cf`)
+  - 配列 `indexOf` / `includes` / `remove` が string をポインタ比較 → 実行時生成文字列で不一致 (**正しさバグ**、 `ebb95b4a`)
+  - Map/Set の `get`/`has`/`delete` fresh needle 引数、 fresh receiver (string/array/Optional のメソッド・`.length`・`.isSome`) の transient +1 が release されず leak (`8b9f8c31`)
+  - template literal が評価ごとに registry string を 2+ 個 leak (`aace25c7`)
 - **`m[k]` の Map index 読みを `ArrayLoad` と同じ borrow 規約に統一** (`f3d0a899`、 後続セッション)。 `__map_get` の retain-on-read (`d8c7f548`) と borrow 前提の消費側 (束縛 Retain / tail-borrow Retain / arc_peephole の whitelist) が二重 retain になり、 overwrite された entry が 24 bytes/iter で leak していたのを解消。 詳細は下の解決済み記録。
 - **cranelift 0.131 → 0.132.1 へ依存上げ** (`12d171d4`)。 API breaking なし。 nested_generic.il race の調査用に試行したが race 確率は不変 (cranelift_module 側に修正は入っていない)。 修正とは独立で温存。
 - **class method body の bare-var tail を borrow として扱う** (`4e4e6851`)。 [crates/ilang-mir/src/lower/body_cx.rs::lower_block_hinted](crates/ilang-mir/src/lower/body_cx.rs:695) の `tail_is_borrow` が `Index/Field` のみ matching していたところに、 `Var(name)` でも「class method 内 + env/capture 未解決」 なら暗黙の `this.field` として retain を発行するよう拡張。 `nested_generic.il` の race を根本解決。 同時に dd40bc49 の `forget(compiled)` も撤去。
@@ -46,6 +52,22 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 ## 未解決の引き継ぎ事項
 
 (現在なし)
+
+### [解決済み記録] fixture 増殖ラウンドで検出した 5 系統 (2026-06-10 後続セッション)
+
+「さらに fixture を追加してバグをあぶり出す」ラウンド。 leak は `test.liveAllocBytes()` / `test.liveStringCount()` を 200 周ループで挟む probe、 別名健全性は「束縛 → 上書き / delete 後に読む」probe で網羅した。 検出と修正:
+
+1. **`arc_peephole` の不健全な対消去** (`480ed47a`、 正しさバグ)。 `is_safe_to_cross` が「他値の Retain/Release は跨いで安全」としていたが、 コンテナの Release は cascade で候補値の指す先を解放しうる。 `retain v; release map; load_field v; release v` の対が消され、 `makeMap()["k"].n` / `makeArr()[1].n` の inline member 読みが解放済みメモリを返していた (束縛経由だと正常なので気づきにくい)。 他値の Release / WeakRelease を barrier に変更。 Retain は増やすだけなので跨ぎ可のまま。
+2. **weak back-ref の cascade 中二重解放** (`d3b1d2cf`、 既存の潜在バグ)。 `__release_object` は strong rc を 0 にしてから field cascade を歩くが、 cascade が「親への `.weak` を持つ子」 を解放すると、 子の field release → `__release_weak(親)` が strong==0 を見て親本体を free → cascade 終了後に親自身の release 末尾がもう一度 free。 親→子配列 + 子→親 weak の定番形で解放順依存の SIGSEGV / malloc abort。 cascade 前に guard weak を 1 本取り、 cascade 後に返す形に変更 (free は `__release_weak` に一本化)。 `weak_parent_back_reference.il` が確率的にこの形を踏んでいた。
+3. **配列 `indexOf` / `includes` / `remove` の string ポインタ比較** (`ebb95b4a`、 正しさバグ)。 生セル比較のため intern された literal 同士しか一致せず、 `["aa","bb"].indexOf("b" + "b")` が -1。 string kind の要素は内容比較に変更 (`==` の構造的等値に一致)。 object は参照等値のまま (`==` と一致)。 `remove` は needle ではなく**格納セル**の share を release するよう修正 (内容等値では別ポインタ)。
+4. **fresh transient の release 漏れ 3 兄弟** (`8b9f8c31`)。 (a) `m.get/has/delete(new Key(1))` / `s.has/delete(...)` の fresh needle 引数 — lowering が `set`/`add` しか release していなかった。 24 bytes/call (object) または registry string 1 個/call の leak。 (b) fresh receiver のメソッド (`("v"+s).includes(..)` 等) — string/array/Optional は結果が receiver の格納物を share なしで借りることがない (pop/shift は移転、 find/unwrap は retain 済み) ので呼び出し後に blanket release。 (c) `.length` / `.isSome` / `.isNone` は field 経路なので別途 lower_field 側にも release を追加。
+5. **template literal の評価ごと leak** (`aace25c7`)。 `lower_template` が `fmt_value` 結果と中間 `str_concat` 結果を release せず、 最終結果も borrowed 分類で誰も release しない — `${i}` 1 個につき registry string 2 個が永久に残っていた (console.log のテンプレも同様)。 中間値は消費した concat の直後に release、 `Template` を `is_fresh_object_expr` の whitelist に追加して消費側が結果を release。 空テンプレートは intern された "" を返してしまうので fresh copy を mint して契約を無条件化。
+
+**検証**: workspace nextest 525/525 (新 fixture 8 件込み)、 nested_generic.il 16×25×2 = 0/800。 probe で fresh needle / fresh receiver / template churn / weak 解放順 すべて delta=0。
+
+**回帰 fixture 8 件**: `05_edge_cases/fresh_receiver_inline_member_read.il`、 `05_edge_cases/weak_backref_cascade_release_order.il`、 `03_collections/array_indexof_string_content_eq.il`、 `03_collections/map_set_fresh_needle_arg_release.il`、 `05_edge_cases/leak_fresh_receiver_members.il`、 `05_edge_cases/leak_template_literal_loop.il`、 `03_collections/map_index_borrow_aliasing.il`、 `03_collections/map_value_kinds_churn.il`
+
+**probe で「漏れない」ことを確認済みの周辺** (再調査不要): `m[new Key(1)]` index 読みの fresh key (escape 解析で stack 化)、 set の union/intersection/difference の fresh set 引数、 property getter の fresh receiver、 `s.add` の fresh 引数、 console.log の fresh string 引数、 文字列 literal 同士の concat。
 
 ### [解決済み記録] `Map<K, Object>` の overwrite で 24 bytes/iter leak は `__map_get` の読み出し retain と borrow 前提の消費側の二重 retain だった
 
