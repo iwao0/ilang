@@ -33,43 +33,90 @@
 
 ## 未解決の引き継ぎ事項
 
-### `nested_generic.il` が並列起動下で別系統の確率的失敗
+### `nested_generic.il` 系の SIGABRT は `cranelift_module::ModuleDeclarations` の drop が真因方向
 
-**症状**: nextest 30 連続で 29/30 PASS、 1 件 fail。 単体並列起動 800 試行で **60 / 800 (7.5%) が exit 134 (SIGABRT)**、 全 stderr 空。 メイン race(`crepr_struct_assign_index_field.il`)は本セッションの commit `ec3d0cd5` で完全解決したが、 `nested_generic.il` だけは残存。
+**最小再現** (約 15% で SIGABRT を 16 並列 × 25 batch で再現):
 
-**他 fixture との違い**:
+```il
+use std.test as test
+class Box<T> {
+    x: T
+    init(v: T) { this.x = v }
+    get(): T { x }
+}
+let b1 = new Box<i64>(7)
+let b2 = new Box<Box<i64>>(b1)
+test.expect(b2.get().get(), 7)
+```
 
-- CRepr struct を一切使わず、 純粋な generic class monomorphization (`class Box<T>` を 4 段 nest)。
-- `ILANG_HEAP_GUARD=1` で 400 並列 → **0 件 abort**。 つまり `__mir_alloc` 経由のバッファ overrun ではない。
-- guard 無しで 800 並列 → 60 件 abort。 ASLR layout 依存。
+**必須条件の絞り込み(本セッション)**:
 
-**疑わしい点**:
+各要素を 1 つずつ削った縮小版を 400 並列で測ったところ:
 
-- generic mono pass (`crates/ilang-mir/src/monomorphize/`) で `Box<Box<Box<Box<i64>>>>` のような深いネストを specialise する path に何かしらの UB。
-- mono cache (HashMap での global eid / class_id 割り当て)が ASLR で踏みうる順序問題。
-- 4 段の Box 構築 → release で再帰 drop する path に off-by-one や stale Box pointer。
+| variant | 必須要素 | race率 |
+| --- | --- | --- |
+| `Box 4 段だけ` | (test なし) | 0/400 |
+| `Pair だけ` | (test なし) | 0/400 |
+| `Box 2 段 + Box 構築のみ` | (`.get()` なし) | 0/400 |
+| `Box 4 段 + Pair + test なし` | string あり、 test なし | 0/400 |
+| `test.expect 3 回` | (Box なし) | 0/400 |
+| `Box 2 段 + test.expect(b2.get().get(), 7)` | **全部** | **61/400 (15%)** |
 
-**確認手順**:
+→ **必須条件は「`use std.test as test` の取り込み + 2 段以上の `.get()` chain + その結果を test.expect の引数として渡す」**。 string は無関係、 Pair も無関係。
+
+**stack trace (本セッションの crash_handler で取得 + `atos` 解決)**:
+
+```
+hashbrown::raw::RawTable::drop                                  ← SIGABRT 発火点
+drop_in_place<cranelift_module::module::ModuleDeclarations>
+drop_in_place<ilang_mir_codegen::compile::Compiled>
+ilang::main at main.rs:75
+```
+
+元 fixture `nested_generic.il` も最小再現 v6 も **完全に同じ stack**。 つまり真因の subsystem は cranelift_module::ModuleDeclarations 内の HashMap で確定。
+
+**ilang 側の影響**:
+
+- ilang-mir / mir-codegen / lower すべてに `unsafe` 一切なし(grep で再確認済み)
+- `ILANG_HEAP_GUARD=1` で 400/400 PASS → ilang runtime の `__mir_alloc` 経由ではない
+- panic hook も呼ばれない → Rust panic 経由ではない
+
+つまり cranelift_module / hashbrown のクライアント API の呼び方が壊している(declare_function / declare_data の重複登録、 ライフタイム違反、 ASLR-aware な内部状態を踏むサイズ依存)もしくは cranelift_module 0.131.1 自身の bug。
+
+**次にやるべきこと**:
+
+- 「2 段 .get() chain → test.expect」 path で mono 化された method の declare_function を全部 dump して、 重複 declare がないかを確認:
+  - `Box_i64.get`, `Box_Box_i64.get` のような mangled name が unique か
+  - declaration 順序、 linkage、 signature の一貫性
+- cranelift / cranelift_module / cranelift_jit のバージョンを 0.131.1 から 0.132 / 0.133 等に上げて、 race が消えるかどうか試行(`crates/ilang-mir-codegen/Cargo.toml` の cranelift 依存)
+- もしくは hashbrown のバージョン固定で minimal reproducer を作って cranelift / hashbrown 側に issue report
+
+**確認手順(最小再現)**:
 
 ```sh
-FIXTURE=crates/ilang-cli/tests/programs/05_edge_cases/nested_generic.il
+cat > /tmp/nest_v6.il <<'EOF'
+use std.test as test
+class Box<T> {
+    x: T
+    init(v: T) { this.x = v }
+    get(): T { x }
+}
+let b1 = new Box<i64>(7)
+let b2 = new Box<Box<i64>>(b1)
+test.expect(b2.get().get(), 7)
+EOF
 ILBIN=./target/release/ilang
-mkdir -p /tmp/nest_check
-for batch in $(seq 1 50); do
+mkdir -p /tmp/nest_v6_check
+for batch in $(seq 1 25); do
   for j in $(seq 1 16); do
     idx=$(( (batch-1)*16 + j ))
-    ( $ILBIN run $FIXTURE > /tmp/nest_check/${idx}.out 2>&1; echo $? > /tmp/nest_check/${idx}.code ) &
+    ( ILANG_TRACE_CRASH=1 $ILBIN run /tmp/nest_v6.il > /tmp/nest_v6_check/${idx}.out 2>&1; echo $? > /tmp/nest_v6_check/${idx}.code ) &
   done
   wait
 done
-cat /tmp/nest_check/*.code | sort -n | uniq -c
-# 期待: 800 0、 実際は ~7% で 134
+cat /tmp/nest_v6_check/*.code | sort -n | uniq -c
+# 期待: ~85/400 PASS、 ~15% で 134 と stack trace 付き
 ```
-
-**次の手**:
-
-- ILANG_DUMP_CLIF=1 で `nested_generic.il` の `__main` clif IR を取得し、 Box<Box<i64>> 系の field アクセスで store/load size が正しいか audit。
-- generic mono pass の specialised class 構築コードを review。 mono cache の HashMap iteration 順序が ASLR で変わるなら、 そこから派生する UB を疑う。
 
 ### [解決済み記録] `crepr_struct_assign_index_field.il` 系の確率的失敗
 
