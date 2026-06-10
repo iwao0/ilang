@@ -152,13 +152,6 @@ pub(in crate::lower) struct BodyCx<'a> {
     /// lookup inside the body resolves through the slot at call
     /// time instead.
     pub(in crate::lower) binding_self_name: Option<Symbol>,
-    /// True when this body is a property getter (`prop::get` synthetic
-    /// method). Property access at the call site already retains the
-    /// borrowed return value — the `tail_is_borrow` retain that
-    /// `lower_block_hinted` emits for ordinary method tails would
-    /// double-count and leak one rc share per call. Setters are unaffected
-    /// (their return is Unit).
-    pub(in crate::lower) is_property_getter: bool,
     /// True only during the **immediate** `lower_block_hinted` call
     /// that lowers an fn body's outermost block (the one whose tail
     /// becomes the function's return value). Sub-block calls
@@ -374,6 +367,49 @@ impl<'a> BodyCx<'a> {
             }
         }
         true
+    }
+
+    /// `true` when `obj.name` is a property-getter read on a receiver
+    /// whose static type resolves syntactically: a Var binding / repl
+    /// slot, `this` (explicit keyword or env-bound), or a class name
+    /// (static property). Getters return an owned +1 — their tails
+    /// retain like any other method tail, and fresh tails own their
+    /// share anyway — so the access counts as fresh and the consumer
+    /// drops it. Unresolvable receiver shapes (call results, chained
+    /// reads, …) fall back to the borrow default: exact for plain
+    /// fields; for a property it means the getter's +1 is never
+    /// dropped (a leak, never a use-after-free).
+    fn field_is_property_access(&self, obj: &Expr, name: Symbol) -> bool {
+        let obj_cid = match &obj.kind {
+            ExprKind::This => self.this_class,
+            ExprKind::Var(n) => {
+                // Class-name receiver (no shadowing binding / slot)
+                // — static property read.
+                if self.env.lookup_binding(*n).is_none()
+                    && !self.repl_slots.contains_key(n)
+                {
+                    if let Some(cid) =
+                        super::class_id_by_name(self.classes, self.class_meta, *n)
+                    {
+                        return self
+                            .class_meta
+                            .get(&cid)
+                            .is_some_and(|m| m.static_property_getter.contains_key(&name));
+                    }
+                }
+                let ty = self
+                    .peek_var_ty(*n)
+                    .or_else(|| self.repl_slots.get(n).map(|(_, t)| t.clone()));
+                match ty {
+                    Some(MirTy::Object(cid)) => Some(cid),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        obj_cid
+            .and_then(|cid| self.class_meta.get(&cid))
+            .is_some_and(|m| m.property_getter.contains_key(&name))
     }
 
     /// Type-only peek for a binding — no SSA materialisation, so it
@@ -744,13 +780,12 @@ impl<'a> BodyCx<'a> {
             // closure capture (= really a field) and we're inside a
             // class method (`this_class` set).
             //
-            // Property getters are excluded: at the call site
-            // (`obj.prop`), property access already retains the
-            // borrowed return value, so adding the borrow-tail retain
-            // here would double-count and leak one rc share per call.
+            // Property getter bodies are NOT special-cased: getters
+            // return an owned +1 like any method tail, and the
+            // consumer side classifies `obj.prop` as fresh
+            // (`field_is_property_access`) and drops that share.
             ExprKind::Var(name) => {
                 is_fn_body_top
-                    && !self.is_property_getter
                     && self.this_class.is_some()
                     && self.env.lookup_binding(*name).is_none()
                     && self
@@ -857,6 +892,13 @@ impl<'a> BodyCx<'a> {
             // break new Box(i) }` stack a binding retain on top and
             // leak one occupant per evaluation.
             ExprKind::Loop { .. } => true,
+            // Property-getter reads are owned: the getter's tail
+            // retains like any method tail (fresh tails own their +1
+            // anyway), so `h.prop` hands the consumer a share to
+            // drop. Plain field reads stay borrows (the default
+            // below). Only receivers whose static type resolves
+            // syntactically are recognised — see the helper.
+            ExprKind::Field { obj, name } => self.field_is_property_access(obj, *name),
             // Indexing a fresh tuple / array donates ownership of the
             // selected element to the caller — the lowerer retains
             // that element exactly once on the fresh-receiver path.

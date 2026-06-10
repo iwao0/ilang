@@ -341,12 +341,19 @@ impl<'a> BodyCx<'a> {
                             if let Some((fid, prop_ty)) =
                                 meta.static_property_setter.get(field).cloned()
                             {
-                                let (coerced, _) = self.lower_arg_to(value, Some(&prop_ty))?;
+                                let value_is_fresh = self.is_fresh_object_expr(value);
+                                let (coerced, vty) = self.lower_arg_to(value, Some(&prop_ty))?;
                                 self.fb.push_inst(Inst::Call {
                                     dst: None,
                                     callee: crate::inst::FuncRef::Local(fid),
                                     args: Box::new([coerced]),
                                 });
+                                // The setter body stores through the
+                                // usual retain-on-store paths — drop a
+                                // fresh value's transient +1 here.
+                                if value_is_fresh && self.is_arc_heap(&vty) {
+                                    self.fb.push_inst(Inst::Release { value: coerced });
+                                }
                                 return Ok((self.const_unit(), MirTy::Unit));
                             }
                             if let Some(&slot) = meta.static_slots.get(field) {
@@ -375,12 +382,20 @@ impl<'a> BodyCx<'a> {
                 // Property setter on instance.
                 let meta = self.class_meta.get(&class_id).expect("class meta");
                 if let Some((fid, prop_ty)) = meta.property_setter.get(field).cloned() {
-                    let (coerced, _) = self.lower_arg_to(value, Some(&prop_ty))?;
+                    let value_is_fresh = self.is_fresh_object_expr(value);
+                    let (coerced, vty) = self.lower_arg_to(value, Some(&prop_ty))?;
                     self.fb.push_inst(Inst::Call {
                         dst: None,
                         callee: FuncRef::Local(fid),
                         args: Box::new([ov, coerced]),
                     });
+                    // The setter body stores its borrowed param
+                    // through AssignField, which takes its own retain
+                    // — a fresh value's transient +1 drops here, or
+                    // `h.prop = new Box(..)` leaks one per call.
+                    if value_is_fresh && self.is_arc_heap(&vty) {
+                        self.fb.push_inst(Inst::Release { value: coerced });
+                    }
                     return Ok((self.const_unit(), MirTy::Unit));
                 }
                 let fid = *meta
