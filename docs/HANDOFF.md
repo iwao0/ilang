@@ -51,13 +51,17 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### fn 本体内の自己再帰 closure が未対応 (機能判断待ち)
+### AOT arm の確率的失敗 (調査中)
 
-`let fib: fn(i64): i64 = fn(n) { ... fib(...) }` の自己再帰 closure は**トップレベル (slot 経由の遅延解決) でのみ**動く。fn 本体内では型注釈があっても `undefined function "fib"` で型検査落ち。対応するなら cell 経由の自己参照を実装する設計判断が必要。診断メッセージの改善 (「自己再帰 closure はトップレベル + 型注釈が必要」) だけでも価値はある。トップレベルでも**型注釈なしだと**同じ `undefined function` になる点も診断改善の対象。
+`ILANG_TEST_AOT=1` の fixture 一斉実行が確率的に FAIL する (2026-06-11 までに 2 回観測、いずれも直後の再実行は PASS)。どちらも失敗 fixture 名を取り逃した。現在ログ保存付きで反復実行して捕捉を試みている。
 
-### AOT arm の確率的失敗を 1 回観測 (詳細未捕捉)
+### [解決済み記録] fn 本体内の自己再帰 closure を `ClosureSelf` で対応 (2026-06-11、 `70b6dde8`)
 
-2026-06-11 の検証中、`ILANG_TEST_AOT=1` の fixture 一斉実行が 1 回 FAIL → 連続 2 回の再実行は PASS (1342 runs each)。失敗 fixture 名と出力は取り逃した。再発したら `--no-capture` で fixture 名を確保すること。
+**旧状態**: `let fib: fn(i64): i64 = fn(n) { ... fib(...) }` はトップレベル (slot 経由の遅延解決) のみ対応。 fn 本体内では型注釈があっても `undefined function` で型検査落ち。 capture では原理的に解決できない (構築前の値の snapshot になるか、 cell 経由だと closure ↔ cell の retain 循環になる)。
+
+**実装**: 新 MIR 命令 `Inst::ClosureSelf` = 隠し末尾 env パラメータ (= 実行中の closure 自身) を実体化する。 closure 本体内の自分の束縛名への参照 (呼び出し・値利用) はこれに解決される — capture なし・循環なし・escape しても「参照」が closure 自身に同行するので安全。 入れ子 closure が外側 closure の名前を参照する場合は ClosureSelf の値 snapshot を retain 付きで capture (外側は内側を保持しないので循環でない)。 tail で自分自身を返す場合は borrow 扱いで retain。 型検査は注釈付き fn 型を RHS 検査用 env に事前束縛 ([crates/ilang-types/src/checker/stmt.rs](crates/ilang-types/src/checker/stmt.rs))。 注釈は必須 (再帰型は推論不能) で、 注釈なしは `SelfRecursiveClosureNeedsAnnotation` の専用診断 (旧: 裸の undefined function)。 トップレベルの slot 遅延解決は従来どおり。
+
+**検証**: workspace nextest 530/530、 AOT arm PASS、 nested_generic.il 400 並列 0/400。 fixture: `10_closures_arc/closure_self_recursion_fn_body.il` (素 / capture 併用 / escape / 入れ子 / 200 周 churn)、 `closure_self_recursion_unannotated_error.il`。 docs: syntax.md / syntax_ja.md のクロージャ節に追記。 ilang-lsp release ビルド済み。
 
 ### [解決済み記録] fixture 増殖ラウンド第 5 弾: 深い解放 cascade の stack overflow と REPL の chunk 跨ぎ解放 (2026-06-11、 `6c5437dd` + `80736da5`)
 
