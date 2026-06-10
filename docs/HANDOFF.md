@@ -57,6 +57,18 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 **罠を設置済み**: [crates/ilang-cli/tests/programs.rs](crates/ilang-cli/tests/programs.rs) が失敗時に fixture 名・出力・タイムスタンプ・AOT フラグを `target/fixture-failures.log` へ自動追記してから panic する。次に自然発生したらこのファイルを見ること。
 
+### [解決済み記録] fixture 増殖ラウンド第 7 弾: for-in の live 化・分解束縛の ARC・テンプレート part 入力 (2026-06-11、 `ced57791`〜`52c6bb8f`)
+
+probe 対象を for-in 中の mutation、 tuple / struct 分解束縛、 Result の heap 両側、 float キー Map、 入れ子テンプレート、 events モジュール churn へ拡張した。 3 系統のバグ:
+
+1. **for-in 中の pop で「index out of bounds」panic** (`ced57791`)。 配列 arm が `ArrayLen` をループ前に巻き上げており、 本体内の pop で stale な長さのまま境界検査に当たっていた。 長さをループ header で毎周読み直す live 意味論 (JS の for..of と同じ) に変更: pop は途中終了、 push は追加要素も巡回。 ArrayLoad は data pointer を毎アクセス読み直すので push の realloc はもともと安全。 fixture: `05_edge_cases/forin_live_mutation.il`。
+2. **分解束縛の ARC 2 点** (`8185589c`)。 `let (a, b) = makePair()` が fresh tuple を release せず 32 bytes/回 leak。 さらに束縛が要素を retain しないため、 **借用 tuple の分解**では束縛の scope-exit release が tuple の slot share を横取りし、 tuple の後続 cascade が解放済みセルを歩いていた (解放済みセルの rc がちょうど 1 に読めることが稀なため显在化していなかっただけ)。 束縛ごとに retain + fresh source は抽出後に release。 `let Class { f } = obj` (LetStruct) も同型で同修正。 fixture: `05_edge_cases/destructure_arc.il`。
+3. **テンプレート `${}` 内の fresh 値が 1 個/評価 leak** (`52c6bb8f`)。 第 4 弾の修正は fmt 結果と concat 中間値だけで、 **part の入力** (`${`inner${x}`}` の内側テンプレートや `${"a" + b}` の concat) の transient +1 が残っていた。 fmt_value (Str 入力はコピー) の後に release。 `leak_template_literal_loop.il` に追記。
+
+**検証**: workspace nextest 530/530、 AOT arm 全 fixture PASS、 nested_generic.il 400 並列 0/400。
+
+**probe で問題なしを確認した周辺** (再調査不要): Result の heap 両側 (ok/err どちらも class) churn、 events モジュール (on/off/emit/removeAllListeners) churn、 float キー Map / Set (型検査で適切に拒否 — `Map<f64, _>` は診断あり)、 入れ子テンプレートの値の正しさ。
+
 ### [解決済み記録] fixture 増殖ラウンド第 6 弾: is/as? の ARC・reflection の kind tag・iteration snapshot (2026-06-11、 `e83ca1fc`〜`3fbf7667`)
 
 probe 対象を `is` / `as?`、 reflection (`typeof`)、 regex、 iteration 中の mutation、 generic fn + heap、 Promise.all/race、 const 畳み込み、 string メソッドの端へ拡張した。 3 系統のバグ:
