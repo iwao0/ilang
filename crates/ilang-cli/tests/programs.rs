@@ -255,10 +255,36 @@ fn run_all_program_fixtures() {
     let failures = failures.into_inner().expect("failures poisoned");
 
     if !failures.is_empty() {
+        // Persist the details before panicking. The AOT arm has shown
+        // rare nondeterministic failures whose names were repeatedly
+        // lost because the runner's stdout wasn't being saved — this
+        // file survives regardless of how the run was invoked.
+        let log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/fixture-failures.log");
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let entry = format!(
+            "=== {} fixture failure(s) at unix {} (ILANG_TEST_AOT={}) ===\n{}\n\n",
+            failures.len(),
+            stamp,
+            std::env::var("ILANG_TEST_AOT").unwrap_or_default(),
+            failures.join("\n\n"),
+        );
+        use std::io::Write as _;
+        if let Ok(mut f) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            let _ = f.write_all(entry.as_bytes());
+        }
         panic!(
-            "\n{}/{} fixture run(s) failed:\n\n{}\n",
+            "\n{}/{} fixture run(s) failed (details appended to {}):\n\n{}\n",
             failures.len(),
             total * 2, // counted as interp + jit per file (rough)
+            log_path.display(),
             failures.join("\n\n")
         );
     }
