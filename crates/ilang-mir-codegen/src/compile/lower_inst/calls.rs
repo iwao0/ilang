@@ -18,8 +18,9 @@ use crate::ty::mir_to_clif;
 
 use super::super::abi::{
     chunk_max_for, clif_signature_for, elem_byte_stride, elem_clif_type,
-    extend_to_i64, struct_byval_size_with_max, struct_chunks_with_max,
+    extend_to_i64, is_c_abi, struct_byval_size_with_max, struct_chunks_with_max,
     struct_hfa, struct_hfa_ret, struct_indirect_with_max,
+    struct_sret_for_internal,
 };
 use super::super::fmt_emit::emit_format_value;
 use super::super::print_emit::emit_print_value;
@@ -149,22 +150,38 @@ pub(super) fn lower_call<M: Module>(
     // SysV-tightened return cap so caller and callee agree on whether
     // the result comes back via sret or i64 chunks.
     let ret_chunk_cap = super::super::abi::ret_chunk_max(ret_conv, callee_chunk_max);
+    // Internal ilang callees push every CRepr struct return through
+    // sret (no chunks / HFA fallback). C-ABI callees (Extern decls
+    // *and* ExternBody fns exposed under C ABI) still use the
+    // platform's chunk → HFA → sret cascade. Keeping the caller
+    // and callee in sync here is critical — if either side picks a
+    // different return shape, Cranelift will accept the call and the
+    // values will silently come back wrong.
+    let force_internal_sret = match callee {
+        FuncRef::Local(id) => !is_c_abi(&prog.functions[id.0 as usize]),
+        FuncRef::Builtin(_) | FuncRef::Extern { .. } => false,
+    };
     let sret_dst = if let Some(d) = dst {
         let dst_ty = func.ty_of(*d).clone();
-        let ret_is_hfa = struct_hfa_ret(&dst_ty, prog, ret_conv).is_some();
-        if !ret_is_hfa {
-            if let Some(c_size) =
-                struct_indirect_with_max(&dst_ty, prog, ret_chunk_cap)
-            {
-                let size_v = fb.ins().iconst(types::I64, c_size);
-                let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
-                let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
-                let ptr = fb.inst_results(alloc_call)[0];
-                arg_vs.push(ptr);
-                Some((*d, ptr))
-            } else {
-                None
-            }
+        let ret_is_hfa = if force_internal_sret {
+            false
+        } else {
+            struct_hfa_ret(&dst_ty, prog, ret_conv).is_some()
+        };
+        let sret_c_size = if ret_is_hfa {
+            None
+        } else if force_internal_sret {
+            struct_sret_for_internal(&dst_ty, prog)
+        } else {
+            struct_indirect_with_max(&dst_ty, prog, ret_chunk_cap)
+        };
+        if let Some(c_size) = sret_c_size {
+            let size_v = fb.ins().iconst(types::I64, c_size);
+            let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
+            let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
+            let ptr = fb.inst_results(alloc_call)[0];
+            arg_vs.push(ptr);
+            Some((*d, ptr))
         } else {
             None
         }

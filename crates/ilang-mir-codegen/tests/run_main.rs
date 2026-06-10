@@ -18,7 +18,7 @@ fn build_const_program(value: i64) -> Program {
         dst: v,
         value: ilang_mir::MirConst::Int(value),
     });
-    fb.set_terminator(Terminator::Return { value: Some(v) });
+    fb.set_terminator(Terminator::Return { value: Some(v), release_value: false });
     let mut p = Program::new(FuncId(0));
     p.functions.push(fb.finish(Box::new([])));
     p
@@ -55,7 +55,7 @@ fn run_arithmetic() {
         lhs: a,
         rhs: b,
     });
-    fb.set_terminator(Terminator::Return { value: Some(sum) });
+    fb.set_terminator(Terminator::Return { value: Some(sum), release_value: false });
 
     let mut p = Program::new(FuncId(0));
     p.functions.push(fb.finish(Box::new([])));
@@ -78,7 +78,7 @@ fn run_call_between_fns() {
     let b = fb_add.add_block_param(entry, MirTy::I64);
     let s = fb_add.new_value(MirTy::I64);
     fb_add.push_inst(Inst::BinOp { dst: s, op: BinOp::IAdd, lhs: a, rhs: b });
-    fb_add.set_terminator(Terminator::Return { value: Some(s) });
+    fb_add.set_terminator(Terminator::Return { value: Some(s), release_value: false });
     let add_fn = fb_add.finish(
         vec![
             FuncParam { name: Symbol::intern("a"), ty: MirTy::I64, value: a },
@@ -101,7 +101,7 @@ fn run_call_between_fns() {
         callee: ilang_mir::FuncRef::Local(FuncId(0)),
         args: Box::new([twenty, twenty_two]),
     });
-    fb_main.set_terminator(Terminator::Return { value: Some(r) });
+    fb_main.set_terminator(Terminator::Return { value: Some(r), release_value: false });
     let main_fn = fb_main.finish(Box::new([]));
 
     let mut p = Program::new(FuncId(1));
@@ -154,7 +154,7 @@ fn run_switch() {
     fb.set_terminator(Terminator::Br { dst: cont, args: Box::new([v3]) });
 
     fb.switch_to(cont);
-    fb.set_terminator(Terminator::Return { value: Some(result) });
+    fb.set_terminator(Terminator::Return { value: Some(result), release_value: false });
 
     let mut p = Program::new(FuncId(0));
     p.functions.push(fb.finish(Box::new([])));
@@ -199,7 +199,7 @@ fn run_builtin_call() {
         callee: FuncRef::Builtin(Symbol::intern("host_double")),
         args: Box::new([arg]),
     });
-    fb.set_terminator(Terminator::Return { value: Some(r) });
+    fb.set_terminator(Terminator::Return { value: Some(r), release_value: false });
     let main_fn = fb.finish(Box::new([]));
 
     let mut p = Program::new(FuncId(0));
@@ -235,7 +235,7 @@ fn run_string_const_via_builtin() {
         callee: FuncRef::Builtin(Symbol::intern("host_strlen")),
         args: Box::new([s]),
     });
-    fb.set_terminator(Terminator::Return { value: Some(r) });
+    fb.set_terminator(Terminator::Return { value: Some(r), release_value: false });
     let main_fn = fb.finish(Box::new([]));
 
     let mut p = Program::new(FuncId(0));
@@ -294,7 +294,7 @@ fn run_branching() {
     fb.set_terminator(Terminator::Br { dst: cont, args: Box::new([b]) });
 
     fb.switch_to(cont);
-    fb.set_terminator(Terminator::Return { value: Some(result) });
+    fb.set_terminator(Terminator::Return { value: Some(result), release_value: false });
 
     let mut p = Program::new(FuncId(0));
     p.functions.push(fb.finish(Box::new([])));

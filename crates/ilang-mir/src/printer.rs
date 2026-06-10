@@ -387,8 +387,14 @@ fn fmt_term(t: &Terminator) -> String {
                 fmt_block_args(*default, default_args)
             )
         }
-        Terminator::Return { value: Some(v) } => format!("return {}", fmt_value(*v)),
-        Terminator::Return { value: None } => "return".into(),
+        Terminator::Return { value: Some(v), release_value } => {
+            if *release_value {
+                format!("return {} [release]", fmt_value(*v))
+            } else {
+                format!("return {}", fmt_value(*v))
+            }
+        }
+        Terminator::Return { value: None, .. } => "return".into(),
         Terminator::Unreachable => "unreachable".into(),
     }
 }

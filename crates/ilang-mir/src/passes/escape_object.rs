@@ -479,9 +479,9 @@ fn check_term_escape(
                 leak(a);
             }
         }
-        Terminator::Return { value: Some(v) } => {
+        Terminator::Return { value: Some(v), .. } => {
             leak(v);
         }
-        Terminator::Return { value: None } | Terminator::Unreachable => {}
+        Terminator::Return { value: None, .. } | Terminator::Unreachable => {}
     }
 }

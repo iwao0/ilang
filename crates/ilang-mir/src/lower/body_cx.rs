@@ -134,6 +134,15 @@ pub(in crate::lower) struct BodyCx<'a> {
     /// `r.origin` is just a borrow into `r`'s buffer) would
     /// erroneously free part of `r`'s memory.
     pub(in crate::lower) crepr_owned_locals: std::collections::HashSet<crate::inst::LocalId>,
+    /// SSA values that the function-return terminator should free
+    /// after the ABI consumes them (sret memcpy / chunk load / HFA
+    /// spread). Populated when a fn body's tail is a fresh-allocated
+    /// CRepr Object whose owned local would otherwise leak — codegen
+    /// reads this through `Terminator::Return.release_value`. The
+    /// local is removed from `crepr_owned_locals` at the same time so
+    /// `release_top_scope_objects` doesn't double-free it before the
+    /// return.
+    pub(in crate::lower) crepr_return_owned: std::collections::HashSet<crate::ValueId>,
     /// Name of the top-level slot binding currently being assigned
     /// (Some(X) while we're inside the value of `let X = ...`).
     /// `lower_fn_expr` checks this to avoid snapshotting the X slot
@@ -565,7 +574,10 @@ impl<'a> BodyCx<'a> {
             }
             (ret_ty, None) => Some(synth_placeholder(self, &ret_ty.clone())),
         };
-        self.fb.set_terminator(Terminator::Return { value });
+        let release_value = value
+            .map(|v| self.crepr_return_owned.contains(&v))
+            .unwrap_or(false);
+        self.fb.set_terminator(Terminator::Return { value, release_value });
         Ok(())
     }
 
@@ -715,13 +727,20 @@ impl<'a> BodyCx<'a> {
             other => other,
         };
         // CRepr Locals carry no rc — Retain above is a no-op for
-        // them. Transfer ownership of the tail-aliased local to
-        // the caller by un-marking it before scope exit, otherwise
-        // `release_top_scope_objects` would free the buffer the
-        // caller is about to use.
+        // them. Transfer ownership of the tail-aliased local off the
+        // scope-exit release path; instead, mark the tail SSA so a
+        // function-return terminator can hand the buffer to the
+        // return ABI (sret memcpy / chunks load) and then free it.
+        // Without this two-step handover, `release_top_scope_objects`
+        // would free the buffer before the ABI consumed it, and the
+        // ABI's load would read freed bytes.
         if let Some(name) = tail_alias_name {
             if let Some(Binding::Local(lid, _)) = self.env.lookup_binding(name) {
-                self.crepr_owned_locals.remove(&lid);
+                if self.crepr_owned_locals.remove(&lid) {
+                    if let Some((tv, _)) = &tail {
+                        self.crepr_return_owned.insert(*tv);
+                    }
+                }
             }
         }
         self.release_top_scope_objects();

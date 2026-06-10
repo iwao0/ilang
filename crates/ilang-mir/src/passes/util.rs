@@ -248,8 +248,8 @@ pub fn remap_terminator(term: &mut Terminator, rename: &HashMap<ValueId, ValueId
                 map(a);
             }
         }
-        Terminator::Return { value: Some(v) } => map(v),
-        Terminator::Return { value: None }
+        Terminator::Return { value: Some(v), .. } => map(v),
+        Terminator::Return { value: None, .. }
         | Terminator::Unreachable => {}
     }
 }

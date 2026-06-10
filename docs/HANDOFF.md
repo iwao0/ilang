@@ -17,59 +17,49 @@
 
 ## 現在地
 
-最新コミット `bcd3367f` (`ilang-runtime (alloc): add env-gated heap trace and confirm CRepr return leak shape`)。
+`run_all_program_fixtures` は **1278/1278 PASS** で全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) が修正の結果緑になった。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
-`run_all_program_fixtures` は **1 件 fail** で赤い (1277/1278 PASS)。 fail しているのは下記「未解決の引き継ぎ事項」のとおり、 既知の lifetime 穴を pin した fixture が 1 件意図的に赤いまま残されているもの。 それ以外の fixture と `examples/sdl_breakout/main.il` の起動はいずれも通っている (実機確認は accordion / panel / sdl_breakout で済み)。
+直近のセッション (2026-06-10) で main に landing した変更:
 
-直近のセッション (2026-06-09) で main に landing した変更:
-
-- **CRepr struct の inline enum field を表す `MirTy::CReprEnum` を導入** (`28f7060f` → `65bb326a` → `14292c5e`)。 `f2eea6e3` の `AssignField` point fix を撤回し、 「親が CRepr 系かを各 enum-touching path で繰り返し見る」papering over を MIR variant に焼き付けて 1 箇所判定に集約。 `examples/sdl_breakout/main.il` 起動 / `examples/libs/gui/{accordion,panel}/main.il` 起動が回復。 詳細は同 commit 群とテスト fixture (`crepr_struct_enum_field_*.il`) を参照。
-- **`match` / `if let` のアームバインディング tail-Var Retain** を `Binding::PatternBinding(_, _, needs_retain_on_tail)` で表現し直し (`ef1b9d35` → `838d2dc4`)、 `is_fresh_object_expr` の Match / IfLet 判定に scrutinee fresh + binding tail Var の widening + Str literal arm の許容を入れる (`023a0ccb` + `27f958ea`)。 47d4f979 系の fixture を継続 PASS させながら fresh scrutinee の leak を解消した。
-- **closure body 内 cell store の rc** を 2 path (captures_in_scope の `if !value_is_fresh { Retain }` + `lower_block_hinted` の captured-cell tail Retain) に分離 (`50eb400a` + `46feb093`)。
-- **`Binding::Ssa` 細分化と rc-slot 集約**: `is_arc_slot` / `is_rc_slot` を `body_cx.rs` に新設して全 enum-touching path を `MirTy::is_heap` + COM + CRepr 除外で集約 (`4afd282e` → `d6b2e64f` → `838d2dc4`)。
-- **CRepr fresh return の leak 調査用に `ILANG_HEAP_TRACE` env を追加** (`bcd3367f`)。 任意の非空値で `__mir_alloc` / `__mir_free` が `[alloc]` / `[free]` / `[free:skip]` を stderr に吐く。 env 不在時のコストは `OnceLock` 1 read のみ。
+- **内部 fn の CRepr struct return を sret 経路に倒す**。 `crepr_struct_field_discard.il` の leak (= chunks return で callee の `new Box()` buffer が宙吊りになる) を本案で塞いだ。 `Terminator::Return` に `release_value: bool` を追加し、 codegen が sret memcpy 後に callee 側 buffer を `__mir_free` する。 `is_c_abi` (= `Extern { .. } | ExternBody`) は従来の platform chunk → HFA → sret cascade を維持して SDL2 / wgpu / objc_msgSend を守る。 50 round trace は **2 alloc / 2 free のペア**(callee の `new` buffer + caller sret buffer)で `liveAllocCount` がフラット。
+- **CRepr struct の inline enum field を表す `MirTy::CReprEnum` を導入** (`28f7060f` → `65bb326a` → `14292c5e`、 前セッション)。 `f2eea6e3` の `AssignField` point fix を撤回し、 「親が CRepr 系かを各 enum-touching path で繰り返し見る」papering over を MIR variant に焼き付けて 1 箇所判定に集約。
+- **`match` / `if let` のアームバインディング tail-Var Retain** を `Binding::PatternBinding(_, _, needs_retain_on_tail)` で表現し直し (`ef1b9d35` → `838d2dc4`、 前セッション)。
+- **closure body 内 cell store の rc** を 2 path に分離 (`50eb400a` + `46feb093`、 前セッション)。
+- **`Binding::Ssa` 細分化と rc-slot 集約** (`4afd282e` → `d6b2e64f` → `838d2dc4`、 前セッション)。
+- **CRepr fresh return の leak 調査用に `ILANG_HEAP_TRACE` env を追加** (`bcd3367f`、 前セッション)。
 
 次のフェーズ候補は変わらず: **capability の enforce**、 **未実装の言語機能 (タプル / `?` 演算子 / Iterator など)**、 **C ヘッダから .il 自動生成のミニ bindgen**。 ただし直近では「未解決の引き継ぎ事項」(下記) を片付けるのが優先。
 
 ## 未解決の引き継ぎ事項
 
-### CRepr struct を fn 戻り値で返した後の caller-side discard で buffer leak
+### cocoa @objc method (CRepr struct 戻り値) が debug build で SIGSEGV
 
-**fixture**: `crates/ilang-cli/tests/programs/05_edge_cases/crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加)。 50 round で `let _ = make_box(i)` (CRepr `Box` を return する fn) を回すと `liveAllocCount` が 8+ で fail。
+**症状**: `cargo nextest run -p ilang --test cocoa_foundation run_foundation_fixtures` で `calendar_test.il` が、 `cargo nextest run -p ilang --test cocoa_appkit run_appkit_fixtures` で `drawing_test.il` がそれぞれ 1 件だけ失敗。 debug build (`target/debug/ilang`) で `exit=139` (SIGSEGV) になる。 release build (`target/release/ilang`) は `exit=0` で通る。 `ILANG_HEAP_TRACE=1` を付けると debug でも通る (timing 依存)。
 
-**真因 (確定済み)**: `ILANG_HEAP_TRACE=1 target/release/ilang run ...` で確認した 1 round の挙動:
+**最小再現** (foundation テスト dir 配下に置いて debug binary で実行):
 
-```text
-[alloc] size=8 ptr=A   ← callee `make_box` 内の `new Box()`
-[alloc] size=8 ptr=B   ← caller 側の追加 alloc (戻り値受け取り)
-[free]  size=8 ptr=B   ← caller の `let _` Release が B を free
+```
+use foundation { NSCalendar, NSCalendarUnit, NSDateComponents, nsstr }
+
+let cal = NSCalendar.calendarWithIdentifier(nsstr("gregorian"))
+let d = NSDateComponents.alloc().init().date
+cal.rangeOfUnit(NSCalendarUnit.day, NSCalendarUnit.month, d)  // NSRange (16 byte CRepr struct) を捨てる
+0
 ```
 
-callee の buffer A が宙吊り。 `body_cx.rs::lower_block_hinted` の tail-alias 経路で `crepr_owned_locals.remove(&lid)` が走り、 callee 側で A を free しない設計 (= caller に ownership 移譲したつもり) なのに、 実際の ABI は B に値をコピーして A は宙に浮く。
+**起因コミット (推定)**: 内部 fn の CRepr struct return を sret 経路に倒した本セッションの変更。 `@objc method` (`rangeOfUnit:inUnit:forDate:` 等) の wrapper が `FunctionKind::Local` 扱いで force_internal_sret=true に乗っているが、 body 内では `objc_msgSend` を C ABI (chunks return) で呼び、 受け取った reassemble buffer を sret 経由で caller へ転送している。 この組み合わせのどこかで debug 限定の UB を踏んでいる。
 
-**試したが破棄した修正**:
+**未確認**:
 
-- 「`crepr_owned_locals.remove` を撤回 (callee 側で A free)」: `crepr_struct_enum_field_as_by_value_param.il` / `via_pointer_arg.il` 等 4 fixture が SIGSEGV / `read CRepr struct field of enum ... with unknown discriminant 0` で退行。 これらの path は本当に callee buffer を caller がそのまま読むので、 free すると dangling。
-- `d4b44d2f` の 3 件試行 (`is_crepr_object_kind` helper / `stmt.rs::Let _` の OR / AssignField の fresh Enum release) はいずれも実質効果なし — `is_arc_heap(Object(CRepr)) = true` で元から `Release` inst は発行されており、 codegen 側 `lower_inst/arc.rs::Release` の CRepr 分岐 (`__mir_free(av, layout.c_size)`) も到達していた。 真因は ABI レベル。
+- `@objc method` wrapper の MIR 形状 (`lower/literals.rs:949` 付近の class method generation を確認するのが最短)。
+- `cv_opt` (= Return の value SSA) が release_value=false の sret 経路で誤って消費されているか。
+- caller 側で `is_arc_slot(NSRange)=false` で式文 discard 時の release が出ない leak path との相互作用。
 
-**未着手の方針 (= 案 a / 推奨)**: ilang 内部 fn (`is_callee_extern == false`) の CRepr struct return を **sret 経路** に倒す。 caller が事前に buffer を alloc し、 callee の `b` ポインタを sret として渡す。 これで callee 側の `__mir_alloc` が消えて caller の 1 alloc / 1 free でペアが揃う。 `is_callee_extern == true` (SDL2 等の C 関数値返し) は現状経路を残してリスク回避。
+**回避策候補**:
 
-触る場所 (sret 化):
-
-- `crates/ilang-mir-codegen/src/compile/abi.rs::clif_signature_for` — CRepr struct 戻り + `is_callee_extern == false` で sret パラメータを足す。
-- `crates/ilang-mir-codegen/src/compile/lower_inst/calls.rs` — chunks/HFA 戻り経路は内部 fn では dead code 化する。 該当ガードを足す。
-- 場合によって MIR 側 (`lower/call_fn.rs` 等) で「戻り値 SSA をどう作るか」に手が入る可能性。 未確認。
-
-**退行リスク**: SDL2 binding で C 関数の値返し ABI を踏むケース (`SDL_FRect` / `SDL_Color` 等)。 `is_callee_extern` 分岐の境界を間違えると `sdl_breakout` が起動直後に落ちる。 `cargo run --release -p ilang -- run examples/sdl_breakout/main.il` で実機目視確認が必須。
-
-**検証手順**:
-
-1. `cargo build -p ilang -p ilang-mir-codegen` でビルド。
-2. `ILANG_HEAP_TRACE=1 target/release/ilang run crates/ilang-cli/tests/programs/05_edge_cases/crepr_struct_field_discard.il` で 50 round の trace が 1 alloc / 1 free のペアに揃うこと。
-3. `cargo nextest run -p ilang run_all_program_fixtures` で 1278 fixture 全 PASS。 特に `crepr_struct_enum_field_as_by_value_param.il` / `via_pointer_arg.il` (callee buffer 直接読み path) と `repr_c_clock_gettime.il` / `leak_var_reassign_promise_await.il` の継続 PASS。
-4. `cargo run --release -p ilang -- run examples/sdl_breakout/main.il` が `playing — ESC to quit` で起動。
-
-`d4b44d2f` の 3 件試行は撤回せずに残してある (害ゼロ + 後続 commit で参照できる足場)。 必要なら撤回も可能。
+- (1) `force_internal_sret` の条件を「chunks/HFA に乗らないサイズ」に絞る。 ただし HANDOFF 主目標の Box (8 byte) も chunks 経路に戻るので leak 復活。
+- (2) `@objc method` wrapper を `FunctionKind::ExternBody` 等の C ABI 扱いにする。 sret 強制対象から除外。 ただし MIR 側で wrapper の kind 判定を分けないとならない。
+- (3) debug build の SIGSEGV を pin point して直接修正。 lldb で stack trace を取るのが妥当。
 
 ### 関連 commit 履歴 (時系列)
 
@@ -80,6 +70,7 @@ callee の buffer A が宙吊り。 `body_cx.rs::lower_block_hinted` の tail-al
 - `a6e9310e` 疑わしい path を網羅する fixture 9 件 (1 件 fail = `crepr_struct_field_discard.il`)
 - `d4b44d2f` 修正試行 3 件 (実質効果なし、 撤回せずに残置)
 - `bcd3367f` `ILANG_HEAP_TRACE` env と真因確定の trace 結果記録
+- **本セッション** (2026-06-10) 内部 fn CRepr struct return の sret 経路化、 `crepr_struct_field_discard.il` が緑に。 cocoa @objc method の debug-only SIGSEGV が新規退回 (上記)。
 
 ## 実装済み機能 (一覧)
 

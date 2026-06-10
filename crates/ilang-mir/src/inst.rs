@@ -323,7 +323,19 @@ pub enum Terminator {
         default: BlockId,
         default_args: Box<[ValueId]>,
     },
-    Return { value: Option<ValueId> },
+    Return {
+        value: Option<ValueId>,
+        /// When `true`, codegen frees the CRepr struct buffer that
+        /// `value` points at after copying its bytes into the sret
+        /// hidden destination (or loading them into the chunk/HFA
+        /// return registers). Set by the MIR lowerer when the tail
+        /// value is a fresh `new T()` owned local of a CRepr return
+        /// type — the buffer is callee-allocated and unreferenced
+        /// after the return ABI consumes it. `false` for plain
+        /// non-heap returns and for returns of borrowed CRepr
+        /// values (where the buffer's owner is upstream).
+        release_value: bool,
+    },
     /// Reachable only through `Panic` or other halting intrinsics.
     Unreachable,
 }

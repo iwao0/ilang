@@ -134,6 +134,7 @@ impl Lower {
             is_main_body: false,
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
+            crepr_return_owned: std::collections::HashSet::new(),
         };
         let needs_retain = pc
             .body
@@ -233,6 +234,7 @@ impl Lower {
             is_main_body: false,
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
+            crepr_return_owned: std::collections::HashSet::new(),
         };
         let needs_retain = m
             .body
@@ -337,6 +339,7 @@ impl Lower {
             is_main_body: false,
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
+            crepr_return_owned: std::collections::HashSet::new(),
         };
         let needs_retain = m
             .body
@@ -348,7 +351,7 @@ impl Lower {
         let tail = bcx.lower_block_hinted(&m.body, Some(&ret_hint))?;
         let is_init = matches!(m.name.as_str(), "init");
         if is_init {
-            bcx.fb.set_terminator(Terminator::Return { value: Some(this_v) });
+            bcx.fb.set_terminator(Terminator::Return { value: Some(this_v), release_value: false });
         } else {
             if needs_retain {
                 bcx.emit_callee_retain(&tail);
@@ -451,6 +454,7 @@ impl Lower {
             is_main_body: false,
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
+            crepr_return_owned: std::collections::HashSet::new(),
         };
         let needs_retain = fd
             .body
@@ -516,6 +520,7 @@ impl Lower {
             is_main_body: true,
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
+            crepr_return_owned: std::collections::HashSet::new(),
         };
         for stmt in stmts {
             bcx.lower_stmt(stmt)?;
@@ -604,7 +609,7 @@ impl Lower {
             Some((v, MirTy::I64)) => v,
             _ => bcx.const_int(MirTy::I64, 0),
         };
-        bcx.fb.set_terminator(Terminator::Return { value: Some(ret_val) });
+        bcx.fb.set_terminator(Terminator::Return { value: Some(ret_val), release_value: false });
 
         let func = fb.finish(Box::new([]));
         let id = FuncId(self.funcs.len() as u32);

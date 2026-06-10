@@ -120,7 +120,7 @@ fn extract_candidate(f: &Function, self_id: usize, prog: &Program) -> Option<Can
         return None;
     }
     let return_val = match &block.term {
-        Terminator::Return { value } => *value,
+        Terminator::Return { value, .. } => *value,
         _ => return None,
     };
     for inst in &block.insts {
@@ -329,7 +329,7 @@ mod tests {
             blocks: vec![Block {
                 params: Vec::new(),
                 insts: add_body,
-                term: Terminator::Return { value: Some(ValueId(2)) },
+                term: Terminator::Return { value: Some(ValueId(2)), release_value: false },
             }],
             entry: BlockId(0),
             kind: FunctionKind::Local,
@@ -367,7 +367,7 @@ mod tests {
                         args: Box::new([ValueId(0), ValueId(1)]),
                     },
                 ],
-                term: Terminator::Return { value: Some(ValueId(2)) },
+                term: Terminator::Return { value: Some(ValueId(2)), release_value: false },
             }],
             entry: BlockId(0),
             kind: FunctionKind::Local,
@@ -397,7 +397,7 @@ mod tests {
         assert!(matches!(main_block.insts[2], Inst::BinOp { op: BinOp::IAdd, .. }));
         // Return must reach the inlined BinOp's dst, not the original
         // Call.dst (which no longer exists).
-        if let Terminator::Return { value: Some(rv) } = &main_block.term {
+        if let Terminator::Return { value: Some(rv), .. } = &main_block.term {
             let bin_dst = match &main_block.insts[2] {
                 Inst::BinOp { dst, .. } => *dst,
                 _ => unreachable!(),

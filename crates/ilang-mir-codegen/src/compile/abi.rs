@@ -47,8 +47,10 @@ pub(super) const IL_BYVAL_CHUNK_MAX: i64 = 64;
 
 /// Whether `f` follows the C ABI (real C functions, callbacks
 /// exposed under C ABI) vs the looser ilang ABI. The two differ
-/// only in the by-value chunk threshold.
-fn is_c_abi(f: &MirFunction) -> bool {
+/// only in the by-value chunk threshold *and* whether internal-fn
+/// CRepr struct returns are forced through sret (only the looser
+/// ilang ABI is — C interop must stay platform-conformant).
+pub(super) fn is_c_abi(f: &MirFunction) -> bool {
     matches!(
         f.kind,
         FunctionKind::Extern { .. } | FunctionKind::ExternBody
@@ -130,9 +132,21 @@ pub(super) fn clif_signature_for<M: Module>(
     // possibly-tighter cap than arguments — see `ret_chunk_max` /
     // `struct_hfa_ret`.
     let ret_max = ret_chunk_max(sig.call_conv, chunk_max);
-    let ret_hfa = struct_hfa_ret(&f.ret, prog, sig.call_conv);
+    // Internal (non-extern) fns force every CRepr struct return
+    // through sret so the callee can hand its buffer to the caller's
+    // pre-alloc'd slot and free it at the return site. The chunk /
+    // HFA paths would leave the callee buffer leaked (see HANDOFF
+    // notes on `crepr_struct_field_discard.il`).
+    let force_internal_sret = !is_c_abi(f);
+    let ret_hfa = if force_internal_sret {
+        None
+    } else {
+        struct_hfa_ret(&f.ret, prog, sig.call_conv)
+    };
     let sret_size = if ret_hfa.is_some() {
         None
+    } else if force_internal_sret {
+        struct_sret_for_internal(&f.ret, prog)
     } else {
         struct_indirect_with_max(&f.ret, prog, ret_max)
     };
@@ -359,6 +373,32 @@ pub(super) fn struct_byval_size_with_max(
                 | ilang_mir::ClassRepr::CUnion
         ) && layout.c_size > max_bytes
             && struct_hfa(ty, prog).is_none()
+        {
+            return Some(layout.c_size);
+        }
+    }
+    None
+}
+
+/// Sret hidden-pointer return for *every* CRepr struct / packed
+/// returned by an ilang-internal fn (`is_extern == false`). The C
+/// ABI's chunk / HFA paths are skipped here so callee-allocated
+/// CRepr buffers can be handed to the caller's sret slot and freed
+/// at the same site — chunk-return path leaks the callee buffer
+/// because the chunks-load happens after `release_top_scope_objects`
+/// has already moved past the local. C-extern callees still go
+/// through the by-size chunk → HFA → sret cascade so SDL2 / wgpu /
+/// objc_msgSend value-returning APIs keep their platform ABI.
+pub(super) fn struct_sret_for_internal(
+    ty: &MirTy,
+    prog: &Program,
+) -> Option<i64> {
+    if let MirTy::Object(cid) = ty {
+        let layout = &prog.classes[cid.0 as usize];
+        if matches!(
+            layout.repr,
+            ilang_mir::ClassRepr::CRepr | ilang_mir::ClassRepr::CPacked
+        ) && layout.c_size > 0
         {
             return Some(layout.c_size);
         }

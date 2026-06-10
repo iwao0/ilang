@@ -322,10 +322,10 @@ fn collect_term_uses(term: &Terminator, set: &mut HashSet<ValueId>) {
                 set.insert(*a);
             }
         }
-        Terminator::Return { value: Some(v) } => {
+        Terminator::Return { value: Some(v), .. } => {
             set.insert(*v);
         }
-        Terminator::Return { value: None } | Terminator::Unreachable => {}
+        Terminator::Return { value: None, .. } | Terminator::Unreachable => {}
     }
 }
 
@@ -353,7 +353,7 @@ mod tests {
                 Inst::BinOp { dst: ValueId(2), op: BinOp::IAdd, lhs: ValueId(0), rhs: ValueId(1) },
                 Inst::Const { dst: ValueId(3), value: MirConst::Int(99) }, // dead
             ],
-            term: Terminator::Return { value: Some(ValueId(2)) },
+            term: Terminator::Return { value: Some(ValueId(2)), release_value: false },
         }];
         let mut func = Function {
             name: intern("f"),
@@ -391,7 +391,7 @@ mod tests {
                 Inst::Const { dst: ValueId(1), value: MirConst::Int(3) }, // becomes dead
                 Inst::Const { dst: ValueId(2), value: MirConst::Int(6) }, // ex-BinOp
             ],
-            term: Terminator::Return { value: Some(ValueId(2)) },
+            term: Terminator::Return { value: Some(ValueId(2)), release_value: false },
         }];
         let mut func = Function {
             name: intern("f"),

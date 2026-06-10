@@ -210,7 +210,7 @@ mod tests {
                     rhs: ValueId(4),
                 },
             ],
-            term: Terminator::Return { value: Some(ValueId(5)) },
+            term: Terminator::Return { value: Some(ValueId(5)), release_value: false },
         }];
         let mut func = Function {
             name: intern("f"),
@@ -259,7 +259,7 @@ mod tests {
                 Inst::DefLocal { local: LocalId(0), value: ValueId(1) },
                 Inst::UseLocal { dst: ValueId(2), local: LocalId(0) },
             ],
-            term: Terminator::Return { value: Some(ValueId(2)) },
+            term: Terminator::Return { value: Some(ValueId(2)), release_value: false },
         }];
         let mut func = Function {
             name: intern("f"),
@@ -296,7 +296,7 @@ mod tests {
                 Inst::DefLocal { local: LocalId(0), value: ValueId(0) },
                 Inst::UseLocal { dst: ValueId(1), local: LocalId(0) },
             ],
-            term: Terminator::Return { value: Some(ValueId(1)) },
+            term: Terminator::Return { value: Some(ValueId(1)), release_value: false },
         }];
         let mut func = Function {
             name: intern("f"),

@@ -146,7 +146,7 @@ mod tests {
                     dst: ValueId(1),
                     value: MirConst::Int(1),
                 }],
-                term: Terminator::Return { value: Some(ValueId(1)) },
+                term: Terminator::Return { value: Some(ValueId(1)), release_value: false },
             },
             Block {
                 params: Vec::new(),
@@ -154,7 +154,7 @@ mod tests {
                     dst: ValueId(2),
                     value: MirConst::Int(2),
                 }],
-                term: Terminator::Return { value: Some(ValueId(2)) },
+                term: Terminator::Return { value: Some(ValueId(2)), release_value: false },
             },
         ];
         let mut func = Function {

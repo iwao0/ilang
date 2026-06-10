@@ -27,7 +27,7 @@ fn build_add_function() {
         lhs: a,
         rhs: b,
     });
-    fb.set_terminator(Terminator::Return { value: Some(sum) });
+    fb.set_terminator(Terminator::Return { value: Some(sum), release_value: false });
 
     let func = fb.finish(
         vec![

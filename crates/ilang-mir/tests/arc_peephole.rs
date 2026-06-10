@@ -21,7 +21,7 @@ where
     fb.switch_to(entry);
     let v = fb.add_block_param(entry, MirTy::I64);
     setup(&mut fb, v);
-    fb.set_terminator(Terminator::Return { value: Some(v) });
+    fb.set_terminator(Terminator::Return { value: Some(v), release_value: false });
     fb.finish(
         vec![FuncParam {
             name: Symbol::intern("v"),

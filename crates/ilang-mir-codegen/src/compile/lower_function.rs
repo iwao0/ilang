@@ -14,8 +14,8 @@ use ilang_ast::Symbol;
 use ilang_mir::{FuncId, Function as MirFunction, MirTy, Program, StaticSlotId, ValueId};
 
 use crate::compile::abi::{
-    chunk_max_for, ret_chunk_max, struct_chunks_with_max, struct_hfa, struct_hfa_ret,
-    struct_indirect_with_max,
+    chunk_max_for, is_c_abi, ret_chunk_max, struct_chunks_with_max, struct_hfa, struct_hfa_ret,
+    struct_indirect_with_max, struct_sret_for_internal,
 };
 use crate::ty::mir_to_clif;
 
@@ -80,9 +80,20 @@ pub(super) fn lower_function<M: Module>(
     // Returns are register-bound; use the (possibly tighter) return
     // caps so this matches `clif_signature_for` on every ABI.
     let ret_max = ret_chunk_max(fb.func.signature.call_conv, chunk_max);
-    let ret_hfa = struct_hfa_ret(&func.ret, prog, fb.func.signature.call_conv);
+    // Internal (non-C-ABI) fns force CRepr struct returns through
+    // sret; mirrors `clif_signature_for`. ExternBody (ilang fns
+    // exposed under C ABI) sticks to the platform's chunk/HFA
+    // rules so C callers see the bytes where they expect them.
+    let force_internal_sret = !is_c_abi(func);
+    let ret_hfa = if force_internal_sret {
+        None
+    } else {
+        struct_hfa_ret(&func.ret, prog, fb.func.signature.call_conv)
+    };
     let sret_ret_size = if ret_hfa.is_some() {
         None
+    } else if force_internal_sret {
+        struct_sret_for_internal(&func.ret, prog)
     } else {
         struct_indirect_with_max(&func.ret, prog, ret_max)
     };
@@ -243,6 +254,10 @@ pub(super) fn lower_function<M: Module>(
         // Return-side cap (SysV-tightened) so the Ret lowering picks
         // the same sret-vs-chunks shape as the signature / entry block.
         chunk_max: ret_max,
+        // Mirrors `clif_signature_for`'s force_internal_sret so the
+        // Return terminator picks the same sret path as the caller
+        // pre-alloc'd a buffer for.
+        force_internal_sret,
     };
 
     // Address-taken locals (those that show up in an
@@ -332,7 +347,7 @@ pub(super) fn lower_function<M: Module>(
         for inst in &blk.insts {
             lower_inst(fb, &mut vmap, module, &prog_ctx, &fn_ctx, inst)?;
         }
-        lower_term(fb, &blk.term, &vmap, &blocks, &ret_abi, prog)?;
+        lower_term(fb, &blk.term, &vmap, &blocks, &ret_abi, prog, module, &panic_aux)?;
     }
     // Seal all blocks (M1 doesn't construct cycles via ssa add_predecessor;
     // every predecessor is already known by structure).

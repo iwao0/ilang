@@ -356,7 +356,10 @@ impl<'a> BodyCx<'a> {
                 Some(synth)
             }
         };
-        self.fb.set_terminator(Terminator::Return { value: v });
+        let release_value = v
+            .map(|vid| self.crepr_return_owned.contains(&vid))
+            .unwrap_or(false);
+        self.fb.set_terminator(Terminator::Return { value: v, release_value });
         let dead = self.fb.new_block();
         self.fb.switch_to(dead);
         Ok((self.const_unit(), MirTy::Unit))
