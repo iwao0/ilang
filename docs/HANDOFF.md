@@ -51,7 +51,32 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-(現在なし)
+### 継承時に親クラスの `deinit` が連鎖しない (仕様判断待ち)
+
+`class Derived: Base` で両方に `deinit` がある場合、**派生側の deinit だけ**が走り、親側は走らない (Base 型の束縛経由でも class_id による動的選択で派生側が選ばれる点は正常)。Swift は派生 → 親の順で自動連鎖する。[docs/syntax.md](syntax.md) は「init / deinit は per-class (override 規則の対象外)」とだけ書いており、連鎖の有無は未規定。**連鎖させるか・現状 (置き換え) を仕様として明文化するかはユーザーの設計判断待ち**。再現:
+
+```il
+class Base { init() {}; deinit() { console.log("base") } }
+class Derived: Base { init() { super() }; deinit() { console.log("derived") } }
+fn f() { let b: Base = new Derived(); let _ = b }
+f()   // "derived" のみ出力。親の後始末 (リソース解放等) は走らない
+```
+
+連鎖させる場合の実装方向: deinit の synth drop fn (`__drop_dispatch` が返す per-class fn) が自身の本体の後に親 class の drop fn を呼ぶ。
+
+### [解決済み記録] fixture 増殖ラウンド第 2 弾で検出した 3 系統 (2026-06-10 後続セッション、 `7ba1d28f`〜`9912a69c`)
+
+probe 対象を可変ローカル / top-level slot / field / enum / Optional の上書き churn、 配列の fill / concat / slice / reverse / removeAt / unshift / sort、 cell capture (閉包が捕獲変数へ代入)、 break 値、 再帰、 vtable、 継承解放へ拡張した。 検出と修正:
+
+1. **cell capture (mutating capture) が cell + 中身を毎構築 leak** (`7ba1d28f`)。 capture 登録が `is_cell` を「leak for now」でスキップしており、 `__release_closure` の cascade が cell を解放できなかった (1 閉包あたり 56〜80 bytes)。 所有権モデルを「scope が生成 +1 を持ち scope exit で release / 各閉包が MakeClosure で +1 retain し cascade で release」に統一。 落とし穴 2 つ: (a) 外側閉包の env から転送する cell ポインタが `MirTy::I64` で型付けされていて retain が無効化 → cascade だけ効いて過剰解放 (`closure_nested_shared_cell.il` の index OOB)。 cell 配列型で型付けして解決。 (b) その場で mint する private snapshot cell は閉包が生成 +1 を引き取る (retain しない)。 break の早期脱出 sweep も「中身を release」から「cell を release」に変更 (旧挙動は生存閉包に対して slot を dangle させていた)。
+2. **`arr.fill(v)` の rc 2 点** (`f7bce86c`)。 lowering が fresh な fill 値の transient +1 を release せず 1 個/call leak。 runtime が「旧値 release → 新値 retain」の順だったため、 自己 fill (`arr.fill(arr[0])`) で自分の slot の値を retain 前に解放しうる。 retain-first に変更。
+3. **`loop { break v }` の評価値が borrowed 分類で 1 個/評価 leak** (`7ba1d28f` に同梱、 fixture は `9912a69c`)。 `lower_break` は borrowed break 値に Retain を積むので loop の評価値は常に +1 所有 — `ExprKind::Loop` を fresh whitelist に追加。
+
+**検証**: workspace nextest 525/525 (新 fixture 3 件込み)、 nested_generic.il 16×25×2 = 0/800。 probe: cell capture 全形 (未呼び出し / escape / 兄弟 2 閉包共有 / 入れ子転送) delta=0、 fill churn + 自己 fill ✓、 break 値 churn delta=0。
+
+**回帰 fixture 3 件**: `10_closures_arc/cell_capture_release.il`、 `03_collections/array_fill_arc.il`、 `05_edge_cases/loop_break_value_ownership.il`
+
+**probe で問題なしを確認した周辺** (再調査不要): 可変ローカル / top-level slot / field / enum / Optional / weak field の上書き churn、 concat / slice / reverse / removeAt / unshift / sort (object 要素)、 string メソッド群 + `+=` churn、 Result churn、 for-in churn、 閉包配列 churn、 再帰 (heap 引数/戻り)、 vtable churn、 派生クラスを Base 型束縛で解放 (動的 class_id で extra field も cascade ✓)、 Set values / Map entries-keys-forEach churn。
 
 ### [解決済み記録] fixture 増殖ラウンドで検出した 5 系統 (2026-06-10 後続セッション)
 
