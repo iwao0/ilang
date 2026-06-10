@@ -58,9 +58,12 @@ impl<'a> BodyCx<'a> {
         // closure or another set — already in native ABI shape.
         let arg_is_elem = matches!(m, "add" | "has" | "delete");
         let mut arg_vals = vec![ov];
-        // Track a fresh heap element transient passed to `add`; the set
-        // adopts its own +1 (host_set_add retains string elements), so
-        // the caller's transient is released after the call.
+        // Track a fresh heap element transient passed to `add` / `has`
+        // / `delete` for release after the call. `add` adopts its own
+        // +1 (host_set_add retains string / object elements), and
+        // `has` / `delete` adopt nothing — either way the caller's
+        // transient share must drop here, or a fresh needle
+        // (`s.has(new Key(1))`) leaks one element per call.
         let mut fresh_elem: Option<(ValueId, MirTy)> = None;
         // forEach's callback closure: the runtime consumes the +1.
         // Track whether to retain a borrowed reference.
@@ -89,7 +92,7 @@ impl<'a> BodyCx<'a> {
             } else {
                 v
             };
-            if m == "add" && idx == 0 && arg_is_fresh && self.is_arc_heap(&vty) {
+            if arg_is_elem && idx == 0 && arg_is_fresh && self.is_arc_heap(&vty) {
                 fresh_elem = Some((v_ext, vty.clone()));
             }
             if m == "forEach" && idx == 0 {

@@ -863,12 +863,18 @@ impl<'a> BodyCx<'a> {
                 return Ok((v, prop_ty));
             }
         }
-        // Built-in `.length` on arrays / strings.
+        // Built-in `.length` on arrays / strings. The result is a
+        // plain i64, so a fresh receiver (`("v" + s).length`,
+        // `[new Box(1)].length`) drops its transient +1 right after
+        // the read — without that the whole container leaked.
         if name == "length" {
             match &oty {
                 MirTy::Array { .. } => {
                     let v = self.fb.new_value(MirTy::I64);
                     self.fb.push_inst(Inst::ArrayLen { dst: v, arr: ov });
+                    if obj_is_fresh && self.is_arc_heap(&oty) {
+                        self.fb.push_inst(Inst::Release { value: ov });
+                    }
                     return Ok((v, MirTy::I64));
                 }
                 MirTy::Str => {
@@ -880,16 +886,23 @@ impl<'a> BodyCx<'a> {
                         callee: FuncRef::Builtin(Symbol::intern("str_length")),
                         args: Box::new([ov]),
                     });
+                    if obj_is_fresh {
+                        self.fb.push_inst(Inst::Release { value: ov });
+                    }
                     return Ok((v, MirTy::I64));
                 }
                 _ => {}
             }
         }
-        // Optional accessors (.isSome / .isNone).
+        // Optional accessors (.isSome / .isNone). Same fresh-receiver
+        // contract as `.length` — the bool result borrows nothing.
         if let MirTy::Optional(_) = &oty {
             if name == "isSome" {
                 let v = self.fb.new_value(MirTy::Bool);
                 self.fb.push_inst(Inst::OptionalIsSome { dst: v, opt: ov });
+                if obj_is_fresh && self.is_arc_heap(&oty) {
+                    self.fb.push_inst(Inst::Release { value: ov });
+                }
                 return Ok((v, MirTy::Bool));
             }
             if name == "isNone" {
@@ -897,6 +910,9 @@ impl<'a> BodyCx<'a> {
                 self.fb.push_inst(Inst::OptionalIsSome { dst: s, opt: ov });
                 let v = self.fb.new_value(MirTy::Bool);
                 self.fb.push_inst(Inst::UnOp { dst: v, op: UnOp::BoolNot, src: s });
+                if obj_is_fresh && self.is_arc_heap(&oty) {
+                    self.fb.push_inst(Inst::Release { value: ov });
+                }
                 return Ok((v, MirTy::Bool));
             }
         }

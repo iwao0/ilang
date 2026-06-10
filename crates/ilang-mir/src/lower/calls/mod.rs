@@ -236,13 +236,32 @@ impl<'a> BodyCx<'a> {
         if let Some(out) = self.try_lower_scalar_method(ov, &oty, method, args)? {
             return Ok(out);
         }
+        // Optional / array / string builtins never hand back a value
+        // that borrows the receiver's storage without its own share
+        // (`unwrap` retains the inner, `pop` / `shift` transfer the
+        // slot's share into the result, everything else returns a
+        // primitive or a fresh container) — so a fresh receiver's
+        // transient +1 drops right after the dispatch. Without this,
+        // `("v" + s).length` leaked a registry string and
+        // `[new Box(1)].length` leaked the whole array per call.
+        // Map / Set / class-object methods handle their own freshness
+        // (they take `obj_is_fresh`).
         if let Some(out) = self.try_lower_optional_method(ov, &oty, method, args)? {
+            if obj_is_fresh && self.is_arc_heap(&oty) {
+                self.fb.push_inst(Inst::Release { value: ov });
+            }
             return Ok(out);
         }
         if let Some(out) = self.try_lower_array_method(ov, &oty, method, args)? {
+            if obj_is_fresh && self.is_arc_heap(&oty) {
+                self.fb.push_inst(Inst::Release { value: ov });
+            }
             return Ok(out);
         }
         if let Some(out) = self.try_lower_string_method(ov, &oty, method, args)? {
+            if obj_is_fresh && self.is_arc_heap(&oty) {
+                self.fb.push_inst(Inst::Release { value: ov });
+            }
             return Ok(out);
         }
         if let Some(out) = self.try_lower_promise_method(ov, &oty, method, args)? {

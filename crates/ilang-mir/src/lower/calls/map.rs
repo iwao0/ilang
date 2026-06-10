@@ -116,19 +116,18 @@ impl<'a> BodyCx<'a> {
             callee: FuncRef::Builtin(Symbol::intern(builtin_name)),
             args: arg_vals.into_boxed_slice(),
         });
-        // `m.set` takes its own +1 share on both key and value via
-        // host_map_set's retains. Mirror the AssignIndex path — for a
-        // fresh key / value the caller's transient +1 is released here
-        // so the only remaining share is the map's.
-        if m == "set" {
-            if let Some((is_fresh, kv, kty)) = arg_meta.first() {
-                if *is_fresh && self.is_arc_heap(kty) {
-                    self.fb.push_inst(Inst::Release { value: *kv });
-                }
-            }
-            if let Some((is_fresh, vv, vty)) = arg_meta.get(1) {
+        // Release the caller's transient +1 on fresh heap key / value
+        // args after the call. `m.set` mirrors the AssignIndex path —
+        // the map adopts its own share via host_map_set's retains, so
+        // the only remaining share is the map's. `get` / `has` /
+        // `delete` don't adopt anything: without this release a fresh
+        // needle key (`m.has(new Key(1))`, `m.get("k" + suffix)`)
+        // leaked one object / registry string per call. forEach is
+        // excluded — the runtime consumes the callback's +1 itself.
+        if matches!(m, "get" | "has" | "delete" | "set") {
+            for (is_fresh, v, vty) in &arg_meta {
                 if *is_fresh && self.is_arc_heap(vty) {
-                    self.fb.push_inst(Inst::Release { value: *vv });
+                    self.fb.push_inst(Inst::Release { value: *v });
                 }
             }
         }
