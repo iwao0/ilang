@@ -682,7 +682,11 @@ c.count                                 // field read
 - `init` is the (only) constructor (Swift-style). Omit it and the
   class can be `new`-ed without arguments.
 - `deinit` is parameter-less and returns `()`. Calling it
-  explicitly (`c.deinit()`) is an error.
+  explicitly (`c.deinit()`) is an error. In an inheritance chain
+  deinits run Swift-style: the most derived class's `deinit` fires
+  first, then each ancestor's in turn, automatically (there is no
+  `super.deinit()`). Classes without their own `deinit` are skipped
+  without breaking the chain.
 - Implicit `this`: in method bodies you can drop `this.` for
   fields / methods. A local variable or parameter with the same
   name still wins.
@@ -994,7 +998,8 @@ introduce(d)                                   // OK — Dog is-a Animal (subtyp
   rule. (Earlier the restriction was "root class only"; this has
   been relaxed.)
 - `init` and `deinit` are per-class (not subject to override
-  rules).
+  rules). Deinits chain automatically on destruction — derived
+  first, then each ancestor (§ class basics above).
 - Inheriting static members isn't supported.
 - Inheritance on generic classes isn't supported.
 - Subtyping: a `Child` value can flow into any binding /

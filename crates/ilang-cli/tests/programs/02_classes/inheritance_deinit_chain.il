@@ -1,8 +1,9 @@
-// `init` and `deinit` are per-class — the parent's `deinit` does
-// NOT run automatically when a child instance dies. Children must
-// call `super.deinit()` explicitly if they want the parent hook
-// to fire. Per syntax.md §7 L987 ("`init` and `deinit` are
-// per-class (not subject to override rules)").
+// Deinits chain automatically, Swift-style: when an instance dies,
+// the most derived class's `deinit` fires first, then each
+// ancestor's in turn. There is no `super.deinit()` — explicit deinit
+// calls are rejected (see inheritance_super_deinit_error.il) — and
+// classes without their own `deinit` are skipped without breaking
+// the chain.
 use std.test as test
 
 class Log {
@@ -16,39 +17,33 @@ class A {
     deinit() { log.s.push("A.deinit") }
 }
 
-// Without an explicit `super.deinit()`, only the child's hook fires.
-class BNoSuper: A {
+// A two-class chain: child first, then parent — automatically.
+class B: A {
     init() { super() }
-    deinit() { log.s.push("BNoSuper.deinit") }
+    deinit() { log.s.push("B.deinit") }
 }
 {
-    let _x = new BNoSuper()
+    let _x = new B()
 }
-test.expect(log.s.length, 1)
-test.expectStr(log.s[0], "BNoSuper.deinit")
+test.expect(log.s.length, 2)
+test.expectStr(log.s[0], "B.deinit")
+test.expectStr(log.s[1], "A.deinit")
 
 // Clear the log between sub-tests.
 log.s = []
 
-// With `super.deinit()`, the chain fires bottom-up.
-class B: A {
+// Three levels with a deinit-less middle class: the chain passes
+// through Mid untouched.
+class Mid: A {
     init() { super() }
-    deinit() {
-        log.s.push("B.deinit")
-        super.deinit()
-    }
 }
-class C: B {
+class C: Mid {
     init() { super() }
-    deinit() {
-        log.s.push("C.deinit")
-        super.deinit()
-    }
+    deinit() { log.s.push("C.deinit") }
 }
 {
     let _y = new C()
 }
-test.expect(log.s.length, 3)
+test.expect(log.s.length, 2)
 test.expectStr(log.s[0], "C.deinit")
-test.expectStr(log.s[1], "B.deinit")
-test.expectStr(log.s[2], "A.deinit")
+test.expectStr(log.s[1], "A.deinit")

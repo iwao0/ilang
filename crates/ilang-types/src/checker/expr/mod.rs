@@ -235,6 +235,12 @@ impl TypeChecker {
                     })?;
                 let parent_sig = self.classes.get(&parent_name).expect("parent registered");
                 let lookup: Symbol = method.unwrap_or_else(|| "init".into());
+                // Deinits chain automatically (derived first, then
+                // each ancestor) — an explicit `super.deinit()` would
+                // run the parent's hook a second time.
+                if lookup == "deinit" {
+                    return Err(TypeError::CannotCallDeinit { span });
+                }
                 let sigs = parent_sig.methods.get(&lookup).ok_or_else(|| {
                     TypeError::UnknownMethod {
                         class: parent_name,

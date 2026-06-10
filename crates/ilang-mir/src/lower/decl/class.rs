@@ -333,6 +333,52 @@ impl Lower {
                     self.classes[class_id.0 as usize].drop_fn = parent_drop;
                 }
             }
+        } else if let Some(pid) = parent_id {
+            // Swift-style deinit chaining: a class with its own deinit
+            // whose ancestry also has one gets a synthesized wrapper
+            // (own body first, then the nearest ancestor's drop fn).
+            // The ancestor's drop_fn is itself already chained, so the
+            // walk continues to the root. The wrapper — rather than a
+            // tail-appended call inside the deinit body — keeps the
+            // chain intact even when the body early-`return`s.
+            let parent_drop = self.classes[pid.0 as usize].drop_fn;
+            if parent_drop != FuncId(u32::MAX) {
+                let own_drop = self.classes[class_id.0 as usize].drop_fn;
+                let cname = self.classes[class_id.0 as usize].name;
+                let mangled = Symbol::intern(&format!("{cname}.deinit$chain"));
+                let mut fb = crate::builder::FunctionBuilder::new(
+                    mangled,
+                    Symbol::intern("deinit"),
+                    MirTy::Unit,
+                    FunctionKind::Drop { class: class_id },
+                );
+                let entry = fb.new_block();
+                fb.switch_to(entry);
+                let this_ty = MirTy::Object(class_id);
+                let this_v = fb.add_block_param(entry, this_ty.clone());
+                fb.push_inst(crate::inst::Inst::Call {
+                    dst: None,
+                    callee: crate::inst::FuncRef::Local(own_drop),
+                    args: Box::new([this_v]),
+                });
+                fb.push_inst(crate::inst::Inst::Call {
+                    dst: None,
+                    callee: crate::inst::FuncRef::Local(parent_drop),
+                    args: Box::new([this_v]),
+                });
+                fb.set_terminator(crate::inst::Terminator::Return {
+                    value: None,
+                    release_value: false,
+                });
+                let func = fb.finish(Box::new([crate::program::FuncParam {
+                    name: Symbol::intern("this"),
+                    ty: this_ty,
+                    value: this_v,
+                }]));
+                let wid = FuncId(self.funcs.len() as u32);
+                self.funcs.push(func);
+                self.classes[class_id.0 as usize].drop_fn = wid;
+            }
         }
 
         // Static methods — registered as top-level fns under
