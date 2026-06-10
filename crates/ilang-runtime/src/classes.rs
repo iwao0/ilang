@@ -412,14 +412,17 @@ pub extern "C" fn __type_parent(class_id: i64) -> i64 {
     match parent {
         None => 0,
         Some(p) => {
-            // Allocate a 3-cell Optional. kind_tag follows the same
-            // PrintKind::Object cascade tag (1) used by WeakUpgrade.
+            // Allocate a 3-cell Optional. The inner value is a bare
+            // TypeHandle id (a small integer, not a heap pointer), so
+            // the kind_tag must be 0 (no cascade) — tagging it Object
+            // would make the cell's release call __release_object on
+            // a class id and read wild memory.
             let cell = __mir_alloc(24);
             unsafe {
                 let h = cell as *mut i64;
-                *h = p;       // value
+                *h = p;        // value (TypeHandle id)
                 *h.add(1) = 1; // rc
-                *h.add(2) = 1; // kind_tag (Object cascade)
+                *h.add(2) = 0; // kind_tag (KIND_NONE — id, not heap)
             }
             cell
         }
@@ -611,8 +614,8 @@ pub extern "C" fn __type_kind(class_id: i64) -> i64 {
 /// because the consumer owns a +1 rc on each element.
 ///
 /// Layout mirrors `__c_array_to_array`: 48-byte header + n × 8-byte
-/// data buffer, `kind_tag = 11` (PK_STR mirror from mir-codegen) so
-/// the release cascade drops each string at array-rc 0.
+/// data buffer, `kind_tag = KIND_STR (7)` so the release cascade
+/// drops each string at array-rc 0.
 #[unsafe(export_name = "$type.fields")]
 pub extern "C" fn __type_fields(class_id: i64) -> i64 {
     let declared: usize = {
@@ -650,7 +653,12 @@ pub extern "C" fn __type_fields(class_id: i64) -> i64 {
 /// `.methods`, ...).
 pub(crate) fn new_string_array(names: &[String]) -> i64 {
     use crate::alloc::__mir_alloc;
-    const PK_STR: i64 = 11;
+    // The array header's kind tag drives the RELEASE cascade and must
+    // come from the KIND_* family — KIND_STR (7). The old value 11
+    // was PK_STR from the unrelated print-kind family, which the
+    // cascade reads as KIND_WEAK: every element "release" became a
+    // weak-table no-op and the strings leaked one per read.
+    const KIND_STR: i64 = 7;
     let n = names.len() as i64;
     let header = __mir_alloc(48);
     let data = __mir_alloc((n * 8).max(8));
@@ -664,7 +672,7 @@ pub(crate) fn new_string_array(names: &[String]) -> i64 {
         *h.add(1) = n;     // cap
         *h.add(2) = data;  // data ptr
         *h.add(3) = 1;     // rc
-        *h.add(4) = PK_STR; // kind_tag
+        *h.add(4) = KIND_STR; // kind_tag
         *h.add(5) = 8;     // stride
     }
     header
