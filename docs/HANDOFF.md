@@ -33,41 +33,54 @@
 
 ## 未解決の引き継ぎ事項
 
-### `crepr_struct_assign_index_field.il` が nextest 並列実行下で確率的失敗
+### nextest 並列実行下で `crepr_struct_assign_index_field.il` と `nested_generic.il` が確率的失敗
 
-**症状**: `cargo nextest run -p ilang --test programs run_all_program_fixtures` を連続で 10 回回すと 1〜2 回 `crepr_struct_assign_index_field.il [mir-jit]: command failed` が出る(stderr 空)。 単体実行 (`./target/release/ilang run ...`) を 10 連続 / bash で 64 並列起動の両方では再現しない。 nextest のテストハーネス (`programs.rs::run_all_program_fixtures` 内の `std::thread::scope` 並列 spawn) 経由でのみ踏む。
+**現状の観測**(本セッションで `programs.rs::check()` に signal 出力を追加して観測力強化済み):
 
-**fixture 自体は本セッションの追加分とは無関係** — 私の追加 4 件 (`crepr_struct_return_large_sret.il` 等) を一時退避して 10 連続実行しても同じ確率で失敗を引いたため、 既存 fixture / コード側の確率 race。
+- `cargo nextest run -p ilang --test programs run_all_program_fixtures` の 20 連続実行で:
+  - `crepr_struct_assign_index_field.il`: signal=11 (SIGSEGV) × 1
+  - `nested_generic.il`: signal=6 (SIGABRT) × 2
+- bash で `./target/release/ilang run <fixture> & × 16` × 13 batch (= 200 並列起動) でも `crepr_struct_assign_index_field.il` は 200 中 3〜15 件 (1.5%〜5%) で exit 134 (= SIGABRT)。 つまり **nextest harness 限定ではなく、 多数並列起動で素直に踏む**。
 
-**fixture の内容**: `let arr: Slot[] = [s0, s1]; arr[0].kind = Mode.active` のような `AssignIndex.field` (CRepr struct を要素とする `Slot[]` の index 経由 inline enum field 代入) を実行する短い fixture。
+**stderr 空の謎は本セッションで部分解明**:
 
-**疑わしい点 (未確認)**:
+`crates/ilang-runtime/src/enums.rs:122-134` の「CRepr struct 経由で読んだ enum discriminant が不正」path は `eprintln! → process::abort()` だが、 `eprintln!` が pipe buffer に届く前に `abort()` が走り、 stderr が空のままプロセスが死ぬ。 本セッションで該当 4 箇所(enums.rs ×2 + regex.rs ×2)に `stderr().flush()` を入れたが、 並列再現時の stderr 空は **直らない** — つまり「abort 前 flush」では救えない別の経路で死んでいる(本物の SIGSEGV / heap corruption が `eprintln!` 到達前に発火)。
 
-- `Slot[]` の lower 経路で、 CRepr struct を inline value として配列に格納するか / ポインタとして格納するかの判定が並列環境で race することはあるか? (ilang は single-thread JIT のはずなので普通は race しないが、 グローバル static の lazy init / OnceLock 系で初期化順序が踏まれる可能性)
-- 各 fixture が `Command::spawn` で child process として起動されるので、 親 process は無関係。 child の codegen 内で何かが non-deterministic。
-- 既存の `leak_var_reassign_promise_await.il` の race は `pool::drain` で解決したが、 こちらは pool を使わない fixture なので同じ修正は当たらない。
+**疑わしい点 (絞り込み済み)**:
+
+- 並列起動下でのみ踏むので、 **ASLR 由来の heap layout 違い** で `__mir_alloc` の returned address や ARC ヘッダの位置が確率的に踏める / 踏めないアドレスになる UB。
+- `crepr_struct_assign_index_field.il` は `Slot[] = [s0, s1]; arr[0].kind = ...` という CRepr struct を要素にする配列の `AssignIndex.field` path。 Array of CRepr struct の要素ストレージ(inline vs pointer)と AssignIndex のアドレス計算に UB の疑い。 `crates/ilang-mir-codegen/src/compile/lower_inst/array.rs` の `ArrayStore` / `ArrayLoad` + CRepr struct elem 経路を疑う。
+- `nested_generic.il` は CRepr struct 不使用(generic class monomorphization)。 SIGABRT は別経路で、 おそらく Rust panic / heap corruption(共通要因か別要因かは未切り分け)。
+
+**真因追跡で試して効かなかった手段** (次セッションで違う方法を考えること):
+
+- macOS の core dump (`ulimit -c unlimited` + `/cores/core.%P`): `sysctl kern.coredump=1` でも `/cores` に書き出されず。 macOS の code signing / `get-task-allow` entitlement 制約。
+- lldb で attach (`lldb -- ilang run ...`): デバッガ attach すると timing が変わり、 race を引かなくなる。
+- `RUST_BACKTRACE=1`: stderr 空のまま死ぬので backtrace も出ない。
+
+**次にやるべきこと**:
+
+- `ilang` バイナリに `get-task-allow` entitlement を付ける(`codesign --entitlements ent.plist -s - target/release/ilang`)→ core dump を `/cores` に書き出させる → 死亡時の core を lldb で読む。
+- もしくは `MallocStackLogging=1` 等の macOS malloc debug 環境変数で heap corruption を捕まえる(性能落ちて timing 変わるリスクあり)。
+- 最小化: `crepr_struct_assign_index_field.il` を `let arr: Slot[] = [s0]; arr[0].kind = 2` 1 行レベルまで絞り、 並列で踏むか確認。 踏めば AssignIndex.field の codegen に絞れる。
 
 **確認手順**:
 
 ```sh
-# 単体実行では再現しない
-for i in 1 2 3 4 5 6 7 8 9 10; do
-  ./target/release/ilang run crates/ilang-cli/tests/programs/05_edge_cases/crepr_struct_assign_index_field.il > /dev/null 2>&1
-  echo "run$i exit=$?"
+# 並列起動 (200 個) で確率失敗を引く
+FIXTURE=crates/ilang-cli/tests/programs/05_edge_cases/crepr_struct_assign_index_field.il
+ILBIN=./target/release/ilang
+mkdir -p /tmp/raceCheck; rm -f /tmp/raceCheck/*
+for batch in $(seq 1 13); do
+  for j in $(seq 1 16); do
+    idx=$(( (batch-1)*16 + j ))
+    ( $ILBIN run $FIXTURE > /tmp/raceCheck/${idx}.out 2>&1; echo $? > /tmp/raceCheck/${idx}.code ) &
+  done
+  wait
 done
-# 期待: 10/10 exit 0 — そして実際そうなる
-
-# nextest 並列実行で確率的に失敗
-for i in 1 2 3 4 5 6 7 8 9 10; do
-  ~/.cargo/bin/cargo nextest run -p ilang --test programs run_all_program_fixtures 2>&1 | grep -E "PASS|FAIL" | tail -1
-done
-# 期待: 10/10 PASS — 実際は 1〜2/10 で FAIL crepr_struct_assign_index_field.il
+cat /tmp/raceCheck/*.code | sort -n | uniq -c
+# 期待: 1〜5% の確率で 134 (SIGABRT) が出る
 ```
-
-**着手の前にやるべきこと**:
-
-- nextest 失敗時の `[mir-jit]: command failed` の stderr が空なのは、 子 process が SIGSEGV / panic で stderr を flush せず exit している可能性。 nextest が child stderr をどう拾うかと、 child process 内部の panic / SIGSEGV を切り分ける。
-- `ILANG_MIR_DUMP=1` を有効にした状態で nextest を回して、 MIR 自体が round によって違うか確認 (= non-deterministic な MIR 生成)。
 
 ### 関連 commit 履歴 (時系列)
 

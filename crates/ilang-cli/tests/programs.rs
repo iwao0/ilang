@@ -119,7 +119,17 @@ fn check(spec: &Spec, out: &Output) -> Result<String, String> {
     }
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(format!("command failed:\n{stderr}"));
+        let code = out.status.code();
+        #[cfg(unix)]
+        let sig = {
+            use std::os::unix::process::ExitStatusExt;
+            out.status.signal()
+        };
+        #[cfg(not(unix))]
+        let sig: Option<i32> = None;
+        return Err(format!(
+            "command failed (exit={code:?} signal={sig:?}):\n{stderr}"
+        ));
     }
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let actual: Vec<&str> = stdout.lines().collect();

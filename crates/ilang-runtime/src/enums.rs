@@ -125,6 +125,12 @@ pub extern "C" fn __enum_unit_get_checked(global_eid: i64, disc: i64) -> i64 {
              unknown discriminant {disc} (0x{disc:X}) — declared variants \
              do not include this value",
         );
+        // process::abort kills the process before the stderr pipe
+        // flushes — under parent harnesses that read via Command::output
+        // the message would otherwise be lost and the symptom looks
+        // like a bare SIGABRT with empty stderr.
+        use std::io::Write;
+        let _ = std::io::stderr().flush();
         std::process::abort();
     }
     __enum_unit_get(global_eid, disc)
@@ -326,6 +332,8 @@ pub extern "C" fn __enum_disc_str(global_eid: i64, disc: i64) -> i64 {
             eprintln!(
                 "ilang: enum-as-string cast on unregistered (global_eid={global_eid}, disc={disc})"
             );
+            use std::io::Write;
+            let _ = std::io::stderr().flush();
             std::process::abort();
         }
     }

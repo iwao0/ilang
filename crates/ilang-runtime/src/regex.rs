@@ -44,6 +44,8 @@ pub extern "C" fn __regex_compile(pattern: i64, flags: i64) -> i64 {
                     "regex: unsupported flag {:?} (allowed: i / m / s / x)",
                     c
                 );
+                use std::io::Write;
+                let _ = std::io::stderr().flush();
                 std::process::abort();
             }
         }
@@ -52,6 +54,8 @@ pub extern "C" fn __regex_compile(pattern: i64, flags: i64) -> i64 {
         Ok(r) => Box::into_raw(Box::new(r)) as i64,
         Err(e) => {
             eprintln!("regex: failed to compile pattern {p:?}: {e}");
+            use std::io::Write;
+            let _ = std::io::stderr().flush();
             std::process::abort();
         }
     }
