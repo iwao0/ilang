@@ -19,6 +19,13 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.75"
 
+# Keep enough debug info in the release binary that `atos` (macOS) /
+# `addr2line` (Linux) can resolve return addresses emitted by the
+# unix signal handler in `ilang-runtime::crash_handler`. Line-tables
+# add ~10 MB but no speed regression.
+[profile.release]
+debug = "line-tables-only"
+
 [workspace.dependencies]
 ilang-ast = { path = "crates/ilang-ast" }
 ilang-lexer = { path = "crates/ilang-lexer" }

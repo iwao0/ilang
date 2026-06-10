@@ -64,6 +64,17 @@ unsafe extern "C" {
 #[cfg(unix)]
 const SIG_DFL: usize = 0;
 
+// Captured ASLR slide of the main executable, recorded at install
+// time so the (async-signal-safe) handler can print it alongside
+// raw return addresses. `atos -o <bin> <addr - slide>` then resolves.
+#[cfg(target_os = "macos")]
+static MAIN_SLIDE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn _dyld_get_image_vmaddr_slide(image_index: u32) -> isize;
+}
+
 #[cfg(unix)]
 unsafe fn install_unix() {
     let h: extern "C" fn(i32) = unix_handler;
@@ -72,6 +83,11 @@ unsafe fn install_unix() {
         unsafe {
             signal(sig, h_addr);
         }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let slide = unsafe { _dyld_get_image_vmaddr_slide(0) } as usize;
+        MAIN_SLIDE.store(slide, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -136,18 +152,128 @@ extern "C" fn unix_handler(sig: i32) {
         write(2, buf.as_ptr(), n);
     }
 
+    // Async-signal-safe stack trace by walking the AAPCS64 frame
+    // pointer chain. No heap alloc / no mutex / no symbol resolution
+    // — just raw return addresses written via `write(2)`. Symbolicate
+    // later with `atos -o target/release/ilang <addr>`. Skipped on
+    // non-aarch64; the backtrace crate is unsafe here (see history
+    // for the SIGKILL-masking regression we hit when we tried it).
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        let mut stack_buf = [0u8; 1024];
+        let stack_n = walk_frames_aarch64(&mut stack_buf);
+        write(2, stack_buf.as_ptr(), stack_n);
+    }
+
     // Restore default disposition and re-raise so the OS terminates
-    // with the expected `WIFSIGNALED` signal code. We deliberately
-    // skip the backtrace step: `backtrace::trace` allocates and
-    // resolves symbols, neither of which is async-signal-safe, and
-    // under parallel-spawn load it produced SIGKILL'd children
-    // (libsystem's malloc reentered itself). The plain signal-name
-    // line is already enough for the parent harness to tell
-    // SIGABRT / SIGSEGV / SIGBUS apart from a plain non-zero exit.
+    // with the expected `WIFSIGNALED` signal code.
     unsafe {
         signal(sig, SIG_DFL);
         raise(sig);
     }
+}
+
+/// AAPCS64 frame walker. ARM64 stack frame layout for any function
+/// that established a frame pointer is:
+///
+/// ```text
+/// [fp + 0]  = saved fp (chain to caller)
+/// [fp + 8]  = saved lr (return address into caller)
+/// ```
+///
+/// We follow the chain up to 32 frames, with three defenses against
+/// runaway walks if the chain is corrupted by the crashing code:
+///   - fp must be non-NULL and 8-byte aligned
+///   - fp must point into the user-space range
+///   - max 32 iterations
+///
+/// Output format (each line written to `out`):
+///
+/// ```text
+/// ilang: stack (run `atos -o <bin> <addrs>` to symbolicate):
+///   #00 0x000000010014abcd
+///   #01 0x000000010014ef01
+///   ...
+/// ```
+///
+/// Returns the number of bytes written into `out`.
+#[cfg(all(unix, target_arch = "aarch64"))]
+unsafe fn walk_frames_aarch64(out: &mut [u8]) -> usize {
+    let mut fp: usize;
+    unsafe {
+        std::arch::asm!("mov {}, x29", out(reg) fp, options(nomem, nostack, preserves_flags));
+    }
+
+    let mut n = 0usize;
+    n += write_bytes(b"ilang: stack (atos -o <bin> -l 0x", &mut out[n..]);
+    #[cfg(target_os = "macos")]
+    {
+        let load = 0x0000_0001_0000_0000usize
+            .wrapping_add(MAIN_SLIDE.load(std::sync::atomic::Ordering::Relaxed));
+        n += write_hex16(load as u64, &mut out[n..]);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        n += write_bytes(b"0000000100000000", &mut out[n..]);
+    }
+    n += write_bytes(b" <addrs>):\n", &mut out[n..]);
+
+    let mut frame_no = 0usize;
+    while frame_no < 32 {
+        // Sanity check: fp must be aligned and inside the user-space
+        // range. macOS arm64 user space sits roughly in
+        // 0x0000_0001_0000_0000..0x0000_0007_ffff_ffff.
+        if fp == 0 || fp & 0x7 != 0 || fp < 0x0000_0001_0000_0000 || fp > 0x0000_0007_ffff_ffff {
+            break;
+        }
+        let next_fp = unsafe { *(fp as *const usize) };
+        let ret_addr = unsafe { *((fp + 8) as *const usize) };
+
+        // Write line: "  #NN 0x0123456789abcdef\n"
+        if n + 26 > out.len() {
+            break;
+        }
+        n += write_bytes(b"  #", &mut out[n..]);
+        if frame_no < 10 {
+            out[n] = b'0';
+            n += 1;
+        }
+        n += write_dec(frame_no as i64, &mut out[n..]);
+        n += write_bytes(b" 0x", &mut out[n..]);
+        n += write_hex16(ret_addr as u64, &mut out[n..]);
+        if n < out.len() {
+            out[n] = b'\n';
+            n += 1;
+        }
+
+        if next_fp <= fp {
+            // Frame pointer didn't grow — corrupt chain or end of stack.
+            break;
+        }
+        fp = next_fp;
+        frame_no += 1;
+    }
+    n
+}
+
+#[cfg(unix)]
+fn write_bytes(src: &[u8], out: &mut [u8]) -> usize {
+    let count = src.len().min(out.len());
+    out[..count].copy_from_slice(&src[..count]);
+    count
+}
+
+#[cfg(unix)]
+fn write_hex16(v: u64, out: &mut [u8]) -> usize {
+    if out.len() < 16 {
+        return 0;
+    }
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for i in 0..16 {
+        let shift = (15 - i) * 4;
+        out[i] = HEX[((v >> shift) & 0xf) as usize];
+    }
+    16
 }
 
 #[cfg(unix)]
