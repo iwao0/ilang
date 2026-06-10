@@ -19,7 +19,19 @@
 
 `run_all_program_fixtures` (1278/1278) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 525 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
-直近のセッション (2026-06-10) で main に landing した変更:
+直近のセッション (2026-06-10、 ARC ラウンド) で main に landing した変更:
+
+- **`m[k]` の Map index 読みを `ArrayLoad` と同じ borrow 規約に統一** (`f3d0a899`、 後続セッション)。 `__map_get` の retain-on-read (`d8c7f548`) と borrow 前提の消費側 (束縛 Retain / tail-borrow Retain / arc_peephole の whitelist) が二重 retain になり、 overwrite された entry が 24 bytes/iter で leak していたのを解消。 詳細は下の解決済み記録。
+- **cranelift 0.131 → 0.132.1 へ依存上げ** (`12d171d4`)。 API breaking なし。 nested_generic.il race の調査用に試行したが race 確率は不変 (cranelift_module 側に修正は入っていない)。 修正とは独立で温存。
+- **class method body の bare-var tail を borrow として扱う** (`4e4e6851`)。 [crates/ilang-mir/src/lower/body_cx.rs::lower_block_hinted](crates/ilang-mir/src/lower/body_cx.rs:695) の `tail_is_borrow` が `Index/Field` のみ matching していたところに、 `Var(name)` でも「class method 内 + env/capture 未解決」 なら暗黙の `this.field` として retain を発行するよう拡張。 `nested_generic.il` の race を根本解決。 同時に dd40bc49 の `forget(compiled)` も撤去。
+- **property getter を bare-var borrow retain の対象外に** (`ac6e787e`)。 method 用の retain は property access の caller-side retain と二重になるため、 `BodyCx::is_property_getter` を追加して getter body だけ skip。 200 iter で 24 bytes/iter leak していた回帰を解消。
+- **closure body 内の bare-var field を `LoadCapture` 経由で解決** (`a0c2a854`)。 [crates/ilang-mir/src/lower/collect.rs](crates/ilang-mir/src/lower/collect.rs) の `Var` arm で free var に `this` を candidate に追加 + [crates/ilang-mir/src/lower/expr.rs::lower_var_expr](crates/ilang-mir/src/lower/expr.rs) の field path で env に `this` がなければ captures からフォールバック。 `class Holder { inner: Box; grab(): fn(): Box { fn(): Box { inner } } }` で `lower_var_expr` の `Option::unwrap()` panic していたのを解消。
+- **borrow-tail retain を fn-body の outermost block でだけ発火** (`775c6026`)。 [crates/ilang-mir/src/lower/body_cx.rs](crates/ilang-mir/src/lower/body_cx.rs) に `in_fn_body_top` flag + `lower_block_for_fn_body` wrapper を追加。 if-arm / match-arm / loop-body の sub-block では retain skip。 `pick(): Box { if flag { a } else { b } }` で 24 bytes/iter leak していたのを解消。
+- **top-level let が class field 名を hijack する shadow bug を解消** (`a78bfd2a`)。 [crates/ilang-mir/src/lower/expr.rs::lower_var_expr](crates/ilang-mir/src/lower/expr.rs) で `repl_slots` lookup より先に implicit `this.field` を解決する順序に変更 (= OOP の「class members shadow globals」 ルール)。 `let base = test.liveAllocBytes()` で `Forge.base` field が誤って REPL slot 経由になり、 200 iter ループ内で `test.expect(g().n, i)` が常に 0 を返す wrong-value bug を解消。
+
+regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_edge_cases/method_tail_bare_var_match_arm.il`、 `05_edge_cases/method_tail_match_enum_payload.il`、 `05_edge_cases/method_tail_bare_top_level_fn.il`、 `05_edge_cases/method_field_shadows_top_level_let.il`、 `08_properties/getter_tail_bare_var_heap.il`、 `09_subtyping/method_tail_bare_var_parent_field.il`、 `10_closures_arc/closure_tail_bare_var_field.il`、 `059303f5` の match-arm/payload 2 件) を追加。
+
+それ以前に同セッションで landing 済み (sret ラウンド):
 
 - **内部 fn の CRepr struct return を sret 経路に倒す** (`4d1f97dc`)。 `crepr_struct_field_discard.il` の leak (= chunks return で callee の `new Box()` buffer が宙吊り) を塞いだ。 `Terminator::Return` に `release_value: bool` を追加し、 codegen が sret memcpy 後に callee 側 buffer を `__mir_free` する。 `is_c_abi` (= `Extern { .. } | ExternBody`) は従来の platform chunk → HFA → sret cascade を維持して SDL2 / wgpu / objc_msgSend を守る。
 - **`Inst::VirtCall` も同じ sret 経路に統一** (本コミット)。 `call_dispatch.rs::VirtCall` が `struct_indirect_with_max` のままだったため、 vtable 経由で 16 byte 以下の CRepr struct (NSRange / NSRect 等) を返す `@objc method` の caller signature (chunks return) と callee signature (sret) が決定的にミスマッチし、 debug build で SIGSEGV を踏んでいた (`cocoa_foundation/calendar_test.il`、 `cocoa_appkit/drawing_test.il`)。 vtable に乗るのは構造的に `FunctionKind::Local` のみなので `struct_sret_for_internal` に統一すれば整合する。
@@ -32,6 +44,49 @@
 次のフェーズ候補は変わらず: **capability の enforce**、 **未実装の言語機能 (タプル / `?` 演算子 / Iterator など)**、 **C ヘッダから .il 自動生成のミニ bindgen**。
 
 ## 未解決の引き継ぎ事項
+
+(現在なし)
+
+### [解決済み記録] `Map<K, Object>` の overwrite で 24 bytes/iter leak は `__map_get` の読み出し retain と borrow 前提の消費側の二重 retain だった
+
+**再現スクリプト** (修正済み、保管用):
+
+```il
+use std.test as test
+class Box { n: i64; init(x: i64) { this.n = x } }
+let m = new Map<string, Box>()
+let base = test.liveAllocBytes()
+let i = 0
+while i < 200 {
+    m["a"] = new Box(i + 1)         // 同じ key "a" に毎周上書き
+    test.expect(m["a"].n, i + 1)
+    i = i + 1
+}
+let after = test.liveAllocBytes()
+console.log(`delta=${after - base}`)  // 修正前 4800 (= 200 × 24)、 修正後 24 (= map 内に生存中の最後の 1 個)
+```
+
+**真因 (2026-06-10 後続セッションで確定 + 修正、 `f3d0a899`)**:
+
+当初仮説 (「`__map_set` の旧値 release 漏れ」) は外れ — overwrite release は [crates/ilang-runtime/src/maps.rs::__map_set](crates/ilang-runtime/src/maps.rs) に正しく入っていた (write-only ループでは leak しない)。 真因は読み出し側の規約矛盾:
+
+- `__map_get` が読み出しごとに heap 値を retain して +1 で返していた (`d8c7f548` で導入)
+- 一方 lowering の `is_fresh_object_expr` は `Index` の freshness を receiver に委譲するため、 `m[k]` (m が local) は「借用」と分類される
+- その結果 `let x = m["a"]` は束縛時にもう 1 つ Retain を積み (stmt.rs の non-fresh 束縛規約)、 fn-body tail の `m[k]` も borrow retain を積む — ランタイムが付けた +1 を誰も release せず、 entry が上書き / delete された時点で +1 が永久に残る
+- `arc_peephole::is_safe_to_cross` も「`MapGet` は自前で rc を増やさない」前提で whitelist しており、 ランタイムの retain は optimizer の前提とも矛盾していた
+
+**修正**: `__map_get` の retain-on-read を撤去し、 Map の index 読みを `ArrayLoad` と同じ borrow 規約に統一。 `__map_get_optional` は fresh な Optional cell が +1 を所有するので retain を残す。 fresh receiver (`make_map()["k"]`) の経路だけ [crates/ilang-mir/src/lower/literals.rs::lower_index](crates/ilang-mir/src/lower/literals.rs) で「値 Retain → 孤児 map Release」 を発行して map release の value cascade による解放を防ぐ。
+
+**検証結果**:
+
+- 上記再現: delta=24 (合格条件 `delta < 1024` 達成)。 overwrite + alias + delete + clear + map drop を混ぜた churn では delta=0
+- 別名健全性 (UAF なし): 「束縛 → 上書き / delete 後も旧値が読める」「fn tail で `m[k]` を返す」「`m.get(k)` Optional 経路」「string / array 値の overwrite + alias」「他コンテナへの移送」「fresh receiver index」 全 PASS
+- `04_modules/events_basic.il` (retain-on-read 導入の動機だった EventEmitter) PASS
+- workspace nextest: **525 / 525 PASS** (新 fixture 込み)
+- nested_generic.il 16 並列 × 25 batch × 2 連続: **0/800**
+- 回帰 fixture: `03_collections/map_overwrite_releases_prev_object.il` を追加
+
+---
 
 ### [解決済み記録] `nested_generic.il` 系の SIGABRT は class method body の bare-var tail に retain が抜けていた
 
