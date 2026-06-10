@@ -103,18 +103,26 @@ malloc error: `pointer being freed was not allocated`, address `0x16fdf6700` (st
 - ilang-mir / parser / mir-codegen に `unsafe` 一切なし(grep で確認済み)ので、 直接的な unsafe deref ではない → **論理的 buffer overrun** か **意図しない alias** が source。
 - ASLR でメモリレイアウトが変わるので踏む / 踏まないが分かれる典型 UB pattern。
 
-**ASAN は timing 変化で踏まず**:
+**ASAN は timing 変化で踏まず** (debug + release 両方確認):
 
-`RUSTFLAGS="-Z sanitizer=address" cargo +nightly build -Z build-std --target aarch64-apple-darwin -p ilang` で ASAN ビルドは成功するが、 ASAN 経由は性能が ~10x 遅くなり race の timing が変わるため、 200 並列起動で 200/200 PASS で捕まらない。
+`RUSTFLAGS="-Z sanitizer=address" cargo +nightly build -Z build-std --release --target aarch64-apple-darwin -p ilang` で ASAN release ビルドを試したが、 400 並列起動で 400/400 PASS。 ASAN は debug でも release でも race を踏ませない。
 
-**次にやるべきこと(絞り込み済み)**:
+**真因 pass 切り分け結果(opt pass は無関係)**:
 
-- `EnumLayout` を build / set する 3 箇所を見直す:
-  - [crates/ilang-mir/src/lower/mod.rs:325](crates/ilang-mir/src/lower/mod.rs:325): pre-allocate placeholder push (`repr: MirTy::I64`)
-  - [crates/ilang-mir/src/lower/decl/enum_fn.rs:116](crates/ilang-mir/src/lower/decl/enum_fn.rs:116): overwrite path (`was_pre_allocated` 分岐)
-  - [crates/ilang-mir/src/lower/lower_state.rs:168](crates/ilang-mir/src/lower/lower_state.rs:168): 別経路
-- `Vec<EnumLayout>` の **隣接メモリを上書きする source** を Miri (`cargo +nightly miri test`) で検出。 Miri は thread-non-deterministic UB を捕まえやすい。
-- ASAN ビルドで `--release` を試す(timing 変化が小さくなる可能性)。
+[main.rs:484-501](crates/ilang-cli/src/main.rs:484) の 6 つの opt pass 各々を env (`ILANG_NO_DCE_FN` / `ILANG_NO_PROMOTE_LOCALS` / `ILANG_NO_INLINE` / `ILANG_NO_CONST_FOLD` / `ILANG_NO_BRANCH_FOLD` / `ILANG_NO_DCE`) で個別 disable して 400 並列を測ったところ、 race 件数 (27〜39 / 400) は baseline (33 / 400) と統計的に有意差なし。 **6 つの opt pass はどれも真因ではない**。 残る容疑者:
+
+- **MIR lower** (`crates/ilang-mir/src/lower/`、 `builder.rs::value_tys.push`)
+- **mono pass** (`crates/ilang-mir/src/monomorphize/`、 env では disable できない)
+- **mir-codegen** (cranelift IR 生成中の MirTy 走査)
+- **ilang-runtime** の何か (heap-trace の OnceLock 等は可能性低い)
+
+ただし `crepr_struct_assign_index_field.il` は generic を使わないので mono pass は事実上 no-op になるはず → **lower か codegen** が最有力。
+
+**次にやるべきこと(opt pass を除外したので lower / codegen に絞り込み済み)**:
+
+- [crates/ilang-mir/src/builder.rs:68](crates/ilang-mir/src/builder.rs:68) の `value_tys.push` 呼び出し元すべてを audit。 特に 2 段 `Box<MirTy>` nest (`Array<Array<T>>` / `Array<Optional<T>>` / `RawPtr<Optional<T>>` 等) を生成する lower path。
+- [crates/ilang-mir-codegen/src/](crates/ilang-mir-codegen/src/) で内部 side-table を作る際に MirTy を clone / push する path を全部レビュー。
+- Miri 試行(`cargo +nightly miri run -p ilang -- run fixture.il`)— 但し cranelift JIT が含まれるので動作するか不明。
 - 並列で多数 child を起動した中で **どの child PID が踏むか** を比較し、 `ILANG_MIR_DUMP=1` で MIR が round によって変わるかを確認(non-deterministic MIR 生成の検出)。
 
 **真因追跡で試して効かなかった手段** (次セッションで違う方法を考えること):
