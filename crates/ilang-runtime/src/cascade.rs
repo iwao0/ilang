@@ -20,10 +20,48 @@ use crate::promises::{__release_promise, __retain_promise};
 use crate::strings::{__release_string, __retain_string};
 use crate::tuples::{__release_tuple, __retain_tuple};
 
+use std::cell::{Cell, RefCell};
+
+thread_local! {
+    /// `true` while the outermost `release_field_by_kind` frame is
+    /// draining. Nested calls (a container's release cascading into
+    /// its children) enqueue instead of recursing.
+    static CASCADE_ACTIVE: Cell<bool> = const { Cell::new(false) };
+    /// Deferred `(ptr, kind)` releases collected by nested calls;
+    /// drained iteratively by the outermost frame.
+    static CASCADE_QUEUE: RefCell<Vec<(i64, i64)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Release one heap cell by kind. Nested releases (every container's
+/// child cascade routes back through here) are deferred to a
+/// thread-local worklist that the outermost frame drains in a loop —
+/// the call depth stays O(1) no matter how deep the object graph is.
+/// A recursive cascade blew the native stack at ~100k links
+/// (`class Node { next: Node? }` chains). Release order within a
+/// graph becomes breadth-ish instead of depth-first; ARC makes no
+/// ordering promise between siblings/descendants, and anything a
+/// deinit can still reach is by definition not yet released.
 pub(crate) fn release_field_by_kind(ptr: i64, kind: i64) {
     if ptr == 0 {
         return;
     }
+    if CASCADE_ACTIVE.with(|a| a.get()) {
+        CASCADE_QUEUE.with(|q| q.borrow_mut().push((ptr, kind)));
+        return;
+    }
+    CASCADE_ACTIVE.with(|a| a.set(true));
+    dispatch_release(ptr, kind);
+    loop {
+        let next = CASCADE_QUEUE.with(|q| q.borrow_mut().pop());
+        match next {
+            Some((p, k)) => dispatch_release(p, k),
+            None => break,
+        }
+    }
+    CASCADE_ACTIVE.with(|a| a.set(false));
+}
+
+fn dispatch_release(ptr: i64, kind: i64) {
     match kind {
         KIND_OBJECT => __release_object(ptr),
         KIND_ARRAY => __release_array(ptr),
