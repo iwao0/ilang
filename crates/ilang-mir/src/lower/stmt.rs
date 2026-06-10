@@ -226,6 +226,7 @@ impl<'a> BodyCx<'a> {
                 Ok(())
             }
             StmtKind::LetTuple { elems, value } => {
+                let value_is_fresh = self.is_fresh_object_expr(value);
                 let (v, vty) = self.lower_expr(value)?;
                 let tuple_tys = match &vty {
                     MirTy::Tuple(ts) => ts.clone(),
@@ -251,11 +252,29 @@ impl<'a> BodyCx<'a> {
                         tup: v,
                         idx: i as u32,
                     });
+                    // The binding takes its own share of a heap
+                    // element — the tuple keeps its slot share.
+                    // Without the retain, the bindings' scope-exit
+                    // releases stole the tuple's shares (the tuple's
+                    // later cascade then walked freed cells), and
+                    // releasing a fresh tuple here would have freed
+                    // the elements under the bindings.
+                    if self.is_arc_slot(&ty) {
+                        self.fb.push_inst(Inst::Retain { value: dst });
+                    }
                     self.env.bind(*name, dst, ty);
+                }
+                // A fresh tuple's transient +1 drops now that every
+                // binding owns its share — the cascade releases the
+                // slot shares. The old shape never released it (the
+                // 32-byte tuple cell leaked per destructure).
+                if value_is_fresh {
+                    self.fb.push_inst(Inst::Release { value: v });
                 }
                 Ok(())
             }
             StmtKind::LetStruct { class, fields, value } => {
+                let value_is_fresh = self.is_fresh_object_expr(value);
                 let (v, vty) = self.lower_expr(value)?;
                 let class_id = match &vty {
                     MirTy::Object(c) => *c,
@@ -285,7 +304,18 @@ impl<'a> BodyCx<'a> {
                     let fty = super::BodyCx::loaded_field_ty(&meta_fty);
                     let dst = self.fb.new_value(fty.clone());
                     self.fb.push_inst(Inst::LoadField { dst, obj: v, field: fid });
+                    // Same contract as LetTuple: the binding owns its
+                    // share of a heap field; the object keeps its
+                    // slot share for its own release cascade.
+                    if self.is_arc_slot(&fty) {
+                        self.fb.push_inst(Inst::Retain { value: dst });
+                    }
                     self.env.bind(*fname, dst, fty);
+                }
+                // Drop a fresh source object's transient +1; the
+                // bindings hold their own shares now.
+                if value_is_fresh && self.is_arc_heap(&vty) {
+                    self.fb.push_inst(Inst::Release { value: v });
                 }
                 Ok(())
             }
