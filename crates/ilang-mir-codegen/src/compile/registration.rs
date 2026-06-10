@@ -681,10 +681,18 @@ pub(crate) fn emit_closure_fn_registrations<S, KT>(
             .map(|e| e.captures.as_slice())
             .unwrap_or(&[]);
         for (i, cap) in captures.iter().enumerate() {
-            if cap.is_cell {
-                continue;
-            }
-            let tag = payload_kind(&cap.ty);
+            // Cell captures hold the shared 1-element heap cell (a
+            // T[] pointer), and the closure owns a +1 on it (taken at
+            // MakeClosure). Tag the slot with the *array* kind so
+            // `__release_closure`'s cascade drops that share — the
+            // cell's own release then cascades into the inner value.
+            // Skipping these (the old behaviour) leaked the cell and
+            // its occupant for every mutating capture.
+            let tag = if cap.is_cell {
+                payload_kind(&MirTy::Array { elem: Box::new(cap.ty.clone()), len: None })
+            } else {
+                payload_kind(&cap.ty)
+            };
             if tag == 0 {
                 continue;
             }

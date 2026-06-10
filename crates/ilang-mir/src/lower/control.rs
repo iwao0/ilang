@@ -270,15 +270,14 @@ impl<'a> BodyCx<'a> {
                     self.fb.push_inst(Inst::Release { value: v });
                 }
                 Binding::PatternBinding(..) => unreachable!("filtered out above"),
-                Binding::Cell(cell_v, ty) => {
-                    let zero = self.const_int(MirTy::I64, 0);
-                    let v = self.fb.new_value(ty.clone());
-                    self.fb.push_inst(Inst::ArrayLoad {
-                        dst: v,
-                        arr: cell_v,
-                        idx: zero,
-                    });
-                    self.fb.push_inst(Inst::Release { value: v });
+                Binding::Cell(cell_v, _) => {
+                    // Drop the scope's share of the cell itself (its
+                    // value type is the `T[]` cell array, so this
+                    // dispatches as an array release whose cascade
+                    // covers the inner value). Releasing the *inner*
+                    // here — the old behaviour — left a dangling slot
+                    // for any closure still holding the cell.
+                    self.fb.push_inst(Inst::Release { value: cell_v });
                 }
             }
         }

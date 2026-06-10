@@ -49,6 +49,13 @@ impl<'a> BodyCx<'a> {
         // resolved globally, not captured).
         let mut captures: Vec<crate::program::EnvCapture> = Vec::new();
         let mut capture_vals: Vec<ValueId> = Vec::new();
+        // Private cells minted right here (snapshot-initialised, no
+        // other owner) — the closure adopts their creation +1, so the
+        // construction-retain loop below must skip them. Shared cells
+        // (scope `Binding::Cell` / forwarded from the enclosing
+        // closure) are borrowed and DO get the retain.
+        let mut adopted_cells: std::collections::HashSet<ValueId> =
+            std::collections::HashSet::new();
         for name in frees {
             let needs_cell = writes.contains(&name);
             // 1) Source already has a cell binding in current scope —
@@ -72,7 +79,17 @@ impl<'a> BodyCx<'a> {
                         .map(|s| s.contains(&name))
                         .unwrap_or(false);
                     if outer_is_cell {
-                        let cell_v = self.fb.new_value(MirTy::I64);
+                        // Type the forwarded pointer as the cell
+                        // array (not a raw i64) so the construction
+                        // retain below dispatches as an array retain
+                        // — an I64-typed value made the retain a
+                        // no-op while the closure-release cascade
+                        // still dropped a share, freeing the cell
+                        // under the enclosing closure.
+                        let cell_v = self.fb.new_value(MirTy::Array {
+                            elem: Box::new(cty.clone()),
+                            len: None,
+                        });
                         self.fb.push_inst(Inst::LoadCapture { dst: cell_v, idx });
                         capture_vals.push(cell_v);
                         captures.push(crate::program::EnvCapture {
@@ -103,6 +120,7 @@ impl<'a> BodyCx<'a> {
                             elem: cty.clone(),
                             items: Box::new([v]),
                         });
+                        adopted_cells.insert(cell_v);
                         capture_vals.push(cell_v);
                         captures.push(crate::program::EnvCapture {
                             name,
@@ -137,6 +155,7 @@ impl<'a> BodyCx<'a> {
                         elem: ty.clone(),
                         items: Box::new([v]),
                     });
+                    adopted_cells.insert(cell_v);
                     capture_vals.push(cell_v);
                     captures.push(crate::program::EnvCapture {
                         name,
@@ -282,11 +301,22 @@ impl<'a> BodyCx<'a> {
         // Retain every heap-typed capture — the closure shares
         // ownership with the outer scope, so its captures must
         // outlive any scope-exit release of the source binding.
-        // Cell captures hold a shared cell pointer (the cell itself
-        // is a heap array allocated for the FnExpr) and are
-        // refcounted at the cell layer separately.
+        // Cell captures hold the shared 1-element heap cell (a T[]
+        // pointer): the closure takes its own +1 on the *cell* (the
+        // cell's slot share of the inner value stays the cell's).
+        // `__release_closure`'s capture cascade drops that share, and
+        // the scope's own share goes at scope exit — whichever side
+        // dies last frees the cell, which cascades into the inner.
+        // Private cells minted in this very construction (snapshot
+        // captures) have no other owner — the closure adopts their
+        // creation +1 instead of retaining a second share.
         for (cv, c) in capture_vals.iter().zip(captures.iter()) {
-            if self.is_arc_heap(&c.ty) && !c.is_cell {
+            let needs_share = if c.is_cell {
+                !adopted_cells.contains(cv)
+            } else {
+                self.is_arc_heap(&c.ty)
+            };
+            if needs_share {
                 self.fb.push_inst(Inst::Retain { value: *cv });
             }
         }

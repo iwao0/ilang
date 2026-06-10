@@ -850,6 +850,13 @@ impl<'a> BodyCx<'a> {
             // guarantees the final value owns its own +1 (zero-part
             // templates get a fresh copy of "").
             ExprKind::Template { .. } => true,
+            // `loop { … break v … }` — `lower_break` retains borrowed
+            // break values (fresh ones keep their own +1), so the
+            // exit-block value the loop evaluates to always owns a
+            // share. Classifying it borrowed made `let b = loop {
+            // break new Box(i) }` stack a binding retain on top and
+            // leak one occupant per evaluation.
+            ExprKind::Loop { .. } => true,
             // Indexing a fresh tuple / array donates ownership of the
             // selected element to the caller — the lowerer retains
             // that element exactly once on the fresh-receiver path.
@@ -1004,17 +1011,18 @@ impl<'a> BodyCx<'a> {
                     // `Retain` from `tail_aliases_local` when the
                     // body returns the binding directly).
                 }
-                Binding::Cell(..) => {
+                Binding::Cell(cell_v, _) => {
                     // A cell is a heap 1-element array shared between
                     // this scope and every closure that captured it
-                    // (shared mutable capture). We must NOT release its
-                    // contents here: a captured closure may outlive the
-                    // scope and still read/write the cell, so a
-                    // scope-exit release would free a value the closure
-                    // still points at (use-after-free). Closures leak
-                    // their captured cells today (see jit_setup's
-                    // `__register_closure_capture` "leak for now"), so
-                    // the cell + its contents leak rather than dangle.
+                    // (shared mutable capture). The scope owns the
+                    // creation +1 and each capturing closure retained
+                    // its own share at MakeClosure — so dropping the
+                    // scope's share here is safe: a closure that
+                    // outlives the scope keeps the cell alive, and the
+                    // last release cascades into the inner value.
+                    // (`cell_v`'s value type is the `T[]` cell array,
+                    // so the Release dispatches as an array release.)
+                    self.fb.push_inst(Inst::Release { value: cell_v });
                 }
                 _ => {}
             }
