@@ -251,20 +251,19 @@ pub extern "C" fn __map_get(map: i64, key: i64) -> i64 {
         return 0;
     }
     let m = unsafe { &*(map as *const ManagedMap) };
-    let v = match &m.store {
+    // Borrowed read — same convention as `ArrayLoad`: the value
+    // stays owned by the map's slot, and any consumer that stores
+    // it (let binding, field store, container insert) takes its
+    // own retain. Retaining here instead would hand back a `+1`
+    // the lowerer's freshness analysis classifies as borrowed,
+    // so nothing ever released it and every overwritten entry
+    // leaked (`m["a"] = new Box(..)` in a loop). `arc_peephole`
+    // also relies on `MapGet` never bumping refcounts on its own.
+    match &m.store {
         MapStore::Int(t) => *t.get(&key).unwrap_or(&0),
         MapStore::Str(t) => *t.get(&*unsafe { key_str(key) }).unwrap_or(&0),
         MapStore::Object(t) => t.get(key).unwrap_or(0),
-    };
-    // Heap value-typed maps need a retain on read — the caller
-    // gets a `+1` reference whose lifetime is independent of the
-    // map's. Without this, `let arr = m["k"]; arr.length` would
-    // alias the map's slot and a later scope-exit release of
-    // `arr` would free the storage the map still owns.
-    if v != 0 && m.val_kind != KIND_NONE {
-        retain_field_by_kind(v, m.val_kind);
     }
-    v
 }
 
 #[unsafe(export_name = "$map.getOptional")]
@@ -280,9 +279,11 @@ pub extern "C" fn __map_get_optional(map: i64, key: i64) -> i64 {
     };
     match found {
         Some(v) => {
-            // See `__map_get`: heap values need a +1 to outlive
-            // the map's borrow. The Optional cell that the
-            // caller unwraps then owns the strong reference.
+            // Unlike `__map_get` (borrowed read), this wraps the
+            // value in a fresh Optional cell, and that cell owns
+            // a strong reference — releasing the Optional cascades
+            // into the inner value. Retain so the map's share and
+            // the cell's share are distinct.
             if v != 0 && m.val_kind != KIND_NONE {
                 retain_field_by_kind(v, m.val_kind);
             }
