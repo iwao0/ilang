@@ -16,7 +16,7 @@ use ilang_mir::{Inst, MirTy, ValueId};
 use crate::ty::mir_to_clif;
 
 use super::super::abi::{
-    struct_chunks_with_max, struct_hfa, struct_indirect_with_max, IL_BYVAL_CHUNK_MAX,
+    struct_chunks_with_max, struct_hfa, struct_sret_for_internal, IL_BYVAL_CHUNK_MAX,
 };
 use super::super::CompileError;
 
@@ -53,8 +53,18 @@ pub(super) fn lower_call_dispatch_inst<M: Module>(
             let mut arg_vs: Vec<Value> = Vec::with_capacity(args.len() + 2);
 
             let dst_ty_mir = dst.map(|d| func.ty_of(d).clone());
+            // vtable に乗る method は構造的に全て `FunctionKind::Local`
+            // (継承で override される method も Local の派生)。 直接
+            // call と同じ「内部 fn は CRepr struct return を全サイズ
+            // sret 強制」を VirtCall でも揃える。 揃えないと caller
+            // signature (chunks return) と callee signature (sret) が
+            // ミスマッチして Cranelift が garbage 値を返し、 debug
+            // ビルドで SIGSEGV する (NSRange 16 byte 戻り値の
+            // `cal.rangeOfUnit(...)` で再現)。 サイズしきい値ベースの
+            // `struct_indirect_with_max` ではなく
+            // `struct_sret_for_internal` を使う。
             let sret_dst = if let Some(t) = &dst_ty_mir {
-                if let Some(c_size) = struct_indirect_with_max(t, prog, chunk_max) {
+                if let Some(c_size) = struct_sret_for_internal(t, prog) {
                     clif_sig.params.push(AbiParam::special(
                         types::I64,
                         cranelift_codegen::ir::ArgumentPurpose::StructReturn,
@@ -71,6 +81,7 @@ pub(super) fn lower_call_dispatch_inst<M: Module>(
             } else {
                 None
             };
+            let _ = chunk_max;
 
             // Receiver (this): always a pointer.
             clif_sig.params.push(AbiParam::new(types::I64));
