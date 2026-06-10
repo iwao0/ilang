@@ -51,16 +51,17 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### AOT arm の確率的失敗 (監視中 — 環境起因 2 経路を retry + 記録で hardening 済み)
+(現在なし)
 
-`ILANG_TEST_AOT=1` の fixture 一斉実行が確率的に FAIL する事象 (2026-06-11 までに 2 回観測、いずれも直後の再実行は PASS)。意図的な再現は **計 27 連続 PASS で一度も成功せず** (同一ビルド 8 + 強制リビルド込み 3 + hardening 後 1 + キャンペーン 15)。
+### [解決済み記録] AOT arm の確率的失敗は `promise_print_state.il` のタイミング依存期待だった (2026-06-11、 `df797334`)
 
-**静的調査の結論** (`39d87ad7`): 出力パス・中間 `.o` の並列衝突は無い (どちらも pid + 連番で一意)。残る有力候補は環境起因の 2 つで、「再実行は必ず PASS」「失敗詳細の記録罠のログが空のまま」という観測と整合する:
+**真因 (再現により確定)**: 第 4 弾で追加した [crates/ilang-cli/tests/programs/04_modules/promise_print_state.il](crates/ilang-cli/tests/programs/04_modules/promise_print_state.il) が `Promise.all([Promise.resolve(1)])` を直後に印字して `<promise pending>` を期待していたが、 `Promise.all` の解決継続は worker pool (実 OS スレッド) 上で**メインスレッドと並行に**走る。 アイドル機ではメインの print が常に勝つが、 高負荷時は pool が勝って `<promise resolved>` が印字され expect 不一致 → fixture FAIL → suite FAIL。 **16 並列 × 25 batch で 1/400 を実測再現**。 全観測と整合: 自然発生 2 回はどちらも「リビルド直後でマシンが高負荷」/ この fixture の追加後 / 記録罠の設置前。 アイドル機での意図的再現 27 回が全 PASS だったのは負荷条件を満たしていなかったため。
 
-1. **spawn の一時失敗** — 1 回の suite で数千プロセス (JIT 実行 + build + cc + AOT バイナリ) を fork しており、一時失敗が `.expect("failed to spawn ...")` で harness ごと panic していた (記録罠より手前の経路 = ログが残らない)。
-2. **macOS の署名検証 race** — リンク直後のバイナリ実行が稀に SIGKILL される CI 既知の現象。
+**修正**: pending の印字確認は「executor が resolve を呼ばない永続 pending の promise」に差し替え (同じ 400 並列で 400/400 決定的)。 `Promise.all` は `.then` での値検証に変更。
 
-**hardening 済み** ([crates/ilang-cli/tests/programs.rs](crates/ilang-cli/tests/programs.rs)): spawn 失敗と「リンク直後の SIGKILL(9)」だけ 1 回 retry し、発生を必ず `target/fixture-failures.log` に追記する。SIGSEGV / SIGABRT (本物の製品バグの兆候) は retry しない。fixture 自体の失敗は従来どおり詳細を同ファイルへ記録してから panic する。**次に何が起きても自己記録される**: 揺らぎが retry で吸収されたら transient 行が残り、本物の失敗なら fixture 名と出力が残る。時々 `target/fixture-failures.log` を確認すること。
+**二次容疑は白**: abort 系 expect-error fixture (`repr_c_enum_field_unknown_aborts.il`) の「abort 前 stderr 喪失」は同じ並列負荷 208 回で 0 回 — 現行の abort 経路では起きない。
+
+**維持するもの**: 第 5 弾の harness hardening (`39d87ad7` — spawn 失敗 / リンク直後 SIGKILL(9) の 1 回 retry + `target/fixture-failures.log` への自動記録、 fixture 失敗詳細の同ファイル記録) は環境起因の防御としてそのまま残す。 タイミング依存の期待を持つ fixture を書かないこと (`<promise pending>` のような並行状態の印字は「決して解決しない promise」で固定する)。
 
 ### [解決済み記録] fixture 増殖ラウンド第 7 弾: for-in の live 化・分解束縛の ARC・テンプレート part 入力 (2026-06-11、 `ced57791`〜`52c6bb8f`)
 
