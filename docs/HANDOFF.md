@@ -53,6 +53,20 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 (現在なし)
 
+### [解決済み記録] fixture 増殖ラウンド第 3 弾: heap 値 property の ARC を owned 規約に統一 (2026-06-10 後続セッション、 `df0e3f16`)
+
+probe 対象を deinit 連鎖の周辺 (deinit 中の field 読み・メソッド呼び・コンテナ経由の連鎖発火)、 async churn、 generic class + heap field、 static field、 Unicode 文字列、 heap 値 property へ拡張した。 property だけが 3 点で崩れていた:
+
+1. **setter への fresh 値が 1 個/call leak** — instance / static とも setter 呼び出し経路 ([crates/ilang-mir/src/lower/expr.rs](crates/ilang-mir/src/lower/expr.rs) の AssignField property 分岐) が transient +1 を release していなかった (setter 本体の store は AssignField 経由で自前 retain を取る)。
+2. **`{ this.inner }` (Field tail) の getter が +1 を返すのに消費側は借用扱い** — 旧 `is_property_getter` の除外は bare-var tail だけに効いており、 Field/Index tail の getter は tail_is_borrow の無条件 retain で +1 を返していた。 entry が上書きされた時点で 1 share が永久に残る (`__map_get` と同型)。
+3. **fresh tail の computed getter (`get fresh(): Box { new Box(..) }`) は読みごとに 1 個 leak** — 借用規約では mint された値の所有者が存在しないため、 構造的に直せない。
+
+**修正 (owned 規約へ統一)**: getter は常に +1 を返す (bare-var tail の `is_property_getter` 除外を撤去 — フィールド/メソッドと同じ tail retain 規則に一本化し、 フラグ自体を削除)。 消費側は `is_fresh_object_expr` の `Field` arm で receiver の静的型が構文的に解決できる場合 (`Var` 束縛 / repl slot / `this` / クラス名 = static property) に `obj.prop` を fresh と分類 ([body_cx.rs::field_is_property_access](crates/ilang-mir/src/lower/body_cx.rs)、 lowering の dispatch と同じ property_getter map を参照)。 setter は instance / static とも fresh 値を呼び出し後に release。
+
+**既知の制限**: receiver の静的型を構文的に解決できない形 (`call().prop`、 `arr[0].prop` 等) は借用 fallback のままなので、 その読みは getter の +1 が leak する (use-after-free にはならない)。 is_fresh が lowering 後の型を見られるようになったら解消できる。
+
+**検証**: workspace nextest 525/525、 nested_generic.il 16×25×2 = 0/800。 回帰 fixture: `08_properties/property_heap_value_arc.il`。 **probe で問題なしを確認した周辺** (再調査不要): deinit 連鎖中の自 field 読み / メソッド呼び / tally 書き込み、 Map overwrite / array pop によるコンテナ経由の連鎖 deinit 発火回数、 async fn churn (`await` ループ 200 周 delta=32 定数)、 generic class (string / array / nested Box) churn、 static field 増分 churn、 Unicode 文字列メソッド (length / charAt / slice / split / indexOf)。
+
 ### [解決済み記録] 継承時の `deinit` を Swift と同様の自動連鎖に変更 (2026-06-10 後続セッション、 `37a4e8b9`)
 
 **旧挙動**: `class Derived: Base` で両方に `deinit` がある場合、 派生側の deinit が親側を**置き換え**、 親の後始末は走らなかった (明示の `super.deinit()` が連鎖手段だった — 旧 `inheritance_deinit_chain.il` がその挙動を pin していた)。
