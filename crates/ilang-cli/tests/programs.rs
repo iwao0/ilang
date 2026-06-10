@@ -65,6 +65,44 @@ fn parse_spec(src: &str) -> Spec {
     spec
 }
 
+
+/// Append a transient-event note to `target/fixture-failures.log`.
+/// Used for spawn failures and SIGKILLed AOT binaries that pass on
+/// retry — the suite stays green but the flake self-documents, so
+/// the "AOT arm fails once in a blue moon" investigation finally
+/// gets fixture names and error text (see HANDOFF).
+fn log_transient(note: &str) {
+    use std::io::Write as _;
+    let log_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/fixture-failures.log");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+        let _ = f.write_all(format!("--- transient at unix {stamp}: {note}\n").as_bytes());
+    }
+}
+
+/// `Command::output()` with one retry on a spawn error. A full
+/// suite run forks thousands of children across the harness threads
+/// (jit run + build + cc + the AOT binary per fixture); a transient
+/// EAGAIN-class failure used to panic the whole harness through
+/// `.expect("failed to spawn ...")` — the prime suspect for the
+/// probabilistic AOT-arm failures that always passed on rerun.
+/// Every retry is recorded via `log_transient`.
+fn output_with_spawn_retry(cmd: &mut Command, what: &str) -> Output {
+    match cmd.output() {
+        Ok(o) => o,
+        Err(first) => {
+            log_transient(&format!("spawn {what} failed ({first}); retrying once"));
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            cmd.output()
+                .unwrap_or_else(|e| panic!("failed to spawn {what} twice: {first} / {e}"))
+        }
+    }
+}
+
 fn run(path: &Path) -> Output {
     let mut cmd = Command::new(ilang_bin());
     cmd.arg("run").arg("--mir-jit").arg(path);
@@ -74,7 +112,7 @@ fn run(path: &Path) -> Output {
     // are cheap when the child exits cleanly.
     cmd.env("ILANG_TRACE_CRASH", "1");
     cmd.env("RUST_BACKTRACE", "full");
-    cmd.output().expect("failed to spawn ilang")
+    output_with_spawn_retry(&mut cmd, "ilang run")
 }
 
 /// Compile via `ilang build` to a native executable in a temp dir,
@@ -96,14 +134,29 @@ fn run_aot(path: &Path) -> Output {
     // Build stage. On failure, surface its Output as-is.
     let mut build = Command::new(ilang_bin());
     build.arg("build").arg(path).arg("-o").arg(&out_path);
-    let build_out = build.output().expect("failed to spawn ilang build");
+    let build_out = output_with_spawn_retry(&mut build, "ilang build");
     if !build_out.status.success() {
         return build_out;
     }
-    // Run the produced binary.
-    let run_out = Command::new(&out_path)
-        .output()
-        .expect("failed to spawn AOT binary");
+    // Run the produced binary. macOS occasionally SIGKILLs an
+    // executable spawned immediately after it was written (the
+    // code-signature validation race well known from CI systems);
+    // retry exactly that case once. Real product crashes surface as
+    // SIGSEGV / SIGABRT and are never retried.
+    let mut run_cmd = Command::new(&out_path);
+    let mut run_out = output_with_spawn_retry(&mut run_cmd, "AOT binary");
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt as _;
+        if run_out.status.signal() == Some(9) {
+            log_transient(&format!(
+                "AOT binary for {} got SIGKILL right after linking (codesign race?); retrying once",
+                path.display()
+            ));
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            run_out = output_with_spawn_retry(&mut run_cmd, "AOT binary (retry)");
+        }
+    }
     // Best-effort cleanup; the linker drops a `<stem>.o` alongside.
     let _ = std::fs::remove_file(&out_path);
     let _ = std::fs::remove_file(out_path.with_extension("o"));
