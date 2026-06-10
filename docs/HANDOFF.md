@@ -51,9 +51,11 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### AOT arm の確率的失敗 (調査中)
+### AOT arm の確率的失敗 (監視中 — 捕捉用の罠を設置済み)
 
-`ILANG_TEST_AOT=1` の fixture 一斉実行が確率的に FAIL する (2026-06-11 までに 2 回観測、いずれも直後の再実行は PASS)。どちらも失敗 fixture 名を取り逃した。現在ログ保存付きで反復実行して捕捉を試みている。
+`ILANG_TEST_AOT=1` の fixture 一斉実行が確率的に FAIL する (2026-06-11 までに 2 回観測、いずれも直後の再実行は PASS)。どちらも失敗 fixture 名を取り逃した。再現試行: 同一ビルドで 8 連続 + 強制リビルド込み 3 連続 = **11 連続 PASS で再現せず** (「失敗はビルド直後の初回実行」という仮説も棄却できず確認もできず)。
+
+**罠を設置済み**: [crates/ilang-cli/tests/programs.rs](crates/ilang-cli/tests/programs.rs) が失敗時に fixture 名・出力・タイムスタンプ・AOT フラグを `target/fixture-failures.log` へ自動追記してから panic する。次に自然発生したらこのファイルを見ること。
 
 ### [解決済み記録] fn 本体内の自己再帰 closure を `ClosureSelf` で対応 (2026-06-11、 `70b6dde8`)
 
