@@ -33,7 +33,41 @@
 
 ## 未解決の引き継ぎ事項
 
-(本セッション完了時点でなし。 `leak_var_reassign_promise_await.il` の確率的失敗は `test.liveAllocCount` / `test.liveAllocBytes` の本体先頭で `pool::drain` を呼ぶ修正で解消、 10/10 PASS かつ nextest 5 連続 PASS を確認済み。)
+### `crepr_struct_assign_index_field.il` が nextest 並列実行下で確率的失敗
+
+**症状**: `cargo nextest run -p ilang --test programs run_all_program_fixtures` を連続で 10 回回すと 1〜2 回 `crepr_struct_assign_index_field.il [mir-jit]: command failed` が出る(stderr 空)。 単体実行 (`./target/release/ilang run ...`) を 10 連続 / bash で 64 並列起動の両方では再現しない。 nextest のテストハーネス (`programs.rs::run_all_program_fixtures` 内の `std::thread::scope` 並列 spawn) 経由でのみ踏む。
+
+**fixture 自体は本セッションの追加分とは無関係** — 私の追加 4 件 (`crepr_struct_return_large_sret.il` 等) を一時退避して 10 連続実行しても同じ確率で失敗を引いたため、 既存 fixture / コード側の確率 race。
+
+**fixture の内容**: `let arr: Slot[] = [s0, s1]; arr[0].kind = Mode.active` のような `AssignIndex.field` (CRepr struct を要素とする `Slot[]` の index 経由 inline enum field 代入) を実行する短い fixture。
+
+**疑わしい点 (未確認)**:
+
+- `Slot[]` の lower 経路で、 CRepr struct を inline value として配列に格納するか / ポインタとして格納するかの判定が並列環境で race することはあるか? (ilang は single-thread JIT のはずなので普通は race しないが、 グローバル static の lazy init / OnceLock 系で初期化順序が踏まれる可能性)
+- 各 fixture が `Command::spawn` で child process として起動されるので、 親 process は無関係。 child の codegen 内で何かが non-deterministic。
+- 既存の `leak_var_reassign_promise_await.il` の race は `pool::drain` で解決したが、 こちらは pool を使わない fixture なので同じ修正は当たらない。
+
+**確認手順**:
+
+```sh
+# 単体実行では再現しない
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  ./target/release/ilang run crates/ilang-cli/tests/programs/05_edge_cases/crepr_struct_assign_index_field.il > /dev/null 2>&1
+  echo "run$i exit=$?"
+done
+# 期待: 10/10 exit 0 — そして実際そうなる
+
+# nextest 並列実行で確率的に失敗
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  ~/.cargo/bin/cargo nextest run -p ilang --test programs run_all_program_fixtures 2>&1 | grep -E "PASS|FAIL" | tail -1
+done
+# 期待: 10/10 PASS — 実際は 1〜2/10 で FAIL crepr_struct_assign_index_field.il
+```
+
+**着手の前にやるべきこと**:
+
+- nextest 失敗時の `[mir-jit]: command failed` の stderr が空なのは、 子 process が SIGSEGV / panic で stderr を flush せず exit している可能性。 nextest が child stderr をどう拾うかと、 child process 内部の panic / SIGSEGV を切り分ける。
+- `ILANG_MIR_DUMP=1` を有効にした状態で nextest を回して、 MIR 自体が round によって違うか確認 (= non-deterministic な MIR 生成)。
 
 ### 関連 commit 履歴 (時系列)
 
