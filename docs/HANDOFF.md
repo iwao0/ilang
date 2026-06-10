@@ -53,6 +53,17 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 (現在なし)
 
+### [解決済み記録] fixture 増殖ラウンド第 4 弾: async desugar の await 位置と Promise 印字 (2026-06-10 後続セッション、 `87a8ea2a` + `65ff1e4c`)
+
+probe 対象を AOT 一斉実行 (`ILANG_TEST_AOT=1` 全 fixture)、 実行中 closure の自己差し替え、 interface dispatch churn、 set 演算の object 要素、 async の深掘り、 match/if-let payload の escape、 overload + heap 引数へ拡張した。 async だけが 2 系統で崩れていた:
+
+1. **代入文の RHS / 入れ子ブロック内の await でコンパイラ panic または誤診断** (`87a8ea2a`)。 await-lift 前処理 ([crates/ilang-parser/src/normalize/async_desugar/await_lift.rs](crates/ilang-parser/src/normalize/async_desugar/await_lift.rs)) に Assign / AssignField / AssignIndex の arm がなく、 while / loop / for-in 本体・if 枝・match 腕・素の block へも降りていなかった。 `total = total + await p` は文位置だと `unreachable!("NoAwait after body_contains_await=true")` の **コンパイラ panic**、 ループ内だと「await は async fn 内のみ」という誤った診断になっていた。 lift を代入系 + 入れ子ブロックへ再帰させ (持ち上げた `let __await_tN` は見つけた block 内に留めて反復/条件性を保存)、 持ち上げ不能な位置 (`&&`/`||` の右辺等) は unreachable ではなく正規の診断にした。
+2. **Promise 値の print / format が生ポインタ** (`65ff1e4c`)。 `console.log(p)` と `${p}` が raw-int fallback に落ちていた。 `$print.promise` / `$fmt.promise` を追加して `<promise pending|resolved|rejected>` を出すようにした。
+
+**検証**: workspace nextest 525/525、 AOT arm 全 fixture PASS (1342 runs)、 nested_generic.il 16×25×2 = 0/800。 fixture 3 件: `04_modules/async_await_in_assignment.il`、 `04_modules/async_await_logical_rhs_error.il`、 `04_modules/promise_print_state.il`。
+
+**probe で問題なしを確認した周辺** (再調査不要): AOT arm の全 fixture (今日の ARC 修正一式を含む)、 実行中 closure が自分を保持する field を差し替える形 (旧 closure は呼び出し終了まで生存 ✓)、 interface (vtable) dispatch + interface 型配列の churn、 object 要素の set union / intersection / difference churn、 async class method + await チェーン (P4 検証値一致)、 match / if-let の payload を容器へ escape、 heap 引数の overload dispatch。
+
 ### [解決済み記録] fixture 増殖ラウンド第 3 弾: heap 値 property の ARC を owned 規約に統一 (2026-06-10 後続セッション、 `df0e3f16`)
 
 probe 対象を deinit 連鎖の周辺 (deinit 中の field 読み・メソッド呼び・コンテナ経由の連鎖発火)、 async churn、 generic class + heap field、 static field、 Unicode 文字列、 heap 値 property へ拡張した。 property だけが 3 点で崩れていた:
