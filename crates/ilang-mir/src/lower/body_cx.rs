@@ -159,6 +159,18 @@ pub(in crate::lower) struct BodyCx<'a> {
     /// double-count and leak one rc share per call. Setters are unaffected
     /// (their return is Unit).
     pub(in crate::lower) is_property_getter: bool,
+    /// True only during the **immediate** `lower_block_hinted` call
+    /// that lowers an fn body's outermost block (the one whose tail
+    /// becomes the function's return value). Sub-block calls
+    /// (if-then, if-else, match arms, loop bodies, …) recurse
+    /// through the same `lower_block_hinted` but must NOT apply the
+    /// borrow-tail retain — those sub-block tails feed a `br
+    /// block-arg` whose receiving join block re-issues its own
+    /// retain at the fn-body level, so an arm-local retain would
+    /// double-count. Set by `lower_block_for_fn_body` and cleared
+    /// on entry to `lower_block_hinted` so any nested call is
+    /// treated as a sub-block.
+    pub(in crate::lower) in_fn_body_top: bool,
 }
 
 impl<'a> BodyCx<'a> {
@@ -595,6 +607,23 @@ impl<'a> BodyCx<'a> {
         self.lower_block_hinted(blk, None)
     }
 
+    /// Like `lower_block_hinted`, but marks the call as the **outer**
+    /// fn-body block. Enables the borrow-tail retain for the bare-var
+    /// (= implicit `this.field`) tail. Sub-blocks lowered while
+    /// processing this body (if-arms, match-arms, loop bodies) reset
+    /// the flag so their tails don't double-retain — the join block
+    /// at the fn-body level handles that.
+    pub(in crate::lower) fn lower_block_for_fn_body(
+        &mut self,
+        blk: &AstBlock,
+        tail_hint: Option<&MirTy>,
+    ) -> Result<Option<(ValueId, MirTy)>, LowerError> {
+        let saved = std::mem::replace(&mut self.in_fn_body_top, true);
+        let result = self.lower_block_hinted(blk, tail_hint);
+        self.in_fn_body_top = saved;
+        result
+    }
+
     /// Like `lower_block`, but `tail_hint` (when set) is the type the
     /// block's tail expression flows into — used so a function body
     /// whose tail is a bare composite literal (`fn f(): i32[] { [..] }`)
@@ -615,6 +644,10 @@ impl<'a> BodyCx<'a> {
         // recursion through `lower_expr(Block)`.
         let saved_main_body = self.is_main_body;
         self.is_main_body = false;
+        // Snapshot the fn-body-top flag for THIS call, then clear it
+        // so any sub-blocks we recurse into (if-arms, match-arms,
+        // loop bodies, …) see false and skip the borrow-tail retain.
+        let is_fn_body_top = std::mem::replace(&mut self.in_fn_body_top, false);
         for stmt in &blk.stmts {
             self.lower_stmt(stmt)?;
         }
@@ -716,7 +749,8 @@ impl<'a> BodyCx<'a> {
             // borrowed return value, so adding the borrow-tail retain
             // here would double-count and leak one rc share per call.
             ExprKind::Var(name) => {
-                !self.is_property_getter
+                is_fn_body_top
+                    && !self.is_property_getter
                     && self.this_class.is_some()
                     && self.env.lookup_binding(*name).is_none()
                     && self

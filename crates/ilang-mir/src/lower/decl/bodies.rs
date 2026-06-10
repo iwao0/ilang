@@ -136,6 +136,7 @@ impl Lower {
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
             is_property_getter: false,
+            in_fn_body_top: false,
         };
         let needs_retain = pc
             .body
@@ -144,7 +145,7 @@ impl Lower {
             .map(|e| bcx.callee_retain_decision(e))
             .unwrap_or(false);
         let ret_hint = bcx.ret_ty.clone();
-        let tail = bcx.lower_block_hinted(&pc.body, Some(&ret_hint))?;
+        let tail = bcx.lower_block_for_fn_body(&pc.body, Some(&ret_hint))?;
         if needs_retain {
             bcx.emit_callee_retain(&tail);
         }
@@ -237,6 +238,7 @@ impl Lower {
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
             is_property_getter: false,
+            in_fn_body_top: false,
         };
         let needs_retain = m
             .body
@@ -245,7 +247,7 @@ impl Lower {
             .map(|e| bcx.callee_retain_decision(e))
             .unwrap_or(false);
         let ret_hint = bcx.ret_ty.clone();
-        let tail = bcx.lower_block_hinted(&m.body, Some(&ret_hint))?;
+        let tail = bcx.lower_block_for_fn_body(&m.body, Some(&ret_hint))?;
         if needs_retain {
             bcx.emit_callee_retain(&tail);
         }
@@ -344,6 +346,7 @@ impl Lower {
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
             is_property_getter,
+            in_fn_body_top: false,
         };
         let needs_retain = m
             .body
@@ -352,7 +355,7 @@ impl Lower {
             .map(|e| bcx.callee_retain_decision(e))
             .unwrap_or(false);
         let ret_hint = bcx.ret_ty.clone();
-        let tail = bcx.lower_block_hinted(&m.body, Some(&ret_hint))?;
+        let tail = bcx.lower_block_for_fn_body(&m.body, Some(&ret_hint))?;
         let is_init = matches!(m.name.as_str(), "init");
         if is_init {
             bcx.fb.set_terminator(Terminator::Return { value: Some(this_v), release_value: false });
@@ -460,6 +463,7 @@ impl Lower {
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
             is_property_getter: false,
+            in_fn_body_top: false,
         };
         let needs_retain = fd
             .body
@@ -468,7 +472,7 @@ impl Lower {
             .map(|e| bcx.callee_retain_decision(e))
             .unwrap_or(false);
         let ret_hint = bcx.ret_ty.clone();
-        let tail = bcx.lower_block_hinted(&fd.body, Some(&ret_hint))?;
+        let tail = bcx.lower_block_for_fn_body(&fd.body, Some(&ret_hint))?;
         if needs_retain {
             bcx.emit_callee_retain(&tail);
         }
@@ -527,6 +531,7 @@ impl Lower {
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
             is_property_getter: false,
+            in_fn_body_top: false,
         };
         for stmt in stmts {
             bcx.lower_stmt(stmt)?;
