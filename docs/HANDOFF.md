@@ -55,29 +55,52 @@
 
 **lldb で stack trace を取得 (race の真因方向確定)**:
 
-debug build で並列負荷下に lldb attach loop を回し、 SIGABRT を捕まえた:
+debug build で並列負荷下に lldb attach loop を回し、 2 系統の crash trace を捕まえた:
+
+**系統 A**: `EnumLayout::repr: MirTy` 経由
 
 ```
-* thread #1, stop reason = signal SIGABRT
-  frame #6:  alloc::alloc::dealloc                    ← bad pointer を free
-  frame #10: Box<MirTy>::drop
-  frame #11: drop_in_place<Box<MirTy>>
-  frame #12: drop_in_place<MirTy>
-  frame #13: drop_in_place<EnumLayout>
-  frame #14: drop_in_place<[EnumLayout]>
-  frame #15: Vec<EnumLayout>::drop
-  frame #16: drop_in_place<Vec<EnumLayout>>
-  frame #17: drop_in_place<Program>
-  frame #18: ilang::run_file at main.rs:1082          ← Program の drop
+frame #0:  drop_in_place<MirTy>((null)=0x8)
+frame #5:  alloc::alloc::dealloc(ptr=stack address)
+frame #10: Box<MirTy>::drop
+frame #12: drop_in_place<MirTy>
+frame #13: drop_in_place<EnumLayout>
+frame #14: drop_in_place<[EnumLayout]>
+frame #15: Vec<EnumLayout>::drop
+frame #17: drop_in_place<Program>
 ```
 
-malloc error: `pointer being freed was not allocated`, address `0x16fdf6700` (stack address) または `0x8` (null+offset)。
+**系統 B**: `Function::value_tys: Vec<MirTy>` 経由 (4 回連続観察)
+
+```
+frame #0: drop_in_place<MirTy>((null)=0x0000000000000008)
+frame #1: drop_in_place<Box<MirTy>>((null)=0x15370f1a0)
+frame #2: drop_in_place<MirTy>((null)=0x15370f190)        ← 最深 nest
+frame #3: drop_in_place<Box<MirTy>>((null)=0x1540096a8)
+frame #4: drop_in_place<MirTy>((null)=0x154009698)        ← 中間 nest
+frame #5: drop_in_place<[MirTy]>
+frame #6: Vec<MirTy>::drop                                ← value_tys
+frame #8: drop_in_place<Function>
+frame #9: drop_in_place<[Function]>
+frame #10: Vec<Function>::drop
+frame #12: drop_in_place<Program>
+frame #13: ilang::run_file at main.rs:1082
+```
+
+malloc error: `pointer being freed was not allocated`, address `0x16fdf6700` (stack address) または `0x8` (null+offset)。 **共通パターン: Box<MirTy> の内部 pointer 値が 0x8**(= Vec の len field 等として読まれるサイズ)。
 
 **race は ilang コンパイラ自身の memory corruption**:
 
-- fixture 実行コード (= ilang JIT generated) ではなく、 ilang コンパイラの `Program::drop` 時に `EnumLayout::repr: MirTy` の Box が **dangling pointer (stack address or null+offset)** を保持して dealloc で abort。
-- 仮説: `Vec<EnumLayout>` のメモリが別箇所からの **buffer overrun** で上書きされ、 `EnumLayout::repr` の discriminant が `Array` variant に化けて隣接メモリを Box<MirTy> ポインタとして解釈 → drop で stack address を free。
-- ilang-mir / parser / mir-codegen に `unsafe` 一切なし(grep で確認済み)ので、 直接的な unsafe deref ではない。
+- fixture 実行コード (= ilang JIT generated) ではなく、 ilang コンパイラの `Program::drop` 時に `EnumLayout::repr` または `Function::value_tys` の中の MirTy のネストした Box が **dangling pointer (stack address or null+offset)** を保持して dealloc で abort。
+- 共通パターン: 2 段 `Box<MirTy>` nest の最深部 (`Array<X>` / `Optional<X>` / `Promise<X>` / `RawPtr<X>` / `Set<X>` / `Map<K,V>` / `FnTy::ret` のうち X 自身も `Box<MirTy>` を持つ variant)で内部 pointer 値が **`0x8`** に化けている。
+- 最小化 fixture (`crepr_struct_assign_index_field.il`) の post-lower MIR には 2 段 nest が明示的に登場しない → mono / opt pass / codegen のどこかで動的に生成された MirTy が corrupt している強い疑い。
+- 触る場所候補 (value_tys に push する箇所、 grep 済み):
+  - [crates/ilang-mir/src/builder.rs:68](crates/ilang-mir/src/builder.rs:68) — lower 中の builder
+  - [crates/ilang-mir/src/passes/inline.rs:270](crates/ilang-mir/src/passes/inline.rs:270) — inline pass の `caller.value_tys.push(ty)`
+  - [crates/ilang-mir/src/lower/decl/extern_c.rs:442,539](crates/ilang-mir/src/lower/decl/extern_c.rs:442) — extern C struct synth
+  - [crates/ilang-mir/src/lower/decl/enum_fn.rs:203](crates/ilang-mir/src/lower/decl/enum_fn.rs:203) — enum fn synth
+- 他に `dce_fn.rs` の `mem::take(&mut prog.functions)` で再配置する path もある。
+- ilang-mir / parser / mir-codegen に `unsafe` 一切なし(grep で確認済み)ので、 直接的な unsafe deref ではない → **論理的 buffer overrun** か **意図しない alias** が source。
 - ASLR でメモリレイアウトが変わるので踏む / 踏まないが分かれる典型 UB pattern。
 
 **ASAN は timing 変化で踏まず**:
