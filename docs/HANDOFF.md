@@ -33,7 +33,31 @@
 
 ## 未解決の引き継ぎ事項
 
-(本セッション完了時点でなし。 内部 fn CRepr struct return まわりは sret 経路で一貫し、 caller/callee の signature 整合が `Inst::Call` / `Inst::VirtCall` 両方で取れている。)
+### `leak_var_reassign_promise_await.il` が確率的に `expectTrue` 失敗
+
+**症状**: `target/release/ilang run crates/ilang-cli/tests/programs/05_edge_cases/leak_var_reassign_promise_await.il` を連続で回すと 10 回中 3 〜 5 回 `exit=2` (= `test.expectTrue(test.liveAllocCount() - base < 64)` の assertion failure) を踏む。 残りの run は exit 0。 nextest の並列実行で `run_all_program_fixtures` が同確率で赤くなる。
+
+**修正前の状態でも再現**: `git worktree add ... bcd3367f` で本セッション開始前のコミット (HANDOFF 文書化時点) の release バイナリを作って同じ 10 回を回すと、 同様に 4/10 程度の確率で失敗する。 **本セッションの sret 経路統一 (4d1f97dc / 3bb34848 / c8a8f525) 起因ではない、 元から存在する確率的 leak**。 HANDOFF が「継続 PASS」と記録したのは並列実行時に偶々通ったケースが多かっただけで、 確率的失敗を見逃していた。
+
+**疑わしい点 (未確認)**:
+
+- async fn (`reassign_in_async`) 内で `let p: Promise<N> = make_promise(...)` を while 内で reassign する path。 fixture 自身の冒頭コメントに「Pre-fix the variable-reassignment cascade only released Object slots」と記載があり、 Promise slot の reassign cascade が以前に修正された経緯あり。 確率的失敗は別 path で残っているか、 そこの修正が完全ではない。
+- `.then(fn(_n: i64) {})` で `MakeClosure` + `Inst::Call` (Promise.then) する path。 closure の env / Promise resolved payload の rc accounting がレース条件で揃わない可能性。
+
+**確認手順**:
+
+```sh
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  ./target/release/ilang run crates/ilang-cli/tests/programs/05_edge_cases/leak_var_reassign_promise_await.il > /dev/null 2>&1
+  echo "run$i exit=$?"
+done
+# 期待: 全 10 件 exit 0。 実際は 3〜5 件が exit 2。
+```
+
+**着手の前にやるべきこと**:
+
+- `ILANG_HEAP_TRACE=1` を付けて失敗 run の trace を取り、 何が leak しているかを特定 (Object / Promise / closure env のどれか)。
+- `ILANG_MIR_DUMP=1` で `reassign_in_async` の async wrapper MIR を確認。 while loop 内の `p = make_promise(i)` の MIR が Release 順序を正しく出しているか。
 
 ### 関連 commit 履歴 (時系列)
 
