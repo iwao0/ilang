@@ -205,28 +205,25 @@ pub extern "C" fn __release_object(obj_ptr: i64) {
         _ => return,
     }
     let class_id = unsafe { *(obj_ptr as *const i64) };
+    // Pin the box with a guard weak ref across the deinit + field
+    // cascade. The strong rc is already 0 here, so if the cascade
+    // frees a child that holds a `.weak` back-reference to *this*
+    // object (parent ↔ child shapes), the child's nested
+    // `__release_weak` would see strong == 0, decide it owns the
+    // free, and pull the box out from under the in-progress field
+    // walk — then the tail of this function would free it again.
+    // With the guard the weak count stays ≥ 1 throughout; dropping
+    // it below performs the final free (or defers to a genuinely
+    // outstanding weak ref, keeping the zombie box for
+    // `WeakUpgrade`'s rc peek).
+    __retain_weak(obj_ptr);
     let user_drop = __drop_dispatch(class_id);
     if user_drop != 0 {
         let f: extern "C" fn(i64, i64) = unsafe { std::mem::transmute(user_drop) };
         f(obj_ptr, 0);
     }
     __release_object_fields(class_id, obj_ptr);
-    // If any weak refs are still outstanding, keep the box alive so
-    // `WeakUpgrade` can safely peek the (now-zero) rc field. The final
-    // `__release_weak` will free it. Hold the write lock across the
-    // check + free so a concurrent weak-release-to-zero can't see no
-    // entry, decide we own the free, and free under us.
-    let t = weak_count_table().write().expect("weak count table poisoned");
-    let has_weaks = t
-        .get(&obj_ptr)
-        .map(|c| c.load(Ordering::Relaxed) > 0)
-        .unwrap_or(false);
-    if !has_weaks {
-        if let Some(sz) = class_size_for(class_id) {
-            __mir_free(obj_ptr, sz);
-        }
-    }
-    drop(t);
+    __release_weak(obj_ptr);
 }
 
 // --------------------------------------------------------------------
