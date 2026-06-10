@@ -1046,6 +1046,40 @@ impl<'a> BodyCx<'a> {
         if let Some(found) = self.lookup_var(name) {
             return Ok(found);
         }
+        // Implicit `this.field` resolves before module-level repl_slots
+        // so a same-named module `let foo = ...` doesn't hijack a class
+        // field also named `foo` (the usual "class members shadow
+        // globals" rule). `this` itself lives in env for a regular
+        // method body and in `captures_in_scope` for a method-internal
+        // closure body — try both. The duplicate Var-as-field branch
+        // further down stays for the no-captures top-level fn case
+        // where `this_class` is unset; it's a no-op when this branch
+        // already returned.
+        if let Some(cid) = self.this_class {
+            let meta = self.class_meta.get(&cid).expect("class meta");
+            if let Some(&fid) = meta.field_ix.get(&name) {
+                let this_sym = Symbol::intern("this");
+                let (this_v, _) = if let Some(pair) = self.lookup_var(this_sym) {
+                    pair
+                } else if let Some(caps) = self.captures_in_scope {
+                    let &(cap_idx, ref this_ty) = caps
+                        .get(&this_sym)
+                        .expect("class method closure must capture `this` for implicit field ref");
+                    let dst = self.fb.new_value(this_ty.clone());
+                    self.fb.push_inst(Inst::LoadCapture { dst, idx: cap_idx });
+                    (dst, this_ty.clone())
+                } else {
+                    return Err(LowerError::Other(format!(
+                        "cannot resolve `this` for implicit field reference `{name}`"
+                    )));
+                };
+                let meta_fty = meta.field_ty.get(&fid).cloned().unwrap();
+                let fty = super::BodyCx::loaded_field_ty(&meta_fty);
+                let v = self.fb.new_value(fty.clone());
+                self.fb.push_inst(Inst::LoadField { dst: v, obj: this_v, field: fid });
+                return Ok((v, fty));
+            }
+        }
         // Closure capture takes precedence over a same-named module
         // slot — a closure that captured `factor` when it was 10 must
         // keep seeing 10 even if the outer code reassigned the slot
