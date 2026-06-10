@@ -900,9 +900,13 @@ pub extern "C" fn __array_fill(arr: i64, value: i64) {
         let stride = *h.add(5);
         for i in 0..len {
             if elem_tag != KIND_NONE {
+                // Retain the incoming value before releasing the
+                // occupant — `arr.fill(arr[0])` aliases the two, and
+                // release-first would free the value at its own slot
+                // before the retain could resurrect it.
+                retain_field_by_kind(value, elem_tag);
                 let old = load_packed(data, i, stride);
                 release_field_by_kind(old, elem_tag);
-                retain_field_by_kind(value, elem_tag);
             }
             store_packed(data, i, stride, value);
         }

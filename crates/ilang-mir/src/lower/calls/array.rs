@@ -466,12 +466,19 @@ impl<'a> BodyCx<'a> {
         if args.len() != 1 {
             return Err(LowerError::Other("Array.fill takes 1 arg".into()));
         }
-        let (coerced, _) = self.lower_arg_to(&args[0], Some(elem))?;
+        let value_is_fresh = self.is_fresh_object_expr(&args[0]);
+        let (coerced, vty) = self.lower_arg_to(&args[0], Some(elem))?;
         self.fb.push_inst(Inst::Call {
             dst: None,
             callee: FuncRef::Builtin(Symbol::intern("array_fill")),
             args: Box::new([ov, coerced]),
         });
+        // host_array_fill retains the value once per slot it fills —
+        // the array fully owns its copies, so a fresh transient's +1
+        // drops here (`arr.fill(new Box(9))` leaked the fill value).
+        if value_is_fresh && self.is_arc_heap(&vty) {
+            self.fb.push_inst(Inst::Release { value: coerced });
+        }
         Ok((self.const_unit(), MirTy::Unit))
     }
 
