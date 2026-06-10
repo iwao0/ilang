@@ -21,6 +21,23 @@ pub(crate) unsafe fn array_header(arr: i64) -> (i64, i64, i64) {
     }
 }
 
+/// Element / needle comparison for `indexOf` / `includes` / `remove`.
+/// Raw cell equality covers numbers (bit compare), bools, and objects
+/// (`==` on classes is reference equality). String elements compare
+/// by content — ilang's `==` on strings is structural, so a needle
+/// built at runtime (`"b" + suffix`) must match a stored literal even
+/// though their registry pointers differ.
+#[inline]
+unsafe fn cell_matches(stored: i64, needle: i64, elem_tag: i64) -> bool {
+    if stored == needle {
+        return true;
+    }
+    if elem_tag == crate::kind::KIND_STR && stored != 0 && needle != 0 {
+        return unsafe { crate::strings::cstr_bytes(stored) == crate::strings::cstr_bytes(needle) };
+    }
+    false
+}
+
 #[unsafe(export_name = "$array.indexOf")]
 pub extern "C" fn __array_index_of(arr: i64, value: i64) -> i64 {
     if arr == 0 {
@@ -28,9 +45,10 @@ pub extern "C" fn __array_index_of(arr: i64, value: i64) -> i64 {
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
     let stride = unsafe { *(arr as *const i64).add(5) };
+    let elem_tag = unsafe { *(arr as *const i64).add(4) };
     let needle = value & width_mask(stride);
     for i in 0..len {
-        if unsafe { load_packed(data, i, stride) } == needle {
+        if unsafe { cell_matches(load_packed(data, i, stride), needle, elem_tag) } {
             return i;
         }
     }
@@ -232,10 +250,11 @@ pub extern "C" fn __array_remove(arr: i64, value: i64) -> i64 {
         let len = *h;
         let data = *h.add(2);
         let stride = *h.add(5);
+        let elem_tag = *h.add(4);
         let needle = value & width_mask(stride);
         let mut idx: i64 = -1;
         for i in 0..len {
-            if load_packed(data, i, stride) == needle {
+            if cell_matches(load_packed(data, i, stride), needle, elem_tag) {
                 idx = i;
                 break;
             }
@@ -243,9 +262,12 @@ pub extern "C" fn __array_remove(arr: i64, value: i64) -> i64 {
         if idx < 0 {
             return 0;
         }
-        let elem_tag = *h.add(4);
+        // Release the *stored* cell's share, not the needle's — for a
+        // content-equal string match they are different pointers, and
+        // the needle's transient is the caller's to drop.
         if elem_tag != KIND_NONE {
-            release_field_by_kind(value, elem_tag);
+            let stored = load_packed(data, idx, stride);
+            release_field_by_kind(stored, elem_tag);
         }
         shift_left_one(data, idx + 1, len, stride);
         *h = len - 1;

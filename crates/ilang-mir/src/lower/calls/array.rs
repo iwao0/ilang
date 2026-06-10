@@ -160,13 +160,21 @@ impl<'a> BodyCx<'a> {
         if args.len() != 1 {
             return Err(LowerError::Other("Array.remove takes 1 arg".into()));
         }
-        let (coerced, _) = self.lower_arg_to(&args[0], Some(elem))?;
+        let needle_is_fresh = self.is_fresh_object_expr(&args[0]);
+        let (coerced, vty) = self.lower_arg_to(&args[0], Some(elem))?;
         let v = self.fb.new_value(MirTy::Bool);
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
             callee: FuncRef::Builtin(Symbol::intern("array_remove")),
             args: Box::new([ov, coerced]),
         });
+        // host_array_remove releases the *stored* element's share on a
+        // hit; the needle itself is only read. A fresh needle's
+        // transient +1 drops here (borrowed needles keep their slot's
+        // share as usual).
+        if needle_is_fresh && self.is_arc_heap(&vty) {
+            self.fb.push_inst(Inst::Release { value: coerced });
+        }
         Ok((v, MirTy::Bool))
     }
 
@@ -178,13 +186,19 @@ impl<'a> BodyCx<'a> {
         if args.len() != 1 {
             return Err(LowerError::Other("Array.indexOf takes 1 arg".into()));
         }
-        let (av, _) = self.lower_expr(&args[0])?;
+        let needle_is_fresh = self.is_fresh_object_expr(&args[0]);
+        let (av, vty) = self.lower_expr(&args[0])?;
         let v = self.fb.new_value(MirTy::I64);
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
             callee: FuncRef::Builtin(Symbol::intern("array_index_of")),
             args: Box::new([ov, av]),
         });
+        // The runtime only reads the needle — drop a fresh transient's
+        // +1 (`arr.indexOf("b" + suffix)` leaked one string per call).
+        if needle_is_fresh && self.is_arc_heap(&vty) {
+            self.fb.push_inst(Inst::Release { value: av });
+        }
         Ok((v, MirTy::I64))
     }
 
@@ -515,13 +529,18 @@ impl<'a> BodyCx<'a> {
         if args.len() != 1 {
             return Err(LowerError::Other("Array.includes takes 1 arg".into()));
         }
-        let (av, _) = self.lower_expr(&args[0])?;
+        let needle_is_fresh = self.is_fresh_object_expr(&args[0]);
+        let (av, vty) = self.lower_expr(&args[0])?;
         let v = self.fb.new_value(MirTy::Bool);
         self.fb.push_inst(Inst::Call {
             dst: Some(v),
             callee: FuncRef::Builtin(Symbol::intern("array_includes")),
             args: Box::new([ov, av]),
         });
+        // Read-only needle — see lower_array_index_of.
+        if needle_is_fresh && self.is_arc_heap(&vty) {
+            self.fb.push_inst(Inst::Release { value: av });
+        }
         Ok((v, MirTy::Bool))
     }
 }
