@@ -32,8 +32,18 @@ fn heap_trace_enabled() -> bool {
 /// alloc counters so `test.liveAlloc*()` can detect leaks.
 #[unsafe(export_name = "$alloc.alloc")]
 pub extern "C" fn __mir_alloc(size: i64) -> i64 {
+    // Back the buffer with a `Vec<u64>` so the returned address is
+    // 8-byte aligned. Cranelift codegen marks heap loads/stores with
+    // `MemFlags::trusted()` (= aligned hint); an unaligned i64 load on
+    // aarch64 can EXC_BAD_ACCESS or, when the kernel fixes it up,
+    // corrupt neighbouring heap bytes that later free paths abort on.
+    // `Vec<u8>` only promised 1-byte alignment and silently produced
+    // off-by-4 addresses under ASLR seeds, which is how
+    // `crepr_struct_assign_index_field.il` failed ~1.5% of parallel
+    // launches with empty-stderr SIGABRT / SIGSEGV.
     let n = size as usize;
-    let mut v: Vec<u8> = vec![0; n];
+    let n_u64 = n.div_ceil(8);
+    let mut v: Vec<u64> = vec![0; n_u64];
     let ptr = v.as_mut_ptr() as i64;
     std::mem::forget(v);
     ALLOC_BYTES.fetch_add(size, Ordering::Relaxed);
@@ -45,7 +55,7 @@ pub extern "C" fn __mir_alloc(size: i64) -> i64 {
 }
 
 /// Free a previously `__mir_alloc`'d block. The caller passes the
-/// original `size` so we can rebuild the matching `Vec<u8>` and drop
+/// original `size` so we can rebuild the matching `Vec<u64>` and drop
 /// it. A null pointer or non-positive size is a no-op.
 #[unsafe(export_name = "$alloc.free")]
 pub extern "C" fn __mir_free(ptr: i64, size: i64) {
@@ -55,8 +65,10 @@ pub extern "C" fn __mir_free(ptr: i64, size: i64) {
         }
         return;
     }
+    let n = size as usize;
+    let n_u64 = n.div_ceil(8);
     unsafe {
-        let _ = Vec::from_raw_parts(ptr as *mut u8, size as usize, size as usize);
+        let _ = Vec::from_raw_parts(ptr as *mut u64, n_u64, n_u64);
     }
     FREE_BYTES.fetch_add(size, Ordering::Relaxed);
     FREE_COUNT.fetch_add(1, Ordering::Relaxed);

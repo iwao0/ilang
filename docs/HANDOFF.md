@@ -46,10 +46,18 @@
 
 `crates/ilang-runtime/src/enums.rs:122-134` の「CRepr struct 経由で読んだ enum discriminant が不正」path は `eprintln! → process::abort()` だが、 `eprintln!` が pipe buffer に届く前に `abort()` が走り、 stderr が空のままプロセスが死ぬ。 本セッションで該当 4 箇所(enums.rs ×2 + regex.rs ×2)に `stderr().flush()` を入れたが、 並列再現時の stderr 空は **直らない** — つまり「abort 前 flush」では救えない別の経路で死んでいる(本物の SIGSEGV / heap corruption が `eprintln!` 到達前に発火)。
 
+**最小再現と絞り込み(本ラウンドの追加観察)**:
+
+- 元 fixture を縮めて再現: `let s0 = new Slot(); let s1 = new Slot(); let arr: Slot[] = [s0, s1]; arr[1].kind = Mode.active; arr[1].seq = 99` (16 並列 × 25 batch = 400 試行で 6/400 SIGABRT/SIGSEGV)。
+- **`arr[0]` への書き込みは安全、 `arr[1]` (idx ≥ 1) への書き込みのみ race**。
+- MIR dump: `Slot[]` は inline CRepr struct array (stride 8 byte) として lower される。 `ArrayLoad(arr, 1)` は address-as-value (= load せず data_ptr + 8 を返す) 経路。
+- alloc/free のサイズ計算は数学的に一致(CRepr struct 8 byte alloc / 8 byte free、 array header 48 byte、 array data 16 byte)。
+- 本ラウンドで `__mir_alloc` を `Vec<u8>` → `Vec<u64>` に変更し戻り address を 8 byte aligned 保証に厳密化したが、 **race は同確率で続行**。 alignment 仮説は外れ — UB は別箇所。
+- **本ラウンドの修正後、 全失敗が exit 134 (signal=6 = SIGABRT) に偏った**(以前は SIGSEGV / SIGABRT 混在)。 これは macOS の `malloc` 系が **heap corruption を検出して abort** している強い兆候 (double free / use-after-free / overlapping free)。
+
 **疑わしい点 (絞り込み済み)**:
 
-- 並列起動下でのみ踏むので、 **ASLR 由来の heap layout 違い** で `__mir_alloc` の returned address や ARC ヘッダの位置が確率的に踏める / 踏めないアドレスになる UB。
-- `crepr_struct_assign_index_field.il` は `Slot[] = [s0, s1]; arr[0].kind = ...` という CRepr struct を要素にする配列の `AssignIndex.field` path。 Array of CRepr struct の要素ストレージ(inline vs pointer)と AssignIndex のアドレス計算に UB の疑い。 `crates/ilang-mir-codegen/src/compile/lower_inst/array.rs` の `ArrayStore` / `ArrayLoad` + CRepr struct elem 経路を疑う。
+- `Slot[]` の各要素は `crepr_struct_copy` (mod.rs:41-63) で 8 byte memcpy。 元 `Slot` Object と array data buffer 内の値コピーが「同じ buffer を二重所有」している可能性。 NewArray の elem retain (`retain v10; retain v11`) は CRepr の場合 no-op だが、 release path で何か double-free を踏みうる。
 - `nested_generic.il` は CRepr struct 不使用(generic class monomorphization)。 SIGABRT は別経路で、 おそらく Rust panic / heap corruption(共通要因か別要因かは未切り分け)。
 
 **真因追跡で試して効かなかった手段** (次セッションで違う方法を考えること):
@@ -60,9 +68,10 @@
 
 **次にやるべきこと**:
 
+- **ASAN(AddressSanitizer)で計装**: nightly Rust + `-Z sanitizer=address` で `ilang` を再ビルドして並列起動 → double free / use-after-free をピン点。 仮説では `Slot[] = [s0, s1]` の elem 値コピー後の release path で double-free が起きている。
 - `ilang` バイナリに `get-task-allow` entitlement を付ける(`codesign --entitlements ent.plist -s - target/release/ilang`)→ core dump を `/cores` に書き出させる → 死亡時の core を lldb で読む。
-- もしくは `MallocStackLogging=1` 等の macOS malloc debug 環境変数で heap corruption を捕まえる(性能落ちて timing 変わるリスクあり)。
-- 最小化: `crepr_struct_assign_index_field.il` を `let arr: Slot[] = [s0]; arr[0].kind = 2` 1 行レベルまで絞り、 並列で踏むか確認。 踏めば AssignIndex.field の codegen に絞れる。
+- `MallocStackLogging=1` + `MallocScribble=1` 等の macOS malloc debug 環境変数で heap corruption を捕まえる(性能落ちて timing 変わるリスクあり)。
+- 最小化済みの `let s0 = new Slot(); let s1 = new Slot(); let arr: Slot[] = [s0, s1]; arr[1].kind = X; arr[1].seq = Y` で集中的に再現してから上記。
 
 **確認手順**:
 
