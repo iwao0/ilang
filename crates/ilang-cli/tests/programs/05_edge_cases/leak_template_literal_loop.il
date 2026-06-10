@@ -28,6 +28,10 @@ while i < 200 {
     test.expectTrue(t.length == s.length + 2)
     // consumed as a fresh call arg
     test.expectTrue(("v" + `${i}`).length >= 2)
+    // fresh values INSIDE ${}: a nested template and a concat — the
+    // part's transient +1 drops after fmt_value copies it
+    let _ = `out${`in${i}`}er`
+    let _ = `x${"a" + `${i}`}y`
     i = i + 1
 }
 let after = test.liveStringCount()

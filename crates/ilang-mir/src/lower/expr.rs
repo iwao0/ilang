@@ -1060,13 +1060,21 @@ impl<'a> BodyCx<'a> {
                     (v, false)
                 }
                 ilang_ast::TemplatePart::Expr(e) => {
-                    let (val, _) = self.lower_expr(e)?;
+                    let part_is_fresh = self.is_fresh_object_expr(e);
+                    let (val, val_ty) = self.lower_expr(e)?;
                     let s = self.fb.new_value(MirTy::Str);
                     self.fb.push_inst(Inst::Call {
                         dst: Some(s),
                         callee: FuncRef::Builtin(Symbol::intern("fmt_value")),
                         args: Box::new([val]),
                     });
+                    // `fmt_value` only reads the value (Str input is
+                    // copied) — a fresh part's transient +1 drops
+                    // here, or `${`inner${x}`}` / `${"a" + b}`
+                    // leaked the inner string per evaluation.
+                    if part_is_fresh && self.is_arc_heap(&val_ty) {
+                        self.fb.push_inst(Inst::Release { value: val });
+                    }
                     (s, true)
                 }
             };
