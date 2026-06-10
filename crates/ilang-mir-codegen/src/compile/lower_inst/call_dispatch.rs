@@ -206,25 +206,92 @@ pub(super) fn lower_call_dispatch_inst<M: Module>(
         }
         Inst::CallIndirect { dst, callee, sig, args } => {
             // Closure value: pointer to `[fn_ptr | captures...]`.
+            // The wrapped fn is always internal (Trampoline /
+            // Local-kind FnExpr lowering) — neither Extern nor
+            // ExternBody is closurified — so the call site uses the
+            // same "internal-fn CRepr struct return → sret" rule as
+            // `Inst::Call` (calls.rs) and `Inst::VirtCall` above.
+            // Without this, a `let f = make_box; f(...)` where
+            // `make_box` returns a CRepr struct mismatches the
+            // callee's sret signature and SIGSEGVs.
             let closure = vmap[callee];
             let fn_ptr = fb.ins().load(types::I64, MemFlags::trusted(), closure, 0);
+            let chunk_max = IL_BYVAL_CHUNK_MAX;
             let mut clif_sig = module.make_signature();
-            for p in sig.params.iter() {
+            let mut arg_vs: Vec<Value> = Vec::with_capacity(args.len() + 2);
+            // sret-first: alloc the destination buffer and prepend the
+            // hidden pointer as the first clif arg.
+            let sret_dst = if let Some(d) = dst {
+                let dst_ty = func.ty_of(*d).clone();
+                if let Some(c_size) = struct_sret_for_internal(&dst_ty, prog) {
+                    clif_sig.params.push(AbiParam::special(
+                        types::I64,
+                        cranelift_codegen::ir::ArgumentPurpose::StructReturn,
+                    ));
+                    let size_v = fb.ins().iconst(types::I64, c_size);
+                    let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
+                    let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
+                    let ptr = fb.inst_results(alloc_call)[0];
+                    arg_vs.push(ptr);
+                    Some((*d, ptr))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            // Per-param by-value expansion (mirrors VirtCall).
+            for (p, a) in sig.params.iter().zip(args.iter()) {
+                let av = vmap[a];
+                if let Some((elem_ct, count)) = struct_hfa(p, prog) {
+                    let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
+                    for c in 0..count {
+                        clif_sig.params.push(AbiParam::new(elem_ct));
+                        let v = fb.ins().load(
+                            elem_ct,
+                            MemFlags::trusted(),
+                            av,
+                            (c as i32) * elem_size,
+                        );
+                        arg_vs.push(v);
+                    }
+                    continue;
+                }
+                if let Some(chunks) = struct_chunks_with_max(p, prog, chunk_max) {
+                    for c in 0..chunks {
+                        clif_sig.params.push(AbiParam::new(types::I64));
+                        let cell = fb.ins().load(
+                            types::I64,
+                            MemFlags::trusted(),
+                            av,
+                            (c as i32) * 8,
+                        );
+                        arg_vs.push(cell);
+                    }
+                    continue;
+                }
                 if let Some(ct) = mir_to_clif(p) {
                     clif_sig.params.push(AbiParam::new(ct));
+                    arg_vs.push(av);
                 }
             }
+            // Trailing env-ptr (closure block pointer).
             clif_sig.params.push(AbiParam::new(types::I64));
-            if !matches!(sig.ret, MirTy::Unit) {
+            arg_vs.push(closure);
+            // Return shape: empty if sret took the value; otherwise
+            // a single clif slot. CRepr struct returns are always
+            // sret-routed above, so the chunk / HFA fallback paths
+            // never trigger here.
+            if sret_dst.is_none() && !matches!(sig.ret, MirTy::Unit) {
                 if let Some(ct) = mir_to_clif(&sig.ret) {
                     clif_sig.returns.push(AbiParam::new(ct));
                 }
             }
             let sig_ref = fb.import_signature(clif_sig);
-            let mut arg_vs: Vec<Value> = args.iter().map(|a| vmap[a]).collect();
-            arg_vs.push(closure); // env_ptr = closure block ptr
             let inst_ref = fb.ins().call_indirect(sig_ref, fn_ptr, &arg_vs);
-            if let Some(d) = dst {
+            if let Some((d, ptr)) = sret_dst {
+                vmap.insert(d, ptr);
+            } else if let Some(d) = dst {
                 let results = fb.inst_results(inst_ref);
                 if let Some(&v) = results.first() {
                     vmap.insert(*d, v);
