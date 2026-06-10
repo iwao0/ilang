@@ -308,12 +308,21 @@ fn is_safe_to_cross(inst: &Inst) -> bool {
         // their own.
         Inst::UseLocal { .. } | Inst::DefLocal { .. } => true,
 
-        // Retain/Release of another value — safe (the equivalence
-        // check decides whether one matches our candidate).
-        Inst::Retain { .. }
-        | Inst::Release { .. }
-        | Inst::WeakRetain { .. }
-        | Inst::WeakRelease { .. } => true,
+        // Retain of another value — safe: a retain only increments,
+        // it can never free the candidate's storage. (The equivalence
+        // check decides whether one matches our candidate.)
+        Inst::Retain { .. } | Inst::WeakRetain { .. } => true,
+
+        // Release of another value is a BARRIER. Releasing a
+        // container (map / array / object / optional / enum / tuple /
+        // closure) cascade-releases everything it holds — which may
+        // include the candidate's pointee. Cancelling
+        // `Retain v … Release w … Release v` across such a release
+        // removes the only share keeping `v` alive through the
+        // cascade: `makeMap()["k"].n` read freed memory because the
+        // map's release freed the value the cancelled retain was
+        // protecting. Without points-to info there is no safe subset.
+        Inst::Release { .. } | Inst::WeakRelease { .. } => false,
 
         // Everything else is a barrier: calls (host or user — may
         // observe global refcount), allocations (drop on OOM),
