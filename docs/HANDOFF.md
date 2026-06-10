@@ -46,19 +46,53 @@
 
 `crates/ilang-runtime/src/enums.rs:122-134` の「CRepr struct 経由で読んだ enum discriminant が不正」path は `eprintln! → process::abort()` だが、 `eprintln!` が pipe buffer に届く前に `abort()` が走り、 stderr が空のままプロセスが死ぬ。 本セッションで該当 4 箇所(enums.rs ×2 + regex.rs ×2)に `stderr().flush()` を入れたが、 並列再現時の stderr 空は **直らない** — つまり「abort 前 flush」では救えない別の経路で死んでいる(本物の SIGSEGV / heap corruption が `eprintln!` 到達前に発火)。
 
-**最小再現と絞り込み(本ラウンドの追加観察)**:
+**最小再現と絞り込み**:
 
 - 元 fixture を縮めて再現: `let s0 = new Slot(); let s1 = new Slot(); let arr: Slot[] = [s0, s1]; arr[1].kind = Mode.active; arr[1].seq = 99` (16 並列 × 25 batch = 400 試行で 6/400 SIGABRT/SIGSEGV)。
 - **`arr[0]` への書き込みは安全、 `arr[1]` (idx ≥ 1) への書き込みのみ race**。
-- MIR dump: `Slot[]` は inline CRepr struct array (stride 8 byte) として lower される。 `ArrayLoad(arr, 1)` は address-as-value (= load せず data_ptr + 8 を返す) 経路。
-- alloc/free のサイズ計算は数学的に一致(CRepr struct 8 byte alloc / 8 byte free、 array header 48 byte、 array data 16 byte)。
-- 本ラウンドで `__mir_alloc` を `Vec<u8>` → `Vec<u64>` に変更し戻り address を 8 byte aligned 保証に厳密化したが、 **race は同確率で続行**。 alignment 仮説は外れ — UB は別箇所。
-- **本ラウンドの修正後、 全失敗が exit 134 (signal=6 = SIGABRT) に偏った**(以前は SIGSEGV / SIGABRT 混在)。 これは macOS の `malloc` 系が **heap corruption を検出して abort** している強い兆候 (double free / use-after-free / overlapping free)。
+- MIR dump: `Slot[]` は inline CRepr struct array (stride 8 byte) として lower される。
+- `__mir_alloc` を `Vec<u8>` → `Vec<u64>` に変えて alignment を厳密化しても **race は同確率で続行**(alignment 仮説は外れ)。
 
-**疑わしい点 (絞り込み済み)**:
+**lldb で stack trace を取得 (race の真因方向確定)**:
 
-- `Slot[]` の各要素は `crepr_struct_copy` (mod.rs:41-63) で 8 byte memcpy。 元 `Slot` Object と array data buffer 内の値コピーが「同じ buffer を二重所有」している可能性。 NewArray の elem retain (`retain v10; retain v11`) は CRepr の場合 no-op だが、 release path で何か double-free を踏みうる。
-- `nested_generic.il` は CRepr struct 不使用(generic class monomorphization)。 SIGABRT は別経路で、 おそらく Rust panic / heap corruption(共通要因か別要因かは未切り分け)。
+debug build で並列負荷下に lldb attach loop を回し、 SIGABRT を捕まえた:
+
+```
+* thread #1, stop reason = signal SIGABRT
+  frame #6:  alloc::alloc::dealloc                    ← bad pointer を free
+  frame #10: Box<MirTy>::drop
+  frame #11: drop_in_place<Box<MirTy>>
+  frame #12: drop_in_place<MirTy>
+  frame #13: drop_in_place<EnumLayout>
+  frame #14: drop_in_place<[EnumLayout]>
+  frame #15: Vec<EnumLayout>::drop
+  frame #16: drop_in_place<Vec<EnumLayout>>
+  frame #17: drop_in_place<Program>
+  frame #18: ilang::run_file at main.rs:1082          ← Program の drop
+```
+
+malloc error: `pointer being freed was not allocated`, address `0x16fdf6700` (stack address) または `0x8` (null+offset)。
+
+**race は ilang コンパイラ自身の memory corruption**:
+
+- fixture 実行コード (= ilang JIT generated) ではなく、 ilang コンパイラの `Program::drop` 時に `EnumLayout::repr: MirTy` の Box が **dangling pointer (stack address or null+offset)** を保持して dealloc で abort。
+- 仮説: `Vec<EnumLayout>` のメモリが別箇所からの **buffer overrun** で上書きされ、 `EnumLayout::repr` の discriminant が `Array` variant に化けて隣接メモリを Box<MirTy> ポインタとして解釈 → drop で stack address を free。
+- ilang-mir / parser / mir-codegen に `unsafe` 一切なし(grep で確認済み)ので、 直接的な unsafe deref ではない。
+- ASLR でメモリレイアウトが変わるので踏む / 踏まないが分かれる典型 UB pattern。
+
+**ASAN は timing 変化で踏まず**:
+
+`RUSTFLAGS="-Z sanitizer=address" cargo +nightly build -Z build-std --target aarch64-apple-darwin -p ilang` で ASAN ビルドは成功するが、 ASAN 経由は性能が ~10x 遅くなり race の timing が変わるため、 200 並列起動で 200/200 PASS で捕まらない。
+
+**次にやるべきこと(絞り込み済み)**:
+
+- `EnumLayout` を build / set する 3 箇所を見直す:
+  - [crates/ilang-mir/src/lower/mod.rs:325](crates/ilang-mir/src/lower/mod.rs:325): pre-allocate placeholder push (`repr: MirTy::I64`)
+  - [crates/ilang-mir/src/lower/decl/enum_fn.rs:116](crates/ilang-mir/src/lower/decl/enum_fn.rs:116): overwrite path (`was_pre_allocated` 分岐)
+  - [crates/ilang-mir/src/lower/lower_state.rs:168](crates/ilang-mir/src/lower/lower_state.rs:168): 別経路
+- `Vec<EnumLayout>` の **隣接メモリを上書きする source** を Miri (`cargo +nightly miri test`) で検出。 Miri は thread-non-deterministic UB を捕まえやすい。
+- ASAN ビルドで `--release` を試す(timing 変化が小さくなる可能性)。
+- 並列で多数 child を起動した中で **どの child PID が踏むか** を比較し、 `ILANG_MIR_DUMP=1` で MIR が round によって変わるかを確認(non-deterministic MIR 生成の検出)。
 
 **真因追跡で試して効かなかった手段** (次セッションで違う方法を考えること):
 
