@@ -33,7 +33,43 @@
 
 ## 未解決の引き継ぎ事項
 
-(本セッション完了時点でなし。 並列起動下の確率的失敗は [objects.rs::StoreField](crates/ilang-mir-codegen/src/compile/lower_inst/objects.rs:755) の **field width 誤判定によるオーバーラン書き込み** を pin point して修正、 400 並列 + nextest 10 連続 + workspace 525/525 すべて緑。)
+### `nested_generic.il` が並列起動下で別系統の確率的失敗
+
+**症状**: nextest 30 連続で 29/30 PASS、 1 件 fail。 単体並列起動 800 試行で **60 / 800 (7.5%) が exit 134 (SIGABRT)**、 全 stderr 空。 メイン race(`crepr_struct_assign_index_field.il`)は本セッションの commit `ec3d0cd5` で完全解決したが、 `nested_generic.il` だけは残存。
+
+**他 fixture との違い**:
+
+- CRepr struct を一切使わず、 純粋な generic class monomorphization (`class Box<T>` を 4 段 nest)。
+- `ILANG_HEAP_GUARD=1` で 400 並列 → **0 件 abort**。 つまり `__mir_alloc` 経由のバッファ overrun ではない。
+- guard 無しで 800 並列 → 60 件 abort。 ASLR layout 依存。
+
+**疑わしい点**:
+
+- generic mono pass (`crates/ilang-mir/src/monomorphize/`) で `Box<Box<Box<Box<i64>>>>` のような深いネストを specialise する path に何かしらの UB。
+- mono cache (HashMap での global eid / class_id 割り当て)が ASLR で踏みうる順序問題。
+- 4 段の Box 構築 → release で再帰 drop する path に off-by-one や stale Box pointer。
+
+**確認手順**:
+
+```sh
+FIXTURE=crates/ilang-cli/tests/programs/05_edge_cases/nested_generic.il
+ILBIN=./target/release/ilang
+mkdir -p /tmp/nest_check
+for batch in $(seq 1 50); do
+  for j in $(seq 1 16); do
+    idx=$(( (batch-1)*16 + j ))
+    ( $ILBIN run $FIXTURE > /tmp/nest_check/${idx}.out 2>&1; echo $? > /tmp/nest_check/${idx}.code ) &
+  done
+  wait
+done
+cat /tmp/nest_check/*.code | sort -n | uniq -c
+# 期待: 800 0、 実際は ~7% で 134
+```
+
+**次の手**:
+
+- ILANG_DUMP_CLIF=1 で `nested_generic.il` の `__main` clif IR を取得し、 Box<Box<i64>> 系の field アクセスで store/load size が正しいか audit。
+- generic mono pass の specialised class 構築コードを review。 mono cache の HashMap iteration 順序が ASLR で変わるなら、 そこから派生する UB を疑う。
 
 ### [解決済み記録] `crepr_struct_assign_index_field.il` 系の確率的失敗
 
