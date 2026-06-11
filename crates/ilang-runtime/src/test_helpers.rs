@@ -67,18 +67,20 @@ pub extern "C" fn test_fail(msg: i64) {
 
 #[unsafe(export_name = "$test.liveAllocBytes")]
 pub extern "C" fn test_live_alloc_bytes() -> i64 {
-    // Drain the event loop first: async / Promise fixtures queue
+    // Pump the event loop first: async / Promise fixtures queue
     // continuations there even on a synchronously-resolved `.then`,
-    // and an undrained queue leaves callback-pending allocs visible
-    // to the leak counter as if they were leaks. No-op when nothing
-    // is queued.
-    crate::pool::drain();
+    // and an unpumped queue leaves callback-pending allocs visible
+    // to the leak counter as if they were leaks. `pump` (not
+    // `drain`) on purpose — a probe must not sleep until a pending
+    // timer's due time, and with an armed interval a blocking drain
+    // would never return. No-op when nothing is queued.
+    crate::pool::pump();
     live_alloc_bytes()
 }
 
 #[unsafe(export_name = "$test.liveAllocCount")]
 pub extern "C" fn test_live_alloc_count() -> i64 {
-    crate::pool::drain();
+    crate::pool::pump();
     live_alloc_count()
 }
 
