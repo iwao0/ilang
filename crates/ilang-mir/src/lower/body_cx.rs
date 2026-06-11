@@ -1070,8 +1070,42 @@ impl<'a> BodyCx<'a> {
             .last()
             .cloned()
             .unwrap_or_default();
-        let needs_release = |ty: &MirTy| ty.is_heap();
         for (_name, binding) in scope.into_iter().rev() {
+            self.release_binding_for_scope_exit(binding);
+        }
+    }
+
+    /// Early-`return` sweep: release every live heap binding in every
+    /// scope above the fn's outermost scope (index 0 holds the entry
+    /// parameters — borrows whose +1 stays with the caller).
+    /// `lower_block`'s scope-exit pass never runs for the blocks an
+    /// early return jumps out of, so without this every heap `let`
+    /// live at a `return` leaked — `fn f(..) { let s = "x" + k;
+    /// if c { return s.length } .. }` leaked one string per call,
+    /// and the async poll fn's suspend arms (which end in a
+    /// generated `return`) leaked the awaited promise + every local
+    /// carried in the state. Innermost scopes release first,
+    /// mirroring normal block-exit order.
+    pub(in crate::lower) fn release_scopes_for_return(&mut self) {
+        let bindings: Vec<Binding> = self
+            .env
+            .scopes
+            .iter()
+            .skip(1)
+            .rev()
+            .flat_map(|scope| scope.iter().rev().map(|(_n, b)| b.clone()))
+            .collect();
+        for binding in bindings {
+            self.release_binding_for_scope_exit(binding);
+        }
+    }
+
+    /// One binding's scope-exit release, shared by the normal
+    /// block-exit pass (`release_top_scope_objects`) and the early
+    /// `return` sweep (`release_scopes_for_return`).
+    fn release_binding_for_scope_exit(&mut self, binding: Binding) {
+        let needs_release = |ty: &MirTy| ty.is_heap();
+        {
             match binding {
                 Binding::Local(lid, ty) if needs_release(&ty) => {
                     // For CRepr Locals, only emit Release if this
@@ -1088,7 +1122,7 @@ impl<'a> BodyCx<'a> {
                                 | crate::program::ClassRepr::CUnion
                         );
                         if is_crepr && !self.crepr_owned_locals.contains(&lid) {
-                            continue;
+                            return;
                         }
                         // `@com interface` values are bare COM
                         // handles with no ARC header — Release
@@ -1096,7 +1130,7 @@ impl<'a> BodyCx<'a> {
                         // `addr - 32`. Lifetime is managed by
                         // IUnknown::Release at the user level.
                         if self.com_interfaces.contains(&layout.name) {
-                            continue;
+                            return;
                         }
                     }
                     let v = self.fb.new_value(ty.clone());
@@ -1107,7 +1141,7 @@ impl<'a> BodyCx<'a> {
                     if let MirTy::Object(cid) = &ty {
                         let layout = &self.classes[cid.0 as usize];
                         if self.com_interfaces.contains(&layout.name) {
-                            continue;
+                            return;
                         }
                     }
                     self.fb.push_inst(Inst::Release { value: v });

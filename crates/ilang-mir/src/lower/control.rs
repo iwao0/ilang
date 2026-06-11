@@ -302,6 +302,14 @@ impl<'a> BodyCx<'a> {
     }
 
     pub(super) fn lower_return(&mut self, value: Option<&Expr>) -> Result<(ValueId, MirTy), LowerError> {
+        // A borrowed heap return value (e.g. `return s` for a local /
+        // pattern binding) needs +1 before the early-return sweep
+        // below releases the scope that owns it — the caller receives
+        // an owned reference either way (same contract as the
+        // tail-position borrow retain). Skipped when `coerce` minted
+        // a NEW value (a fresh wrapper owns its +1 and already
+        // retained the inner where needed, e.g. the `T → T?` wrap).
+        let mut borrowed_to_retain: Option<ValueId> = None;
         let v = match value {
             Some(e) => {
                 let ret_ty = self.ret_ty.clone();
@@ -312,12 +320,16 @@ impl<'a> BodyCx<'a> {
                 if let Some(res) = self.lower_composite_with_hint(e, &ret_ty) {
                     Some(res?.0)
                 } else {
+                    let value_is_fresh = self.is_fresh_object_expr(e);
                     let (vv, vty) = self.lower_expr(e)?;
                     let coerced = if vty == ret_ty || matches!(ret_ty, MirTy::Unit) {
                         vv
                     } else {
                         self.coerce(vv, &vty, &ret_ty, e.span).unwrap_or(vv)
                     };
+                    if !value_is_fresh && self.is_arc_slot(&vty) && coerced == vv {
+                        borrowed_to_retain = Some(coerced);
+                    }
                     Some(coerced)
                 }
             }
@@ -355,6 +367,15 @@ impl<'a> BodyCx<'a> {
                 Some(synth)
             }
         };
+        // Early-return scope sweep: `lower_block`'s scope-exit pass
+        // never runs for the blocks this return jumps out of, so
+        // every live heap binding above the param scope is released
+        // here (mirrors `lower_break`'s sweep for loops). The
+        // borrowed-value retain above must precede this.
+        if let Some(rv) = borrowed_to_retain {
+            self.fb.push_inst(Inst::Retain { value: rv });
+        }
+        self.release_scopes_for_return();
         let release_value = v
             .map(|vid| self.crepr_return_owned.contains(&vid))
             .unwrap_or(false);
