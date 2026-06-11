@@ -76,6 +76,26 @@ struct EventLoop {
     next_seq: u64,
 }
 
+impl Drop for EventLoop {
+    fn drop(&mut self) {
+        // This only runs during thread-local destruction (the thread
+        // is exiting — e.g. an ilang panic unwound past `main` while
+        // timers were still armed). TLS destruction order is
+        // unspecified: dropping a task here cascades closure
+        // releases that touch OTHER thread-locals (cascade worklist,
+        // string registry), and panicking inside a TLS destructor
+        // aborts the process and buries the original panic message.
+        // The process is exiting anyway — leak the remaining
+        // entries and let the OS reclaim.
+        for t in self.tasks.drain(..) {
+            std::mem::forget(t);
+        }
+        while let Some(e) = self.timers.pop() {
+            std::mem::forget(e);
+        }
+    }
+}
+
 thread_local! {
     static LOOP: RefCell<EventLoop> = RefCell::new(EventLoop {
         tasks: VecDeque::new(),
