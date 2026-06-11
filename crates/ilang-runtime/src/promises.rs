@@ -675,13 +675,14 @@ extern "C" fn promise_all_resolve_stub(value: i64, closure_ptr: i64) -> i64 {
                 kind,
             )
         };
-        // build_i64_array copies the slots; release the per-slot
-        // retains we accumulated above (they now live inside the
-        // array and the array will cascade-release them).
-        for i in 0..st.len {
-            let v = unsafe { *st.values.add(i) };
-            release_field_by_kind(v, kind);
-        }
+        // build_i64_array copies the raw slots WITHOUT retaining the
+        // elements — the per-slot retains accumulated above transfer
+        // into the array as its element ownership (the array's
+        // cascade releases them when it drops). Releasing them here
+        // left the elements with no owner: it went unnoticed while
+        // the input upstreams leaked (their Resolved state propped
+        // the values up), and became a use-after-free the moment
+        // `__promise_all` started consuming its input array.
         unsafe { drop_promise_all_state(state) };
         settle_resolve(agg, arr, crate::kind::KIND_ARRAY);
     }
@@ -789,6 +790,19 @@ fn read_promise_array(arr_ptr: i64) -> Vec<i64> {
     out
 }
 
+/// Both combinators receive the input array with a transferred +1
+/// (the lowering retains a non-fresh arg and hands a fresh literal's
+/// own reference in — same convention as the executor); consume it
+/// after the upstream registrations are done. Cascading element
+/// releases here is correct: settled upstreams' queued firings are
+/// self-contained (own value retain + downstream), and a pending
+/// upstream survives through whatever lets it settle later (an
+/// escaped resolve callback's capture) or dies with its waiters,
+/// which is observably identical — they could never fire.
+fn release_input_array(arr_ptr: i64) {
+    release_field_by_kind(arr_ptr, crate::kind::KIND_ARRAY);
+}
+
 #[unsafe(export_name = "$promise.all")]
 pub extern "C" fn __promise_all(arr_ptr: i64, value_kind: i64) -> i64 {
     ensure_agg_stubs_registered();
@@ -799,6 +813,7 @@ pub extern "C" fn __promise_all(arr_ptr: i64, value_kind: i64) -> i64 {
         // Empty input: resolve immediately with an empty array.
         let empty = crate::arrays::build_i64_array(&[], value_kind);
         settle_resolve(agg, empty, crate::kind::KIND_ARRAY);
+        release_input_array(arr_ptr);
         return agg;
     }
     // Allocate the per-call state: a buffer of `n` i64 slots and
@@ -874,6 +889,7 @@ pub extern "C" fn __promise_all(arr_ptr: i64, value_kind: i64) -> i64 {
         let d2 = register_continuation(up, 0, reject_cb, value_kind, 0, 0);
         __release_promise(d2);
     }
+    release_input_array(arr_ptr);
     agg
 }
 
@@ -885,6 +901,7 @@ pub extern "C" fn __promise_race(arr_ptr: i64, value_kind: i64) -> i64 {
     if promises.is_empty() {
         // Empty race: stays Pending forever in JS. We mirror that —
         // the caller's `.then` / `.catch` simply never fires.
+        release_input_array(arr_ptr);
         return agg;
     }
     // Pre-scan for the first already-settled upstream and lock agg
@@ -941,6 +958,7 @@ pub extern "C" fn __promise_race(arr_ptr: i64, value_kind: i64) -> i64 {
         let d2 = register_continuation(up, 0, reject_cb, value_kind, 0, 0);
         __release_promise(d2);
     }
+    release_input_array(arr_ptr);
     agg
 }
 
