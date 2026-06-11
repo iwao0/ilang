@@ -106,6 +106,9 @@ where
         l.next_seq += 1;
         let seq = l.next_seq;
         l.live.insert(id, false);
+        if std::env::var_os("ILANG_DEBUG_TIMER").is_some() {
+            eprintln!("[timer] schedule id={id} delay={delay:?} repeat={repeat:?} heap_len={}", l.timers.len() + 1);
+        }
         l.timers.push(TimerEntry {
             due: Instant::now() + delay,
             seq,
@@ -154,11 +157,18 @@ fn next_timer_step() -> TimerStep {
         if cancelled {
             let e = l.timers.pop().expect("peeked entry vanished");
             l.live.remove(&e.id);
+            if std::env::var_os("ILANG_DEBUG_TIMER").is_some() {
+                eprintln!("[timer] discard id={} live_flag={:?}", e.id, l.live.get(&e.id));
+            }
             return TimerStep::Discard(e);
         }
         let now = Instant::now();
         if top.due <= now {
-            TimerStep::Fire(l.timers.pop().expect("peeked entry vanished"))
+            let e = l.timers.pop().expect("peeked entry vanished");
+            if std::env::var_os("ILANG_DEBUG_TIMER").is_some() {
+                eprintln!("[timer] fire id={}", e.id);
+            }
+            TimerStep::Fire(e)
         } else {
             TimerStep::Wait(top.due - now)
         }
