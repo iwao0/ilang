@@ -19,7 +19,11 @@
 
 `run_all_program_fixtures` (1278/1278) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 525 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
-直近のセッション (2026-06-10、 ARC ラウンド) で main に landing した変更:
+直近のセッション (2026-06-11) で main に landing した変更:
+
+- **Promise/async 実行モデルを JS 型 (run-to-completion・シングルスレッド) へ移行**。 worker pool を撤去し、 継続はメインスレッドの FIFO queue + 期限順 timer heap (`pool.rs` 書き換え)、 executor は構築時に同期実行、 非ブロッキング pump の **`time.tick()`** を新設。 詳細は下の解決済み記録。 GUI のネイティブイベントループ中のタイマー発火は未解決 (設計判断待ち — 「未解決の引き継ぎ事項」参照)。
+
+それ以前のセッション (2026-06-10、 ARC ラウンド) で main に landing した変更:
 
 - **fixture 増殖ラウンド** (`480ed47a`〜`ac91f68b`、 後続セッション)。 leak / 別名健全性の probe を Map / Set / Array / Optional / weak / template literal へ網羅的に当てて 5 系統のバグを検出・修正。 回帰 fixture 8 件追加。 詳細は下の解決済み記録「fixture 増殖ラウンドで検出した 5 系統」:
   - `arc_peephole` が「他値の Release は跨いで安全」と誤判定 → `makeMap()["k"].n` が解放済みメモリを読む (**正しさバグ**、 `480ed47a`)
@@ -51,11 +55,30 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### [計画済み・実装待ち] Promise/async 実行モデルを JS 型 (run-to-completion・シングルスレッド) へ移行する
+### [設計判断待ち] GUI のネイティブイベントループ中に std.time タイマーを発火させる手段
 
-ユーザー決定 (2026-06-11)。現行は executor / `.then` 継続 / await 再開が worker pool 上で**メインスレッドと並行に**走り、 (a) 同期コードからの promise 状態観測が非決定的 (`promise_print_state.il` の race を高負荷 1/400 で実測)、 (b) callback がメインと同じ容器を触るとデータ競合になり得る (同期プリミティブが無いため防げない)。 JS / Node と同じ「ユーザーコードは全部メインスレッド・継続はメインの FIFO queue・executor は構築時に同期実行・タイマーは timer heap + drain が期限まで待つ・非ブロッキング `time.tick()` (pump) を新設して GUI のフレームループから呼ぶ」へ移行する。
+JS 型移行 (下の解決済み記録) の積み残し。`gui.run()` は `NSApp.run()` / `GetMessage` ループでブロックし、 drain ポイントを通らないため、 GUI アプリが `time.setTimeout` / `setInterval` を使っても**イベントループ実行中は発火しない** (全ウィンドウを閉じた後の終了時 drain でまとめて発火する)。 `examples/libs/gui/window_state_demo/main.il` の「Flash in 3s」ボタンがこの形 (該当箇所に KNOWN LIMITATION コメントを記載済み)。 sdl_breakout のように**自前のフレームループを持つ**アプリは `time.tick()` を毎フレーム呼べばよく、 問題はネイティブループへ制御を渡す `gui.run()` 型だけ。 候補: (a) gui ライブラリが platform ループに pump を組み込む (cocoa の `runEventLoop` が NSTimer で `time.tick()` を周期実行。 linux / win32 にも同型の手当てが必要)、 (b) GUI アプリでは std.time タイマー非対応と割り切り platform タイマー (cocoa bindings の `NSTimer` 等) を直接使う。 ユーザーと相談して決めること。
 
-**詳細な実装計画 (調査済みの file:line・既存テスト/docs への影響・検証手順・作業規約込み) は `/Users/iwao/.claude/plans/tingly-puzzling-dusk.md`**。実装セッションはまずこのファイルを読むこと。主要変更点: `crates/ilang-runtime/src/pool.rs` (シングルスレッド queue + timer heap へ書き換え、 `submit`/`drain` の API は維持、 `pump` 追加)、 `promises.rs:526-539` (executor 同期化)、 `timers.rs` (heap 化)、 `libs/std/time.il` (`tick()` 追加)、 fixture `timer_set_interval_clear.il` の JS 流書き換え、 `examples/libs/gui/window_state_demo` の追従、 syntax.md / syntax_ja.md の実行モデル節更新。
+### [解決済み記録] Promise/async 実行モデルを JS 型 (run-to-completion・シングルスレッド) へ移行した (2026-06-11)
+
+ユーザー決定 (2026-06-11) を実装。 動機: 旧モデルは executor / `.then` 継続 / await 再開が work-stealing worker pool 上で**メインスレッドと並行に**走り、 (a) 同期コードからの promise 状態観測が非決定的 (`promise_print_state.il` の race を高負荷 1/400 で実測 — 下の記録)、 (b) callback がメインと同じ容器を触るとデータ競合になり得た (同期プリミティブが無いため防げない)。 実装計画は `/Users/iwao/.claude/plans/tingly-puzzling-dusk.md` (保管用)。
+
+**新意味論** (JS / Node と同じ):
+
+- ユーザーコード (main・executor・`.then` callback・async fn の再開・タイマー callback) は**すべて単一スレッド**で run-to-completion。 同期コード実行中に継続が割り込むことはない
+- executor は `new Promise(...)` の**その場で同期実行**。 resolve/reject は状態遷移 + 継続の queue 投入のみ (inline では走らせない)
+- 継続はメインスレッドの FIFO queue。 実行は drain ポイントのみ: プログラム終了時 (`run_main` / AOT main wrapper の `$promise.drain`) と、 新設の **`time.tick()`** (非ブロッキング pump — 期限到来済みタイマー + queue を空にして即 return。 自前メインループを持つアプリがフレームごとに呼ぶ)
+- タイマーは [crates/ilang-runtime/src/pool.rs](crates/ilang-runtime/src/pool.rs) の期限順 BinaryHeap。 終了時 drain は期限まで sleep して発火させる (未発火タイマーはプロセスを生かす — Node と同じ)。 cancel 済み entry は先頭に来た時点で破棄するので、 cancel された長期タイマーが終了を遅らせることはない
+
+**実装**: `pool.rs` を worker スレッド機構ごと書き換え (`submit`/`drain` の API 維持、 `schedule_timer`/`cancel_timer`/`pump` 追加、 thread-local の queue + timer heap + live map。 crossbeam-deque 依存を撤去)。 `promises.rs::__promise_with_executor` を同期呼び出し化 (worker 用の retain/release を撤去 — caller の borrow が同期呼び出しを跨いで生きるため不要)。 `timers.rs` は「pool に sleep 入りタスクを submit」から timer heap 登録へ (Mutex/Arc/AtomicBool 撤去)。 `$time.tick` export + jit_symbols 配線 + `libs/std/time.il` の `pub fn tick()`。 将来の CPU 並列は「共有メモリなしの worker API」(別設計) で提供する方針。
+
+**ハマりどころ (保管用)**: timer callback の +1 を Drop guard (`ClosureGuard`) で持たせる実装で、 `move ||` クロージャ内の利用が `guard.0` (Copy な i64 フィールド) だけだと **Rust 2021 の disjoint capture がフィールドだけを capture して guard 本体を即 drop** → callback cell が発火前に解放され、 `fn_addr=0` の無言スキップになる (クラッシュせず「タイマーが発火しない」だけなので気づきにくい)。 メソッド呼び出し (`guard.ptr()`) にして全体 capture を強制した。
+
+**fixture の書き方が変わる点**: run-to-completion では main 末尾の検証コードがタイマー/継続より**先に**走る。 タイマー発火を検証する fixture は「callback 自身が検証して印字する」JS 流に書く (`timer_set_interval_clear.il` を 3 tick で自己 clear する形に書き換え。 旧形は `time.sleep(300)` 中に worker が発火する前提だった)。
+
+**検証**: workspace nextest 530/530、 AOT arm 全 fixture PASS、 `promise_print_state.il` / `promise_race_array_order_tiebreak.il` を 16 並列 × 25 batch (各 400 回) で出力 1 パターン (決定性の実証)、 nested_generic.il 16×25×2 = **0/800**。 `examples/libs/gui/window_state_demo` はビルド確認済み (GUI 起動はしていない)。 docs: syntax.md / syntax_ja.md の Promise 節を新実行モデルに書き換え。
+
+**持ち越し (任意のクリーンアップ)**: 同期プリミティブの簡素化 — `ManagedPromise` の `rc: AtomicI64` → i64、 `inner: Mutex<Inner>` → RefCell、 `PromiseAllState.remaining` の Atomic 外し、 `closures.rs` / `strings.rs` 等の atomic rc はシングルスレッド化後は過剰。 機能とは独立の commit で行うこと (今回は未着手)。
 
 ### [解決済み記録] AOT arm の確率的失敗は `promise_print_state.il` のタイミング依存期待だった (2026-06-11、 `df797334`)
 
