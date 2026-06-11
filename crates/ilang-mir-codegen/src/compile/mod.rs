@@ -457,10 +457,9 @@ pub fn run_main(c: &Compiled) -> i64 {
     let ptr = c.module.get_finalized_function(c.entry);
     let f: extern "C" fn() -> i64 = unsafe { std::mem::transmute(ptr) };
     let rc = f();
-    // Drain the Promise / pool tasks that the program scheduled so
-    // pending `.then` / executor bodies actually run before exit.
-    // No-op if the user never touched a Promise (the pool stays
-    // un-initialised).
+    // Drain the event loop (queued Promise continuations + timers)
+    // so pending `.then` callbacks and scheduled timers actually
+    // run before exit. No-op if the program queued nothing.
     ilang_runtime::__promise_drain();
     rc
 }

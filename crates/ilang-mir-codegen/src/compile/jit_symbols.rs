@@ -441,6 +441,7 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("$time.clear_timeout", ilang_runtime::timers::time_clear_timeout as *const u8);
     jit_builder.symbol("$time.set_interval", ilang_runtime::timers::time_set_interval as *const u8);
     jit_builder.symbol("$time.clear_interval", ilang_runtime::timers::time_clear_interval as *const u8);
+    jit_builder.symbol("$time.tick", ilang_runtime::timers::time_tick as *const u8);
     // regex.* — `libs/std/regex.il` binds these via `@intrinsic("regex.X")`
     // declarations. The runtime exports each backing fn under the same
     // `regex.X` symbol name.

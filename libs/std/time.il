@@ -66,6 +66,8 @@ fn time_clear_timeout(id: i64)
 fn time_set_interval(ms: i64, callback: fn()): i64
 @intrinsic("time.clear_interval")
 fn time_clear_interval(id: i64)
+@intrinsic("time.tick")
+fn time_tick()
 
 /// Current wall-clock instant as Unix-epoch milliseconds.
 pub fn now(): i64 { time_now_ms() }
@@ -90,9 +92,12 @@ pub fn sleep(ms: i64) { time_sleep_ms(ms) }
 
 /// Schedule `callback` to run once after `ms` milliseconds. Returns
 /// a non-zero id; pass it to `clearTimeout` to cancel before the
-/// timer fires. Callbacks run on the shared pool worker threads —
-/// the runtime drains pending timers at the program-end so a
-/// scheduled `setTimeout` reliably fires before the process exits.
+/// timer fires. Callbacks run on the main thread at a drain point —
+/// never while your own code is mid-statement (JS-style
+/// run-to-completion). The runtime drains pending timers at
+/// program-end, so a scheduled `setTimeout` reliably fires before
+/// the process exits; apps that own their main loop call `tick()`
+/// per frame to service due timers while the loop runs.
 /// Argument order mirrors JavaScript's `setTimeout(fn, ms)`.
 pub fn setTimeout(callback: fn(), ms: i64): i64 {
     time_set_timeout(ms, callback)
@@ -114,6 +119,15 @@ pub fn setInterval(callback: fn(), ms: i64): i64 {
 /// `clearTimeout`, but the name is kept distinct for parity with
 /// JavaScript's API.
 pub fn clearInterval(id: i64) { time_clear_interval(id) }
+
+/// Service the event loop once, without blocking: run every queued
+/// Promise continuation and every timer whose due time has passed,
+/// then return. For programs that own their main loop (a GUI or
+/// game frame loop) — call it once per frame so `setTimeout` /
+/// `setInterval` callbacks and `.then` continuations get to run
+/// while the loop is alive. Programs without their own loop don't
+/// need it: the runtime drains everything at program-end.
+pub fn tick() { time_tick() }
 
 /// Broken-down calendar time at a specific UTC offset. Stores
 /// wall-clock components plus the offset they're interpreted

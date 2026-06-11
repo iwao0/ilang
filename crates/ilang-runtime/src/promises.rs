@@ -1,7 +1,10 @@
-//! `Promise<T>` runtime — a small thread-safe state machine that
-//! shuttles a single resolved value (or a rejection string) to any
-//! number of `.then` / `.catch` callbacks. Continuations and
-//! executor bodies all run on the work-stealing pool in `pool.rs`.
+//! `Promise<T>` runtime — a small state machine that shuttles a
+//! single resolved value (or a rejection string) to any number of
+//! `.then` / `.catch` callbacks. JS-style run-to-completion:
+//! executors run synchronously inside `new Promise(...)`;
+//! continuations are queued on the single-threaded event loop in
+//! `pool.rs` and only execute at a drain point — never concurrently
+//! with user code.
 //!
 //! State machine:
 //!
@@ -11,10 +14,10 @@
 //! `.then(cb)` and `.catch(cb)` register the callback against this
 //! promise and immediately allocate a downstream `Pending` promise.
 //! When the upstream settles:
-//!   - resolved: schedule `cb(value)` on the pool, settle downstream
-//!     with whatever cb returned
+//!   - resolved: queue `cb(value)` on the event loop, settle
+//!     downstream with whatever cb returned
 //!   - rejected (in `.then`): propagate the rejection to downstream
-//!   - rejected (in `.catch`): schedule `cb(msg)`, settle downstream
+//!   - rejected (in `.catch`): queue `cb(msg)`, settle downstream
 //!     with cb's return value
 //!
 //! Cascade-on-drop: a Resolved promise releases its inner value via
@@ -215,10 +218,6 @@ fn release_closure_arg(fn_or_closure: i64) {
     crate::closures::__release_closure(fn_or_closure);
 }
 
-fn retain_closure_arg(fn_or_closure: i64) {
-    crate::closures::__retain_closure(fn_or_closure);
-}
-
 /// Internal: register a continuation. Both `on_resolve` and
 /// `on_reject` are closure cell pointers (or 0 if absent). Returns
 /// the downstream Promise pointer (+1, caller owns).
@@ -237,7 +236,7 @@ fn register_continuation(
     }
     // `on_resolve` / `on_reject` arrive with the caller's +1 — we
     // transfer that reference directly into the waiter (or the
-    // pool task below) without adding a second retain, since the
+    // queued task below) without adding a second retain, since the
     // caller releases its local copy after the call returns and
     // the firing path releases exactly once. A retain here was a
     // refcount leak (the second +1 had no matching release once
@@ -265,11 +264,12 @@ fn register_continuation(
     }
 
     if let Some(state) = to_fire {
-        // Already settled — fire immediately on the pool. We held
-        // refs on the closures + downstream; the worker consumes them.
-        // Need to also retain the value/msg stored in the upstream
-        // for our own handler to use, since the upstream may be
-        // dropped before the worker runs.
+        // Already settled — queue the firing on the event loop (the
+        // JS microtask rule: even a settled promise's callback never
+        // runs inline). We held refs on the closures + downstream;
+        // the queued task consumes them. Need to also retain the
+        // value/msg stored in the upstream for our own handler to
+        // use, since the upstream may be dropped before the task runs.
         match state {
             State::Resolved { value, kind } => {
                 retain_field_by_kind(value, kind);
@@ -388,8 +388,10 @@ fn settle_resolve(p: i64, value: i64, kind: i64) {
             return;
         }
     };
-    // Fire each waiter on the pool. Each waiter needs its own
-    // retain on the value (since value lives in the promise).
+    // Queue each waiter on the event loop — never inline, so a
+    // settle call mid-user-code can't re-enter user callbacks
+    // (run-to-completion). Each waiter needs its own retain on the
+    // value (since value lives in the promise).
     for w in waiters {
         retain_field_by_kind(value, kind);
         pool::submit(move || {
@@ -444,7 +446,7 @@ pub extern "C" fn __promise_catch(
 //
 // Runtime allocates the pending Promise + two synthetic callback
 // closures (resolve_cb, reject_cb) that point back at it, then
-// schedules the executor on the pool. Each callback's `fn_addr` is
+// runs the executor synchronously. Each callback's `fn_addr` is
 // a runtime stub that decodes its single capture (the promise ptr)
 // and calls `settle_resolve` / `settle_reject`.
 // --------------------------------------------------------------------
@@ -516,34 +518,30 @@ pub extern "C" fn __promise_with_executor(executor_closure: i64, value_kind: i64
     let reject_cb =
         alloc_callback_closure(promise_reject_stub as *const () as i64, promise, None);
 
-    // Hand out +1 of the executor + each callback to the worker; we
-    // also retain `promise` once for the worker so the closures'
-    // captures stay valid.
-    retain_closure_arg(executor_closure);
-    let exec = executor_closure;
-    let r_cb = resolve_cb;
-    let j_cb = reject_cb;
-    pool::submit(move || {
-        let fn_addr = unsafe { *(exec as *const i64) };
-        // executor signature: ilang env-trailing — `fn(resolve, reject, env)`.
-        let f: extern "C" fn(i64, i64, i64) = unsafe { std::mem::transmute(fn_addr) };
-        f(r_cb, j_cb, exec);
-        // `r_cb` / `j_cb` are owned by the executor body — ilang
-        // releases its closure parameters at body exit, which drops
-        // each cell (and cascades to release the captured promise).
-        // Releasing them again here was a double-free that surfaced
-        // as `pthread_mutex_lock: Invalid argument` whenever the
-        // freed promise memory was reused before the dependent
-        // continuation locked its mutex.
-        release_closure_arg(exec);
-    });
+    // Run the executor synchronously, JS-style: `new Promise(...)`
+    // executes its executor before the expression returns. A
+    // resolve/reject call from inside only settles state and queues
+    // continuations — it never runs user callbacks inline, so
+    // run-to-completion holds. The caller's borrowed +1 on
+    // `executor_closure` outlives this call; no extra retain.
+    let fn_addr = unsafe { *(executor_closure as *const i64) };
+    // executor signature: ilang env-trailing — `fn(resolve, reject, env)`.
+    let f: extern "C" fn(i64, i64, i64) = unsafe { std::mem::transmute(fn_addr) };
+    f(resolve_cb, reject_cb, executor_closure);
+    // `resolve_cb` / `reject_cb` are owned by the executor body —
+    // ilang releases its closure parameters at body exit, which
+    // drops each cell (and cascades to release the captured
+    // promise). Releasing them again here was a double-free that
+    // surfaced as `pthread_mutex_lock: Invalid argument` whenever
+    // the freed promise memory was reused before the dependent
+    // continuation locked its mutex.
 
     promise
 }
 
-/// Block until every pending pool task has run. Called from the
-/// driver at program-end so pending Promise continuations actually
-/// finish before exit.
+/// Run the event loop to exhaustion (queued continuations + timer
+/// heap). Called from the driver at program-end so pending Promise
+/// continuations and timers actually finish before exit.
 #[unsafe(export_name = "$promise.drain")]
 pub extern "C" fn __promise_drain() {
     pool::drain();
@@ -583,10 +581,10 @@ pub extern "C" fn __promise_settle_reject(p: i64, msg: i64) {
 //
 // Implementation notes:
 //   - We allocate per-call shared state (counter + result slots for
-//     all, single-flag for race) protected by the aggregate
-//     promise's own mutex. Callbacks run on the pool, so the
-//     `settle_resolve` / `settle_reject` no-op-on-already-settled
-//     semantics give us the "first one wins" race guarantee.
+//     all, single-flag for race). Callbacks run as queued event-loop
+//     tasks, so the `settle_resolve` / `settle_reject` no-op-on-
+//     already-settled semantics give us the "first one wins" race
+//     guarantee.
 //   - Each upstream promise's callback is a synthetic closure
 //     allocated like the executor's resolve/reject stubs — the
 //     fn_addr points at a runtime stub that decodes its captures.
@@ -754,14 +752,14 @@ pub extern "C" fn __promise_all(arr_ptr: i64, value_kind: i64) -> i64 {
     }));
 
     // Pre-scan for a synchronously-rejected upstream and lock the
-    // aggregate to Rejected before any pool task can run. When every
-    // upstream is already settled at call time, the work-stealing
-    // pool would otherwise race the resolve stubs against the reject
-    // stub — sometimes letting "all resolves arrived first" settle
-    // the aggregate as Resolved and silently drop the rejection. By
-    // settling agg here, every later stub's settle attempt becomes a
-    // no-op via `take_pending_waiters`, so the outcome is "rejects
-    // on first rejection" regardless of scheduling.
+    // aggregate to Rejected before any queued stub can run.
+    // Otherwise, with every upstream already settled at call time,
+    // the FIFO order would let resolve stubs registered earlier in
+    // the array settle slots first and an "all resolved" aggregate
+    // could form before the reject stub's turn. By settling agg
+    // here, every later stub's settle attempt becomes a no-op via
+    // `take_pending_waiters`, so the outcome is "rejects on first
+    // rejection" regardless of queue order.
     for &up in promises.iter() {
         if up == 0 {
             continue;
@@ -827,12 +825,11 @@ pub extern "C" fn __promise_race(arr_ptr: i64, value_kind: i64) -> i64 {
         return agg;
     }
     // Pre-scan for the first already-settled upstream and lock agg
-    // to that outcome before any pool task can run. When inputs are
-    // all synchronously settled, the work-stealing pool's order is
-    // non-deterministic; the spec is "first to settle wins" and the
-    // synchronously-settled inputs all "settle" at the same instant.
-    // Pick array order as the tie-breaker so the result matches the
-    // mir-jit interpreter (and reads naturally to the user).
+    // to that outcome before any queued stub runs. The spec is
+    // "first to settle wins" and synchronously-settled inputs all
+    // "settle" at the same instant — pick array order as the
+    // tie-breaker (which the FIFO queue would also yield; the scan
+    // keeps the rule explicit and skips the queue round-trip).
     for &up in promises.iter() {
         if up == 0 {
             continue;

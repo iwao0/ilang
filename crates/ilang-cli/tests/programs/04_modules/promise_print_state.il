@@ -4,12 +4,13 @@
 //
 // The pending-state line uses a promise whose executor never calls
 // resolve — permanently pending, so the printed state is
-// deterministic. An earlier revision printed `Promise.all([...])`
-// here, but `Promise.all` resolution runs on the worker pool
-// CONCURRENTLY with the main thread: on a loaded machine the pool
-// occasionally won the race and the line printed
-// `<promise resolved>` (1/400 under parallel load) — the source of
-// the "AOT arm fails once in a blue moon, rerun passes" mystery.
+// deterministic. (Historical note: an earlier revision printed
+// `Promise.all([...])` here, and under the old worker-pool model
+// its resolution ran CONCURRENTLY with main — on a loaded machine
+// the pool occasionally won the race and printed
+// `<promise resolved>`, 1/400 under parallel load. The current
+// run-to-completion model would make even that deterministic:
+// continuations only run at drain points, never mid-statement.)
 //
 // expect: <promise resolved>
 // expect: inline: <promise resolved>
