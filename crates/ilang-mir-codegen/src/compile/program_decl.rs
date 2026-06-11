@@ -214,8 +214,10 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.returns.push(AbiParam::new(types::I64));
         module.declare_function("$promise.catch", Linkage::Import, &sig)?
     };
+    // (executor, value_kind, value_fk) -> promise. `value_fk` picks
+    // the float-ABI resolve stub (0 = int/ptr, 1 = f32, 2 = f64).
     let promise_with_executor_id =
-        declare_binary_i64(module, "$promise.withExecutor")?;
+        declare_ternary_i64(module, "$promise.withExecutor")?;
     let promise_drain_id = declare_unit_void(module, "$promise.drain")?;
     let promise_all_id = declare_binary_i64(module, "$promise.all")?;
     let promise_race_id = declare_binary_i64(module, "$promise.race")?;

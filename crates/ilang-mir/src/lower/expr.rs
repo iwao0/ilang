@@ -127,12 +127,23 @@ impl<'a> BodyCx<'a> {
                         _ => 0,
                     };
                     let kind_v = self.const_int(MirTy::I64, kind);
+                    // Float-kind of T — the runtime picks a resolve
+                    // stub whose ABI matches the executor's
+                    // `resolve: fn(T)` (a float T rides a float
+                    // register; the i64 stub would read the env as
+                    // the value).
+                    let fk = match &inner {
+                        MirTy::F32 => 1,
+                        MirTy::F64 => 2,
+                        _ => 0,
+                    };
+                    let fk_v = self.const_int(MirTy::I64, fk);
                     let prom_ty = MirTy::Promise(Box::new(inner));
                     let dst = self.fb.new_value(prom_ty.clone());
                     self.fb.push_inst(Inst::Call {
                         dst: Some(dst),
                         callee: FuncRef::Builtin(Symbol::intern("promise_with_executor")),
-                        args: Box::new([exec_v, kind_v]),
+                        args: Box::new([exec_v, kind_v, fk_v]),
                     });
                     return Ok((dst, prom_ty));
                 }

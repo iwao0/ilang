@@ -486,6 +486,22 @@ extern "C" fn promise_resolve_stub(value: i64, closure_ptr: i64) -> i64 {
     0
 }
 
+/// Float-ABI variants of the resolve stub. The executor's `resolve`
+/// parameter is typed `fn(f32)` / `fn(f64)` in ilang, so the call
+/// site passes the value in a FLOAT register and the env pointer in
+/// the first integer register — an i64-ABI stub would read the env
+/// as the value and garbage as the env (garbage values, SIGSEGV on
+/// the capture reads). Each variant rebits the float into the i64
+/// cell `State::Resolved` stores; `.then` converts back via its
+/// `in_fk` (the established bits-in-cell convention).
+extern "C" fn promise_resolve_stub_f32(value: f32, closure_ptr: i64) -> i64 {
+    promise_resolve_stub(value.to_bits() as i64, closure_ptr)
+}
+
+extern "C" fn promise_resolve_stub_f64(value: f64, closure_ptr: i64) -> i64 {
+    promise_resolve_stub(value.to_bits() as i64, closure_ptr)
+}
+
 extern "C" fn promise_reject_stub(msg: i64, closure_ptr: i64) -> i64 {
     let p = unsafe { *((closure_ptr + 16) as *const i64) };
     if debug_promise() {
@@ -500,12 +516,18 @@ static STUBS_REGISTERED: OnceLock<()> = OnceLock::new();
 
 fn ensure_stubs_registered() {
     STUBS_REGISTERED.get_or_init(|| {
-        let resolve_addr = promise_resolve_stub as *const () as i64;
         let reject_addr = promise_reject_stub as *const () as i64;
         // Capture layout: [fn_addr | rc | promise_ptr (KIND_PROMISE) | kind (KIND_NONE)]
-        crate::closures::__register_closure_size(resolve_addr, 32);
-        crate::closures::__register_closure_capture(resolve_addr, 16, KIND_PROMISE);
-        // capture at +24 is a plain i64 (kind tag), not heap-cascaded.
+        // All three resolve-ABI variants share it. capture at +24 is
+        // a plain i64 (kind tag), not heap-cascaded.
+        for addr in [
+            promise_resolve_stub as *const () as i64,
+            promise_resolve_stub_f32 as *const () as i64,
+            promise_resolve_stub_f64 as *const () as i64,
+        ] {
+            crate::closures::__register_closure_size(addr, 32);
+            crate::closures::__register_closure_capture(addr, 16, KIND_PROMISE);
+        }
         crate::closures::__register_closure_size(reject_addr, 24);
         crate::closures::__register_closure_capture(reject_addr, 16, KIND_PROMISE);
     });
@@ -528,18 +550,27 @@ fn alloc_callback_closure(stub_addr: i64, promise_ptr: i64, extra_kind: Option<i
 }
 
 #[unsafe(export_name = "$promise.withExecutor")]
-pub extern "C" fn __promise_with_executor(executor_closure: i64, value_kind: i64) -> i64 {
+pub extern "C" fn __promise_with_executor(
+    executor_closure: i64,
+    value_kind: i64,
+    value_fk: i64,
+) -> i64 {
     ensure_stubs_registered();
     let promise = alloc_pending();
     if executor_closure == 0 {
         return promise;
     }
-    // Build resolve / reject callback closures pointing at this promise.
-    let resolve_cb = alloc_callback_closure(
-        promise_resolve_stub as *const () as i64,
-        promise,
-        Some(value_kind),
-    );
+    // Build resolve / reject callback closures pointing at this
+    // promise. The resolve stub must match the ABI the executor's
+    // `resolve` parameter type implies: a float `T` puts the value
+    // in a float register, so it needs the float-ABI variant
+    // (`value_fk`: 0 = int/ptr, 1 = f32, 2 = f64).
+    let resolve_stub = match value_fk {
+        1 => promise_resolve_stub_f32 as *const () as i64,
+        2 => promise_resolve_stub_f64 as *const () as i64,
+        _ => promise_resolve_stub as *const () as i64,
+    };
+    let resolve_cb = alloc_callback_closure(resolve_stub, promise, Some(value_kind));
     let reject_cb =
         alloc_callback_closure(promise_reject_stub as *const () as i64, promise, None);
 
