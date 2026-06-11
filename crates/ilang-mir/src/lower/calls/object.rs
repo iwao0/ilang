@@ -264,19 +264,7 @@ impl<'a> BodyCx<'a> {
             // `obj.method(fresh_heap)` leaks one cell per call
             // whenever the method stashes the arg into a field (or
             // any callee path that retains).
-            let needs_post_release = matches!(
-                vty,
-                MirTy::Object(_)
-                    | MirTy::Fn(_)
-                    | MirTy::Array { .. }
-                    | MirTy::Tuple(_)
-                    | MirTy::Map { .. }
-                    | MirTy::Optional(_)
-                    | MirTy::Str
-                    | MirTy::Enum(_)
-                    | MirTy::Set { .. }
-                    | MirTy::Weak(_)
-            );
+            let needs_post_release = Self::fresh_arg_needs_post_release(&vty);
             if arg_is_fresh && needs_post_release {
                 fresh_obj_args.push(coerced);
             }

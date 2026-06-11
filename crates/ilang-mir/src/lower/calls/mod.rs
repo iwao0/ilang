@@ -150,27 +150,15 @@ impl<'a> BodyCx<'a> {
             let target = init_sig.as_ref().and_then(|sig| sig.params.get(i + 1));
             let (final_v, vty) = self.lower_arg_to(a, target)?;
             // Fresh heap args transfer ownership of their +1 into the
-            // init; init's field assignment takes its own retain, so
-            // the caller-side temp needs releasing after the call.
-            // The release set must match the field-assign retain set
-            // at `expr.rs::AssignField`: Object / Fn / Array / Tuple /
-            // Map / Optional / Str / Enum / Set / Weak. `Promise` is
-            // intentionally out — its field assignment doesn't retain
-            // (separate path) and adding a release here would free
-            // the value the field is about to store.
-            let needs_post_release = matches!(
-                vty,
-                MirTy::Object(_)
-                    | MirTy::Fn(_)
-                    | MirTy::Array { .. }
-                    | MirTy::Tuple(_)
-                    | MirTy::Map { .. }
-                    | MirTy::Optional(_)
-                    | MirTy::Str
-                    | MirTy::Enum(_)
-                    | MirTy::Set { .. }
-                    | MirTy::Weak(_)
-            );
+            // init; init's field assignment takes its own retain
+            // (`is_arc_slot` covers every heap kind, Promise
+            // included), so the caller-side temp needs releasing
+            // after the call. One shared release set for all call
+            // shapes — an earlier per-site copy here excluded
+            // Promise on the stale belief that promise fields don't
+            // retain, which leaked every fresh promise passed to an
+            // init together with its settled value.
+            let needs_post_release = Self::fresh_arg_needs_post_release(&vty);
             if arg_is_fresh && needs_post_release {
                 fresh_obj_args.push(final_v);
             }

@@ -199,19 +199,7 @@ impl<'a> BodyCx<'a> {
                 for (i, a) in args.iter().enumerate() {
                     let arg_is_fresh = self.is_fresh_object_expr(a);
                     let (coerced, vty) = self.lower_arg_to(a, sig_params.get(i))?;
-                    let needs_post_release = matches!(
-                        vty,
-                        MirTy::Object(_)
-                            | MirTy::Fn(_)
-                            | MirTy::Array { .. }
-                            | MirTy::Tuple(_)
-                            | MirTy::Map { .. }
-                            | MirTy::Optional(_)
-                            | MirTy::Str
-                            | MirTy::Enum(_)
-                            | MirTy::Set { .. }
-                            | MirTy::Weak(_)
-                    );
+                    let needs_post_release = Self::fresh_arg_needs_post_release(&vty);
                     if arg_is_fresh && needs_post_release {
                         fresh_obj_args.push(coerced);
                     }
@@ -362,19 +350,7 @@ impl<'a> BodyCx<'a> {
                 // types that participate match the field-assign
                 // retain set (Object / Fn / Array / Tuple / Map /
                 // Optional / Str).
-                let needs_post_release = matches!(
-                    vty,
-                    MirTy::Object(_)
-                        | MirTy::Fn(_)
-                        | MirTy::Array { .. }
-                        | MirTy::Tuple(_)
-                        | MirTy::Map { .. }
-                        | MirTy::Optional(_)
-                        | MirTy::Str
-                        | MirTy::Enum(_)
-                        | MirTy::Set { .. }
-                        | MirTy::Weak(_)
-                );
+                let needs_post_release = Self::fresh_arg_needs_post_release(&vty);
                 if arg_is_fresh && needs_post_release {
                     fresh_obj_args.push(coerced);
                 }
@@ -445,19 +421,7 @@ impl<'a> BodyCx<'a> {
                 for (i, a) in args.iter().enumerate() {
                     let arg_is_fresh = self.is_fresh_object_expr(a);
                     let (coerced, vty) = self.lower_arg_to(a, sig.params.get(i + 1))?;
-                    let needs_post_release = matches!(
-                        vty,
-                        MirTy::Object(_)
-                            | MirTy::Fn(_)
-                            | MirTy::Array { .. }
-                            | MirTy::Tuple(_)
-                            | MirTy::Map { .. }
-                            | MirTy::Optional(_)
-                            | MirTy::Str
-                            | MirTy::Enum(_)
-                            | MirTy::Set { .. }
-                            | MirTy::Weak(_)
-                    );
+                    let needs_post_release = Self::fresh_arg_needs_post_release(&vty);
                     if arg_is_fresh && needs_post_release {
                         fresh_obj_args.push(coerced);
                     }

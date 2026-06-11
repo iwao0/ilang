@@ -326,6 +326,30 @@ impl<'a> BodyCx<'a> {
         true
     }
 
+    /// `true` when a fresh heap arg's +1 must be released by the
+    /// caller after a call (named fn / closure / implicit-this /
+    /// object method / `new` init — every shape that takes args by
+    /// borrow). One list for all five call shapes; the per-site
+    /// copies diverged once (none of them had `Promise`, so a fresh
+    /// promise passed as an argument leaked, visible as its settled
+    /// value never dropping).
+    pub(in crate::lower) fn fresh_arg_needs_post_release(ty: &MirTy) -> bool {
+        matches!(
+            ty,
+            MirTy::Object(_)
+                | MirTy::Fn(_)
+                | MirTy::Array { .. }
+                | MirTy::Tuple(_)
+                | MirTy::Map { .. }
+                | MirTy::Optional(_)
+                | MirTy::Str
+                | MirTy::Enum(_)
+                | MirTy::Set { .. }
+                | MirTy::Weak(_)
+                | MirTy::Promise(_)
+        )
+    }
+
     /// `true` when a slot of `ty` owns an rc share that the lower
     /// has to retain on borrow-in and release on overwrite. Same
     /// as `is_arc_heap`, with the additional exclusion of
