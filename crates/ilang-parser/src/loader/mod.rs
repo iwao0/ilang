@@ -349,6 +349,31 @@ pub fn load_program_with_overlay_and_parents(
     load_program_full(entry, extra_paths, parents, &HashMap::new(), overlay)
 }
 
+/// REPL support: run the loader's post-merge normalize chain on an
+/// in-memory program (the REPL's accumulated items + the new
+/// chunk). Mirrors the tail of `load_program_full` — enum-ref
+/// renormalize (`E.a` Field → EnumCtor), `@derive` expansion,
+/// `const` inlining, async desugar — which the REPL previously
+/// skipped entirely, so enums were unusable across chunks, `const`
+/// items leaked through to MIR, and `async fn` hit the legacy
+/// "multi-state synthesis" diagnostic. The program must contain no
+/// `Item::Use` (the caller rejects those up front with a friendly
+/// message; `use` needs the file loader's module resolution).
+/// `auto_lift_objc_subclasses` and the dup-pub validation are
+/// intentionally omitted: the former needs the cross-file @objc
+/// registry, and chunk-over-chunk redefinition is REPL-normal.
+pub fn normalize_repl_chunk(prog: Program) -> Result<Program, LoadError> {
+    let merged = crate::normalize::renormalize_merged(prog);
+    let merged = derive::expand_derives(merged)?;
+    let prog = inline_constants(merged)?;
+    crate::normalize::async_desugar::lower_async(prog).map_err(|e| {
+        LoadError::AsyncLowerError {
+            reason: e.reason,
+            span: e.span,
+        }
+    })
+}
+
 /// Full-featured entry: also accepts the `dep_name → dep_directory`
 /// map from `ilang.toml [deps]`. Bare `use <dep_name>` resolves to
 /// `<dep_directory>/mod.il` first, before falling back to the

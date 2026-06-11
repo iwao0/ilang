@@ -628,6 +628,15 @@ impl TypeChecker {
         self.vars.get(&name).cloned()
     }
 
+    /// Pre-seed a top-level binding's type. The REPL builds a fresh
+    /// `TypeChecker` per chunk (re-checking accumulated items with a
+    /// persistent one would trip the duplicate-overload guard) and
+    /// uses this to make the previous chunks' slot-promoted `let`
+    /// bindings visible to the new chunk's check.
+    pub fn define_global(&mut self, name: Symbol, ty: Type) {
+        self.vars.insert(name, ty);
+    }
+
     /// Non-fatal diagnostics accumulated during the last `check`
     /// call (mainly `@deprecated` call-site notices). Empty when
     /// nothing was flagged.

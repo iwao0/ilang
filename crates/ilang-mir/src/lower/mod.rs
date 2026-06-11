@@ -473,7 +473,23 @@ pub fn lower_program_with_slots_opts(
     //     binding semantics for those names.
     let pending_slots = std::mem::take(&mut lower.repl_slot_ast);
     for (name, (idx, ty)) in pending_slots {
-        if let Ok(mir_ty) = lower.resolve_ty(&ty) {
+        let resolved = lower.resolve_ty(&ty).or_else(|e| {
+            // A slot typed with a generic instantiation
+            // (`Result<i64, string>`, `Box<i64>`) carries the
+            // checker's pre-monomorphize form; the program only
+            // contains the specialized class / enum under the
+            // MANGLED name. Retry against that — without it a
+            // Result-typed REPL `let` silently failed to persist
+            // and the next chunk hit a bare "unbound variable".
+            if let ilang_ast::Type::Generic(g) = &ty {
+                let mangled =
+                    crate::monomorphize::mangle_generic_name(g.base.as_str(), &g.args);
+                lower.resolve_ty(&ilang_ast::Type::Object(mangled))
+            } else {
+                Err(e)
+            }
+        });
+        if let Ok(mir_ty) = resolved {
             lower.repl_slots.insert(name, (idx, mir_ty));
         }
     }

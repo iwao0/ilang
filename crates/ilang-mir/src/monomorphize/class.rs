@@ -12,6 +12,20 @@ use super::*;
 /// generic class has been replaced by a concrete monomorphized
 /// instantiation. Non-generic items pass through unchanged.
 pub fn monomorphize(prog: &Program) -> Program {
+    monomorphize_with_requests(prog, &[])
+}
+
+/// Like [`monomorphize`], with extra instantiation requests that
+/// don't appear anywhere in the program's own text. The REPL passes
+/// its slot types here: a previous chunk's `let b = new Box<i64>(..)`
+/// persists as a host slot of type `Box<i64>`, and a later chunk
+/// that only READS `b` contains no instantiation site of its own —
+/// without the seed, the specialized class wouldn't be synthesized
+/// and the slot silently failed to resolve.
+pub fn monomorphize_with_requests(
+    prog: &Program,
+    extra_request_types: &[Type],
+) -> Program {
     // Index original (generic) class decls by name so we can clone +
     // substitute on demand.
     let generic_classes: HashMap<Symbol, &ClassDecl> = prog
@@ -62,6 +76,9 @@ pub fn monomorphize(prog: &Program) -> Program {
     let seed = |t: &Type, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>| {
         collect_instantiations(t, needed, work);
     };
+    for t in extra_request_types {
+        seed(t, &mut needed, &mut worklist);
+    }
     for item in &prog.items {
         match item {
             Item::Class(c) => {

@@ -99,3 +99,91 @@ fn repl_string_slot_survives_chunks() {
     ]);
     assert_eq!(out, vec!["2", "ab"]);
 }
+
+// ── Round 15: the REPL now runs the loader-equivalent normalize
+// chain (enum-ref renormalize / @derive / const inlining / async
+// desugar) and a fresh per-chunk TypeChecker over the merged
+// program, with slot types seeded into both monomorphize passes.
+// Before that: enums were unusable across chunks, `async fn` hit
+// the legacy pre-state-machine error, `const` leaked Item::Const
+// into MIR, generic-typed slots (Result / Box<i64>) silently failed
+// to persist, and `use` died with a raw "unexpected Item::Use
+// post-loader".
+
+#[test]
+fn repl_enum_across_chunks() {
+    let out = repl(&[
+        "enum E { a, b }",
+        "let x = E.a",
+        "console.log(match x { a { 10 }, b { 20 } })",
+    ]);
+    assert_eq!(out, vec!["10"]);
+}
+
+#[test]
+fn repl_async_fn_across_chunks() {
+    let out = repl(&[
+        "async fn af(q: Promise<i64>): i64 { (await q) + 1 }",
+        "let _ = af(Promise.resolve(9)).then(fn(v: i64) { console.log(v) })",
+    ]);
+    assert_eq!(out, vec!["10"]);
+}
+
+#[test]
+fn repl_const_across_chunks() {
+    let out = repl(&["const K: i64 = 40", "console.log(K + 2)"]);
+    assert_eq!(out, vec!["42"]);
+}
+
+#[test]
+fn repl_generic_enum_slot_persists() {
+    let out = repl(&[
+        "let r: Result<i64, string> = Result.ok(3)",
+        "console.log(match r { ok(v) { v * 7 }, err(e) { 0 - 1 } })",
+    ]);
+    assert_eq!(out, vec!["21"]);
+}
+
+#[test]
+fn repl_generic_class_slot_persists() {
+    let out = repl(&[
+        "class Box<T> { x: T; init(v: T) { this.x = v } }",
+        "let bx = new Box<i64>(5)",
+        "console.log(bx.x + 1)",
+    ]);
+    assert_eq!(out, vec!["6"]);
+}
+
+#[test]
+fn repl_use_gets_friendly_error() {
+    let out = repl_with_stderr(&["use std.time as time", "console.log(1)"]);
+    assert!(
+        out.1.contains("isn't supported in the REPL yet"),
+        "stderr: {}",
+        out.1
+    );
+    assert_eq!(out.0, vec!["1"]);
+}
+
+/// Like `repl`, but also returns stderr (for diagnostics checks).
+fn repl_with_stderr(lines: &[&str]) -> (Vec<String>, String) {
+    let mut child = Command::new(ilang_bin())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn ilang repl");
+    {
+        let stdin = child.stdin.as_mut().expect("stdin");
+        for l in lines {
+            writeln!(stdin, "{l}").expect("write line");
+        }
+    }
+    let out = child.wait_with_output().expect("wait repl");
+    let stdout: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .skip(1)
+        .map(|s| s.to_string())
+        .collect();
+    (stdout, String::from_utf8_lossy(&out.stderr).to_string())
+}

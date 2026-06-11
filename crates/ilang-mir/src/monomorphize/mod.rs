@@ -27,8 +27,8 @@ mod fns;
 mod methods;
 mod walk;
 
-pub use class::monomorphize;
-pub use enums::monomorphize_enums;
+pub use class::{monomorphize, monomorphize_with_requests};
+pub use enums::{monomorphize_enums, monomorphize_enums_with_requests};
 pub use fns::monomorphize_fns;
 pub use methods::monomorphize_methods;
 
@@ -40,6 +40,14 @@ pub use methods::monomorphize_methods;
 pub(super) struct InstKey {
     pub(super) class: Symbol,
     pub(super) args: Vec<Type>,
+}
+
+/// Public face of the generic-instantiation name mangle, for the
+/// REPL's slot-type resolution: a slot annotated `Result<i64,
+/// string>` / `Box<i64>` must resolve against the SPECIALIZED
+/// class / enum the monomorphizer synthesized under this name.
+pub fn mangle_generic_name(class: &str, args: &[Type]) -> Symbol {
+    mangle(class, args)
 }
 
 pub(super) fn mangle(class: &str, args: &[Type]) -> Symbol {

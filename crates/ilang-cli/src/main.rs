@@ -891,12 +891,12 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
 /// TypeChecker still tracks them, so subsequent chunks that
 /// reference them produce a clean undefined-variable runtime error.
 struct ReplSession {
-    /// TypeChecker carried across chunks — it accumulates fn / class
-    /// / enum signatures and top-level `let` types in `self.vars`.
-    tc: TypeChecker,
-    /// Accumulated definitions (Item::Fn / Class / Enum / ExternC /
-    /// Const / Use) from every chunk so far. Replayed verbatim into
-    /// the per-chunk MIR program so chunk bodies can call them.
+    /// Accumulated RAW definitions (Item::Fn / Class / Enum /
+    /// ExternC / Const) from every successful chunk. Replayed into
+    /// each new chunk's merged program, which then goes through the
+    /// loader-equivalent normalize chain (enum-ref renormalize,
+    /// @derive, const inlining, async desugar) and a FRESH
+    /// type-check — the raw form keeps both idempotent.
     accumulated_items: Vec<Item>,
     /// Top-level `let` name → (slot index, AST Type). The AST type
     /// is resolved to MirTy inside `lower_program_with_slots` once
@@ -910,7 +910,6 @@ struct ReplSession {
 impl ReplSession {
     fn new() -> Self {
         Self {
-            tc: TypeChecker::new(),
             accumulated_items: Vec::new(),
             slot_table: HashMap::new(),
             next_slot: 0,
@@ -921,24 +920,68 @@ impl ReplSession {
         let toks = tokenize(src).map_err(|e| format!("<repl> {e}"))?;
         let chunk_prog = parse(&toks).map_err(|e| format!("<repl> {e}"))?;
 
-        // Type-check the chunk in isolation — the persistent
-        // TypeChecker already remembers fn / class / enum / let
-        // signatures from prior chunks via `self.vars` / `self.fns`
-        // / `self.classes`.
-        let (_, chunk_errs) = self.tc.check(&chunk_prog);
+        // `use` needs the file loader's module resolution (std lib
+        // injection, renames, prefixing) — not wired up for chunks
+        // yet. Reject up front with an actionable message instead of
+        // the old "unexpected Item::Use post-loader" MIR error.
+        if chunk_prog.items.iter().any(|i| matches!(i, Item::Use(_))) {
+            return Err(
+                "<repl> `use` isn't supported in the REPL yet — run a file with \
+                 `ilang run` for module imports"
+                    .into(),
+            );
+        }
+
+        // Build the merged program first: accumulated definitions +
+        // the new chunk's items, with only the new chunk's stmts /
+        // tail in the synthesised __main. The normalize chain below
+        // needs the accumulated decls in the SAME program (the
+        // enum-ref rewrite resolves `E.a` against the program's own
+        // enum items).
+        let mut per_chunk = AstProgram::default();
+        per_chunk.items = self.accumulated_items.clone();
+        per_chunk.items.extend(chunk_prog.items.iter().cloned());
+        per_chunk.stmts = chunk_prog.stmts.clone();
+        per_chunk.tail = chunk_prog.tail.clone();
+
+        // Loader-equivalent normalize: enum-ref renormalize, @derive
+        // expansion, const inlining, async desugar. The REPL used to
+        // skip all of these — enums were unusable across chunks
+        // (`E.a` stayed a Field access → "undefined variable E"),
+        // and `async fn` hit the legacy pre-state-machine error.
+        let per_chunk = ilang_parser::loader::normalize_repl_chunk(per_chunk)
+            .map_err(|e| format!("<repl> {e}"))?;
+
+        // Fresh TypeChecker per chunk over the whole merged program.
+        // (Re-checking accumulated items with a persistent checker
+        // trips the duplicate-overload guard.) Prior chunks' lets
+        // exist only as host slots — seed their types so the new
+        // chunk's references resolve.
+        let mut tc = TypeChecker::new();
+        for (name, (_idx, ty)) in &self.slot_table {
+            tc.define_global(*name, ty.clone());
+        }
+        let (_, chunk_errs) = tc.check(&per_chunk);
         if let Some(e) = chunk_errs.first() {
             return Err(format!("<repl> {e}"));
         }
 
         // Promote any new top-level `let` to a slot. The AST type
         // gets resolved to MirTy inside the lowerer once it has
-        // class / enum ids; we just store the AST type here.
+        // class / enum ids; we just store the AST type here. A let
+        // the checker has no type for can't persist — say so instead
+        // of silently dropping it (the old behaviour left the next
+        // chunk with a bare "unbound variable" from MIR).
         for stmt in &chunk_prog.stmts {
             if let StmtKind::Let { name, .. } = &stmt.kind {
                 if self.slot_table.contains_key(name) {
                     continue;
                 }
-                let Some(ty) = self.tc.lookup_global(*name) else {
+                let Some(ty) = tc.lookup_global(*name) else {
+                    eprintln!(
+                        "<repl> note: `{name}` has no resolvable top-level type — \
+                         it won't persist past this chunk"
+                    );
                     continue;
                 };
                 let idx = self.next_slot;
@@ -947,39 +990,42 @@ impl ReplSession {
             }
         }
 
-        // Build the per-chunk Program: accumulated definitions stay
-        // available for calls / class instantiations; only the new
-        // chunk's stmts / tail run inside the synthesised __main.
-        let mut per_chunk = AstProgram::default();
-        per_chunk.items = self.accumulated_items.clone();
-        per_chunk.items.extend(chunk_prog.items.iter().cloned());
-        per_chunk.stmts = chunk_prog.stmts.clone();
-        per_chunk.tail = chunk_prog.tail.clone();
-
         // The downstream MIR pipeline reads picks / type-arg dicts
-        // from the persistent TypeChecker — it has accumulated
-        // entries for every chunk seen so far, including this one.
+        // from this chunk's checker — it saw the whole merged
+        // program, so entries cover accumulated items too.
         let prog = ilang_types::mangle::mangle_overloads(
             per_chunk,
-            &self.tc.fn_overload_picks(),
-            &self.tc.method_overload_picks(),
-            &self.tc.call_default_fills(),
-            &self.tc.objc_invoke_obj_to_obj_spans(),
+            &tc.fn_overload_picks(),
+            &tc.method_overload_picks(),
+            &tc.call_default_fills(),
+            &tc.objc_invoke_obj_to_obj_spans(),
         );
-        let prog = ilang_mir::monomorphize::monomorphize(&prog);
-        let prog = ilang_mir::monomorphize::monomorphize_enums(
+        // Seed both monomorphize passes with the persistent slot
+        // types: a chunk that only READS a generic-typed slot
+        // (`Result<i64, string>`, `Box<i64>`) has no instantiation
+        // site of its own, and without the seed the specialized
+        // class / enum never materializes and the slot silently
+        // fails to resolve ("unbound variable" on the next read).
+        let slot_request_types: Vec<ilang_ast::Type> =
+            self.slot_table.values().map(|(_i, t)| t.clone()).collect();
+        let prog = ilang_mir::monomorphize::monomorphize_with_requests(
             &prog,
-            &self.tc.enum_ctor_type_args(),
+            &slot_request_types,
+        );
+        let prog = ilang_mir::monomorphize::monomorphize_enums_with_requests(
+            &prog,
+            &tc.enum_ctor_type_args(),
+            &slot_request_types,
         );
         let prog =
             ilang_mir::monomorphize::monomorphize_fns(
                 &prog,
-                &self.tc.fn_call_type_args(),
-                &self.tc.enum_ctor_type_args(),
+                &tc.fn_call_type_args(),
+                &tc.enum_ctor_type_args(),
             );
         let prog = ilang_mir::monomorphize::monomorphize_methods(
             &prog,
-            &self.tc.method_call_type_args(),
+            &tc.method_call_type_args(),
         );
         let mut mir = ilang_mir::lower_program_with_slots_opts(
             &prog,

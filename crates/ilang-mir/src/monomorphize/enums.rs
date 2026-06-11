@@ -41,6 +41,19 @@ pub fn monomorphize_enums(
     prog: &Program,
     enum_ctor_type_args: &HashMap<Span, (Symbol, Vec<Type>)>,
 ) -> Program {
+    monomorphize_enums_with_requests(prog, enum_ctor_type_args, &[])
+}
+
+/// Like [`monomorphize_enums`], with extra instantiation requests
+/// that don't appear in the program text — the REPL's slot types
+/// (e.g. a `Result<i64, string>`-typed `let` from a previous chunk
+/// whose new chunk only reads it). See
+/// `class::monomorphize_with_requests` for the same idea on classes.
+pub fn monomorphize_enums_with_requests(
+    prog: &Program,
+    enum_ctor_type_args: &HashMap<Span, (Symbol, Vec<Type>)>,
+    extra_request_types: &[Type],
+) -> Program {
     // Catalog generic enums. Result is always available (built-in).
     let mut generic_enums: HashMap<Symbol, EnumDecl> = prog
         .items
@@ -75,6 +88,11 @@ pub fn monomorphize_enums(
             }
         };
 
+    // Seed pass A0: instantiation requests from outside the program
+    // text (REPL slot types).
+    for t in extra_request_types {
+        seed_enums_in_type(t, &mut |n, a| enqueue_enum(n, a, &mut worklist, &mut requested));
+    }
     // Seed pass A: walk every Type slot for `Type::Generic { Enum, ... }`.
     for item in &prog.items {
         seed_enums_in_item(item, &mut |n, a| enqueue_enum(n, a, &mut worklist, &mut requested));
