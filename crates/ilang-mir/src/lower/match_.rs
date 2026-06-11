@@ -56,7 +56,7 @@ impl<'a> BodyCx<'a> {
             | MirTy::U8 | MirTy::U16 | MirTy::U32 | MirTy::U64
             | MirTy::Size | MirTy::SSize => self.lower_match_int(sv, sty.clone(), arms),
             MirTy::Bool => self.lower_match_bool(sv, arms),
-            MirTy::Str => self.lower_match_str(sv, arms),
+            MirTy::Str => self.lower_match_str(sv, arms, scrut_is_fresh),
             MirTy::Optional(inner) => {
                 let inner_ty = (**inner).clone();
                 self.lower_match_optional(sv, inner_ty, arms, scrut_is_fresh)
@@ -155,13 +155,22 @@ impl<'a> BodyCx<'a> {
                 self.env.bind_pattern(name, unwrapped, inner_ty.clone(), scrut_is_fresh);
             }
             let diverges = arm_body_diverges(&arm.body);
+            if scrut_is_fresh {
+                let depth = self.env.scopes.len();
+                self.live_fresh_scrutinees.push((sv, depth));
+            }
             let (bv, bty) = self.lower_expr(&arm.body)?;
+            if scrut_is_fresh {
+                self.live_fresh_scrutinees.pop();
+            }
             // `Release(sv)` below cascades the Optional cell. The
             // pattern binding was registered with
             // `needs_retain_on_tail = scrut_is_fresh`, so
             // `lower_block_hinted` has already paired any tail
             // `Var(binding)` with the matching `Retain` — no extra
-            // accounting needed here.
+            // accounting needed here. (On a diverging body this
+            // lands in the dead block; the early-exit sweep emitted
+            // the live-path Release via `live_fresh_scrutinees`.)
             if scrut_is_fresh {
                 self.fb.push_inst(Inst::Release { value: sv });
             }
@@ -341,7 +350,17 @@ impl<'a> BodyCx<'a> {
                 }
             }
             let diverges = arm_body_diverges(&arm.body);
+            // Register the fresh scrutinee for the early-exit
+            // sweeps: a `return` / `break` / `continue` inside the
+            // arm body bypasses the arm-end Release below.
+            if scrut_is_fresh {
+                let depth = self.env.scopes.len();
+                self.live_fresh_scrutinees.push((sv, depth));
+            }
             let (bv, bty) = self.lower_expr(&arm.body)?;
+            if scrut_is_fresh {
+                self.live_fresh_scrutinees.pop();
+            }
             // Mirror `lower_match_optional`: when the scrutinee
             // was fresh, release the enum cell at arm exit so its
             // cascade reclaims the payload the binding aliased.
@@ -368,7 +387,14 @@ impl<'a> BodyCx<'a> {
         if let Some((blk, arm)) = wildcard_blk {
             self.fb.switch_to(blk);
             let diverges = arm_body_diverges(&arm.body);
+            if scrut_is_fresh {
+                let depth = self.env.scopes.len();
+                self.live_fresh_scrutinees.push((sv, depth));
+            }
             let (bv, bty) = self.lower_expr(&arm.body)?;
+            if scrut_is_fresh {
+                self.live_fresh_scrutinees.pop();
+            }
             if scrut_is_fresh && !diverges {
                 self.fb.push_inst(Inst::Release { value: sv });
             }
@@ -648,6 +674,7 @@ impl<'a> BodyCx<'a> {
         &mut self,
         sv: ValueId,
         arms: &[ast::MatchArm],
+        scrut_is_fresh: bool,
     ) -> Result<(ValueId, MirTy), LowerError> {
         let cont = self.fb.new_block();
         let mut result_ty: Option<MirTy> = None;
@@ -657,11 +684,29 @@ impl<'a> BodyCx<'a> {
             let is_last = i == arms.len() - 1;
             match &arm.pattern.kind {
                 ast::PatternKind::Wildcard => {
-                    let (bv, bty) = self.lower_expr(&arm.body)?;
-                    if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
-                        result_ty = Some(bty.clone());
+                    // A fresh scrutinee string has no other owner —
+                    // the match consumes it (same contract as
+                    // `lower_match_enum`). This path released
+                    // NOTHING before: `match "k" + s { ... }` leaked
+                    // one registry string per evaluation.
+                    let diverges = arm_body_diverges(&arm.body);
+                    if scrut_is_fresh {
+                        let depth = self.env.scopes.len();
+                        self.live_fresh_scrutinees.push((sv, depth));
                     }
-                    joins.push((self.fb.current_block(), bv));
+                    let (bv, bty) = self.lower_expr(&arm.body)?;
+                    if scrut_is_fresh {
+                        self.live_fresh_scrutinees.pop();
+                    }
+                    if scrut_is_fresh && !diverges {
+                        self.fb.push_inst(Inst::Release { value: sv });
+                    }
+                    if !diverges {
+                        if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
+                            result_ty = Some(bty.clone());
+                        }
+                        joins.push((self.fb.current_block(), bv));
+                    }
                     break;
                 }
                 ast::PatternKind::StrLit(s) => {
@@ -687,11 +732,24 @@ impl<'a> BodyCx<'a> {
                         else_args: Box::new([]),
                     });
                     self.fb.switch_to(body_blk);
-                    let (bv, bty) = self.lower_expr(&arm.body)?;
-                    if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
-                        result_ty = Some(bty.clone());
+                    let diverges = arm_body_diverges(&arm.body);
+                    if scrut_is_fresh {
+                        let depth = self.env.scopes.len();
+                        self.live_fresh_scrutinees.push((sv, depth));
                     }
-                    joins.push((self.fb.current_block(), bv));
+                    let (bv, bty) = self.lower_expr(&arm.body)?;
+                    if scrut_is_fresh {
+                        self.live_fresh_scrutinees.pop();
+                    }
+                    if scrut_is_fresh && !diverges {
+                        self.fb.push_inst(Inst::Release { value: sv });
+                    }
+                    if !diverges {
+                        if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
+                            result_ty = Some(bty.clone());
+                        }
+                        joins.push((self.fb.current_block(), bv));
+                    }
                     self.fb.switch_to(next_blk);
                     if is_last {
                         self.fb.set_terminator(Terminator::Unreachable);
@@ -777,12 +835,21 @@ impl<'a> BodyCx<'a> {
         self.fb.push_inst(Inst::OptionalUnwrap { dst: unwrapped, opt: sv });
         self.env.enter_scope();
         self.env.bind_pattern(name, unwrapped, inner_ty.clone(), scrut_is_fresh);
+        if scrut_is_fresh {
+            let depth = self.env.scopes.len();
+            self.live_fresh_scrutinees.push((sv, depth));
+        }
         let then_tail = self.lower_block(then_branch)?;
+        if scrut_is_fresh {
+            self.live_fresh_scrutinees.pop();
+        }
         // `Release(sv)` below cascades the Optional cell. The
         // pattern binding was registered with
         // `needs_retain_on_tail = scrut_is_fresh`, so
         // `lower_block_hinted` has already paired any tail
-        // `Var(name)` with the matching `Retain`.
+        // `Var(name)` with the matching `Retain`. (On a diverging
+        // body this lands dead; the early-exit sweep covered the
+        // live path via `live_fresh_scrutinees`.)
         if scrut_is_fresh {
             self.fb.push_inst(Inst::Release { value: sv });
         }

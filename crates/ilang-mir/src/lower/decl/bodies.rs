@@ -136,6 +136,8 @@ impl Lower {
             closure_self: pc.self_ref.clone(),
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
+            live_fresh_scrutinees: Vec::new(),
+            return_sweep_base: usize::MAX,
             in_fn_body_top: false,
         };
         let needs_retain = pc
@@ -238,6 +240,8 @@ impl Lower {
             closure_self: None,
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
+            live_fresh_scrutinees: Vec::new(),
+            return_sweep_base: usize::MAX,
             in_fn_body_top: false,
         };
         let needs_retain = m
@@ -345,6 +349,8 @@ impl Lower {
             closure_self: None,
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
+            live_fresh_scrutinees: Vec::new(),
+            return_sweep_base: usize::MAX,
             in_fn_body_top: false,
         };
         let needs_retain = m
@@ -462,6 +468,8 @@ impl Lower {
             closure_self: None,
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
+            live_fresh_scrutinees: Vec::new(),
+            return_sweep_base: usize::MAX,
             in_fn_body_top: false,
         };
         let needs_retain = fd
@@ -531,6 +539,8 @@ impl Lower {
             closure_self: None,
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
+            live_fresh_scrutinees: Vec::new(),
+            return_sweep_base: usize::MAX,
             in_fn_body_top: false,
         };
         for stmt in stmts {

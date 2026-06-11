@@ -281,6 +281,9 @@ impl<'a> BodyCx<'a> {
                 }
             }
         }
+        // Fresh scrutinees of matches the break exits out of — their
+        // arm-end Release is bypassed by the jump.
+        self.release_live_scrutinees_from(frame_depth);
         self.fb.set_terminator(Terminator::Br { dst: target, args });
         // After break, code is unreachable in the current block. Open
         // a fresh dead block for any stray post-break statements.
@@ -295,6 +298,13 @@ impl<'a> BodyCx<'a> {
             .last()
             .ok_or_else(|| LowerError::Other("continue outside loop".into()))?;
         let target = frame.continue_target;
+        let frame_depth = frame.env_depth_at_entry;
+        // Same early-exit sweep as `break` / `return`: the jump to
+        // the loop header bypasses the body's scope-exit pass, so
+        // every live heap binding (and fresh match scrutinee) since
+        // the loop frame leaked once per `continue`.
+        self.release_scopes_since(frame_depth);
+        self.release_live_scrutinees_from(frame_depth);
         self.fb.set_terminator(Terminator::Br { dst: target, args: Box::new([]) });
         let dead = self.fb.new_block();
         self.fb.switch_to(dead);

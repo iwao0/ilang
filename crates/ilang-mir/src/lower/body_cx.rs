@@ -143,6 +143,24 @@ pub(in crate::lower) struct BodyCx<'a> {
     /// `release_top_scope_objects` doesn't double-free it before the
     /// return.
     pub(in crate::lower) crepr_return_owned: std::collections::HashSet<crate::ValueId>,
+    /// Fresh match / if-let scrutinees whose arm body is currently
+    /// being lowered, with the env depth at registration. The arm
+    /// lowerer releases a fresh scrutinee at arm exit, but an early
+    /// `return` / `break` / `continue` inside the body bypasses that
+    /// — the exit sweeps release these instead (`return`: all of
+    /// them; loop jumps: only those registered at or above the
+    /// loop's entry depth).
+    pub(in crate::lower) live_fresh_scrutinees: Vec<(crate::ValueId, usize)>,
+    /// Env depth where the fn BODY's scopes begin — everything at
+    /// `>= this` is swept by an early `return`. Set by
+    /// `lower_block_for_fn_body` to `env.scopes.len()` right before
+    /// it enters the body scope: a fn with params has them in scope
+    /// 0 (base 1), a zero-param fn has NO param scope and its body
+    /// IS scope 0 (base 0) — a fixed `skip(1)` missed every binding
+    /// in zero-param fns. `__main` never sets it (usize::MAX at
+    /// construction there) so a hypothetical top-level `return`
+    /// can't double-release the slot-managed top-level lets.
+    pub(in crate::lower) return_sweep_base: usize,
     /// Name of the top-level slot binding currently being assigned
     /// (Some(X) while we're inside the value of `let X = ...`).
     /// `lower_fn_expr` checks this to avoid snapshotting the X slot
@@ -706,6 +724,10 @@ impl<'a> BodyCx<'a> {
         blk: &AstBlock,
         tail_hint: Option<&MirTy>,
     ) -> Result<Option<(ValueId, MirTy)>, LowerError> {
+        // Record where the body's scopes begin for the early-return
+        // sweep (see `return_sweep_base`): scopes below this hold
+        // the entry params — borrows the sweep must not release.
+        self.return_sweep_base = self.env.scopes.len();
         let saved = std::mem::replace(&mut self.in_fn_body_top, true);
         let result = self.lower_block_hinted(blk, tail_hint);
         self.in_fn_body_top = saved;
@@ -1087,16 +1109,52 @@ impl<'a> BodyCx<'a> {
     /// carried in the state. Innermost scopes release first,
     /// mirroring normal block-exit order.
     pub(in crate::lower) fn release_scopes_for_return(&mut self) {
+        let base = self.return_sweep_base;
+        if base == usize::MAX {
+            // `__main` (slot-managed top-level) — its epilogue owns
+            // the releases; a sweep here would double-release.
+            return;
+        }
+        self.release_scopes_since(base);
+        self.release_live_scrutinees_from(0);
+    }
+
+    /// Release every live heap binding in scopes `depth..` —
+    /// shared by the `return` sweep (depth 1: everything above the
+    /// param scope) and the `continue` sweep (the loop frame's
+    /// entry depth). Innermost scopes first.
+    pub(in crate::lower) fn release_scopes_since(&mut self, depth: usize) {
         let bindings: Vec<Binding> = self
             .env
             .scopes
             .iter()
-            .skip(1)
+            .skip(depth)
             .rev()
             .flat_map(|scope| scope.iter().rev().map(|(_n, b)| b.clone()))
             .collect();
         for binding in bindings {
             self.release_binding_for_scope_exit(binding);
+        }
+    }
+
+    /// Release the fresh match / if-let scrutinees whose arm body
+    /// the exiting jump is inside of. `from_depth == 0` releases
+    /// all of them (early `return`); a loop jump passes the loop
+    /// frame's entry depth so a match SURROUNDING the loop keeps
+    /// its scrutinee (its arm continues after the loop). The
+    /// `live_fresh_scrutinees` stack itself is compile-time
+    /// bookkeeping popped by the match lowerer — the sweeps only
+    /// emit Releases on the exiting path.
+    pub(in crate::lower) fn release_live_scrutinees_from(&mut self, from_depth: usize) {
+        let svs: Vec<crate::ValueId> = self
+            .live_fresh_scrutinees
+            .iter()
+            .filter(|(_v, d)| *d >= from_depth)
+            .map(|(v, _d)| *v)
+            .rev()
+            .collect();
+        for sv in svs {
+            self.fb.push_inst(Inst::Release { value: sv });
         }
     }
 
