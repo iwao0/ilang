@@ -974,7 +974,23 @@ impl ReplSession {
         // chunk with a bare "unbound variable" from MIR).
         for stmt in &chunk_prog.stmts {
             if let StmtKind::Let { name, .. } = &stmt.kind {
-                if self.slot_table.contains_key(name) {
+                if let Some((_idx, slot_ty)) = self.slot_table.get(name) {
+                    // Same-type re-`let` overwrites the slot (normal
+                    // REPL workflow). A DIFFERENT type would store
+                    // the new value's bits into a slot the table
+                    // still types as the old one — the next read
+                    // reinterpreted them (a string re-let over an
+                    // i64 slot printed its raw pointer). Refuse it.
+                    let new_ty = tc.lookup_global(*name).map(normalize_slot_ty);
+                    if let Some(new_ty) = new_ty {
+                        if new_ty != *slot_ty {
+                            return Err(format!(
+                                "<repl> `{name}` is already bound with a different \
+                                 type — re-`let` keeps the slot's original type, so \
+                                 changing it isn't supported; use a new name"
+                            ));
+                        }
+                    }
                     continue;
                 }
                 let Some(ty) = tc.lookup_global(*name) else {

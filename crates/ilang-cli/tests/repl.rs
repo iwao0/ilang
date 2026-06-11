@@ -187,3 +187,49 @@ fn repl_with_stderr(lines: &[&str]) -> (Vec<String>, String) {
         .collect();
     (stdout, String::from_utf8_lossy(&out.stderr).to_string())
 }
+
+// ── Round 16: re-`let` semantics. Same-type re-let overwrites the
+// slot; a TYPE-CHANGING re-let is refused — accepting it stored the
+// new value's bits into a slot the table still typed as the old
+// one, and the next read reinterpreted them (a string re-let over
+// an i64 slot printed its raw pointer).
+
+#[test]
+fn repl_relet_same_type_overwrites() {
+    let out = repl(&[
+        "let x = 1",
+        "let x = 2",
+        "console.log(x)",
+        "let s = \"a\"",
+        "let s = \"bb\"",
+        "console.log(s.length)",
+    ]);
+    assert_eq!(out, vec!["2", "2"]);
+}
+
+#[test]
+fn repl_relet_type_change_rejected() {
+    let (out, err) = repl_with_stderr(&[
+        "let x = 41",
+        "let x = \"now-a-string\"",
+        "console.log(x)",
+    ]);
+    assert!(
+        err.contains("already bound with a different type"),
+        "stderr: {err}"
+    );
+    // The slot keeps its original value — no raw-pointer print.
+    assert_eq!(out, vec!["41"]);
+}
+
+#[test]
+fn repl_derive_eq_hash_works() {
+    let out = repl(&[
+        "@derive(Eq, Hash) class P { x: i64; init(v: i64) { this.x = v } }",
+        "let s = new Set<P>()",
+        "s.add(new P(1))",
+        "s.add(new P(1))",
+        "console.log(s.size())",
+    ]);
+    assert_eq!(out, vec!["1"]);
+}
