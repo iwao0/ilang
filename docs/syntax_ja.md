@@ -2148,6 +2148,8 @@ first.then(fn(v: string) { ... })    // 最初に settle した方
 
 `async fn foo(args): T { ... }` は呼び出し側に `Promise<T>` を返す。本体内で `await expr` を書くと、対象の `Promise<U>` が settle するまで関数を suspend し、`U` を取り出す。
 
+await 対象が **reject** で settle した場合は JS と同じ意味論: 本体はその `await` から先へ再開されず、async fn 自身の結果 promise が同じメッセージで reject される。呼び出し側は `.catch` で受け取る。
+
 ```rust
 async fn doubleAsync(p: Promise<i64>): i64 {
     let x: i64 = await p

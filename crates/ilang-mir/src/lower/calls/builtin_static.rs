@@ -101,6 +101,22 @@ impl<'a> BodyCx<'a> {
         if method.as_str() == "$promise.settleReject" && args.len() == 2 {
             return self.lower_promise_settle_reject(args).map(Some);
         }
+        // Internal `Promise.$promise.rejectFollows(upstream, target)`.
+        // Both args are borrows: the runtime's forwarder cell takes
+        // its own +1 on `target`, and nothing outlives the call on
+        // the `upstream` side beyond the waiter the runtime registers.
+        // The desugar only ever passes named locals / field reads
+        // (never fresh values), so no transfer accounting is needed.
+        if method.as_str() == "$promise.rejectFollows" && args.len() == 2 {
+            let (uv, _) = self.lower_expr(&args[0])?;
+            let (tv, _) = self.lower_expr(&args[1])?;
+            self.fb.push_inst(Inst::Call {
+                dst: None,
+                callee: FuncRef::Builtin(Symbol::intern("promise_reject_follows")),
+                args: Box::new([uv, tv]),
+            });
+            return Ok(Some((self.const_unit(), MirTy::Unit)));
+        }
         // `Promise.reject(msg)` static factory.
         if method.as_str() == "reject" && args.len() == 1 {
             return self.lower_promise_reject(args).map(Some);

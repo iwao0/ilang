@@ -88,6 +88,7 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
         ilang_runtime::__promise_with_executor as *const u8,
     );
     jit_builder.symbol("$promise.drain", ilang_runtime::__promise_drain as *const u8);
+    jit_builder.symbol("$promise.rejectFollows", ilang_runtime::__promise_reject_follows as *const u8);
     jit_builder.symbol("$promise.all", ilang_runtime::__promise_all as *const u8);
     jit_builder.symbol("$promise.race", ilang_runtime::__promise_race as *const u8);
     jit_builder.symbol(

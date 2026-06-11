@@ -454,6 +454,7 @@ pub(super) fn lower_call<M: Module>(
                 "promise_pending" => Some(promise_ids.pending),
                 "promise_settle_resolve" => Some(promise_ids.settle_resolve),
                 "promise_settle_reject" => Some(promise_ids.settle_reject),
+                "promise_reject_follows" => Some(promise_ids.reject_follows),
                 "make_objc_block" => Some(panic_aux.make_objc_block),
                 "invoke_void_block" => Some(panic_aux.invoke_void_block),
                 "invoke_obj_block" => Some(panic_aux.invoke_obj_block),

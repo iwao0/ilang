@@ -597,14 +597,45 @@ impl<'a> EmitCtx<'a> {
             },
             self.span,
         );
-        let then_call = mk_method_call(
+        // Bind the awaited promise once: it's consumed by TWO
+        // registrations (the resume `.then` and the rejection
+        // forwarder below), and re-lowering the expression would
+        // re-evaluate its side effects.
+        let awaited = Symbol::intern("__awaited");
+        let bind_awaited = mk_let(
+            awaited,
+            None,
             self.cloned_rewriting_this(promise),
+            self.span,
+        );
+        let then_call = mk_method_call(
+            mk_var(awaited, self.span),
             Symbol::intern("then"),
             vec![closure],
             self.span,
         );
+        // `Promise.$promise.rejectFollows(__awaited, state_ref.__async_promise)`
+        // — JS semantics: an awaited rejection rejects the async
+        // fn's own result promise. The resume closure above only
+        // fires on resolution; without the forwarder a rejection
+        // was dropped and the result promise stayed pending forever.
+        let reject_follows = mk_method_call(
+            mk_var(Symbol::intern("Promise"), self.span),
+            Symbol::intern("$promise.rejectFollows"),
+            vec![
+                mk_var(awaited, self.span),
+                mk_field(
+                    mk_var(self.state_ref_param, self.span),
+                    Symbol::intern("__async_promise"),
+                    self.span,
+                ),
+            ],
+            self.span,
+        );
         vec![
+            bind_awaited,
             mk_let(Symbol::intern("_"), None, then_call, self.span),
+            mk_expr_stmt(reject_follows, self.span),
             self.return_none_stmt(),
         ]
     }

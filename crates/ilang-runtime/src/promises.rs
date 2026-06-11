@@ -634,6 +634,31 @@ pub extern "C" fn __promise_settle_reject(p: i64, msg: i64) {
     settle_reject(p, msg);
 }
 
+/// `$promise.rejectFollows(upstream, target)` — when `upstream`
+/// rejects, settle `target` rejected with the same message; a
+/// resolution of `upstream` is ignored. Both args are borrows (the
+/// synthetic continuation cell takes its own +1 on `target`).
+///
+/// Emitted by the async/await state-machine desugar next to every
+/// `.then` suspension so an awaited rejection propagates to the
+/// async fn's result promise (JS semantics: `await rejected` rejects
+/// the async fn's own promise). Without it the rejection was
+/// silently dropped and the result promise stayed pending forever.
+#[unsafe(export_name = "$promise.rejectFollows")]
+pub extern "C" fn __promise_reject_follows(upstream: i64, target: i64) {
+    if upstream == 0 || target == 0 {
+        return;
+    }
+    ensure_stubs_registered();
+    let cb = alloc_callback_closure(
+        promise_reject_stub as *const () as i64,
+        target,
+        None,
+    );
+    let d = register_continuation(upstream, 0, cb, 0, 0, 0);
+    __release_promise(d);
+}
+
 // --------------------------------------------------------------------
 // Promise.all / Promise.race — aggregate combinators.
 //

@@ -3075,6 +3075,22 @@ class Worker {
   }
   ```
 
+- `await` on a promise that REJECTS rejects the async fn's own
+  result promise with the same message (JS semantics) — the body
+  does not resume past the `await`, and the caller observes the
+  rejection through `.catch`:
+
+  ```rust
+  async fn fetchTwice(p: Promise<i64>): i64 {
+      let v = await p     // p rejects ⇒ fetchTwice's promise rejects
+      v * 2               // not reached
+  }
+  fetchTwice(failing).catch(fn(msg: string): i64 {
+      console.log("failed: " + msg)
+      return -1
+  })
+  ```
+
 ### `const` (constant declaration)
 
 Top-level immutable binding. The loader tries to fold the RHS to a

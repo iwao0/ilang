@@ -453,6 +453,30 @@ impl TypeChecker {
                 lib_names: Vec::new(),
             }],
         );
+        // Internal: `Promise.__rejectFollows<T, U>(upstream: Promise<T>,
+        // target: Promise<U>)` — registers a rejection forwarder:
+        // when `upstream` rejects, `target` is settled rejected with
+        // the same message (a resolution is ignored). The async
+        // desugar emits one next to every await's `.then` suspension
+        // so an awaited rejection rejects the async fn's own promise
+        // (JS semantics).
+        promise_statics.insert(
+            "$promise.rejectFollows".into(),
+            vec![Signature {
+                params: vec![
+                    Type::generic("Promise", vec![Type::TypeVar("T".into())]),
+                    Type::generic("Promise", vec![Type::TypeVar("U".into())]),
+                ],
+                ret: Type::Unit,
+                variadic: false,
+                decl_span: Span::dummy(),
+                type_params: vec!["T".into(), "U".into()],
+                defaults: Vec::new(),
+                is_pub: true,
+            deprecated: None,
+                lib_names: Vec::new(),
+            }],
+        );
         // Internal: `Promise.__settleReject(p: Promise<()>, msg: string)`.
         // The poll fn calls this when the async body wants to reject;
         // because we don't yet have `throw`, this is currently

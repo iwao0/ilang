@@ -226,6 +226,10 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         declare_ternary_i64_void(module, "$promise.settleResolve")?;
     let promise_settle_reject_id =
         declare_binary_i64_void(module, "$promise.settleReject")?;
+    // (upstream, target) -> void — async desugar's awaited-rejection
+    // propagation hook.
+    let promise_reject_follows_id =
+        declare_binary_i64_void(module, "$promise.rejectFollows")?;
     // `__ilang_make_objc_block(closure: i64, kind: i64) -> i64`.
     // Always declared even on non-macOS hosts so MIR programs that
     // mention `new ObjCBlock(...)` can still link; on those hosts
@@ -926,6 +930,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 pending: promise_pending_id,
                 settle_resolve: promise_settle_resolve_id,
                 settle_reject: promise_settle_reject_id,
+                reject_follows: promise_reject_follows_id,
             };
             let panic_aux = PanicAux {
                 fn_id: panic_fn_id,

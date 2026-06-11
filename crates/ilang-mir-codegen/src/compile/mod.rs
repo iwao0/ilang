@@ -105,6 +105,7 @@ pub(super) struct PromiseIds {
     pub(super) pending: cranelift_module::FuncId,
     pub(super) settle_resolve: cranelift_module::FuncId,
     pub(super) settle_reject: cranelift_module::FuncId,
+    pub(super) reject_follows: cranelift_module::FuncId,
 }
 
 #[derive(Clone, Copy)]
