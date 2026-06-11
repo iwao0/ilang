@@ -197,10 +197,17 @@ fn run(): i64 {
     v.addChild(attn)
 
     // `requestUserAttention:` is a no-op while the app is the
-    // active one, so the click schedules a 3-second NSTimer
+    // active one, so the click schedules a 3-second `setTimeout`
     // instead of calling `flashFrame(true)` straight away. Switch
     // to another app (Finder / browser / etc.) before the delay
     // elapses to see the Dock bounce.
+    //
+    // KNOWN LIMITATION: `std.time` timers fire at event-loop drain
+    // points (`time.tick()` per frame, or program end). `gui.run()`
+    // blocks inside the native event loop and doesn't pump them
+    // yet, so this delayed flash only fires after every window
+    // closes. Wiring the GUI loop to `time.tick()` is an open
+    // design decision (see docs/HANDOFF.md).
     let bFlash = new gui.Button()
     bFlash.text   = "Flash in 3s"
     bFlash.flex   = 1.0

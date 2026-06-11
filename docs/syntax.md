@@ -2847,15 +2847,25 @@ bus.removeAllListeners("tick")            // or wipe every listener
 - One payload type per emitter — pass a struct / class if you
   need multiple values per event
 
-### Built-in `Promise<T>` and the work-stealing pool
+### Built-in `Promise<T>` and the event loop
 
 `Promise<T>` is a built-in generic class for values that
-arrive asynchronously. Continuations and executor bodies run
-on a global work-stealing thread pool (one worker per logical
-CPU); ARC is atomic so heap values can cross thread
-boundaries safely. The runtime drains pending continuations
-right before `main` returns, so a top-level `.then` always
-fires before the process exits.
+arrive asynchronously. ilang uses the same run-to-completion
+model as JavaScript: every piece of user code — `main`,
+executors, `.then` callbacks, async-fn resumptions, timer
+callbacks — runs on a single thread. An executor runs
+synchronously inside `new Promise(...)`; continuations are
+queued FIFO and only execute at a drain point, never while
+your own code is mid-statement, so a callback can't race the
+code that scheduled it and data races are structurally
+impossible. Drain points are: the end of the program (the
+runtime drains pending continuations and timers before the
+process exits, so a top-level `.then` always fires), and an
+explicit `time.tick()` for programs that own their main loop
+(a GUI / game frame loop). Timers (`time.setTimeout` /
+`setInterval`) sit on a due-time heap; the end-of-program
+drain sleeps until each due time fires — a pending timer
+keeps the process alive, like Node.js.
 
 ```rust
 // Already-resolved value.
@@ -2894,8 +2904,10 @@ first.then(fn(v: string) { ... })    // whichever settles first
   (the rejection has no value, so `T = ()`; for typed
   rejections use the executor form)
 - `new Promise<T>(executor: fn(fn(T), fn(string)))` — runs
-  `executor(resolve, reject)` on the pool; the first
-  resolve/reject wins
+  `executor(resolve, reject)` synchronously, in place; the
+  first resolve/reject wins. Callbacks registered with
+  `.then` still only run at a drain point, even when the
+  promise is already settled
 - `p.then<U>(cb: fn(T): U): Promise<U>` — register callback
   for the resolved value, returns a new chained promise.
   Rejections propagate through bare `.then` to the next

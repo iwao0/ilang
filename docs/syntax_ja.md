@@ -2096,9 +2096,9 @@ bus.removeAllListeners("tick")            // 全部削除
 **Node.js 版との違い:**
 - 1 emitter につきペイロード型ひとつ。複数値を渡したいときは struct / class でまとめる
 
-### 組み込み `Promise<T>` と work-stealing pool
+### 組み込み `Promise<T>` と event loop
 
-`Promise<T>` は非同期に到着する値を表す組み込みクラス。継続 (`.then`) や executor 本体は work-stealing スレッドプール (論理 CPU 数のワーカー) で実行され、ARC はアトミックなのでヒープ値はスレッド間を安全に行き来できる。`main` が return する直前に runtime が pending な継続を drain するので、トップレベルの `.then` は必ずプロセス終了前に発火する。
+`Promise<T>` は非同期に到着する値を表す組み込みクラス。実行モデルは JavaScript と同じ run-to-completion: ユーザーコード (`main`・executor・`.then` callback・async fn の再開・タイマー callback) は**すべて単一スレッド**で実行される。executor は `new Promise(...)` のその場で同期実行。継続は FIFO queue に積まれ、**drain ポイントでのみ**実行される — 自分のコードの実行中に callback が割り込むことは決してないので、データ競合は構造上起きない。drain ポイントは (1) プログラム終了時 (runtime が pending な継続とタイマーを drain してから終了するので、トップレベルの `.then` は必ず発火する)、(2) 自前のメインループを持つプログラム (GUI / ゲームのフレームループ) が明示的に呼ぶ `time.tick()`。タイマー (`time.setTimeout` / `setInterval`) は期限順の heap に載り、終了時 drain は期限まで待って発火させる — 未発火のタイマーはプロセスを生かし続ける (Node.js と同じ)。
 
 ```rust
 // 即解決。
@@ -2133,7 +2133,7 @@ first.then(fn(v: string) { ... })    // 最初に settle した方
 **API:**
 - `Promise.resolve<T>(v: T): Promise<T>` — 既に解決済み
 - `Promise.reject(msg: string): Promise<()>` — 既に reject 済み (rejection は値を持たないので `T = ()`。型付き reject は executor で)
-- `new Promise<T>(executor: fn(fn(T), fn(string)))` — pool 上で `executor(resolve, reject)` を実行。最初の呼び出しが採用される
+- `new Promise<T>(executor: fn(fn(T), fn(string)))` — `executor(resolve, reject)` をその場で同期実行。最初の呼び出しが採用される。`.then` で登録した callback は promise が settle 済みでも drain ポイントまで実行されない
 - `p.then<U>(cb: fn(T): U): Promise<U>` — 解決値を受け取る callback を登録、新しいチェーン promise を返す。rejection は `.then` を素通りして次の `.catch` に届く
 - `p.catch(cb: fn(string): T): Promise<T>` — rejection を捕まえて upstream 同型の値に復帰
 - `Promise.all<T>(ps: Promise<T>[]): Promise<T[]>` — 全部 settle 後にまとめて解決、最初の rejection で reject
