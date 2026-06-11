@@ -1678,6 +1678,19 @@ use windef { HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HBITMAP, HMENU, HACCEL, HD
         uElapse:       u32,
         lpTimerFunc:   *void
     ): u64
+    /// `SetTimer` with a `TIMERPROC` callback —
+    /// `void CALLBACK (HWND, UINT uMsg, UINT_PTR idEvent, DWORD dwTime)`.
+    /// `DispatchMessage` invokes the proc for the posted WM_TIMER
+    /// instead of routing it to a window procedure, so the callback
+    /// also fires inside modal message loops (window drag, menu
+    /// tracking) where a NULL-hwnd queue timer would be dropped.
+    @symbol("SetTimer")
+    @lib pub fn SetTimerWithProc(
+        hwnd:          HWND,
+        nIDEvent:      u64,
+        uElapse:       u32,
+        lpTimerFunc:   fn(i64, u32, u64, u32)
+    ): u64
     @lib pub fn KillTimer(hwnd: HWND, uIDEvent: u64): i32
 
     // ── Keyboard input ────────────────────────────────────────

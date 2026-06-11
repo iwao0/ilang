@@ -21,7 +21,8 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
-- **Promise/async 実行モデルを JS 型 (run-to-completion・シングルスレッド) へ移行**。 worker pool を撤去し、 継続はメインスレッドの FIFO queue + 期限順 timer heap (`pool.rs` 書き換え)、 executor は構築時に同期実行、 非ブロッキング pump の **`time.tick()`** を新設。 詳細は下の解決済み記録。 GUI のネイティブイベントループ中のタイマー発火は未解決 (設計判断待ち — 「未解決の引き継ぎ事項」参照)。
+- **Promise/async 実行モデルを JS 型 (run-to-completion・シングルスレッド) へ移行**。 worker pool を撤去し、 継続はメインスレッドの FIFO queue + 期限順 timer heap (`pool.rs` 書き換え)、 executor は構築時に同期実行、 非ブロッキング pump の **`time.tick()`** を新設。 詳細は下の解決済み記録。
+- **gui ライブラリの platform イベントループに `time.tick()` pump を組み込み** (cocoa = NSTimer common modes / win32 = SetTimer TIMERPROC / linux = g_timeout_add、 各 ~15ms)。 GUI 表示中も std.time タイマーと Promise 継続が発火する。 **win32 / linux は macOS 環境では型検査されないため未検証** — 詳細は下の解決済み記録。
 
 それ以前のセッション (2026-06-10、 ARC ラウンド) で main に landing した変更:
 
@@ -55,9 +56,17 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### [設計判断待ち] GUI のネイティブイベントループ中に std.time タイマーを発火させる手段
+### [解決済み記録] gui ライブラリが platform イベントループから `time.tick()` を pump するようにした (2026-06-11、 ユーザー判断 = 案 (a))
 
-JS 型移行 (下の解決済み記録) の積み残し。`gui.run()` は `NSApp.run()` / `GetMessage` ループでブロックし、 drain ポイントを通らないため、 GUI アプリが `time.setTimeout` / `setInterval` を使っても**イベントループ実行中は発火しない** (全ウィンドウを閉じた後の終了時 drain でまとめて発火する)。 `examples/libs/gui/window_state_demo/main.il` の「Flash in 3s」ボタンがこの形 (該当箇所に KNOWN LIMITATION コメントを記載済み)。 sdl_breakout のように**自前のフレームループを持つ**アプリは `time.tick()` を毎フレーム呼べばよく、 問題はネイティブループへ制御を渡す `gui.run()` 型だけ。 候補: (a) gui ライブラリが platform ループに pump を組み込む (cocoa の `runEventLoop` が NSTimer で `time.tick()` を周期実行。 linux / win32 にも同型の手当てが必要)、 (b) GUI アプリでは std.time タイマー非対応と割り切り platform タイマー (cocoa bindings の `NSTimer` 等) を直接使う。 ユーザーと相談して決めること。
+JS 型移行の積み残しだった「`gui.run()` がネイティブループでブロックして drain ポイントを通らず、 GUI アプリの `time.setTimeout` / `setInterval` / Promise 継続がイベントループ実行中に発火しない」問題。 3 プラットフォームとも `runEventLoop` に ~15ms 周期の platform タイマーを仕込んで `time.tick()` を呼ぶ形で解消:
+
+- **cocoa** ([libs/gui/cocoa/window.il](../libs/gui/cocoa/window.il)): repeating `NSTimer` (0.015s、 tolerance 0.005s) を **common modes** (`kCFRunLoopCommonModes`) で main run loop に登録。 default mode だとウィンドウドラッグ / メニュー追跡中に止まるため
+- **win32** ([libs/gui/win32/window.il](../libs/gui/win32/window.il)): `SetTimer` を **TIMERPROC 付き** (`SetTimerWithProc` — `@symbol("SetTimer")` で別シグネチャを [bindings/windows/user32.il](../bindings/windows/user32.il) に追加) で登録。 NULL-hwnd の queue タイマーはモーダルループ (ドラッグ / メニュー) 中に捨てられるが、 TIMERPROC は `DispatchMessage` が直接呼ぶので届く。 加えてメッセージ dispatch ごとに `time.tick()` (0ms timeout / 新規継続の即時サービス)。 ループ終了後 `KillTimer`
+- **linux** ([libs/gui/linux/window.il](../libs/gui/linux/window.il)): `g_timeout_add(15, linux_pump_tick, ...)`。 `g_timeout_add` は GSourceFunc callback 型のため GIR generator が出せず、 [bindings/gtk4/manual.il](../bindings/gtk4/manual.il) に手書き追加 (signal-connect 変種と同じ理由)
+
+**検証**: macOS は実機確認済み — headless の Foundation run loop テスト (`NSTimer` common modes pump + `NSRunLoop.runUntilDate` 中に `setTimeout` 発火、 AppKit/ウィンドウなし) と `window_state_demo` の AOT ビルド。 **win32 / linux はこの macOS 環境では型検査自体が走らない** (gui_impl の per-OS deps で cocoa しか load されない + gtk4 / pkg-config なし) ため未検証 — 既存コードの型付け慣例 (callback は top-level `pub fn` を名前渡し、 i32 戻りは `0 as i32` 形) に合わせて書いたが、 Windows / Linux 機で `gtk4_bindings` テストと GUI ビルドを通すこと。
+
+タイマー分解能は pump 周期の ~15ms (gui.run の doc コメントに明記)。 sdl_breakout のような自前フレームループのアプリは従来どおり自分で `time.tick()` を呼ぶ。
 
 ### [解決済み記録] Promise/async 実行モデルを JS 型 (run-to-completion・シングルスレッド) へ移行した (2026-06-11)
 

@@ -11,9 +11,11 @@ use cocoa {
     NSTrackingArea, NSTrackingAreaOptions,
     NSPoint, NSRect, NSSize,
     NSProgressIndicator, NSProgressIndicatorStyle,
+    NSTimer, NSRunLoop,
     nsstr, makePoint, makeRect, makeSize, nil,
     sharedApplication, makeWindow,
 }
+use std.time as time
 /// `NSFloatingWindowLevel` raw value (NSWindow.Level.floating).
 /// Above the normal application band but below status / menu bar.
 const FLOATING_LEVEL: i64 = 3 as i64
@@ -98,8 +100,32 @@ pub fn hideNativeWindow(handle: i64) {
     if let some(slot) = WINDOWS.get(handle) { slot.win.orderOut(nil) }
 }
 
+/// Interval between event-loop pumps of the ilang timer /
+/// continuation queue (`time.tick()`). ~60 Hz keeps `setTimeout`
+/// resolution close to what browsers give, without measurable
+/// idle cost; the 5 ms tolerance lets the OS coalesce the wakeup
+/// with other run-loop work.
+const PUMP_INTERVAL_S:  f64 = 0.015
+const PUMP_TOLERANCE_S: f64 = 0.005
+
+let PUMP_INSTALLED: bool = false
+
 pub fn runEventLoop() {
     let app = NSApplication.sharedApplication()
+    // std.time timers and Promise continuations only run at drain
+    // points, and `app.run()` blocks until the app terminates — so
+    // pump them from a repeating NSTimer. Scheduled in the COMMON
+    // run-loop modes: the default mode is suspended during window
+    // dragging / menu tracking, and a default-mode pump would stall
+    // setTimeout callbacks for as long as the user holds the mouse.
+    if !PUMP_INSTALLED {
+        PUMP_INSTALLED = true
+        let t = NSTimer.timer(PUMP_INTERVAL_S, true, fn(timer: i64) {
+            time.tick()
+        })
+        t.tolerance = PUMP_TOLERANCE_S
+        NSRunLoop.main().addTimer(t, nsstr("kCFRunLoopCommonModes"))
+    }
     app.run()
 }
 

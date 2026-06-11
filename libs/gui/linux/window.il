@@ -41,9 +41,11 @@ use gtk {
     gtk_event_controller_get_current_event_state,
     gdk_keyval_to_lower,
     g_main_loop_new, g_main_loop_run, g_main_loop_quit,
+    g_timeout_add,
     g_signal_connect_data, g_signal_connect_data2, g_signal_connect_key,
     g_signal_connect_motion, g_signal_connect_click, g_signal_connect_scroll,
 }
+use std.time as time
 use core { WINDOWS, WindowSlot, GTK_INITED, LOOP_HOLDER, hasMod }
 use statusbar { linux_relayout_status_bar }
 use toolbar { linux_relayout_toolbar }
@@ -564,10 +566,31 @@ pub fn hideNativeWindow(handle: i64) {
     }
 }
 
+/// Interval between event-loop pumps of the ilang timer /
+/// continuation queue (`time.tick()`). ~60 Hz — matches the cocoa
+/// and win32 backends.
+const PUMP_INTERVAL_MS: u32 = 15 as u32
+
+let PUMP_INSTALLED: bool = false
+
+/// GSourceFunc for the pump timeout. Returns 1 (G_SOURCE_CONTINUE)
+/// so the source stays armed for the life of the loop.
+pub fn linux_pump_tick(data: i64): i32 {
+    time.tick()
+    1 as i32
+}
+
 pub fn runEventLoop() {
     if !GTK_INITED { return }
     if LOOP_HOLDER == 0 {
         LOOP_HOLDER = g_main_loop_new(0 as *void, 0 as i32) as i64
+    }
+    // std.time timers and Promise continuations only run at drain
+    // points, and g_main_loop_run blocks until quit — pump them
+    // from a repeating GLib timeout on the same main context.
+    if !PUMP_INSTALLED {
+        PUMP_INSTALLED = true
+        g_timeout_add(PUMP_INTERVAL_MS, linux_pump_tick, 0 as *void)
     }
     g_main_loop_run(LOOP_HOLDER as GMainLoop)
 }

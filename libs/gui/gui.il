@@ -115,6 +115,13 @@ pub fn onAppearanceChange(cb: fn(bool)) {
 /// Run the platform event loop until every window has closed
 /// (macOS: `NSApp.run()` until `terminate:`; Windows:
 /// `GetMessage` loop until `WM_QUIT`). Blocks the calling thread.
+///
+/// While the loop runs, each backend pumps the ilang event loop
+/// (`time.tick()`) from a ~15 ms platform timer (NSTimer in common
+/// run-loop modes / `SetTimer` TIMERPROC / `g_timeout_add`), so
+/// `std.time` setTimeout / setInterval callbacks and Promise
+/// continuations keep firing while the GUI is on screen — at ~15 ms
+/// granularity, not sub-millisecond precision.
 pub fn run() {
     runEventLoop()
 }

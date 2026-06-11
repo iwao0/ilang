@@ -27,8 +27,10 @@ use windows {
     FlashWindowEx, FLASHWINFO, FlashWindowFlags,
     CoInitializeEx, CoCreateInstance, CoInit, ClsCtx,
     LoadImageW, SendMessageW,
+    SetTimerWithProc, KillTimer,
     NULL,
 }
+use std.time as time
 use shobjidl {
     ITaskbarList3,
     CLSID_TaskbarList, IID_ITaskbarList3,
@@ -643,6 +645,20 @@ pub fn setNativeWindowProgressBar(handle: i64, progress: f64) {
     }
 }
 
+/// Interval between event-loop pumps of the ilang timer /
+/// continuation queue (`time.tick()`). The system clamps thread
+/// timers to ~15.6 ms anyway (USER_TIMER_MINIMUM era resolution),
+/// so 15 is effectively "as fast as a queue timer goes".
+const PUMP_INTERVAL_MS: u32 = 15 as u32
+
+/// TIMERPROC for the pump timer. `DispatchMessageW` calls this for
+/// the posted WM_TIMER — including from the modal message loops the
+/// system runs during window dragging / menu tracking, where a
+/// NULL-hwnd queue timer without a proc would be dropped unseen.
+pub fn win32_pump_tick(hwnd: i64, uMsg: u32, idEvent: u64, dwTime: u32) {
+    time.tick()
+}
+
 pub fn runEventLoop() {
     let msg = MSG {
         hwnd:     0 as HWND,
@@ -653,11 +669,21 @@ pub fn runEventLoop() {
         pt:       POINT { x: 0, y: 0 },
         lPrivate: 0,
     }
+    // std.time timers and Promise continuations only run at drain
+    // points, and GetMessageW blocks until input arrives — the pump
+    // timer guarantees a wakeup every PUMP_INTERVAL_MS, and the
+    // tick after each dispatched message services 0ms timeouts /
+    // fresh continuations promptly after user events.
+    let pumpId = SetTimerWithProc(0 as HWND, 0 as u64, PUMP_INTERVAL_MS, win32_pump_tick)
     loop {
         let r = GetMessageW(&msg, 0 as HWND, 0, 0)
         if r <= 0 { break }
         TranslateMessage(&msg)
         DispatchMessageW(&msg)
+        time.tick()
+    }
+    if pumpId != 0 as u64 {
+        KillTimer(0 as HWND, pumpId)
     }
 }
 

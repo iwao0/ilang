@@ -177,6 +177,21 @@ pub enum Keyval: u32 {
         destroy: i64
     )
 
+    // ─── GLib timeout source ───────────────────────────────────
+
+    /// `guint g_timeout_add(guint interval, GSourceFunc function,
+    /// gpointer data)` — fires `function(data)` every `interval`
+    /// milliseconds on the default GLib main context. The callback
+    /// returns nonzero (G_SOURCE_CONTINUE) to stay armed, zero to
+    /// remove the source. GIR puts the GSourceFunc parameter behind
+    /// a callback typedef the generator can't pin, so it's declared
+    /// here (same reason as the signal-connect variants below).
+    @lib pub fn g_timeout_add(
+        interval: u32,
+        function: fn(i64): i32,
+        data: *void
+    ): u32
+
     // ─── Signal-connect callback variants ─────────────────────
     // Same C symbol; each ilang name pins one callback shape.
 

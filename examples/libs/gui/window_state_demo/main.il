@@ -200,14 +200,9 @@ fn run(): i64 {
     // active one, so the click schedules a 3-second `setTimeout`
     // instead of calling `flashFrame(true)` straight away. Switch
     // to another app (Finder / browser / etc.) before the delay
-    // elapses to see the Dock bounce.
-    //
-    // KNOWN LIMITATION: `std.time` timers fire at event-loop drain
-    // points (`time.tick()` per frame, or program end). `gui.run()`
-    // blocks inside the native event loop and doesn't pump them
-    // yet, so this delayed flash only fires after every window
-    // closes. Wiring the GUI loop to `time.tick()` is an open
-    // design decision (see docs/HANDOFF.md).
+    // elapses to see the Dock bounce. (`gui.run()` pumps std.time
+    // timers from the platform event loop, so the timeout fires
+    // while the window is still open.)
     let bFlash = new gui.Button()
     bFlash.text   = "Flash in 3s"
     bFlash.flex   = 1.0
