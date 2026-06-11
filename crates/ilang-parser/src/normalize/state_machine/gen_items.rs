@@ -499,12 +499,15 @@ struct EmitCtx<'a> {
 }
 
 impl<'a> EmitCtx<'a> {
-    /// Clone `e` and rewrite every `this` → `Var(__this)`. The poll
-    /// fn's body destructures `__this` from the variant payload, so
-    /// references in the original async-fn body must be redirected.
+    /// Clone `e` and rewrite every `this` → `Var(__this)` (the poll
+    /// fn's body destructures `__this` from the variant payload) and
+    /// every `return e` → settle-and-return (the poll fn returns
+    /// `()`, so a raw user `return` would both type-error and skip
+    /// settling the result promise).
     fn cloned_rewriting_this(&self, e: &Expr) -> Expr {
         let mut x = e.clone();
         rewrite_this_in_expr(&mut x);
+        rewrite_returns_in_expr(&mut x, self.state_ref_param, self.span);
         x
     }
 
@@ -711,6 +714,15 @@ impl<'a> EmitCtx<'a> {
     }
 
     fn emit_settle(&self, value: &Expr) -> Vec<Stmt> {
+        // A tail that IS `return e` already becomes settle+return
+        // through the returns rewrite in `cloned_rewriting_this` —
+        // emit it directly; wrapping it in a second settleResolve
+        // would type-error (the rewritten block is `()`) and settle
+        // twice.
+        if matches!(value.kind, ExprKind::Return(_)) {
+            let v = self.cloned_rewriting_this(value);
+            return vec![mk_expr_stmt(v, self.span), self.return_none_stmt()];
+        }
         let v = self.cloned_rewriting_this(value);
         let settle_call = mk_method_call(
             mk_var(Symbol::intern("Promise"), self.span),
@@ -751,6 +763,7 @@ fn emit_segment_arm(
     for s in &seg.stmts {
         let mut s2 = s.clone();
         rewrite_this_in_stmt(&mut s2);
+        rewrite_returns_in_stmt(&mut s2, state_ref_param, span);
         if let Some((header_idx, after_idx)) = seg.loop_info {
             rewrite_loop_jumps_stmt(
                 &mut s2,
@@ -890,6 +903,147 @@ fn rewrite_this_in_block(b: &mut Block) {
     }
     if let Some(t) = b.tail.as_mut() {
         rewrite_this_in_expr(t);
+    }
+}
+
+/// Rewrite every `return e` copied into the poll fn into
+/// `{ Promise.$promise.settleResolve(state_ref.__async_promise, e); return }`
+/// — the poll fn returns `()`, so a raw user `return` would
+/// type-error AND skip settling the async fn's result promise
+/// (early `return` in an async body was simply unsupported before
+/// this). A bare `return` settles with `0`, the same unit
+/// convention `SettleTail` uses. Does NOT descend into `FnExpr`
+/// bodies — a nested closure's `return` belongs to the closure.
+fn rewrite_returns_in_stmt(s: &mut Stmt, state_ref_param: Symbol, span: Span) {
+    match &mut s.kind {
+        StmtKind::Let { value, .. } => rewrite_returns_in_expr(value, state_ref_param, span),
+        StmtKind::LetTuple { value, .. } | StmtKind::LetStruct { value, .. } => {
+            rewrite_returns_in_expr(value, state_ref_param, span)
+        }
+        StmtKind::Expr(e) => rewrite_returns_in_expr(e, state_ref_param, span),
+    }
+}
+
+fn rewrite_returns_in_expr(e: &mut Expr, state_ref_param: Symbol, span: Span) {
+    match &mut e.kind {
+        ExprKind::Return(opt) => {
+            let mut val = opt
+                .take()
+                .map(|b| *b)
+                .unwrap_or_else(|| mk_int(0, span));
+            // `return (… return …)` — rewrite inner returns first.
+            rewrite_returns_in_expr(&mut val, state_ref_param, span);
+            let settle = mk_method_call(
+                mk_var(Symbol::intern("Promise"), span),
+                Symbol::intern("$promise.settleResolve"),
+                vec![
+                    mk_field(
+                        mk_var(state_ref_param, span),
+                        Symbol::intern("__async_promise"),
+                        span,
+                    ),
+                    val,
+                ],
+                span,
+            );
+            e.kind = ExprKind::Block(Block {
+                stmts: vec![mk_expr_stmt(settle, span)],
+                tail: Some(Box::new(Expr::new(ExprKind::Return(None), span))),
+            });
+        }
+        ExprKind::Block(b) => rewrite_returns_in_block(b, state_ref_param, span),
+        ExprKind::If { cond, then_branch, else_branch } => {
+            rewrite_returns_in_expr(cond, state_ref_param, span);
+            rewrite_returns_in_block(then_branch, state_ref_param, span);
+            if let Some(eb) = else_branch {
+                rewrite_returns_in_expr(eb, state_ref_param, span);
+            }
+        }
+        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
+            rewrite_returns_in_expr(expr, state_ref_param, span);
+            rewrite_returns_in_block(then_branch, state_ref_param, span);
+            if let Some(eb) = else_branch {
+                rewrite_returns_in_expr(eb, state_ref_param, span);
+            }
+        }
+        ExprKind::While { cond, body } => {
+            rewrite_returns_in_expr(cond, state_ref_param, span);
+            rewrite_returns_in_block(body, state_ref_param, span);
+        }
+        ExprKind::Loop { body } => rewrite_returns_in_block(body, state_ref_param, span),
+        ExprKind::ForIn { iter, body, .. } => {
+            rewrite_returns_in_expr(iter, state_ref_param, span);
+            rewrite_returns_in_block(body, state_ref_param, span);
+        }
+        ExprKind::Match { scrutinee, arms } => {
+            rewrite_returns_in_expr(scrutinee, state_ref_param, span);
+            for a in arms.iter_mut() {
+                rewrite_returns_in_expr(&mut a.body, state_ref_param, span);
+            }
+        }
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
+            rewrite_returns_in_expr(lhs, state_ref_param, span);
+            rewrite_returns_in_expr(rhs, state_ref_param, span);
+        }
+        ExprKind::Unary { expr, .. }
+        | ExprKind::Cast { expr, .. }
+        | ExprKind::TypeTest { expr, .. }
+        | ExprKind::TypeDowncast { expr, .. } => {
+            rewrite_returns_in_expr(expr, state_ref_param, span)
+        }
+        ExprKind::Some(inner) | ExprKind::Await(inner) => {
+            rewrite_returns_in_expr(inner, state_ref_param, span)
+        }
+        ExprKind::Break(opt) => {
+            if let Some(inner) = opt {
+                rewrite_returns_in_expr(inner, state_ref_param, span);
+            }
+        }
+        ExprKind::Assign { value, .. } => rewrite_returns_in_expr(value, state_ref_param, span),
+        ExprKind::AssignField { obj, value, .. } => {
+            rewrite_returns_in_expr(obj, state_ref_param, span);
+            rewrite_returns_in_expr(value, state_ref_param, span);
+        }
+        ExprKind::AssignIndex { obj, index, value } => {
+            rewrite_returns_in_expr(obj, state_ref_param, span);
+            rewrite_returns_in_expr(index, state_ref_param, span);
+            rewrite_returns_in_expr(value, state_ref_param, span);
+        }
+        ExprKind::Call { args, .. }
+        | ExprKind::SuperCall { args, .. }
+        | ExprKind::New { args, .. } => {
+            for a in args.iter_mut() {
+                rewrite_returns_in_expr(a, state_ref_param, span);
+            }
+        }
+        ExprKind::MethodCall { obj, args, .. } => {
+            rewrite_returns_in_expr(obj, state_ref_param, span);
+            for a in args.iter_mut() {
+                rewrite_returns_in_expr(a, state_ref_param, span);
+            }
+        }
+        ExprKind::Field { obj, .. } => rewrite_returns_in_expr(obj, state_ref_param, span),
+        ExprKind::Index { obj, index } => {
+            rewrite_returns_in_expr(obj, state_ref_param, span);
+            rewrite_returns_in_expr(index, state_ref_param, span);
+        }
+        ExprKind::Tuple(es) | ExprKind::Array(es) => {
+            for inner in es.iter_mut() {
+                rewrite_returns_in_expr(inner, state_ref_param, span);
+            }
+        }
+        // Deliberately NOT FnExpr — closure returns are the
+        // closure's own.
+        _ => {}
+    }
+}
+
+fn rewrite_returns_in_block(b: &mut Block, state_ref_param: Symbol, span: Span) {
+    for s in b.stmts.iter_mut() {
+        rewrite_returns_in_stmt(s, state_ref_param, span);
+    }
+    if let Some(t) = b.tail.as_mut() {
+        rewrite_returns_in_expr(t, state_ref_param, span);
     }
 }
 
