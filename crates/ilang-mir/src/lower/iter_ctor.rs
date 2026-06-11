@@ -166,8 +166,30 @@ impl<'a> BodyCx<'a> {
                 self.fb.switch_to(body_blk);
                 let elem_v = self.fb.new_value(elem_ty.clone());
                 self.fb.push_inst(Inst::ArrayLoad { dst: elem_v, arr: av, idx: i });
+                // Register the fresh iterable for the early-`return`
+                // sweep: the Release in the exit block below only
+                // runs on paths that REACH the exit block — `break`
+                // jumps there, but a `return` out of the body
+                // bypassed it and leaked the whole fresh array
+                // (`for e in m.entries() { ... return ... }`).
+                // Registered at the depth OUTSIDE the loop frame so
+                // the `break` / `continue` sweeps skip it (they
+                // stay on paths that still reach the exit block /
+                // header — releasing here too would double-free).
+                if iter_is_fresh {
+                    let depth = self.env.scopes.len();
+                    self.live_fresh_scrutinees.push((av, depth));
+                }
                 self.env.enter_scope();
-                self.env.bind(var, elem_v, elem_ty.clone());
+                // The element binding BORROWS into the array's slot
+                // (ArrayLoad takes no retain — the array keeps the
+                // owning share), exactly the match-payload contract.
+                // Register it as a PatternBinding so the early-exit
+                // sweeps skip it: as a plain Ssa binding the
+                // `return` sweep released the borrow and over-
+                // released the element (SIGABRT on
+                // `for e in m.entries() { ... return ... }`).
+                self.env.bind_pattern(var, elem_v, elem_ty.clone(), false);
                 self.loops.push(LoopFrame {
                     env_depth_at_entry: self.env.scopes.len(),
                     continue_target: step,
@@ -176,6 +198,9 @@ impl<'a> BodyCx<'a> {
                 let _ = self.lower_block(body)?;
                 self.loops.pop();
                 self.env.exit_scope();
+                if iter_is_fresh {
+                    self.live_fresh_scrutinees.pop();
+                }
                 self.fb.set_terminator(Terminator::Br { dst: step, args: Box::new([]) });
 
                 self.fb.switch_to(step);
