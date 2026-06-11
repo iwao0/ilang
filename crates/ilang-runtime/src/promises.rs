@@ -28,6 +28,13 @@
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+/// `ILANG_DEBUG_PROMISE=1` traces promise retain/release/settle to
+/// stderr. Env lookup cached — hot-path cost is one atomic load.
+fn debug_promise() -> bool {
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| std::env::var_os("ILANG_DEBUG_PROMISE").is_some())
+}
+
 use crate::cascade::{release_field_by_kind, retain_field_by_kind};
 use crate::kind::KIND_PROMISE;
 use crate::pool;
@@ -172,6 +179,9 @@ pub extern "C" fn __retain_promise(p: i64) {
         return;
     }
     let pr = unsafe { promise_ref(p) };
+    if debug_promise() {
+        eprintln!("[promise] retain  {p:#x} rc {}", pr.rc.load(std::sync::atomic::Ordering::Relaxed));
+    }
     crate::refcount::retain_atomic(&pr.rc);
 }
 
@@ -181,8 +191,14 @@ pub extern "C" fn __release_promise(p: i64) {
         return;
     }
     let pr = unsafe { promise_ref(p) };
+    if debug_promise() {
+        eprintln!("[promise] release {p:#x} rc {}", pr.rc.load(std::sync::atomic::Ordering::Relaxed));
+    }
     if crate::refcount::release_atomic(&pr.rc) != Some(0) {
         return;
+    }
+    if debug_promise() {
+        eprintln!("[promise] FINAL-DROP {p:#x}");
     }
     // Final drop — cascade-release whatever the state owns.
     let mut owned = unsafe { Box::from_raw(p as *mut ManagedPromise) };
@@ -406,10 +422,16 @@ fn settle_reject(p: i64, msg: i64) {
     let waiters = match take_pending_waiters(p, State::Rejected { msg }) {
         Some(w) => w,
         None => {
+            if debug_promise() {
+                eprintln!("[promise] settle_reject {p:#x}: not pending, dropping msg");
+            }
             __release_string(msg);
             return;
         }
     };
+    if debug_promise() {
+        eprintln!("[promise] settle_reject {p:#x}: {} waiter(s)", waiters.len());
+    }
     for w in waiters {
         __retain_string(msg);
         pool::submit(move || {
@@ -466,6 +488,9 @@ extern "C" fn promise_resolve_stub(value: i64, closure_ptr: i64) -> i64 {
 
 extern "C" fn promise_reject_stub(msg: i64, closure_ptr: i64) -> i64 {
     let p = unsafe { *((closure_ptr + 16) as *const i64) };
+    if debug_promise() {
+        eprintln!("[promise] reject_stub cell={closure_ptr:#x} -> promise {p:#x}");
+    }
     __retain_string(msg);
     settle_reject(p, msg);
     0
@@ -522,19 +547,26 @@ pub extern "C" fn __promise_with_executor(executor_closure: i64, value_kind: i64
     // executes its executor before the expression returns. A
     // resolve/reject call from inside only settles state and queues
     // continuations — it never runs user callbacks inline, so
-    // run-to-completion holds. The caller's borrowed +1 on
-    // `executor_closure` outlives this call; no extra retain.
+    // run-to-completion holds.
     let fn_addr = unsafe { *(executor_closure as *const i64) };
     // executor signature: ilang env-trailing — `fn(resolve, reject, env)`.
     let f: extern "C" fn(i64, i64, i64) = unsafe { std::mem::transmute(fn_addr) };
     f(resolve_cb, reject_cb, executor_closure);
-    // `resolve_cb` / `reject_cb` are owned by the executor body —
-    // ilang releases its closure parameters at body exit, which
-    // drops each cell (and cascades to release the captured
-    // promise). Releasing them again here was a double-free that
-    // surfaced as `pthread_mutex_lock: Invalid argument` whenever
-    // the freed promise memory was reused before the dependent
-    // continuation locked its mutex.
+    // ARC: all three cells leaked before (the leak was exactly
+    // 16 + 32 + 24 bytes per `new Promise` with an empty executor).
+    // - `executor_closure` arrives with a transferred +1: the
+    //   `new Promise` lowering retains a non-fresh executor and
+    //   hands a fresh literal's own +1 straight in (lower/expr.rs's
+    //   Promise arm), so this builtin owns one reference and must
+    //   consume it.
+    // - `resolve_cb` / `reject_cb` are minted above with rc=1 owned
+    //   by us; the executor body's params are borrows and release
+    //   nothing. An executor that stores a callback (deferred /
+    //   Promise.withResolvers pattern) adds its own retain via the
+    //   container store, so releasing ours here keeps escapes alive.
+    release_closure_arg(executor_closure);
+    release_closure_arg(resolve_cb);
+    release_closure_arg(reject_cb);
 
     promise
 }
