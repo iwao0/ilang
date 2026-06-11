@@ -264,7 +264,20 @@ impl<'a> BodyCx<'a> {
             }
             return Ok(out);
         }
+        // Promise `.then` / `.catch` borrow the receiver: the waiter
+        // holds +1 on the DOWNSTREAM (not the upstream), and an
+        // already-settled upstream's queued firing takes its own
+        // retain on the value — so a fresh receiver's transient +1
+        // drops right after the dispatch, same as the
+        // optional/array/string rule above. Without this, every
+        // chained `p.then(f).catch(g)` leaked the intermediate
+        // promise together with its settled value (the ManagedPromise
+        // box is invisible to liveAllocBytes, but the held value
+        // showed up as 1 string per iteration).
         if let Some(out) = self.try_lower_promise_method(ov, &oty, method, args)? {
+            if obj_is_fresh && self.is_arc_heap(&oty) {
+                self.fb.push_inst(Inst::Release { value: ov });
+            }
             return Ok(out);
         }
         if let Some(out) = self.try_lower_map_method(ov, &oty, obj_is_fresh, method, args)? {

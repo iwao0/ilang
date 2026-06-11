@@ -188,8 +188,33 @@ impl<'a> BodyCx<'a> {
                 let sig_params = ft.params.clone();
                 let sig_ret = ft.ret.clone();
                 let mut arg_vals = Vec::with_capacity(args.len());
+                // Same fresh-transfer rule as the named-fn path
+                // below: params are borrows, so the caller's +1 on a
+                // fresh heap arg needs releasing after the call.
+                // This was missing here — every fresh string/object
+                // handed to a closure-typed callee leaked one
+                // reference per call (the Promise executor's
+                // `resolve(new Box(..))` was the visible case).
+                let mut fresh_obj_args: Vec<crate::inst::ValueId> = Vec::new();
                 for (i, a) in args.iter().enumerate() {
-                    let (coerced, _) = self.lower_arg_to(a, sig_params.get(i))?;
+                    let arg_is_fresh = self.is_fresh_object_expr(a);
+                    let (coerced, vty) = self.lower_arg_to(a, sig_params.get(i))?;
+                    let needs_post_release = matches!(
+                        vty,
+                        MirTy::Object(_)
+                            | MirTy::Fn(_)
+                            | MirTy::Array { .. }
+                            | MirTy::Tuple(_)
+                            | MirTy::Map { .. }
+                            | MirTy::Optional(_)
+                            | MirTy::Str
+                            | MirTy::Enum(_)
+                            | MirTy::Set { .. }
+                            | MirTy::Weak(_)
+                    );
+                    if arg_is_fresh && needs_post_release {
+                        fresh_obj_args.push(coerced);
+                    }
                     arg_vals.push(coerced);
                 }
                 let dst = if matches!(sig_ret, MirTy::Unit) {
@@ -216,6 +241,9 @@ impl<'a> BodyCx<'a> {
                         sig,
                         args: arg_vals.into_boxed_slice(),
                     });
+                }
+                for fv in fresh_obj_args {
+                    self.fb.push_inst(Inst::Release { value: fv });
                 }
                 return Ok((dst.unwrap_or_else(|| self.const_unit()), sig_ret));
             }
@@ -407,8 +435,32 @@ impl<'a> BodyCx<'a> {
                 let sig = meta.method_sigs.get(&callee).cloned().unwrap();
                 let (this_v, _) = self.lookup_var(Symbol::intern("this")).unwrap();
                 let mut arg_vals = vec![this_v];
+                // Same fresh-transfer rule as the named-fn and
+                // closure-call paths above — this arm was the last
+                // one missing it (a fresh string passed to an
+                // implicit `this.method(...)` leaked one reference
+                // per call; fresh objects only escaped notice when
+                // escape analysis stack-promoted them).
+                let mut fresh_obj_args: Vec<crate::inst::ValueId> = Vec::new();
                 for (i, a) in args.iter().enumerate() {
-                    let (coerced, _) = self.lower_arg_to(a, sig.params.get(i + 1))?;
+                    let arg_is_fresh = self.is_fresh_object_expr(a);
+                    let (coerced, vty) = self.lower_arg_to(a, sig.params.get(i + 1))?;
+                    let needs_post_release = matches!(
+                        vty,
+                        MirTy::Object(_)
+                            | MirTy::Fn(_)
+                            | MirTy::Array { .. }
+                            | MirTy::Tuple(_)
+                            | MirTy::Map { .. }
+                            | MirTy::Optional(_)
+                            | MirTy::Str
+                            | MirTy::Enum(_)
+                            | MirTy::Set { .. }
+                            | MirTy::Weak(_)
+                    );
+                    if arg_is_fresh && needs_post_release {
+                        fresh_obj_args.push(coerced);
+                    }
                     arg_vals.push(coerced);
                 }
                 let dst = if matches!(sig.ret, MirTy::Unit) {
@@ -421,6 +473,9 @@ impl<'a> BodyCx<'a> {
                     callee: FuncRef::Local(mid),
                     args: arg_vals.into_boxed_slice(),
                 });
+                for fv in fresh_obj_args {
+                    self.fb.push_inst(Inst::Release { value: fv });
+                }
                 return Ok((dst.unwrap_or_else(|| self.const_unit()), sig.ret));
             }
         }
