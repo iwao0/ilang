@@ -270,6 +270,7 @@ pub(super) fn contains_type_var(t: &Type) -> bool {
         Type::Array { elem, .. } => contains_type_var(elem),
         Type::Optional(inner) | Type::Weak(inner) => contains_type_var(inner),
         Type::Generic(g) => g.args.iter().any(contains_type_var),
+        Type::Tuple(elems) => elems.iter().any(contains_type_var),
         Type::Fn(ft) => {
             ft.params.iter().any(contains_type_var) || contains_type_var(&ft.ret)
         }
@@ -369,6 +370,15 @@ pub(super) fn subst_type(t: &Type, params: &[Symbol], args: &[Type]) -> Type {
         },
         Type::Optional(inner) => Type::Optional(Box::new(subst_type(inner, params, args))),
         Type::Weak(inner) => Type::Weak(Box::new(subst_type(inner, params, args))),
+        // A tuple type carries its element types structurally — recurse
+        // so a type parameter nested in a tuple (`(T, T)` as a fn / method
+        // signature or field type) is substituted. Without this arm the
+        // tuple fell through to the catch-all `clone()` and its inner
+        // `Object("T")` survived monomorphization, surfacing as
+        // "unknown type: T" at lowering.
+        Type::Tuple(elems) => {
+            Type::Tuple(elems.iter().map(|e| subst_type(e, params, args)).collect())
+        }
         Type::Fn(ft) => Type::func(
             ft.params.iter().map(|p| subst_type(p, params, args)).collect(),
             subst_type(&ft.ret, params, args),

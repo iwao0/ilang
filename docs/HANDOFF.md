@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 39 弾**。 generic + heap を probe して **monomorphize が tuple 型の中の型パラメータを置換しない**既存バグを検出・修正。 `(T, T)` / `(T?, T)` を generic fn/method のシグネチャや field 型に使うと「unknown type: T」で lowering 停止 (Optional / array / Map は置換されるのに tuple だけ漏れ)。 `subst_type` / `contains_type_var` に `Type::Tuple` arm を追加。 詳細は下の解決済み記録。
 - **第 38 弾** (クリーンラウンド)。 第 37 弾の exit-drain 修正の周辺を async 全方位で probe — **新規バグなし**。 timer (setTimeout) at exit・Promise.all over heap・Promise を field 保持・multi-await chain・never-settled promise の executor heap capture・**await rejection が await 前の heap local を解放**・reject 経路の shutdown drain を網羅し、 全て deinit 厳密 + leak なし + clean exit。 await-rejection ARC と reject 経路 drain を pin。 詳細は下の確認済み記録。
 - **第 37 弾**。 async へ攻撃面を移し、 **exit 時の event-loop drain がグローバル解放の後に走る順序バグ**を検出・修正。 pending promise 継続が保持する Box の `deinit` が top-level 配列 `deinits[0]` に触ると、 シャットダウンで解放済みグローバルを参照して **ランタイム OOB panic** (`deinit` 持ちの heap を await 跨ぎで保持する最小形で再現)。 drain を `__main` の top-level let 解放の **前**に emit して修正。 詳細は下の解決済み記録。
 - **第 36 弾**。 bare field 代入の **composite リテラル要素 wrap 欠落** という既存 SIGSEGV を検出・修正。 `pair = (box, b)` (field 型 `(Box?, Box)`) が tuple を `(Box, Box)` として構築し生 Box を `Box?` slot に格納 → 解放時に不整列ポインタ参照でクラッシュ。 bare 経路がヒント無し lowering を再利用していたのが原因 (第 33 弾の設計の取りこぼし)。 field 型を composite ヒントに渡して修正 (array `Box?[]` / map `Map<_,Box?>` の同族も同時に解消)。 詳細は下の解決済み記録。
@@ -88,6 +89,16 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 39 弾: monomorphize が tuple 型の中の型パラメータを置換しない (2026-06-13)
+
+generic × heap × 第 36 弾の tuple wrap を probe する過程で発見:
+
+- **症状**: generic fn / method のシグネチャ (param / return) や generic class の field に **tuple of T** (`(T, T)` / `(T?, T)` / `((T, T), T)`) を使うと、 呼び出し (= monomorphize) 時に **「mir lower: unknown type: T」で lowering 停止**。 `T?` / `T[]` / `Map<string, T>` は置換されるのに tuple だけ。 `let p: (T, T)` という **local 注釈は動く** (local はシグネチャに乗らない = monomorphize 対象外) ため見つかりにくかった。
+- **原因**: [monomorphize/class.rs](../crates/ilang-mir/src/monomorphize/class.rs) の `subst_type` が Object/TypeVar・Generic・Array・Optional・Weak・Fn は再帰置換するが **`Type::Tuple` の arm が無く** `_ => t.clone()` に落ちて、 tuple の要素にある `Object("T")` がそのまま生き残る。 兄弟関数 `contains_type_var` も同じく Tuple を見落としており、 tuple を包む generic の mangle 判定も誤っていた。
+- **修正**: 両関数に `Type::Tuple(elems)` arm を追加 (`subst_type` は各要素を再帰置換して再構築、 `contains_type_var` は要素のいずれかが型変数を含むか)。 Map は `Type::Generic` (base=Map) 経由で元から置換されていた。
+- **同族確認**: generic fn の `(T, T)` param / return、 method 戻り値 `(T, T)`、 入れ子 `((T, T), T)`、 tuple 内 Optional/array `(T?, T[])`、 generic class の `(T?, T)` field を bare 代入 (monomorphize 後の T→T? 要素 wrap も含めて第 36 弾の経路と合流) — 全て値正しく ARC 厳密 (deinit 500/round + churn delta=0)。 generic 本体内で opaque T の `.n` には触れない (checker の既存制約、 バグではない)。
+- fixture: `05_edge_cases/generic_tuple_type_param.il` (fn param/return・nested・generic class tuple field wrap を厳密 deinit 500 + churn delta=0)。 検証: workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [確認済み記録] 第 38 弾: async ARC 全方位 — 第 37 弾以外は健全 (2026-06-13)
 
