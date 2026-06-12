@@ -10,8 +10,9 @@ use crate::classes::{__release_object, __release_weak, __retain_object, __retain
 use crate::closures::{__release_closure, __retain_closure};
 use crate::enums::{__release_enum, __retain_enum};
 use crate::kind::{
-    KIND_ARRAY, KIND_CLOSURE, KIND_ENUM, KIND_MAP, KIND_OBJECT,
-    KIND_OPTIONAL, KIND_PROMISE, KIND_SET, KIND_STR, KIND_TUPLE, KIND_WEAK,
+    KIND_ARRAY, KIND_CLOSURE, KIND_ENUM, KIND_FIXED_BASE, KIND_MAP,
+    KIND_OBJECT, KIND_OPTIONAL, KIND_PROMISE, KIND_SET, KIND_STR,
+    KIND_TUPLE, KIND_WEAK,
 };
 use crate::maps::{__release_map, __retain_map};
 use crate::sets::{__release_set, __retain_set};
@@ -74,6 +75,15 @@ fn dispatch_release(ptr: i64, kind: i64) {
         KIND_ENUM => __release_enum(ptr),
         KIND_PROMISE => __release_promise(ptr),
         KIND_WEAK => __release_weak(ptr),
+        // Packed fixed-array tag (see `KIND_FIXED_BASE`): the field
+        // owned a header-less buffer — release each element's share
+        // and free it. Element pointers are read before the free
+        // inside `__release_fixed_array`, so deferral via the
+        // cascade queue stays safe.
+        k if k >= KIND_FIXED_BASE => {
+            let packed = k - KIND_FIXED_BASE;
+            crate::arrays::__release_fixed_array(ptr, packed / 16, packed % 16);
+        }
         _ => {}
     }
 }

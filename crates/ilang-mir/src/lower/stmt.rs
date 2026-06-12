@@ -190,6 +190,15 @@ impl<'a> BodyCx<'a> {
                             self.crepr_owned_locals.insert(lid);
                         }
                     }
+                    // Same ownership marking for fixed-length
+                    // arrays: a fresh literal's binding owns the
+                    // buffer + element shares; an alias (`let v =
+                    // p.items`) borrows and must never be swept.
+                    if matches!(&bind_ty, MirTy::Array { len: Some(_), .. })
+                        && value_is_fresh_object
+                    {
+                        self.fixed_owned_locals.insert(lid);
+                    }
                 }
                 // REPL: top-level let in __main with a registered slot
                 // → persist the value to a host-side cell so future

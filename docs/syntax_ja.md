@@ -856,6 +856,25 @@ xs.length                        // i64 を返す (組み込み)
 固定長レシーバを受け付けないので、伸長したい場合は `let a: i64[] =
 [1, 2, 3]` のように動的型を明示する必要があります。
 
+固定長配列の要素には heap 型 (class インスタンス・string 等) も
+使えます。値セマンティクスで管理され、ARC は要素単位で追跡されます:
+
+```rust
+class Box { n: i64
+    init(x: i64) { this.n = x } }
+
+let arr: Box[2] = [new Box(1), new Box(2)]   // 束縛がバッファを所有
+fn sum(a: Box[2]): i64 { a[0].n + a[1].n }   // 引数渡しは借用
+class Pack { items: Box[2] }                  // field は自分のバッファを所有
+// p.items = q.items は値コピー (要素を retain した新バッファ)
+```
+
+置ける場所は **class field・ローカル束縛・fn 引数** のみ。次は
+型エラーになります: 戻り値型に使う、他のコンテナ (動的配列 / Map /
+Set / tuple / Optional / enum payload) の構成要素にする、closure に
+キャプチャする、束縛全体を再代入する (`arr = [..]` — 要素の上書き
+`arr[i] = x` は可)。
+
 ```rust
 
 // 破壊的操作 (動的配列のみ。固定長は型エラー)

@@ -447,6 +447,17 @@ impl TypeChecker {
                 span: e.span,
             });
         }
+        // An array literal whose ELEMENTS are fixed-length
+        // heap-element arrays would make those buffers container
+        // cells — same placement rule as annotated composites.
+        // Nested array LITERALS are exempt: their inferred fixed
+        // length decays to a dynamic array in lowering.
+        if elements
+            .iter()
+            .any(|e| !matches!(&e.kind, ExprKind::Array(_)))
+        {
+            self.reject_fixed_heap_component(&elem_ty, _span)?;
+        }
         Ok(Type::Array {
             elem: Box::new(elem_ty),
             fixed: Some(elements.len()),
@@ -515,6 +526,16 @@ impl TypeChecker {
                 got: vt,
                 span: v.span,
             });
+        }
+        // Map cells can't hold a fixed-length heap-element array —
+        // same placement rule as annotated composites. Array
+        // literal values are exempt (they decay to dynamic arrays
+        // in lowering).
+        if entries
+            .iter()
+            .any(|(_, v)| !matches!(&v.kind, ExprKind::Array(_)))
+        {
+            self.reject_fixed_heap_component(&v_ty, _span)?;
         }
         Ok(Type::generic("Map", vec![k_ty, v_ty]))
     }

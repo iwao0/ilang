@@ -327,6 +327,51 @@ pub extern "C" fn __retain_array(arr_ptr: i64) {
     unsafe { crate::refcount::atomic_retain(rc_ptr) };
 }
 
+/// Fixed-length array (`T[N]`) lifecycle, heap-element case. A
+/// fixed array is a bare `__mir_alloc`'d buffer of `len` 8-byte
+/// pointer slots — no header, no rc. The OWNER (the binding the
+/// literal was built for, tracked by the lowerer) releases each
+/// element and frees the buffer; aliases are compile-time borrows
+/// and never reach these. `elem_kind == 0` (primitive / CRepr /
+/// handle elements) must never get here — those buffers keep the
+/// legacy lifecycle (the slots aren't 8-byte ARC pointers).
+#[unsafe(export_name = "$array.releaseFixed")]
+pub extern "C" fn __release_fixed_array(ptr: i64, len: i64, elem_kind: i64) {
+    if ptr == 0 {
+        return;
+    }
+    if elem_kind != 0 {
+        for i in 0..len {
+            let v = unsafe { *((ptr + i * 8) as *const i64) };
+            release_field_by_kind(v, elem_kind);
+        }
+    }
+    __mir_free(ptr, (len * 8).max(1));
+}
+
+/// Value-semantics copy of a fixed array — fresh `len * 8` buffer,
+/// slots memcpy'd, one retained share per element. The assignment
+/// paths use this when the source is NOT a fresh literal (a fresh
+/// literal's buffer transfers by pointer instead): storing the
+/// source pointer directly would alias two owners onto one buffer
+/// and double-free on their drops.
+#[unsafe(export_name = "$array.copyFixed")]
+pub extern "C" fn __copy_fixed_array(ptr: i64, len: i64, elem_kind: i64) -> i64 {
+    let dst = __mir_alloc((len * 8).max(1));
+    for i in 0..len {
+        let v = if ptr == 0 {
+            0
+        } else {
+            unsafe { *((ptr + i * 8) as *const i64) }
+        };
+        unsafe { *((dst + i * 8) as *mut i64) = v };
+        if elem_kind != 0 {
+            retain_field_by_kind(v, elem_kind);
+        }
+    }
+    dst
+}
+
 /// Release an array (`--rc`); free header + data buffer at rc 0.
 /// Cascade-releases each stored element via `release_field_by_kind`.
 #[unsafe(export_name = "$array.release")]

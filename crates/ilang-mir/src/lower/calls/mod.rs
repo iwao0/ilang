@@ -35,7 +35,7 @@ mod string_method;
 /// `@handle` structs are opaque, pointer-sized values with no ARC
 /// header and must therefore report `KIND_NONE` so the runtime
 /// cascade doesn't try to release the raw OS handle.
-pub(super) fn kind_tag_of_mir(ty: &MirTy, classes: &[ClassLayout]) -> i64 {
+pub(in crate::lower) fn kind_tag_of_mir(ty: &MirTy, classes: &[ClassLayout]) -> i64 {
     match ty {
         MirTy::Object(cid) => {
             if classes[cid.0 as usize].is_handle {

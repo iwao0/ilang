@@ -19,6 +19,15 @@ pub const KIND_PROMISE: i64 = 9;
 pub const KIND_SET: i64 = 10;
 pub const KIND_WEAK: i64 = 11;
 
+/// Fixed-length array (`T[N]`, ARC elements) field tag — a packed
+/// composite, not a plain kind: `KIND_FIXED_BASE + len * 16 +
+/// elem_kind`. The slot stores a header-less buffer pointer, so the
+/// drop cascade needs both the static length and the element kind
+/// to release it; plain `KIND_*` values can't carry them. `16`
+/// leaves room for every plain kind above (max 11) in the low
+/// nibble.
+pub const KIND_FIXED_BASE: i64 = 1000;
+
 /// `PK_*` tags — print kind used by `format_kind_id` and the
 /// per-field registration helpers.
 pub const PK_I64_SIG: i64 = 0;

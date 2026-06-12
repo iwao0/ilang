@@ -1267,7 +1267,7 @@ fn emit_aot_init(
                 prog,
                 &class_global,
                 print_kind_id_for_ty,
-                field_kind_tag,
+                |ty| field_kind_tag(ty, &prog.classes),
                 &mut sink,
             );
         }
@@ -1337,7 +1337,7 @@ fn emit_aot_init(
             };
             crate::compile::registration::emit_closure_fn_registrations(
                 prog,
-                |ty| field_kind_tag(ty),
+                |ty| field_kind_tag(ty, &prog.classes),
                 &mut sink,
             );
         }
@@ -1364,7 +1364,7 @@ fn emit_aot_init(
                 prog,
                 &enum_global,
                 |ty| print_kind_id_for_ty(ty),
-                |ty| field_kind_tag(ty),
+                |ty| field_kind_tag(ty, &prog.classes),
                 &mut sink,
             );
         }

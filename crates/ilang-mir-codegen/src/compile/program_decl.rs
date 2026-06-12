@@ -458,6 +458,12 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let release_closure_id = declare_unit_i64(module, "$closure.release")?;
     let retain_closure_id = declare_unit_i64(module, "$closure.retain")?;
     let release_array_id = declare_unit_i64(module, "$array.release")?;
+    // Fixed-array lifecycle pair: (ptr, len, elem_kind) -> void
+    // owner release, and (ptr, len, elem_kind) -> ptr value-copy
+    // (reached by name through the `FuncRef::Builtin` whitelist).
+    let release_fixed_array_id =
+        declare_ternary_i64_void(module, "$array.releaseFixed")?;
+    let _ = declare_ternary_i64(module, "$array.copyFixed")?;
     let retain_array_id = declare_unit_i64(module, "$array.retain")?;
     let release_optional_id = declare_unit_i64(module, "$optional.release")?;
     let retain_optional_id = declare_unit_i64(module, "$optional.retain")?;
@@ -942,6 +948,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 release_closure: release_closure_id,
                 retain_closure: retain_closure_id,
                 release_array: release_array_id,
+                release_fixed_array: release_fixed_array_id,
                 retain_array: retain_array_id,
                 release_optional: release_optional_id,
                 retain_optional: retain_optional_id,

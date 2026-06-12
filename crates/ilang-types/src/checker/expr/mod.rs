@@ -608,6 +608,22 @@ impl TypeChecker {
                             span,
                         });
                     }
+                    // Rebinding a fixed-length heap-element array is
+                    // unsupported: the binding may own its buffer or
+                    // borrow another owner's, and a reassignment
+                    // can't tell which old buffer (if any) to free.
+                    if let Type::Array { elem, fixed: Some(_) } = &var_ty {
+                        if self.fixed_elem_is_heap(elem) {
+                            return Err(TypeError::Unsupported {
+                                what: format!(
+                                    "reassignment of `{target}` ({var_ty}) — fixed-length \
+ arrays with heap elements can't be reassigned; \
+ overwrite the elements individually instead"
+                                ),
+                                span,
+                            });
+                        }
+                    }
                     let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
                     if !self.value_assignable(value, &v_ty, &var_ty) {
                         return Err(TypeError::Mismatch {
@@ -644,7 +660,18 @@ impl TypeChecker {
             ExprKind::Tuple(elements) => {
                 let mut tys = Vec::with_capacity(elements.len());
                 for e in elements {
-                    tys.push(self.check_expr(e, env, ret_ty, in_class, loop_depth)?);
+                    let et = self.check_expr(e, env, ret_ty, in_class, loop_depth)?;
+                    // Tuple cells can't hold a fixed-length
+                    // heap-element array (same placement rule as
+                    // annotated composites). Array LITERALS are
+                    // exempt: their inferred `fixed: Some(n)` is a
+                    // length marker that decays to a dynamic array
+                    // in lowering — only reads of declared fixed
+                    // bindings carry the header-less buffer.
+                    if !matches!(&e.kind, ExprKind::Array(_)) {
+                        self.reject_fixed_heap_component(&et, e.span)?;
+                    }
+                    tys.push(et);
                 }
                 Ok(Type::Tuple(tys.into()))
             }
@@ -679,6 +706,13 @@ impl TypeChecker {
             ExprKind::None => Ok(Type::Optional(Box::new(Type::Any))),
             ExprKind::Some(inner) => {
                 let it = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
+                // Optional cells can't hold a fixed-length
+                // heap-element array. Array literals are exempt —
+                // their inferred fixed length decays to a dynamic
+                // array in lowering.
+                if !matches!(&inner.kind, ExprKind::Array(_)) {
+                    self.reject_fixed_heap_component(&it, inner.span)?;
+                }
                 Ok(Type::Optional(Box::new(it)))
             }
             ExprKind::Await(inner) => {

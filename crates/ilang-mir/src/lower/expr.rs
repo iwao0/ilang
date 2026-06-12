@@ -478,6 +478,56 @@ impl<'a> BodyCx<'a> {
                 // so the f2eea6e3 point fix (`parent_is_crepr &&
                 // matches!(fty, Enum(_))`) is no longer needed —
                 // the variant itself encodes "inline integer slot".
+                // Fixed-length array field with ARC elements. The
+                // slot stores the buffer POINTER (non-CRepr objects
+                // keep one 8-byte cell per field), so:
+                //   * FRESH literal source — transfer the buffer:
+                //     its element shares (literal lowering minted
+                //     them) move to the field, no extra rc traffic.
+                //   * anything else (field read / local alias) —
+                //     `$array.copyFixed` mints a fresh buffer with
+                //     one retained share per element. Storing the
+                //     source pointer directly would put two owners
+                //     on one buffer → double free.
+                // The old occupant (skipped for init writes —
+                // zeroed slot) is a full owner: Release on the
+                // loaded value routes to `$array.releaseFixed`
+                // (elements + buffer) in codegen.
+                if let MirTy::Array { elem, len: Some(n) } = &fty {
+                    if self.is_arc_slot(elem) {
+                        let ekind = super::calls::kind_tag_of_mir(elem, self.classes);
+                        let n_v = self.const_int(MirTy::I64, *n as i64);
+                        let kind_v = self.const_int(MirTy::I64, ekind);
+                        let stored = if value_is_fresh {
+                            vv
+                        } else {
+                            let copy = self.fb.new_value(fty.clone());
+                            self.fb.push_inst(Inst::Call {
+                                dst: Some(copy),
+                                callee: FuncRef::Builtin(Symbol::intern(
+                                    "$array.copyFixed",
+                                )),
+                                args: Box::new([vv, n_v, kind_v]),
+                            });
+                            copy
+                        };
+                        if !*is_init {
+                            let old = self.fb.new_value(fty.clone());
+                            self.fb.push_inst(Inst::LoadField {
+                                dst: old,
+                                obj: ov,
+                                field: fid,
+                            });
+                            self.fb.push_inst(Inst::Release { value: old });
+                        }
+                        self.fb.push_inst(Inst::StoreField {
+                            obj: ov,
+                            field: fid,
+                            value: stored,
+                        });
+                        return Ok((self.const_unit(), MirTy::Unit));
+                    }
+                }
                 let is_heap = self.is_arc_slot(&fty);
                 if is_heap {
                     if !value_is_fresh {

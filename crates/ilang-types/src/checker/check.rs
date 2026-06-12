@@ -358,6 +358,7 @@ impl TypeChecker {
                         self.record_if_err(self.validate_type(&p.ty, p.span, &[]));
                     }
                     if let Some(r) = &m.ret {
+                        self.record_if_err(self.reject_fixed_heap_component(r, m.span));
                         self.record_if_err(self.validate_type(r, m.span, &[]));
                     }
                 }

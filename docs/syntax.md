@@ -1099,6 +1099,26 @@ mutating ops listed below (`push` / `pop` / `shift` / `unshift` /
 a literal that needs to grow must declare the dynamic type
 explicitly (`let a: i64[] = [1, 2, 3]`).
 
+Fixed-length arrays may hold heap elements (class instances,
+strings, …). They have value semantics and per-element ARC:
+
+```rust
+class Box { n: i64
+    init(x: i64) { this.n = x } }
+
+let arr: Box[2] = [new Box(1), new Box(2)]   // binding owns the buffer
+fn sum(a: Box[2]): i64 { a[0].n + a[1].n }   // argument pass is a borrow
+class Pack { items: Box[2] }                  // a field owns its own buffer
+// p.items = q.items is a value COPY (fresh buffer, elements retained)
+```
+
+Allowed placements are **class fields, local bindings, and fn
+parameters** only. These are type errors: using one as a return
+type, as a component of another container (dynamic array / Map /
+Set / tuple / Optional / enum payload), capturing one in a
+closure, or reassigning the whole binding (`arr = [..]` — element
+writes `arr[i] = x` are fine).
+
 ```rust
 
 // Mutating ops (dynamic arrays only — fixed-length errors)

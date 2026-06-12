@@ -72,6 +72,9 @@ impl TypeChecker {
                 VariantPayload::Unit => {}
                 VariantPayload::Tuple(tys) => {
                     for t in tys {
+                        // Payload cells are heap container slots —
+                        // same restriction as other composites.
+                        self.reject_fixed_heap_component(t, v.span)?;
                         self.validate_type(t, v.span, &e.type_params)?;
                     }
                 }
@@ -87,6 +90,7 @@ impl TypeChecker {
                                 span: f.span,
                             });
                         }
+                        self.reject_fixed_heap_component(&f.ty, f.span)?;
                         self.validate_type(&f.ty, f.span, &e.type_params)?;
                     }
                 }
@@ -550,6 +554,19 @@ impl TypeChecker {
             self.validate_type(ty, *span, &class_params)?;
         }
         if let Some(ret) = &f.ret {
+            // Fixed-length heap-element arrays can't be returned:
+            // the value is a header-less buffer whose ownership the
+            // return ABI doesn't model (no rc to hand the caller).
+            if let Type::Array { elem, fixed: Some(_) } = ret {
+                if self.fixed_elem_is_heap(elem) {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "return type {ret} (fixed-length arrays with heap elements can't be returned — copy into a dynamic array or a class field instead)"
+                        ),
+                        span: f.span,
+                    });
+                }
+            }
             self.validate_type(ret, f.span, &class_params)?;
         }
         // `@extern` fns have no body — the runtime supplies the

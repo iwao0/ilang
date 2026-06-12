@@ -253,6 +253,24 @@ impl<'a> BodyCx<'a> {
             // enum / static); they need no env entry.
         }
 
+        // Fixed-length heap-element arrays can't be captured: the
+        // capture table records one (offset, kind) per slot and a
+        // header-less buffer-with-static-length has no kind the
+        // closure-release cascade could dispatch on without
+        // double-freeing the owner's elements.
+        for c in &captures {
+            if let MirTy::Array { len: Some(_), elem } = &c.ty {
+                if self.is_arc_slot(elem) {
+                    return Err(LowerError::Other(format!(
+                        "closure captures `{}`, a fixed-length array with heap \
+                         elements — not supported; copy the elements into a \
+                         dynamic array first",
+                        c.name
+                    )));
+                }
+            }
+        }
+
         // Allocate a fresh func id and build a placeholder. Resolve
         // param/ret types now so the synthesised fn has a stable sig
         // for any subsequent callers.

@@ -472,9 +472,11 @@ impl TypeChecker {
                 }
             }
             Type::Array { elem, .. } => {
+                self.reject_fixed_heap_component(elem, span)?;
                 self.validate_type(elem, span, type_params_in_scope)?;
             }
             Type::Optional(inner) => {
+                self.reject_fixed_heap_component(inner, span)?;
                 self.validate_type(inner, span, type_params_in_scope)?;
             }
             Type::Weak(inner) => {
@@ -513,17 +515,21 @@ impl TypeChecker {
             }
             Type::Tuple(elems) => {
                 for e in elems {
+                    self.reject_fixed_heap_component(e, span)?;
                     self.validate_type(e, span, type_params_in_scope)?;
                 }
             }
             Type::Fn(ft) => {
                 for p in &ft.params {
+                    self.reject_fixed_heap_component(p, span)?;
                     self.validate_type(p, span, type_params_in_scope)?;
                 }
+                self.reject_fixed_heap_component(&ft.ret, span)?;
                 self.validate_type(&ft.ret, span, type_params_in_scope)?;
             }
             Type::Generic(g) => {
                 for a in &g.args {
+                    self.reject_fixed_heap_component(a, span)?;
                     self.validate_type(a, span, type_params_in_scope)?;
                 }
             }
@@ -532,4 +538,61 @@ impl TypeChecker {
         Ok(())
     }
 
+    /// `true` when a fixed-length array (`T[N]`) with this element
+    /// type owns rc'd heap pointers — the per-slot ARC bookkeeping
+    /// case. Primitives, C-side types, `@extern(C)` structs and
+    /// `@handle` classes are inline value data (no rc). Unknown
+    /// names (type parameters) count as heap conservatively: the
+    /// placement restriction then applies to `T[N]` uniformly
+    /// instead of varying per instantiation.
+    pub(super) fn fixed_elem_is_heap(&self, elem: &Type) -> bool {
+        match elem {
+            Type::I8 | Type::I16 | Type::I32 | Type::I64
+            | Type::U8 | Type::U16 | Type::U32 | Type::U64
+            | Type::F32 | Type::F64 | Type::Bool | Type::Unit
+            | Type::RawPtr { .. } | Type::CVoid | Type::CChar
+            | Type::Size | Type::SSize | Type::Simd { .. }
+            | Type::Error | Type::Any => false,
+            Type::Object(name) => {
+                if let Some(cs) = self.classes.get(name) {
+                    !cs.is_repr_c && !cs.is_handle
+                } else if let Some(es) = self.enums.get(name) {
+                    let _ = es;
+                    true
+                } else {
+                    // interface / type parameter — conservative.
+                    true
+                }
+            }
+            // Str / arrays / tuples / optionals / fn values /
+            // generics (Map / Set / Promise / Box<T>) / enums /
+            // weaks — all rc'd heap cells.
+            _ => true,
+        }
+    }
+
+    /// Placement restriction for fixed-length arrays with heap
+    /// elements: they may stand alone (class field, local binding,
+    /// fn parameter) but not sit inside another composite type —
+    /// the containers' cell cascade has no representation for a
+    /// header-less buffer-with-static-length, so a `Box[2]` inside
+    /// e.g. a tuple slot would leak or mis-free. Called on every
+    /// component type `validate_type` recurses into.
+    pub(super) fn reject_fixed_heap_component(
+        &self,
+        component: &Type,
+        span: Span,
+    ) -> Result<(), TypeError> {
+        if let Type::Array { elem, fixed: Some(_) } = component {
+            if self.fixed_elem_is_heap(elem) {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "{component} as a component of another type (fixed-length arrays with heap elements are only supported as a class field, a local binding, or a fn parameter)"
+                    ),
+                    span,
+                });
+            }
+        }
+        Ok(())
+    }
 }

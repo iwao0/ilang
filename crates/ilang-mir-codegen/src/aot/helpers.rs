@@ -40,7 +40,7 @@ pub(super) fn print_kind_id_for_ty(ty: &MirTy) -> i64 {
 
 /// Map a MIR field type to the runtime's `KIND_*` cascade tag.
 /// Returns 0 (`KIND_NONE`) for primitives that need no cascade.
-pub(super) fn field_kind_tag(ty: &MirTy) -> i64 {
+pub(super) fn field_kind_tag(ty: &MirTy, classes: &[ilang_mir::ClassLayout]) -> i64 {
     // Must mirror `compile::print_kind::kind_tag_of` — divergence
     // here means AOT registers heap-typed fields as KIND_NONE and
     // the release-cascade silently skips them. Pre-fix, Weak / Set
@@ -51,11 +51,39 @@ pub(super) fn field_kind_tag(ty: &MirTy) -> i64 {
     match ty {
         MirTy::Object(_) => 1, // KIND_OBJECT
         // Only dynamic arrays (`len: None`) are standalone heap blocks
-        // with an ARC header; fixed-length arrays (`T[N]`) are inline
-        // value data freed with their container, so they must not be
-        // cascaded as a heap array pointer (→ bogus free / corruption).
+        // with an ARC header; fixed-length arrays (`T[N]`) have no
+        // header. Primitive / CRepr / handle elements → inline value
+        // data freed with the container, no cascade (cascading as a
+        // heap array pointer → bogus free / corruption). ARC elements
+        // → the slot owns a header-less buffer pointer; pack length +
+        // element kind into the composite tag the runtime cascade
+        // decodes (`KIND_FIXED_BASE + n*16 + ekind`).
         MirTy::Array { len: None, .. } => 2, // KIND_ARRAY
-        MirTy::Array { len: Some(_), .. } => 0, // KIND_NONE (inline)
+        MirTy::Array { len: Some(n), elem } => {
+            let ekind = match &**elem {
+                MirTy::Object(cid) => {
+                    let l = &classes[cid.0 as usize];
+                    if l.is_handle
+                        || matches!(
+                            l.repr,
+                            ilang_mir::ClassRepr::CRepr
+                                | ilang_mir::ClassRepr::CPacked
+                                | ilang_mir::ClassRepr::CUnion
+                        )
+                    {
+                        0
+                    } else {
+                        1
+                    }
+                }
+                other => field_kind_tag(other, classes),
+            };
+            if ekind == 0 {
+                0 // KIND_NONE (inline value data)
+            } else {
+                1000 + (*n as i64) * 16 + ekind // KIND_FIXED_BASE
+            }
+        }
         MirTy::Optional(_) => 3, // KIND_OPTIONAL
         MirTy::Tuple(_) => 4,    // KIND_TUPLE
         MirTy::Map { .. } => 5,  // KIND_MAP

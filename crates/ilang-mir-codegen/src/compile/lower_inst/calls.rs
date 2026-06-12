@@ -338,6 +338,7 @@ pub(super) fn lower_call<M: Module>(
             if matches!(
                 sym.as_str(),
                 "$array.dataPtr"
+                    | "$array.copyFixed"
                     | "$enum.box"
                     | "$ffi.arrayFromCArray"
                     | "$repl.loadSlot"
