@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 41 弾**。 tuple をコンテナに格納する ARC を probe して、 **index 代入 `coll[i] = (box, b)` が tuple 要素の wrap を欠く** 既存 SIGSEGV を検出・修正。 `arr[0] = (box, b)` (`(Box?, Box)[]`) / `m["k"] = (box, b)` (`Map<_, (Box?, Box)>`) が slot0 を wrap せず生 Box を `Box?` slot に格納 → 解放時クラッシュ (リテラル `[(box,b)]` は元から hint 済みで無事)。 `AssignIndex` の RHS を要素型ヒント付き lowering に変更 (第 36 弾と同型)。 詳細は下の解決済み記録。
 - **第 40 弾**。 第 39 弾の tuple subst 修正の **同族探索が不完全**だったのを是正。 型パラメータ置換 (`subst_type`) だけでなく、 **concrete な generic instantiation を mangle する rewrite 群**も tuple を見落としていた: `rewrite_type` (generic class)・`rewrite_enum_refs_in_type` (generic enum)・`walk_types_pre` (instantiation 発見)。 `(Inner<i64>, i64)` / `(Maybe<i64>, i64)` を field / param / return に使うと「unsupported in M1: user-defined generic types」で停止。 3 関数に `Type::Tuple` arm を追加。 詳細は下の解決済み記録。
 - **第 39 弾**。 generic + heap を probe して **monomorphize が tuple 型の中の型パラメータを置換しない**既存バグを検出・修正。 `(T, T)` / `(T?, T)` を generic fn/method のシグネチャや field 型に使うと「unknown type: T」で lowering 停止 (Optional / array / Map は置換されるのに tuple だけ漏れ)。 `subst_type` / `contains_type_var` に `Type::Tuple` arm を追加。 詳細は下の解決済み記録。
 - **第 38 弾** (クリーンラウンド)。 第 37 弾の exit-drain 修正の周辺を async 全方位で probe — **新規バグなし**。 timer (setTimeout) at exit・Promise.all over heap・Promise を field 保持・multi-await chain・never-settled promise の executor heap capture・**await rejection が await 前の heap local を解放**・reject 経路の shutdown drain を網羅し、 全て deinit 厳密 + leak なし + clean exit。 await-rejection ARC と reject 経路 drain を pin。 詳細は下の確認済み記録。
@@ -90,6 +91,16 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 41 弾: index 代入の RHS が composite 要素 wrap を欠いて SIGSEGV (2026-06-13)
+
+tuple をコンテナに入れる ARC を probe する過程で発見。 第 36 弾 (bare field 代入) と同じ「composite リテラルの要素 wrap 欠落」が、 **index 代入経路**に残っていた:
+
+- **症状**: `arr[0] = (new Box(7), new Box(3))` (`arr: (Box?, Box)[]`) や `m["k"] = (...)` (`Map<_, (Box?, Box)>`) が **SIGSEGV**。 配列/Map の **リテラル**形 (`[(box, b)]` / `{"k": (box, b)}`) と **bare tuple** (`let t: (Box?, Box) = (box, b)`) は無事、 **index 代入だけ**落ちる。
+- **原因**: [expr.rs](../crates/ilang-mir/src/lower/expr.rs) の `AssignIndex` が RHS を **ヒント無し**で lower し (`lower_expr(value)`)、 その後 slot 型へ **値全体を `coerce`** していた。 `coerce` は値自身の `T → T?` wrap しか見ず、 tuple の **内側要素** (`(Box, Box) → (Box?, Box)` の slot0) を wrap しないため、 生 Box が `Box?` slot に入り解放カスケードで不整列ポインタ参照 → crash。
+- **修正**: `AssignIndex` の RHS を **slot の要素型 (Array の elem / Map の val) をヒントに `lower_composite_with_hint`** で lower (第 36 弾の bare field・第 25 弾の container store と同じ役割分担)。 tuple/array/map リテラルが宣言要素型で構築され、 slot0 が `lower_tuple_literal_with_hint` で wrap される。 非 composite RHS は従来どおり `lower_expr` にフォールバック。
+- **同族確認**: array index 代入・Map index 代入の両方で `(Box?, Box)` slot0 wrap を Optional 越し match で実体確認しつつ deinit 厳密 (array 500/round・map churn)・delta=0。 array/Map の heap tuple リテラル・要素上書き (旧 tuple の Box 解放)・Optional<heap tuple> も probe して**元から健全**。
+- fixture: `05_edge_cases/index_store_tuple_element_wrap.il` (array/Map の index 代入 tuple 要素 wrap を厳密 deinit 500 + churn delta=0)。 検証: workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 40 弾: tuple 再帰ギャップの同族 3 関数 — 第 39 弾の取りこぼし (2026-06-13)
 

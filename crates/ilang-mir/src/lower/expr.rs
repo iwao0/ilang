@@ -852,7 +852,26 @@ impl<'a> BodyCx<'a> {
                 let index_is_fresh = self.is_fresh_object_expr(index);
                 let (av, aty) = self.lower_expr(obj)?;
                 let (iv, ity) = self.lower_expr(index)?;
-                let (vv, vty) = self.lower_expr(value)?;
+                // Lower the rhs with the slot's declared type as a hint
+                // so a composite literal whose ELEMENTS need wrapping is
+                // built correctly — e.g. `arr[i] = (box, b)` against a
+                // `(Box?, Box)[]` must wrap slot 0 to `Box?`. The
+                // whole-value `coerce` below only handles a `T -> T?`
+                // wrap of the value itself, not its inner elements, so
+                // without the hint a raw object was stored in the `Box?`
+                // slot and the release cascade crashed (SIGSEGV).
+                let store_hint: Option<MirTy> = match &aty {
+                    MirTy::Array { elem, .. } => Some((**elem).clone()),
+                    MirTy::Map { val, .. } => Some((**val).clone()),
+                    _ => None,
+                };
+                let (vv, vty) = match store_hint
+                    .as_ref()
+                    .and_then(|t| self.lower_composite_with_hint(value, t))
+                {
+                    Some(res) => res?,
+                    None => self.lower_expr(value)?,
+                };
                 match aty {
                     MirTy::Array { ref elem, .. } => {
                         let elem_ty = (**elem).clone();
