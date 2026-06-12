@@ -128,7 +128,7 @@ impl<'a> BodyCx<'a> {
             // map's construction `set` retains the cell, so the
             // copy's own +1 is a transient released after the
             // NewMap below (mark it like a fresh value).
-            let vv = match self.copy_fixed_for_cell(vv, &ev) {
+            let vv = match self.copy_fixed_for_cell(vv, &ev, val_is_fresh) {
                 Some(copy) => {
                     fresh_transients.push(copy);
                     copy
@@ -213,7 +213,7 @@ impl<'a> BodyCx<'a> {
             };
             // Fixed-length-array elements take a value copy (the
             // copy is the array's owned +1; skip the retain below).
-            let (coerced, fixed_copied) = match self.copy_fixed_for_cell(coerced, &target) {
+            let (coerced, fixed_copied) = match self.copy_fixed_for_cell(coerced, &target, elem_is_fresh) {
                 Some(copy) => (copy, true),
                 None => (coerced, false),
             };
@@ -322,7 +322,7 @@ impl<'a> BodyCx<'a> {
             };
             // Fixed-length-array elements take a value copy (the
             // copy is the array's owned +1; skip the retain below).
-            let (coerced, fixed_copied) = match self.copy_fixed_for_cell(coerced, &ty) {
+            let (coerced, fixed_copied) = match self.copy_fixed_for_cell(coerced, &ty, elem_is_fresh) {
                 Some(copy) => (copy, true),
                 None => (coerced, false),
             };
@@ -370,7 +370,7 @@ impl<'a> BodyCx<'a> {
             let (v, t) = self.lower_expr(it)?;
             // Fixed-length-array slots take a value copy (the copy
             // is the tuple's owned +1; skip the retain below).
-            let (v, copied) = match self.copy_fixed_for_cell(v, &t) {
+            let (v, copied) = match self.copy_fixed_for_cell(v, &t, elem_is_fresh) {
                 Some(copy) => (copy, true),
                 None => (v, false),
             };
@@ -437,7 +437,7 @@ impl<'a> BodyCx<'a> {
                 _ => (v0, t0),
             };
             // Fixed-length-array slots take a value copy.
-            let (v, copied) = match self.copy_fixed_for_cell(v, &t) {
+            let (v, copied) = match self.copy_fixed_for_cell(v, &t, elem_is_fresh) {
                 Some(copy) => (copy, true),
                 None => (v, false),
             };
@@ -563,7 +563,7 @@ impl<'a> BodyCx<'a> {
         // Fixed-of-arc inner: value copy instead (see
         // `copy_fixed_for_cell`); the retain above is a no-op for
         // fixed arrays anyway.
-        let iv = match self.copy_fixed_for_cell(iv, inner_ty) {
+        let iv = match self.copy_fixed_for_cell(iv, inner_ty, value_is_fresh) {
             Some(copy) => copy,
             None => {
                 if needs_retain {

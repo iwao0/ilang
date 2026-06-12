@@ -264,7 +264,7 @@ impl<'a> BodyCx<'a> {
             if c.is_cell {
                 continue;
             }
-            if let Some(copy) = self.copy_fixed_for_cell(*cv, &c.ty) {
+            if let Some(copy) = self.copy_fixed_for_cell(*cv, &c.ty, false) {
                 *cv = copy;
                 adopted_fixed.insert(copy);
             }

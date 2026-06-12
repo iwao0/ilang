@@ -576,24 +576,6 @@ impl<'a> BodyCx<'a> {
             ExprKind::Continue => self.lower_continue(),
             ExprKind::Return(v) => self.lower_return(v.as_deref()),
             ExprKind::Assign { target, value } => {
-                // Rebinding a fixed-length heap-element array is
-                // unsupported (the binding may own or alias its
-                // buffer — see the checker's Assign rule). Direct
-                // code is checker-rejected; this catches the same
-                // shape arriving through generic instantiation.
-                match self.env.lookup_binding(*target) {
-                    Some(Binding::Local(_, MirTy::Array { len: Some(_), ref elem }))
-                    | Some(Binding::Ssa(_, MirTy::Array { len: Some(_), ref elem }))
-                        if self.is_arc_slot(elem) =>
-                    {
-                        return Err(LowerError::Other(format!(
-                            "`{target}` is a fixed-length array with heap elements \
-                             — reassignment is not supported; overwrite the \
-                             elements individually instead"
-                        )));
-                    }
-                    _ => {}
-                }
                 // Pattern: `s = s + expr` with both sides typed as
                 // string. The MIR Local for `s` is provably the only
                 // holder of its buffer (assignment retires the
@@ -910,7 +892,7 @@ impl<'a> BodyCx<'a> {
                 // Fixed-length heap-element array inner — the cell
                 // takes a VALUE COPY (no rc to share; storing the
                 // pointer would double-own the source's buffer).
-                let iv = if let Some(copy) = self.copy_fixed_for_cell(iv0, &ity) {
+                let iv = if let Some(copy) = self.copy_fixed_for_cell(iv0, &ity, value_is_fresh) {
                     copy
                 } else {
                     // `some(arr)` where `arr` is an aliased Var that the
@@ -962,7 +944,7 @@ impl<'a> BodyCx<'a> {
                         let elem_is_heap = self.is_arc_slot(&elem_ty);
                         // Fixed-length-array elements have value
                         // semantics: the cell takes a copy on store.
-                        let vv_slot = match self.copy_fixed_for_cell(vv_slot, &elem_ty) {
+                        let vv_slot = match self.copy_fixed_for_cell(vv_slot, &elem_ty, value_is_fresh) {
                             Some(copy) => copy,
                             None => {
                                 if elem_is_heap && !value_is_fresh {

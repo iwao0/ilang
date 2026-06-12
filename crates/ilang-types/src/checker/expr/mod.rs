@@ -608,22 +608,6 @@ impl TypeChecker {
                             span,
                         });
                     }
-                    // Rebinding a fixed-length heap-element array is
-                    // unsupported: the binding may own its buffer or
-                    // borrow another owner's, and a reassignment
-                    // can't tell which old buffer (if any) to free.
-                    if let Type::Array { elem, fixed: Some(_) } = &var_ty {
-                        if self.fixed_elem_is_heap(elem) {
-                            return Err(TypeError::Unsupported {
-                                what: format!(
-                                    "reassignment of `{target}` ({var_ty}) — fixed-length \
- arrays with heap elements can't be reassigned; \
- overwrite the elements individually instead"
-                                ),
-                                span,
-                            });
-                        }
-                    }
                     let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
                     if !self.value_assignable(value, &v_ty, &var_ty) {
                         return Err(TypeError::Mismatch {

@@ -150,6 +150,7 @@ pub(super) struct StrIds {
     pub(super) array_shift: cranelift_module::FuncId,
     pub(super) array_unshift: cranelift_module::FuncId,
     pub(super) array_fill: cranelift_module::FuncId,
+    pub(super) array_fill_copy: cranelift_module::FuncId,
     pub(super) array_sort: cranelift_module::FuncId,
     pub(super) str_split: cranelift_module::FuncId,
     pub(super) virt_dispatch: cranelift_module::FuncId,

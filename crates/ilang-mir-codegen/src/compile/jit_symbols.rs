@@ -211,6 +211,7 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("$array.shift", ilang_runtime::__array_shift as *const u8);
     jit_builder.symbol("$array.unshift", ilang_runtime::__array_unshift as *const u8);
     jit_builder.symbol("$array.fill", ilang_runtime::__array_fill as *const u8);
+    jit_builder.symbol("$array.fillCopy", ilang_runtime::__array_fill_copy as *const u8);
     jit_builder.symbol("$array.sort", ilang_runtime::__array_sort as *const u8);
     jit_builder.symbol("$array.fixedToDyn", ilang_runtime::__fixed_to_dyn as *const u8);
     jit_builder.symbol("$enum.box", ilang_runtime::__enum_box as *const u8);

@@ -412,6 +412,7 @@ pub(super) fn lower_call<M: Module>(
                 "array_shift" => Some(str_ids.array_shift),
                 "array_unshift" => Some(str_ids.array_unshift),
                 "array_fill" => Some(str_ids.array_fill),
+                "array_fill_copy" => Some(str_ids.array_fill_copy),
                 "array_sort" => Some(str_ids.array_sort),
                 "str_split" => Some(str_ids.str_split),
                 "map_new_object" => Some(map_ids.new_object),

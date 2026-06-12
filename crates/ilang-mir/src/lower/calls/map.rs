@@ -91,7 +91,7 @@ impl<'a> BodyCx<'a> {
             // runtime's `map_set` retains the cell like any heap
             // value, so the copy's own +1 becomes a transient that
             // the post-call release below drops (mark it fresh).
-            let (v_ext, arg_is_fresh) = match self.copy_fixed_for_cell(v_ext, &vty) {
+            let (v_ext, arg_is_fresh) = match self.copy_fixed_for_cell(v_ext, &vty, arg_is_fresh) {
                 Some(copy) => (copy, true),
                 None => (v_ext, arg_is_fresh),
             };

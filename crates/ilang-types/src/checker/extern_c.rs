@@ -524,22 +524,6 @@ impl TypeChecker {
                 for p in &ft.params {
                     self.validate_type(p, span, type_params_in_scope)?;
                 }
-                // Fn-typed values can't RETURN a fixed-length
-                // heap-element array — same rule as fn declarations
-                // (see the return-type check in decls.rs).
-                if let Type::Array { elem, fixed: Some(_) } = &ft.ret {
-                    if self.fixed_elem_is_heap(elem) {
-                        return Err(TypeError::Unsupported {
-                            what: format!(
-                                "fn type returning {} (fixed-length arrays with \
-                                 heap elements can't be returned — copy into a \
-                                 dynamic array instead)",
-                                ft.ret
-                            ),
-                            span,
-                        });
-                    }
-                }
                 self.validate_type(&ft.ret, span, type_params_in_scope)?;
             }
             Type::Generic(g) => {
@@ -552,37 +536,5 @@ impl TypeChecker {
         Ok(())
     }
 
-    /// `true` when a fixed-length array (`T[N]`) with this element
-    /// type owns rc'd heap pointers — the per-slot ARC bookkeeping
-    /// case. Primitives, C-side types, `@extern(C)` structs and
-    /// `@handle` classes are inline value data (no rc). Unknown
-    /// names (type parameters) count as heap conservatively: the
-    /// placement restriction then applies to `T[N]` uniformly
-    /// instead of varying per instantiation.
-    pub(super) fn fixed_elem_is_heap(&self, elem: &Type) -> bool {
-        match elem {
-            Type::I8 | Type::I16 | Type::I32 | Type::I64
-            | Type::U8 | Type::U16 | Type::U32 | Type::U64
-            | Type::F32 | Type::F64 | Type::Bool | Type::Unit
-            | Type::RawPtr { .. } | Type::CVoid | Type::CChar
-            | Type::Size | Type::SSize | Type::Simd { .. }
-            | Type::Error | Type::Any => false,
-            Type::Object(name) => {
-                if let Some(cs) = self.classes.get(name) {
-                    !cs.is_repr_c && !cs.is_handle
-                } else if let Some(es) = self.enums.get(name) {
-                    let _ = es;
-                    true
-                } else {
-                    // interface / type parameter — conservative.
-                    true
-                }
-            }
-            // Str / arrays / tuples / optionals / fn values /
-            // generics (Map / Set / Promise / Box<T>) / enums /
-            // weaks — all rc'd heap cells.
-            _ => true,
-        }
-    }
 
 }

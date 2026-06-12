@@ -136,7 +136,7 @@ impl<'a> BodyCx<'a> {
                 // during teardown of `recursive_method_optional_tree`,
                 // where calls like `new Tree(10, l, r)` rely on this
                 // coercion to wrap the local heap arguments.
-                let v = match self.copy_fixed_for_cell(v, inner) {
+                let v = match self.copy_fixed_for_cell(v, inner, false) {
                     // Fixed-of-arc inner: the cell owns a value
                     // copy (no rc to share).
                     Some(copy) => copy,

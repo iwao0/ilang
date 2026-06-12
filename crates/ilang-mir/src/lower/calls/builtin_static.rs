@@ -178,7 +178,7 @@ impl<'a> BodyCx<'a> {
         }
         let v_is_fresh = self.is_fresh_object_expr(&args[1]);
         let (vv, vty) = self.lower_expr(&args[1])?;
-        let vv = match self.copy_fixed_for_cell(vv, &vty) {
+        let vv = match self.copy_fixed_for_cell(vv, &vty, v_is_fresh) {
             Some(copy) => copy,
             None => {
                 if !v_is_fresh && self.is_arc_heap(&vty) {
@@ -246,7 +246,7 @@ impl<'a> BodyCx<'a> {
         // Fixed-length-array values: the promise cell takes a value
         // copy (its own +1 — consumed like a fresh transfer, so no
         // borrow retain).
-        let vv = match self.copy_fixed_for_cell(vv, &vty) {
+        let vv = match self.copy_fixed_for_cell(vv, &vty, arg_is_fresh) {
             Some(copy) => copy,
             None => {
                 if !arg_is_fresh && self.is_arc_heap(&vty) {

@@ -102,7 +102,7 @@ impl<'a> BodyCx<'a> {
         // eventually release every stored element. Fixed-length-
         // array elements take a value COPY instead: the copy's own
         // +1 is what the array stores.
-        let coerced = match self.copy_fixed_for_cell(coerced, elem) {
+        let coerced = match self.copy_fixed_for_cell(coerced, elem, value_is_fresh) {
             Some(copy) => copy,
             None => {
                 if !value_is_fresh {
@@ -460,7 +460,7 @@ impl<'a> BodyCx<'a> {
         let (coerced, _) = self.lower_arg_to(&args[0], Some(elem))?;
         // See `lower_array_push` — fixed-length-array elements take
         // a value copy.
-        let coerced = match self.copy_fixed_for_cell(coerced, elem) {
+        let coerced = match self.copy_fixed_for_cell(coerced, elem, value_is_fresh) {
             Some(copy) => copy,
             None => {
                 if !value_is_fresh {
@@ -486,16 +486,22 @@ impl<'a> BodyCx<'a> {
         if args.len() != 1 {
             return Err(LowerError::Other("Array.fill takes 1 arg".into()));
         }
-        // `fill` would put ONE shared fixed-array value into every
-        // slot (the runtime retains the same pointer per cell) —
-        // that breaks the per-cell value semantics. Per-slot copies
-        // need a runtime change; reject until then.
-        self.forbid_fixed_in_cell(elem, "Array.fill with a fixed-length-array element")?;
         let value_is_fresh = self.is_fresh_object_expr(&args[0]);
         let (coerced, vty) = self.lower_arg_to(&args[0], Some(elem))?;
+        // Fixed-length-array elements: `$array.fillCopy` stores an
+        // independent shallow copy per slot (plain `fill` retains
+        // one shared pointer per cell — fine for reference-
+        // semantics elements, wrong for value-semantics `T[N]`).
+        let fill_builtin = if matches!(elem, MirTy::Array { len: Some(_), .. })
+            && self.is_arc_slot(elem)
+        {
+            "array_fill_copy"
+        } else {
+            "array_fill"
+        };
         self.fb.push_inst(Inst::Call {
             dst: None,
-            callee: FuncRef::Builtin(Symbol::intern("array_fill")),
+            callee: FuncRef::Builtin(Symbol::intern(fill_builtin)),
             args: Box::new([ov, coerced]),
         });
         // host_array_fill retains the value once per slot it fills —

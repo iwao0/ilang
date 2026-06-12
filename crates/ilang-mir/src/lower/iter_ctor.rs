@@ -279,7 +279,7 @@ impl<'a> BodyCx<'a> {
                     // rc==0 (match_fresh_scrutinee.il regression).
                     // Fixed-of-arc payload cell: value copy (see
                     // `copy_fixed_for_cell`).
-                    let coerced = match self.copy_fixed_for_cell(coerced, &tys[i]) {
+                    let coerced = match self.copy_fixed_for_cell(coerced, &tys[i], arg_is_fresh) {
                         Some(copy) => copy,
                         None => {
                             let needs_retain =
@@ -317,7 +317,7 @@ impl<'a> BodyCx<'a> {
                     // See tuple-variant branch above — same composite
                     // hint propagation reason.
                     let (coerced, _) = self.lower_arg_to(ae, Some(&fty))?;
-                    let coerced = match self.copy_fixed_for_cell(coerced, &fty) {
+                    let coerced = match self.copy_fixed_for_cell(coerced, &fty, arg_is_fresh) {
                         Some(copy) => copy,
                         None => {
                             let needs_retain =

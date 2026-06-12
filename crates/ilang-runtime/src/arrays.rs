@@ -999,6 +999,36 @@ pub extern "C" fn __array_fill(arr: i64, value: i64) {
     }
 }
 
+/// `fill` for fixed-length-array elements: each slot gets its OWN
+/// shallow copy of `value` (value semantics — the plain `fill`
+/// retains one shared pointer per slot, which is right for
+/// reference-semantics elements but would alias every cell of a
+/// `Box[2][]`). The caller's transient +1 on `value` stays the
+/// caller's to drop, mirroring `$array.fill`.
+#[unsafe(export_name = "$array.fillCopy")]
+pub extern "C" fn __array_fill_copy(arr: i64, value: i64) {
+    if arr == 0 {
+        return;
+    }
+    unsafe {
+        let h = arr as *const i64;
+        let len = *h;
+        let data = *h.add(2);
+        let elem_tag = *h.add(4);
+        let stride = *h.add(5);
+        for i in 0..len {
+            // Copy BEFORE releasing the occupant — `arr.fill(arr[0])`
+            // aliases value with slot 0.
+            let copy = __copy_array_shallow(value);
+            if elem_tag != KIND_NONE {
+                let old = load_packed(data, i, stride);
+                release_field_by_kind(old, elem_tag);
+            }
+            store_packed(data, i, stride, copy);
+        }
+    }
+}
+
 /// Comparator-based stable sort. Builds a new array containing
 /// each source cell (with a fresh retain on heap kinds) and orders
 /// them by `cmp(a, b)`. `cmp` returns negative / zero / positive

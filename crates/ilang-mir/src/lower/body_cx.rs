@@ -1158,30 +1158,6 @@ impl<'a> BodyCx<'a> {
         }
     }
 
-    /// Backstop for container kinds that DON'T yet copy fixed-length
-    /// heap-element arrays on store (tuple slots pack cell kinds
-    /// into 4 bits; dynamic-array / Map stores retain through
-    /// runtime helpers that can't substitute a copy). Direct
-    /// annotations are checker-rejected; this guard catches the
-    /// same shapes arriving through generic instantiation
-    /// (`fn f<T>(..)` with `T = Box[2]`), where the body was
-    /// checked with `T` opaque.
-    pub(in crate::lower) fn forbid_fixed_in_cell(
-        &self,
-        ty: &MirTy,
-        what: &str,
-    ) -> Result<(), LowerError> {
-        if let MirTy::Array { elem, len: Some(_) } = ty {
-            if self.is_arc_slot(elem) {
-                return Err(LowerError::Other(format!(
-                    "{what} holding a fixed-length array with heap elements \
-                     is not supported — copy the elements into a dynamic \
-                     array first"
-                )));
-            }
-        }
-        Ok(())
-    }
 
     /// Fixed-length heap-element arrays enter container cells BY
     /// VALUE: mint a copy the cell owns (`$array.copyShallow` —
@@ -1193,12 +1169,22 @@ impl<'a> BodyCx<'a> {
         &mut self,
         v: crate::ValueId,
         ty: &MirTy,
+        is_fresh: bool,
     ) -> Option<crate::ValueId> {
         let MirTy::Array { elem, len: Some(n) } = ty else {
             return None;
         };
         if !self.is_arc_slot(elem) {
             return None;
+        }
+        // A FRESH value (a call result — fn returns mint a +1 the
+        // caller owns) transfers straight into the cell: it has no
+        // other owner, so the copy would orphan the original's +1.
+        // Each call site's `Some(..)` branch stores the returned
+        // value as the cell's owned share, which is exactly the
+        // fresh transfer.
+        if is_fresh {
+            return Some(v);
         }
         let _ = n;
         let copy = self.fb.new_value(ty.clone());

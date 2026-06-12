@@ -428,6 +428,12 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             sig.params.push(AbiParam::new(types::I64));
             module.declare_function("$array.fill", Linkage::Import, &sig)?
         },
+        array_fill_copy: {
+            let mut sig = module.make_signature();
+            sig.params.push(AbiParam::new(types::I64));
+            sig.params.push(AbiParam::new(types::I64));
+            module.declare_function("$array.fillCopy", Linkage::Import, &sig)?
+        },
         array_sort: declare_ternary_i64(module, "$array.sort")?,
         str_split: declare_binary_i64(module, "$string.split")?,
         virt_dispatch: declare_binary_i64(module, "$class.virtDispatch")?,

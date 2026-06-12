@@ -1130,11 +1130,17 @@ let t = (arr, 1)           // and the tuple slot
 let f = fn(): i64 { arr[0].n }   // captures copy as well
 ```
 
-Still type errors: using one as a return type (fn / interface /
-fn-typed value), reassigning the whole binding (`arr = [..]` —
-element writes `arr[i] = x` are fine), and `Array.fill` with a
-fixed-array element. `Set` elements stay excluded by the regular
-equality rule.
+Returning one and reassigning the binding follow READ semantics
+(a share, like `let` and parameters); `Array.fill` stores an
+independent copy per slot:
+
+```rust
+fn members(t: Team): Box[2] { t.members }   // returns a share
+arr = other      // arr now points at other's array
+xs.fill(arr)     // every slot gets its own copy
+```
+
+`Set` elements stay excluded by the regular equality rule.
 
 ```rust
 

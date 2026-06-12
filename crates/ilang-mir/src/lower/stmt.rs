@@ -112,7 +112,23 @@ impl<'a> BodyCx<'a> {
                 };
                 let bind_ty = bind_hint.unwrap_or_else(|| mty.clone());
                 let bound = if bind_ty != mty {
-                    self.coerce(v, &mty, &bind_ty, stmt.span)?
+                    let coerced = self.coerce(v, &mty, &bind_ty, stmt.span)?;
+                    // `T → T?` auto-wrap takes the cell's own share
+                    // (a retain, or a value copy for fixed-length
+                    // arrays) — see coerce.rs. A FRESH source's
+                    // transfer +1 then has no other owner: arg
+                    // passing drops it via the fresh-arg
+                    // post-release, but a `let o: Box? = makeBox()`
+                    // had nobody releasing it and leaked one value
+                    // per call (likewise the fixed-array copy's
+                    // source).
+                    if matches!(&bind_ty, MirTy::Optional(inner) if **inner == mty)
+                        && value_is_fresh_object
+                        && self.is_arc_heap(&mty)
+                    {
+                        self.fb.push_inst(Inst::Release { value: v });
+                    }
+                    coerced
                 } else {
                     v
                 };
