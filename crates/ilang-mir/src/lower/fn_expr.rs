@@ -17,6 +17,35 @@ use super::utils::{placeholder_function, retain_if_heap};
 use super::{BodyCx, FnSig, LowerError, PendingClosure};
 
 impl<'a> BodyCx<'a> {
+    /// `true` when a bare `name` inside a closure resolves to a member
+    /// (field / method / property) of the enclosing method's receiver
+    /// class or any ancestor — i.e. it desugars to `this.name`, so the
+    /// closure must capture `this`. Returns `false` for plain locals /
+    /// params / globals, which must NOT pull `this` into the env.
+    fn name_is_this_member(&self, name: Symbol) -> bool {
+        // Fields and properties only — a bare `field` / `prop` read
+        // desugars to `this.field` / `this.prop`, so the closure needs
+        // `this`. Methods are intentionally excluded: a bare `method()`
+        // call inside a closure was never resolved through a captured
+        // `this` (the previous speculative capture only fired on `Var`
+        // nodes, not `Call` callees), so treating it as a member here
+        // would change behaviour for a shape the lowering doesn't
+        // otherwise support.
+        let mut cur = self.this_class;
+        while let Some(cid) = cur {
+            if let Some(meta) = self.class_meta.get(&cid) {
+                if meta.field_ix.contains_key(&name)
+                    || meta.property_getter.contains_key(&name)
+                    || meta.property_setter.contains_key(&name)
+                {
+                    return true;
+                }
+            }
+            cur = self.classes[cid.0 as usize].parent;
+        }
+        false
+    }
+
     pub(super) fn lower_fn_expr(
         &mut self,
         params: &[ast::Param],
@@ -59,6 +88,12 @@ impl<'a> BodyCx<'a> {
         // closure) are borrowed and DO get the retain.
         let mut adopted_cells: std::collections::HashSet<ValueId> =
             std::collections::HashSet::new();
+        // `this` is captured on demand: set when a free var resolves to
+        // a bare member (`field` / `method()`) of the enclosing class
+        // rather than a local / global. An explicit `this.` access puts
+        // `this` directly in `frees` (handled by the loop below).
+        let this_sym = Symbol::intern("this");
+        let mut needs_this = false;
         for name in frees {
             let needs_cell = writes.contains(&name);
             // 1) Source already has a cell binding in current scope —
@@ -248,9 +283,27 @@ impl<'a> BodyCx<'a> {
                 });
                 continue;
             }
-            // Names that aren't local and aren't captures from an
-            // outer closure are assumed global (top-level fn / class /
-            // enum / static); they need no env entry.
+            // Names that aren't local and aren't captures from an outer
+            // closure are either a bare member of the enclosing class
+            // (`field` / `method()` desugaring to `this.field` /
+            // `this.method()`) — which needs `this` captured — or a
+            // global (top-level fn / class / enum / static), which
+            // needs no env entry.
+            if name != this_sym && self.name_is_this_member(name) {
+                needs_this = true;
+            }
+        }
+        // Capture `this` on demand for the bare-member case, unless an
+        // explicit `this.` access already captured it in the loop.
+        if needs_this && !captures.iter().any(|c| c.name == this_sym) {
+            if let Some((v, ty)) = self.lookup_var(this_sym) {
+                capture_vals.push(v);
+                captures.push(crate::program::EnvCapture {
+                    name: this_sym,
+                    ty,
+                    is_cell: false,
+                });
+            }
         }
 
         // Fixed-length heap-element arrays are captured BY VALUE
