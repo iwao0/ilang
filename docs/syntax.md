@@ -628,18 +628,21 @@ to methods too. Only `@derive(...)` is currently accepted on the
 class declaration itself; other attributes on a class are rejected
 by the parser.
 
-The attributes that actually carry meaning today are:
+The full attribute set is closed — an unknown attribute name is a
+**parse error** listing the known ones (a typo like `@derieve`
+used to be dropped silently). The known attributes:
 
-- `@override` (inheritance — see the Classes section)
 - `@extern(C) { ... }` / `@extern(ObjC) { ... }` block markers
 - FFI items inside `@extern(C)`: `@lib`, `@optional`, `@symbol`, `@packed`, `@bits(N)`
-- ObjC bridging inside `@extern(ObjC)`: `@objc`, `@objc("selector:")` (optional protocol methods are marked with a trailing `?` on the method name, not an attribute)
+- ObjC bridging inside `@extern(ObjC)`: `@objc`, `@objc("selector:")` (optional protocol methods are marked with a trailing `?` on the method name, not an attribute), `@since`, `@com`
 - `@flags` on `enum` declarations (bitset semantics)
 - `@embed("path/to/file")` on `const` declarations (compile-time file inclusion)
 - `@target("os")` on `fn` / `class` / methods — host-OS filter (details below)
 - `@derive(Eq, Hash)` on `class` declarations — auto-synthesise `equals` / `hashCode` for value-equality use in `Set<MyClass>` / `Map<MyClass, V>` (details in the Maps / Sets section)
+- `@deprecated(note)`, `@intrinsic`, `@handle`, `@requires(...)` (capabilities — parsed, not yet enforced)
 
-Everything else parses successfully but is silently dropped.
+(`override` is a keyword, not an attribute — see the Classes
+section.)
 
 #### `@target` — same-name declarations dispatched by OS
 

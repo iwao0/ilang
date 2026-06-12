@@ -9,6 +9,32 @@ use ilang_lexer::TokenKind;
 use crate::error::ParseError;
 use crate::parser::Parser;
 
+/// The canonical set of user-writable attributes. Anything else is
+/// a parse error — a typo'd attribute (`@derieve`) used to pass
+/// through silently and simply have no effect. Compiler-SYNTHESISED
+/// attributes (`sel`, `byValue`, `variadic` — minted by the
+/// `@extern` loaders after parsing) never pass through here and
+/// intentionally aren't listed.
+const KNOWN_ATTRIBUTES: &[&str] = &[
+    "bits",       // bitfield width on @extern(C) struct fields
+    "com",        // COM interface marker
+    "deprecated", // deprecation note surfaced by the checker / LSP
+    "derive",     // @derive(Eq, Hash)
+    "embed",      // @embed("file") const — compile-time file embed
+    "extern",     // @extern / @extern(C) / @extern("lib")
+    "flags",      // bitflags enum
+    "handle",     // opaque pointer-sized handle struct
+    "intrinsic",  // runtime-supplied fn
+    "lib",        // dynamic library for an extern decl
+    "objc",       // ObjC binding marker / selector
+    "optional",   // optional ObjC protocol method
+    "packed",     // @extern(C) packed struct layout
+    "requires",   // capability list (parsed, not yet enforced)
+    "since",      // availability note (ObjC bindings)
+    "symbol",     // explicit C symbol name
+    "target",     // platform gate (@target("macos") / not "...")
+];
+
 impl<'a> Parser<'a> {
     /// Parse a sequence of `@name(args)` attributes (TS / Java / Python
     /// decorator style). Each `@` introduces one attribute; chain them
@@ -17,8 +43,22 @@ impl<'a> Parser<'a> {
     pub(in crate::item) fn parse_attributes(&mut self) -> Result<Vec<Attribute>, ParseError> {
         let mut out = Vec::new();
         while matches!(self.peek().kind, TokenKind::At) {
+            let at_span = self.peek().span;
             self.bump();
             let name = self.expect_ident("attribute name")?;
+            if !KNOWN_ATTRIBUTES.contains(&name.as_str()) {
+                return Err(ParseError::Generic {
+                    msg: format!(
+                        "unknown attribute @{name} (known attributes: {})",
+                        KNOWN_ATTRIBUTES
+                            .iter()
+                            .map(|a| format!("@{a}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    span: at_span,
+                });
+            }
             // Argument list is optional. `@extern` (no parens) and
             // `@requires(net, file.read)` are both valid.
             let args = if matches!(self.peek().kind, TokenKind::LParen) {

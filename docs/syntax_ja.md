@@ -494,18 +494,20 @@ fn download(url: string, path: string) { ... }
 
 `@name(args)` 形式 (TS / Java / Python のデコレータ風)。複数並べる場合はそれぞれ `@` から始める。引数リストは省略不可 (`@x` 単独はパースエラー)。属性はメソッドにも付けられる。クラス宣言自身に付与できるのは `@derive(...)` のみで、他の属性はパーサが弾く。
 
-現状で意味を持つ属性は以下:
+属性名のセットは閉じていて、**未知の属性名はパースエラー**になります
+(既知の属性一覧つき)。`@derieve` のような typo が無言で無効になる
+ことはありません。既知の属性:
 
-- `@override` (継承メソッド — Classes 節を参照)
 - `@extern(C) { ... }` / `@extern(ObjC) { ... }` のブロックマーカー
 - `@extern(C)` 内の FFI 系: `@lib` / `@optional` / `@symbol` / `@packed` / `@bits(N)`
-- `@extern(ObjC)` 内の ObjC ブリッジ系: `@objc` / `@objc("selector:")` (optional プロトコルメソッドはメソッド名末尾の `?` で表す。属性ではない)
+- `@extern(ObjC)` 内の ObjC ブリッジ系: `@objc` / `@objc("selector:")` (optional プロトコルメソッドはメソッド名末尾の `?` で表す。属性ではない)、`@since`、`@com`
 - `enum` 宣言に付ける `@flags` (ビットセット意味付け)
 - `const` 宣言に付ける `@embed("path/to/file")` (コンパイル時ファイル取り込み)
 - `fn` / `class` / メソッドに付ける `@target("os")` — ホスト OS フィルタ (詳細は次節)
 - `class` 宣言に付ける `@derive(Eq, Hash)` — `Set<MyClass>` / `Map<MyClass, V>` の値等価プロトコル用に `equals` / `hashCode` を自動合成 (詳細は Map / Set 節)
+- `@deprecated(note)`、`@intrinsic`、`@handle`、`@requires(...)` (capability — パースのみ、未 enforce)
 
-それ以外はパースは通るが黙って捨てられる。
+(`override` はキーワードであり属性ではありません — Classes 節を参照。)
 
 #### `@target` — OS 別の同名宣言
 
