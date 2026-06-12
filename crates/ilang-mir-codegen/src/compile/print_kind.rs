@@ -33,11 +33,6 @@ pub(super) const KIND_ENUM: i64 = 8;
 pub(super) const KIND_PROMISE: i64 = 9;
 pub(super) const KIND_SET: i64 = 10;
 pub(super) const KIND_WEAK: i64 = 11;
-// Packed fixed-array field tag: `KIND_FIXED_BASE + len * 16 +
-// elem_kind`. Mirrors `ilang_runtime::kind::KIND_FIXED_BASE` —
-// the cascade needs the static length and element kind to release
-// a header-less fixed-array buffer.
-pub(super) const KIND_FIXED_BASE: i64 = 1000;
 
 // `PK_*` — per-value pretty-print tag.
 pub(super) const PK_I64_SIG: i64 = 0;
@@ -118,18 +113,18 @@ pub(super) fn kind_tag_of(ty: &MirTy, classes: &[ClassLayout]) -> i64 {
         //     treat the cell as a heap array pointer (doing so
         //     frees a bogus address → `munmap_chunk(): invalid
         //     pointer`). Tag `KIND_NONE`.
-        //   * ARC elements — the cell holds an owned header-less
-        //     buffer pointer; pack length + element kind into a
-        //     composite tag (`KIND_FIXED_BASE + n*16 + ekind`,
-        //     mirrored by `cascade::dispatch_release`) so the drop
-        //     cascade can release the elements and free the buffer.
+        //   * ARC elements — the value is an ordinary rc'd array
+        //     (length fixed at the type level): plain KIND_ARRAY.
         MirTy::Array { len: None, .. } => KIND_ARRAY,
-        MirTy::Array { len: Some(n), elem } => {
-            let ekind = kind_tag_of(elem, classes);
-            if ekind == KIND_NONE {
+        MirTy::Array { len: Some(_), elem } => {
+            // ARC elements → the value is an ordinary rc'd array
+            // (only its LENGTH is fixed, at the type level) — plain
+            // KIND_ARRAY cascade. Primitive / CRepr elements →
+            // header-less inline data freed with the container.
+            if kind_tag_of(elem, classes) == KIND_NONE {
                 KIND_NONE
             } else {
-                KIND_FIXED_BASE + (*n as i64) * 16 + ekind
+                KIND_ARRAY
             }
         }
         MirTy::Optional(_) => KIND_OPTIONAL,

@@ -50,14 +50,12 @@ pub(super) fn field_kind_tag(ty: &MirTy, classes: &[ilang_mir::ClassLayout]) -> 
     // no `__release_weak` ever fires).
     match ty {
         MirTy::Object(_) => 1, // KIND_OBJECT
-        // Only dynamic arrays (`len: None`) are standalone heap blocks
-        // with an ARC header; fixed-length arrays (`T[N]`) have no
-        // header. Primitive / CRepr / handle elements → inline value
-        // data freed with the container, no cascade (cascading as a
-        // heap array pointer → bogus free / corruption). ARC elements
-        // → the slot owns a header-less buffer pointer; pack length +
-        // element kind into the composite tag the runtime cascade
-        // decodes (`KIND_FIXED_BASE + n*16 + ekind`).
+        // Dynamic arrays and ARC-element fixed arrays are ordinary
+        // rc'd heap blocks (KIND_ARRAY; a fixed array's length is
+        // fixed only at the type level). Primitive / CRepr / handle
+        // element fixed arrays are header-less inline value data
+        // freed with the container — no cascade (cascading as a
+        // heap array pointer → bogus free / corruption).
         MirTy::Array { len: None, .. } => 2, // KIND_ARRAY
         MirTy::Array { len: Some(n), elem } => {
             let ekind = match &**elem {
@@ -78,10 +76,12 @@ pub(super) fn field_kind_tag(ty: &MirTy, classes: &[ilang_mir::ClassLayout]) -> 
                 }
                 other => field_kind_tag(other, classes),
             };
+            let _ = n;
             if ekind == 0 {
                 0 // KIND_NONE (inline value data)
             } else {
-                1000 + (*n as i64) * 16 + ekind // KIND_FIXED_BASE
+                2 // KIND_ARRAY — ordinary rc'd array, length fixed
+                  // only at the type level
             }
         }
         MirTy::Optional(_) => 3, // KIND_OPTIONAL

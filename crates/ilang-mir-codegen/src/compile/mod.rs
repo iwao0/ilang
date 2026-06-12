@@ -321,9 +321,6 @@ pub(super) struct PanicAux {
     pub(super) release_closure: cranelift_module::FuncId,
     pub(super) retain_closure: cranelift_module::FuncId,
     pub(super) release_array: cranelift_module::FuncId,
-    /// `$array.releaseFixed(ptr, len, elem_kind)` — fixed-array
-    /// owner release: per-element release + buffer free.
-    pub(super) release_fixed_array: cranelift_module::FuncId,
     pub(super) retain_array: cranelift_module::FuncId,
     pub(super) release_optional: cranelift_module::FuncId,
     pub(super) retain_optional: cranelift_module::FuncId,

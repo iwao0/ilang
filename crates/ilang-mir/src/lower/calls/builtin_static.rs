@@ -145,7 +145,6 @@ impl<'a> BodyCx<'a> {
         if !arg_is_fresh {
             self.fb.push_inst(Inst::Retain { value: av });
         }
-        self.forbid_fixed_in_cell(&inner_t, "a Promise value")?;
         let value_kind = kind_tag_of_mir(&inner_t, self.classes);
         let kind_v = self.const_int(MirTy::I64, value_kind);
         let ret_inner = if method.as_str() == "all" {
@@ -179,10 +178,15 @@ impl<'a> BodyCx<'a> {
         }
         let v_is_fresh = self.is_fresh_object_expr(&args[1]);
         let (vv, vty) = self.lower_expr(&args[1])?;
-        if !v_is_fresh && self.is_arc_heap(&vty) {
-            self.fb.push_inst(Inst::Retain { value: vv });
-        }
-        self.forbid_fixed_in_cell(&vty, "a Promise value")?;
+        let vv = match self.copy_fixed_for_cell(vv, &vty) {
+            Some(copy) => copy,
+            None => {
+                if !v_is_fresh && self.is_arc_heap(&vty) {
+                    self.fb.push_inst(Inst::Retain { value: vv });
+                }
+                vv
+            }
+        };
         let kind = kind_tag_of_mir(&vty, self.classes);
         let kind_v = self.const_int(MirTy::I64, kind);
         self.fb.push_inst(Inst::Call {
@@ -239,9 +243,18 @@ impl<'a> BodyCx<'a> {
     fn lower_promise_resolve(&mut self, args: &[Expr]) -> Result<(ValueId, MirTy), LowerError> {
         let arg_is_fresh = self.is_fresh_object_expr(&args[0]);
         let (vv, vty) = self.lower_expr(&args[0])?;
-        if !arg_is_fresh && self.is_arc_heap(&vty) {
-            self.fb.push_inst(Inst::Retain { value: vv });
-        }
+        // Fixed-length-array values: the promise cell takes a value
+        // copy (its own +1 — consumed like a fresh transfer, so no
+        // borrow retain).
+        let vv = match self.copy_fixed_for_cell(vv, &vty) {
+            Some(copy) => copy,
+            None => {
+                if !arg_is_fresh && self.is_arc_heap(&vty) {
+                    self.fb.push_inst(Inst::Retain { value: vv });
+                }
+                vv
+            }
+        };
         let kind = kind_tag_of_mir(&vty, self.classes);
         let kind_v = self.const_int(MirTy::I64, kind);
         let prom_ty = MirTy::Promise(Box::new(vty.clone()));

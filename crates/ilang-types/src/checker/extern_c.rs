@@ -472,7 +472,6 @@ impl TypeChecker {
                 }
             }
             Type::Array { elem, .. } => {
-                self.reject_fixed_heap_component(elem, span)?;
                 self.validate_type(elem, span, type_params_in_scope)?;
             }
             Type::Optional(inner) => {
@@ -518,21 +517,33 @@ impl TypeChecker {
             }
             Type::Tuple(elems) => {
                 for e in elems {
-                    self.reject_fixed_heap_component(e, span)?;
                     self.validate_type(e, span, type_params_in_scope)?;
                 }
             }
             Type::Fn(ft) => {
                 for p in &ft.params {
-                    self.reject_fixed_heap_component(p, span)?;
                     self.validate_type(p, span, type_params_in_scope)?;
                 }
-                self.reject_fixed_heap_component(&ft.ret, span)?;
+                // Fn-typed values can't RETURN a fixed-length
+                // heap-element array — same rule as fn declarations
+                // (see the return-type check in decls.rs).
+                if let Type::Array { elem, fixed: Some(_) } = &ft.ret {
+                    if self.fixed_elem_is_heap(elem) {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "fn type returning {} (fixed-length arrays with \
+                                 heap elements can't be returned — copy into a \
+                                 dynamic array instead)",
+                                ft.ret
+                            ),
+                            span,
+                        });
+                    }
+                }
                 self.validate_type(&ft.ret, span, type_params_in_scope)?;
             }
             Type::Generic(g) => {
                 for a in &g.args {
-                    self.reject_fixed_heap_component(a, span)?;
                     self.validate_type(a, span, type_params_in_scope)?;
                 }
             }
@@ -574,28 +585,4 @@ impl TypeChecker {
         }
     }
 
-    /// Placement restriction for fixed-length arrays with heap
-    /// elements: they may stand alone (class field, local binding,
-    /// fn parameter) but not sit inside another composite type —
-    /// the containers' cell cascade has no representation for a
-    /// header-less buffer-with-static-length, so a `Box[2]` inside
-    /// e.g. a tuple slot would leak or mis-free. Called on every
-    /// component type `validate_type` recurses into.
-    pub(super) fn reject_fixed_heap_component(
-        &self,
-        component: &Type,
-        span: Span,
-    ) -> Result<(), TypeError> {
-        if let Type::Array { elem, fixed: Some(_) } = component {
-            if self.fixed_elem_is_heap(elem) {
-                return Err(TypeError::Unsupported {
-                    what: format!(
-                        "{component} as a component of another type (fixed-length arrays with heap elements are only supported as a class field, a local binding, or a fn parameter)"
-                    ),
-                    span,
-                });
-            }
-        }
-        Ok(())
-    }
 }

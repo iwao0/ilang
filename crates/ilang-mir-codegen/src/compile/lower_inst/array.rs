@@ -46,14 +46,24 @@ pub(super) fn lower_array_inst<M: Module>(
             // the C layout `Elem buf[N]` byte-for-byte (rather than
             // degenerating to an array of heap pointers).
             let crepr_struct_elem_size: Option<i64> = crepr_struct_c_size(elem, &prog.classes);
-            // Inline fixed-length output (when the dst MirTy carries
-            // `len: Some(n)`): allocate `n*stride` bytes with no
-            // header, store elements directly at `data + i*stride`.
-            // This keeps the layout consistent with array fields of
-            // `@extern(C)` structs that LoadField returns as inline
-            // addresses.
+            // Inline fixed-length output — ONLY for kind-0 elements
+            // (primitives / CRepr structs): allocate `n*stride`
+            // bytes with no header, store elements directly at
+            // `data + i*stride`. This keeps the layout consistent
+            // with array fields of `@extern(C)` structs that
+            // LoadField returns as inline addresses. Fixed arrays
+            // with ARC elements fall through to the HEADERED path
+            // below — they're ordinary rc'd arrays whose length is
+            // fixed only at the type level (cells own them via the
+            // regular KIND_ARRAY cascade; the lowerer inserts value
+            // copies at cell stores).
             let dst_ty = func.ty_of(*dst).clone();
-            if let MirTy::Array { len: Some(_), .. } = &dst_ty {
+            let fixed_inline = matches!(
+                &dst_ty,
+                MirTy::Array { len: Some(_), elem }
+                    if kind_tag_of(elem, &prog.classes) == 0
+            );
+            if fixed_inline {
                 let stride_bytes = crepr_struct_elem_size.unwrap_or_else(|| elem_byte_stride(elem));
                 let n = items.len() as i64;
                 let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
@@ -223,11 +233,18 @@ pub(super) fn lower_array_inst<M: Module>(
             } else {
                 None
             };
+            // Inline (header-less) only for kind-0 elements — ARC-
+            // element fixed arrays carry a regular header (see
+            // NewArray above).
             let inline_info = match &arr_ty {
-                MirTy::Array { elem, len: Some(n) } => Some((
-                    crepr_elem_size.unwrap_or_else(|| elem_byte_stride(elem)),
-                    *n as i64,
-                )),
+                MirTy::Array { elem, len: Some(n) }
+                    if kind_tag_of(elem, &prog.classes) == 0 =>
+                {
+                    Some((
+                        crepr_elem_size.unwrap_or_else(|| elem_byte_stride(elem)),
+                        *n as i64,
+                    ))
+                }
                 _ => None,
             };
             let (data_ptr, stride) = if let Some((s, n)) = inline_info {
@@ -294,10 +311,16 @@ pub(super) fn lower_array_inst<M: Module>(
                 .as_ref()
                 .and_then(|e| crepr_struct_c_size(e, &prog.classes));
             let inline_info = match &arr_ty {
-                MirTy::Array { elem, len: Some(n) } => Some((
-                    crepr_elem_size.unwrap_or_else(|| elem_byte_stride(elem)),
-                    *n as i64,
-                )),
+                // Kind-0 elements only — ARC-element fixed arrays
+                // are headered (see NewArray).
+                MirTy::Array { elem, len: Some(n) }
+                    if kind_tag_of(elem, &prog.classes) == 0 =>
+                {
+                    Some((
+                        crepr_elem_size.unwrap_or_else(|| elem_byte_stride(elem)),
+                        *n as i64,
+                    ))
+                }
                 _ => None,
             };
             let (data_ptr, stride) = if let Some((s, n)) = inline_info {

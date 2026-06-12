@@ -253,21 +253,20 @@ impl<'a> BodyCx<'a> {
             // enum / static); they need no env entry.
         }
 
-        // Fixed-length heap-element arrays can't be captured: the
-        // capture table records one (offset, kind) per slot and a
-        // header-less buffer-with-static-length has no kind the
-        // closure-release cascade could dispatch on without
-        // double-freeing the owner's elements.
-        for c in &captures {
-            if let MirTy::Array { len: Some(_), elem } = &c.ty {
-                if self.is_arc_slot(elem) {
-                    return Err(LowerError::Other(format!(
-                        "closure captures `{}`, a fixed-length array with heap \
-                         elements — not supported; copy the elements into a \
-                         dynamic array first",
-                        c.name
-                    )));
-                }
+        // Fixed-length heap-element arrays are captured BY VALUE
+        // COPY (same rule as every other cell store): the closure's
+        // env slot owns the copy's +1, so the construction-retain
+        // loop below must skip it. Mutations inside the closure
+        // touch the copy, not the source binding's array.
+        let mut adopted_fixed: std::collections::HashSet<ValueId> =
+            std::collections::HashSet::new();
+        for (cv, c) in capture_vals.iter_mut().zip(captures.iter()) {
+            if c.is_cell {
+                continue;
+            }
+            if let Some(copy) = self.copy_fixed_for_cell(*cv, &c.ty) {
+                *cv = copy;
+                adopted_fixed.insert(copy);
             }
         }
 
@@ -370,7 +369,7 @@ impl<'a> BodyCx<'a> {
             let needs_share = if c.is_cell {
                 !adopted_cells.contains(cv)
             } else {
-                self.is_arc_heap(&c.ty)
+                self.is_arc_heap(&c.ty) && !adopted_fixed.contains(cv)
             };
             if needs_share {
                 self.fb.push_inst(Inst::Retain { value: *cv });

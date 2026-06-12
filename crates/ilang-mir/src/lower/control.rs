@@ -262,22 +262,11 @@ impl<'a> BodyCx<'a> {
         for b in to_release {
             match b {
                 Binding::Local(lid, ty) => {
-                    // Fixed-array ownership gate — mirrors the
-                    // scope-exit sweep (aliases must not free the
-                    // owner's buffer).
-                    if matches!(&ty, MirTy::Array { len: Some(_), .. })
-                        && !self.fixed_owned_locals.contains(&lid)
-                    {
-                        continue;
-                    }
                     let v = self.fb.new_value(ty.clone());
                     self.fb.push_inst(Inst::UseLocal { dst: v, local: lid });
                     self.fb.push_inst(Inst::Release { value: v });
                 }
-                Binding::Ssa(v, ty) => {
-                    if matches!(&ty, MirTy::Array { len: Some(_), .. }) {
-                        continue;
-                    }
+                Binding::Ssa(v, _) => {
                     self.fb.push_inst(Inst::Release { value: v });
                 }
                 Binding::PatternBinding(..) => unreachable!("filtered out above"),

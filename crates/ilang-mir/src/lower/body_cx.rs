@@ -143,21 +143,6 @@ pub(in crate::lower) struct BodyCx<'a> {
     /// `release_top_scope_objects` doesn't double-free it before the
     /// return.
     pub(in crate::lower) crepr_return_owned: std::collections::HashSet<crate::ValueId>,
-    /// Locals bound to a FRESH fixed-length-array literal with ARC
-    /// elements — the binding owns the header-less buffer and one
-    /// share per element, so scope-exit / early-exit sweeps emit
-    /// the owner Release (elements + buffer). Aliased fixed-array
-    /// lets (field reads, copies of another binding) stay out of
-    /// the set and are never swept — same model as
-    /// `crepr_owned_locals`.
-    pub(in crate::lower) fixed_owned_locals: std::collections::HashSet<crate::inst::LocalId>,
-    /// Slot indices (top-level `let`s in `__main`) whose fixed-length
-    /// array value came from a FRESH literal — the slot owns the
-    /// buffer, so the exit-time slot sweep releases it. Alias slots
-    /// (`let m = teamA.members`) stay out and are never swept: the
-    /// buffer belongs to the object's field, and the drop cascade
-    /// already frees it (releasing both aborted with a double free).
-    pub(in crate::lower) fixed_owned_slots: std::collections::HashSet<u32>,
     /// Fresh match / if-let scrutinees whose arm body is currently
     /// being lowered, with the env depth at registration. The arm
     /// lowerer releases a fresh scrutinee at arm exit, but an early
@@ -1199,14 +1184,11 @@ impl<'a> BodyCx<'a> {
     }
 
     /// Fixed-length heap-element arrays enter container cells BY
-    /// VALUE: mint a copy the cell owns (`$array.copyFixed` — fresh
-    /// buffer, one retained share per element). Returns the value
-    /// to store, or `None` when `ty` isn't a fixed array with ARC
-    /// elements (caller falls through to the regular retain rule).
-    /// Unconditional for fixed-of-arc: every such value reaching a
-    /// cell is a view of storage some binding/field owns (literals
-    /// infer dynamic; bare fixed returns are rejected), so storing
-    /// the pointer itself would put two owners on one buffer.
+    /// VALUE: mint a copy the cell owns (`$array.copyShallow` —
+    /// fresh header + buffer, one retained share per element).
+    /// Returns the value to store, or `None` when `ty` isn't a
+    /// fixed array with ARC elements (caller falls through to the
+    /// regular retain rule).
     pub(in crate::lower) fn copy_fixed_for_cell(
         &mut self,
         v: crate::ValueId,
@@ -1218,14 +1200,12 @@ impl<'a> BodyCx<'a> {
         if !self.is_arc_slot(elem) {
             return None;
         }
-        let ekind = super::calls::kind_tag_of_mir(elem, self.classes);
-        let n_v = self.const_int(MirTy::I64, *n as i64);
-        let kind_v = self.const_int(MirTy::I64, ekind);
+        let _ = n;
         let copy = self.fb.new_value(ty.clone());
         self.fb.push_inst(Inst::Call {
             dst: Some(copy),
-            callee: crate::inst::FuncRef::Builtin(Symbol::intern("$array.copyFixed")),
-            args: Box::new([v, n_v, kind_v]),
+            callee: crate::inst::FuncRef::Builtin(Symbol::intern("$array.copyShallow")),
+            args: Box::new([v]),
         });
         Some(copy)
     }
@@ -1238,16 +1218,6 @@ impl<'a> BodyCx<'a> {
         {
             match binding {
                 Binding::Local(lid, ty) if needs_release(&ty) => {
-                    // Fixed-length arrays: only the OWNER (bound to
-                    // a fresh literal) releases — an alias (field
-                    // read / copy of another binding) points into
-                    // storage someone else owns, and the owner
-                    // Release frees the buffer (codegen arc.rs).
-                    if let MirTy::Array { len: Some(_), .. } = &ty {
-                        if !self.fixed_owned_locals.contains(&lid) {
-                            return;
-                        }
-                    }
                     // For CRepr Locals, only emit Release if this
                     // Local owns the underlying buffer. Borrowed
                     // CRepr values (e.g. nested-field reads) stay
@@ -1278,13 +1248,6 @@ impl<'a> BodyCx<'a> {
                     self.fb.push_inst(Inst::Release { value: v });
                 }
                 Binding::Ssa(v, ty) if needs_release(&ty) => {
-                    // Fixed-array Ssa bindings carry no ownership
-                    // tracking — skip (the Local path is where
-                    // owned fixed arrays live; see
-                    // `fixed_owned_locals`).
-                    if let MirTy::Array { len: Some(_), .. } = &ty {
-                        return;
-                    }
                     if let MirTy::Object(cid) = &ty {
                         let layout = &self.classes[cid.0 as usize];
                         if self.com_interfaces.contains(&layout.name) {

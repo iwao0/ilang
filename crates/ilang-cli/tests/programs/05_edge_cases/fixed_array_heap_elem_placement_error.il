@@ -1,15 +1,19 @@
-// Fixed-length arrays with heap elements (`Box[2]`) may stand alone
-// as a class field, a local binding, or a fn parameter — but not
-// sit inside another composite type: container cell cascades have
-// no representation for a header-less buffer-with-static-length.
-// One representative reject (composite component); returns,
-// reassignment, captures, and literal-inference paths carry the
-// same family of errors.
+// Fixed-length arrays with heap elements have value semantics:
+// every container cell takes a copy on store (fields, Optional,
+// enum payloads, tuple slots, dynamic-array elements, Map values,
+// closure captures, Promise values). What remains a type error is
+// RETURNING one — the return would hand out a view with no
+// counterpart rule for who copies; copy into a dynamic array
+// instead. (Whole-binding reassignment and `Array.fill` with a
+// fixed-array element are the other remaining rejects.)
 //
-// expect-error: as a component of another type
+// expect-error: can't be returned
 
 class Box {
     n: i64
     init(x: i64) { this.n = x }
 }
-let t: (Box[2], i64) = ([new Box(1), new Box(2)], 3)
+fn bad(): Box[2] {
+    let a: Box[2] = [new Box(1), new Box(2)]
+    a
+}

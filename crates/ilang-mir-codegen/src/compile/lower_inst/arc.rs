@@ -70,26 +70,17 @@ pub(super) fn lower_arc_inst<M: Module>(
                 }
                 MirTy::Fn(_) => call_unary(fb, module, panic_aux.release_closure, vmap[value]),
                 MirTy::Array { len, elem } => {
-                    if let Some(n) = len {
-                        // Fixed-length array. With ARC-pointer
-                        // elements the OWNER's release drops each
-                        // element's share and frees the header-less
-                        // `n * 8` buffer (the lowerer only emits
-                        // Release for owned bindings — aliases are
-                        // PatternBinding borrows). Primitive / CRepr
-                        // / handle elements keep the legacy no-op:
-                        // their slots aren't ARC pointers and their
-                        // stride isn't 8 (freeing `n * 8` would be
-                        // the wrong size for e.g. `Vertex[3]`).
+                    if len.is_some() {
+                        // Fixed-length array. ARC elements → the
+                        // value is an ordinary rc'd array (headered;
+                        // see NewArray) — plain array release.
+                        // Primitive / CRepr / handle elements →
+                        // header-less inline data freed with its
+                        // container: no-op.
                         let ekind =
                             super::super::print_kind::kind_tag_of(elem, &prog.classes);
                         if ekind != 0 {
-                            let ptr = vmap[value];
-                            let len_v = fb.ins().iconst(types::I64, *n as i64);
-                            let kind_v = fb.ins().iconst(types::I64, ekind);
-                            let r = module
-                                .declare_func_in_func(panic_aux.release_fixed_array, fb.func);
-                            fb.ins().call(r, &[ptr, len_v, kind_v]);
+                            call_unary(fb, module, panic_aux.release_array, vmap[value]);
                         }
                         return Ok(());
                     }
@@ -146,8 +137,15 @@ pub(super) fn lower_arc_inst<M: Module>(
                     call_unary(fb, module, panic_aux.retain_obj, vmap[value]);
                 }
                 MirTy::Fn(_) => call_unary(fb, module, panic_aux.retain_closure, vmap[value]),
-                MirTy::Array { len, .. } => {
+                MirTy::Array { len, elem } => {
                     if len.is_some() {
+                        // Mirror Release: rc'd for ARC elements,
+                        // no-op for inline kind-0 data.
+                        let ekind =
+                            super::super::print_kind::kind_tag_of(elem, &prog.classes);
+                        if ekind != 0 {
+                            call_unary(fb, module, panic_aux.retain_array, vmap[value]);
+                        }
                         return Ok(());
                     }
                     call_unary(fb, module, panic_aux.retain_array, vmap[value]);

@@ -660,13 +660,7 @@ impl TypeChecker {
             ExprKind::Tuple(elements) => {
                 let mut tys = Vec::with_capacity(elements.len());
                 for e in elements {
-                    let et = self.check_expr(e, env, ret_ty, in_class, loop_depth)?;
-                    // Tuple cells can't hold a fixed-length
-                    // heap-element array (same placement rule as
-                    // annotated composites; literals infer as
-                    // dynamic arrays and pass).
-                    self.reject_fixed_heap_component(&et, e.span)?;
-                    tys.push(et);
+                    tys.push(self.check_expr(e, env, ret_ty, in_class, loop_depth)?);
                 }
                 Ok(Type::Tuple(tys.into()))
             }

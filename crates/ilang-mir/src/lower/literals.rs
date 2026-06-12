@@ -109,8 +109,6 @@ impl<'a> BodyCx<'a> {
             let val_is_fresh = self.is_fresh_object_expr(v);
             let (kv, kty) = self.lower_expr(k)?;
             let (vv, vty) = self.lower_expr(v)?;
-            self.forbid_fixed_in_cell(&kty, "a Map key")?;
-            self.forbid_fixed_in_cell(&vty, "a Map value")?;
             let ek = key_ty.get_or_insert(kty.clone()).clone();
             let ev = val_ty.get_or_insert(vty.clone()).clone();
             let kv = if kty == ek {
@@ -126,9 +124,22 @@ impl<'a> BodyCx<'a> {
             if key_is_fresh && self.is_arc_heap(&ek) {
                 fresh_transients.push(kv);
             }
-            if val_is_fresh && self.is_arc_heap(&ev) {
-                fresh_transients.push(vv);
-            }
+            // Fixed-length-array values take a value copy; the
+            // map's construction `set` retains the cell, so the
+            // copy's own +1 is a transient released after the
+            // NewMap below (mark it like a fresh value).
+            let vv = match self.copy_fixed_for_cell(vv, &ev) {
+                Some(copy) => {
+                    fresh_transients.push(copy);
+                    copy
+                }
+                None => {
+                    if val_is_fresh && self.is_arc_heap(&ev) {
+                        fresh_transients.push(vv);
+                    }
+                    vv
+                }
+            };
             pairs.push((kv, vv));
         }
         let key = key_ty.unwrap();
@@ -180,9 +191,6 @@ impl<'a> BodyCx<'a> {
             Some(MirTy::Simd { elem, lanes }) => Some((*elem, *lanes)),
             _ => None,
         };
-        if let Some(h) = elem_hint.as_ref() {
-            self.forbid_fixed_in_cell(h, "an array element")?;
-        }
         for it in items {
             let elem_is_fresh = self.is_fresh_object_expr(it);
             let (vv, vty) = if let (Some((selem, slanes)), ExprKind::Array(lane_items)) =
@@ -197,12 +205,17 @@ impl<'a> BodyCx<'a> {
             } else {
                 self.lower_expr(it)?
             };
-            self.forbid_fixed_in_cell(&vty, "an array element")?;
             let target = elem_ty.get_or_insert(vty.clone()).clone();
             let coerced = if target == vty {
                 vv
             } else {
                 self.coerce(vv, &vty, &target, it.span)?
+            };
+            // Fixed-length-array elements take a value copy (the
+            // copy is the array's owned +1; skip the retain below).
+            let (coerced, fixed_copied) = match self.copy_fixed_for_cell(coerced, &target) {
+                Some(copy) => (copy, true),
+                None => (coerced, false),
             };
             // Mirror the no-hint path: aliased heap elements need
             // a +1 because host_release_array cascade-releases each
@@ -221,7 +234,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Promise(_)
                     | MirTy::Weak(_)
             );
-            if is_heap && !elem_is_fresh {
+            if is_heap && !elem_is_fresh && !fixed_copied {
                 self.fb.push_inst(Inst::Retain { value: coerced });
             }
             elem_vals.push(coerced);
@@ -307,6 +320,12 @@ impl<'a> BodyCx<'a> {
             } else {
                 self.coerce(vv, &vty, &ty, it.span)?
             };
+            // Fixed-length-array elements take a value copy (the
+            // copy is the array's owned +1; skip the retain below).
+            let (coerced, fixed_copied) = match self.copy_fixed_for_cell(coerced, &ty) {
+                Some(copy) => (copy, true),
+                None => (coerced, false),
+            };
             // Array elements: each slot owns +1 because the array's
             // host_release_array cascade calls release_object on
             // every stored Object on drop. Fresh values already
@@ -327,7 +346,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Promise(_)
                     | MirTy::Weak(_)
             );
-            if is_heap && !elem_is_fresh {
+            if is_heap && !elem_is_fresh && !fixed_copied {
                 self.fb.push_inst(Inst::Retain { value: coerced });
             }
             elem_vals.push(coerced);
@@ -349,7 +368,12 @@ impl<'a> BodyCx<'a> {
         for it in items {
             let elem_is_fresh = self.is_fresh_object_expr(it);
             let (v, t) = self.lower_expr(it)?;
-            self.forbid_fixed_in_cell(&t, "a tuple slot")?;
+            // Fixed-length-array slots take a value copy (the copy
+            // is the tuple's owned +1; skip the retain below).
+            let (v, copied) = match self.copy_fixed_for_cell(v, &t) {
+                Some(copy) => (copy, true),
+                None => (v, false),
+            };
             // Tuple slots own their stored heap value's +1, mirroring
             // the array-literal element-retain rule. Without this,
             // `(read, bump)` over locals like `let read = fn(){...}`
@@ -370,7 +394,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Promise(_)
                     | MirTy::Weak(_)
             );
-            if is_heap && !elem_is_fresh {
+            if is_heap && !elem_is_fresh && !copied {
                 self.fb.push_inst(Inst::Retain { value: v });
             }
             vals.push(v);
@@ -396,9 +420,6 @@ impl<'a> BodyCx<'a> {
         items: &[Expr],
         hint_tys: &[MirTy],
     ) -> Result<(ValueId, MirTy), LowerError> {
-        for h in hint_tys {
-            self.forbid_fixed_in_cell(h, "a tuple slot")?;
-        }
         let mut vals = Vec::with_capacity(items.len());
         let mut tys = Vec::with_capacity(items.len());
         for (i, it) in items.iter().enumerate() {
@@ -415,6 +436,11 @@ impl<'a> BodyCx<'a> {
                 Some(h) if *h != t0 => (self.coerce(v0, &t0, h, it.span)?, h.clone()),
                 _ => (v0, t0),
             };
+            // Fixed-length-array slots take a value copy.
+            let (v, copied) = match self.copy_fixed_for_cell(v, &t) {
+                Some(copy) => (copy, true),
+                None => (v, false),
+            };
             let is_heap = matches!(
                 t,
                 MirTy::Object(_)
@@ -429,7 +455,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Promise(_)
                     | MirTy::Weak(_)
             );
-            if is_heap && !elem_is_fresh {
+            if is_heap && !elem_is_fresh && !copied {
                 self.fb.push_inst(Inst::Retain { value: v });
             }
             vals.push(v);

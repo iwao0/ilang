@@ -304,8 +304,7 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("$closure.retain", ilang_runtime::__retain_closure as *const u8);
     jit_builder.symbol("$array.release", ilang_runtime::__release_array as *const u8);
     jit_builder.symbol("$array.retain", ilang_runtime::__retain_array as *const u8);
-    jit_builder.symbol("$array.releaseFixed", ilang_runtime::__release_fixed_array as *const u8);
-    jit_builder.symbol("$array.copyFixed", ilang_runtime::__copy_fixed_array as *const u8);
+    jit_builder.symbol("$array.copyShallow", ilang_runtime::__copy_array_shallow as *const u8);
     jit_builder.symbol("$optional.release", ilang_runtime::__release_optional as *const u8);
     jit_builder.symbol("$optional.retain", ilang_runtime::__retain_optional as *const u8);
     jit_builder.symbol("$tuple.release", ilang_runtime::__release_tuple as *const u8);

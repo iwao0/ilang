@@ -478,26 +478,18 @@ impl<'a> BodyCx<'a> {
                 // so the f2eea6e3 point fix (`parent_is_crepr &&
                 // matches!(fty, Enum(_))`) is no longer needed —
                 // the variant itself encodes "inline integer slot".
-                // Fixed-length array field with ARC elements. The
-                // slot stores the buffer POINTER (non-CRepr objects
-                // keep one 8-byte cell per field), so:
-                //   * FRESH literal source — transfer the buffer:
-                //     its element shares (literal lowering minted
-                //     them) move to the field, no extra rc traffic.
-                //   * anything else (field read / local alias) —
-                //     `$array.copyFixed` mints a fresh buffer with
-                //     one retained share per element. Storing the
-                //     source pointer directly would put two owners
-                //     on one buffer → double free.
+                // Fixed-length array field with ARC elements
+                // (value semantics):
+                //   * FRESH literal source — transfer the array
+                //     (its rc=1 becomes the field's share).
+                //   * anything else — `$array.copyShallow` value
+                //     copy; the copy's +1 is the field's.
                 // The old occupant (skipped for init writes —
-                // zeroed slot) is a full owner: Release on the
-                // loaded value routes to `$array.releaseFixed`
-                // (elements + buffer) in codegen.
+                // zeroed slot) drops its share via a plain array
+                // Release.
                 if let MirTy::Array { elem, len: Some(n) } = &fty {
                     if self.is_arc_slot(elem) {
-                        let ekind = super::calls::kind_tag_of_mir(elem, self.classes);
-                        let n_v = self.const_int(MirTy::I64, *n as i64);
-                        let kind_v = self.const_int(MirTy::I64, ekind);
+                        let _ = (elem, n);
                         let stored = if value_is_fresh {
                             vv
                         } else {
@@ -505,9 +497,9 @@ impl<'a> BodyCx<'a> {
                             self.fb.push_inst(Inst::Call {
                                 dst: Some(copy),
                                 callee: FuncRef::Builtin(Symbol::intern(
-                                    "$array.copyFixed",
+                                    "$array.copyShallow",
                                 )),
-                                args: Box::new([vv, n_v, kind_v]),
+                                args: Box::new([vv]),
                             });
                             copy
                         };
@@ -968,10 +960,18 @@ impl<'a> BodyCx<'a> {
                             vv
                         };
                         let elem_is_heap = self.is_arc_slot(&elem_ty);
-                        if elem_is_heap {
-                            if !value_is_fresh {
-                                self.fb.push_inst(Inst::Retain { value: vv_slot });
+                        // Fixed-length-array elements have value
+                        // semantics: the cell takes a copy on store.
+                        let vv_slot = match self.copy_fixed_for_cell(vv_slot, &elem_ty) {
+                            Some(copy) => copy,
+                            None => {
+                                if elem_is_heap && !value_is_fresh {
+                                    self.fb.push_inst(Inst::Retain { value: vv_slot });
+                                }
+                                vv_slot
                             }
+                        };
+                        if elem_is_heap {
                             let old = self.fb.new_value(elem_ty.clone());
                             self.fb.push_inst(Inst::ArrayLoad {
                                 dst: old,

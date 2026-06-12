@@ -39,7 +39,12 @@ impl<'a> BodyCx<'a> {
             (_, "catch") => (**inner).clone(),
             _ => MirTy::Unit,
         };
-        self.forbid_fixed_in_cell(&out_inner, "a Promise value")?;
+        // Fixed-length arrays flow through `.then` / `await` as
+        // ordinary rc'd arrays (KIND_ARRAY). The awaited binding is
+        // a view of the promise's stored copy; a callback that
+        // returns a fixed array verbatim makes the chained promise
+        // SHARE it (rc keeps that sound — recorded as a value-
+        // semantics edge in HANDOFF).
         let out_kind = kind_tag_of_mir(&out_inner, self.classes);
         let out_kind_v = self.const_int(MirTy::I64, out_kind);
         // Float-kind tags so the runtime calls the callback through an

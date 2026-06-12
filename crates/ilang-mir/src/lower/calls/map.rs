@@ -87,6 +87,14 @@ impl<'a> BodyCx<'a> {
             } else {
                 v
             };
+            // Fixed-length-array values take a value copy; the
+            // runtime's `map_set` retains the cell like any heap
+            // value, so the copy's own +1 becomes a transient that
+            // the post-call release below drops (mark it fresh).
+            let (v_ext, arg_is_fresh) = match self.copy_fixed_for_cell(v_ext, &vty) {
+                Some(copy) => (copy, true),
+                None => (v_ext, arg_is_fresh),
+            };
             arg_vals.push(v_ext);
             arg_meta.push((arg_is_fresh, v_ext, vty));
         }

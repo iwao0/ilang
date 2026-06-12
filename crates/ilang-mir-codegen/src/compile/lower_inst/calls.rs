@@ -72,7 +72,7 @@ pub(super) fn lower_call<M: Module>(
             let av = vmap[&a];
             let result = emit_format_value(
                 fb, module, str_ids, fmt_ids, print_lits, &aty, av,
-                enum_global, class_struct_global,
+                enum_global, class_struct_global, &prog.classes,
             );
             if let Some(d) = dst {
                 vmap.insert(*d, result);
@@ -97,7 +97,7 @@ pub(super) fn lower_call<M: Module>(
                     fb.ins().call(r, &[]);
                 }
                 let av = vmap[a];
-                emit_print_value(fb, module, print_ids, print_lits, &aty, av, enum_global, class_struct_global);
+                emit_print_value(fb, module, print_ids, print_lits, &aty, av, enum_global, class_struct_global, &prog.classes);
                 printed += 1;
             }
             if printed > 0 {
@@ -218,18 +218,26 @@ pub(super) fn lower_call<M: Module>(
         });
         if let (Some(kind_tag_for_obj), 0) = (wrap_fixed_first_arg, arg_ix) {
             if let MirTy::Array { elem, len: Some(n) } = func.ty_of(*a) {
-                let stride = elem_byte_stride(elem);
-                let kind_tag = if matches!(**elem, MirTy::Object(_)) {
-                    1
-                } else {
-                    kind_tag_for_obj
-                };
-                let len_v = fb.ins().iconst(types::I64, *n as i64);
-                let stride_v = fb.ins().iconst(types::I64, stride);
-                let kind_v = fb.ins().iconst(types::I64, kind_tag);
-                let f = module.declare_func_in_func(str_ids.fixed_to_dyn, fb.func);
-                let call = fb.ins().call(f, &[av, len_v, stride_v, kind_v]);
-                av = fb.inst_results(call)[0];
+                // ARC-element fixed arrays already carry the
+                // dynamic header (see NewArray) — pass through
+                // unwrapped. Only kind-0 inline data needs the
+                // on-the-fly header.
+                let needs_wrap =
+                    super::super::print_kind::kind_tag_of(elem, &prog.classes) == 0;
+                if needs_wrap {
+                    let stride = elem_byte_stride(elem);
+                    let kind_tag = if matches!(**elem, MirTy::Object(_)) {
+                        1
+                    } else {
+                        kind_tag_for_obj
+                    };
+                    let len_v = fb.ins().iconst(types::I64, *n as i64);
+                    let stride_v = fb.ins().iconst(types::I64, stride);
+                    let kind_v = fb.ins().iconst(types::I64, kind_tag);
+                    let f = module.declare_func_in_func(str_ids.fixed_to_dyn, fb.func);
+                    let call = fb.ins().call(f, &[av, len_v, stride_v, kind_v]);
+                    av = fb.inst_results(call)[0];
+                }
             }
         }
         // CRepr / CPacked struct arg → chunk / HFA explode regardless
@@ -338,7 +346,7 @@ pub(super) fn lower_call<M: Module>(
             if matches!(
                 sym.as_str(),
                 "$array.dataPtr"
-                    | "$array.copyFixed"
+                    | "$array.copyShallow"
                     | "$enum.box"
                     | "$ffi.arrayFromCArray"
                     | "$repl.loadSlot"

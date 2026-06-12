@@ -99,10 +99,18 @@ impl<'a> BodyCx<'a> {
         let (coerced, _) = self.lower_arg_to(&args[0], Some(elem))?;
         // Bump rc on borrowed heap values — `array_push` stores the
         // cell verbatim, but `__release_array`'s cascade will
-        // eventually release every stored element.
-        if !value_is_fresh {
-            retain_if_heap(&mut self.fb, coerced, elem);
-        }
+        // eventually release every stored element. Fixed-length-
+        // array elements take a value COPY instead: the copy's own
+        // +1 is what the array stores.
+        let coerced = match self.copy_fixed_for_cell(coerced, elem) {
+            Some(copy) => copy,
+            None => {
+                if !value_is_fresh {
+                    retain_if_heap(&mut self.fb, coerced, elem);
+                }
+                coerced
+            }
+        };
         self.fb.push_inst(Inst::Call {
             dst: None,
             callee: FuncRef::Builtin(Symbol::intern("array_push")),
@@ -220,7 +228,10 @@ impl<'a> BodyCx<'a> {
             elem.clone()
         };
         let arr_ty = MirTy::Array { elem: Box::new(ret_ty.clone()), len: None };
-        self.forbid_fixed_in_cell(&ret_ty, "an array element")?;
+        // Callback results land in the new array's cells verbatim
+        // (runtime retain) — for fixed-length arrays that means the
+        // result SHARES whatever the callback returned (rc-sound;
+        // value-semantics edge recorded in HANDOFF).
         let kind = kind_tag_of_mir(&ret_ty, self.classes);
         let kind_v = self.const_int(MirTy::I64, kind);
         // The result element type can differ from the input's, so the
@@ -447,9 +458,17 @@ impl<'a> BodyCx<'a> {
         }
         let value_is_fresh = self.is_fresh_object_expr(&args[0]);
         let (coerced, _) = self.lower_arg_to(&args[0], Some(elem))?;
-        if !value_is_fresh {
-            retain_if_heap(&mut self.fb, coerced, elem);
-        }
+        // See `lower_array_push` — fixed-length-array elements take
+        // a value copy.
+        let coerced = match self.copy_fixed_for_cell(coerced, elem) {
+            Some(copy) => copy,
+            None => {
+                if !value_is_fresh {
+                    retain_if_heap(&mut self.fb, coerced, elem);
+                }
+                coerced
+            }
+        };
         self.fb.push_inst(Inst::Call {
             dst: None,
             callee: FuncRef::Builtin(Symbol::intern("array_unshift")),
@@ -467,6 +486,11 @@ impl<'a> BodyCx<'a> {
         if args.len() != 1 {
             return Err(LowerError::Other("Array.fill takes 1 arg".into()));
         }
+        // `fill` would put ONE shared fixed-array value into every
+        // slot (the runtime retains the same pointer per cell) —
+        // that breaks the per-cell value semantics. Per-slot copies
+        // need a runtime change; reject until then.
+        self.forbid_fixed_in_cell(elem, "Array.fill with a fixed-length-array element")?;
         let value_is_fresh = self.is_fresh_object_expr(&args[0]);
         let (coerced, vty) = self.lower_arg_to(&args[0], Some(elem))?;
         self.fb.push_inst(Inst::Call {

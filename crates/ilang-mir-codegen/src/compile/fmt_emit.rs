@@ -51,6 +51,7 @@ pub(super) fn emit_format_value<M: Module>(
     av: Value,
     enum_global: &[u32],
     class_struct_global: &[i64],
+    classes: &[ilang_mir::ClassLayout],
 ) -> Value {
     match ty {
         MirTy::Bool => {
@@ -126,7 +127,7 @@ pub(super) fn emit_format_value<M: Module>(
             let inner_v = reduce_from_i64(fb, inner, raw);
             let inner_s = emit_format_value(
                 fb, module, str_ids, fmt_ids, print_lits, inner, inner_v,
-                enum_global, class_struct_global,
+                enum_global, class_struct_global, classes,
             );
             let close = lit_value(fb, module, print_lits.close_paren);
             let close_s = {
@@ -159,7 +160,7 @@ pub(super) fn emit_format_value<M: Module>(
                 let elem_v = reduce_from_i64(fb, ity, raw);
                 let elem_s = emit_format_value(
                     fb, module, str_ids, fmt_ids, print_lits, ity, elem_v,
-                    enum_global, class_struct_global,
+                    enum_global, class_struct_global, classes,
                 );
                 acc = concat(fb, module, str_ids, acc, elem_s);
             }
@@ -173,9 +174,14 @@ pub(super) fn emit_format_value<M: Module>(
             // points straight at the elements with a static length.
             // The accumulator is threaded as a block parameter so each
             // iteration appends to the previous string without a slot.
-            let (len, data_ptr) = match arr_len {
-                Some(n) => (fb.ins().iconst(types::I64, *n as i64), av),
-                None => (
+            // ARC-element fixed arrays are headered like dynamic
+            // arrays (only the length is fixed, at the type level);
+            // kind-0 fixed arrays are header-less inline data.
+            let fixed_inline = matches!(arr_len, Some(_))
+                && super::print_kind::kind_tag_of(elem, classes) == 0;
+            let (len, data_ptr) = match (arr_len, fixed_inline) {
+                (Some(n), true) => (fb.ins().iconst(types::I64, *n as i64), av),
+                _ => (
                     fb.ins().load(types::I64, MemFlags::trusted(), av, 0),
                     fb.ins().load(types::I64, MemFlags::trusted(), av, 16),
                 ),
@@ -247,7 +253,7 @@ pub(super) fn emit_format_value<M: Module>(
             };
             let elem_s = emit_format_value(
                 fb, module, str_ids, fmt_ids, print_lits, elem, elem_v,
-                enum_global, class_struct_global,
+                enum_global, class_struct_global, classes,
             );
             let next_acc = concat(fb, module, str_ids, acc_now, elem_s);
             let one = fb.ins().iconst(types::I64, 1);

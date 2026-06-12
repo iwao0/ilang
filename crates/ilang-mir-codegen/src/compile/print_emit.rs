@@ -39,6 +39,7 @@ pub(super) fn emit_print_value<M: Module>(
     av: Value,
     enum_global: &[u32],
     class_struct_global: &[i64],
+    classes: &[ilang_mir::ClassLayout],
 ) {
     match ty {
         MirTy::Bool => {
@@ -94,7 +95,7 @@ pub(super) fn emit_print_value<M: Module>(
             // Load the boxed inner value (the some payload is a 1-cell heap).
             let raw = fb.ins().load(types::I64, MemFlags::trusted(), av, 0);
             let inner_v = reduce_from_i64(fb, inner, raw);
-            emit_print_value(fb, module, print_ids, print_lits, inner, inner_v, enum_global, class_struct_global);
+            emit_print_value(fb, module, print_ids, print_lits, inner, inner_v, enum_global, class_struct_global, classes);
             emit_print_lit(fb, module, print_ids.str_, print_lits.close_paren);
             fb.ins().jump(cont_blk, [].iter());
 
@@ -110,7 +111,7 @@ pub(super) fn emit_print_value<M: Module>(
                 let off = (i as i32) * 8;
                 let raw = fb.ins().load(types::I64, MemFlags::trusted(), av, off);
                 let elem_v = reduce_from_i64(fb, ity, raw);
-                emit_print_value(fb, module, print_ids, print_lits, ity, elem_v, enum_global, class_struct_global);
+                emit_print_value(fb, module, print_ids, print_lits, ity, elem_v, enum_global, class_struct_global, classes);
             }
             emit_print_lit(fb, module, print_ids.str_, print_lits.close_paren);
         }
@@ -119,9 +120,14 @@ pub(super) fn emit_print_value<M: Module>(
             // fixed-length `T[N]` arrays are header-less inline storage
             // — the value points straight at the elements and the
             // length is the static `N`.
-            let (len, data_ptr) = match arr_len {
-                Some(n) => (fb.ins().iconst(types::I64, *n as i64), av),
-                None => (
+            // ARC-element fixed arrays are headered like dynamic
+            // arrays (only the length is fixed, at the type level);
+            // kind-0 fixed arrays are header-less inline data.
+            let fixed_inline = matches!(arr_len, Some(_))
+                && super::print_kind::kind_tag_of(elem, classes) == 0;
+            let (len, data_ptr) = match (arr_len, fixed_inline) {
+                (Some(n), true) => (fb.ins().iconst(types::I64, *n as i64), av),
+                _ => (
                     fb.ins().load(types::I64, MemFlags::trusted(), av, 0),
                     fb.ins().load(types::I64, MemFlags::trusted(), av, 16),
                 ),
@@ -182,7 +188,7 @@ pub(super) fn emit_print_value<M: Module>(
                     reduce_from_i64(fb, elem, raw)
                 }
             };
-            emit_print_value(fb, module, print_ids, print_lits, elem, elem_v, enum_global, class_struct_global);
+            emit_print_value(fb, module, print_ids, print_lits, elem, elem_v, enum_global, class_struct_global, classes);
             // i = i + 1
             let one = fb.ins().iconst(types::I64, 1);
             let i_next = fb.ins().iadd(i_arg, one);

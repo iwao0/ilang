@@ -1112,20 +1112,26 @@ class Pack { items: Box[2] }                  // a field owns its own buffer
 // p.items = q.items is a value COPY (fresh buffer, elements retained)
 ```
 
-Beyond fields, bindings, and parameters, **Optional cells and
-enum payloads** can hold one — like field assignment, the cell
-takes a value copy on store:
+Every container cell can hold one — Optional, enum payloads,
+tuple slots, dynamic-array elements, Map values, closure
+captures, Promise values. Like field assignment, each store takes
+a value copy:
 
 ```rust
 fn hold<T>(v: T): T? { some(v) }   // T = Box[2] works
 let o = hold(arr)    // o owns a COPY of arr
 arr[0] = new Box(9)  // not visible through o
+
+let xs: Box[2][] = [arr]   // the element is a copy too
+let t = (arr, 1)           // and the tuple slot
+let f = fn(): i64 { arr[0].n }   // captures copy as well
 ```
 
-Still type errors: using one as a return type, as a component of
-a dynamic array / Map / Set / tuple, capturing one in a closure,
-or reassigning the whole binding (`arr = [..]` — element writes
-`arr[i] = x` are fine).
+Still type errors: using one as a return type (fn / interface /
+fn-typed value), reassigning the whole binding (`arr = [..]` —
+element writes `arr[i] = x` are fine), and `Array.fill` with a
+fixed-array element. `Set` elements stay excluded by the regular
+equality rule.
 
 ```rust
 

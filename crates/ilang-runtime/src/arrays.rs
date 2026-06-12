@@ -327,49 +327,48 @@ pub extern "C" fn __retain_array(arr_ptr: i64) {
     unsafe { crate::refcount::atomic_retain(rc_ptr) };
 }
 
-/// Fixed-length array (`T[N]`) lifecycle, heap-element case. A
-/// fixed array is a bare `__mir_alloc`'d buffer of `len` 8-byte
-/// pointer slots — no header, no rc. The OWNER (the binding the
-/// literal was built for, tracked by the lowerer) releases each
-/// element and frees the buffer; aliases are compile-time borrows
-/// and never reach these. `elem_kind == 0` (primitive / CRepr /
-/// handle elements) must never get here — those buffers keep the
-/// legacy lifecycle (the slots aren't 8-byte ARC pointers).
-#[unsafe(export_name = "$array.releaseFixed")]
-pub extern "C" fn __release_fixed_array(ptr: i64, len: i64, elem_kind: i64) {
-    if ptr == 0 {
-        return;
+/// Shallow value copy of an rc'd array: fresh header + buffer,
+/// cells memcpy'd, one retained share per element (by the header's
+/// kind tag). Used by the lowerer to give container cells their own
+/// fixed-length array value (`T[N]` has value semantics at cell
+/// stores: field assignment from a non-fresh source, Optional /
+/// enum-payload / tuple / map / array-element stores).
+#[unsafe(export_name = "$array.copyShallow")]
+pub extern "C" fn __copy_array_shallow(arr_ptr: i64) -> i64 {
+    if arr_ptr == 0 {
+        return 0;
     }
-    if elem_kind != 0 {
-        for i in 0..len {
-            let v = unsafe { *((ptr + i * 8) as *const i64) };
-            release_field_by_kind(v, elem_kind);
+    let (len, kind, stride) = unsafe {
+        (
+            *(arr_ptr as *const i64),
+            *((arr_ptr + 32) as *const i64),
+            array_stride(arr_ptr),
+        )
+    };
+    let header = __mir_alloc(48);
+    let data = __mir_alloc((len * stride).max(1));
+    unsafe {
+        let src = *((arr_ptr + 16) as *const i64);
+        std::ptr::copy_nonoverlapping(
+            src as *const u8,
+            data as *mut u8,
+            (len * stride) as usize,
+        );
+        let h = header as *mut i64;
+        *h = len;
+        *h.add(1) = len;
+        *h.add(2) = data;
+        *h.add(3) = 1;
+        *h.add(4) = kind;
+        *h.add(5) = stride;
+        if kind != 0 {
+            for i in 0..len {
+                let v = *((data + i * 8) as *const i64);
+                retain_field_by_kind(v, kind);
+            }
         }
     }
-    __mir_free(ptr, (len * 8).max(1));
-}
-
-/// Value-semantics copy of a fixed array — fresh `len * 8` buffer,
-/// slots memcpy'd, one retained share per element. The assignment
-/// paths use this when the source is NOT a fresh literal (a fresh
-/// literal's buffer transfers by pointer instead): storing the
-/// source pointer directly would alias two owners onto one buffer
-/// and double-free on their drops.
-#[unsafe(export_name = "$array.copyFixed")]
-pub extern "C" fn __copy_fixed_array(ptr: i64, len: i64, elem_kind: i64) -> i64 {
-    let dst = __mir_alloc((len * 8).max(1));
-    for i in 0..len {
-        let v = if ptr == 0 {
-            0
-        } else {
-            unsafe { *((ptr + i * 8) as *const i64) }
-        };
-        unsafe { *((dst + i * 8) as *mut i64) = v };
-        if elem_kind != 0 {
-            retain_field_by_kind(v, elem_kind);
-        }
-    }
-    dst
+    header
 }
 
 /// Release an array (`--rc`); free header + data buffer at rc 0.

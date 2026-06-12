@@ -358,7 +358,21 @@ impl TypeChecker {
                         self.record_if_err(self.validate_type(&p.ty, p.span, &[]));
                     }
                     if let Some(r) = &m.ret {
-                        self.record_if_err(self.reject_fixed_heap_component(r, m.span));
+                        // Same return restriction as fn decls:
+                        // fixed-length heap-element arrays can't be
+                        // returned.
+                        if let ilang_ast::Type::Array { elem, fixed: Some(_) } = r {
+                            if self.fixed_elem_is_heap(elem) {
+                                self.record_if_err(Err(TypeError::Unsupported {
+                                    what: format!(
+                                        "interface method return type {r} \
+                                         (fixed-length arrays with heap elements \
+                                         can't be returned)"
+                                    ),
+                                    span: m.span,
+                                }));
+                            }
+                        }
                         self.record_if_err(self.validate_type(r, m.span, &[]));
                     }
                 }
