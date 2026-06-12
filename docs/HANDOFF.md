@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 35 弾** (クリーンラウンド)。 bare field 書き (第 32 弾) × 連鎖レシーバ解放 (第 29/30 弾) の継ぎ目を反復ミューテーション・多段連鎖で攻めた — **新規バグなし**。 init 内 bare 再代入の `is_init` 安全性 (checker が初回 `this.` を要求して担保)、 fixed-array bare 代入の copyShallow、 4 段連鎖・field 返し連鎖、 **エスケープしたステートフルクロージャの heap field 反復付け替え** (deinit 700 厳密) を pin。 詳細は下の確認済み記録。
 - **第 34 弾** (クリーンラウンド)。 第 33 弾で統合した `store_value_to_field` の継ぎ目を「bare field 代入 × 宣言型が要る RHS」で攻めた — **新規バグなし**。 共変 map / 配列リテラル・fresh Optional・Optional widen の bare 代入を厳密 deinit + churn delta=0 で pin。 併せて **第 33 弾の誤記録を訂正** (「weak の bare 代入は明示と非対称」は誤り。 実体は `none → plain Box.weak` の拒否で bare/明示共通・意図的制限)。 詳細は下の確認済み記録。
 - **第 33 弾**。 第 32 弾で触った **implicit bare-name field 代入** arm が、明示 `this.f = v` (AssignField) と違って **`T → T?` / subtype の Optional 自動 wrap を欠く** 既存バグを検出・修正。 `slot = box` (field 型 `Box?`) が生オブジェクトを Optional slot に格納し解放時に **SIGSEGV**。 両経路を共通ヘルパー `store_value_to_field` に統合。 詳細は下の解決済み記録。
 - **第 32 弾**。 第 31 弾のクロージャ `this` 捕獲の継ぎ目を攻めて **コンパイラ panic 2 件** を検出・対処。 (1) メソッド内クロージャが **bare field に代入** (`slot = nb`) すると lowering が panic (修正)。 (2) クロージャ内の **bare メソッド呼び出し** (`compute()`) が panic → クリーンな診断に (ユーザー決定)。 詳細は下の解決済み記録。
@@ -84,6 +85,18 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [確認済み記録] 第 35 弾: bare field 書き × 反復ミューテーション・多段連鎖 — 新規バグなし (2026-06-13)
+
+第 32 弾の bare field 書きと第 29/30 弾の連鎖レシーバ解放の継ぎ目を、 反復・escape・多段で攻めた。 **全て健全**:
+
+- **init 内 bare 再代入の `is_init` 安全性**: implicit-this bare 代入 arm は `is_init` を常に `false` で渡す (= 旧スロットを LoadField して Release)。 一見「init のゼロスロットを誤 release」しそうだが、 **checker が「init での初回 field 代入は `this.field = ...` の形」を要求** するため (`slot = ..` だけの init は「field is not assigned」で拒否)、 bare 書きが届く時点でスロットは既に実値を持つ → 旧値 release は正しい。 `this.slot = a` の後 `slot = b` で再代入する形を deinit 厳密 (2/round) で確認。
+- **fixed-array field の bare 代入** (`items = other.items`、 非 fresh エイリアス源): `store_value_to_field` の fixed-array arm が copyShallow で値コピー (新バッファ + 要素 retain)、 旧バッファ release。 deinit 厳密 (4/round)。
+- **多段メソッド連鎖**: 4 段 `mk().bump().bump().bump()` の中間 receiver 3 個解放、 **field を返す連鎖** `h.getInner().val()` (tail-borrow で +1 された中間)、 self 連鎖、 fresh holder 連鎖。 全て deinit 厳密。
+- **エスケープしたステートフルクロージャの heap field 反復付け替え**: `s.updater()` が返すクロージャを 4 回呼んで毎回 `slot = new Box(x)`。 各呼び出しで前の Box を release、 object + closure 死亡で最後を drop。 1 round 5 Box 全死亡を deinit 厳密で確認 (第 32 弾修正の反復ミューテーション下の堅牢性)。
+- 計測で繰り返し出た `delta=56` は全て **§4-1 の罠** (計測開始後に確保した `acc: i64[]`)。 deinit が常に厳密一致でオブジェクト leak なし。
+
+fixture: `05_edge_cases/closure_bare_field_reassign_churn.il` (ステートフルクロージャ反復 + init bare 再代入を厳密 deinit 700 + churn delta=0)。 **ソース変更なし**のため第 24 弾と同じく workspace / nested_generic 儀式は省略、 programs fixture を JIT・AOT 両経路で確認。
 
 ### [確認済み記録] 第 34 弾: bare field 代入 × 宣言型が要る RHS — 新規バグなし + 第 33 弾の訂正 (2026-06-13)
 
