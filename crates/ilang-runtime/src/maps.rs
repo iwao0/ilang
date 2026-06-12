@@ -13,7 +13,7 @@ use crate::arrays::build_i64_array;
 use crate::cascade::{release_field_by_kind, retain_field_by_kind};
 use crate::kind::{KIND_NONE, KIND_STR, PK_OTHER, PK_STR};
 use crate::print_dispatch::format_kind_id;
-use crate::strings::{__retain_string, cstr_bytes, leak_cstring};
+use crate::strings::{__retain_string, cstr_bytes};
 
 /// A map's key kind is fixed for its lifetime (the type checker gives
 /// every `Map<K, V>` a single `K`), so keys live in one of two stores
@@ -91,7 +91,10 @@ impl ObjectMapStore {
         None
     }
 
-    fn remove(&mut self, key: i64) -> Option<i64> {
+    /// Returns `(stored_key_ptr, value)` — the caller needs the
+    /// exact stored pointer to drop the insertion-order handle (the
+    /// probe key may be a different, equal object).
+    fn remove(&mut self, key: i64) -> Option<(i64, i64)> {
         if key == 0 {
             return None;
         }
@@ -105,7 +108,7 @@ impl ObjectMapStore {
                 }
                 self.count -= 1;
                 crate::classes::__release_object(k);
-                return Some(v);
+                return Some((k, v));
             }
         }
         None
@@ -126,17 +129,10 @@ impl ObjectMapStore {
         values
     }
 
-    fn iter_keys(&self) -> impl Iterator<Item = i64> + '_ {
-        self.buckets.values().flat_map(|b| b.iter().map(|(k, _)| *k))
-    }
-
     fn iter_values(&self) -> impl Iterator<Item = i64> + '_ {
         self.buckets.values().flat_map(|b| b.iter().map(|(_, v)| *v))
     }
 
-    fn iter_entries(&self) -> impl Iterator<Item = (i64, i64)> + '_ {
-        self.buckets.values().flat_map(|b| b.iter().copied())
-    }
 }
 
 pub(crate) struct ManagedMap {
@@ -148,6 +144,17 @@ pub(crate) struct ManagedMap {
     /// For string-keyed maps: canonical key → original C-string ptr
     /// the user inserted. Lets `keys()` return the original ptrs.
     str_key_origs: HashMap<Box<str>, i64>,
+    /// Key handles in INSERTION ORDER — `keys()` / `values()` /
+    /// `entries()` / `forEach` / printing all iterate this, so map
+    /// iteration is deterministic and matches JS `Map` semantics
+    /// (overwrites keep the original position; delete removes the
+    /// slot). Handles are non-owning: the raw key for Int stores,
+    /// the first-insert original pointer for Str stores (kept alive
+    /// by `str_key_origs`' +1), the retained object ptr for Object
+    /// stores. Backing `HashMap`s iterate in a per-process random
+    /// order (SipHash seeding), which leaked into user programs as
+    /// run-to-run nondeterminism.
+    order: Vec<i64>,
 }
 
 /// Borrow a raw C-string key as `&str` for hash-map probing. Returns
@@ -162,16 +169,15 @@ unsafe fn key_str<'a>(raw: i64) -> Cow<'a, str> {
 }
 
 impl ManagedMap {
-    /// Return the original raw pointer for string key `k` if we recorded
-    /// one at insertion time, otherwise mint a fresh C-string. Used by
-    /// `keys()` / `entries()` so the strings handed back match what the
-    /// user passed into `set()`.
-    fn str_orig_or_leak(&self, k: &str) -> i64 {
-        self.str_key_origs
-            .get(k)
-            .copied()
-            .unwrap_or_else(|| leak_cstring(k.to_string()))
+    /// Value lookup by an `order` handle (see the field docs).
+    fn value_for_handle(&self, h: i64) -> Option<i64> {
+        match &self.store {
+            MapStore::Int(t) => t.get(&h).copied(),
+            MapStore::Str(t) => t.get(&*unsafe { key_str(h) }).copied(),
+            MapStore::Object(t) => t.get(h),
+        }
     }
+
 }
 
 #[unsafe(export_name = "$map.new")]
@@ -183,6 +189,7 @@ pub extern "C" fn __map_new() -> i64 {
         val_print_kind: PK_OTHER,
         store: MapStore::Int(HashMap::new()),
         str_key_origs: HashMap::new(),
+        order: Vec::new(),
     });
     Box::into_raw(m) as i64
 }
@@ -207,6 +214,7 @@ pub extern "C" fn __map_new_object(eq_fn: i64, hash_fn: i64) -> i64 {
             count: 0,
         }),
         str_key_origs: HashMap::new(),
+        order: Vec::new(),
     });
     Box::into_raw(m) as i64
 }
@@ -341,6 +349,13 @@ pub extern "C" fn __map_set(map: i64, key: i64, value: i64) {
             slot.insert(key);
         }
     }
+    if prev.is_none() {
+        // New entry — record its insertion position. The handle is
+        // the raw key pointer the user passed, which for Str stores
+        // is exactly the `str_key_origs` original (first insert
+        // wins on both sides).
+        m.order.push(key);
+    }
     if let Some(old) = prev {
         if val_kind != KIND_NONE {
             release_field_by_kind(old, val_kind);
@@ -383,21 +398,28 @@ pub extern "C" fn __map_delete(map: i64, key: i64) -> i64 {
     }
     let m = unsafe { &mut *(map as *mut ManagedMap) };
     let val_kind = m.val_kind;
-    let removed = match &mut m.store {
-        MapStore::Int(t) => t.remove(&key),
-        MapStore::Str(t) => t.remove(&*unsafe { key_str(key) }),
-        MapStore::Object(t) => t.remove(key),
+    // `(value, order_handle)` — the handle identifies the entry in
+    // the insertion-order list (Int: the key itself; Str: the
+    // recorded original pointer; Object: the exact stored pointer).
+    let removed: Option<(i64, i64)> = match &mut m.store {
+        MapStore::Int(t) => t.remove(&key).map(|v| (v, key)),
+        MapStore::Str(t) => t.remove(&*unsafe { key_str(key) }).map(|v| (v, 0)),
+        MapStore::Object(t) => t.remove(key).map(|(k, v)| (v, k)),
     };
     match removed {
-        Some(old) => {
+        Some((old, mut handle)) => {
             if val_kind != KIND_NONE {
                 release_field_by_kind(old, val_kind);
             }
             // Drop the map's adopted +1 on the key string.
             if m.key_print_kind == PK_STR {
                 if let Some(orig) = m.str_key_origs.remove(&*unsafe { key_str(key) }) {
+                    handle = orig;
                     crate::strings::__release_string(orig);
                 }
+            }
+            if let Some(pos) = m.order.iter().position(|&h| h == handle) {
+                m.order.remove(pos);
             }
             1
         }
@@ -418,11 +440,8 @@ pub extern "C" fn __map_keys(map: i64) -> i64 {
     } else {
         KIND_NONE
     };
-    let keys: Vec<i64> = match &m.store {
-        MapStore::Int(t) => t.keys().copied().collect(),
-        MapStore::Str(t) => t.keys().map(|k| m.str_orig_or_leak(k)).collect(),
-        MapStore::Object(t) => t.iter_keys().collect(),
-    };
+    // Insertion order (see `ManagedMap::order`).
+    let keys: Vec<i64> = m.order.clone();
     if elem_kind == KIND_STR {
         for k in &keys {
             __retain_string(*k);
@@ -442,11 +461,12 @@ pub extern "C" fn __map_values(map: i64) -> i64 {
     }
     let m = unsafe { &*(map as *const ManagedMap) };
     let val_kind = m.val_kind;
-    let values: Vec<i64> = match &m.store {
-        MapStore::Int(t) => t.values().copied().collect(),
-        MapStore::Str(t) => t.values().copied().collect(),
-        MapStore::Object(t) => t.iter_values().collect(),
-    };
+    // Insertion order (see `ManagedMap::order`).
+    let values: Vec<i64> = m
+        .order
+        .iter()
+        .filter_map(|&h| m.value_for_handle(h))
+        .collect();
     if val_kind != KIND_NONE {
         for v in &values {
             retain_field_by_kind(*v, val_kind);
@@ -486,6 +506,7 @@ pub extern "C" fn __map_clear(map: i64) {
             }
         }
     }
+    m.order.clear();
     if let MapStore::Object(t) = &mut m.store {
         // `clear_keys` releases every object key share and resets
         // the bucket store. Returned values are already released
@@ -534,24 +555,20 @@ pub extern "C" fn __map_entries(map: i64) -> i64 {
     // Snapshot (key_raw, value) pairs; string keys take a +1 registry rc
     // up-front so the tuple array owns its own share. Object keys
     // mirror the same pattern via `__retain_object`.
-    let pairs: Vec<(i64, i64)> = match &m.store {
-        MapStore::Int(t) => t.iter().map(|(&k, &v)| (k, v)).collect(),
-        MapStore::Str(t) => t
-            .iter()
-            .map(|(k, &v)| {
-                let orig = m.str_orig_or_leak(k);
-                __retain_string(orig);
-                (orig, v)
-            })
-            .collect(),
-        MapStore::Object(t) => t
-            .iter_entries()
-            .map(|(k, v)| {
+    // Insertion order (see `ManagedMap::order`).
+    let pairs: Vec<(i64, i64)> = m
+        .order
+        .iter()
+        .filter_map(|&h| m.value_for_handle(h).map(|v| (h, v)))
+        .map(|(k, v)| {
+            if key_kind == KIND_STR {
+                __retain_string(k);
+            } else if key_kind == crate::kind::KIND_OBJECT {
                 crate::classes::__retain_object(k);
-                (k, v)
-            })
-            .collect(),
-    };
+            }
+            (k, v)
+        })
+        .collect();
     let mut tuples: Vec<i64> = Vec::with_capacity(pairs.len());
     for (key_raw, v) in pairs {
         if val_kind != KIND_NONE {
@@ -661,24 +678,20 @@ pub extern "C" fn __map_for_each(map: i64, closure: i64, key_fk: i64, val_fk: i6
     // mid-iteration `delete` / overwrite releases the entry's value,
     // and without the value retain the callback's later visits read
     // freed memory.
-    let pairs: Vec<(i64, i64)> = match &m.store {
-        MapStore::Int(t) => t.iter().map(|(&k, &v)| (k, v)).collect(),
-        MapStore::Str(t) => t
-            .iter()
-            .map(|(k, &v)| {
-                let orig = m.str_orig_or_leak(k);
-                __retain_string(orig);
-                (orig, v)
-            })
-            .collect(),
-        MapStore::Object(t) => t
-            .iter_entries()
-            .map(|(k, v)| {
+    // Insertion order (see `ManagedMap::order`).
+    let pairs: Vec<(i64, i64)> = m
+        .order
+        .iter()
+        .filter_map(|&h| m.value_for_handle(h).map(|v| (h, v)))
+        .map(|(k, v)| {
+            if key_is_str {
+                __retain_string(k);
+            } else if key_is_object {
                 crate::classes::__retain_object(k);
-                (k, v)
-            })
-            .collect(),
-    };
+            }
+            (k, v)
+        })
+        .collect();
     if val_kind != KIND_NONE {
         for (_, v) in pairs.iter() {
             retain_field_by_kind(*v, val_kind);
@@ -717,34 +730,19 @@ pub fn format_map_into(out: &mut String, map_ptr: i64) {
     // Pre-render each key once for stable display ordering. Without
     // caching, `sort_by` would call `format_kind_id` twice per
     // comparison — O(n log n) format calls instead of O(n).
-    let mut entries: Vec<(String, i64, i64)> = match &m.store {
-        MapStore::Int(t) => t
-            .iter()
-            .map(|(&k, &v)| {
-                let mut s = String::new();
-                format_kind_id(&mut s, kk, k);
-                (s, k, v)
-            })
-            .collect(),
-        MapStore::Str(t) => t
-            .iter()
-            .map(|(k, &v)| {
-                let raw = m.str_orig_or_leak(k);
-                let mut s = String::new();
-                format_kind_id(&mut s, kk, raw);
-                (s, raw, v)
-            })
-            .collect(),
-        MapStore::Object(t) => t
-            .iter_entries()
-            .map(|(k, v)| {
-                let mut s = String::new();
-                format_kind_id(&mut s, kk, k);
-                (s, k, v)
-            })
-            .collect(),
-    };
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    // Insertion order — matches `entries()` / JS `Map` display.
+    // (Display used to sort by the rendered key because the
+    // backing HashMap's order was random.)
+    let entries: Vec<(String, i64, i64)> = m
+        .order
+        .iter()
+        .filter_map(|&h| m.value_for_handle(h).map(|v| (h, v)))
+        .map(|(k, v)| {
+            let mut s = String::new();
+            format_kind_id(&mut s, kk, k);
+            (s, k, v)
+        })
+        .collect();
     out.push('{');
     for (i, (key_str, _raw, v)) in entries.iter().enumerate() {
         if i > 0 {

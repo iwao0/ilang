@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicI64, Ordering, fence};
 
 use crate::arrays::build_i64_array;
 use crate::kind::{KIND_NONE, KIND_STR, PK_STR};
-use crate::strings::{__release_string, __retain_string, cstr_bytes, leak_cstring};
+use crate::strings::{__release_string, __retain_string, cstr_bytes};
 
 /// A set's element kind is fixed for its lifetime, so elements live in
 /// one of two stores rather than a unified enum. Splitting them lets
@@ -109,14 +109,15 @@ impl ObjectStore {
     }
 
     /// Remove an element equal to `obj`, releasing the set's share.
-    fn remove(&mut self, obj: i64) -> bool {
+    /// Returns the exact STORED pointer (the probe may be a
+    /// different, equal object) so the caller can drop the
+    /// insertion-order handle.
+    fn remove(&mut self, obj: i64) -> Option<i64> {
         if obj == 0 {
-            return false;
+            return None;
         }
         let hash = (self.hash_fn)(obj);
-        let Some(bucket) = self.buckets.get_mut(&hash) else {
-            return false;
-        };
+        let bucket = self.buckets.get_mut(&hash)?;
         for i in 0..bucket.len() {
             if eq_bool(self.eq_fn, bucket[i], obj) {
                 let removed = bucket.swap_remove(i);
@@ -125,10 +126,10 @@ impl ObjectStore {
                 }
                 self.count -= 1;
                 crate::classes::__release_object(removed);
-                return true;
+                return Some(removed);
             }
         }
-        false
+        None
     }
 
     fn clear(&mut self) {
@@ -157,6 +158,12 @@ pub(crate) struct ManagedSet {
     /// pointer the user inserted. Lets follow-up methods (`has`,
     /// `delete`) round-trip without re-allocating registry strings.
     str_origs: HashMap<Box<str>, i64>,
+    /// Element handles in INSERTION ORDER — `values()` / `forEach` /
+    /// printing / the set operations iterate this (JS `Set`
+    /// semantics: duplicates keep the original position, delete
+    /// removes the slot). Non-owning, same handle scheme as
+    /// `ManagedMap::order`.
+    order: Vec<i64>,
 }
 
 /// Borrow a raw C-string element as `&str` for hash-set probing.
@@ -171,16 +178,6 @@ unsafe fn elem_str<'a>(raw: i64) -> Cow<'a, str> {
 }
 
 impl ManagedSet {
-    /// Return the original raw pointer for string element `e` if we
-    /// recorded one at insertion time, otherwise mint a fresh C-string.
-    /// Used by iteration methods so emitted strings match what the user
-    /// passed into `add()`.
-    fn str_orig_or_leak(&self, e: &str) -> i64 {
-        self.str_origs
-            .get(e)
-            .copied()
-            .unwrap_or_else(|| leak_cstring(e.to_string()))
-    }
 
     fn contains_int(&self, e: i64) -> bool {
         matches!(&self.store, SetStore::Int(t) if t.contains(&e))
@@ -202,6 +199,7 @@ pub extern "C" fn __set_new() -> i64 {
         elem_print_kind: crate::kind::PK_OTHER,
         store: SetStore::Int(HashSet::new()),
         str_origs: HashMap::new(),
+        order: Vec::new(),
     });
     Box::into_raw(s) as i64
 }
@@ -226,6 +224,7 @@ pub extern "C" fn __set_new_object(eq_fn: i64, hash_fn: i64) -> i64 {
             count: 0,
         }),
         str_origs: HashMap::new(),
+        order: Vec::new(),
     });
     Box::into_raw(s) as i64
 }
@@ -261,11 +260,15 @@ pub extern "C" fn __set_add(set: i64, raw: i64) {
     let s = unsafe { &mut *(set as *mut ManagedSet) };
     match &mut s.store {
         SetStore::Object(t) => {
-            t.insert(raw);
+            if t.insert(raw) {
+                s.order.push(raw);
+            }
             return;
         }
         SetStore::Int(t) => {
-            t.insert(raw);
+            if t.insert(raw) {
+                s.order.push(raw);
+            }
         }
         SetStore::Str(t) => {
             // Probe by borrowed `&str` first — `elem_str` hands back a
@@ -282,6 +285,7 @@ pub extern "C" fn __set_add(set: i64, raw: i64) {
                     s.str_origs.insert(e.clone(), raw);
                 }
                 t.insert(e);
+                s.order.push(raw);
             }
         }
     }
@@ -310,7 +314,15 @@ pub extern "C" fn __set_delete(set: i64, raw: i64) -> i64 {
     // Object delete fast-pathed: bucket walk + release happens inside
     // ObjectStore::remove, so no follow-up str_origs maintenance.
     if let SetStore::Object(t) = &mut s.store {
-        return if t.remove(raw) { 1 } else { 0 };
+        return match t.remove(raw) {
+            Some(stored) => {
+                if let Some(pos) = s.order.iter().position(|&h| h == stored) {
+                    s.order.remove(pos);
+                }
+                1
+            }
+            None => 0,
+        };
     }
     let removed = match &mut s.store {
         SetStore::Int(t) => t.remove(&raw),
@@ -318,10 +330,15 @@ pub extern "C" fn __set_delete(set: i64, raw: i64) -> i64 {
         SetStore::Object(_) => unreachable!("handled above"),
     };
     if removed {
+        let mut handle = raw;
         if matches!(&s.store, SetStore::Str(_)) {
             if let Some(orig) = s.str_origs.remove(&*unsafe { elem_str(raw) }) {
+                handle = orig;
                 __release_string(orig);
             }
+        }
+        if let Some(pos) = s.order.iter().position(|&h| h == handle) {
+            s.order.remove(pos);
         }
         1
     } else {
@@ -355,7 +372,9 @@ pub extern "C" fn __set_add_f32(set: i64, v: f32) {
     }
     let s = unsafe { &mut *(set as *mut ManagedSet) };
     if let SetStore::Int(t) = &mut s.store {
-        t.insert(v.to_bits() as i64);
+        if t.insert(v.to_bits() as i64) {
+            s.order.push(v.to_bits() as i64);
+        }
     }
 }
 
@@ -366,7 +385,9 @@ pub extern "C" fn __set_add_f64(set: i64, v: f64) {
     }
     let s = unsafe { &mut *(set as *mut ManagedSet) };
     if let SetStore::Int(t) = &mut s.store {
-        t.insert(v.to_bits() as i64);
+        if t.insert(v.to_bits() as i64) {
+            s.order.push(v.to_bits() as i64);
+        }
     }
 }
 
@@ -399,7 +420,14 @@ pub extern "C" fn __set_delete_f32(set: i64, v: f32) -> i64 {
     } else {
         false
     };
-    if removed { 1 } else { 0 }
+    if removed {
+        if let Some(pos) = s.order.iter().position(|&h| h == v.to_bits() as i64) {
+            s.order.remove(pos);
+        }
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(export_name = "$set.deleteF64")]
@@ -413,7 +441,14 @@ pub extern "C" fn __set_delete_f64(set: i64, v: f64) -> i64 {
     } else {
         false
     };
-    if removed { 1 } else { 0 }
+    if removed {
+        if let Some(pos) = s.order.iter().position(|&h| h == v.to_bits() as i64) {
+            s.order.remove(pos);
+        }
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(export_name = "$set.size")]
@@ -442,6 +477,7 @@ pub extern "C" fn __set_clear(set: i64) {
         }
         s.str_origs.clear();
     }
+    s.order.clear();
     match &mut s.store {
         SetStore::Int(t) => t.clear(),
         SetStore::Str(t) => t.clear(),
@@ -467,26 +503,21 @@ pub extern "C" fn __set_values(set: i64) -> i64 {
     } else {
         KIND_NONE
     };
-    let values: Vec<i64> = match &s.store {
-        SetStore::Int(t) => t.iter().copied().collect(),
-        SetStore::Str(t) => t
-            .iter()
-            .map(|e| {
-                let orig = s.str_orig_or_leak(e);
-                __retain_string(orig);
-                orig
-            })
-            .collect(),
-        SetStore::Object(t) => t
-            .iter()
-            .map(|obj| {
+    // Insertion order (see `ManagedSet::order`).
+    let values: Vec<i64> = s
+        .order
+        .iter()
+        .map(|&h| {
+            if elem_kind == KIND_STR {
+                __retain_string(h);
+            } else if elem_kind == crate::kind::KIND_OBJECT {
                 // Array element takes its own +1 share; the set
                 // retains a separate share that stays put.
-                crate::classes::__retain_object(obj);
-                obj
-            })
-            .collect(),
-    };
+                crate::classes::__retain_object(h);
+            }
+            h
+        })
+        .collect();
     build_i64_array(&values, elem_kind)
 }
 
@@ -536,24 +567,19 @@ pub extern "C" fn __set_for_each(set: i64, closure: i64) {
     // the corresponding share up-front so each entry survives any
     // mutation the callback may perform on the set (e.g. delete
     // during iteration).
-    let args: Vec<i64> = match &s.store {
-        SetStore::Int(t) => t.iter().copied().collect(),
-        SetStore::Str(t) => t
-            .iter()
-            .map(|e| {
-                let raw = s.str_orig_or_leak(e);
-                __retain_string(raw);
-                raw
-            })
-            .collect(),
-        SetStore::Object(t) => t
-            .iter()
-            .map(|obj| {
-                crate::classes::__retain_object(obj);
-                obj
-            })
-            .collect(),
-    };
+    // Insertion order (see `ManagedSet::order`).
+    let args: Vec<i64> = s
+        .order
+        .iter()
+        .map(|&h| {
+            if is_str {
+                __retain_string(h);
+            } else if is_object {
+                crate::classes::__retain_object(h);
+            }
+            h
+        })
+        .collect();
     for arg in args {
         unsafe { call_closure_1_i64(closure, arg) };
         if is_str {
@@ -574,9 +600,11 @@ pub extern "C" fn __set_for_each_f32(set: i64, closure: i64) {
         return;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
-    let bits: Vec<i64> = match &s.store {
-        SetStore::Int(t) => t.iter().copied().collect(),
-        SetStore::Str(_) | SetStore::Object(_) => Vec::new(),
+    // Insertion order (see `ManagedSet::order`).
+    let bits: Vec<i64> = if matches!(&s.store, SetStore::Int(_)) {
+        s.order.clone()
+    } else {
+        Vec::new()
     };
     for b in bits {
         let v = f32::from_bits(b as u32);
@@ -594,9 +622,11 @@ pub extern "C" fn __set_for_each_f64(set: i64, closure: i64) {
         return;
     }
     let s = unsafe { &*(set as *const ManagedSet) };
-    let bits: Vec<i64> = match &s.store {
-        SetStore::Int(t) => t.iter().copied().collect(),
-        SetStore::Str(_) | SetStore::Object(_) => Vec::new(),
+    // Insertion order (see `ManagedSet::order`).
+    let bits: Vec<i64> = if matches!(&s.store, SetStore::Int(_)) {
+        s.order.clone()
+    } else {
+        Vec::new()
     };
     for b in bits {
         let v = f64::from_bits(b as u64);
@@ -618,8 +648,20 @@ fn make_object_set_like(src: &ManagedSet) -> i64 {
         elem_print_kind: crate::kind::PK_OBJECT,
         store: SetStore::Object(ot.empty_like()),
         str_origs: HashMap::new(),
+        order: Vec::new(),
     });
     Box::into_raw(s) as i64
+}
+
+/// Insert an object element into an Object-store `out`, keeping the
+/// insertion-order list in sync. Used by the set operations, which
+/// previously poked `ObjectStore::insert` directly.
+fn set_insert_obj(out: &mut ManagedSet, obj: i64) {
+    if let SetStore::Object(t) = &mut out.store {
+        if t.insert(obj) {
+            out.order.push(obj);
+        }
+    }
 }
 
 fn is_object_set(s: &ManagedSet) -> bool {
@@ -629,7 +671,9 @@ fn is_object_set(s: &ManagedSet) -> bool {
 /// Insert an integer element into `out`'s store (no string management).
 fn set_insert_int(out: &mut ManagedSet, e: i64) {
     if let SetStore::Int(t) = &mut out.store {
-        t.insert(e);
+        if t.insert(e) {
+            out.order.push(e);
+        }
     }
 }
 
@@ -645,6 +689,7 @@ fn set_insert_str_transferred(out: &mut ManagedSet, key: Box<str>, orig: i64) {
         }
         out.str_origs.insert(key.clone(), orig);
         t.insert(key);
+        out.order.push(orig);
     } else {
         __release_string(orig);
     }
@@ -655,25 +700,27 @@ fn set_insert_str_transferred(out: &mut ManagedSet, key: Box<str>, orig: i64) {
 /// is a codegen bug — type-check guarantees both sides have the same
 /// element shape, so the mismatched arms become no-ops here.
 fn set_copy_into(out: &mut ManagedSet, src: &ManagedSet) {
-    match (&src.store, &mut out.store) {
-        (SetStore::Int(t), _) => {
-            for &e in t.iter() {
+    // Iterate `src` in ITS insertion order so the output's order is
+    // deterministic (first-set-then-second for union).
+    match &src.store {
+        SetStore::Int(_) => {
+            for &e in src.order.iter() {
                 set_insert_int(out, e);
             }
         }
-        (SetStore::Str(t), _) => {
-            for k in t.iter() {
-                let orig = src.str_orig_or_leak(k);
+        SetStore::Str(_) => {
+            for &orig in src.order.iter() {
+                let k: Box<str> =
+                    unsafe { elem_str(orig) }.into_owned().into_boxed_str();
                 __retain_string(orig);
-                set_insert_str_transferred(out, k.clone(), orig);
+                set_insert_str_transferred(out, k, orig);
             }
         }
-        (SetStore::Object(s_obj), SetStore::Object(o_obj)) => {
-            for obj in s_obj.iter() {
-                o_obj.insert(obj); // handles retain
+        SetStore::Object(_) => {
+            for &obj in src.order.clone().iter() {
+                set_insert_obj(out, obj);
             }
         }
-        (SetStore::Object(_), _) => {}
     }
 }
 
@@ -726,28 +773,27 @@ pub extern "C" fn __set_intersection(a: i64, b: i64) -> i64 {
     __set_set_elem_print_kind(out, sa.elem_print_kind);
     let out_s = unsafe { &mut *(out as *mut ManagedSet) };
     match &sa.store {
-        SetStore::Int(t) => {
-            for &e in t.iter() {
+        SetStore::Int(_) => {
+            for &e in sa.order.iter() {
                 if sb.contains_int(e) {
                     set_insert_int(out_s, e);
                 }
             }
         }
-        SetStore::Str(t) => {
-            for k in t.iter() {
-                if sb.contains_str(k) {
-                    let orig = sa.str_orig_or_leak(k);
+        SetStore::Str(_) => {
+            for &orig in sa.order.iter() {
+                let k: Box<str> =
+                    unsafe { elem_str(orig) }.into_owned().into_boxed_str();
+                if sb.contains_str(&k) {
                     __retain_string(orig);
-                    set_insert_str_transferred(out_s, k.clone(), orig);
+                    set_insert_str_transferred(out_s, k, orig);
                 }
             }
         }
-        SetStore::Object(t) => {
-            if let SetStore::Object(o_obj) = &mut out_s.store {
-                for obj in t.iter() {
-                    if sb.contains_obj(obj) {
-                        o_obj.insert(obj);
-                    }
+        SetStore::Object(_) => {
+            for &obj in sa.order.iter() {
+                if sb.contains_obj(obj) {
+                    set_insert_obj(out_s, obj);
                 }
             }
         }
@@ -777,29 +823,28 @@ pub extern "C" fn __set_difference(a: i64, b: i64) -> i64 {
         Some(unsafe { &*(b as *const ManagedSet) })
     };
     match &sa.store {
-        SetStore::Int(t) => {
-            for &e in t.iter() {
+        SetStore::Int(_) => {
+            for &e in sa.order.iter() {
                 if !sb_opt.map(|s| s.contains_int(e)).unwrap_or(false) {
                     set_insert_int(out_s, e);
                 }
             }
         }
-        SetStore::Str(t) => {
-            for k in t.iter() {
-                if !sb_opt.map(|s| s.contains_str(k)).unwrap_or(false) {
-                    let orig = sa.str_orig_or_leak(k);
+        SetStore::Str(_) => {
+            for &orig in sa.order.iter() {
+                let k: Box<str> =
+                    unsafe { elem_str(orig) }.into_owned().into_boxed_str();
+                if !sb_opt.map(|s| s.contains_str(&k)).unwrap_or(false) {
                     __retain_string(orig);
-                    set_insert_str_transferred(out_s, k.clone(), orig);
+                    set_insert_str_transferred(out_s, k, orig);
                 }
             }
         }
-        SetStore::Object(t) => {
-            if let SetStore::Object(o_obj) = &mut out_s.store {
-                for obj in t.iter() {
-                    let skip = sb_opt.map(|s| s.contains_obj(obj)).unwrap_or(false);
-                    if !skip {
-                        o_obj.insert(obj);
-                    }
+        SetStore::Object(_) => {
+            for &obj in sa.order.iter() {
+                let skip = sb_opt.map(|s| s.contains_obj(obj)).unwrap_or(false);
+                if !skip {
+                    set_insert_obj(out_s, obj);
                 }
             }
         }
@@ -913,34 +958,16 @@ pub fn format_set_into(out: &mut String, set: i64) {
     // Stable display: pre-render each element once, sort by the
     // formatted text. Same trick `format_map_into` uses to avoid
     // O(n log n) format calls inside the comparator.
-    let mut rendered: Vec<String> = match &s.store {
-        SetStore::Int(t) => t
-            .iter()
-            .map(|&e| {
-                let mut buf = String::new();
-                crate::print_dispatch::format_kind_id(&mut buf, pk, e);
-                buf
-            })
-            .collect(),
-        SetStore::Str(t) => t
-            .iter()
-            .map(|e| {
-                let raw = s.str_orig_or_leak(e);
-                let mut buf = String::new();
-                crate::print_dispatch::format_kind_id(&mut buf, pk, raw);
-                buf
-            })
-            .collect(),
-        SetStore::Object(t) => t
-            .iter()
-            .map(|obj| {
-                let mut buf = String::new();
-                crate::print_dispatch::format_kind_id(&mut buf, pk, obj);
-                buf
-            })
-            .collect(),
-    };
-    rendered.sort();
+    // Insertion order — matches `values()` / JS `Set` display.
+    let rendered: Vec<String> = s
+        .order
+        .iter()
+        .map(|&h| {
+            let mut buf = String::new();
+            crate::print_dispatch::format_kind_id(&mut buf, pk, h);
+            buf
+        })
+        .collect();
     out.push_str("Set {");
     for (i, r) in rendered.iter().enumerate() {
         if i == 0 {

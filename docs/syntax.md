@@ -1205,6 +1205,12 @@ m.forEach(fn(k, v) { … })        // visit every entry; cb returns ()
 m.clear()                        // remove every entry
 ```
 
+`keys()` / `values()` / `entries()` / `forEach` and printing all
+iterate in **insertion order** (JS `Map` semantics): overwriting a
+key keeps its original position; `delete` + re-insert moves it to
+the end. The same guarantee applies to `Set` iteration and the set
+operations (`union` walks the first set, then the second).
+
 ### Sets
 
 ```rust

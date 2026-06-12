@@ -1,14 +1,16 @@
 // `console.log(map)` parity between interp and JIT.
 //
 // Pre-fix the JIT printed the raw header pointer; now it walks
-// the map's entries via `ilang_jit_map_sorted_keys` (sorted by
-// stringified key form, matching the interpreter's `Display`)
-// and prints `{k: v, ...}` with recursive value formatting.
+// the map's entries and prints `{k: v, ...}` with recursive value
+// formatting. Entries appear in INSERTION ORDER (JS Map
+// semantics) — display used to sort by the stringified key
+// because the backing HashMap iterated in a random per-process
+// order.
 //
 // expect: {a: 1, b: 2}
 // expect: {a: [1, 2], b: [3]}
-// expect: {1: one, 10: ten, 2: two}
-// expect: {false: 2.5, true: 1.5}
+// expect: {1: one, 2: two, 10: ten}
+// expect: {true: 1.5, false: 2.5}
 
 let m1 = {"a": 1, "b": 2}
 console.log(m1)
