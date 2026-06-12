@@ -137,6 +137,7 @@ impl Lower {
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
             fixed_owned_locals: std::collections::HashSet::new(),
+            fixed_owned_slots: std::collections::HashSet::new(),
             live_fresh_scrutinees: Vec::new(),
             return_sweep_base: usize::MAX,
             in_fn_body_top: false,
@@ -242,6 +243,7 @@ impl Lower {
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
             fixed_owned_locals: std::collections::HashSet::new(),
+            fixed_owned_slots: std::collections::HashSet::new(),
             live_fresh_scrutinees: Vec::new(),
             return_sweep_base: usize::MAX,
             in_fn_body_top: false,
@@ -352,6 +354,7 @@ impl Lower {
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
             fixed_owned_locals: std::collections::HashSet::new(),
+            fixed_owned_slots: std::collections::HashSet::new(),
             live_fresh_scrutinees: Vec::new(),
             return_sweep_base: usize::MAX,
             in_fn_body_top: false,
@@ -472,6 +475,7 @@ impl Lower {
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
             fixed_owned_locals: std::collections::HashSet::new(),
+            fixed_owned_slots: std::collections::HashSet::new(),
             live_fresh_scrutinees: Vec::new(),
             return_sweep_base: usize::MAX,
             in_fn_body_top: false,
@@ -544,6 +548,7 @@ impl Lower {
             crepr_owned_locals: std::collections::HashSet::new(),
             crepr_return_owned: std::collections::HashSet::new(),
             fixed_owned_locals: std::collections::HashSet::new(),
+            fixed_owned_slots: std::collections::HashSet::new(),
             live_fresh_scrutinees: Vec::new(),
             return_sweep_base: usize::MAX,
             in_fn_body_top: false,
@@ -586,11 +591,26 @@ impl Lower {
                             continue;
                         }
                     }
+                    // Fixed-length arrays: same ownership rule as
+                    // the in-fn scope sweep — only a fresh-literal
+                    // binding owns its buffer; an alias (`let m =
+                    // teamA.members`) points into the object's
+                    // field storage, which the object drop cascade
+                    // frees. Releasing the alias too freed the
+                    // buffer twice (SIGABRT at exit).
+                    if matches!(&ty, MirTy::Array { len: Some(_), .. })
+                        && !bcx.fixed_owned_locals.contains(&lid)
+                    {
+                        continue;
+                    }
                     let v = bcx.fb.new_value(ty.clone());
                     bcx.fb.push_inst(Inst::UseLocal { dst: v, local: lid });
                     bcx.fb.push_inst(Inst::Release { value: v });
                 }
                 Binding::Ssa(v, ty) if needs_release(&ty) => {
+                    if matches!(&ty, MirTy::Array { len: Some(_), .. }) {
+                        continue;
+                    }
                     bcx.fb.push_inst(Inst::Release { value: v });
                 }
                 Binding::Cell(cell_v, _) => {
@@ -615,7 +635,17 @@ impl Lower {
         let mut slot_releases: Vec<(u32, MirTy)> = if release_slots_at_exit {
             bcx.repl_slots
                 .iter()
-                .filter(|(_, (_, ty))| needs_release(ty))
+                .filter(|(_, (idx, ty))| {
+                    // Fixed-length arrays have no rc — only a slot
+                    // that OWNS its buffer (fresh-literal `let`,
+                    // tracked in `fixed_owned_slots`) may release.
+                    // An alias slot points into an object field's
+                    // buffer; the object's drop cascade frees that.
+                    if matches!(ty, MirTy::Array { len: Some(_), .. }) {
+                        return bcx.fixed_owned_slots.contains(idx);
+                    }
+                    needs_release(ty)
+                })
                 .map(|(_, (idx, ty))| (*idx, ty.clone()))
                 .collect()
         } else {

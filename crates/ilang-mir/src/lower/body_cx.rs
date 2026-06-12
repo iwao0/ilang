@@ -151,6 +151,13 @@ pub(in crate::lower) struct BodyCx<'a> {
     /// the set and are never swept — same model as
     /// `crepr_owned_locals`.
     pub(in crate::lower) fixed_owned_locals: std::collections::HashSet<crate::inst::LocalId>,
+    /// Slot indices (top-level `let`s in `__main`) whose fixed-length
+    /// array value came from a FRESH literal — the slot owns the
+    /// buffer, so the exit-time slot sweep releases it. Alias slots
+    /// (`let m = teamA.members`) stay out and are never swept: the
+    /// buffer belongs to the object's field, and the drop cascade
+    /// already frees it (releasing both aborted with a double free).
+    pub(in crate::lower) fixed_owned_slots: std::collections::HashSet<u32>,
     /// Fresh match / if-let scrutinees whose arm body is currently
     /// being lowered, with the env depth at registration. The arm
     /// lowerer releases a fresh scrutinee at arm exit, but an early

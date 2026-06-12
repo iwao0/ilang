@@ -224,6 +224,17 @@ impl<'a> BodyCx<'a> {
                         if self.is_arc_slot(&bind_ty) && !value_is_fresh_object {
                             self.fb.push_inst(Inst::Retain { value: bound });
                         }
+                        // Fixed-length arrays: record whether this
+                        // slot owns its buffer (fresh literal) so
+                        // the exit sweep knows to release it; alias
+                        // slots are skipped there. (The Retain
+                        // above is a no-op for fixed arrays — there
+                        // is no rc to share.)
+                        if matches!(&bind_ty, MirTy::Array { len: Some(_), .. })
+                            && value_is_fresh_object
+                        {
+                            self.fixed_owned_slots.insert(idx);
+                        }
                         self.fb.push_inst(Inst::Call {
                             dst: None,
                             callee: FuncRef::Builtin(Symbol::intern("$repl.storeSlot")),
