@@ -122,6 +122,13 @@ impl<'a> BodyCx<'a> {
                 } else {
                     v
                 };
+                // A wrap coerce minted a NEW cell that owns its +1
+                // — for the binding-retain decision below it is
+                // fresh even when the SOURCE expression was a
+                // borrow (`let o: Box? = h.b` retained the fresh
+                // wrapper a second time and leaked it per call).
+                let value_is_fresh_object =
+                    value_is_fresh_object || (bound != v && self.is_arc_heap(&bind_ty));
                 // For an aliased heap value (anything that isn't a
                 // freshly-constructed `new T(...)` / closure expr /
                 // literal), bump refcount — the binding shares

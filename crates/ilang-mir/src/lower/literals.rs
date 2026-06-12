@@ -163,6 +163,71 @@ impl<'a> BodyCx<'a> {
         Ok((dst, ty))
     }
 
+    /// `{ k: v, ... }` against a declared `Map<K, V>` — every key /
+    /// value lowers with the declared type as its target
+    /// (`lower_arg_to` applies scalar coerces, the `T → T?` wrap
+    /// with its owned-source release, and nested-literal hints).
+    pub(super) fn lower_map_literal_with_hint(
+        &mut self,
+        entries: &[(Expr, Expr)],
+        key_ty: &MirTy,
+        val_ty: &MirTy,
+    ) -> Result<(ValueId, MirTy), LowerError> {
+        let mut pairs = Vec::with_capacity(entries.len());
+        let mut fresh_transients: Vec<ValueId> = Vec::new();
+        for (k, v) in entries {
+            let key_is_fresh = self.is_fresh_object_expr(k);
+            let val_is_fresh = self.is_fresh_object_expr(v);
+            let (kv, _) = self.lower_arg_to(k, Some(key_ty))?;
+            self.last_block_tail_owned = false;
+            let (vv_raw, vty_raw) = match self.lower_composite_with_hint(v, val_ty) {
+                Some(res) => res?,
+                None => self.lower_expr(v)?,
+            };
+            let val_owned = val_is_fresh || self.last_block_tail_owned;
+            let (vv, wrapped) = if &vty_raw != val_ty {
+                let coerced = self.coerce(vv_raw, &vty_raw, val_ty, v.span)?;
+                self.release_owned_wrap_source(vv_raw, &vty_raw, val_ty, val_owned);
+                (coerced, coerced != vv_raw)
+            } else {
+                (vv_raw, false)
+            };
+            // host_map_set retains both cells — fresh / wrap-minted
+            // values carry a transient +1 the map doesn't own.
+            if key_is_fresh && self.is_arc_heap(key_ty) {
+                fresh_transients.push(kv);
+            }
+            let vv = match self.copy_fixed_for_cell(vv, val_ty, val_is_fresh) {
+                Some(copy) => {
+                    fresh_transients.push(copy);
+                    copy
+                }
+                None => {
+                    if (val_is_fresh || wrapped) && self.is_arc_heap(val_ty) {
+                        fresh_transients.push(vv);
+                    }
+                    vv
+                }
+            };
+            pairs.push((kv, vv));
+        }
+        let ty = MirTy::Map {
+            key: Box::new(key_ty.clone()),
+            val: Box::new(val_ty.clone()),
+        };
+        let dst = self.fb.new_value(ty.clone());
+        self.fb.push_inst(Inst::NewMap {
+            dst,
+            key: key_ty.clone(),
+            val: val_ty.clone(),
+            entries: pairs.into_boxed_slice(),
+        });
+        for v in fresh_transients {
+            self.fb.push_inst(Inst::Release { value: v });
+        }
+        Ok((dst, ty))
+    }
+
     pub(super) fn lower_array_literal_with_hint(
         &mut self,
         items: &[Expr],
@@ -481,6 +546,7 @@ impl<'a> BodyCx<'a> {
         a: &Expr,
         target: Option<&MirTy>,
     ) -> Result<(ValueId, MirTy), LowerError> {
+        self.last_arg_wrapped = false;
         if let Some(t) = target {
             if let Some(res) = self.lower_composite_with_hint(a, t) {
                 return res;
@@ -496,6 +562,12 @@ impl<'a> BodyCx<'a> {
                 // Owned source wrapped into T? / T.weak — drop its
                 // share (see release_owned_wrap_source).
                 self.release_owned_wrap_source(v, &vty, t, owned);
+                // The coerce minted a new value → the lowered arg
+                // owns its +1 regardless of the source's freshness
+                // (see `last_arg_wrapped`). Heap targets only.
+                if coerced != v && self.is_arc_heap(t) {
+                    self.last_arg_wrapped = true;
+                }
                 Ok((coerced, t.clone()))
             }
             _ => Ok((v, vty)),
@@ -524,6 +596,17 @@ impl<'a> BodyCx<'a> {
             }
             (ExprKind::Tuple(items), MirTy::Tuple(elems)) => {
                 Some(self.lower_tuple_literal_with_hint(items, elems))
+            }
+            // A map literal against a declared `Map<K, V>` builds
+            // each key/value with the annotation's types pushed in
+            // (so `none` values adopt `V = T?`, subclass values
+            // store as the declared parent, etc.). The unhinted
+            // path inferred per-entry types and a later
+            // `Map<string, ()?> → Map<string, Box?>` coerce doesn't
+            // exist — the checker accepted what the lowering then
+            // rejected.
+            (ExprKind::MapLit(entries), MirTy::Map { key, val }) => {
+                Some(self.lower_map_literal_with_hint(entries, key, val))
             }
             (ExprKind::Some(inner), MirTy::Optional(inner_ty)) => {
                 Some(self.lower_some_with_hint(inner, inner_ty))

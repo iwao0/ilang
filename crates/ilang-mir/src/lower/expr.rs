@@ -415,10 +415,12 @@ impl<'a> BodyCx<'a> {
                     .ok_or_else(|| LowerError::Other(format!("no field {field}")))?;
                 let fty = meta.field_ty.get(&fid).cloned().unwrap_or(MirTy::I64);
                 let src_is_fresh = self.is_fresh_object_expr(value);
+                self.last_block_tail_owned = false;
                 let (vv0, vty) = match self.lower_composite_with_hint(value, &fty) {
                     Some(res) => res?,
                     None => self.lower_expr(value)?,
                 };
+                let src_owned = src_is_fresh || self.last_block_tail_owned;
                 // Coerce the rhs to the field's declared type — this
                 // is where `T → T?` Optional auto-wrap fires for
                 // `this.f = expr` / `obj.f = expr` (struct-literal
@@ -452,10 +454,15 @@ impl<'a> BodyCx<'a> {
                     // the inner of `T → T?`, and the resulting cell
                     // is a fresh `NewOptional` allocation — treat it
                     // as fresh so the caller below doesn't add a
-                    // second retain on the outer Optional.
+                    // second retain on the outer Optional. An OWNED
+                    // source's transfer +1 dies here (see
+                    // release_owned_wrap_source) — this was the
+                    // sixth and last wrap position still leaking.
+                    self.release_owned_wrap_source(vv0, &vty, &fty, src_owned);
                     (coerced, true)
                 } else if needs_strong_to_weak {
                     let coerced = self.coerce(vv0, &vty, &fty, value.span)?;
+                    self.release_owned_wrap_source(vv0, &vty, &fty, src_owned);
                     (coerced, src_is_fresh)
                 } else {
                     (vv0, src_is_fresh)
@@ -676,6 +683,10 @@ impl<'a> BodyCx<'a> {
                     Some(t) => (v, t.clone()),
                     None => (v, vty.clone()),
                 };
+                // Mirror stmt-let: a wrap coerce minted a fresh
+                // cell — don't retain it a second time.
+                let value_is_fresh =
+                    value_is_fresh || (v_slot != v && self.is_arc_slot(&slot_ty));
                 if self.assign_var(*target, v_slot, slot_ty.clone()) {
                     if self.is_arc_slot(&slot_ty) {
                         if !value_is_fresh {

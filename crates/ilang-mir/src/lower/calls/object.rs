@@ -265,7 +265,7 @@ impl<'a> BodyCx<'a> {
             // whenever the method stashes the arg into a field (or
             // any callee path that retains).
             let needs_post_release = Self::fresh_arg_needs_post_release(&vty);
-            if arg_is_fresh && needs_post_release {
+            if (arg_is_fresh || self.last_arg_wrapped) && needs_post_release {
                 fresh_obj_args.push(coerced);
             }
             arg_vals_all.push(coerced);

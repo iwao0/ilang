@@ -159,7 +159,7 @@ impl<'a> BodyCx<'a> {
             // retain, which leaked every fresh promise passed to an
             // init together with its settled value.
             let needs_post_release = Self::fresh_arg_needs_post_release(&vty);
-            if arg_is_fresh && needs_post_release {
+            if (arg_is_fresh || self.last_arg_wrapped) && needs_post_release {
                 fresh_obj_args.push(final_v);
             }
             arg_vals.push(final_v);

@@ -97,6 +97,13 @@ pub(in crate::lower) struct BodyCx<'a> {
     /// (mixed-freshness joins used to over-retain the fresh side:
     /// one leaked object per evaluation).
     pub(in crate::lower) last_block_tail_owned: bool,
+    /// Set by `lower_arg_to` when its target coerce minted a NEW
+    /// heap value (`T → T?` wrap, fixed-array copy): the lowered
+    /// argument owns a fresh +1 even though the source expression
+    /// reads as borrowed. Call sites OR this into their fresh-arg
+    /// post-release decision — without it `takeOpt(h.b)` leaked
+    /// the wrapper cell (and its retained inner share) per call.
+    pub(in crate::lower) last_arg_wrapped: bool,
     /// Fresh match / if-let scrutinees whose arm body is currently
     /// being lowered, with the env depth at registration. The arm
     /// lowerer releases a fresh scrutinee at arm exit, but an early

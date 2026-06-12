@@ -200,7 +200,7 @@ impl<'a> BodyCx<'a> {
                     let arg_is_fresh = self.is_fresh_object_expr(a);
                     let (coerced, vty) = self.lower_arg_to(a, sig_params.get(i))?;
                     let needs_post_release = Self::fresh_arg_needs_post_release(&vty);
-                    if arg_is_fresh && needs_post_release {
+                    if (arg_is_fresh || self.last_arg_wrapped) && needs_post_release {
                         fresh_obj_args.push(coerced);
                     }
                     arg_vals.push(coerced);
@@ -342,6 +342,10 @@ impl<'a> BodyCx<'a> {
                 let (coerced, vty) = if i < sig.params.len() {
                     self.lower_arg_to(a, sig.params.get(i))?
                 } else {
+                    // Variadic tail args skip lower_arg_to — clear
+                    // the wrap flag so a previous arg's wrap doesn't
+                    // leak into this one's post-release decision.
+                    self.last_arg_wrapped = false;
                     self.lower_expr(a)?
                 };
                 // Same fresh-transfer rule as `lower_new` /
@@ -351,7 +355,7 @@ impl<'a> BodyCx<'a> {
                 // retain set (Object / Fn / Array / Tuple / Map /
                 // Optional / Str).
                 let needs_post_release = Self::fresh_arg_needs_post_release(&vty);
-                if arg_is_fresh && needs_post_release {
+                if (arg_is_fresh || self.last_arg_wrapped) && needs_post_release {
                     fresh_obj_args.push(coerced);
                 }
                 // Re-forwarding an ilang `fn(...)` value to an
@@ -422,7 +426,7 @@ impl<'a> BodyCx<'a> {
                     let arg_is_fresh = self.is_fresh_object_expr(a);
                     let (coerced, vty) = self.lower_arg_to(a, sig.params.get(i + 1))?;
                     let needs_post_release = Self::fresh_arg_needs_post_release(&vty);
-                    if arg_is_fresh && needs_post_release {
+                    if (arg_is_fresh || self.last_arg_wrapped) && needs_post_release {
                         fresh_obj_args.push(coerced);
                     }
                     arg_vals.push(coerced);
