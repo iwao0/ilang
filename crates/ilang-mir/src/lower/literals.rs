@@ -486,23 +486,16 @@ impl<'a> BodyCx<'a> {
                 return res;
             }
         }
+        self.last_block_tail_owned = false;
         let (v, vty) = self.lower_expr(a)?;
         match target {
             Some(t) if t != &vty => {
+                let owned =
+                    self.is_fresh_object_expr(a) || self.last_block_tail_owned;
                 let coerced = self.coerce(v, &vty, t, a.span)?;
-                // `T → T?` auto-wrap takes the cell's own share —
-                // a FRESH source's transfer +1 then has no other
-                // owner (the fresh-arg post-release targets the
-                // wrapped Optional, not the inner). Mirrors the
-                // same release in stmt.rs's annotated-let path;
-                // without it `takeOpt(new Box(1))` leaked the Box
-                // (and its cell) per call.
-                if matches!(t, MirTy::Optional(inner) if **inner == vty)
-                    && self.is_arc_heap(&vty)
-                    && self.is_fresh_object_expr(a)
-                {
-                    self.fb.push_inst(Inst::Release { value: v });
-                }
+                // Owned source wrapped into T? / T.weak — drop its
+                // share (see release_owned_wrap_source).
+                self.release_owned_wrap_source(v, &vty, t, owned);
                 Ok((coerced, t.clone()))
             }
             _ => Ok((v, vty)),

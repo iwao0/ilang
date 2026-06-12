@@ -374,12 +374,19 @@ impl<'a> BodyCx<'a> {
                     Some(res?.0)
                 } else {
                     let value_is_fresh = self.is_fresh_object_expr(e);
+                    self.last_block_tail_owned = false;
                     let (vv, vty) = self.lower_expr(e)?;
+                    let ret_owned = value_is_fresh || self.last_block_tail_owned;
                     let coerced = if vty == ret_ty || matches!(ret_ty, MirTy::Unit) {
                         vv
                     } else {
                         self.coerce(vv, &vty, &ret_ty, e.span).unwrap_or(vv)
                     };
+                    // Owned source wrapped into T? / T.weak — drop
+                    // its share (see release_owned_wrap_source).
+                    if coerced != vv {
+                        self.release_owned_wrap_source(vv, &vty, &ret_ty, ret_owned);
+                    }
                     if !value_is_fresh && self.is_arc_slot(&vty) && coerced == vv {
                         borrowed_to_retain = Some(coerced);
                     }

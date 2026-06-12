@@ -646,6 +646,7 @@ impl<'a> BodyCx<'a> {
                     | Some(Binding::Cell(_, ty)) => Some(ty),
                     None => self.repl_slots.get(target).map(|(_, ty)| ty.clone()),
                 };
+                self.last_block_tail_owned = false;
                 let (v, vty) = match target_ty
                     .as_ref()
                     .and_then(|t| self.lower_composite_with_hint(value, t))
@@ -663,6 +664,13 @@ impl<'a> BodyCx<'a> {
                         let coerced = self
                             .coerce(v, &vty, t, value.span)
                             .unwrap_or(v);
+                        // Owned source wrapped into T? / T.weak —
+                        // drop its share (see
+                        // release_owned_wrap_source).
+                        if coerced != v {
+                            let owned = value_is_fresh || self.last_block_tail_owned;
+                            self.release_owned_wrap_source(v, &vty, t, owned);
+                        }
                         (coerced, t.clone())
                     }
                     Some(t) => (v, t.clone()),

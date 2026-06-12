@@ -149,10 +149,19 @@ impl Lower {
             .unwrap_or(false);
         let ret_hint = bcx.ret_ty.clone();
         let tail = bcx.lower_block_for_fn_body(&pc.body, Some(&ret_hint))?;
+        // Owned-ness of the tail for the wrap-coerce release in
+        // finalise_return: a fresh tail owns its +1, and a block
+        // tail the alias/borrow retain bumped does too.
+        let tail_owned = bcx.last_block_tail_owned
+            || pc.body
+                .tail
+                .as_ref()
+                .map(|t| bcx.is_fresh_object_expr(t))
+                .unwrap_or(false);
         if needs_retain {
             bcx.emit_callee_retain(&tail);
         }
-        bcx.finalise_return(tail)?;
+        bcx.finalise_return(tail, tail_owned)?;
 
         let env_layout = if pc.captures.is_empty() {
             None
@@ -254,10 +263,19 @@ impl Lower {
             .unwrap_or(false);
         let ret_hint = bcx.ret_ty.clone();
         let tail = bcx.lower_block_for_fn_body(&m.body, Some(&ret_hint))?;
+        // Owned-ness of the tail for the wrap-coerce release in
+        // finalise_return: a fresh tail owns its +1, and a block
+        // tail the alias/borrow retain bumped does too.
+        let tail_owned = bcx.last_block_tail_owned
+            || m.body
+                .tail
+                .as_ref()
+                .map(|t| bcx.is_fresh_object_expr(t))
+                .unwrap_or(false);
         if needs_retain {
             bcx.emit_callee_retain(&tail);
         }
-        bcx.finalise_return(tail)?;
+        bcx.finalise_return(tail, tail_owned)?;
 
         let func = fb.finish(params_box.into_boxed_slice());
         self.funcs[id.0 as usize] = func;
@@ -364,6 +382,15 @@ impl Lower {
             .unwrap_or(false);
         let ret_hint = bcx.ret_ty.clone();
         let tail = bcx.lower_block_for_fn_body(&m.body, Some(&ret_hint))?;
+        // Owned-ness of the tail for the wrap-coerce release in
+        // finalise_return: a fresh tail owns its +1, and a block
+        // tail the alias/borrow retain bumped does too.
+        let tail_owned = bcx.last_block_tail_owned
+            || m.body
+                .tail
+                .as_ref()
+                .map(|t| bcx.is_fresh_object_expr(t))
+                .unwrap_or(false);
         let is_init = matches!(m.name.as_str(), "init");
         if is_init {
             bcx.fb.set_terminator(Terminator::Return { value: Some(this_v), release_value: false });
@@ -371,7 +398,7 @@ impl Lower {
             if needs_retain {
                 bcx.emit_callee_retain(&tail);
             }
-            bcx.finalise_return(tail)?;
+            bcx.finalise_return(tail, tail_owned)?;
         }
 
         let func = fb.finish(params_box.into_boxed_slice());
@@ -484,10 +511,19 @@ impl Lower {
             .unwrap_or(false);
         let ret_hint = bcx.ret_ty.clone();
         let tail = bcx.lower_block_for_fn_body(&fd.body, Some(&ret_hint))?;
+        // Owned-ness of the tail for the wrap-coerce release in
+        // finalise_return: a fresh tail owns its +1, and a block
+        // tail the alias/borrow retain bumped does too.
+        let tail_owned = bcx.last_block_tail_owned
+            || fd.body
+                .tail
+                .as_ref()
+                .map(|t| bcx.is_fresh_object_expr(t))
+                .unwrap_or(false);
         if needs_retain {
             bcx.emit_callee_retain(&tail);
         }
-        bcx.finalise_return(tail)?;
+        bcx.finalise_return(tail, tail_owned)?;
 
         let func = fb.finish(params_box.into_boxed_slice());
         self.funcs[id.0 as usize] = func;

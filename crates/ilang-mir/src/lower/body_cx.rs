@@ -598,6 +598,7 @@ impl<'a> BodyCx<'a> {
     pub(in crate::lower) fn finalise_return(
         &mut self,
         tail: Option<(ValueId, MirTy)>,
+        tail_owned: bool,
     ) -> Result<(), LowerError> {
         // Synthesise a placeholder return value when the lowerer is
         // sitting in a dead block (the user already issued `return`
@@ -648,6 +649,11 @@ impl<'a> BodyCx<'a> {
                 } else {
                     let coerced = self.coerce(v, &vty, &ret_ty_clone, Span::dummy())
                         .unwrap_or(v);
+                    // Owned source wrapped into T? / T.weak — drop
+                    // its share (see release_owned_wrap_source).
+                    if coerced != v {
+                        self.release_owned_wrap_source(v, &vty, &ret_ty_clone, tail_owned);
+                    }
                     Some(coerced)
                 }
             }
@@ -1077,6 +1083,37 @@ impl<'a> BodyCx<'a> {
         }
     }
 
+
+    /// A `T → T?` / `T → T.weak` coerce mints the wrapper's own
+    /// share of the inner. When the SOURCE was itself owned (a
+    /// fresh value's transfer +1, or a block tail the alias/borrow
+    /// retain already bumped), that share has no other owner once
+    /// the wrapper exists — release it right after the coerce.
+    /// Borrowed sources (param vars, bare field reads) keep their
+    /// binding's share and must NOT be released. Round-20/21
+    /// probes found one leaked value per call at every wrap
+    /// position (let / argument / assignment / both return paths).
+    pub(in crate::lower) fn release_owned_wrap_source(
+        &mut self,
+        orig: crate::ValueId,
+        src_ty: &MirTy,
+        target_ty: &MirTy,
+        owned: bool,
+    ) {
+        if !owned || !self.is_arc_heap(src_ty) {
+            return;
+        }
+        let wraps = match target_ty {
+            MirTy::Optional(inner) => **inner == *src_ty,
+            // `MirTy::Weak` carries the class id; match it against
+            // a strong Object source of the same class.
+            MirTy::Weak(cid) => matches!(src_ty, MirTy::Object(c) if c == cid),
+            _ => false,
+        };
+        if wraps {
+            self.fb.push_inst(Inst::Release { value: orig });
+        }
+    }
 
     /// Normalize a branch / arm result to OWNED before it flows
     /// into an `if` / `match` / `if let` join: values that already

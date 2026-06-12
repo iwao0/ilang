@@ -62,6 +62,7 @@ impl<'a> BodyCx<'a> {
                     // (the closure's own env pointer).
                     self.binding_self_name = Some(*name);
                 }
+                self.last_block_tail_owned = false;
                 let (v, mty) = if let (
                     ExprKind::Array(items),
                     Some(simd_ty @ MirTy::Simd { elem, lanes }),
@@ -113,21 +114,10 @@ impl<'a> BodyCx<'a> {
                 let bind_ty = bind_hint.unwrap_or_else(|| mty.clone());
                 let bound = if bind_ty != mty {
                     let coerced = self.coerce(v, &mty, &bind_ty, stmt.span)?;
-                    // `T → T?` auto-wrap takes the cell's own share
-                    // (a retain, or a value copy for fixed-length
-                    // arrays) — see coerce.rs. A FRESH source's
-                    // transfer +1 then has no other owner: arg
-                    // passing drops it via the fresh-arg
-                    // post-release, but a `let o: Box? = makeBox()`
-                    // had nobody releasing it and leaked one value
-                    // per call (likewise the fixed-array copy's
-                    // source).
-                    if matches!(&bind_ty, MirTy::Optional(inner) if **inner == mty)
-                        && value_is_fresh_object
-                        && self.is_arc_heap(&mty)
-                    {
-                        self.fb.push_inst(Inst::Release { value: v });
-                    }
+                    // Owned source wrapped into T? / T.weak — drop
+                    // its share (see release_owned_wrap_source).
+                    let owned = value_is_fresh_object || self.last_block_tail_owned;
+                    self.release_owned_wrap_source(v, &mty, &bind_ty, owned);
                     coerced
                 } else {
                     v
