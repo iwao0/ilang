@@ -3,9 +3,9 @@
 //! delegates to one of the more specific lowerers (`lower_call` /
 //! `lower_match` / `lower_new` / ...).
 
-use ilang_ast::{Expr, ExprKind, Symbol};
+use ilang_ast::{Expr, ExprKind, Span, Symbol};
 
-use crate::inst::{FuncId, FuncRef, Inst, MirConst, ValueId};
+use crate::inst::{FieldId, FuncId, FuncRef, Inst, MirConst, ValueId};
 use crate::types::MirTy;
 
 /// MIR-side mirror of `print_kind.rs::print_kind_id` (codegen).
@@ -434,160 +434,9 @@ impl<'a> BodyCx<'a> {
                 // assignment, which the codegen handles by reusing
                 // the raw heap pointer) pass through unchanged so
                 // we don't regress those paths.
-                // `T → T?` Optional auto-wrap, incl. an object-shaped
-                // subtype source (`h.o = new Dog()` against `o: Animal?`,
-                // or `h.o = [new Dog()]` against `o: Animal[]?`) —
-                // matching `coerce`'s wrap arm. An `Optional<_>` source
-                // is an Optional→Optional widen handled by the codegen,
-                // not a wrap, so it is excluded (the `**inner == vty`
-                // exact arm still covers same-type). Without the subtype
-                // case the raw value was stored into the `?` slot and
-                // crashed on release.
-                let obj_shape = |t: &MirTy| {
-                    matches!(
-                        t,
-                        MirTy::Object(_)
-                            | MirTy::Array { .. }
-                            | MirTy::Tuple(_)
-                            | MirTy::Map { .. }
-                            | MirTy::Optional(_)
-                    )
-                };
-                let needs_optional_wrap = matches!(
-                    &fty,
-                    MirTy::Optional(inner)
-                        if **inner == vty
-                            || (obj_shape(inner)
-                                && obj_shape(&vty)
-                                && !matches!(vty, MirTy::Optional(_)))
-                );
-                // Object → Weak: clif-level identity but the
-                // value's MIR type must switch BEFORE the retain
-                // below, otherwise `Retain` lowers to
-                // `__retain_object` and we leak a strong +1 onto
-                // a weak-counted slot. Pre-coerce, then let the
-                // generic retain path dispatch via `__retain_weak`.
-                let needs_strong_to_weak = matches!(
-                    (&vty, &fty),
-                    (MirTy::Object(_), MirTy::Weak(_))
-                );
-                let (vv, value_is_fresh) = if needs_optional_wrap {
-                    let coerced = self.coerce(vv0, &vty, &fty, value.span)?;
-                    // `coerce` already inserted the heap retain for
-                    // the inner of `T → T?`, and the resulting cell
-                    // is a fresh `NewOptional` allocation — treat it
-                    // as fresh so the caller below doesn't add a
-                    // second retain on the outer Optional. An OWNED
-                    // source's transfer +1 dies here (see
-                    // release_owned_wrap_source) — this was the
-                    // sixth and last wrap position still leaking.
-                    self.release_owned_wrap_source(vv0, &vty, &fty, src_owned);
-                    (coerced, true)
-                } else if needs_strong_to_weak {
-                    let coerced = self.coerce(vv0, &vty, &fty, value.span)?;
-                    self.release_owned_wrap_source(vv0, &vty, &fty, src_owned);
-                    (coerced, src_is_fresh)
-                } else {
-                    (vv0, src_is_fresh)
-                };
-                // ARC for any heap-typed field: retain the incoming
-                // value (unless it was a fresh allocation that
-                // already owned its +1) and release the previous
-                // occupant. Without this, `this.balls = newArr` etc.
-                // leaks the prior array's refcount on every frame
-                // of `examples/sdl_breakout`'s game loop.
-                // Every rc-slot kind needs the retain-new / release-old
-                // dance — `BodyCx::is_arc_slot` is the authoritative
-                // predicate (heap kind ∧ not COM iface ∧ not CRepr /
-                // CPacked / CUnion `Object`).
-                //
-                // CRepr-family parents whose field is a unit-only
-                // int-repr enum are represented as `MirTy::CReprEnum`
-                // (28f7060f introduced it; extern_c.rs decides per
-                // field). `is_arc_slot(CReprEnum) = false` by design,
-                // so the f2eea6e3 point fix (`parent_is_crepr &&
-                // matches!(fty, Enum(_))`) is no longer needed —
-                // the variant itself encodes "inline integer slot".
-                // Fixed-length array field with ARC elements
-                // (value semantics):
-                //   * FRESH literal source — transfer the array
-                //     (its rc=1 becomes the field's share).
-                //   * anything else — `$array.copyShallow` value
-                //     copy; the copy's +1 is the field's.
-                // The old occupant (skipped for init writes —
-                // zeroed slot) drops its share via a plain array
-                // Release.
-                if let MirTy::Array { elem, len: Some(n) } = &fty {
-                    if self.is_arc_slot(elem) {
-                        let _ = (elem, n);
-                        let stored = if value_is_fresh {
-                            vv
-                        } else {
-                            let copy = self.fb.new_value(fty.clone());
-                            self.fb.push_inst(Inst::Call {
-                                dst: Some(copy),
-                                callee: FuncRef::Builtin(Symbol::intern(
-                                    "$array.copyShallow",
-                                )),
-                                args: Box::new([vv]),
-                            });
-                            copy
-                        };
-                        if !*is_init {
-                            let old = self.fb.new_value(fty.clone());
-                            self.fb.push_inst(Inst::LoadField {
-                                dst: old,
-                                obj: ov,
-                                field: fid,
-                            });
-                            self.fb.push_inst(Inst::Release { value: old });
-                        }
-                        self.fb.push_inst(Inst::StoreField {
-                            obj: ov,
-                            field: fid,
-                            value: stored,
-                        });
-                        return Ok((self.const_unit(), MirTy::Unit));
-                    }
-                }
-                let is_heap = self.is_arc_slot(&fty);
-                if is_heap {
-                    if !value_is_fresh {
-                        self.fb.push_inst(Inst::Retain { value: vv });
-                    }
-                    // For init-style writes (`this.f = v` from inside
-                    // `init`) the slot's previous content is the
-                    // freshly-allocated zeroed bytes, not a real heap
-                    // pointer — skip the load+release that would
-                    // otherwise free a NULL / garbage pointer.
-                    if !*is_init {
-                        let old = self.fb.new_value(fty.clone());
-                        self.fb.push_inst(Inst::LoadField {
-                            dst: old,
-                            obj: ov,
-                            field: fid,
-                        });
-                        self.fb.push_inst(Inst::Release { value: old });
-                    }
-                }
-                self.fb.push_inst(Inst::StoreField { obj: ov, field: fid, value: vv });
-                // CRepr inline enum field: `StoreField` codegen
-                // extracts the discriminant out of the SSA Enum
-                // heap-box (`MirTy::Enum`, lowered from
-                // `lower_enum_ctor`) and narrows it into the
-                // struct slot. The heap-box itself is left dangling
-                // — its rc=1 from `NewEnum` never reaches a paired
-                // Release. Drop it now when the rhs was fresh
-                // (a literal `Mode.foo` ctor). Borrowed rhs (e.g.
-                // `obj.field = otherCRepr.kind` where the load
-                // already promoted to `Enum`) keeps the source
-                // owner's +1, so no release here.
-                if matches!(&fty, MirTy::CReprEnum(_))
-                    && value_is_fresh
-                    && matches!(&vty, MirTy::Enum(_))
-                {
-                    self.fb.push_inst(Inst::Release { value: vv });
-                }
+                self.store_value_to_field(
+                    ov, fid, &fty, vv0, vty, src_is_fresh, src_owned, *is_init, value.span,
+                )?;
                 Ok((self.const_unit(), MirTy::Unit))
             }
             ExprKind::Unary { op, expr } => self.lower_unary(*op, expr, expr.span),
@@ -826,6 +675,14 @@ impl<'a> BodyCx<'a> {
                         // panicked on `Option::unwrap()` whenever a
                         // bare field was assigned inside a closure
                         // (the read path already handled it).
+                        let fty = meta.field_ty.get(&fid).cloned().unwrap_or(MirTy::I64);
+                        // Resolve `this` the same way the bare-field
+                        // *read* path does: a method-internal closure
+                        // sees `this` only through its captures, not as
+                        // a local. Without the capture fallback this
+                        // panicked on `Option::unwrap()` whenever a
+                        // bare field was assigned inside a closure
+                        // (the read path already handled it).
                         let this_sym = Symbol::intern("this");
                         let (this_v, _) = if let Some(pair) = self.lookup_var(this_sym) {
                             pair
@@ -841,30 +698,21 @@ impl<'a> BodyCx<'a> {
                                 "cannot resolve `this` for implicit field assignment `{target}`"
                             )));
                         };
-                        // Heap field write: take ownership of `value`
-                        // (retain if aliased) and release whatever was
-                        // there before (if any). `is_arc_slot` is the
-                        // authoritative predicate — covers every rc
-                        // slot kind, drops COM iface / CRepr Objects
-                        // whose slots own no rc.
-                        let value_is_fresh = self.is_fresh_object_expr(value);
-                        let is_heap = self.is_arc_slot(&vty);
-                        if is_heap {
-                            if !value_is_fresh {
-                                self.fb.push_inst(Inst::Retain { value: v });
-                            }
-                            // Read old value and release it. Skips on
-                            // null (init path).
-                            let old = self.fb.new_value(vty.clone());
-                            self.fb.push_inst(Inst::LoadField {
-                                dst: old,
-                                obj: this_v,
-                                field: fid,
-                            });
-                            self.fb.push_inst(Inst::Release { value: old });
-                        }
-                        self.fb
-                            .push_inst(Inst::StoreField { obj: this_v, field: fid, value: v });
+                        // Route the already-lowered rhs (`v` : `vty`,
+                        // produced above without a field hint since the
+                        // target binding lookup returned no type) through
+                        // the shared field-store helper. This gives the
+                        // bare write the same `T → T?` / weak /
+                        // fixed-array wrap semantics as `this.f = v` —
+                        // without it, `slot = box` against a `Box?` field
+                        // stored a raw object into the Optional slot and
+                        // crashed on release. `last_block_tail_owned`
+                        // still reflects that lowering.
+                        let src_owned = value_is_fresh || self.last_block_tail_owned;
+                        self.store_value_to_field(
+                            this_v, fid, &fty, v, vty.clone(), value_is_fresh, src_owned,
+                            false, value.span,
+                        )?;
                         return Ok((self.const_unit(), MirTy::Unit));
                     }
                 }
@@ -1449,5 +1297,146 @@ impl<'a> BodyCx<'a> {
             }
         }
         Err(LowerError::Other(format!("unbound variable: {name}")))
+    }
+
+    /// Store an already-lowered rhs (`vv0` : `vty`) into field `fid` of
+    /// object `obj_v` (declared type `fty`), applying the full
+    /// field-write semantics: `T → T?` / subtype Optional auto-wrap,
+    /// `Object → Weak` re-typing, fixed-array value-copy, and the
+    /// retain-new / release-old rc dance. `src_is_fresh` is the rhs's
+    /// freshness; `src_owned` is `fresh || tail-owned`. `is_init` skips
+    /// the release of the previous (zeroed) occupant.
+    ///
+    /// Shared by `this.f = v` / `obj.f = v` (`AssignField`) and the
+    /// implicit bare-name field write `f = v` inside a method. The bare
+    /// path used to open-code a degenerate store with no wrap, so a
+    /// `slot = box` against a `Box?` field stored a raw object into the
+    /// Optional slot and crashed on release (SIGSEGV).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn store_value_to_field(
+        &mut self,
+        obj_v: ValueId,
+        fid: FieldId,
+        fty: &MirTy,
+        vv0: ValueId,
+        vty: MirTy,
+        src_is_fresh: bool,
+        src_owned: bool,
+        is_init: bool,
+        span: Span,
+    ) -> Result<(), LowerError> {
+        // `T → T?` Optional auto-wrap, incl. an object-shaped subtype
+        // source (`h.o = new Dog()` against `o: Animal?`, or
+        // `h.o = [new Dog()]` against `o: Animal[]?`) — matching
+        // `coerce`'s wrap arm. An `Optional<_>` source is an
+        // Optional→Optional widen handled by the codegen, not a wrap,
+        // so it is excluded (the `**inner == vty` exact arm still
+        // covers same-type). Without the subtype case the raw value
+        // was stored into the `?` slot and crashed on release.
+        let obj_shape = |t: &MirTy| {
+            matches!(
+                t,
+                MirTy::Object(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Optional(_)
+            )
+        };
+        let needs_optional_wrap = matches!(
+            fty,
+            MirTy::Optional(inner)
+                if **inner == vty
+                    || (obj_shape(inner)
+                        && obj_shape(&vty)
+                        && !matches!(vty, MirTy::Optional(_)))
+        );
+        // Object → Weak: clif-level identity but the value's MIR type
+        // must switch BEFORE the retain below, otherwise `Retain`
+        // lowers to `__retain_object` and we leak a strong +1 onto a
+        // weak-counted slot. Pre-coerce, then let the generic retain
+        // path dispatch via `__retain_weak`.
+        let needs_strong_to_weak =
+            matches!((&vty, fty), (MirTy::Object(_), MirTy::Weak(_)));
+        let (vv, value_is_fresh) = if needs_optional_wrap {
+            let coerced = self.coerce(vv0, &vty, fty, span)?;
+            // `coerce` already inserted the heap retain for the inner
+            // of `T → T?`, and the resulting cell is a fresh
+            // `NewOptional` allocation — treat it as fresh so the store
+            // below doesn't add a second retain on the outer Optional.
+            // An OWNED source's transfer +1 dies here (see
+            // release_owned_wrap_source).
+            self.release_owned_wrap_source(vv0, &vty, fty, src_owned);
+            (coerced, true)
+        } else if needs_strong_to_weak {
+            let coerced = self.coerce(vv0, &vty, fty, span)?;
+            self.release_owned_wrap_source(vv0, &vty, fty, src_owned);
+            (coerced, src_is_fresh)
+        } else {
+            (vv0, src_is_fresh)
+        };
+        // Fixed-length array field with ARC elements (value semantics):
+        //   * FRESH literal source — transfer the array (its rc=1
+        //     becomes the field's share).
+        //   * anything else — `$array.copyShallow` value copy; the
+        //     copy's +1 is the field's.
+        // The old occupant (skipped for init writes — zeroed slot)
+        // drops its share via a plain array Release.
+        if let MirTy::Array { elem, len: Some(_) } = fty {
+            if self.is_arc_slot(elem) {
+                let stored = if value_is_fresh {
+                    vv
+                } else {
+                    let copy = self.fb.new_value(fty.clone());
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(copy),
+                        callee: FuncRef::Builtin(Symbol::intern("$array.copyShallow")),
+                        args: Box::new([vv]),
+                    });
+                    copy
+                };
+                if !is_init {
+                    let old = self.fb.new_value(fty.clone());
+                    self.fb.push_inst(Inst::LoadField { dst: old, obj: obj_v, field: fid });
+                    self.fb.push_inst(Inst::Release { value: old });
+                }
+                self.fb.push_inst(Inst::StoreField { obj: obj_v, field: fid, value: stored });
+                return Ok(());
+            }
+        }
+        // ARC for any heap-typed field: retain the incoming value
+        // (unless it was a fresh allocation that already owned its +1)
+        // and release the previous occupant. `BodyCx::is_arc_slot` is
+        // the authoritative rc-slot predicate (heap kind ∧ not COM
+        // iface ∧ not CRepr / CPacked / CUnion `Object`).
+        let is_heap = self.is_arc_slot(fty);
+        if is_heap {
+            if !value_is_fresh {
+                self.fb.push_inst(Inst::Retain { value: vv });
+            }
+            // For init-style writes the slot's previous content is the
+            // freshly-allocated zeroed bytes, not a real heap pointer —
+            // skip the load+release that would free a NULL / garbage
+            // pointer.
+            if !is_init {
+                let old = self.fb.new_value(fty.clone());
+                self.fb.push_inst(Inst::LoadField { dst: old, obj: obj_v, field: fid });
+                self.fb.push_inst(Inst::Release { value: old });
+            }
+        }
+        self.fb.push_inst(Inst::StoreField { obj: obj_v, field: fid, value: vv });
+        // CRepr inline enum field: `StoreField` codegen extracts the
+        // discriminant out of the SSA Enum heap-box and narrows it into
+        // the struct slot. The heap-box's rc=1 from `NewEnum` never
+        // reaches a paired Release — drop it now when the rhs was fresh
+        // (a literal `Mode.foo` ctor). Borrowed rhs keeps the source
+        // owner's +1, so no release here.
+        if matches!(fty, MirTy::CReprEnum(_))
+            && value_is_fresh
+            && matches!(&vty, MirTy::Enum(_))
+        {
+            self.fb.push_inst(Inst::Release { value: vv });
+        }
+        Ok(())
     }
 }

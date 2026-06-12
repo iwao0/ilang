@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 33 弾**。 第 32 弾で触った **implicit bare-name field 代入** arm が、明示 `this.f = v` (AssignField) と違って **`T → T?` / subtype の Optional 自動 wrap を欠く** 既存バグを検出・修正。 `slot = box` (field 型 `Box?`) が生オブジェクトを Optional slot に格納し解放時に **SIGSEGV**。 両経路を共通ヘルパー `store_value_to_field` に統合。 詳細は下の解決済み記録。
 - **第 32 弾**。 第 31 弾のクロージャ `this` 捕獲の継ぎ目を攻めて **コンパイラ panic 2 件** を検出・対処。 (1) メソッド内クロージャが **bare field に代入** (`slot = nb`) すると lowering が panic (修正)。 (2) クロージャ内の **bare メソッド呼び出し** (`compute()`) が panic → クリーンな診断に (ユーザー決定)。 詳細は下の解決済み記録。
 - **Promise/async 実行モデルを JS 型 (run-to-completion・シングルスレッド) へ移行**。 worker pool を撤去し、 継続はメインスレッドの FIFO queue + 期限順 timer heap (`pool.rs` 書き換え)、 executor は構築時に同期実行、 非ブロッキング pump の **`time.tick()`** を新設。 詳細は下の解決済み記録。
 - **gui ライブラリの platform イベントループに `time.tick()` pump を組み込み** (cocoa = NSTimer common modes / win32 = SetTimer TIMERPROC / linux = g_timeout_add、 各 ~15ms)。 GUI 表示中も std.time タイマーと Promise 継続が発火する。 **win32 / linux は macOS 環境では型検査されないため未検証** — 詳細は下の解決済み記録。
@@ -82,6 +83,16 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 33 弾: implicit bare-name field 代入が Optional / subtype wrap を欠いて SIGSEGV (2026-06-13)
+
+第 32 弾で bare field 代入の `this` 解決を直した直後、 同じ implicit `this.<field>` 代入 arm を「代入する値の型 × field 型」軸で攻めて **既存のクラッシュ**を検出。 明示 `this.f = v` (`AssignField` arm) は第 22 / 26 弾で `T → T?` / subtype の Optional 自動 wrap を入れたのに、 **bare 名の `f = v` 経路は退化した store を別に持っていて wrap を一切しなかった**。
+
+- **症状**: `slot = box` (field 型 `Box?`、 `this.` なし) が **生オブジェクトを Optional slot に格納**し、 オブジェクト解放時のカスケードがそれを Optional として走査 → 不整列ポインタ参照で **SIGSEGV (exit 139)**。 明示 `this.slot = box` は正常 (AssignField が wrap する) という非対称で確定。 subtype (`Dog` を `Animal?` field へ) も同様。
+- **原因**: bare field 代入は他の代入経路 (local / cell capture / repl slot) を全部抜けた後の implicit-this arm に **早期 lowering 時の生の `v` / `vty`** で到達し、 field 型への coerce/wrap を踏まずに `StoreField` していた。 AssignField が持つ wrap / weak / fixed-array value-copy / CReprEnum drop を全部欠いていた。
+- **修正**: AssignField の store ロジック (wrap 述語 → fixed-array → retain/release → StoreField → CReprEnum drop) を共通ヘルパー **`store_value_to_field`** ([expr.rs](../crates/ilang-mir/src/lower/expr.rs)) に抽出し、 **AssignField と implicit-this bare 代入の両方から呼ぶ**。 bare 経路は早期 lowering 済みの `v` / `vty` を再利用 (再 lower すると `new Box()` を二重確保するため) し、 ヘルパーの coerce が Optional wrap を行う。
+- **同族確認**: `T → T?` 同型 wrap・subtype `Dog → Animal?` (Optional 越しの仮想ディスパッチ `Dog.val()=10` で実体が壊れていないことを確認)・**クロージャ内の bare Optional 代入** (第 32 弾の capture 経路と合流) を値・ARC 厳密一致 (deinit 300 + churn delta=0)。 fixed-array field の bare 代入 (fresh リテラル源) と primitive field は元から修正経路で健全。 weak field の bare 代入は **checker が拒否** (「expected Box.weak, got any?」— 明示 `this.w = b` は通るのに bare は通らない非対称が別途あるが crash ではない・未対応の記録のみ)。
+- fixture: `05_edge_cases/bare_field_assign_optional_wrap.il` (同型 wrap / subtype / closure 内を厳密 deinit 300 + churn delta=0)。 検証: workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 32 弾: メソッド内クロージャの `this` 解決が欠けていた 2 経路 — bare field 代入 (修正) と bare メソッド呼び出し (診断化) (2026-06-13)
 
