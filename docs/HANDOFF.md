@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 44 弾** (クリーンラウンド)。 第 43 弾の周辺を string/array ARC 全方位で probe — **新規バグなし**。 string メソッド連鎖の fresh 中間・template literal の heap 補間・`+=` desugar・**self-concat `s = s + s`** (aliased rhs を解放しない正しい挙動)・split・array push/unshift/map の fresh 要素・heap-kind 変数の fresh 再代入を、 `liveStringCount` / deinit 厳密で網羅。 string-ARC 形を pin。 詳細は下の確認済み記録。
 - **第 43 弾**。 string バッファ ARC を probe して、 **inplace concat `s = s + n.toString()` が fresh な rhs 文字列を 1/iter リーク**する既存バグを検出・修正。 `StrConcatInplace` は rhs を `s` のバッファに**コピー**するだけで消費しないため、 fresh rhs (`toString()` / fresh concat) の +1 が宙に浮く。 リテラル rhs (intern 済み) や借用 var rhs は無事。 op 後に fresh rhs を Release。 詳細は下の解決済み記録。
 - **第 42 弾** (クリーンラウンド)。 composite 要素 wrap の **残る store サイト**を網羅 probe — **新規バグなし**。 return 位置・`some(tuple)`・enum payload・引数位置・local 再代入・明示 field 代入・入れ子 `((Box?, Box), Box?)`・tuple 内 weak 要素を、 Optional 越し match で実体確認しつつ deinit 厳密 + delta=0。 第 36 (bare field) / 第 41 (index store) で未 pin の位置を 1 本に pin。 詳細は下の確認済み記録。
 - **第 41 弾**。 tuple をコンテナに格納する ARC を probe して、 **index 代入 `coll[i] = (box, b)` が tuple 要素の wrap を欠く** 既存 SIGSEGV を検出・修正。 `arr[0] = (box, b)` (`(Box?, Box)[]`) / `m["k"] = (box, b)` (`Map<_, (Box?, Box)>`) が slot0 を wrap せず生 Box を `Box?` slot に格納 → 解放時クラッシュ (リテラル `[(box,b)]` は元から hint 済みで無事)。 `AssignIndex` の RHS を要素型ヒント付き lowering に変更 (第 36 弾と同型)。 詳細は下の解決済み記録。
@@ -93,6 +94,19 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [確認済み記録] 第 44 弾: string / array ARC 全方位 — 第 43 弾以外は健全 (2026-06-13)
+
+第 43 弾の inplace concat 修正の周辺と、 触っていなかった string/array 操作を網羅 probe。 **新規バグなし**:
+
+- **string メソッド連鎖** `("v"+n).toUpper().slice(0,3)`: fresh 中間文字列が全て解放 (delta=0)。
+- **template literal の heap 補間** `\`box ${b.toString()} val ${b.n}\``: 補間 temp と Box を解放 (string delta=0・box deinit 厳密)。
+- **`+=` desugar**: `s += n.toString()` は `s = s + ...` に展開され第 43 弾の fix が効く (delta=0・値正しい)。
+- **self-concat `s = s + s`**: inplace パターンに合致 (lhs Var==target) するが rhs は **借用** (`is_fresh_object_expr(Var)` = false) なので解放しない — rhs が lhs バッファをエイリアスし結果になるため正しい。 prepend `s = fresh + s` は inplace 非マッチで通常 concat 経路 (既存 fix)。 両者 delta=0。
+- **array push / unshift** の fresh 要素、 **map** コールバックの fresh heap 返り、 **split** の string[]: 全て deinit 厳密・leak なし。
+- **heap-kind 変数の fresh 再代入** (`m = mkMap(...)` / `arr = mkArr(...)`): 旧値解放・新 fresh 非 leak (deinit 厳密)。
+
+fixture: `05_edge_cases/string_arc_chains_template_selfconcat.il` (メソッド連鎖・template heap 補間・`+=`・self-concat・split を churn 500 で `liveStringCount` flat + deinit 厳密)。 **ソース変更なし**のため第 24 弾と同じく workspace / nested_generic 儀式は省略、 programs fixture を JIT・AOT 両経路で確認。
 
 ### [解決済み記録] 第 43 弾: inplace 文字列 concat が fresh rhs をリーク (2026-06-13)
 
