@@ -960,13 +960,25 @@ impl<'a> BodyCx<'a> {
                         } else {
                             vv
                         };
+                        // A `T → T?` / `T → T.weak` coerce mints a fresh
+                        // wrapper cell that already owns its +1 (coerce
+                        // retained the inner). Treat it like a fresh
+                        // value: drop the owned source's share, skip the
+                        // aliased retain below — otherwise `arr[i] = box`
+                        // against `T?[]` leaked the source (fresh) or
+                        // double-counted the cell (borrowed).
+                        let wrapped = vv_slot != vv;
                         let elem_is_heap = self.is_arc_slot(&elem_ty);
                         // Fixed-length-array elements have value
                         // semantics: the cell takes a copy on store.
                         let vv_slot = match self.copy_fixed_for_cell(vv_slot, &elem_ty, value_is_fresh) {
                             Some(copy) => copy,
                             None => {
-                                if elem_is_heap && !value_is_fresh {
+                                if wrapped {
+                                    self.release_owned_wrap_source(
+                                        vv, &vty, &elem_ty, value_is_fresh,
+                                    );
+                                } else if elem_is_heap && !value_is_fresh {
                                     self.fb.push_inst(Inst::Retain { value: vv_slot });
                                 }
                                 vv_slot
@@ -983,8 +995,27 @@ impl<'a> BodyCx<'a> {
                         }
                         self.fb.push_inst(Inst::ArrayStore { arr: av, idx: iv, value: vv_slot });
                     }
-                    MirTy::Map { .. } => {
-                        self.fb.push_inst(Inst::MapSet { map: av, key: iv, value: vv });
+                    MirTy::Map { ref val, .. } => {
+                        // Coerce the value to the map's declared V before
+                        // the store — the index-assign sugar must match
+                        // `m.set(k, v)` (which routes through
+                        // `lower_arg_to`). Without this, `m[k] = new Box`
+                        // against `Map<_, Box?>` stored a raw Box where a
+                        // `Box?` cell was expected, so `$map.release`
+                        // later cascade-released it under the Optional
+                        // kind and dereferenced a garbage inner pointer.
+                        let val_ty = (**val).clone();
+                        let vv_slot = if vty != val_ty {
+                            self.coerce(vv, &vty, &val_ty, value.span).unwrap_or(vv)
+                        } else {
+                            vv
+                        };
+                        // A `T → T?` / `T → T.weak` coerce mints a fresh
+                        // wrapper cell (`coerce` already retained the
+                        // inner). `host_map_set` then retains the cell
+                        // too, so we hold a transient +1 on it.
+                        let wrapped = vv_slot != vv;
+                        self.fb.push_inst(Inst::MapSet { map: av, key: iv, value: vv_slot });
                         // Map takes its own +1 share on both key and
                         // value via host_map_set's retains. For a fresh
                         // key / value the caller also holds a transient
@@ -996,7 +1027,19 @@ impl<'a> BodyCx<'a> {
                         if index_is_fresh && self.is_arc_heap(&ity) {
                             self.fb.push_inst(Inst::Release { value: iv });
                         }
-                        if value_is_fresh && self.is_arc_heap(&vty) {
+                        if wrapped {
+                            // Drop the owned source's +1 (fresh only —
+                            // a borrowed source keeps its share, and
+                            // `coerce`'s inner-retain is the cell's).
+                            self.release_owned_wrap_source(
+                                vv, &vty, &val_ty, value_is_fresh,
+                            );
+                            // Release the transient share on the fresh
+                            // wrapper cell left after host_map_set's retain.
+                            if self.is_arc_heap(&val_ty) {
+                                self.fb.push_inst(Inst::Release { value: vv_slot });
+                            }
+                        } else if value_is_fresh && self.is_arc_heap(&vty) {
                             self.fb.push_inst(Inst::Release { value: vv });
                         }
                     }

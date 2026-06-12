@@ -276,6 +276,13 @@ impl<'a> BodyCx<'a> {
             } else {
                 self.coerce(vv, &vty, &target, it.span)?
             };
+            // A `T → T?` / `T → T.weak` coerce mints a fresh wrapper
+            // cell (coerce already retained the inner). The cell owns
+            // its +1, so it enters the array like any fresh element —
+            // skip the aliased retain and instead drop the owned
+            // source's share. Without this, `[box]: T?[]` leaked the
+            // source (fresh) or double-counted the cell (borrowed).
+            let wrapped = coerced != vv;
             // Fixed-length-array elements take a value copy (the
             // copy is the array's owned +1; skip the retain below).
             let (coerced, fixed_copied) = match self.copy_fixed_for_cell(coerced, &target, elem_is_fresh) {
@@ -299,7 +306,9 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Promise(_)
                     | MirTy::Weak(_)
             );
-            if is_heap && !elem_is_fresh && !fixed_copied {
+            if wrapped {
+                self.release_owned_wrap_source(vv, &vty, &target, elem_is_fresh);
+            } else if is_heap && !elem_is_fresh && !fixed_copied {
                 self.fb.push_inst(Inst::Retain { value: coerced });
             }
             elem_vals.push(coerced);
@@ -499,8 +508,13 @@ impl<'a> BodyCx<'a> {
             };
             let (v, t) = match hint {
                 Some(h) if *h != t0 => (self.coerce(v0, &t0, h, it.span)?, h.clone()),
-                _ => (v0, t0),
+                _ => (v0, t0.clone()),
             };
+            // A `T → T?` / `T → T.weak` coerce mints a fresh wrapper
+            // cell (coerce already retained the inner) — it owns its
+            // +1, so skip the aliased retain and drop the owned
+            // source's share instead.
+            let wrapped = v != v0;
             // Fixed-length-array slots take a value copy.
             let (v, copied) = match self.copy_fixed_for_cell(v, &t, elem_is_fresh) {
                 Some(copy) => (copy, true),
@@ -520,7 +534,9 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Promise(_)
                     | MirTy::Weak(_)
             );
-            if is_heap && !elem_is_fresh && !copied {
+            if wrapped {
+                self.release_owned_wrap_source(v0, &t0, &t, elem_is_fresh);
+            } else if is_heap && !elem_is_fresh && !copied {
                 self.fb.push_inst(Inst::Retain { value: v });
             }
             vals.push(v);
