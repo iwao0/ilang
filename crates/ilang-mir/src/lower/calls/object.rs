@@ -293,10 +293,32 @@ impl<'a> BodyCx<'a> {
         for fv in fresh_obj_args {
             self.fb.push_inst(Inst::Release { value: fv });
         }
-        // Release a fresh receiver that nothing else owns, but only
-        // when the result isn't itself an Object that may alias the
-        // receiver's fields.
-        if obj_is_fresh && !matches!(sig.ret, MirTy::Object(_)) {
+        // Release a fresh receiver that nothing else owns (e.g. the
+        // intermediate `a.m1()` in a `a.m1().m2()` chain). For an
+        // Object-returning method this also fires when the receiver is
+        // a regular ilang class: a `get(): T { this.f }` return is
+        // OWNED (+1 — the tail-borrow / bare-`this` retain), so the
+        // result keeps its own share and survives the receiver's drop
+        // cascade. Without this, every chained method call whose
+        // intermediate returns an Object leaked that intermediate (and
+        // everything it transitively owned). An `@objc` receiver is
+        // exempt: its Object return is an autoreleased BORROW, not an
+        // owned +1, so releasing the receiver would free the chain's
+        // value out from under it (`NSURLComponents.alloc().init()`).
+        // The @objc marker is a `handle: i64` field on the receiver
+        // class — same probe `lower_field` uses for its receiver temp.
+        let recv_is_objc = self
+            .class_meta
+            .get(&class_id)
+            .and_then(|m| {
+                m.field_ix
+                    .get(&Symbol::intern("handle"))
+                    .and_then(|h| m.field_ty.get(h))
+            })
+            .is_some_and(|t| matches!(t, MirTy::I64));
+        let skip_release =
+            matches!(sig.ret, MirTy::Object(_)) && recv_is_objc;
+        if obj_is_fresh && !skip_release {
             self.fb.push_inst(Inst::Release { value: ov });
         }
         Ok((dst.unwrap_or_else(|| self.const_unit()), sig.ret))
