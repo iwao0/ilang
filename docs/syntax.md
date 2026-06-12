@@ -1577,12 +1577,25 @@ r.isErr                    // bool — true when the variant is `err`
   use `_`).
 - `Result` is monomorphised per `(T, E)`.
 
-#### `?` operator (short-circuit on `err`)
+#### `?` operator (short-circuit on `err` / `none`)
 
-Postfix `?` unwraps a `Result` to its `ok` payload, or
-early-returns the `err` from the enclosing function. The
-enclosing fn's return type must be `Result<_, E>` with the same
-`E` as the operand.
+Postfix `?` works on `Result` and on `Optional`. On a `Result` it
+unwraps the `ok` payload, or early-returns the `err` from the
+enclosing function (whose return type must be `Result<_, E>` with
+the same `E`). On an `Optional` it unwraps the `some` payload, or
+early-returns `none` (the enclosing fn must be a sync fn returning
+an Optional; inside an `async fn`, `?` on Optional is rejected
+with a diagnostic — use `match` with an explicit `return none`).
+
+```rust
+fn first(xs: i64[]): i64? {
+    if xs.length > 0 { some(xs[0]) } else { none }
+}
+fn doubledOpt(xs: i64[]): i64? {
+    let v = first(xs)?               // some → bind, none → return none
+    some(v * 2)
+}
+```
 
 ```rust
 fn parse(s: string): Result<i32, string> {

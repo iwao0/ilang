@@ -41,6 +41,36 @@ impl TypeChecker {
         // accept `some(name)` (binds name to T), `none`, and
         // `_`; require both variants covered (or a wildcard).
         if let Type::Optional(inner) = &st {
+            // `e?` — the parser desugars `?` type-blind into a
+            // Result-shaped match (`ok(v){v} / err(e){return
+            // Result.err(e)}`) over a synthetic `__try_*` binding.
+            // On an Optional operand that shape means "unwrap or
+            // propagate none": accept it here (the lowering
+            // rewrites the arms to some/none — see
+            // lower/match_.rs), require the enclosing fn to return
+            // an Optional, and type the expression as the inner.
+            if is_try_desugar_scrutinee(scrutinee) {
+                if try_sugar_sync_shape(arms) {
+                    match ret_ty {
+                        Some(Type::Optional(_)) => {}
+                        _ => {
+                            return Err(TypeError::Unsupported {
+                                what: "`?` on an Optional requires the enclosing fn to be a SYNC fn returning an Optional (T?) — inside an `async fn` use `match` with an explicit `return none`".into(),
+                                span,
+                            });
+                        }
+                    }
+                    return Ok((**inner).clone());
+                }
+                // `__try_*` scrutinee but not the pristine sync
+                // shape — the async state-machine pass rewrote the
+                // propagation arm into a settle, which would carry
+                // a Result value into an Optional-typed promise.
+                return Err(TypeError::Unsupported {
+                    what: "`?` on an Optional inside an `async fn` is not supported yet — use `match` with an explicit `return none`".into(),
+                    span,
+                });
+            }
             if matches!(**inner, Type::Any) {
                 return Err(TypeError::Mismatch {
                     expected: Type::Optional(Box::new(Type::Any)),
@@ -796,4 +826,30 @@ impl TypeChecker {
             _ => None,
         }
     }
+}
+
+/// `true` when the match scrutinee is the parser-minted `__try_*`
+/// temp from a `?` desugar (postfix.rs) — synthetic, so the prefix
+/// can't collide with user bindings.
+fn is_try_desugar_scrutinee(scrutinee: &Expr) -> bool {
+    matches!(&scrutinee.kind, ExprKind::Var(n) if n.as_str().starts_with("__try_"))
+}
+
+/// `true` while the `?` desugar is still in its pristine (sync)
+/// shape: `ok(v) { v }` + `err(e) { return ... }`. The async
+/// state-machine pass rewrites the `return` into a settle block,
+/// which this intentionally does NOT match.
+fn try_sugar_sync_shape(arms: &[ilang_ast::MatchArm]) -> bool {
+    if arms.len() != 2 {
+        return false;
+    }
+    let ok_ok = matches!(
+        &arms[0].pattern.kind,
+        PatternKind::Variant { variant, .. } if variant.as_str() == "ok"
+    ) && matches!(&arms[0].body.kind, ExprKind::Var(_));
+    let err_ok = matches!(
+        &arms[1].pattern.kind,
+        PatternKind::Variant { variant, .. } if variant.as_str() == "err"
+    ) && matches!(&arms[1].body.kind, ExprKind::Return(Some(_)));
+    ok_ok && err_ok
 }

@@ -1034,12 +1034,28 @@ impl<'a> BodyCx<'a> {
             // release / etc.) closes the loop instead of double-
             // retaining via the stmt.rs::Let path.
             ExprKind::Match { scrutinee, arms } => {
-                let scrut_fresh = self.is_fresh_object_expr(scrutinee);
+                // The `?` desugar's `__try_*` temp always owns the
+                // matched value, and the arm-tail binding gets a
+                // forced Retain (see lower_match) — for the outer
+                // accounting the arm result is fresh exactly like a
+                // fresh-scrutinee match.
+                let scrut_fresh = self.is_fresh_object_expr(scrutinee)
+                    || matches!(
+                        &scrutinee.kind,
+                        ExprKind::Var(n) if n.as_str().starts_with("__try_")
+                    );
                 !arms.is_empty()
                     && arms.iter().all(|arm| {
                         self.is_fresh_object_expr(&arm.body)
                             || (scrut_fresh && arm_returns_own_binding(arm))
                             || expr_tail_is_str_literal(&arm.body)
+                            // A diverging arm (`return` / `break` /
+                            // `continue`) never reaches the join —
+                            // it contributes no value, so it can't
+                            // make the match non-fresh. The `?`
+                            // desugar's propagation arm is exactly
+                            // this shape.
+                            || super::match_::arm_body_diverges(&arm.body)
                     })
             }
             // Mirror Match: `if let some(name) = scrut { ... } else { ... }`

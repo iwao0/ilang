@@ -1226,9 +1226,19 @@ r.isErr                    // bool — variant が `err` なら true
 - match の網羅性検査もそのまま (`ok` と `err` を両方カバーするか `_` が必要)
 - `(T, E)` ごとに具体 enum をモノモルフ化
 
-#### `?` 演算子 (`err` で短絡)
+#### `?` 演算子 (`err` / `none` で短絡)
 
-後置 `?` は `Result` を `ok` のペイロードに展開する。`err` のときは囲っている関数からその場で早期 return する。`?` を使うには、囲っている関数の戻り値型が `Result<_, E>` で、オペランドの `E` と一致している必要がある。
+後置 `?` は `Result` と `Optional` に使える。`Result` では `ok` のペイロードに展開し、`err` のときは囲っている関数からその場で早期 return する (囲っている関数の戻り値型が `Result<_, E>` で、オペランドの `E` と一致している必要がある)。`Optional` では `some` のペイロードに展開し、`none` のときは `return none` で早期 return する (囲っている関数は Optional を返す同期 fn であること。`async fn` 内の Optional への `?` は診断付きで拒否 — `match` と明示の `return none` を使う)。
+
+```rust
+fn first(xs: i64[]): i64? {
+    if xs.length > 0 { some(xs[0]) } else { none }
+}
+fn doubledOpt(xs: i64[]): i64? {
+    let v = first(xs)?               // some → 値に展開、none → return none
+    some(v * 2)
+}
+```
 
 ```rust
 fn parse(s: string): Result<i32, string> {

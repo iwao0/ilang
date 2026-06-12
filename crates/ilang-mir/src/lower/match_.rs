@@ -22,7 +22,7 @@ use super::{BodyCx, LowerError, VariantPayloadMeta};
 /// so the join wiring skips it (otherwise the post-Return "dead"
 /// block emits a `Br` to the join with the wrong argument shape
 /// and Cranelift rejects the function).
-fn arm_body_diverges(e: &Expr) -> bool {
+pub(super) fn arm_body_diverges(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::Return(_) | ExprKind::Break(_) | ExprKind::Continue => true,
         ExprKind::Block(b) => {
@@ -50,8 +50,20 @@ impl<'a> BodyCx<'a> {
         let scrut_is_fresh = self.is_fresh_object_expr(scrutinee);
         let (sv, sty) = self.lower_expr(scrutinee)?;
 
+        // The `?` desugar's `__try_*` temp ALWAYS owns the matched
+        // value (its `let` either adopted a fresh expr or retained
+        // an alias), and the desugar block's scope exit releases it
+        // right after the match — so an arm tail that hands back a
+        // pattern binding must mint the caller's +1 even though the
+        // Var scrutinee reads as non-fresh. Without this the outer
+        // `let v = e?` retained an already-freed payload
+        // (use-after-free for BOTH Result and Optional `?`).
+        let force_tail_retain =
+            matches!(&scrutinee.kind, ExprKind::Var(n) if n.as_str().starts_with("__try_"));
         match &sty {
-            MirTy::Enum(eid) => self.lower_match_enum(sv, *eid, arms, scrut_is_fresh),
+            MirTy::Enum(eid) => {
+                self.lower_match_enum(sv, *eid, arms, scrut_is_fresh, force_tail_retain)
+            }
             MirTy::I8 | MirTy::I16 | MirTy::I32 | MirTy::I64
             | MirTy::U8 | MirTy::U16 | MirTy::U32 | MirTy::U64
             | MirTy::Size | MirTy::SSize => self.lower_match_int(sv, sty.clone(), arms),
@@ -59,7 +71,67 @@ impl<'a> BodyCx<'a> {
             MirTy::Str => self.lower_match_str(sv, arms, scrut_is_fresh),
             MirTy::Optional(inner) => {
                 let inner_ty = (**inner).clone();
-                self.lower_match_optional(sv, inner_ty, arms, scrut_is_fresh)
+                // `e?` on an Optional: the parser's type-blind `?`
+                // desugar produced Result-shaped arms (`ok(v){v}` /
+                // `err(e){return Result.err(e)}`) over a synthetic
+                // `__try_*` temp. Rewrite them to the Optional
+                // meaning — unwrap, or `return none` — and lower
+                // through the regular optional-match path so the
+                // early-return sweep / ARC rules apply unchanged.
+                // (The checker validated the enclosing fn returns
+                // an Optional.)
+                if is_try_desugar(scrutinee, arms) {
+                    let span = arms[0].span;
+                    let ok_binding = match &arms[0].pattern.kind {
+                        ast::PatternKind::Variant {
+                            bindings: ast::PatternBindings::Tuple(names),
+                            ..
+                        } => names[0],
+                        _ => unreachable!("try desugar shape checked"),
+                    };
+                    let rewritten = vec![
+                        ast::MatchArm {
+                            pattern: ast::Pattern {
+                                kind: ast::PatternKind::Variant {
+                                    enum_name: None,
+                                    variant: Symbol::intern("some"),
+                                    bindings: ast::PatternBindings::Tuple(
+                                        Box::new([ok_binding]),
+                                    ),
+                                },
+                                span,
+                            },
+                            body: arms[0].body.clone(),
+                            span,
+                        },
+                        ast::MatchArm {
+                            pattern: ast::Pattern {
+                                kind: ast::PatternKind::Variant {
+                                    enum_name: None,
+                                    variant: Symbol::intern("none"),
+                                    bindings: ast::PatternBindings::Unit,
+                                },
+                                span,
+                            },
+                            body: Expr::new(
+                                ExprKind::Return(Some(Box::new(Expr::new(
+                                    ExprKind::None,
+                                    span,
+                                )))),
+                                span,
+                            ),
+                            span,
+                        },
+                    ];
+                    return self.lower_match_optional(
+                        sv,
+                        inner_ty,
+                        &rewritten,
+                        scrut_is_fresh,
+                        force_tail_retain,
+                    );
+                }
+                self.lower_match_optional(sv, inner_ty, arms, scrut_is_fresh, force_tail_retain)
             }
             other => Err(LowerError::Other(format!(
                 "match on unsupported scrutinee type: {other}"
@@ -73,6 +145,7 @@ impl<'a> BodyCx<'a> {
         inner_ty: MirTy,
         arms: &[ast::MatchArm],
         scrut_is_fresh: bool,
+        force_tail_retain: bool,
     ) -> Result<(ValueId, MirTy), LowerError> {
         // Find the some / none / wildcard arms.
         let mut some_arm: Option<&ast::MatchArm> = None;
@@ -163,6 +236,18 @@ impl<'a> BodyCx<'a> {
             if scrut_is_fresh {
                 self.live_fresh_scrutinees.pop();
             }
+            // `?` desugar (`__try_*` scrutinee): the arm body is the
+            // bare binding Var, which bypasses the block-tail retain
+            // pairing — mint the caller's +1 here, BEFORE the
+            // desugar block's scope exit releases the `__try` temp
+            // and cascades the cell (the payload would be freed
+            // under the outer `let`).
+            if force_tail_retain
+                && matches!(&arm.body.kind, ExprKind::Var(_))
+                && self.is_arc_slot(&bty)
+            {
+                self.fb.push_inst(Inst::Retain { value: bv });
+            }
             // `Release(sv)` below cascades the Optional cell. The
             // pattern binding was registered with
             // `needs_retain_on_tail = scrut_is_fresh`, so
@@ -228,6 +313,7 @@ impl<'a> BodyCx<'a> {
         eid: crate::types::EnumId,
         arms: &[ast::MatchArm],
         scrut_is_fresh: bool,
+        force_tail_retain: bool,
     ) -> Result<(ValueId, MirTy), LowerError> {
         let layout = &self.enums[eid.0 as usize];
         // For each arm, find which variant it matches (or wildcard).
@@ -360,6 +446,16 @@ impl<'a> BodyCx<'a> {
             let (bv, bty) = self.lower_expr(&arm.body)?;
             if scrut_is_fresh {
                 self.live_fresh_scrutinees.pop();
+            }
+            // `?` desugar — see `lower_match_optional`: the bare
+            // Var arm body bypasses the block-tail retain pairing,
+            // so mint the caller's +1 before the `__try` temp's
+            // scope-exit release cascades the cell.
+            if force_tail_retain
+                && matches!(&arm.body.kind, ExprKind::Var(_))
+                && self.is_arc_slot(&bty)
+            {
+                self.fb.push_inst(Inst::Retain { value: bv });
             }
             // Mirror `lower_match_optional`: when the scrutinee
             // was fresh, release the enum cell at arm exit so its
@@ -903,4 +999,26 @@ impl<'a> BodyCx<'a> {
             None => (self.const_unit(), MirTy::Unit),
         })
     }
+}
+
+/// `true` for the parser's `?` desugar shape — a `__try_*` Var
+/// scrutinee with pristine `ok(v){v}` / `err(e){return ...}` arms
+/// (the names are synthetic, so the prefix can't collide with user
+/// bindings). Mirrors `try_sugar_sync_shape` in the checker.
+fn is_try_desugar(scrutinee: &Expr, arms: &[ast::MatchArm]) -> bool {
+    let is_try_var =
+        matches!(&scrutinee.kind, ExprKind::Var(n) if n.as_str().starts_with("__try_"));
+    if !is_try_var || arms.len() != 2 {
+        return false;
+    }
+    let ok_ok = matches!(
+        &arms[0].pattern.kind,
+        ast::PatternKind::Variant { variant, bindings: ast::PatternBindings::Tuple(names), .. }
+            if variant.as_str() == "ok" && names.len() == 1
+    ) && matches!(&arms[0].body.kind, ExprKind::Var(_));
+    let err_ok = matches!(
+        &arms[1].pattern.kind,
+        ast::PatternKind::Variant { variant, .. } if variant.as_str() == "err"
+    ) && matches!(&arms[1].body.kind, ExprKind::Return(Some(_)));
+    ok_ok && err_ok
 }
