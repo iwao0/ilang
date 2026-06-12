@@ -482,6 +482,7 @@ apply(double, 7)                     // 14
 - ネストしたクロージャ (closure-of-closure) も対応 — 内側の closure は外側の closure の captures を再 capture できる
 - top-level fn を fn 値として参照 (`let f = some_fn`) すると、env を無視してターゲットを呼ぶ trampoline closure が自動生成される
 - **自己再帰クロージャ** は明示的な関数型注釈が必須 (`let fib: fn(i64): i64 = fn(n: i64): i64 { ... fib(n - 1) ... }`) — 再帰参照は型推論できないため。注釈があればトップレベル・fn 本体内・入れ子クロージャからの外側クロージャ名参照のいずれでも動く。自己参照は capture ではなく「実行中のクロージャ自身」として解決されるので、参照循環は発生せず、スコープ外へ escape したクロージャも有効なまま
+- **メソッド内クロージャから `this` のメンバ参照**: クラスメソッドの本体に書いたクロージャは、enclosing クラスのフィールド / プロパティを **bare 名で読み書き**できる (`fn(): i64 { slot = nb; slot.n }`)。クロージャは必要に応じて `this` を capture し、入れ子クロージャへも転送する。一方 **メソッド呼び出しは bare 名で書けない** — `compute()` ではなく `this.compute()` と明示する (bare メソッド呼び出しは「inside a closure is not supported」という診断になる)
 
 ### 属性 / アノテーション (パースのみ、enforce は未実装)
 

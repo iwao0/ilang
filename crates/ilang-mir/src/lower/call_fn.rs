@@ -413,7 +413,21 @@ impl<'a> BodyCx<'a> {
             let meta = self.class_meta.get(&cid).expect("class meta");
             if let Some(&mid) = meta.method_ids.get(&callee) {
                 let sig = meta.method_sigs.get(&callee).cloned().unwrap();
-                let (this_v, _) = self.lookup_var(Symbol::intern("this")).unwrap();
+                // A method-internal closure sees `this` only through
+                // its captures, and bare method calls are deliberately
+                // not routed through capture (only fields / properties
+                // are — see `name_is_this_member`). Inside a closure
+                // `this` is therefore not a local; emit a clear
+                // diagnostic instead of panicking on `unwrap()`.
+                let this_v = match self.lookup_var(Symbol::intern("this")) {
+                    Some((v, _)) => v,
+                    None => {
+                        return Err(LowerError::Other(format!(
+                            "bare method call `{callee}(...)` inside a closure is not supported; \
+                             write `this.{callee}(...)`"
+                        )));
+                    }
+                };
                 let mut arg_vals = vec![this_v];
                 // Same fresh-transfer rule as the named-fn and
                 // closure-call paths above — this arm was the last

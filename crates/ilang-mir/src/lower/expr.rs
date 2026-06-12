@@ -819,7 +819,28 @@ impl<'a> BodyCx<'a> {
                 if let Some(cid) = self.this_class {
                     let meta = self.class_meta.get(&cid).expect("class meta");
                     if let Some(&fid) = meta.field_ix.get(target) {
-                        let (this_v, _) = self.lookup_var(Symbol::intern("this")).unwrap();
+                        // Resolve `this` the same way the bare-field
+                        // *read* path does: a method-internal closure
+                        // sees `this` only through its captures, not as
+                        // a local. Without the capture fallback this
+                        // panicked on `Option::unwrap()` whenever a
+                        // bare field was assigned inside a closure
+                        // (the read path already handled it).
+                        let this_sym = Symbol::intern("this");
+                        let (this_v, _) = if let Some(pair) = self.lookup_var(this_sym) {
+                            pair
+                        } else if let Some(caps) = self.captures_in_scope {
+                            let &(cap_idx, ref this_ty) = caps.get(&this_sym).expect(
+                                "class method closure must capture `this` for implicit field assignment",
+                            );
+                            let dst = self.fb.new_value(this_ty.clone());
+                            self.fb.push_inst(Inst::LoadCapture { dst, idx: cap_idx });
+                            (dst, this_ty.clone())
+                        } else {
+                            return Err(LowerError::Other(format!(
+                                "cannot resolve `this` for implicit field assignment `{target}`"
+                            )));
+                        };
                         // Heap field write: take ownership of `value`
                         // (retain if aliased) and release whatever was
                         // there before (if any). `is_arc_slot` is the

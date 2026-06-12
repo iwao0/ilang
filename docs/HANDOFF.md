@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 32 弾**。 第 31 弾のクロージャ `this` 捕獲の継ぎ目を攻めて **コンパイラ panic 2 件** を検出・対処。 (1) メソッド内クロージャが **bare field に代入** (`slot = nb`) すると lowering が panic (修正)。 (2) クロージャ内の **bare メソッド呼び出し** (`compute()`) が panic → クリーンな診断に (ユーザー決定)。 詳細は下の解決済み記録。
 - **Promise/async 実行モデルを JS 型 (run-to-completion・シングルスレッド) へ移行**。 worker pool を撤去し、 継続はメインスレッドの FIFO queue + 期限順 timer heap (`pool.rs` 書き換え)、 executor は構築時に同期実行、 非ブロッキング pump の **`time.tick()`** を新設。 詳細は下の解決済み記録。
 - **gui ライブラリの platform イベントループに `time.tick()` pump を組み込み** (cocoa = NSTimer common modes / win32 = SetTimer TIMERPROC / linux = g_timeout_add、 各 ~15ms)。 GUI 表示中も std.time タイマーと Promise 継続が発火する。 **win32 / linux は macOS 環境では型検査されないため未検証** — 詳細は下の解決済み記録。
 - **fixture 増殖ラウンド第 8 弾** (新実行モデル周辺)。 `new Promise(executor)` の 3 セル leak (移行前から) と、 release ビルドの関数マージ (ICF) による capture 二重登録 → promise 二重解放 (leak 修正で顕在化した潜在バグ) を検出・修正。 回帰 fixture 4 件、 `ILANG_DEBUG_PROMISE/CLOSURE/TIMER` トレースを常設化。 詳細は下の解決済み記録。
@@ -81,6 +82,16 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 32 弾: メソッド内クロージャの `this` 解決が欠けていた 2 経路 — bare field 代入 (修正) と bare メソッド呼び出し (診断化) (2026-06-13)
+
+第 31 弾で「メソッド内クロージャが field を **bare 名で読む**」経路に `this` の on-demand 捕獲を入れた。その同族として **`this` を必要とする残り 2 経路**が `lookup_var("this").unwrap()` を素のまま使っており、クロージャ内 (= `this` が local でなく capture 経由) で **`Option::unwrap()` on None のコンパイラ panic** を踏むことを probe で確認。両者とも「読み経路は capture フォールバックを持つのに、この経路は持たない」同根:
+
+1. **bare field 代入 `slot = nb` が panic (修正)** — [expr.rs](../crates/ilang-mir/src/lower/expr.rs) の implicit `this.<field>` 代入 arm。 bare field **読み** (lower_var_expr) は `lookup_var → captures_in_scope` のフォールバックを持つのに、代入の store サイトは `lookup_var("this").unwrap()` 直書きだった。 `this` 自体は既に捕獲されている (代入 target が free var として収集され [collect.rs](../crates/ilang-mir/src/lower/collect.rs)、 `name_is_this_member` 経由で `this` が `frees` に入る) ので、 **読み経路と同じフォールバックを store サイトにミラーするだけ**で動く。 ARC は従来どおり (旧値 release・新値 own)。 fixture: `05_edge_cases/closure_bare_field_assign.il` (heap field 付け替え + primitive field を厳密 deinit 200 + churn delta=0)。
+
+2. **bare メソッド呼び出し `compute()` が panic → クリーンな診断 (ユーザー決定)** — [call_fn.rs](../crates/ilang-mir/src/lower/call_fn.rs) の implicit `this.<method>(args)` arm。 第 31 弾の記録にあった「メソッドを `name_is_this_member` に含めると新規 panic を生む」の正体がこの素の `unwrap()` だった (含めると `this` 捕獲が起きてこの arm に到達し panic)。 **ユーザー判断 = メソッドは capture 対象外の既存決定を維持し、 panic を明示エラーに置換** (「bare method call \`compute(...)\` inside a closure is not supported; write \`this.compute(...)\`」)。 明示形 `this.compute()` はクロージャ内でも従来どおり動く。 fixture: `05_edge_cases/closure_bare_method_call_error.il` (expect-error)。
+
+同族確認: 同型の素 `unwrap()` は grep で上記 2 箇所のみ。 bare field の field-of-field 書き (`box.n = ..`) は AssignField 経由で obj が読み経路を通るため元から健全、 primitive field 書きも修正経路で正しい。 syntax.md / syntax_ja.md のクロージャ節に「メソッド内クロージャの `this` メンバ参照」を追記。 検証: workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] gui ライブラリが platform イベントループから `time.tick()` を pump するようにした (2026-06-11、 ユーザー判断 = 案 (a))
 

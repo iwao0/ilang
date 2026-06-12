@@ -617,6 +617,13 @@ apply(double, 7)                     // 14
   self-reference isn't a capture: the body resolves it to the
   running closure itself, so there's no retain cycle and an
   escaping self-recursive closure stays valid.
+- **`this`-member access from a method-internal closure**: a closure
+  written in a class method body may **read and write** the enclosing
+  class's fields / properties by **bare name** (`fn(): i64 { slot = nb;
+  slot.n }`). The closure captures `this` on demand and forwards it
+  into nested closures. **Method calls cannot use a bare name**,
+  though — write `this.compute()`, not `compute()` (a bare method call
+  emits an "inside a closure is not supported" diagnostic).
 
 ### Attributes / annotations (parse-only unless noted)
 
