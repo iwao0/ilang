@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 40 弾**。 第 39 弾の tuple subst 修正の **同族探索が不完全**だったのを是正。 型パラメータ置換 (`subst_type`) だけでなく、 **concrete な generic instantiation を mangle する rewrite 群**も tuple を見落としていた: `rewrite_type` (generic class)・`rewrite_enum_refs_in_type` (generic enum)・`walk_types_pre` (instantiation 発見)。 `(Inner<i64>, i64)` / `(Maybe<i64>, i64)` を field / param / return に使うと「unsupported in M1: user-defined generic types」で停止。 3 関数に `Type::Tuple` arm を追加。 詳細は下の解決済み記録。
 - **第 39 弾**。 generic + heap を probe して **monomorphize が tuple 型の中の型パラメータを置換しない**既存バグを検出・修正。 `(T, T)` / `(T?, T)` を generic fn/method のシグネチャや field 型に使うと「unknown type: T」で lowering 停止 (Optional / array / Map は置換されるのに tuple だけ漏れ)。 `subst_type` / `contains_type_var` に `Type::Tuple` arm を追加。 詳細は下の解決済み記録。
 - **第 38 弾** (クリーンラウンド)。 第 37 弾の exit-drain 修正の周辺を async 全方位で probe — **新規バグなし**。 timer (setTimeout) at exit・Promise.all over heap・Promise を field 保持・multi-await chain・never-settled promise の executor heap capture・**await rejection が await 前の heap local を解放**・reject 経路の shutdown drain を網羅し、 全て deinit 厳密 + leak なし + clean exit。 await-rejection ARC と reject 経路 drain を pin。 詳細は下の確認済み記録。
 - **第 37 弾**。 async へ攻撃面を移し、 **exit 時の event-loop drain がグローバル解放の後に走る順序バグ**を検出・修正。 pending promise 継続が保持する Box の `deinit` が top-level 配列 `deinits[0]` に触ると、 シャットダウンで解放済みグローバルを参照して **ランタイム OOB panic** (`deinit` 持ちの heap を await 跨ぎで保持する最小形で再現)。 drain を `__main` の top-level let 解放の **前**に emit して修正。 詳細は下の解決済み記録。
@@ -89,6 +90,16 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 40 弾: tuple 再帰ギャップの同族 3 関数 — 第 39 弾の取りこぼし (2026-06-13)
+
+第 39 弾は `subst_type` / `contains_type_var` (型パラメータ `T` の置換) に tuple arm を足したが、 **§8-6 同族探索が不完全**で、 同じ tuple 再帰ギャップを持つ rewrite 群を取りこぼしていた。 generic enum を probe する過程で顕在化:
+
+- **症状**: `(Inner<i64>, i64)` (generic class) や `(Maybe<i64>, i64)` (generic enum) を **class field / fn param / fn return** に使うと **「mir lower: unsupported in M1: user-defined generic types」で停止**。 第 39 弾の `T` 置換と違い、 これは **concrete instantiation の mangle** (`Generic(Inner,[i64]) → Object("Inner_i64")`) の漏れ。 `(T, T)` の **local** 注釈や、 **tuple でない** `Inner<i64>` field は動く (前者は binding 型を rhs から再導出、 後者は tuple を経由しない) ため第 39 弾に隠れていた。
+- **原因**: tuple を再帰しない関数が **3 つ**残っていた — [class.rs](../crates/ilang-mir/src/monomorphize/class.rs) の `rewrite_type` (user generic class を mangled Object 名へ)、 [enums.rs](../crates/ilang-mir/src/monomorphize/enums.rs) の `rewrite_enum_refs_in_type` (generic enum を mangle)、 [walk.rs](../crates/ilang-mir/src/monomorphize/walk.rs) の `walk_types_pre` (tuple 内にしか現れない instantiation の発見)。 いずれも `Type::Tuple` arm が無く `_ => clone()` / `_ => {}` に落ちていた。
+- **修正**: 3 関数すべてに `Type::Tuple` arm を追加 (要素を再帰)。 `seed_enums_in_type` は `walk_types_pre` 経由なので自動的に直る。 monomorphize モジュールの型再帰関数 (`Type::Optional` を持つもの) を全数監査し、 残る漏れが無いことを確認。
+- **同族確認**: generic class / generic enum が **heap Box を保持**して tuple field に入る形を deinit 厳密 (200/round) + churn delta=0、 nested `((Inner<i64>, i64), i64)`、 fn param/return、 generic enum tuple payload (`yep: (T)`) の再確認。 全て値正しく ARC 均衡。
+- fixture: `05_edge_cases/generic_in_tuple_field.il` (generic class/enum を heap 込みで tuple field・param・return に置いて厳密 deinit 200 + churn delta=0)。 検証: workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 39 弾: monomorphize が tuple 型の中の型パラメータを置換しない (2026-06-13)
 

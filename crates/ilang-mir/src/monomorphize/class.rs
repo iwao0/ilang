@@ -513,6 +513,13 @@ pub(super) fn rewrite_type(t: &Type) -> Type {
         },
         Type::Optional(inner) => Type::Optional(Box::new(rewrite_type(inner))),
         Type::Weak(inner) => Type::Weak(Box::new(rewrite_type(inner))),
+        // Recurse into tuple elements so a concrete generic
+        // instantiation nested in a tuple (e.g. an `(Inner<i64>, i64)`
+        // field type) gets its mangled Object name. Without this arm
+        // the tuple was cloned unchanged and the still-`Generic`
+        // `Inner<i64>` reached lowering as "unsupported in M1:
+        // user-defined generic types".
+        Type::Tuple(elems) => Type::Tuple(elems.iter().map(rewrite_type).collect()),
         Type::Fn(ft) => Type::func(
             ft.params.iter().map(rewrite_type).collect(),
             rewrite_type(&ft.ret),

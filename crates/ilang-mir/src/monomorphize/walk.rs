@@ -242,6 +242,15 @@ pub(super) fn walk_types_pre(t: &Type, f: &mut dyn FnMut(&Type)) {
         }
         Type::Array { elem, .. } => walk_types_pre(elem, f),
         Type::Optional(inner) | Type::Weak(inner) => walk_types_pre(inner, f),
+        // Recurse into tuple elements so a generic instantiation that
+        // appears only inside a tuple type is still discovered for
+        // monomorphization (mirrors the `subst_type` / `rewrite_type`
+        // tuple arms).
+        Type::Tuple(elems) => {
+            for e in elems {
+                walk_types_pre(e, f);
+            }
+        }
         Type::Fn(ft) => {
             for p in &ft.params {
                 walk_types_pre(p, f);

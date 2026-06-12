@@ -774,6 +774,13 @@ pub(super) fn rewrite_enum_refs_in_type(
             Type::Optional(Box::new(rewrite_enum_refs_in_type(inner, generic_enums)))
         }
         Type::Weak(inner) => Type::Weak(Box::new(rewrite_enum_refs_in_type(inner, generic_enums))),
+        // Recurse into tuple elements so a generic enum instantiation
+        // nested in a tuple (e.g. a `(Maybe<i64>, i64)` field) is
+        // mangled to its `Object` name; otherwise the still-`Generic`
+        // enum reached lowering as "unsupported in M1".
+        Type::Tuple(elems) => Type::Tuple(
+            elems.iter().map(|e| rewrite_enum_refs_in_type(e, generic_enums)).collect(),
+        ),
         Type::Fn(ft) => Type::func(
             ft.params.iter().map(|p| rewrite_enum_refs_in_type(p, generic_enums)).collect(),
             rewrite_enum_refs_in_type(&ft.ret, generic_enums),
