@@ -186,7 +186,13 @@ impl<'a> BodyCx<'a> {
             slot: crate::inst::VTableSlot(slot),
             args: user_args.into_boxed_slice(),
         });
-        if obj_is_fresh && !matches!(sig.ret, MirTy::Object(_)) {
+        // Release a fresh intermediate receiver (`mkHolder().grab()` in
+        // a chain) — including Object returns, which are owned (+1) just
+        // like the direct-method path. No `@objc` exemption: an
+        // ilang-interface VirtCall only reaches ilang classes (COM
+        // interfaces take the separate `lower_com_iface_dispatch` path,
+        // and @objc classes dispatch via objc_msgSend, not this vtable).
+        if obj_is_fresh {
             self.fb.push_inst(Inst::Release { value: ov });
         }
         Ok((dst.unwrap_or_else(|| self.const_unit()), sig.ret))
@@ -228,7 +234,13 @@ impl<'a> BodyCx<'a> {
             sig: call_sig,
             args: arg_vals.into_boxed_slice(),
         });
-        if obj_is_fresh && !matches!(ft.ret, MirTy::Object(_)) {
+        // Release a fresh receiver whose closure-field we just called
+        // (`makeObj().fnField()`). The result is the CLOSURE's return —
+        // an owned (+1) value, never an alias of the receiver — so this
+        // is safe even for Object returns (the `!Object` guard here
+        // leaked the fresh receiver the same way the direct-method path
+        // did).
+        if obj_is_fresh {
             self.fb.push_inst(Inst::Release { value: ov });
         }
         Ok((dst.unwrap_or_else(|| self.const_unit()), ft.ret.clone()))
