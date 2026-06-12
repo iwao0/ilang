@@ -447,6 +447,9 @@ impl TypeChecker {
             .iter()
             .map(|p| bindings.get(p).cloned().unwrap_or(Type::Any))
             .collect();
+        for (p, t) in type_params.iter().zip(inferred_args.iter()) {
+            self.reject_fixed_heap_type_arg(p.as_str(), t, span)?;
+        }
         // Stash for the JIT enum-monomorphization pass. Args
         // may still contain TypeVars when the call sits inside
         // another generic context — that's resolved at

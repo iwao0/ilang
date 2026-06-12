@@ -1116,8 +1116,11 @@ Allowed placements are **class fields, local bindings, and fn
 parameters** only. These are type errors: using one as a return
 type, as a component of another container (dynamic array / Map /
 Set / tuple / Optional / enum payload), capturing one in a
-closure, or reassigning the whole binding (`arr = [..]` — element
-writes `arr[i] = x` are fine).
+closure, reassigning the whole binding (`arr = [..]` — element
+writes `arr[i] = x` are fine), or letting a generic type
+parameter resolve to one (`hold(arr)` where `fn hold<T>(v: T)`,
+inferred or explicit `new C<Box[2]>` — declare the parameter as
+`Box[2]` directly instead).
 
 ```rust
 

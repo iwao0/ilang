@@ -571,6 +571,33 @@ impl TypeChecker {
         }
     }
 
+    /// Inference-side companion to `reject_fixed_heap_component`:
+    /// a generic type parameter may not resolve to a fixed-length
+    /// heap-element array. The generic body was checked with `T`
+    /// opaque, so `some(v)` / container cells inside it would put
+    /// the header-less buffer into a slot whose release cascade
+    /// then frees storage the caller's binding still owns (double
+    /// free, observed as SIGABRT). Direct `T[N]` parameters stay
+    /// fine — declare them concretely instead of generically.
+    pub(super) fn reject_fixed_heap_type_arg(
+        &self,
+        param_name: &str,
+        t: &Type,
+        span: Span,
+    ) -> Result<(), TypeError> {
+        if let Type::Array { elem, fixed: Some(_) } = t {
+            if self.fixed_elem_is_heap(elem) {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "type parameter {param_name} resolves to {t} — fixed-length arrays with heap elements can't be generic type arguments; declare the parameter type as {t} directly or copy the elements into a dynamic array"
+                    ),
+                    span,
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Placement restriction for fixed-length arrays with heap
     /// elements: they may stand alone (class field, local binding,
     /// fn parameter) but not sit inside another composite type —

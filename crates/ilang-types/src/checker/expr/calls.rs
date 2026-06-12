@@ -1116,6 +1116,9 @@ impl TypeChecker {
             .iter()
             .map(|p| bindings.get(p).cloned().unwrap_or(Type::Any))
             .collect();
+        for (p, t) in sig.type_params.iter().zip(inferred_args.iter()) {
+            self.reject_fixed_heap_type_arg(p.as_str(), t, span)?;
+        }
         // Stash for the JIT monomorphizer. Args may still
         // contain TypeVars when the call is inside another
         // generic context — that's resolved at expansion time.
@@ -1203,6 +1206,13 @@ impl TypeChecker {
                 got: type_args.len(),
                 span,
             });
+        }
+        // Same restriction as inferred generic type args: an
+        // explicit `new Holder<Box[2]>(...)` would let the generic
+        // body put the fixed array into container cells the
+        // release cascade can't own safely.
+        for (p, t) in class_params.iter().zip(type_args.iter()) {
+            self.reject_fixed_heap_type_arg(p.as_str(), t, span)?;
         }
         // `Set<T>` accepts the same primitives as Map's key plus
         // floats — the host runtime stores by bit pattern, so f32 /

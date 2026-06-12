@@ -67,6 +67,9 @@ impl TypeChecker {
                     .iter()
                     .map(|p| bindings.get(p).cloned().unwrap_or(Type::Any))
                     .collect();
+                for (p, t) in sig.type_params.iter().zip(inferred_args.iter()) {
+                    self.reject_fixed_heap_type_arg(p.as_str(), t, span)?;
+                }
                 // Stash the inferred type args so the AST
                 // monomorphizer (`monomorphize_methods`) can specialize
                 // the method body and rewrite this call's method
