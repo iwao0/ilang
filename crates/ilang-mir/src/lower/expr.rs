@@ -525,9 +525,31 @@ impl<'a> BodyCx<'a> {
                     | Some(Binding::Cell(_, ty)) => Some(ty),
                     None => self.repl_slots.get(target).map(|(_, ty)| ty.clone()),
                 };
+                // A bare-name write to a class field (`f = expr`) carries
+                // no binding, so `target_ty` is None — but the field's
+                // declared type is still the right hint for a composite
+                // literal RHS whose ELEMENTS need wrapping to the
+                // declared element type (e.g. `pair = (box, b)` against a
+                // `(Box?, Box)` field). Without the hint the tuple was
+                // built as `(Box, Box)`, storing a raw object into the
+                // `Box?` slot, and the release cascade dereferenced a
+                // misaligned pointer (SIGSEGV). The outer `T -> T?` wrap
+                // is still applied by `store_value_to_field`; this only
+                // fixes the inner literal shape, matching what the
+                // explicit `this.f = expr` (AssignField) path does.
+                let bare_field_hint: Option<MirTy> = if target_ty.is_none() {
+                    self.this_class.and_then(|cid| {
+                        let meta = self.class_meta.get(&cid)?;
+                        let fid = *meta.field_ix.get(target)?;
+                        meta.field_ty.get(&fid).cloned()
+                    })
+                } else {
+                    None
+                };
                 self.last_block_tail_owned = false;
                 let (v, vty) = match target_ty
                     .as_ref()
+                    .or(bare_field_hint.as_ref())
                     .and_then(|t| self.lower_composite_with_hint(value, t))
                 {
                     Some(res) => res?,

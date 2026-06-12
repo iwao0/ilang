@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 36 弾**。 bare field 代入の **composite リテラル要素 wrap 欠落** という既存 SIGSEGV を検出・修正。 `pair = (box, b)` (field 型 `(Box?, Box)`) が tuple を `(Box, Box)` として構築し生 Box を `Box?` slot に格納 → 解放時に不整列ポインタ参照でクラッシュ。 bare 経路がヒント無し lowering を再利用していたのが原因 (第 33 弾の設計の取りこぼし)。 field 型を composite ヒントに渡して修正 (array `Box?[]` / map `Map<_,Box?>` の同族も同時に解消)。 詳細は下の解決済み記録。
 - **第 35 弾** (クリーンラウンド)。 bare field 書き (第 32 弾) × 連鎖レシーバ解放 (第 29/30 弾) の継ぎ目を反復ミューテーション・多段連鎖で攻めた — **新規バグなし**。 init 内 bare 再代入の `is_init` 安全性 (checker が初回 `this.` を要求して担保)、 fixed-array bare 代入の copyShallow、 4 段連鎖・field 返し連鎖、 **エスケープしたステートフルクロージャの heap field 反復付け替え** (deinit 700 厳密) を pin。 詳細は下の確認済み記録。
 - **第 34 弾** (クリーンラウンド)。 第 33 弾で統合した `store_value_to_field` の継ぎ目を「bare field 代入 × 宣言型が要る RHS」で攻めた — **新規バグなし**。 共変 map / 配列リテラル・fresh Optional・Optional widen の bare 代入を厳密 deinit + churn delta=0 で pin。 併せて **第 33 弾の誤記録を訂正** (「weak の bare 代入は明示と非対称」は誤り。 実体は `none → plain Box.weak` の拒否で bare/明示共通・意図的制限)。 詳細は下の確認済み記録。
 - **第 33 弾**。 第 32 弾で触った **implicit bare-name field 代入** arm が、明示 `this.f = v` (AssignField) と違って **`T → T?` / subtype の Optional 自動 wrap を欠く** 既存バグを検出・修正。 `slot = box` (field 型 `Box?`) が生オブジェクトを Optional slot に格納し解放時に **SIGSEGV**。 両経路を共通ヘルパー `store_value_to_field` に統合。 詳細は下の解決済み記録。
@@ -85,6 +86,16 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 36 弾: bare field 代入が composite リテラルの要素 wrap を欠いて SIGSEGV (2026-06-13)
+
+第 34/35 弾で「bare field 代入は健全」と確認したが、 **composite リテラルの内側要素が wrap を要する**形は未踏だった。 enum payload / tuple を probe する過程で発見:
+
+- **症状**: `pair = (a, b)` (bare、 field 型 `(Box?, Box)`) が **SIGSEGV (exit 139)**。 明示 `this.pair = (a, b)` は正常 (10)。 同型 array (`arr = [box]`、 field `Box?[]`)・map (`m = {"k": box}`、 field `Map<string, Box?>`) も同根。
+- **原因**: bare field 代入は早期 lowering 済みの値を再利用する (第 33 弾) が、 その早期 lowering は target が field のとき **ヒント無し** (`target_ty` が None) で走るため、 tuple リテラル `(a, b)` が宣言要素型 `(Box?, Box)` でなく**推論型 `(Box, Box)` で構築**され、 slot 0 の `Box → Box?` 要素 wrap が起きない。 生 Box が `Box?` slot に入り、 解放カスケードが Optional として走査 → 不整列ポインタ参照でクラッシュ。 `store_value_to_field` の coerce は**値全体**の `T → T?` しか見ないため内側要素は救えない。 明示 AssignField は `lower_composite_with_hint(value, &fty)` を常に使うので無事だった。
+- **修正**: bare field のとき (`target_ty` が None かつ `this_class` の field) に **field 型を composite リテラルのヒントとして供給** ([expr.rs](../crates/ilang-mir/src/lower/expr.rs) の Assign arm、 `bare_field_hint`)。 `lower_composite_with_hint` が tuple/array/map の要素を宣言型へ wrap して構築する。 外側 `T → T?` wrap は従来どおり `store_value_to_field` が担当 (役割分担: 内側 = リテラル構築ヒント、 外側 = store ヘルパー)。
+- **同族確認**: tuple `(Box?, Box)`・array `Box?[]`・map `Map<string, Box?>` の bare 代入を、 各 Optional 越しの match で実体が壊れていないことを確認しつつ deinit 厳密 (500/round) + churn delta=0。 第 33〜35 弾の bare 代入 probe 群 (p5/q1/x1/s8) も全て回帰なし。 enum payload を field に持つ bare 代入・再代入 churn・match 持ち出し・Optional<enum>、 tuple の destructuring・入れ子 tuple return は別途 probe して**元から健全**。
+- fixture: `05_edge_cases/bare_field_assign_composite_element_wrap.il` (tuple/array/map 要素 wrap を厳密 deinit 500 + churn delta=0)。 検証: workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [確認済み記録] 第 35 弾: bare field 書き × 反復ミューテーション・多段連鎖 — 新規バグなし (2026-06-13)
 
