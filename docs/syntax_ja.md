@@ -81,10 +81,12 @@ fn(T1, T2): R       // 関数値 (キャプチャなし)
 | `f32` ↔ `f64` | yes |
 | 符号またぎ (`i32` ↔ `u32` 等) | **no** (`as` 必須) |
 | 浮動 → 整数 | **no** (`as` 必須) |
-| `T` → `T?` (Optional 自動 wrap) | yes |
+| `T` → `T?` (Optional 自動 wrap) | yes — `Child` → `Parent?` も含む |
 | `Foo` → `Bar.weak` (strong → weak 自動 downgrade) | `Foo` が `Bar` か `Bar` のサブクラスなら yes |
 
 `expr as Type` で明示キャスト。`if`/`else` の枝合流では暗黙の数値拡張を許さない (整数リテラルのみ例外的に他方の型へ coerce)。
+
+**新規のコンテナリテラル**はその要素型 / 値型に対して共変。`[new Dog()]` は `Animal[]` へ、`{"a": new Dog()}` は `Map<string, Animal>` へ流れる (`let` 注釈下では `{"a": new Dog(), "b": none}` → `Map<string, Animal?>` のような混在も可)。これはリテラル限定 — 別名の `Map<string, Dog>` **変数**は `Map<string, Animal>` へ代入できない (親型越しの変更が unsound になるため)。
 
 ---
 

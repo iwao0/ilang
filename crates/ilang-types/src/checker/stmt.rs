@@ -106,6 +106,32 @@ impl TypeChecker {
                             value.span,
                         )?
                     }
+                } else if let (Some(Type::Generic(g)), ExprKind::MapLit(entries)) =
+                    (ty.as_ref(), &value.kind)
+                {
+                    // Map literal hinted by a `Map<K, V>` annotation:
+                    // each key / value is checked against K / V directly
+                    // so subclass values and `some(child)` / `none`
+                    // mixes land in the parent slot (mirrors the array
+                    // case above). Falls back to the inferred path for a
+                    // non-Map generic or an empty literal.
+                    if g.base.as_str() == "Map" && g.args.len() == 2 && !entries.is_empty() {
+                        let tps = self.current_type_params.borrow();
+                        let (k_h, v_h) = if tps.is_empty() {
+                            (g.args[0].clone(), g.args[1].clone())
+                        } else {
+                            (
+                                rewrite_type_params(&g.args[0], &tps),
+                                rewrite_type_params(&g.args[1], &tps),
+                            )
+                        };
+                        drop(tps);
+                        self.check_map_lit_with_hint(
+                            entries, &k_h, &v_h, env, ret_ty, in_class, loop_depth,
+                        )?
+                    } else {
+                        self.check_expr(value, env, ret_ty, in_class, loop_depth)?
+                    }
                 } else {
                     match self.check_expr(
                         value,

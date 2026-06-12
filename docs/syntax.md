@@ -99,12 +99,20 @@ The postfix modifiers `[]` `[N]` `?` `.weak` stack: `Foo[]?`,
 | `f32` ↔ `f64` | yes |
 | Sign-crossing (`i32` ↔ `u32` etc.) | **no** (`as` required) |
 | Float → integer | **no** (`as` required) |
-| `T` → `T?` (Optional auto-wrap) | yes |
+| `T` → `T?` (Optional auto-wrap) | yes — incl. `Child` → `Parent?` |
 | `Foo` → `Bar.weak` (strong → weak auto-downgrade) | yes when `Foo` is `Bar` or a subclass of `Bar` |
 
 `expr as Type` performs an explicit cast. `if`/`else` arm joins
 don't allow implicit numeric widening (integer literals are the
 only thing coerced to the other arm's type).
+
+A **fresh composite literal** is covariant in its element / value
+type: `[new Dog()]` flows into `Animal[]`, and `{"a": new Dog()}`
+into `Map<string, Animal>` (and a mix like `{"a": new Dog(), "b":
+none}` into `Map<string, Animal?>` under a `let` annotation). This is
+literal-only — an aliased `Map<string, Dog>` **variable** does not
+assign to `Map<string, Animal>`, because mutating through the parent
+face would be unsound.
 
 ---
 

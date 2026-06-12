@@ -201,12 +201,31 @@ where
             .iter()
             .all(|e| literal_assignable_with(e, &dummy_vt, &lane_ty, is_sub));
     }
-    // (Map literal subtyping is intentionally not handled here:
-    // the JIT lays out Map<K, V> per (K, V) pair via interned
-    // `MapKind`s and has no coerce for `Map<K, B>` → `Map<K, A>`,
-    // so accepting it at TC time would diverge interpreter and
-    // JIT. Annotate the entries explicitly or use `m.set(k, v)`
-    // against a pre-typed `new Map<K, Parent>()` to upcast.)
+    // Map literal → `Map<K, V>`. Each key / value is checked against
+    // the annotation's K / V with the same literal coercions + class
+    // upcast the array / tuple cases use, so `{"a": new Dog()}` flows
+    // into a `Map<string, Animal>` slot just like `[new Dog()]` flows
+    // into `Animal[]`. The lowering builds the map at the declared K/V
+    // via `lower_map_literal_with_hint` (added in the wrap-coerce
+    // rounds), so the JIT no longer lacks the coerce that originally
+    // kept this disabled.
+    if let (ExprKind::MapLit(entries), Type::Generic(tg)) = (&value.kind, target) {
+        if tg.base.as_str() == "Map" && tg.args.len() == 2 {
+            let (tk, tv) = (&tg.args[0], &tg.args[1]);
+            let (vk, vv) = match vt {
+                Type::Generic(vg)
+                    if vg.base.as_str() == "Map" && vg.args.len() == 2 =>
+                {
+                    (&vg.args[0], &vg.args[1])
+                }
+                _ => return false,
+            };
+            return entries.iter().all(|(k, v)| {
+                literal_assignable_with(k, vk, tk, is_sub)
+                    && literal_assignable_with(v, vv, tv, is_sub)
+            });
+        }
+    }
     // Tuple literal → tuple type. Pairwise check so element-level
     // literal coercions (int width narrowing, fixed → dynamic array)
     // apply inside tuples just like they do at the top level.

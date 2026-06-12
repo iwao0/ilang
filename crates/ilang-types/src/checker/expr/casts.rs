@@ -528,4 +528,55 @@ impl TypeChecker {
         // declared fixed bindings can trip this.)
         Ok(Type::generic("Map", vec![k_ty, v_ty]))
     }
+
+    /// `check_map_lit` plus an explicit `Map<K, V>` hint sourced from a
+    /// `let m: Map<K, V> = {...}` annotation. Each key / value is
+    /// checked against the declared K / V directly, so subclass values
+    /// AND a mix of `some(child)` / `none` land in the parent slot the
+    /// same way `check_array_with_hint` handles `[child, none]: P?[]`.
+    /// The unhinted `check_map_lit` infers V from the entries and only
+    /// lifts to a common ancestor, so `{"a": new Dog(), "b": none}`
+    /// against `Map<_, Animal?>` needs this hinted path to unify.
+    pub(in crate::checker) fn check_map_lit_with_hint(
+        &self,
+        entries: &[(Expr, Expr)],
+        hint_key: &Type,
+        hint_val: &Type,
+        env: &Vars,
+        ret_ty: Option<&Type>,
+        in_class: Option<Symbol>,
+        loop_depth: u32,
+    ) -> Result<Type, TypeError> {
+        if !is_valid_map_key_type(hint_key, Some(&self.classes), Some(&self.enums)) {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "map key type {hint_key} (primitives, strings, or classes \
+                     with `equals` + `hashCode` are supported)"
+                ),
+                span: entries[0].0.span,
+            });
+        }
+        for (k, v) in entries {
+            let kt = self.check_expr(k, env, ret_ty, in_class, loop_depth)?;
+            if !self.value_assignable(k, &kt, hint_key) {
+                return Err(TypeError::Mismatch {
+                    expected: hint_key.clone(),
+                    got: kt,
+                    span: k.span,
+                });
+            }
+            let vt = self.check_expr(v, env, ret_ty, in_class, loop_depth)?;
+            if !self.value_assignable(v, &vt, hint_val) {
+                return Err(TypeError::Mismatch {
+                    expected: hint_val.clone(),
+                    got: vt,
+                    span: v.span,
+                });
+            }
+        }
+        Ok(Type::generic(
+            "Map",
+            vec![hint_key.clone(), hint_val.clone()],
+        ))
+    }
 }
