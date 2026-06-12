@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 42 弾** (クリーンラウンド)。 composite 要素 wrap の **残る store サイト**を網羅 probe — **新規バグなし**。 return 位置・`some(tuple)`・enum payload・引数位置・local 再代入・明示 field 代入・入れ子 `((Box?, Box), Box?)`・tuple 内 weak 要素を、 Optional 越し match で実体確認しつつ deinit 厳密 + delta=0。 第 36 (bare field) / 第 41 (index store) で未 pin の位置を 1 本に pin。 詳細は下の確認済み記録。
 - **第 41 弾**。 tuple をコンテナに格納する ARC を probe して、 **index 代入 `coll[i] = (box, b)` が tuple 要素の wrap を欠く** 既存 SIGSEGV を検出・修正。 `arr[0] = (box, b)` (`(Box?, Box)[]`) / `m["k"] = (box, b)` (`Map<_, (Box?, Box)>`) が slot0 を wrap せず生 Box を `Box?` slot に格納 → 解放時クラッシュ (リテラル `[(box,b)]` は元から hint 済みで無事)。 `AssignIndex` の RHS を要素型ヒント付き lowering に変更 (第 36 弾と同型)。 詳細は下の解決済み記録。
 - **第 40 弾**。 第 39 弾の tuple subst 修正の **同族探索が不完全**だったのを是正。 型パラメータ置換 (`subst_type`) だけでなく、 **concrete な generic instantiation を mangle する rewrite 群**も tuple を見落としていた: `rewrite_type` (generic class)・`rewrite_enum_refs_in_type` (generic enum)・`walk_types_pre` (instantiation 発見)。 `(Inner<i64>, i64)` / `(Maybe<i64>, i64)` を field / param / return に使うと「unsupported in M1: user-defined generic types」で停止。 3 関数に `Type::Tuple` arm を追加。 詳細は下の解決済み記録。
 - **第 39 弾**。 generic + heap を probe して **monomorphize が tuple 型の中の型パラメータを置換しない**既存バグを検出・修正。 `(T, T)` / `(T?, T)` を generic fn/method のシグネチャや field 型に使うと「unknown type: T」で lowering 停止 (Optional / array / Map は置換されるのに tuple だけ漏れ)。 `subst_type` / `contains_type_var` に `Type::Tuple` arm を追加。 詳細は下の解決済み記録。
@@ -91,6 +92,16 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [確認済み記録] 第 42 弾: tuple 要素 wrap の残る store サイト — 全て健全 (2026-06-13)
+
+第 36 弾 (bare field) / 第 41 弾 (index store) で composite リテラルの要素 wrap を直した後、 **同じ `(Box?, Box)` 形を残りの全 store サイト**で攻めた。 **新規バグなし** — これらは元から `lower_composite_with_hint` / `lower_arg_to` 経由でヒントを受けており健全:
+
+- **return 位置** `fn(): (Box?, Box) { (box, b) }`、 **`some(tuple)`** (`(Box?, Box)?` への some)、 **enum payload** (`variant: ((Box?, Box))`)、 **引数位置** `consume((box, b))`、 **local 再代入** `t = (box, b)`、 **明示 field 代入** `this.pair = (box, b)`: 全て slot0 を `Box → Box?` wrap して値正しく、 deinit 厳密・delta=0。
+- **入れ子** `((Box?, Box), Box?)` (内側 slot0 + 外側 slot1 の二重 wrap): 値正しく ARC 均衡。
+- **tuple 内 weak 要素** `(Box.weak, Box)`: slot0 の strong→weak coerce が strong を **retain で漏らさない** (weak ref が指す strong box は所有者の scope で死ぬ・deinit 2/round)。 weak への直接 `match` は第 34 弾どおり checker が拒否 (バグでなく既存制約)。
+
+これで composite (tuple) 要素 wrap は **全 store サイト** (let / 引数 / return / 再代入 / field (bare + 明示) / index (array + map) / some / enum payload / 入れ子 / weak) で網羅確認済み。 fixture: `05_edge_cases/tuple_element_wrap_all_stores.il` (return/some/enum/arg/reassign/field/nested を厳密 deinit 1700 + churn delta=0)。 **ソース変更なし**のため第 24 弾と同じく workspace / nested_generic 儀式は省略、 programs fixture を JIT・AOT 両経路で確認。
 
 ### [解決済み記録] 第 41 弾: index 代入の RHS が composite 要素 wrap を欠いて SIGSEGV (2026-06-13)
 
