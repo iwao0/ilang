@@ -125,7 +125,23 @@ impl<'a> BodyCx<'a> {
         // bit-erasure paths below; otherwise `let x: i64? = 7`
         // would treat the literal `7` as a raw pointer.
         if let MirTy::Optional(inner) = to {
-            if **inner == *from || matches!(**inner, MirTy::Unit) {
+            // A subclass instance wraps into `Optional<Parent>` the same
+            // way an exact-type source does — both erase to an i64
+            // object pointer, so the wrap is bit-identity (the checker
+            // already vetted `Dog <: Animal`). Restricted to plain
+            // `Object → Optional<Object>`: an `Optional<_>` source must
+            // fall through to the `Optional → Optional` widen arm below,
+            // not get double-wrapped here. Without this,
+            // `let o: Animal? = new Dog()` (and the same wrap at arg /
+            // array-literal / map index-assign / field-assign) hit
+            // "no coercion from Dog to Animal" even though the checker
+            // accepts it — and the index-assign / field paths stored the
+            // raw object and crashed on Optional release.
+            let subclass_wrap = matches!(
+                (&**inner, from),
+                (MirTy::Object(_), MirTy::Object(_))
+            );
+            if **inner == *from || matches!(**inner, MirTy::Unit) || subclass_wrap {
                 // For a heap-typed inner the new Optional cell owns a
                 // share of `v`; without bumping rc here, the source
                 // binding's eventual release would drop the only

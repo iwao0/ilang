@@ -434,9 +434,22 @@ impl<'a> BodyCx<'a> {
                 // assignment, which the codegen handles by reusing
                 // the raw heap pointer) pass through unchanged so
                 // we don't regress those paths.
+                // `T → T?` Optional auto-wrap, incl. a subclass source
+                // (`h.o = new Dog()` against `o: Animal?`) — plain
+                // `Object → Optional<Object>`, matching `coerce`'s wrap
+                // arm. An `Optional<_>` source is an Optional→Optional
+                // widen handled by the codegen, not a wrap, so it is
+                // excluded (the `**inner == vty` exact arm still covers
+                // same-type). Without the subclass case the raw Dog was
+                // stored into the `Animal?` slot and crashed on release.
                 let needs_optional_wrap = matches!(
                     &fty,
-                    MirTy::Optional(inner) if **inner == vty
+                    MirTy::Optional(inner)
+                        if **inner == vty
+                            || matches!(
+                                (&**inner, &vty),
+                                (MirTy::Object(_), MirTy::Object(_))
+                            )
                 );
                 // Object → Weak: clif-level identity but the
                 // value's MIR type must switch BEFORE the retain

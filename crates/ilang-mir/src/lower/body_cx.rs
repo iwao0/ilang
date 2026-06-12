@@ -1110,11 +1110,26 @@ impl<'a> BodyCx<'a> {
         if !owned || !self.is_arc_heap(src_ty) {
             return;
         }
+        // A subclass instance wraps into `Optional<Parent>` / `T.weak`
+        // the same way an exact-type source does — `coerce`'s wrap arm
+        // accepts the subtype, so the owned-source release must
+        // recognise it too. Restricted to plain `Object` sources (the
+        // subclass case); an `Optional<_>` source is an Optional→Optional
+        // widen, not a wrap. Without this, `let o: Animal? = new Dog()`
+        // (and the same wrap at arg / array-literal / map index-assign /
+        // field-assign) retained the Dog into the cell but never dropped
+        // the fresh source's +1 → one leak/call.
         let wraps = match target_ty {
-            MirTy::Optional(inner) => **inner == *src_ty,
-            // `MirTy::Weak` carries the class id; match it against
-            // a strong Object source of the same class.
-            MirTy::Weak(cid) => matches!(src_ty, MirTy::Object(c) if c == cid),
+            MirTy::Optional(inner) => {
+                **inner == *src_ty
+                    || matches!(
+                        (&**inner, src_ty),
+                        (MirTy::Object(_), MirTy::Object(_))
+                    )
+            }
+            // `MirTy::Weak` carries the class id; a strong Object source
+            // (the exact class or a subclass) wraps into it.
+            MirTy::Weak(_) => matches!(src_ty, MirTy::Object(_)),
             _ => false,
         };
         if wraps {
