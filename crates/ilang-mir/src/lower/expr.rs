@@ -434,22 +434,32 @@ impl<'a> BodyCx<'a> {
                 // assignment, which the codegen handles by reusing
                 // the raw heap pointer) pass through unchanged so
                 // we don't regress those paths.
-                // `T → T?` Optional auto-wrap, incl. a subclass source
-                // (`h.o = new Dog()` against `o: Animal?`) — plain
-                // `Object → Optional<Object>`, matching `coerce`'s wrap
-                // arm. An `Optional<_>` source is an Optional→Optional
-                // widen handled by the codegen, not a wrap, so it is
-                // excluded (the `**inner == vty` exact arm still covers
-                // same-type). Without the subclass case the raw Dog was
-                // stored into the `Animal?` slot and crashed on release.
+                // `T → T?` Optional auto-wrap, incl. an object-shaped
+                // subtype source (`h.o = new Dog()` against `o: Animal?`,
+                // or `h.o = [new Dog()]` against `o: Animal[]?`) —
+                // matching `coerce`'s wrap arm. An `Optional<_>` source
+                // is an Optional→Optional widen handled by the codegen,
+                // not a wrap, so it is excluded (the `**inner == vty`
+                // exact arm still covers same-type). Without the subtype
+                // case the raw value was stored into the `?` slot and
+                // crashed on release.
+                let obj_shape = |t: &MirTy| {
+                    matches!(
+                        t,
+                        MirTy::Object(_)
+                            | MirTy::Array { .. }
+                            | MirTy::Tuple(_)
+                            | MirTy::Map { .. }
+                            | MirTy::Optional(_)
+                    )
+                };
                 let needs_optional_wrap = matches!(
                     &fty,
                     MirTy::Optional(inner)
                         if **inner == vty
-                            || matches!(
-                                (&**inner, &vty),
-                                (MirTy::Object(_), MirTy::Object(_))
-                            )
+                            || (obj_shape(inner)
+                                && obj_shape(&vty)
+                                && !matches!(vty, MirTy::Optional(_)))
                 );
                 // Object → Weak: clif-level identity but the
                 // value's MIR type must switch BEFORE the retain

@@ -125,23 +125,33 @@ impl<'a> BodyCx<'a> {
         // bit-erasure paths below; otherwise `let x: i64? = 7`
         // would treat the literal `7` as a raw pointer.
         if let MirTy::Optional(inner) = to {
-            // A subclass instance wraps into `Optional<Parent>` the same
-            // way an exact-type source does — both erase to an i64
-            // object pointer, so the wrap is bit-identity (the checker
-            // already vetted `Dog <: Animal`). Restricted to plain
-            // `Object → Optional<Object>`: an `Optional<_>` source must
-            // fall through to the `Optional → Optional` widen arm below,
-            // not get double-wrapped here. Without this,
-            // `let o: Animal? = new Dog()` (and the same wrap at arg /
-            // array-literal / map index-assign / field-assign) hit
-            // "no coercion from Dog to Animal" even though the checker
-            // accepts it — and the index-assign / field paths stored the
-            // raw object and crashed on Optional release.
-            let subclass_wrap = matches!(
-                (&**inner, from),
-                (MirTy::Object(_), MirTy::Object(_))
-            );
-            if **inner == *from || matches!(**inner, MirTy::Unit) || subclass_wrap {
+            // An object-shaped source wraps into `Optional<inner>` when
+            // the source is a subtype of `inner` — both erase to an i64
+            // pointer, so the wrap is bit-identity (the checker already
+            // vetted the subtype, e.g. `Dog <: Animal` or `Dog[] <:
+            // Animal[]`). Covers `Object → Optional<Object>` AND nested
+            // shapes like `Dog[] → Optional<Animal[]>`. The source must
+            // NOT itself be an `Optional<_>` — that is an `Optional →
+            // Optional` widen handled below, not a wrap (else `none`'s
+            // `Optional<Unit>` would get double-wrapped). Without this,
+            // `let o: Animal? = new Dog()` / `Map<_, Animal[]?> = {"a":
+            // [new Dog()]}` (and the same wrap at every store site) hit
+            // "no coercion ..." even though the checker accepts it — and
+            // the index-assign / field paths crashed on Optional release.
+            let obj_shape = |t: &MirTy| {
+                matches!(
+                    t,
+                    MirTy::Object(_)
+                        | MirTy::Array { .. }
+                        | MirTy::Tuple(_)
+                        | MirTy::Map { .. }
+                        | MirTy::Optional(_)
+                )
+            };
+            let subtype_wrap = obj_shape(inner)
+                && obj_shape(from)
+                && !matches!(from, MirTy::Optional(_));
+            if **inner == *from || matches!(**inner, MirTy::Unit) || subtype_wrap {
                 // For a heap-typed inner the new Optional cell owns a
                 // share of `v`; without bumping rc here, the source
                 // binding's eventual release would drop the only

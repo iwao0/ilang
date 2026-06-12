@@ -1110,22 +1110,29 @@ impl<'a> BodyCx<'a> {
         if !owned || !self.is_arc_heap(src_ty) {
             return;
         }
-        // A subclass instance wraps into `Optional<Parent>` / `T.weak`
-        // the same way an exact-type source does — `coerce`'s wrap arm
-        // accepts the subtype, so the owned-source release must
-        // recognise it too. Restricted to plain `Object` sources (the
-        // subclass case); an `Optional<_>` source is an Optional→Optional
-        // widen, not a wrap. Without this, `let o: Animal? = new Dog()`
-        // (and the same wrap at arg / array-literal / map index-assign /
-        // field-assign) retained the Dog into the cell but never dropped
-        // the fresh source's +1 → one leak/call.
+        // An object-shaped source wraps into `Optional<inner>` / `T.weak`
+        // when it's a subtype of the inner — `coerce`'s wrap arm accepts
+        // it, so the owned-source release must recognise the same shapes
+        // (subclass `Dog → Animal?` AND nested `Dog[] → Animal[]?`). A
+        // source that is itself an `Optional<_>` is an Optional→Optional
+        // widen, not a wrap. Without this, the fresh source's +1 leaked
+        // one/call.
+        let obj_shape = |t: &MirTy| {
+            matches!(
+                t,
+                MirTy::Object(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Optional(_)
+            )
+        };
         let wraps = match target_ty {
             MirTy::Optional(inner) => {
                 **inner == *src_ty
-                    || matches!(
-                        (&**inner, src_ty),
-                        (MirTy::Object(_), MirTy::Object(_))
-                    )
+                    || (obj_shape(inner)
+                        && obj_shape(src_ty)
+                        && !matches!(src_ty, MirTy::Optional(_)))
             }
             // `MirTy::Weak` carries the class id; a strong Object source
             // (the exact class or a subclass) wraps into it.
