@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 34 弾** (クリーンラウンド)。 第 33 弾で統合した `store_value_to_field` の継ぎ目を「bare field 代入 × 宣言型が要る RHS」で攻めた — **新規バグなし**。 共変 map / 配列リテラル・fresh Optional・Optional widen の bare 代入を厳密 deinit + churn delta=0 で pin。 併せて **第 33 弾の誤記録を訂正** (「weak の bare 代入は明示と非対称」は誤り。 実体は `none → plain Box.weak` の拒否で bare/明示共通・意図的制限)。 詳細は下の確認済み記録。
 - **第 33 弾**。 第 32 弾で触った **implicit bare-name field 代入** arm が、明示 `this.f = v` (AssignField) と違って **`T → T?` / subtype の Optional 自動 wrap を欠く** 既存バグを検出・修正。 `slot = box` (field 型 `Box?`) が生オブジェクトを Optional slot に格納し解放時に **SIGSEGV**。 両経路を共通ヘルパー `store_value_to_field` に統合。 詳細は下の解決済み記録。
 - **第 32 弾**。 第 31 弾のクロージャ `this` 捕獲の継ぎ目を攻めて **コンパイラ panic 2 件** を検出・対処。 (1) メソッド内クロージャが **bare field に代入** (`slot = nb`) すると lowering が panic (修正)。 (2) クロージャ内の **bare メソッド呼び出し** (`compute()`) が panic → クリーンな診断に (ユーザー決定)。 詳細は下の解決済み記録。
 - **Promise/async 実行モデルを JS 型 (run-to-completion・シングルスレッド) へ移行**。 worker pool を撤去し、 継続はメインスレッドの FIFO queue + 期限順 timer heap (`pool.rs` 書き換え)、 executor は構築時に同期実行、 非ブロッキング pump の **`time.tick()`** を新設。 詳細は下の解決済み記録。
@@ -84,6 +85,18 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
+### [確認済み記録] 第 34 弾: bare field 代入 × 宣言型が要る RHS — 新規バグなし + 第 33 弾の訂正 (2026-06-13)
+
+第 33 弾で bare / 明示の field 代入を `store_value_to_field` に統合した直後、 その継ぎ目を「bare 名の field 代入に、 plain `T → T?` を超えて宣言型が要る RHS」で攻めた。 bare 経路は早期 lowering 済みの値 (field ヒント無し) を再利用するため、 ヒントが要る形が壊れないかを確認 — **全て健全**:
+
+- **共変 map リテラル** `animals = {"d": new Dog()}` (field `Map<string, Animal>`)、 **共変配列リテラル** `members = [new Dog(), new Dog()]` (field `Animal[]`): 値正しく (Optional/コンテナ越しに `Dog.val()=10` でディスパッチ確認)、 deinit 厳密・churn delta=0。 ヒント無し lowering でも要素はオブジェクトなので runtime repr が一致し、 helper の store がそのまま通る。
+- **fresh Optional RHS** `slot = makeOpt(7)` (Optional→Optional 同型、 二重 retain なし)、 **Optional widen** `pet = d` (`Dog? → Animal?`、 borrowed): deinit 厳密・delta=0。
+- 計測で出た `delta=56` は **§4-1 の罠** (計測開始後に確保した `acc: i64[]` 自身) で、 `acc` を計測前に移すと delta=0。 deinit が常に厳密一致でオブジェクト leak が無いことは独立に確認済み。
+
+**第 33 弾の誤記録を訂正**: 第 33 弾の同族確認に「weak field の bare 代入は checker が拒否・明示 `this.w = b` は通る非対称」と書いたが**誤り**。 実際に拒否されていたのは `this.w = none` (plain `Box.weak` を `none` で初期化) で、 これは **bare / 明示によらず同じ**挙動 (`w = b` strong→weak は両方通る)。 plain weak は nullable でなく、 nullable な weak は `Box.weak?` (Optional weak) を使う設計 — `Box.weak?` への `none` は通る。 docs/syntax_ja.md:988「空マップは `new Map<K,V>()` で構築 (`{}` は空ブロック扱い)」と同様、 これらは意図的な制限であってバグではない。
+
+fixture: `05_edge_cases/bare_field_assign_composite_widen.il` (共変 map/配列・fresh Optional・widen を厳密 deinit 500 + churn delta=0)。 **ソース変更なし**のため第 24 弾と同じく workspace / nested_generic 儀式は省略、 programs fixture を JIT・AOT 両経路で確認。
+
 ### [解決済み記録] 第 33 弾: implicit bare-name field 代入が Optional / subtype wrap を欠いて SIGSEGV (2026-06-13)
 
 第 32 弾で bare field 代入の `this` 解決を直した直後、 同じ implicit `this.<field>` 代入 arm を「代入する値の型 × field 型」軸で攻めて **既存のクラッシュ**を検出。 明示 `this.f = v` (`AssignField` arm) は第 22 / 26 弾で `T → T?` / subtype の Optional 自動 wrap を入れたのに、 **bare 名の `f = v` 経路は退化した store を別に持っていて wrap を一切しなかった**。
@@ -91,7 +104,7 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 - **症状**: `slot = box` (field 型 `Box?`、 `this.` なし) が **生オブジェクトを Optional slot に格納**し、 オブジェクト解放時のカスケードがそれを Optional として走査 → 不整列ポインタ参照で **SIGSEGV (exit 139)**。 明示 `this.slot = box` は正常 (AssignField が wrap する) という非対称で確定。 subtype (`Dog` を `Animal?` field へ) も同様。
 - **原因**: bare field 代入は他の代入経路 (local / cell capture / repl slot) を全部抜けた後の implicit-this arm に **早期 lowering 時の生の `v` / `vty`** で到達し、 field 型への coerce/wrap を踏まずに `StoreField` していた。 AssignField が持つ wrap / weak / fixed-array value-copy / CReprEnum drop を全部欠いていた。
 - **修正**: AssignField の store ロジック (wrap 述語 → fixed-array → retain/release → StoreField → CReprEnum drop) を共通ヘルパー **`store_value_to_field`** ([expr.rs](../crates/ilang-mir/src/lower/expr.rs)) に抽出し、 **AssignField と implicit-this bare 代入の両方から呼ぶ**。 bare 経路は早期 lowering 済みの `v` / `vty` を再利用 (再 lower すると `new Box()` を二重確保するため) し、 ヘルパーの coerce が Optional wrap を行う。
-- **同族確認**: `T → T?` 同型 wrap・subtype `Dog → Animal?` (Optional 越しの仮想ディスパッチ `Dog.val()=10` で実体が壊れていないことを確認)・**クロージャ内の bare Optional 代入** (第 32 弾の capture 経路と合流) を値・ARC 厳密一致 (deinit 300 + churn delta=0)。 fixed-array field の bare 代入 (fresh リテラル源) と primitive field は元から修正経路で健全。 weak field の bare 代入は **checker が拒否** (「expected Box.weak, got any?」— 明示 `this.w = b` は通るのに bare は通らない非対称が別途あるが crash ではない・未対応の記録のみ)。
+- **同族確認**: `T → T?` 同型 wrap・subtype `Dog → Animal?` (Optional 越しの仮想ディスパッチ `Dog.val()=10` で実体が壊れていないことを確認)・**クロージャ内の bare Optional 代入** (第 32 弾の capture 経路と合流) を値・ARC 厳密一致 (deinit 300 + churn delta=0)。 fixed-array field の bare 代入 (fresh リテラル源) と primitive field は元から修正経路で健全。 strong→weak の bare 代入 (`w = b`、 field 型 `Box.weak`) は通る。 **(第 34 弾で訂正)** 当初ここに「weak の bare 代入は checker が拒否・明示は通る非対称」と書いたが誤り — 拒否されていたのは `this.w = none` (plain `Box.weak` を `none` で初期化) で、 bare/明示によらず同じ挙動。 plain weak は nullable でなく nullable weak は `Box.weak?` を使う設計 (第 34 弾で確認、 意図的制限)。
 - fixture: `05_edge_cases/bare_field_assign_optional_wrap.il` (同型 wrap / subtype / closure 内を厳密 deinit 300 + churn delta=0)。 検証: workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 32 弾: メソッド内クロージャの `this` 解決が欠けていた 2 経路 — bare field 代入 (修正) と bare メソッド呼び出し (診断化) (2026-06-13)
