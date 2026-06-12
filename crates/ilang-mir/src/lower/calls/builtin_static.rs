@@ -145,6 +145,7 @@ impl<'a> BodyCx<'a> {
         if !arg_is_fresh {
             self.fb.push_inst(Inst::Retain { value: av });
         }
+        self.forbid_fixed_in_cell(&inner_t, "a Promise value")?;
         let value_kind = kind_tag_of_mir(&inner_t, self.classes);
         let kind_v = self.const_int(MirTy::I64, value_kind);
         let ret_inner = if method.as_str() == "all" {
@@ -181,6 +182,7 @@ impl<'a> BodyCx<'a> {
         if !v_is_fresh && self.is_arc_heap(&vty) {
             self.fb.push_inst(Inst::Retain { value: vv });
         }
+        self.forbid_fixed_in_cell(&vty, "a Promise value")?;
         let kind = kind_tag_of_mir(&vty, self.classes);
         let kind_v = self.const_int(MirTy::I64, kind);
         self.fb.push_inst(Inst::Call {

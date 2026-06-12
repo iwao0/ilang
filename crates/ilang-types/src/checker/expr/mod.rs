@@ -701,10 +701,6 @@ impl TypeChecker {
             ExprKind::None => Ok(Type::Optional(Box::new(Type::Any))),
             ExprKind::Some(inner) => {
                 let it = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
-                // Optional cells can't hold a fixed-length
-                // heap-element array (literals infer as dynamic
-                // arrays and pass).
-                self.reject_fixed_heap_component(&it, inner.span)?;
                 Ok(Type::Optional(Box::new(it)))
             }
             ExprKind::Await(inner) => {

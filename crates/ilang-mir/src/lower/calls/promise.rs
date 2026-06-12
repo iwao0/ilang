@@ -39,6 +39,7 @@ impl<'a> BodyCx<'a> {
             (_, "catch") => (**inner).clone(),
             _ => MirTy::Unit,
         };
+        self.forbid_fixed_in_cell(&out_inner, "a Promise value")?;
         let out_kind = kind_tag_of_mir(&out_inner, self.classes);
         let out_kind_v = self.const_int(MirTy::I64, out_kind);
         // Float-kind tags so the runtime calls the callback through an

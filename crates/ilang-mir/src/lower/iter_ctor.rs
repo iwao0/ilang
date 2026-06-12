@@ -277,10 +277,19 @@ impl<'a> BodyCx<'a> {
                     // enum value owns its own +1. Required now that
                     // host_release_array actually frees memory at
                     // rc==0 (match_fresh_scrutinee.il regression).
-                    let needs_retain = !arg_is_fresh && self.is_arc_slot(&tys[i]);
-                    if needs_retain {
-                        self.fb.push_inst(Inst::Retain { value: coerced });
-                    }
+                    // Fixed-of-arc payload cell: value copy (see
+                    // `copy_fixed_for_cell`).
+                    let coerced = match self.copy_fixed_for_cell(coerced, &tys[i]) {
+                        Some(copy) => copy,
+                        None => {
+                            let needs_retain =
+                                !arg_is_fresh && self.is_arc_slot(&tys[i]);
+                            if needs_retain {
+                                self.fb.push_inst(Inst::Retain { value: coerced });
+                            }
+                            coerced
+                        }
+                    };
                     out.push(coerced);
                 }
                 out
@@ -308,10 +317,17 @@ impl<'a> BodyCx<'a> {
                     // See tuple-variant branch above — same composite
                     // hint propagation reason.
                     let (coerced, _) = self.lower_arg_to(ae, Some(&fty))?;
-                    let needs_retain = !arg_is_fresh && self.is_arc_slot(&fty);
-                    if needs_retain {
-                        self.fb.push_inst(Inst::Retain { value: coerced });
-                    }
+                    let coerced = match self.copy_fixed_for_cell(coerced, &fty) {
+                        Some(copy) => copy,
+                        None => {
+                            let needs_retain =
+                                !arg_is_fresh && self.is_arc_slot(&fty);
+                            if needs_retain {
+                                self.fb.push_inst(Inst::Retain { value: coerced });
+                            }
+                            coerced
+                        }
+                    };
                     out[idx] = Some(coerced);
                 }
                 out.into_iter()

@@ -109,6 +109,8 @@ impl<'a> BodyCx<'a> {
             let val_is_fresh = self.is_fresh_object_expr(v);
             let (kv, kty) = self.lower_expr(k)?;
             let (vv, vty) = self.lower_expr(v)?;
+            self.forbid_fixed_in_cell(&kty, "a Map key")?;
+            self.forbid_fixed_in_cell(&vty, "a Map value")?;
             let ek = key_ty.get_or_insert(kty.clone()).clone();
             let ev = val_ty.get_or_insert(vty.clone()).clone();
             let kv = if kty == ek {
@@ -178,6 +180,9 @@ impl<'a> BodyCx<'a> {
             Some(MirTy::Simd { elem, lanes }) => Some((*elem, *lanes)),
             _ => None,
         };
+        if let Some(h) = elem_hint.as_ref() {
+            self.forbid_fixed_in_cell(h, "an array element")?;
+        }
         for it in items {
             let elem_is_fresh = self.is_fresh_object_expr(it);
             let (vv, vty) = if let (Some((selem, slanes)), ExprKind::Array(lane_items)) =
@@ -192,6 +197,7 @@ impl<'a> BodyCx<'a> {
             } else {
                 self.lower_expr(it)?
             };
+            self.forbid_fixed_in_cell(&vty, "an array element")?;
             let target = elem_ty.get_or_insert(vty.clone()).clone();
             let coerced = if target == vty {
                 vv
@@ -343,6 +349,7 @@ impl<'a> BodyCx<'a> {
         for it in items {
             let elem_is_fresh = self.is_fresh_object_expr(it);
             let (v, t) = self.lower_expr(it)?;
+            self.forbid_fixed_in_cell(&t, "a tuple slot")?;
             // Tuple slots own their stored heap value's +1, mirroring
             // the array-literal element-retain rule. Without this,
             // `(read, bump)` over locals like `let read = fn(){...}`
@@ -389,6 +396,9 @@ impl<'a> BodyCx<'a> {
         items: &[Expr],
         hint_tys: &[MirTy],
     ) -> Result<(ValueId, MirTy), LowerError> {
+        for h in hint_tys {
+            self.forbid_fixed_in_cell(h, "a tuple slot")?;
+        }
         let mut vals = Vec::with_capacity(items.len());
         let mut tys = Vec::with_capacity(items.len());
         for (i, it) in items.iter().enumerate() {
@@ -524,9 +534,18 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Promise(_)
                     | MirTy::Weak(_)
             );
-        if needs_retain {
-            self.fb.push_inst(Inst::Retain { value: iv });
-        }
+        // Fixed-of-arc inner: value copy instead (see
+        // `copy_fixed_for_cell`); the retain above is a no-op for
+        // fixed arrays anyway.
+        let iv = match self.copy_fixed_for_cell(iv, inner_ty) {
+            Some(copy) => copy,
+            None => {
+                if needs_retain {
+                    self.fb.push_inst(Inst::Retain { value: iv });
+                }
+                iv
+            }
+        };
         let ty = MirTy::Optional(Box::new(inner_ty.clone()));
         let v = self.fb.new_value(ty.clone());
         self.fb.push_inst(Inst::NewOptional { dst: v, value: iv });

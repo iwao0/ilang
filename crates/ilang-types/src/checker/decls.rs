@@ -72,9 +72,10 @@ impl TypeChecker {
                 VariantPayload::Unit => {}
                 VariantPayload::Tuple(tys) => {
                     for t in tys {
-                        // Payload cells are heap container slots —
-                        // same restriction as other composites.
-                        self.reject_fixed_heap_component(t, v.span)?;
+                        // Fixed-length heap-element arrays are
+                        // allowed as payload cells: the ctor stores
+                        // a value copy and the release cascade
+                        // decodes the packed payload tag.
                         self.validate_type(t, v.span, &e.type_params)?;
                     }
                 }
@@ -90,7 +91,6 @@ impl TypeChecker {
                                 span: f.span,
                             });
                         }
-                        self.reject_fixed_heap_component(&f.ty, f.span)?;
                         self.validate_type(&f.ty, f.span, &e.type_params)?;
                     }
                 }

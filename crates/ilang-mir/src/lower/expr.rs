@@ -584,6 +584,24 @@ impl<'a> BodyCx<'a> {
             ExprKind::Continue => self.lower_continue(),
             ExprKind::Return(v) => self.lower_return(v.as_deref()),
             ExprKind::Assign { target, value } => {
+                // Rebinding a fixed-length heap-element array is
+                // unsupported (the binding may own or alias its
+                // buffer — see the checker's Assign rule). Direct
+                // code is checker-rejected; this catches the same
+                // shape arriving through generic instantiation.
+                match self.env.lookup_binding(*target) {
+                    Some(Binding::Local(_, MirTy::Array { len: Some(_), ref elem }))
+                    | Some(Binding::Ssa(_, MirTy::Array { len: Some(_), ref elem }))
+                        if self.is_arc_slot(elem) =>
+                    {
+                        return Err(LowerError::Other(format!(
+                            "`{target}` is a fixed-length array with heap elements \
+                             — reassignment is not supported; overwrite the \
+                             elements individually instead"
+                        )));
+                    }
+                    _ => {}
+                }
                 // Pattern: `s = s + expr` with both sides typed as
                 // string. The MIR Local for `s` is provably the only
                 // holder of its buffer (assignment retires the
@@ -896,18 +914,26 @@ impl<'a> BodyCx<'a> {
             }
             ExprKind::Some(inner) => {
                 let value_is_fresh = self.is_fresh_object_expr(inner);
-                let (iv, ity) = self.lower_expr(inner)?;
-                // `some(arr)` where `arr` is an aliased Var that the
-                // surrounding scope is about to release — bump the
-                // inner's rc so the Optional doesn't dangle once the
-                // source binding's scope-exit Release fires. With
-                // host_release_array now actually freeing memory at
-                // rc==0, omitting this retain caused use-after-free
-                // in some_aliased_inner.il.
-                let needs_retain = !value_is_fresh && self.is_arc_slot(&ity);
-                if needs_retain {
-                    self.fb.push_inst(Inst::Retain { value: iv });
-                }
+                let (iv0, ity) = self.lower_expr(inner)?;
+                // Fixed-length heap-element array inner — the cell
+                // takes a VALUE COPY (no rc to share; storing the
+                // pointer would double-own the source's buffer).
+                let iv = if let Some(copy) = self.copy_fixed_for_cell(iv0, &ity) {
+                    copy
+                } else {
+                    // `some(arr)` where `arr` is an aliased Var that the
+                    // surrounding scope is about to release — bump the
+                    // inner's rc so the Optional doesn't dangle once the
+                    // source binding's scope-exit Release fires. With
+                    // host_release_array now actually freeing memory at
+                    // rc==0, omitting this retain caused use-after-free
+                    // in some_aliased_inner.il.
+                    let needs_retain = !value_is_fresh && self.is_arc_slot(&ity);
+                    if needs_retain {
+                        self.fb.push_inst(Inst::Retain { value: iv0 });
+                    }
+                    iv0
+                };
                 let ty = MirTy::Optional(Box::new(ity.clone()));
                 let v = self.fb.new_value(ty.clone());
                 self.fb.push_inst(Inst::NewOptional { dst: v, value: iv });

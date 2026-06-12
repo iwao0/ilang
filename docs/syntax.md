@@ -1112,15 +1112,20 @@ class Pack { items: Box[2] }                  // a field owns its own buffer
 // p.items = q.items is a value COPY (fresh buffer, elements retained)
 ```
 
-Allowed placements are **class fields, local bindings, and fn
-parameters** only. These are type errors: using one as a return
-type, as a component of another container (dynamic array / Map /
-Set / tuple / Optional / enum payload), capturing one in a
-closure, reassigning the whole binding (`arr = [..]` — element
-writes `arr[i] = x` are fine), or letting a generic type
-parameter resolve to one (`hold(arr)` where `fn hold<T>(v: T)`,
-inferred or explicit `new C<Box[2]>` — declare the parameter as
-`Box[2]` directly instead).
+Beyond fields, bindings, and parameters, **Optional cells and
+enum payloads** can hold one — like field assignment, the cell
+takes a value copy on store:
+
+```rust
+fn hold<T>(v: T): T? { some(v) }   // T = Box[2] works
+let o = hold(arr)    // o owns a COPY of arr
+arr[0] = new Box(9)  // not visible through o
+```
+
+Still type errors: using one as a return type, as a component of
+a dynamic array / Map / Set / tuple, capturing one in a closure,
+or reassigning the whole binding (`arr = [..]` — element writes
+`arr[i] = x` are fine).
 
 ```rust
 

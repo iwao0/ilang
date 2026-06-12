@@ -136,7 +136,15 @@ impl<'a> BodyCx<'a> {
                 // during teardown of `recursive_method_optional_tree`,
                 // where calls like `new Tree(10, l, r)` rely on this
                 // coercion to wrap the local heap arguments.
-                retain_if_heap(&mut self.fb, v, inner);
+                let v = match self.copy_fixed_for_cell(v, inner) {
+                    // Fixed-of-arc inner: the cell owns a value
+                    // copy (no rc to share).
+                    Some(copy) => copy,
+                    None => {
+                        retain_if_heap(&mut self.fb, v, inner);
+                        v
+                    }
+                };
                 let dst = self.fb.new_value(to.clone());
                 self.fb.push_inst(Inst::NewOptional { dst, value: v });
                 return Ok(dst);

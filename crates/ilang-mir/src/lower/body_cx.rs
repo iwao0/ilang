@@ -1173,6 +1173,63 @@ impl<'a> BodyCx<'a> {
         }
     }
 
+    /// Backstop for container kinds that DON'T yet copy fixed-length
+    /// heap-element arrays on store (tuple slots pack cell kinds
+    /// into 4 bits; dynamic-array / Map stores retain through
+    /// runtime helpers that can't substitute a copy). Direct
+    /// annotations are checker-rejected; this guard catches the
+    /// same shapes arriving through generic instantiation
+    /// (`fn f<T>(..)` with `T = Box[2]`), where the body was
+    /// checked with `T` opaque.
+    pub(in crate::lower) fn forbid_fixed_in_cell(
+        &self,
+        ty: &MirTy,
+        what: &str,
+    ) -> Result<(), LowerError> {
+        if let MirTy::Array { elem, len: Some(_) } = ty {
+            if self.is_arc_slot(elem) {
+                return Err(LowerError::Other(format!(
+                    "{what} holding a fixed-length array with heap elements \
+                     is not supported — copy the elements into a dynamic \
+                     array first"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Fixed-length heap-element arrays enter container cells BY
+    /// VALUE: mint a copy the cell owns (`$array.copyFixed` — fresh
+    /// buffer, one retained share per element). Returns the value
+    /// to store, or `None` when `ty` isn't a fixed array with ARC
+    /// elements (caller falls through to the regular retain rule).
+    /// Unconditional for fixed-of-arc: every such value reaching a
+    /// cell is a view of storage some binding/field owns (literals
+    /// infer dynamic; bare fixed returns are rejected), so storing
+    /// the pointer itself would put two owners on one buffer.
+    pub(in crate::lower) fn copy_fixed_for_cell(
+        &mut self,
+        v: crate::ValueId,
+        ty: &MirTy,
+    ) -> Option<crate::ValueId> {
+        let MirTy::Array { elem, len: Some(n) } = ty else {
+            return None;
+        };
+        if !self.is_arc_slot(elem) {
+            return None;
+        }
+        let ekind = super::calls::kind_tag_of_mir(elem, self.classes);
+        let n_v = self.const_int(MirTy::I64, *n as i64);
+        let kind_v = self.const_int(MirTy::I64, ekind);
+        let copy = self.fb.new_value(ty.clone());
+        self.fb.push_inst(Inst::Call {
+            dst: Some(copy),
+            callee: crate::inst::FuncRef::Builtin(Symbol::intern("$array.copyFixed")),
+            args: Box::new([v, n_v, kind_v]),
+        });
+        Some(copy)
+    }
+
     /// One binding's scope-exit release, shared by the normal
     /// block-exit pass (`release_top_scope_objects`) and the early
     /// `return` sweep (`release_scopes_for_return`).

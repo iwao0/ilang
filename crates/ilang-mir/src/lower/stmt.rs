@@ -191,11 +191,17 @@ impl<'a> BodyCx<'a> {
                         }
                     }
                     // Same ownership marking for fixed-length
-                    // arrays: a fresh literal's binding owns the
-                    // buffer + element shares; an alias (`let v =
-                    // p.items`) borrows and must never be swept.
+                    // arrays. Owner = bound DIRECTLY to an array
+                    // literal — the only producer of an owned fixed
+                    // buffer. Everything else (field read, another
+                    // binding, a call result — generic identity fns
+                    // hand back a view of the caller's storage) is
+                    // an alias the sweeps must skip. NOT
+                    // `value_is_fresh_object`: that's true for call
+                    // results too, and releasing one of those freed
+                    // the argument's buffer.
                     if matches!(&bind_ty, MirTy::Array { len: Some(_), .. })
-                        && value_is_fresh_object
+                        && matches!(&value.kind, ExprKind::Array(_))
                     {
                         self.fixed_owned_locals.insert(lid);
                     }
@@ -225,13 +231,14 @@ impl<'a> BodyCx<'a> {
                             self.fb.push_inst(Inst::Retain { value: bound });
                         }
                         // Fixed-length arrays: record whether this
-                        // slot owns its buffer (fresh literal) so
-                        // the exit sweep knows to release it; alias
-                        // slots are skipped there. (The Retain
-                        // above is a no-op for fixed arrays — there
-                        // is no rc to share.)
+                        // slot owns its buffer (literal rhs only —
+                        // same rule as `fixed_owned_locals` above)
+                        // so the exit sweep knows to release it;
+                        // alias slots are skipped there. (The
+                        // Retain above is a no-op for fixed arrays
+                        // — there is no rc to share.)
                         if matches!(&bind_ty, MirTy::Array { len: Some(_), .. })
-                            && value_is_fresh_object
+                            && matches!(&value.kind, ExprKind::Array(_))
                         {
                             self.fixed_owned_slots.insert(idx);
                         }

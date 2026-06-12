@@ -220,6 +220,7 @@ impl<'a> BodyCx<'a> {
             elem.clone()
         };
         let arr_ty = MirTy::Array { elem: Box::new(ret_ty.clone()), len: None };
+        self.forbid_fixed_in_cell(&ret_ty, "an array element")?;
         let kind = kind_tag_of_mir(&ret_ty, self.classes);
         let kind_v = self.const_int(MirTy::I64, kind);
         // The result element type can differ from the input's, so the
