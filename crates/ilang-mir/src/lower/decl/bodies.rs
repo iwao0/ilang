@@ -597,6 +597,22 @@ impl Lower {
             None => None,
         };
 
+        // Drain the event loop (pending Promise continuations / timers)
+        // BEFORE releasing the top-level lets below. A pending
+        // continuation can hold a heap object whose `deinit` touches a
+        // top-level global (e.g. `deinits[0] = ...`); if the drain runs
+        // after the globals are freed — as the external drains in
+        // `run_main` / the AOT `main` wrapper do, since they fire after
+        // `__main` returns — that deinit dereferences freed memory and
+        // the runtime aborts with an out-of-bounds panic. Draining here,
+        // while the globals are still alive, fixes the ordering. The
+        // external drains remain as a harmless no-op (queue empty).
+        bcx.fb.push_inst(Inst::Call {
+            dst: None,
+            callee: FuncRef::Builtin(Symbol::intern("promise_drain")),
+            args: Box::new([]),
+        });
+
         // Release every top-level heap-typed `let` in reverse-bind
         // order so deinit fires before the process exits — matches
         // the existing `release_globals_at_exit` semantics.

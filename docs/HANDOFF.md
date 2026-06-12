@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 37 弾**。 async へ攻撃面を移し、 **exit 時の event-loop drain がグローバル解放の後に走る順序バグ**を検出・修正。 pending promise 継続が保持する Box の `deinit` が top-level 配列 `deinits[0]` に触ると、 シャットダウンで解放済みグローバルを参照して **ランタイム OOB panic** (`deinit` 持ちの heap を await 跨ぎで保持する最小形で再現)。 drain を `__main` の top-level let 解放の **前**に emit して修正。 詳細は下の解決済み記録。
 - **第 36 弾**。 bare field 代入の **composite リテラル要素 wrap 欠落** という既存 SIGSEGV を検出・修正。 `pair = (box, b)` (field 型 `(Box?, Box)`) が tuple を `(Box, Box)` として構築し生 Box を `Box?` slot に格納 → 解放時に不整列ポインタ参照でクラッシュ。 bare 経路がヒント無し lowering を再利用していたのが原因 (第 33 弾の設計の取りこぼし)。 field 型を composite ヒントに渡して修正 (array `Box?[]` / map `Map<_,Box?>` の同族も同時に解消)。 詳細は下の解決済み記録。
 - **第 35 弾** (クリーンラウンド)。 bare field 書き (第 32 弾) × 連鎖レシーバ解放 (第 29/30 弾) の継ぎ目を反復ミューテーション・多段連鎖で攻めた — **新規バグなし**。 init 内 bare 再代入の `is_init` 安全性 (checker が初回 `this.` を要求して担保)、 fixed-array bare 代入の copyShallow、 4 段連鎖・field 返し連鎖、 **エスケープしたステートフルクロージャの heap field 反復付け替え** (deinit 700 厳密) を pin。 詳細は下の確認済み記録。
 - **第 34 弾** (クリーンラウンド)。 第 33 弾で統合した `store_value_to_field` の継ぎ目を「bare field 代入 × 宣言型が要る RHS」で攻めた — **新規バグなし**。 共変 map / 配列リテラル・fresh Optional・Optional widen の bare 代入を厳密 deinit + churn delta=0 で pin。 併せて **第 33 弾の誤記録を訂正** (「weak の bare 代入は明示と非対称」は誤り。 実体は `none → plain Box.weak` の拒否で bare/明示共通・意図的制限)。 詳細は下の確認済み記録。
@@ -86,6 +87,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 37 弾: exit 時の event-loop drain がグローバル解放の後に走り OOB panic (2026-06-13)
+
+bare field 系統を離れ async を probe した初手で発見した**プロセス終了時の解放順序バグ**:
+
+- **症状**: pending な Promise 継続が保持する heap オブジェクトの `deinit` が top-level グローバル (`deinits: i64[]`) に触ると、 プログラム終了時に **ランタイム OOB panic (`index out of bounds`、 Rust backtrace なし)**。 最小再現は「async fn が heap 返り async fn を `await` (Box を継続が跨いで保持)、 Box の `deinit` が top-level 配列にアクセス」で `.then` を 1 個登録するだけ (N=1 で再現)。 `time.tick()` で終了前にドレインすれば回避できる (= 順序の問題と確定)。
+- **原因**: drain ([`$promise.drain`](../crates/ilang-runtime/src/promises.rs)) が **`__main` の return 後**に走っていた — JIT は [`run_main`](../crates/ilang-mir-codegen/src/compile/mod.rs) が `f()` の後に `__promise_drain()`、 AOT は C `main` ラッパが `entry` の後に呼ぶ。 ところが `__main` のエピローグは **return 前に top-level let を解放** する ([bodies.rs](../crates/ilang-mir/src/lower/decl/bodies.rs) の top_scope release)。 結果、 グローバル `deinits` 配列が先に free され、 その後の drain が継続を完了 → Box 解放 → `deinit` が解放済み配列を参照 → abort。
+- **修正**: `__main` 本体の **top-level let 解放ループの直前**に `promise_drain` を emit ([bodies.rs](../crates/ilang-mir/src/lower/decl/bodies.rs))。 グローバル生存中に継続をドレインするので `deinit` が安全。 共有 MIR lowering 経由なので JIT / AOT 両方に効く。 外側の drain (`run_main` / AOT ラッパ) はキュー空で no-op として残置 (安全網)。 builtin 名は generic テーブルの `promise_drain` (`$promise.drain` ではない) を使用。
+- **検証**: `time.tick()` で明示ドレインすると `deinit` 数が観測でき (3 promises → deinits=3、 100 churn → 100、 leak なし)、 未ドレインの pending promise を残しても **clean exit (panic 解消)**。 fixture: `04_modules/pending_promise_exit_drain_order.il` (明示 tick で deinit 数検証 + 未 tick の pending promise で shutdown drain を踏む)。 workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 36 弾: bare field 代入が composite リテラルの要素 wrap を欠いて SIGSEGV (2026-06-13)
 
