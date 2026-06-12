@@ -472,6 +472,7 @@ impl<'a> BodyCx<'a> {
                                 Some(Binding::Local(_, MirTy::Str))
                             )
                         {
+                            let rhs_is_fresh = self.is_fresh_object_expr(rhs);
                             let (lv, lty) = self.lower_expr(lhs)?;
                             let (rv, rty) = self.lower_expr(rhs)?;
                             if matches!(lty, MirTy::Str) && matches!(rty, MirTy::Str) {
@@ -482,6 +483,18 @@ impl<'a> BodyCx<'a> {
                                     lhs: lv,
                                     rhs: rv,
                                 });
+                                // `StrConcatInplace` copies the rhs bytes
+                                // into `s`'s grown buffer but does not
+                                // consume the rhs string. A fresh rhs
+                                // (e.g. `n.toString()`) owns a +1 that
+                                // nothing else will drop, so release it
+                                // here — otherwise `s = s + n.toString()`
+                                // leaks one string per iteration. A
+                                // borrowed var or an interned literal
+                                // isn't fresh, so it's left untouched.
+                                if rhs_is_fresh {
+                                    self.fb.push_inst(Inst::Release { value: rv });
+                                }
                                 if self.assign_var(*target, tmp, MirTy::Str) {
                                     return Ok((self.const_unit(), MirTy::Unit));
                                 }

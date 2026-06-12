@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 43 弾**。 string バッファ ARC を probe して、 **inplace concat `s = s + n.toString()` が fresh な rhs 文字列を 1/iter リーク**する既存バグを検出・修正。 `StrConcatInplace` は rhs を `s` のバッファに**コピー**するだけで消費しないため、 fresh rhs (`toString()` / fresh concat) の +1 が宙に浮く。 リテラル rhs (intern 済み) や借用 var rhs は無事。 op 後に fresh rhs を Release。 詳細は下の解決済み記録。
 - **第 42 弾** (クリーンラウンド)。 composite 要素 wrap の **残る store サイト**を網羅 probe — **新規バグなし**。 return 位置・`some(tuple)`・enum payload・引数位置・local 再代入・明示 field 代入・入れ子 `((Box?, Box), Box?)`・tuple 内 weak 要素を、 Optional 越し match で実体確認しつつ deinit 厳密 + delta=0。 第 36 (bare field) / 第 41 (index store) で未 pin の位置を 1 本に pin。 詳細は下の確認済み記録。
 - **第 41 弾**。 tuple をコンテナに格納する ARC を probe して、 **index 代入 `coll[i] = (box, b)` が tuple 要素の wrap を欠く** 既存 SIGSEGV を検出・修正。 `arr[0] = (box, b)` (`(Box?, Box)[]`) / `m["k"] = (box, b)` (`Map<_, (Box?, Box)>`) が slot0 を wrap せず生 Box を `Box?` slot に格納 → 解放時クラッシュ (リテラル `[(box,b)]` は元から hint 済みで無事)。 `AssignIndex` の RHS を要素型ヒント付き lowering に変更 (第 36 弾と同型)。 詳細は下の解決済み記録。
 - **第 40 弾**。 第 39 弾の tuple subst 修正の **同族探索が不完全**だったのを是正。 型パラメータ置換 (`subst_type`) だけでなく、 **concrete な generic instantiation を mangle する rewrite 群**も tuple を見落としていた: `rewrite_type` (generic class)・`rewrite_enum_refs_in_type` (generic enum)・`walk_types_pre` (instantiation 発見)。 `(Inner<i64>, i64)` / `(Maybe<i64>, i64)` を field / param / return に使うと「unsupported in M1: user-defined generic types」で停止。 3 関数に `Type::Tuple` arm を追加。 詳細は下の解決済み記録。
@@ -92,6 +93,16 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 43 弾: inplace 文字列 concat が fresh rhs をリーク (2026-06-13)
+
+tuple/generic を離れて string バッファ ARC を probe して発見:
+
+- **症状**: `s = s + n.toString()` を回すと **1 文字列/反復のリニアな leak** (`liveStringCount` で N=100→100・200→200・400→400)。 `s = s + "-end"` (リテラル rhs) や `let s2 = s + n.toString()` (再代入なし) は無事 — leak は **inplace 再代入 × fresh rhs** に限定。
+- **原因**: `s = s + <expr>` (s が string Local) は [expr.rs](../crates/ilang-mir/src/lower/expr.rs) の `Assign` arm で **`StrConcatInplace`** にルートされ、 `s` のバッファを doubling realloc で伸ばして rhs バイトを**追記**する。 rhs を**コピーするだけで消費しない**のに、 lowering が rhs を解放していなかった。 fresh rhs (`toString()` の temp・fresh concat) は +1 を持つので、 それが宙に浮いて毎反復 registry に溜まる。 リテラルは intern 済み (非所有)、 借用 var は所有者が解放するので、 どちらも fresh でなく無事だった。
+- **修正**: `StrConcatInplace` の直後に **rhs が fresh なら Release** (`is_fresh_object_expr(rhs)` で判定、 op が rhs を読み終えた後)。 借用 rhs・リテラル rhs は非 fresh なので不変 (過剰解放しない)。
+- **同族確認**: fresh rhs (toString / `(a + b)` の fresh concat) は churn 1000 で delta=0、 借用 rhs (`s = s + other` を 2 回) は値正しく (`aBBBB2`) churn delta=0 で過剰解放なし、 値の非破壊 (`v5-end`) を確認。 非再代入の `let s = a + b` は別パス (lower_binary StrConcat、 既存 fixture `leak_string_concat_loop.il` が pin 済み) で元から健全。
+- fixture: `05_edge_cases/leak_string_concat_inplace_reassign.il` (fresh / 借用 rhs を churn 1000 で `liveStringCount` 増加 < 50)。 検証: workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [確認済み記録] 第 42 弾: tuple 要素 wrap の残る store サイト — 全て健全 (2026-06-13)
 
