@@ -663,14 +663,9 @@ impl TypeChecker {
                     let et = self.check_expr(e, env, ret_ty, in_class, loop_depth)?;
                     // Tuple cells can't hold a fixed-length
                     // heap-element array (same placement rule as
-                    // annotated composites). Array LITERALS are
-                    // exempt: their inferred `fixed: Some(n)` is a
-                    // length marker that decays to a dynamic array
-                    // in lowering — only reads of declared fixed
-                    // bindings carry the header-less buffer.
-                    if !matches!(&e.kind, ExprKind::Array(_)) {
-                        self.reject_fixed_heap_component(&et, e.span)?;
-                    }
+                    // annotated composites; literals infer as
+                    // dynamic arrays and pass).
+                    self.reject_fixed_heap_component(&et, e.span)?;
                     tys.push(et);
                 }
                 Ok(Type::Tuple(tys.into()))
@@ -707,12 +702,9 @@ impl TypeChecker {
             ExprKind::Some(inner) => {
                 let it = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
                 // Optional cells can't hold a fixed-length
-                // heap-element array. Array literals are exempt —
-                // their inferred fixed length decays to a dynamic
-                // array in lowering.
-                if !matches!(&inner.kind, ExprKind::Array(_)) {
-                    self.reject_fixed_heap_component(&it, inner.span)?;
-                }
+                // heap-element array (literals infer as dynamic
+                // arrays and pass).
+                self.reject_fixed_heap_component(&it, inner.span)?;
                 Ok(Type::Optional(Box::new(it)))
             }
             ExprKind::Await(inner) => {

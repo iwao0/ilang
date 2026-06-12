@@ -450,17 +450,16 @@ impl TypeChecker {
         // An array literal whose ELEMENTS are fixed-length
         // heap-element arrays would make those buffers container
         // cells — same placement rule as annotated composites.
-        // Nested array LITERALS are exempt: their inferred fixed
-        // length decays to a dynamic array in lowering.
-        if elements
-            .iter()
-            .any(|e| !matches!(&e.kind, ExprKind::Array(_)))
-        {
-            self.reject_fixed_heap_component(&elem_ty, _span)?;
-        }
+        self.reject_fixed_heap_component(&elem_ty, _span)?;
+        // No annotation in sight → the literal is a DYNAMIC array.
+        // `T[N]` arises only where a declared type asks for it (the
+        // hinted path above; `literal_assignable` re-checks the
+        // literal expression's length against fixed targets). This
+        // matches the lowering, which only builds the header-less
+        // fixed layout under an annotation-derived `len_hint`.
         Ok(Type::Array {
             elem: Box::new(elem_ty),
-            fixed: Some(elements.len()),
+            fixed: None,
         })
     }
 }
@@ -528,15 +527,10 @@ impl TypeChecker {
             });
         }
         // Map cells can't hold a fixed-length heap-element array —
-        // same placement rule as annotated composites. Array
-        // literal values are exempt (they decay to dynamic arrays
-        // in lowering).
-        if entries
-            .iter()
-            .any(|(_, v)| !matches!(&v.kind, ExprKind::Array(_)))
-        {
-            self.reject_fixed_heap_component(&v_ty, _span)?;
-        }
+        // same placement rule as annotated composites. (Array
+        // literal values infer as dynamic arrays, so only reads of
+        // declared fixed bindings can trip this.)
+        self.reject_fixed_heap_component(&v_ty, _span)?;
         Ok(Type::generic("Map", vec![k_ty, v_ty]))
     }
 }

@@ -34,6 +34,7 @@
 - **第 16 弾**。 REPL の**型違い re-let が無言の型穴** (string ポインタ生値の印字) になっていたのを明示エラーで封鎖。 fn / class の再定義セマンティクス (現状: 拒否 / 生エラーで旧定義が残る) は設計判断待ちとして記録。 repl.rs +3 件。 詳細は下の解決済み記録。
 - **第 17 弾**。 weak × 早期 return・property accessor 本体・fs/path/Unicode・interface 配列 × for-in × return・repr/@flags enum を網羅 probe — **新規バグなし** (クリーンラウンド 2 回目)。 pin 用 fixture 1 件。 詳細は下の確認済み記録。
 - **第 18 弾**。 **固定長配列 `T[N]` × heap 要素の ARC 未モデル** (codegen が自認していたギャップ) が実害として確認された: scope exit / 早期脱出 / field drop / field 上書きで要素が漏れる (store の rc と escape は正常 — fixture で pin)。 詳細は下の解決済み記録 (第 19 弾で解決)。
+- **配列リテラルの推論規則を変更 (ユーザー決定)**: 注釈なしの `let xs = [...]` は**動的配列** `T[]`、固定長 `T[N]` は宣言型 (注釈・field・引数) が要求した時だけ。旧規則 (無注釈リテラル = `i64[3]` 固定長、push には `i64[]` 注釈が必要) を廃止。`literal_assignable` が式の長さを直接見るため固定長注釈への代入は無変更で通る。これに伴い generic 型引数への配列リテラル直渡し (`hold([new Box(1), new Box(2)])`) は T=Box[] に束縛され自然に通るようになり、式レベル検査のリテラル除外ハックを削除。fixture: `01_basics/array_literal_dynamic_inference.il`。
 - **第 19 弾**。 ユーザー決定 (a) を受けて **固定長配列 × heap 要素を正式サポート**: fresh リテラル束縛が所有・エイリアスは借用・field 代入は fresh=ポインタ転送 / 非 fresh=値コピー (`$array.copyFixed`)・drop cascade は合成タグ `KIND_FIXED_BASE + len*16 + elem_kind`。 置き場所は field / ローカル / param に checker で限定 (戻り値・コンテナ構成要素・capture・再代入は型エラー)。 fixture 2 件 (包括 pin + placement エラー)。 詳細は下の解決済み記録。
 
 それ以前のセッション (2026-06-10、 ARC ラウンド) で main に landing した変更:
