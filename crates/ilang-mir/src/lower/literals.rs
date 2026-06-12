@@ -488,7 +488,23 @@ impl<'a> BodyCx<'a> {
         }
         let (v, vty) = self.lower_expr(a)?;
         match target {
-            Some(t) if t != &vty => Ok((self.coerce(v, &vty, t, a.span)?, t.clone())),
+            Some(t) if t != &vty => {
+                let coerced = self.coerce(v, &vty, t, a.span)?;
+                // `T → T?` auto-wrap takes the cell's own share —
+                // a FRESH source's transfer +1 then has no other
+                // owner (the fresh-arg post-release targets the
+                // wrapped Optional, not the inner). Mirrors the
+                // same release in stmt.rs's annotated-let path;
+                // without it `takeOpt(new Box(1))` leaked the Box
+                // (and its cell) per call.
+                if matches!(t, MirTy::Optional(inner) if **inner == vty)
+                    && self.is_arc_heap(&vty)
+                    && self.is_fresh_object_expr(a)
+                {
+                    self.fb.push_inst(Inst::Release { value: v });
+                }
+                Ok((coerced, t.clone()))
+            }
             _ => Ok((v, vty)),
         }
     }

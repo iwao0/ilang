@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use ilang_ast::{self as ast, Block as AstBlock, Expr, ExprKind, Span, Symbol, Type};
+use ilang_ast::{Block as AstBlock, Expr, ExprKind, Span, Symbol, Type};
 
 use crate::builder::FunctionBuilder;
 use crate::inst::{FuncId, Inst, MirConst, Terminator, ValueId};
@@ -21,62 +21,7 @@ use super::meta::{class_id_by_name, ClassMeta, EnumMeta, FnSig, PendingClosure};
 use super::utils::ty_to_mir;
 use super::LowerError;
 
-/// `true` when the arm's body returns one of its own pattern
-/// bindings via a `Var` tail (`some(v) { v }` /
-/// `has(inner) { inner }` / `boxed { b: x } { x }`). Used by
-/// `is_fresh_object_expr`'s Match arm to treat such arms as
-/// fresh when the scrutinee is fresh — the arm lowerer's
-/// `PatternBinding`-with-`needs_retain_on_tail` Retain has
-/// already minted the +1 the caller will release.
-fn arm_returns_own_binding(arm: &ast::MatchArm) -> bool {
-    let mut binds: Vec<Symbol> = Vec::new();
-    if let ast::PatternKind::Variant { bindings, .. } = &arm.pattern.kind {
-        match bindings {
-            ast::PatternBindings::Unit => {}
-            ast::PatternBindings::Tuple(names) => {
-                for n in names.iter() {
-                    if n.as_str() != "_" {
-                        binds.push(*n);
-                    }
-                }
-            }
-            ast::PatternBindings::Struct(pairs) => {
-                for (_, bn) in pairs.iter() {
-                    if bn.as_str() != "_" {
-                        binds.push(*bn);
-                    }
-                }
-            }
-        }
-    }
-    if binds.is_empty() {
-        return false;
-    }
-    let tail = match &arm.body.kind {
-        ExprKind::Block(b) => match b.tail.as_deref() {
-            Some(t) => t,
-            None => return false,
-        },
-        _ => &arm.body,
-    };
-    matches!(&tail.kind, ExprKind::Var(n) if binds.contains(n))
-}
 
-/// `true` when `e`'s tail expression is a static `Str` literal.
-/// `__release_string` is a no-op on rc=-1 (the static-cstring
-/// marker), so a branch ending in a literal string contributes a
-/// caller-side-Release-safe value to a Match / IfLet result —
-/// same accounting role as a fresh string but without the alloc.
-fn expr_tail_is_str_literal(e: &Expr) -> bool {
-    let tail = match &e.kind {
-        ExprKind::Block(b) => match b.tail.as_deref() {
-            Some(t) => t,
-            None => return false,
-        },
-        _ => e,
-    };
-    matches!(&tail.kind, ExprKind::Str(_))
-}
 
 pub(in crate::lower) struct BodyCx<'a> {
     pub(in crate::lower) fb: &'a mut FunctionBuilder,
@@ -143,6 +88,15 @@ pub(in crate::lower) struct BodyCx<'a> {
     /// `release_top_scope_objects` doesn't double-free it before the
     /// return.
     pub(in crate::lower) crepr_return_owned: std::collections::HashSet<crate::ValueId>,
+    /// Set by `lower_block_hinted` when its tail-alias/borrow
+    /// Retain fired (the handed-back value owns a +1). Join sites
+    /// (`lower_if`, the match arms) read it right after lowering a
+    /// branch/arm body to decide whether the branch result is
+    /// already OWNED — non-owned heap results get a join-side
+    /// Retain so every `if`/`match` value uniformly owns its +1
+    /// (mixed-freshness joins used to over-retain the fresh side:
+    /// one leaked object per evaluation).
+    pub(in crate::lower) last_block_tail_owned: bool,
     /// Fresh match / if-let scrutinees whose arm body is currently
     /// being lowered, with the env depth at registration. The arm
     /// lowerer releases a fresh scrutinee at arm exit, but an early
@@ -880,6 +834,12 @@ impl<'a> BodyCx<'a> {
             }
             _ => false,
         });
+        // Definitively record whether THIS block's tail got the
+        // alias/borrow retain — join sites read the flag right
+        // after lowering a branch/arm body (a stale value from a
+        // nested block would mis-classify a bare-Var body, so the
+        // false is unconditional).
+        self.last_block_tail_owned = false;
         let tail = match tail {
             Some((v, ty))
                 if tail_needs_retain_flag
@@ -907,6 +867,7 @@ impl<'a> BodyCx<'a> {
                     _ => (v, ty.clone()),
                 };
                 self.fb.push_inst(Inst::Retain { value: v_use });
+                self.last_block_tail_owned = true;
                 Some((v_use, ty_use))
             }
             other => other,
@@ -999,22 +960,15 @@ impl<'a> BodyCx<'a> {
                 .as_ref()
                 .map(|t| self.is_fresh_object_expr(t))
                 .unwrap_or(false),
-            // `if`/`match` carry the freshness of all branches; treat
-            // them conservatively — fresh only if every branch's tail
-            // is fresh. Non-fresh would produce an over-retain rather
-            // than a use-after-free, so this is the safe direction.
-            ExprKind::If { then_branch, else_branch, .. } => {
-                let then_fresh = then_branch
-                    .tail
-                    .as_ref()
-                    .map(|t| self.is_fresh_object_expr(t))
-                    .unwrap_or(false);
-                let else_fresh = else_branch
-                    .as_ref()
-                    .map(|e| self.is_fresh_object_expr(e))
-                    .unwrap_or(false);
-                then_fresh && else_fresh
-            }
+            // `if` / `match` / `if let` join values are NORMALISED to
+            // owned: the join sites retain any branch result that
+            // doesn't already own its +1 (fresh tail, block-tail
+            // alias/borrow retain, or the arm-side pattern-binding
+            // retain). Mixed-freshness joins used to read as
+            // non-fresh here, making the consumer add a second
+            // retain on the fresh branch — one leaked object per
+            // evaluation through that branch.
+            ExprKind::If { .. } => true,
             // Same all-arms-fresh rule as `If` above. Divergent arms
             // (`return` / `panic`) aren't tracked here and read as
             // non-fresh; that's strictly conservative — a match whose
@@ -1033,61 +987,10 @@ impl<'a> BodyCx<'a> {
             // `caller-releases-fresh` (call_arg release / `let _ = ...`
             // release / etc.) closes the loop instead of double-
             // retaining via the stmt.rs::Let path.
-            ExprKind::Match { scrutinee, arms } => {
-                // The `?` desugar's `__try_*` temp always owns the
-                // matched value, and the arm-tail binding gets a
-                // forced Retain (see lower_match) — for the outer
-                // accounting the arm result is fresh exactly like a
-                // fresh-scrutinee match.
-                let scrut_fresh = self.is_fresh_object_expr(scrutinee)
-                    || matches!(
-                        &scrutinee.kind,
-                        ExprKind::Var(n) if n.as_str().starts_with("__try_")
-                    );
-                !arms.is_empty()
-                    && arms.iter().all(|arm| {
-                        self.is_fresh_object_expr(&arm.body)
-                            || (scrut_fresh && arm_returns_own_binding(arm))
-                            || expr_tail_is_str_literal(&arm.body)
-                            // A diverging arm (`return` / `break` /
-                            // `continue`) never reaches the join —
-                            // it contributes no value, so it can't
-                            // make the match non-fresh. The `?`
-                            // desugar's propagation arm is exactly
-                            // this shape.
-                            || super::match_::arm_body_diverges(&arm.body)
-                    })
-            }
-            // Mirror Match: `if let some(name) = scrut { ... } else { ... }`
-            // is fresh iff both branches are fresh. The then branch can
-            // also count as fresh when the scrutinee is fresh and its
-            // tail is a `Var(name)` (the pattern binding) — the
-            // PatternBinding tail-Var Retain has already minted a +1
-            // the caller will release. Str-literal tails (rc=-1)
-            // count too — `__release_string` is a no-op on static
-            // literals, so handing one back as a branch result keeps
-            // the caller's `Release` safe.
-            ExprKind::IfLet { name, expr: scrut, then_branch, else_branch } => {
-                let scrut_fresh = self.is_fresh_object_expr(scrut);
-                let then_fresh = then_branch
-                    .tail
-                    .as_ref()
-                    .map(|t| {
-                        self.is_fresh_object_expr(t)
-                            || (scrut_fresh
-                                && matches!(&t.kind, ExprKind::Var(n) if *n == *name))
-                            || matches!(&t.kind, ExprKind::Str(_))
-                    })
-                    .unwrap_or(false);
-                let else_fresh = else_branch
-                    .as_ref()
-                    .map(|e| {
-                        self.is_fresh_object_expr(e)
-                            || expr_tail_is_str_literal(e)
-                    })
-                    .unwrap_or(false);
-                then_fresh && else_fresh
-            }
+            // Match joins normalize to owned, same as `If` above.
+            ExprKind::Match { .. } => true,
+            // IfLet joins normalize to owned, same as `If` above.
+            ExprKind::IfLet { .. } => true,
             // A bare reference to a top-level `fn` lowers to a
             // `MakeClosure` (trampoline) — fresh allocation with
             // rc=1 each time. A local / param / captured Var of
@@ -1174,6 +1077,24 @@ impl<'a> BodyCx<'a> {
         }
     }
 
+
+    /// Normalize a branch / arm result to OWNED before it flows
+    /// into an `if` / `match` / `if let` join: values that already
+    /// own their +1 (fresh tails, block-tail alias/borrow retains,
+    /// arm-side forced retains) pass through; everything else —
+    /// param vars, bare borrows — gets a Retain here so the join
+    /// value uniformly owns a share and `is_fresh_object_expr` can
+    /// classify every join as fresh.
+    pub(in crate::lower) fn ensure_join_owned(
+        &mut self,
+        v: crate::ValueId,
+        ty: &MirTy,
+        owned: bool,
+    ) {
+        if !owned && self.is_arc_slot(ty) {
+            self.fb.push_inst(Inst::Retain { value: v });
+        }
+    }
 
     /// Fixed-length heap-element arrays enter container cells BY
     /// VALUE: mint a copy the cell owns (`$array.copyShallow` —

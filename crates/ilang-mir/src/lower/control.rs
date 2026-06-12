@@ -32,7 +32,14 @@ impl<'a> BodyCx<'a> {
         });
 
         self.fb.switch_to(then_blk);
+        self.last_block_tail_owned = false;
         let then_tail = self.lower_block(then_branch)?;
+        let then_owned = self.last_block_tail_owned
+            || then_branch
+                .tail
+                .as_ref()
+                .map(|t| self.is_fresh_object_expr(t))
+                .unwrap_or(false);
         // Remember the then-block we ended up at (the body may have
         // emitted control-flow that landed us in a successor) so we
         // can come back to it and emit the join terminator after
@@ -43,10 +50,16 @@ impl<'a> BodyCx<'a> {
         // that subsumes both arms. Lowering happens in `else_blk`'s
         // context.
         self.fb.switch_to(else_blk);
+        self.last_block_tail_owned = false;
         let else_tail: Option<(ValueId, MirTy)> = match else_branch {
             Some(e) => Some(self.lower_expr(e)?),
             None => None,
         };
+        let else_owned = self.last_block_tail_owned
+            || else_branch
+                .as_ref()
+                .map(|e| self.is_fresh_object_expr(e))
+                .unwrap_or(false);
         let else_end_blk = self.fb.current_block();
 
         // Pick the join type. With no else branch, `if` is
@@ -82,11 +95,31 @@ impl<'a> BodyCx<'a> {
         // pushed the result to i64 but one branch's value stayed
         // narrower.
         self.fb.switch_to(then_end_blk);
+        // Normalize the branch result to OWNED before the join (see
+        // `last_block_tail_owned`): a non-owned heap value (param
+        // var, borrow outside the block-tail pairing) gets a Retain
+        // so both arms hand the join a +1 uniformly — the consumer
+        // side classifies every `if` as fresh. A join coerce that
+        // minted a NEW heap value (T → T? wrap, fixed-array copy)
+        // is itself owned; if its SOURCE was owned, the source's +1
+        // has no other owner left, so release it.
         let then_arg: Box<[ValueId]> = match (&result_ty, then_tail) {
             (MirTy::Unit, _) => Box::new([]),
-            (rt, Some((v, t))) if &t == rt => Box::new([v]),
+            (rt, Some((v, t))) if &t == rt => {
+                if !then_owned && self.is_arc_slot(rt) {
+                    self.fb.push_inst(Inst::Retain { value: v });
+                }
+                Box::new([v])
+            }
             (rt, Some((v, t))) => {
                 let coerced = self.coerce(v, &t, rt, Span::dummy()).unwrap_or(v);
+                if coerced != v && self.is_arc_slot(rt) {
+                    if then_owned && self.is_arc_slot(&t) {
+                        self.fb.push_inst(Inst::Release { value: v });
+                    }
+                } else if !then_owned && self.is_arc_slot(rt) {
+                    self.fb.push_inst(Inst::Retain { value: coerced });
+                }
                 Box::new([coerced])
             }
             (_, None) => Box::new([self.const_unit()]),
@@ -99,9 +132,19 @@ impl<'a> BodyCx<'a> {
                 if matches!(result_ty, MirTy::Unit) {
                     Box::new([])
                 } else if vty == result_ty {
+                    if !else_owned && self.is_arc_slot(&result_ty) {
+                        self.fb.push_inst(Inst::Retain { value: v });
+                    }
                     Box::new([v])
                 } else {
                     let coerced = self.coerce(v, &vty, &result_ty, Span::dummy()).unwrap_or(v);
+                    if coerced != v && self.is_arc_slot(&result_ty) {
+                        if else_owned && self.is_arc_slot(&vty) {
+                            self.fb.push_inst(Inst::Release { value: v });
+                        }
+                    } else if !else_owned && self.is_arc_slot(&result_ty) {
+                        self.fb.push_inst(Inst::Retain { value: coerced });
+                    }
                     Box::new([coerced])
                 }
             }

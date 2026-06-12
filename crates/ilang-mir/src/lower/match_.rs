@@ -232,7 +232,10 @@ impl<'a> BodyCx<'a> {
                 let depth = self.env.scopes.len();
                 self.live_fresh_scrutinees.push((sv, depth));
             }
+            self.last_block_tail_owned = false;
             let (bv, bty) = self.lower_expr(&arm.body)?;
+            let mut owned = self.last_block_tail_owned
+                || self.is_fresh_object_expr(&arm.body);
             if scrut_is_fresh {
                 self.live_fresh_scrutinees.pop();
             }
@@ -247,6 +250,7 @@ impl<'a> BodyCx<'a> {
                 && self.is_arc_slot(&bty)
             {
                 self.fb.push_inst(Inst::Retain { value: bv });
+                owned = true;
             }
             // `Release(sv)` below cascades the Optional cell. The
             // pattern binding was registered with
@@ -261,6 +265,7 @@ impl<'a> BodyCx<'a> {
             }
             self.env.exit_scope();
             if !diverges {
+                self.ensure_join_owned(bv, &bty, owned);
                 if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
                     result_ty = Some(bty.clone());
                 }
@@ -274,8 +279,12 @@ impl<'a> BodyCx<'a> {
         self.fb.switch_to(none_blk);
         if let Some(arm) = none_arm {
             let diverges = arm_body_diverges(&arm.body);
+            self.last_block_tail_owned = false;
             let (bv, bty) = self.lower_expr(&arm.body)?;
+            let owned = self.last_block_tail_owned
+                || self.is_fresh_object_expr(&arm.body);
             if !diverges {
+                self.ensure_join_owned(bv, &bty, owned);
                 if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
                     result_ty = Some(bty.clone());
                 }
@@ -443,7 +452,10 @@ impl<'a> BodyCx<'a> {
                 let depth = self.env.scopes.len();
                 self.live_fresh_scrutinees.push((sv, depth));
             }
+            self.last_block_tail_owned = false;
             let (bv, bty) = self.lower_expr(&arm.body)?;
+            let mut owned = self.last_block_tail_owned
+                || self.is_fresh_object_expr(&arm.body);
             if scrut_is_fresh {
                 self.live_fresh_scrutinees.pop();
             }
@@ -456,6 +468,7 @@ impl<'a> BodyCx<'a> {
                 && self.is_arc_slot(&bty)
             {
                 self.fb.push_inst(Inst::Retain { value: bv });
+                owned = true;
             }
             // Mirror `lower_match_optional`: when the scrutinee
             // was fresh, release the enum cell at arm exit so its
@@ -473,6 +486,7 @@ impl<'a> BodyCx<'a> {
             // irrelevant — skip both the type-pinning and the
             // joins-list push.
             if !diverges {
+                self.ensure_join_owned(bv, &bty, owned);
                 if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
                     result_ty = Some(bty.clone());
                 }
@@ -487,7 +501,10 @@ impl<'a> BodyCx<'a> {
                 let depth = self.env.scopes.len();
                 self.live_fresh_scrutinees.push((sv, depth));
             }
+            self.last_block_tail_owned = false;
             let (bv, bty) = self.lower_expr(&arm.body)?;
+            let owned = self.last_block_tail_owned
+                || self.is_fresh_object_expr(&arm.body);
             if scrut_is_fresh {
                 self.live_fresh_scrutinees.pop();
             }
@@ -495,6 +512,7 @@ impl<'a> BodyCx<'a> {
                 self.fb.push_inst(Inst::Release { value: sv });
             }
             if !diverges {
+                self.ensure_join_owned(bv, &bty, owned);
                 if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
                     result_ty = Some(bty.clone());
                 }
@@ -548,7 +566,11 @@ impl<'a> BodyCx<'a> {
             match &arm.pattern.kind {
                 ast::PatternKind::Wildcard => {
                     // Body unconditionally.
+                    self.last_block_tail_owned = false;
                     let (bv, bty) = self.lower_expr(&arm.body)?;
+                    let owned = self.last_block_tail_owned
+                        || self.is_fresh_object_expr(&arm.body);
+                    self.ensure_join_owned(bv, &bty, owned);
                     if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
                         result_ty = Some(bty.clone());
                     }
@@ -574,7 +596,11 @@ impl<'a> BodyCx<'a> {
                         else_args: Box::new([]),
                     });
                     self.fb.switch_to(body_blk);
+                    self.last_block_tail_owned = false;
                     let (bv, bty) = self.lower_expr(&arm.body)?;
+                    let owned = self.last_block_tail_owned
+                        || self.is_fresh_object_expr(&arm.body);
+                    self.ensure_join_owned(bv, &bty, owned);
                     if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
                         result_ty = Some(bty.clone());
                     }
@@ -636,7 +662,11 @@ impl<'a> BodyCx<'a> {
                         else_args: Box::new([]),
                     });
                     self.fb.switch_to(body_blk);
+                    self.last_block_tail_owned = false;
                     let (bv, bty) = self.lower_expr(&arm.body)?;
+                    let owned = self.last_block_tail_owned
+                        || self.is_fresh_object_expr(&arm.body);
+                    self.ensure_join_owned(bv, &bty, owned);
                     if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
                         result_ty = Some(bty.clone());
                     }
@@ -723,9 +753,13 @@ impl<'a> BodyCx<'a> {
         let mut result_ty: Option<MirTy> = None;
         if let Some(arm) = true_arm {
             self.fb.switch_to(then_blk);
+            self.last_block_tail_owned = false;
             let (bv, bty) = self.lower_expr(&arm.body)?;
+            let owned = self.last_block_tail_owned
+                || self.is_fresh_object_expr(&arm.body);
+            self.ensure_join_owned(bv, &bty, owned);
             if !matches!(bty, MirTy::Unit) {
-                result_ty.get_or_insert(bty);
+                result_ty.get_or_insert(bty.clone());
             }
             joins.push((self.fb.current_block(), bv));
         } else {
@@ -734,9 +768,13 @@ impl<'a> BodyCx<'a> {
         }
         if let Some(arm) = false_arm {
             self.fb.switch_to(else_blk);
+            self.last_block_tail_owned = false;
             let (bv, bty) = self.lower_expr(&arm.body)?;
+            let owned = self.last_block_tail_owned
+                || self.is_fresh_object_expr(&arm.body);
+            self.ensure_join_owned(bv, &bty, owned);
             if !matches!(bty, MirTy::Unit) {
-                result_ty.get_or_insert(bty);
+                result_ty.get_or_insert(bty.clone());
             }
             joins.push((self.fb.current_block(), bv));
         } else {
@@ -790,7 +828,10 @@ impl<'a> BodyCx<'a> {
                         let depth = self.env.scopes.len();
                         self.live_fresh_scrutinees.push((sv, depth));
                     }
+                    self.last_block_tail_owned = false;
                     let (bv, bty) = self.lower_expr(&arm.body)?;
+                    let owned = self.last_block_tail_owned
+                        || self.is_fresh_object_expr(&arm.body);
                     if scrut_is_fresh {
                         self.live_fresh_scrutinees.pop();
                     }
@@ -798,6 +839,7 @@ impl<'a> BodyCx<'a> {
                         self.fb.push_inst(Inst::Release { value: sv });
                     }
                     if !diverges {
+                        self.ensure_join_owned(bv, &bty, owned);
                         if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
                             result_ty = Some(bty.clone());
                         }
@@ -833,7 +875,10 @@ impl<'a> BodyCx<'a> {
                         let depth = self.env.scopes.len();
                         self.live_fresh_scrutinees.push((sv, depth));
                     }
+                    self.last_block_tail_owned = false;
                     let (bv, bty) = self.lower_expr(&arm.body)?;
+                    let owned = self.last_block_tail_owned
+                        || self.is_fresh_object_expr(&arm.body);
                     if scrut_is_fresh {
                         self.live_fresh_scrutinees.pop();
                     }
@@ -841,6 +886,7 @@ impl<'a> BodyCx<'a> {
                         self.fb.push_inst(Inst::Release { value: sv });
                     }
                     if !diverges {
+                        self.ensure_join_owned(bv, &bty, owned);
                         if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
                             result_ty = Some(bty.clone());
                         }
@@ -935,7 +981,14 @@ impl<'a> BodyCx<'a> {
             let depth = self.env.scopes.len();
             self.live_fresh_scrutinees.push((sv, depth));
         }
+        self.last_block_tail_owned = false;
         let then_tail = self.lower_block(then_branch)?;
+        let then_owned = self.last_block_tail_owned
+            || then_branch
+                .tail
+                .as_ref()
+                .map(|t| self.is_fresh_object_expr(t))
+                .unwrap_or(false);
         if scrut_is_fresh {
             self.live_fresh_scrutinees.pop();
         }
@@ -973,7 +1026,11 @@ impl<'a> BodyCx<'a> {
         };
         let then_arg: Box<[ValueId]> = match (&result_ty, then_tail) {
             (MirTy::Unit, _) => Box::new([]),
-            (_, Some((v, _))) => Box::new([v]),
+            (_, Some((v, t))) => {
+                // Join normalization — see `ensure_join_owned`.
+                self.ensure_join_owned(v, &t, then_owned);
+                Box::new([v])
+            }
             (_, None) => Box::new([self.const_unit()]),
         };
         self.fb.set_terminator(Terminator::Br { dst: cont, args: then_arg });
@@ -982,10 +1039,14 @@ impl<'a> BodyCx<'a> {
         self.fb.switch_to(none_blk);
         let else_arg: Box<[ValueId]> = match else_branch {
             Some(e) => {
-                let (v, _) = self.lower_expr(e)?;
+                self.last_block_tail_owned = false;
+                let (v, vty) = self.lower_expr(e)?;
+                let else_owned = self.last_block_tail_owned
+                    || self.is_fresh_object_expr(e);
                 if matches!(result_ty, MirTy::Unit) {
                     Box::new([])
                 } else {
+                    self.ensure_join_owned(v, &vty, else_owned);
                     Box::new([v])
                 }
             }
