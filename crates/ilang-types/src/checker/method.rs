@@ -78,6 +78,14 @@ impl TypeChecker {
                     sig.params.iter().zip(args.iter()).zip(arg_tys.iter())
                 {
                     let actual = subst_type(param_ty, &sig.type_params, &inferred_args);
+                    // Refine an enum-ctor argument from the (substituted)
+                    // param type, like the generic-fn and `check_args`
+                    // paths. Without this a `Result.ok(..)` passed to a
+                    // generic method — e.g. the async desugar's
+                    // `Promise.settleResolve(p, Result.ok(..))` against
+                    // `v: T = Result<Box,string>` — keeps its unfilled
+                    // param `Any` and the monomorphizer chokes.
+                    self.refine_enum_ctor_args(arg, &actual);
                     if !self.value_assignable(arg, at, &actual) {
                         return Err(TypeError::Mismatch {
                             expected: actual,

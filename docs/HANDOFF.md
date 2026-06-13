@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1289/1289) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1290/1290) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 65 弾**。 **async fn が generic enum を返すと型引数が refine されない**実バグを検出・修正 (第 63 弾の診断が表面化)。 `async fn getR(): Result<Box, string> { Result.ok(new Box(5)) }` は注釈なしだと「cannot infer the type parameter(s) of \`Result\`」。 async desugar は return 値を `Promise.$promise.settleResolve(p, Result.ok(..))` (generic static method `settleResolve<T>(p: Promise<T>, v: T)`) の引数に包むが、 **`resolve_method_call` ([method.rs](../crates/ilang-types/src/checker/method.rs)) の generic メソッド経路が引数の enum ctor を refine していなかった** (generic fn 経路・check_args は refine するのに)。 そのため `Result.ok(..)` の E=Any が残った。 検証ループに `refine_enum_ctor_args(arg, &actual)` を追加 — promise の要素型 `Result<Box,string>` が `v: T` に流れて ctor を refine。 async に限らず **全 generic メソッド呼び出し**の enum-ctor 引数 refine 漏れを修正。 heap payload は await 跨ぎで ARC 厳密。 詳細は下の解決済み記録。
 - **第 64 弾**。 第 63 弾の明示診断が **enum-in-enum ctor の refine 漏れ**という実バグを表面化させ、 修正。 `Result.ok(Maybe.nope)` を `Result<Maybe<Box>, string>` に対して構築すると、 内側 `Maybe.nope` の T が refine されず (`refine_enum_ctor_args` が ctor の**自分の型引数**は埋めるのに **payload 引数へ再帰していなかった**)、 第 63 以前は Type::Any クラッシュ・第 63 以降は「cannot infer」診断が出ていた (が型は宣言から確定可能)。 `refine_enum_ctor_args` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) で (1) ネスト Any を含む slot (`Maybe<Any>`) を target の具体 arg で置換、 (2) **payload 引数を置換後の payload 型へ再帰 refine** するよう拡張。 let 注釈・map 値・fn 戻り・深い入れ子 (`Result<Maybe<Maybe<Box>>>`)・heap ARC で動作。 詳細は下の解決済み記録。
 - **第 63 弾** (ユーザー決定 = 第 62 弾の残る限界を明示診断に)。 **型引数を解決できない generic 呼び出し / enum ctor を、 lowering クラッシュでなく checker の明示診断にした**。 これまで `match f(Result.err("e")) { .. }` (bare scrutinee) や `let r = Result.ok(5)` (E 未決定) は型引数が `Any` のまま lowering に届き「Type::Any (variadic builtins)」で停止していた。 `check()` ([check.rs](../crates/ilang-types/src/checker/check.rs)) の末尾に `report_unresolved_type_args` を追加し、 `enum_ctor_type_args` / `fn_call_type_args` の stash で **型引数に `Type::Any` が残るエントリ**を span 付きで報告 (「cannot infer the type parameter(s) of ... — add a type annotation」)。 `TypeVar` (generic テンプレート本体) は除外。 **挙動変更**: 従来コンパイルが通っていた「未呼び出し fn 内の曖昧 ctor」も明示エラーになる (`let r = Result.ok(5)` は到達性に関わらず曖昧 = Rust の `let r = Ok(5)` と同じく注釈必須)。 既存 fixture は曖昧 ctor に依存しておらず全緑。 詳細は下の解決済み記録。
 - **第 62 弾** (第 60 弾の確認済み記録 (2) を大部分解消)。 **型を決める引数を持たない generic fn 呼び出し** (`f(Result.err("e"))`、 `fn f<T>(r: Result<T,string>)`) を、 **期待型が分かる位置 (let 注釈 / fn 戻り / 引数) で解ける**ようにした。 第 59 弾の `refine_fn_call_type_args` は fn の T を期待型から解いていたが、 **インライン引数 `Result.err("e")` 自身の stash が `[Any, string]` のまま**残り (まだ generic な param に対して check されたため) 引数が Type::Any で lower 失敗していた。 `refine_fn_call_type_args` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) に、 T を解いた後**各引数を具体化した param 型で再 `refine_enum_ctor_args`** する処理を追加 (引数は fn の T を共有するため)。 let 注釈・return・引数位置で動作、 heap T ARC 健全。 詳細は下の解決済み記録。 **残る限界**: 期待型が皆無の bare match scrutinee (`match f(Result.err("e")) { .. }`) は依然 Type::Any (本質的に曖昧・注釈が必要)。
@@ -114,6 +115,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 65 弾: generic メソッド引数の enum ctor が refine されず async fn が Result を返せない (2026-06-13)
+
+async + Result を probe する過程で発見 (第 63 弾の診断が表面化):
+
+- **症状**: `async fn getR(): Result<Box, string> { Result.ok(new Box(5)) }` を注釈なしで書くと **「cannot infer the type parameter(s) of \`Result\`」** (第 63 以前は Type::Any クラッシュ)。 `let r: Result<Box,string> = ...` と内側注釈すれば回避できていた。 非 async の generic メソッドに `Result.err(..)` を渡す形でも同症状。
+- **原因**: async desugar ([gen_items.rs](../crates/ilang-parser/src/normalize/state_machine/gen_items.rs)) は async fn の return 値を `Promise.$promise.settleResolve(state_ref.__async_promise, Result.ok(..))` に包む。 `settleResolve<T>(p: Promise<T>, v: T)` は generic static method で、 promise (`__async_promise: Promise<Result<Box,string>>`) から T=Result<Box,string> が推論され、 v は本来 refine されるべき。 だが **`resolve_method_call` ([method.rs](../crates/ilang-types/src/checker/method.rs)) の generic メソッド経路が引数を `value_assignable` で検証するだけで `refine_enum_ctor_args` を呼んでいなかった** (generic fn 経路 [calls.rs] / `check_args` は呼ぶ)。 そのため `Result.ok(..)` の E=Any が残った。 この refine 漏れは settleResolve に限らず**全 generic メソッド呼び出し**に存在した一般バグ。
+- **修正**: `resolve_method_call` の generic メソッド検証ループで、 各引数を subst 後の param 型に対して `refine_enum_ctor_args(arg, &actual)` (generic fn 経路と同形)。
+- **検証**: async fn が `Result<Box,string>` を返し driver で ok/err を逐次 await。 値 (total=300) + deinit 厳密 (50、 ok 50 個が await 跨ぎで全解放・leak なし)。 fixture: `05_edge_cases/async_fn_returns_result.il`。 checker のみの変更。 workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。 **補足**: generic メソッドを T を決める引数なしで呼ぶ形 (`h.take<T>(Result.err(..))` で戻り型が T 無関係) は第 60/62 弾と同じ「T 決定不能」で診断対象 (注釈で回避)。
 
 ### [解決済み記録] 第 64 弾: enum-in-enum ctor の payload が refine されず Type::Any (2026-06-13)
 
