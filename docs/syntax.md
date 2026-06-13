@@ -1213,6 +1213,7 @@ and hand back a fresh buffer with the right cells retained.
 ```rust
 let m: Map<string, i64> = {"a": 1, "b": 2}        // literal
 let empty: Map<string, i64> = new Map<string, i64>()  // empty map
+let empty2: Map<string, i64> = {}                 // empty map (`{}` shorthand, needs a Map annotation)
 
 m["c"] = 3                       // write
 m["a"]                           // read (missing key panics at runtime)

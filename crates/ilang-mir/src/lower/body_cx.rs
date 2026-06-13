@@ -968,11 +968,15 @@ impl<'a> BodyCx<'a> {
             ExprKind::Index { obj, .. } => self.is_fresh_object_expr(obj),
             // A block whose tail is itself fresh produces a fresh
             // value (the inner block scope-releases its own locals).
+            // A *empty* block `{}` is the empty-map shorthand: in a Map
+            // slot it lowers to a fresh `NewMap` (rc=1) the binding must
+            // release at scope exit. In any non-map (unit) context the
+            // fresh flag is a no-op, so flagging it fresh is safe.
             ExprKind::Block(b) => b
                 .tail
                 .as_ref()
                 .map(|t| self.is_fresh_object_expr(t))
-                .unwrap_or(false),
+                .unwrap_or_else(|| b.stmts.is_empty()),
             // `if` / `match` / `if let` join values are NORMALISED to
             // owned: the join sites retain any branch result that
             // doesn't already own its +1 (fresh tail, block-tail

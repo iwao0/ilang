@@ -208,6 +208,7 @@ impl TypeChecker {
         literal_assignable_with(value, vt, target, &is_sub)
             || self.enum_repr_assignable(vt, target)
             || self.handle_void_ptr_assignable(vt, target)
+            || empty_block_as_map(value, target)
     }
 
     /// `pub enum E: T { ... }` flows into a slot typed `T`
@@ -379,4 +380,17 @@ impl TypeChecker {
         })
     }
 
+}
+
+/// `{}` parses as an empty block (value `()`), but when a `Map<K, V>` is
+/// the expected type it reads as an empty map — the JS-style shorthand
+/// alongside `new Map<K, V>()`. A non-empty `{ k: v }` is a `MapLit` and
+/// never reaches here. Restricted to a literal empty block so a block that
+/// merely happens to evaluate to unit isn't silently turned into a map.
+fn empty_block_as_map(value: &Expr, target: &Type) -> bool {
+    matches!(target, Type::Generic(g) if g.base == "Map" && g.args.len() == 2)
+        && matches!(
+            &value.kind,
+            ExprKind::Block(b) if b.stmts.is_empty() && b.tail.is_none()
+        )
 }

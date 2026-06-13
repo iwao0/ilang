@@ -624,6 +624,16 @@ impl<'a> BodyCx<'a> {
             (ExprKind::MapLit(entries), MirTy::Map { key, val }) => {
                 Some(self.lower_map_literal_with_hint(entries, key, val))
             }
+            // `{}` (an empty block) against a `Map<K, V>` hint is the
+            // empty-map shorthand — build an empty map of the declared
+            // key/value types, the same `__map_new` the no-entry case of
+            // `lower_map_literal_with_hint` emits. The checker only lets a
+            // literal empty block reach a Map slot.
+            (ExprKind::Block(b), MirTy::Map { key, val })
+                if b.stmts.is_empty() && b.tail.is_none() =>
+            {
+                Some(self.lower_map_literal_with_hint(&[], key, val))
+            }
             (ExprKind::Some(inner), MirTy::Optional(inner_ty)) => {
                 Some(self.lower_some_with_hint(inner, inner_ty))
             }

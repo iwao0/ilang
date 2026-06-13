@@ -17,11 +17,12 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1279/1279) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1280/1280) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
-- **第 54 弾**。 第 48〜50 弾の enum ctor 型引数精緻化の **残る store 位置 3 系統**を検出・修正。 (1) **enum payload 引数** (`Wrapper.wrap(Result.err(..))` tuple / `WrapperS.wrapS { r: Result.err(..) }` struct) — `check_enum_ctor` が自分の引数を payload 型へ refine していなかった。 (2) **built-in 配列メソッド引数** (`xs.push(Result.err(..))` / unshift / fill / remove / indexOf / includes) — ハードコード経路が element 型へ refine していなかった (Map.set / Set.add は check_args 経由で既に健全)。 (3) **index 代入** (`xs[0] = Result.err(..)` / `m["k"] = Result.err(..)`) — `check_assign_index` が element / value 型へ refine していなかった。 いずれも `Result<_, string>` 等の T=Any が monomorphizer に届き「Type::Any (variadic builtins)」で停止していた既存バグ。 詳細は下の解決済み記録。 **別件の既存ギャップを記録**: 空マップリテラル `{}` は型注釈に対して `()` (空ブロック) と推論され `let m: Map<K,V> = {}` が型エラー — パーサが `{}` を空ブロックとして出すため (空マップの構文が無い)。 enum とは別系統、 設計判断待ち。
+- **第 55 弾** (ユーザー決定 = 第 54 弾の別件に対し「`{}` でも書けるように実装」)。 空マップリテラル `{}` を **型注釈が `Map<K,V>` の位置で空マップとして解釈**するようにした (JS 風の利便性。 `new Map<K,V>()` は従来どおり)。 パーサは `{}` を空ブロックとして出すので型情報の要る checker + lowering で対応: checker `value_assignable` が空ブロック (stmt/tail なし) を Map ターゲットへ受理、 lowering `lower_composite_with_hint` が `(Block 空, MirTy::Map)` を空 `NewMap` に、 `is_fresh_object_expr` が空ブロックを fresh 扱い (scope-exit 解放のため。 unit 文脈では no-op)。 let / 再代入 / field 代入 / fn 戻り値 / fn 引数 / ネスト map 値で動作、 unit 文脈の空ブロックは不変。 詳細は下の解決済み記録。
+- **第 54 弾**。 第 48〜50 弾の enum ctor 型引数精緻化の **残る store 位置 3 系統**を検出・修正。 (1) **enum payload 引数** (`Wrapper.wrap(Result.err(..))` tuple / `WrapperS.wrapS { r: Result.err(..) }` struct) — `check_enum_ctor` が自分の引数を payload 型へ refine していなかった。 (2) **built-in 配列メソッド引数** (`xs.push(Result.err(..))` / unshift / fill / remove / indexOf / includes) — ハードコード経路が element 型へ refine していなかった (Map.set / Set.add は check_args 経由で既に健全)。 (3) **index 代入** (`xs[0] = Result.err(..)` / `m["k"] = Result.err(..)`) — `check_assign_index` が element / value 型へ refine していなかった。 いずれも `Result<_, string>` 等の T=Any が monomorphizer に届き「Type::Any (variadic builtins)」で停止していた既存バグ。 詳細は下の解決済み記録。 **別件の既存ギャップを記録**: 空マップリテラル `{}` は型注釈に対して `()` (空ブロック) と推論され `let m: Map<K,V> = {}` が型エラー — パーサが `{}` を空ブロックとして出すため。 (※当初「空マップの構文が無い」と記したのは誤り。 `new Map<K,V>()` が既存の確立した形。 `{}` でも書けるようにする利便性として第 55 弾で対応。)
 - **第 53 弾** (クリーンラウンド)。 第 52 弾の slot 昇格修正の周辺と Map forEach の反復中 mutation を網羅 probe — **新規バグなし**。 メソッド内/accessor 内クロージャ・init・static メソッド・default 引数式からのグローバル参照は全て昇格される。 forEach の add-during / future-key-delete (snapshot が +1 で生存させ UAF なし) / nested forEach は deinit 厳密 + delta=0。 forEach mutation の ARC を pin。 詳細は下の確認済み記録。
 - **第 52 弾**。 property accessor を probe して、 **getter/setter 本体から top-level let (グローバル) を参照すると「unbound variable」で lower 失敗**する既存バグを検出・修正。 slot 昇格判定 (`build_slot_table` → `collect_fn_free_var_refs`) がクラスの method / static method は走査するのに **property accessor body を走査していなかった**ため、 getter/setter だけが参照する let が host slot に昇格されなかった (method は動くのに accessor は不可)。 `collect_fn_free_var_refs` の `walk_class` に getter/setter body 走査を追加。 詳細は下の解決済み記録。
 - **第 51 弾**。 static フィールドを probe して、 **heap (string) static フィールド代入が値を retain せず use-after-free**する既存バグを検出・修正。 `Cls.s = arg` (借用 param に fresh string) が static slot を所有せず、 源の transient +1 解放後に slot が dangling → 後続 read が解放済みバッファ (fresh string が空印字)。 `StoreStatic` に instance field 同様の retain-new (非 fresh) / release-old を追加。 詳細は下の解決済み記録。
@@ -104,6 +105,14 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 55 弾: 空マップリテラル `{}` を型注釈ありで空マップと解釈 (2026-06-13、 ユーザー決定)
+
+第 54 弾で記録した「`let m: Map<K,V> = {}` が型エラー」を、 ユーザー判断 (= `{}` でも書けるように実装) を受けて対応。 **`new Map<K,V>()` は従来から空マップを作れる確立した形** (第 54 弾の当初記録の「構文が無い」は誤りで訂正済み)。 本弾は JS 風に `{}` でも書ける利便性の追加:
+
+- **症状 (= 第 54 弾の別件)**: `{}` はパーサが**空ブロック** (値 `()`) として出すため (`control.rs::parse_map_literal` は 1 エントリ以上のときだけ `MapLit` を出す)、 `let m: Map<K,V> = {}` が「expected Map<K,V>, got ()」。
+- **対応**: 型情報の要る checker + lowering で「Map ターゲット位置の空ブロック = 空マップ」とした。 (1) checker `value_assignable` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) が **空ブロック (stmts 空 + tail なし) を `Map<K,V>` ターゲットへ受理** (`empty_block_as_map`)。 非空 `{k: v}` は元から `MapLit` なので無関係、 空ブロックの unit 用法は Map 以外のターゲットでは不変。 (2) lowering `lower_composite_with_hint` ([literals.rs](../crates/ilang-mir/src/lower/literals.rs)) が `(Block 空, MirTy::Map)` を **空 `NewMap`** に lower (`lower_map_literal_with_hint(&[], ..)`)。 (3) `is_fresh_object_expr` ([body_cx.rs](../crates/ilang-mir/src/lower/body_cx.rs)) が**空ブロックを fresh 扱い** — 空ブロックは map スロットで rc=1 の fresh `NewMap` になり、 束縛が scope-exit で解放する必要があるため。 unit 文脈では fresh フラグは arc_heap でないので no-op (安全)。
+- **検証**: let 注釈 / 再代入 (`m = {}` で旧マップ解放) / field 代入 (`this.m = {}`) / fn 戻り値 / fn 引数 / ネスト map 値 (`m.set("o", {})`) の全位置で heap value 込み deinit 厳密 (600/round = 6/round × 100) + churn delta=0。 空ブロックの unit 用法 (`if c {}`、 `let x = {}`) の回帰なし。 fixture: `03_collections/empty_map_literal_brace.il`。 checker + lowering 両方を触ったので nested_generic 儀式も実施。 workspace nextest 539/539、 ilang-types 75/75、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 54 弾: enum ctor 型引数精緻化を payload 引数 / built-in 配列メソッド / index 代入へ拡張 (2026-06-13)
 

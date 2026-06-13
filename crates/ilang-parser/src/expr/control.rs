@@ -194,8 +194,10 @@ impl<'a> Parser<'a> {
     /// Map literal: `{ key1: value1, key2: value2, ... }`. Trailing
     /// comma allowed. Empty maps `{}` are not produced here — that
     /// path is handled by the block-vs-map lookahead above (an empty
-    /// `{}` is parsed as a unit-block; for an empty Map use
-    /// `new Map<K, V>()`).
+    /// `{}` parses as a unit-block). An empty map is written either as
+    /// `new Map<K, V>()`, or as `{}` in a position with a `Map<K, V>`
+    /// type annotation: the type checker reads an empty block against a
+    /// Map target as the empty-map shorthand (see `empty_block_as_map`).
     pub(in crate::expr) fn parse_map_literal(&mut self, span: ilang_ast::Span) -> Result<Expr, ParseError> {
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut entries = Vec::with_capacity(4);

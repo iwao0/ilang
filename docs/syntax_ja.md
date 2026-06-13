@@ -941,6 +941,7 @@ ss.join(", ")                                // string — 区切り文字列で
 ```rust
 let m: Map<string, i64> = {"a": 1, "b": 2}        // リテラル
 let empty: Map<string, i64> = new Map<string, i64>()  // 空マップ
+let empty2: Map<string, i64> = {}                 // 空マップ (`{}` 短縮形。 Map 注釈が必要)
 
 m["c"] = 3                       // 書き込み
 m["a"]                           // 読み取り (キー欠如は実行時エラー)
