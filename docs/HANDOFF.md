@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1284/1284) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1285/1285) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 60 弾**。 `?` を generic fn 内で使う形 (`fn unwrapOr<T>(r: Result<T,string>, fallback: T) { let v = r?; Result.ok(v) }`) を probe して、 **generic fn の型引数推論が引数の最初の binding を優先し Any を残す**既存バグを検出・修正。 `unwrapOr(Result.err("boom"), 0)` は arg1 `Result.err` が T=Any を入れ、 arg2 `0: T` の i64 で上書きされず、 fn が `<Any>` で具体化され monomorphizer が Type::Any で停止 (`?` 非依存。 `pick<T>(a: Result<T,string>, b: T)` でも再現)。 原因: `collect_type_var_bindings` ([sigs.rs](../crates/ilang-types/src/checker/sigs.rs)) が `or_insert_with` で最初の binding を優先。 **具体型が既存の Any を上書きする** (具体同士は従来どおり最初優先) ように修正。 詳細は下の解決済み記録。 **2 件の別系統の既存バグを記録**: (1) `let res = match someResult { ok(v){Result.ok(v)} err(e){Result.err(e)} }; res` (match arm が enum を yield・let に注釈なし) は arm ctor の型引数が refine されず Type::Any (非 generic でも再現。 match の join 結果型を各 arm に refine する必要)。 (2) generic fn を T を決める引数なしで呼ぶ (`f(Result.err("e"))` only) と `<Any>` 具体化で失敗 (match 文脈からの双方向推論が要る)。
 - **第 59 弾** (第 57 弾の判断待ち記録 (2) を解消)。 **generic fn の型パラメータを戻り値位置から推論できる**ようにした。 `fn makeArr<T>(): T[]` / `fn wrapErr<T>(): Result<T,string>` など T が戻り型にしか現れない fn は引数から T を決められず Any のままだった (`let xs: i64[] = makeArr()` が「expected i64[], got any[]」、 enum 系は monomorphizer で Type::Any)。 `refine_fn_call_type_args(call, target)` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) を新設し、 fn の宣言戻り型を期待型に対して unify して残りの型パラメータを解き、 stash (`fn_call_type_args`) を更新して補正後の戻り型を返す。 期待型が分かる 3 位置 — let 注釈 ([stmt.rs](../crates/ilang-types/src/checker/stmt.rs))・fn 戻り位置 ([decls.rs](../crates/ilang-types/src/checker/decls.rs))・呼び出し引数 ([method.rs](../crates/ilang-types/src/checker/method.rs)) — で適用。 部分推論 (片方を引数・片方を注釈) ・heap T の ARC も健全。 詳細は下の解決済み記録。 **これで第 57 弾の判断待ち記録 2 件は両方解消。**
 - **第 58 弾** (第 57 弾の判断待ち記録 (1) を解消)。 **generic class メソッドが generic enum を構築すると「unknown enum 〜」で lower 失敗**する既存バグを修正。 class 単一化 ([class.rs](../crates/ilang-mir/src/monomorphize/class.rs)) の `subst_expr` は specialized method body の型を置換するが **enum ctor の `enum_name` を再 mangle しなかった**ため、 `class Wrap<T> { asSome(): Maybe<T> { Maybe.some(this.v) } }` を `Wrap<i64>` で使うと `Maybe.some` が bare のまま (builtin Result も同症状)。 fn 経路 (fns.rs) は再 mangle するが class 経路に無かった。 checker の `enum_ctor_type_args` を thread-local 経由で class pass に渡し、 `subst_expr` が span 記録の型引数を class の T→具体で置換して mangle (fn 経路と同形)。 builtin Result・user enum・入れ子 (`Result.ok(Maybe.some(this.v))`)・複数インスタンス化・match 消費・heap T payload ARC を網羅。 詳細は下の解決済み記録。 **判断待ち記録の (2)** (generic fn 戻り型のみからの型推論) は未対応のまま。
 - **第 57 弾**。 generic fn × enum ctor の継ぎ目を突き、 **generic fn が builtin `Result` を構築/返却すると「unknown enum Result」で lower 失敗**する既存バグを検出・修正。 `Result<T,E>` は宣言が無く call site ごとに monomorphize されるが、 `monomorphize_fns` は specialize 時に generic-enum の `EnumCtor.enum_name` を mangle する判定材料 (`generic_enums`) を**プログラム宣言の enum だけ**から作っていたため builtin Result が漏れ、 `fn wrapOk<T>(x: T): Result<T, string> { Result.ok(x) }` の `Result.ok` が `enum_name="Result"` のまま残った (user 宣言の `Maybe<T>` は含まれるので動く)。 `monomorphize_fns` の `generic_enums` に Result テンプレートを seed して修正 (monomorphize_enums パスと同じ対処)。 型パラメータが引数で決まる形 (ok arg / err arg / 両腕) で動作・heap payload ARC 厳密。 詳細は下の解決済み記録。 **2 件の別系統の既存バグを記録** (本弾では未対応): (1) generic **class メソッド**が generic enum (user の `Maybe<T>` も builtin `Result` も) を構築すると「unknown enum 〜」 — class 単一化経路が method body の enum ctor を mangle しない別バグ。 (2) generic fn の型パラメータを**戻り値注釈のみ**から推論できない (`let xs: i64[] = makeArr<T>()` も `Maybe`/`Result` も同様) — generic-fn 戻り型推論一般の制約。
@@ -109,6 +110,22 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [確認済み記録] 第 60 弾の周辺で見つけた未対応バグ 2 件 (2026-06-13)
+
+第 60 弾の probe 中に切り分けた別系統の既存バグ。 独立した round で扱う:
+
+1. **match の arm が enum を yield し注釈なし let に束縛すると arm ctor が refine されない**。 `let res = match someResult { ok(v) { Result.ok(v) } err(e) { Result.err(e) } }` の後 `res` を返す形で、 各 arm の `Result.ok(v)` (E=Any) / `Result.err(e)` (T=Any) が refine されず **Type::Any**。 **非 generic でも再現** (`Result<i64,string>` で固定でも失敗)。 match の結果型は join で正しく出る (`Result<i64,string>`) が、 stash (`enum_ctor_type_args`) が更新されない。 対応するなら `check_match_expr` ([match_ctrl.rs](../crates/ilang-types/src/checker/expr/match_ctrl.rs)) で join 後に各 arm body を結果型に対して `refine_enum_ctor_args` する (戻り点が match 種別ごとに複数あるため数箇所)。
+2. **generic fn を型パラメータを決める引数なしで呼ぶと `<Any>` 具体化で失敗**。 `fn f<T>(r: Result<T,string>): Result<T,string>` を `f(Result.err("e"))` だけで呼ぶ (T を決める他引数なし) と T=Any。 第 60 弾は「具体引数があれば Any に勝つ」までで、 T を決める引数が皆無の場合は未対応。 match 文脈 (`match f(..) { ok(v) { v as i64 } .. }`) からの双方向推論が要る (より大きな型推論機能)。 実用上は具体的な Result を渡すので稀。
+
+### [解決済み記録] 第 60 弾: generic fn の引数型推論が Any を具体型より優先 (2026-06-13)
+
+`?` を generic fn 内で使う形を probe して発見 (当初 `?` 起因に見えたが `?` 非依存):
+
+- **症状**: `fn unwrapOr<T>(r: Result<T,string>, fallback: T): Result<T,string> { let v = r?; Result.ok(v) }` を `unwrapOr(Result.err("boom"), 0)` で呼ぶと **「mir lower: unsupported in M1: Type::Any (variadic builtins)」**。 `Result.ok(5)` の呼びは通る。 `?` 無しの `fn pick<T>(a: Result<T,string>, b: T): T { b }` を `pick(Result.err("e"), 42)` で呼んでも同症状。
+- **原因**: generic fn 呼び出しの型引数推論 ([calls.rs](../crates/ilang-types/src/checker/expr/calls.rs)) が各引数から `collect_type_var_bindings` で bind を集めるが、 同関数 ([sigs.rs](../crates/ilang-types/src/checker/sigs.rs)) が `bindings.entry(name).or_insert_with(..)` で **最初の binding を優先**。 arg1 `Result.err("boom")` は `Result<T,string>` vs `Result<Any,string>` で **T=Any** を入れ、 arg2 `0`/`42` の `T` vs `i64` が **上書きされない**。 結果 fn が `<Any>` で具体化され、 monomorphizer が `Result<Any,string>` の layout で `ty_to_mir(Any)` に達して停止。 (切り分け: DBG で fn の specialize が T=Any と T=i64 の両方で走っていることを確認。 非 generic の同形 (`Result<i64,string>` 固定) は通るので generic 推論固有。)
+- **修正**: `collect_type_var_bindings` の `TypeVar` arm で、 **既存 binding が `Any` なら具体型で上書き** (具体同士は従来どおり最初を保持し、 conflict を黙って再推論しない)。 これで arg2 の i64 が arg1 の Any に勝ち、 fn が `<i64>` で具体化される。
+- **検証**: `pick(Result.err("e"), 42)` / `pick(Result.ok(7), 9)` の値、 `?` helper の ok/err 経路を heap (`Box`) payload で deinit 厳密 (300/round = 3/round × 100) + churn delta=0 (err 経路の未使用 fallback Box 解放も確認)。 fixture: `05_edge_cases/generic_fn_arg_infer_prefers_concrete.il`。 **core 推論変更**のため workspace nextest 539/539 で回帰なしを確認。 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 59 弾: generic fn の型パラメータを戻り値位置から推論 (2026-06-13)
 

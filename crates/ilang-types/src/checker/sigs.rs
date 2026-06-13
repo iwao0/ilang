@@ -52,7 +52,18 @@ pub(super) fn collect_type_var_bindings(
 ) {
     match (payload, arg) {
         (Type::TypeVar(name), other) => {
-            bindings.entry(name.clone()).or_insert_with(|| other.clone());
+            // Prefer a concrete binding over a previously-recorded `Any`.
+            // An arg like `Result.err("e")` pins `E` but leaves `T = Any`;
+            // a later arg that does fix `T` (e.g. `fallback: T` given an
+            // `i64`) must win, or the fn instantiates as `<Any>` and the
+            // monomorphizer chokes. A first concrete binding still stands
+            // against a later one (no silent re-inference of conflicts).
+            match bindings.get(name) {
+                Some(t) if !matches!(t, Type::Any) => {}
+                _ => {
+                    bindings.insert(name.clone(), other.clone());
+                }
+            }
         }
         (Type::Array { elem: pe, .. }, Type::Array { elem: ae, .. }) => {
             collect_type_var_bindings(pe, ae, bindings);
