@@ -938,6 +938,7 @@ impl TypeChecker {
         check_arity(args.len(), ft.params.len(), method_name, span)?;
         for (i, expected) in ft.params.iter().enumerate() {
             let got = self.check_expr(&args[i], env, ret_ty, in_class, loop_depth)?;
+            self.refine_enum_ctor_args(&args[i], expected);
             if !self.value_assignable(&args[i], &got, expected) {
                 return Err(TypeError::Mismatch {
                     expected: expected.clone(),
@@ -1124,6 +1125,11 @@ impl TypeChecker {
             .insert(span, (callee.clone(), inferred_args.clone()));
         for ((param_ty, arg), at) in sig.params.iter().zip(args.iter()).zip(arg_tys.iter()) {
             let actual = subst_type(param_ty, &sig.type_params, &inferred_args);
+            // Refine an enum-ctor argument from the (substituted) param
+            // type so `f(Result.err("e"))` against a `Result<i64,string>`
+            // param fills the unfilled `T` (else the monomorphizer hits
+            // Type::Any). Same fix as the field / array / let positions.
+            self.refine_enum_ctor_args(arg, &actual);
             if !self.value_assignable(arg, at, &actual) {
                 return Err(TypeError::Mismatch {
                     expected: actual,

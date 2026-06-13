@@ -233,6 +233,10 @@ impl TypeChecker {
             let at = self.or_record(
                 self.check_expr(arg, env, ret_ty, in_class, loop_depth),
             );
+            // Refine an enum-ctor argument from the param's declared type
+            // (`f(Result.err("e"))` against `Result<i64,string>`) so the
+            // unfilled type param doesn't reach the monomorphizer as Any.
+            self.refine_enum_ctor_args(arg, param_ty);
             if !self.value_assignable(arg, &at, param_ty) {
                 self.record(TypeError::Mismatch {
                     expected: param_ty.clone(),

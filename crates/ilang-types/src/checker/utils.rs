@@ -289,6 +289,30 @@ impl TypeChecker {
                 }
             }
             ExprKind::Return(Some(inner)) => self.refine_enum_ctor_args(inner, target),
+            // Recurse into the composite-literal shapes so an enum ctor
+            // nested in `some(..)` / a tuple / an array literal is refined
+            // from the corresponding slot of the declared type, e.g.
+            // `some(Result.err("e"))` against `Result<i64,string>?` or
+            // `(Result.err("e"), 5)` against `(Result<i64,string>, i64)`.
+            ExprKind::Some(inner) => {
+                if let Type::Optional(it) = target {
+                    self.refine_enum_ctor_args(inner, it);
+                }
+            }
+            ExprKind::Tuple(elems) => {
+                if let Type::Tuple(tys) = target {
+                    for (e, t) in elems.iter().zip(tys.iter()) {
+                        self.refine_enum_ctor_args(e, t);
+                    }
+                }
+            }
+            ExprKind::Array(elems) => {
+                if let Type::Array { elem, .. } = target {
+                    for e in elems.iter() {
+                        self.refine_enum_ctor_args(e, elem);
+                    }
+                }
+            }
             _ => {}
         }
     }
