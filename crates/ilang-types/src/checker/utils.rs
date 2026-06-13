@@ -255,16 +255,55 @@ impl TypeChecker {
             _ => None,
         };
         match &expr.kind {
-            ExprKind::EnumCtor { enum_name, .. } => {
+            ExprKind::EnumCtor { enum_name, variant, args } => {
                 if let Some((tbase, targs)) = &target_args {
                     if tbase == enum_name {
-                        let mut tbl = self.enum_ctor_type_args.borrow_mut();
-                        if let Some((_, recorded)) = tbl.get_mut(&expr.span) {
-                            for (i, slot) in recorded.iter_mut().enumerate() {
-                                if matches!(slot, Type::Any) {
+                        // Refine the ctor's own recorded type args: a slot
+                        // that mentions `Any` (bare, or nested like
+                        // `Maybe<Any>`) is replaced by the target's
+                        // fully-concrete corresponding arg.
+                        let refined_args: Option<Vec<Type>> = {
+                            let mut tbl = self.enum_ctor_type_args.borrow_mut();
+                            tbl.get_mut(&expr.span).map(|(_, recorded)| {
+                                for (i, slot) in recorded.iter_mut().enumerate() {
                                     if let Some(t) = targs.get(i) {
-                                        *slot = t.clone();
+                                        if type_contains_any(slot) && !type_contains_any(t) {
+                                            *slot = t.clone();
+                                        }
                                     }
+                                }
+                                recorded.clone()
+                            })
+                        };
+                        // Recurse into the payload args against the now-
+                        // concrete payload types, so a nested ctor like
+                        // `Result.ok(Maybe.nope)` gets its own `Maybe<T>`
+                        // refined from the declared `Result<Maybe<Box>,_>`.
+                        if let Some(refined_args) = refined_args {
+                            if let Some((tparams, payload)) = self.enums.get(enum_name).and_then(|s| {
+                                s.variants
+                                    .iter()
+                                    .find(|v| v.name == *variant)
+                                    .map(|v| (s.type_params.clone(), v.payload.clone()))
+                            }) {
+                                match (&payload, args) {
+                                    (VariantPayloadSig::Tuple(tys), CtorArgs::Tuple(elems)) => {
+                                        for (e, t) in elems.iter().zip(tys.iter()) {
+                                            let pt = subst_type(t, &tparams, &refined_args);
+                                            self.refine_enum_ctor_args(e, &pt);
+                                        }
+                                    }
+                                    (VariantPayloadSig::Struct(fields), CtorArgs::Struct(provided)) => {
+                                        for (fname, fty) in fields {
+                                            if let Some((_, e)) =
+                                                provided.iter().find(|(n, _)| n == fname)
+                                            {
+                                                let pt = subst_type(fty, &tparams, &refined_args);
+                                                self.refine_enum_ctor_args(e, &pt);
+                                            }
+                                        }
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
@@ -458,6 +497,22 @@ impl TypeChecker {
 /// alongside `new Map<K, V>()`. A non-empty `{ k: v }` is a `MapLit` and
 /// never reaches here. Restricted to a literal empty block so a block that
 /// merely happens to evaluate to unit isn't silently turned into a map.
+/// Does `t` mention `Type::Any` anywhere (top-level or nested)? Used to
+/// decide whether a recorded enum-ctor type arg like `Maybe<Any>` still
+/// needs refining from the authoritative target type.
+fn type_contains_any(t: &Type) -> bool {
+    match t {
+        Type::Any => true,
+        Type::Generic(g) => g.args.iter().any(type_contains_any),
+        Type::Array { elem, .. } => type_contains_any(elem),
+        Type::Optional(i) | Type::Weak(i) => type_contains_any(i),
+        Type::Tuple(es) => es.iter().any(type_contains_any),
+        Type::RawPtr { inner, .. } => type_contains_any(inner),
+        Type::Fn(f) => f.params.iter().any(type_contains_any) || type_contains_any(&f.ret),
+        _ => false,
+    }
+}
+
 fn empty_block_as_map(value: &Expr, target: &Type) -> bool {
     matches!(target, Type::Generic(g) if g.base == "Map" && g.args.len() == 2)
         && matches!(
