@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1292/1292) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1293/1293) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 67 弾**。 第 66 弾の covariance が **`some(..)` / tuple 等の入れ子降下では効かない**取りこぼしを是正。 第 66 は covariance を `value_assignable` (メソッド) に入れたが、 `some(Result.ok(new Dog()))` を `Result<Animal,string>?` へ入れる際の降下は `literal_assignable_with` (self を持たない自由関数) で起きるため未到達だった (配列/Map は hint-checker が要素ごとに value_assignable を呼ぶので元から動いていた)。 vt が既に推論済み型引数を持つことを利用し、 **型レベルの covariance 検査** (`type_covariant_to`: equal / Any / Object subtype / 構造的再帰) を `literal_assignable_with` の EnumCtor arm に追加。 これで some/tuple/array/深い入れ子 (`Result<Animal,string>?[]`) の全降下で合成。 第 66 のメソッド版 `enum_ctor_literal_covariant` は冗長になり削除。 詳細は下の解決済み記録。
 - **第 66 弾** (ユーザー決定 = generic enum リテラルを covariant に)。 **generic enum のコンストラクタリテラルを型引数に対して covariant** にした (配列/Map リテラル covariance と一貫)。 `Result.ok(new Dog())` (`Result<Dog,_>`) を `Result<Animal, string>` へ、 `Result.err(new Dog())` を `Result<i64, Animal>` へ入れられる (ok=T 位置・err=E 位置の両方)。 ctor は宣言 enum (`Result<Animal,string>`) として記録され、 monomorphizer が親型を構築・payload は upcast 格納・親型越しの仮想ディスパッチが動く。 **リテラル限定** (別名の `Result<Dog,string>` 変数は `Result<Animal,string>` へ代入不可 — enum は immutable 値なので健全)。 value_assignable に `enum_ctor_literal_covariant`、 refine に subtype upcast (`is_covariant_upcast`) を追加。 詳細は下の解決済み記録。
 - **第 65 弾**。 **async fn が generic enum を返すと型引数が refine されない**実バグを検出・修正 (第 63 弾の診断が表面化)。 `async fn getR(): Result<Box, string> { Result.ok(new Box(5)) }` は注釈なしだと「cannot infer the type parameter(s) of \`Result\`」。 async desugar は return 値を `Promise.$promise.settleResolve(p, Result.ok(..))` (generic static method `settleResolve<T>(p: Promise<T>, v: T)`) の引数に包むが、 **`resolve_method_call` ([method.rs](../crates/ilang-types/src/checker/method.rs)) の generic メソッド経路が引数の enum ctor を refine していなかった** (generic fn 経路・check_args は refine するのに)。 そのため `Result.ok(..)` の E=Any が残った。 検証ループに `refine_enum_ctor_args(arg, &actual)` を追加 — promise の要素型 `Result<Box,string>` が `v: T` に流れて ctor を refine。 async に限らず **全 generic メソッド呼び出し**の enum-ctor 引数 refine 漏れを修正。 heap payload は await 跨ぎで ARC 厳密。 詳細は下の解決済み記録。
 - **第 64 弾**。 第 63 弾の明示診断が **enum-in-enum ctor の refine 漏れ**という実バグを表面化させ、 修正。 `Result.ok(Maybe.nope)` を `Result<Maybe<Box>, string>` に対して構築すると、 内側 `Maybe.nope` の T が refine されず (`refine_enum_ctor_args` が ctor の**自分の型引数**は埋めるのに **payload 引数へ再帰していなかった**)、 第 63 以前は Type::Any クラッシュ・第 63 以降は「cannot infer」診断が出ていた (が型は宣言から確定可能)。 `refine_enum_ctor_args` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) で (1) ネスト Any を含む slot (`Maybe<Any>`) を target の具体 arg で置換、 (2) **payload 引数を置換後の payload 型へ再帰 refine** するよう拡張。 let 注釈・map 値・fn 戻り・深い入れ子 (`Result<Maybe<Maybe<Box>>>`)・heap ARC で動作。 詳細は下の解決済み記録。
@@ -116,6 +117,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 67 弾: enum covariance を入れ子降下 (some/tuple) でも効かせる (2026-06-13)
+
+第 66 弾の covariance generalization を probe して発見した取りこぼし:
+
+- **症状**: `let o: Result<Animal, string>? = some(Result.ok(new Dog()))` が「expected Result<Animal, string>?, got Result<Dog, any>?」で拒否。 第 66 弾の covariance は直接 let / 引数 / return / 配列 / Map では効くが、 **`some(..)` 包み**では効かなかった。
+- **原因**: 第 66 は covariance を `value_assignable` (メソッド、 self あり) に実装したが、 `some(inner)` を Optional へ入れる際の降下は `literal_assignable_with` (自由関数、 self なし → enum sig にアクセス不可) で行われ、 そこに covariance が無かった。 配列/Map リテラルは hint-checker (`check_array_with_hint` 等) が要素ごとに `value_assignable` を呼ぶので元から効いていた。
+- **修正**: vt (例 `Result<Dog,Any>`) が既に ctor の推論済み型引数を持つことを利用し、 **enum sig 不要の型レベル covariance** に置き換え。 `literal_assignable_with` ([mod.rs](../crates/ilang-types/src/checker/mod.rs)) の末尾に EnumCtor arm を追加: value が EnumCtor・vt/target が同 base の generic enum なら、 各型引数位置を `type_covariant_to` (equal / `Any` / Object subtype・interface 実装 / Array・Optional・Generic の構造的再帰) で検査。 `literal_assignable_with` は some/tuple/array/map の降下で自身を再帰呼びするので、 任意の入れ子で合成。 第 66 のメソッド版 `enum_ctor_literal_covariant` (sig + payload 式を使う版) は冗長になり削除。 refine 側の `is_covariant_upcast` (ctor を親型で記録) は据え置き (some 降下も `refine_enum_ctor_args` の Some arm で内側 ctor に届く)。
+- **検証**: 引数 / return / `some(..)` 包み / tuple 要素 / 深い入れ子 (`Result<Animal,string>?[]`) を heap Dog payload + 親型越し vdispatch で網羅。 deinit 厳密 (400/round = 4/round × 100) + churn delta=0。 第 66 の直接 let / array / map と別名拒否も回帰なし。 fixture: `09_subtyping/generic_enum_covariant_nested.il`。 checker のみの変更。 workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 66 弾: generic enum リテラルの covariance (2026-06-13、 ユーザー決定)
 

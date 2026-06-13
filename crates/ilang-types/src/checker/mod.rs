@@ -243,6 +243,28 @@ where
             .zip(target_elems.iter())
             .all(|((e, vt_e), tt_e)| literal_assignable_with(e, vt_e, tt_e, is_sub));
     }
+    // Generic-enum ctor LITERAL covariance: `Result.ok(new Dog())`
+    // (`Result<Dog, _>`) flows into `Result<Animal, string>`, like the
+    // array / map literal cases above. Both type-arg positions covary.
+    // Checked at the type level — `vt` already carries the ctor's inferred
+    // args — so it composes with the `some(..)` / tuple / array descent
+    // (e.g. `some(Result.ok(new Dog()))` into `Result<Animal, string>?`).
+    // Literal-only: gated on `value` being an EnumCtor, so an aliased
+    // `Result<Dog, string>` variable still doesn't covary.
+    if let ExprKind::EnumCtor { enum_name, .. } = &value.kind {
+        if let (Type::Generic(vg), Type::Generic(tg)) = (vt, target) {
+            if vg.base == *enum_name
+                && tg.base == *enum_name
+                && vg.args.len() == tg.args.len()
+            {
+                return vg
+                    .args
+                    .iter()
+                    .zip(tg.args.iter())
+                    .all(|(va, ta)| type_covariant_to(va, ta, is_sub));
+            }
+        }
+    }
     // Int / unary-neg-int / float literal cases are handled at
     // the top of this function so they take precedence over the
     // general `assignable` int-narrowing rule.
@@ -252,6 +274,34 @@ where
         }
     }
     false
+}
+
+/// Covariant type compatibility for a generic-enum type-arg position:
+/// equal, an unresolved `Any` slot (refined later from the target), an
+/// Object subtype / interface impl, or a structurally-covariant container.
+fn type_covariant_to<F>(from: &Type, to: &Type, is_sub: &F) -> bool
+where
+    F: Fn(Symbol, Symbol) -> Option<u32>,
+{
+    if from == to || matches!(from, Type::Any) {
+        return true;
+    }
+    match (from, to) {
+        (Type::Object(c), Type::Object(p)) => is_sub(*c, *p).is_some(),
+        (Type::Array { elem: fe, .. }, Type::Array { elem: te, .. }) => {
+            type_covariant_to(fe, te, is_sub)
+        }
+        (Type::Optional(fi), Type::Optional(ti)) => type_covariant_to(fi, ti, is_sub),
+        (Type::Generic(fg), Type::Generic(tg))
+            if fg.base == tg.base && fg.args.len() == tg.args.len() =>
+        {
+            fg.args
+                .iter()
+                .zip(tg.args.iter())
+                .all(|(a, b)| type_covariant_to(a, b, is_sub))
+        }
+        _ => assignable(from, to),
+    }
 }
 
 #[derive(Debug, Clone)]

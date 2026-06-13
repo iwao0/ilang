@@ -209,65 +209,6 @@ impl TypeChecker {
             || self.enum_repr_assignable(vt, target)
             || self.handle_void_ptr_assignable(vt, target)
             || empty_block_as_map(value, target)
-            || self.enum_ctor_literal_covariant(value, vt, target)
-    }
-
-    /// Literal covariance for a generic enum ctor: `Result.ok(new Dog())`
-    /// (`Result<Dog, _>`) flows into a `Result<Animal, string>` slot, the
-    /// same way `[new Dog()]` flows into `Animal[]`. Each payload arg is
-    /// checked covariantly against the declared payload type. Literal-only
-    /// (an aliased `Result<Dog, string>` *variable* still doesn't assign to
-    /// `Result<Animal, string>`); enums are immutable values so an upcast
-    /// payload can't be written back through the parent type.
-    fn enum_ctor_literal_covariant(&self, value: &Expr, vt: &Type, target: &Type) -> bool {
-        let ExprKind::EnumCtor { enum_name, variant, args } = &value.kind else {
-            return false;
-        };
-        let (Type::Generic(tg), Type::Generic(vg)) = (target, vt) else {
-            return false;
-        };
-        if tg.base != *enum_name || vg.base != *enum_name {
-            return false;
-        }
-        let Some(sig) = self.enums.get(enum_name) else {
-            return false;
-        };
-        if sig.type_params.len() != tg.args.len() || vg.args.len() != tg.args.len() {
-            return false;
-        }
-        let Some(v) = sig.variants.iter().find(|v| v.name == *variant) else {
-            return false;
-        };
-        let is_sub = |c: Symbol, p: Symbol| -> Option<u32> {
-            self.subclass_distance(c, p).or_else(|| {
-                if self.class_implements(c, p) {
-                    Some(0)
-                } else {
-                    None
-                }
-            })
-        };
-        let check = |pty: &Type, e: &Expr| {
-            let vt_e = subst_type(pty, &sig.type_params, &vg.args);
-            let tt_e = subst_type(pty, &sig.type_params, &tg.args);
-            literal_assignable_with(e, &vt_e, &tt_e, &is_sub)
-        };
-        match (&v.payload, args) {
-            (VariantPayloadSig::Unit, CtorArgs::Unit) => true,
-            (VariantPayloadSig::Tuple(tys), CtorArgs::Tuple(elems)) => {
-                tys.len() == elems.len()
-                    && tys.iter().zip(elems.iter()).all(|(t, e)| check(t, e))
-            }
-            (VariantPayloadSig::Struct(fields), CtorArgs::Struct(provided)) => {
-                fields.iter().all(|(fname, fty)| {
-                    provided
-                        .iter()
-                        .find(|(n, _)| n == fname)
-                        .is_some_and(|(_, e)| check(fty, e))
-                })
-            }
-            _ => false,
-        }
     }
 
     /// `pub enum E: T { ... }` flows into a slot typed `T`
