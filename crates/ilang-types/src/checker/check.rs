@@ -472,7 +472,45 @@ impl TypeChecker {
             last = self.or_record(self.check_expr(t, &env, None, None, 0));
         }
         self.vars = env;
+        // Final pass: any generic-fn call / enum ctor whose type args
+        // could not be pinned from its arguments OR refined from context
+        // still holds `Type::Any` in its stash. That reaches the JIT
+        // monomorphizer as a layout it can't build, where it used to abort
+        // with the opaque "Type::Any (variadic builtins)". Surface it here
+        // as a clear "add a type annotation" diagnostic. `TypeVar` slots
+        // (a generic fn/class template body) are NOT flagged — those
+        // resolve when the template is instantiated.
+        self.report_unresolved_type_args();
         (last, self.errors.borrow().clone())
     }
 
+    /// Flag every stashed generic-fn call / enum ctor whose inferred type
+    /// args still contain `Type::Any` (an unresolved type parameter), so
+    /// the user gets a clear annotation hint instead of a lowering abort.
+    /// `TypeVar` is intentionally allowed (a generic template body).
+    fn report_unresolved_type_args(&self) {
+        let has_any = |args: &[Type]| args.iter().any(|t| matches!(t, Type::Any));
+        for (span, (enum_name, args)) in self.enum_ctor_type_args.borrow().iter() {
+            if has_any(args) {
+                self.record(TypeError::Unsupported {
+                    what: format!(
+                        "cannot infer the type parameter(s) of `{enum_name}` here — \
+                         add a type annotation (e.g. `let x: {enum_name}<...> = ...`)"
+                    ),
+                    span: *span,
+                });
+            }
+        }
+        for (span, (callee, args)) in self.fn_call_type_args.borrow().iter() {
+            if has_any(args) {
+                self.record(TypeError::Unsupported {
+                    what: format!(
+                        "cannot infer the type parameter(s) of generic fn `{callee}` at \
+                         this call — annotate the binding or pass an argument that fixes them"
+                    ),
+                    span: *span,
+                });
+            }
+        }
+    }
 }

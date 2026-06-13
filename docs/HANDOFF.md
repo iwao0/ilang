@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1287/1287) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1288/1288) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 63 弾** (ユーザー決定 = 第 62 弾の残る限界を明示診断に)。 **型引数を解決できない generic 呼び出し / enum ctor を、 lowering クラッシュでなく checker の明示診断にした**。 これまで `match f(Result.err("e")) { .. }` (bare scrutinee) や `let r = Result.ok(5)` (E 未決定) は型引数が `Any` のまま lowering に届き「Type::Any (variadic builtins)」で停止していた。 `check()` ([check.rs](../crates/ilang-types/src/checker/check.rs)) の末尾に `report_unresolved_type_args` を追加し、 `enum_ctor_type_args` / `fn_call_type_args` の stash で **型引数に `Type::Any` が残るエントリ**を span 付きで報告 (「cannot infer the type parameter(s) of ... — add a type annotation」)。 `TypeVar` (generic テンプレート本体) は除外。 **挙動変更**: 従来コンパイルが通っていた「未呼び出し fn 内の曖昧 ctor」も明示エラーになる (`let r = Result.ok(5)` は到達性に関わらず曖昧 = Rust の `let r = Ok(5)` と同じく注釈必須)。 既存 fixture は曖昧 ctor に依存しておらず全緑。 詳細は下の解決済み記録。
 - **第 62 弾** (第 60 弾の確認済み記録 (2) を大部分解消)。 **型を決める引数を持たない generic fn 呼び出し** (`f(Result.err("e"))`、 `fn f<T>(r: Result<T,string>)`) を、 **期待型が分かる位置 (let 注釈 / fn 戻り / 引数) で解ける**ようにした。 第 59 弾の `refine_fn_call_type_args` は fn の T を期待型から解いていたが、 **インライン引数 `Result.err("e")` 自身の stash が `[Any, string]` のまま**残り (まだ generic な param に対して check されたため) 引数が Type::Any で lower 失敗していた。 `refine_fn_call_type_args` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) に、 T を解いた後**各引数を具体化した param 型で再 `refine_enum_ctor_args`** する処理を追加 (引数は fn の T を共有するため)。 let 注釈・return・引数位置で動作、 heap T ARC 健全。 詳細は下の解決済み記録。 **残る限界**: 期待型が皆無の bare match scrutinee (`match f(Result.err("e")) { .. }`) は依然 Type::Any (本質的に曖昧・注釈が必要)。
 - **第 61 弾** (第 60 弾の確認済み記録 (1) を解消)。 **match の arm が enum を yield し注釈なし let に束縛すると arm ctor が refine されず Type::Any** になる既存バグを修正 (非 generic でも再現)。 `let res = match r { ok(v) { Result.ok(v) } err(e) { Result.err(e) } }` は join で `Result<i64,string>` に解決するが、 各 arm の `Result.ok(v)` (E=Any) / `Result.err(e)` (T=Any) は片方しか pin せず、 `res` に注釈が無いため refine されなかった。 `check_match_expr` ([match_ctrl.rs](../crates/ilang-types/src/checker/expr/match_ctrl.rs)) / `check_match_optional` / `check_match_primitive` ([match_.rs](../crates/ilang-types/src/checker/match_.rs)) で join 後の結果型を各 arm に push する `refine_match_arm_ctors` を追加。 enum / Optional / primitive scrutinee の全 3 種に適用。 heap T ARC も健全。 詳細は下の解決済み記録。 **確認済み記録の (2)** (T を決める引数なしの generic 呼び出し) は未対応のまま。
 - **第 60 弾**。 `?` を generic fn 内で使う形 (`fn unwrapOr<T>(r: Result<T,string>, fallback: T) { let v = r?; Result.ok(v) }`) を probe して、 **generic fn の型引数推論が引数の最初の binding を優先し Any を残す**既存バグを検出・修正。 `unwrapOr(Result.err("boom"), 0)` は arg1 `Result.err` が T=Any を入れ、 arg2 `0: T` の i64 で上書きされず、 fn が `<Any>` で具体化され monomorphizer が Type::Any で停止 (`?` 非依存。 `pick<T>(a: Result<T,string>, b: T)` でも再現)。 原因: `collect_type_var_bindings` ([sigs.rs](../crates/ilang-types/src/checker/sigs.rs)) が `or_insert_with` で最初の binding を優先。 **具体型が既存の Any を上書きする** (具体同士は従来どおり最初優先) ように修正。 詳細は下の解決済み記録。 **2 件の別系統の既存バグを記録**: (1) `let res = match someResult { ok(v){Result.ok(v)} err(e){Result.err(e)} }; res` (match arm が enum を yield・let に注釈なし) は arm ctor の型引数が refine されず Type::Any (非 generic でも再現。 match の join 結果型を各 arm に refine する必要)。 (2) generic fn を T を決める引数なしで呼ぶ (`f(Result.err("e"))` only) と `<Any>` 具体化で失敗 (match 文脈からの双方向推論が要る)。
@@ -113,11 +114,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### [確認済み記録] 期待型が皆無の bare match scrutinee での generic 呼び出し (2026-06-13、 第 62 弾で大部分解消)
+### [解決済み記録] 第 63 弾: 解決できない型引数を明示診断にした (2026-06-13、 ユーザー決定)
 
-第 62 弾で「期待型が分かる位置 (let 注釈 / return / 引数)」は解消。 **残るのは期待型が皆無のケースのみ**:
+第 62 弾の残る限界 (期待型が皆無の bare match scrutinee 等) を、 ユーザー判断で**明示診断**にした (双方向推論は入れず、 曖昧なら注釈を促す):
 
-- `match f(Result.err("e")) { ok(v) { .. } err(s) { .. } }` のように generic fn 呼び出しを **bare match scrutinee** に置くと、 呼び出しに期待型が無く T=Any のまま (match の arm 使用からの双方向推論が要る)。 実用上は `let x: Result<i64,string> = f(..)` と注釈するか具体 Result を渡せば解決。 対応するなら match scrutinee 位置にも期待型推論を入れるか、 「型パラメータが解決できない」旨の明示診断にする (現状は lower で Type::Any クラッシュ)。
+- **背景**: `match f(Result.err("e")) { .. }` (期待型の無い bare scrutinee) や `let r = Result.ok(5)` (E が未決定) は、 型引数が `Any` のまま monomorphizer に届き **「mir lower: unsupported in M1: Type::Any (variadic builtins)」** で停止していた (源コード位置の無い不親切なエラー)。
+- **調査**: checker は型引数を `enum_ctor_type_args` / `fn_call_type_args` の stash (span → (name, [type args])) に記録し、 解決できなかった param は `Type::Any` を残す。 到達コードではこの Any が lowering でクラッシュするが、 **未呼び出し fn 内の Any はコンパイルが通っていた** (テンプレートが lowering 前に破棄/未 monomorphize のため)。
+- **修正**: `check()` ([check.rs](../crates/ilang-types/src/checker/check.rs)) の末尾に `report_unresolved_type_args` を追加。 両 stash を走査し、 型引数に `Type::Any` を含むエントリを `Unsupported { what, span }` で報告: enum ctor は「cannot infer the type parameter(s) of \`Result\` here — add a type annotation」、 generic fn 呼び出しは「cannot infer the type parameter(s) of generic fn \`f\` at this call」。 **`TypeVar` は除外** (generic テンプレート本体は instantiation で解決されるため正当)。 全ての refine (let / return / 引数 / match arm join / 第 54〜62 弾) が走った**後**の最終 stash を見るので、 解決済みの呼び出しは Any を持たず誤検知しない。
+- **挙動変更**: 従来コンパイルが通っていた **未呼び出し fn 内の曖昧 ctor** (`fn unused() { let r = Result.ok(5); .. }`) も明示エラーになる。 これは到達性に関わらず曖昧 (Rust の `let r = Ok(5)` が注釈必須なのと同じ) なので妥当な厳格化。 既存 fixture / cocoa / std はいずれも曖昧 ctor に依存しておらず全緑。
+- **検証**: 失敗していた全形 (bare match scrutinee・注釈なし let・`Result.ok(5)`) が span 付き診断に変わり、 正しい形 (注釈あり・T-fixing 引数・第 59/61/62 弾の各位置) は無影響。 fixture: `05_edge_cases/unresolved_type_arg_diagnostic.il` (`// expect-error` で診断を pin)。 workspace nextest 539/539 (REPL 含む)、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。 **残る既知の課題**: 双方向推論 (match arm の使われ方から scrutinee の T を逆算) は未実装 — 曖昧なら注釈で回避する方針。
 
 ### [解決済み記録] 第 62 弾: 期待型から generic 呼び出しの T を解いた後に引数も再 refine (2026-06-13)
 
