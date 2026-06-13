@@ -86,7 +86,7 @@ fn(T1, T2): R       // 関数値 (キャプチャなし)
 
 `expr as Type` で明示キャスト。`if`/`else` の枝合流では暗黙の数値拡張を許さない (整数リテラルのみ例外的に他方の型へ coerce)。
 
-**新規のコンテナリテラル**はその要素型 / 値型に対して共変。`[new Dog()]` は `Animal[]` へ、`{"a": new Dog()}` は `Map<string, Animal>` へ流れる (`let` 注釈下では `{"a": new Dog(), "b": none}` → `Map<string, Animal?>` のような混在も可)。これはリテラル限定 — 別名の `Map<string, Dog>` **変数**は `Map<string, Animal>` へ代入できない (親型越しの変更が unsound になるため)。
+**新規のコンテナリテラル**はその要素型 / 値型に対して共変。`[new Dog()]` は `Animal[]` へ、`{"a": new Dog()}` は `Map<string, Animal>` へ流れる (`let` 注釈下では `{"a": new Dog(), "b": none}` → `Map<string, Animal?>` のような混在も可)。**generic enum のコンストラクタリテラル**も全型引数位置で同様に共変 — `Result.ok(new Dog())` は `Result<Animal, string>` へ、`Result.err(new Dog())` は `Result<i64, Animal>` へ流れる。これはリテラル限定 — 別名の `Map<string, Dog>` / `Result<Dog, string>` **変数**は親型版へ代入できない (親型越しの変更が unsound になるため。enum 値は immutable なのでリテラル形は健全)。
 
 ---
 

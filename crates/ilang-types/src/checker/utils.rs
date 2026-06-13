@@ -209,6 +209,65 @@ impl TypeChecker {
             || self.enum_repr_assignable(vt, target)
             || self.handle_void_ptr_assignable(vt, target)
             || empty_block_as_map(value, target)
+            || self.enum_ctor_literal_covariant(value, vt, target)
+    }
+
+    /// Literal covariance for a generic enum ctor: `Result.ok(new Dog())`
+    /// (`Result<Dog, _>`) flows into a `Result<Animal, string>` slot, the
+    /// same way `[new Dog()]` flows into `Animal[]`. Each payload arg is
+    /// checked covariantly against the declared payload type. Literal-only
+    /// (an aliased `Result<Dog, string>` *variable* still doesn't assign to
+    /// `Result<Animal, string>`); enums are immutable values so an upcast
+    /// payload can't be written back through the parent type.
+    fn enum_ctor_literal_covariant(&self, value: &Expr, vt: &Type, target: &Type) -> bool {
+        let ExprKind::EnumCtor { enum_name, variant, args } = &value.kind else {
+            return false;
+        };
+        let (Type::Generic(tg), Type::Generic(vg)) = (target, vt) else {
+            return false;
+        };
+        if tg.base != *enum_name || vg.base != *enum_name {
+            return false;
+        }
+        let Some(sig) = self.enums.get(enum_name) else {
+            return false;
+        };
+        if sig.type_params.len() != tg.args.len() || vg.args.len() != tg.args.len() {
+            return false;
+        }
+        let Some(v) = sig.variants.iter().find(|v| v.name == *variant) else {
+            return false;
+        };
+        let is_sub = |c: Symbol, p: Symbol| -> Option<u32> {
+            self.subclass_distance(c, p).or_else(|| {
+                if self.class_implements(c, p) {
+                    Some(0)
+                } else {
+                    None
+                }
+            })
+        };
+        let check = |pty: &Type, e: &Expr| {
+            let vt_e = subst_type(pty, &sig.type_params, &vg.args);
+            let tt_e = subst_type(pty, &sig.type_params, &tg.args);
+            literal_assignable_with(e, &vt_e, &tt_e, &is_sub)
+        };
+        match (&v.payload, args) {
+            (VariantPayloadSig::Unit, CtorArgs::Unit) => true,
+            (VariantPayloadSig::Tuple(tys), CtorArgs::Tuple(elems)) => {
+                tys.len() == elems.len()
+                    && tys.iter().zip(elems.iter()).all(|(t, e)| check(t, e))
+            }
+            (VariantPayloadSig::Struct(fields), CtorArgs::Struct(provided)) => {
+                fields.iter().all(|(fname, fty)| {
+                    provided
+                        .iter()
+                        .find(|(n, _)| n == fname)
+                        .is_some_and(|(_, e)| check(fty, e))
+                })
+            }
+            _ => false,
+        }
     }
 
     /// `pub enum E: T { ... }` flows into a slot typed `T`
@@ -259,22 +318,34 @@ impl TypeChecker {
                 if let Some((tbase, targs)) = &target_args {
                     if tbase == enum_name {
                         // Refine the ctor's own recorded type args: a slot
-                        // that mentions `Any` (bare, or nested like
-                        // `Maybe<Any>`) is replaced by the target's
-                        // fully-concrete corresponding arg.
-                        let refined_args: Option<Vec<Type>> = {
-                            let mut tbl = self.enum_ctor_type_args.borrow_mut();
-                            tbl.get_mut(&expr.span).map(|(_, recorded)| {
-                                for (i, slot) in recorded.iter_mut().enumerate() {
-                                    if let Some(t) = targs.get(i) {
-                                        if type_contains_any(slot) && !type_contains_any(t) {
-                                            *slot = t.clone();
-                                        }
+                        // is replaced by the target's corresponding arg
+                        // when it (a) mentions `Any` (bare or nested like
+                        // `Maybe<Any>`), or (b) is an Object subtype of it
+                        // (literal covariance — `Result.ok(new Dog())` into
+                        // `Result<Animal,_>` records the enum as
+                        // `Result<Animal,string>`, storing the Dog upcast).
+                        let current: Option<Vec<Type>> = self
+                            .enum_ctor_type_args
+                            .borrow()
+                            .get(&expr.span)
+                            .map(|(_, r)| r.clone());
+                        let refined_args: Option<Vec<Type>> = current.map(|mut recorded| {
+                            for (i, slot) in recorded.iter_mut().enumerate() {
+                                if let Some(t) = targs.get(i) {
+                                    let any_fill =
+                                        type_contains_any(slot) && !type_contains_any(t);
+                                    if any_fill || self.is_covariant_upcast(slot, t) {
+                                        *slot = t.clone();
                                     }
                                 }
-                                recorded.clone()
-                            })
-                        };
+                            }
+                            if let Some(entry) =
+                                self.enum_ctor_type_args.borrow_mut().get_mut(&expr.span)
+                            {
+                                entry.1 = recorded.clone();
+                            }
+                            recorded
+                        });
                         // Recurse into the payload args against the now-
                         // concrete payload types, so a nested ctor like
                         // `Result.ok(Maybe.nope)` gets its own `Maybe<T>`
@@ -419,6 +490,18 @@ impl TypeChecker {
             }
         }
         Some(ret)
+    }
+
+    /// Is `from` an Object subtype (subclass or interface impl) of `to`?
+    /// Used to upcast a covariant enum-ctor type-arg slot to the declared
+    /// parent type (`Dog` -> `Animal`).
+    fn is_covariant_upcast(&self, from: &Type, to: &Type) -> bool {
+        match (from, to) {
+            (Type::Object(c), Type::Object(p)) if c != p => {
+                self.subclass_distance(*c, *p).is_some() || self.class_implements(*c, *p)
+            }
+            _ => false,
+        }
     }
 
     pub(super) fn refine_enum_ctor_args_in_block(&self, b: &ilang_ast::Block, target: &Type) {

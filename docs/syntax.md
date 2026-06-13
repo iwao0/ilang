@@ -109,10 +109,14 @@ only thing coerced to the other arm's type).
 A **fresh composite literal** is covariant in its element / value
 type: `[new Dog()]` flows into `Animal[]`, and `{"a": new Dog()}`
 into `Map<string, Animal>` (and a mix like `{"a": new Dog(), "b":
-none}` into `Map<string, Animal?>` under a `let` annotation). This is
-literal-only — an aliased `Map<string, Dog>` **variable** does not
-assign to `Map<string, Animal>`, because mutating through the parent
-face would be unsound.
+none}` into `Map<string, Animal?>` under a `let` annotation). A
+**generic-enum ctor literal** covaries the same way, in every type-arg
+position: `Result.ok(new Dog())` flows into `Result<Animal, string>`
+and `Result.err(new Dog())` into `Result<i64, Animal>`. This is
+literal-only — an aliased `Map<string, Dog>` / `Result<Dog, string>`
+**variable** does not assign to its `Animal`-parameterised counterpart,
+because mutating through the parent face would be unsound (enum values
+are immutable, so the literal form stays sound).
 
 ---
 

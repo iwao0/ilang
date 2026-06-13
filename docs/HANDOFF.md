@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1290/1290) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1292/1292) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 66 弾** (ユーザー決定 = generic enum リテラルを covariant に)。 **generic enum のコンストラクタリテラルを型引数に対して covariant** にした (配列/Map リテラル covariance と一貫)。 `Result.ok(new Dog())` (`Result<Dog,_>`) を `Result<Animal, string>` へ、 `Result.err(new Dog())` を `Result<i64, Animal>` へ入れられる (ok=T 位置・err=E 位置の両方)。 ctor は宣言 enum (`Result<Animal,string>`) として記録され、 monomorphizer が親型を構築・payload は upcast 格納・親型越しの仮想ディスパッチが動く。 **リテラル限定** (別名の `Result<Dog,string>` 変数は `Result<Animal,string>` へ代入不可 — enum は immutable 値なので健全)。 value_assignable に `enum_ctor_literal_covariant`、 refine に subtype upcast (`is_covariant_upcast`) を追加。 詳細は下の解決済み記録。
 - **第 65 弾**。 **async fn が generic enum を返すと型引数が refine されない**実バグを検出・修正 (第 63 弾の診断が表面化)。 `async fn getR(): Result<Box, string> { Result.ok(new Box(5)) }` は注釈なしだと「cannot infer the type parameter(s) of \`Result\`」。 async desugar は return 値を `Promise.$promise.settleResolve(p, Result.ok(..))` (generic static method `settleResolve<T>(p: Promise<T>, v: T)`) の引数に包むが、 **`resolve_method_call` ([method.rs](../crates/ilang-types/src/checker/method.rs)) の generic メソッド経路が引数の enum ctor を refine していなかった** (generic fn 経路・check_args は refine するのに)。 そのため `Result.ok(..)` の E=Any が残った。 検証ループに `refine_enum_ctor_args(arg, &actual)` を追加 — promise の要素型 `Result<Box,string>` が `v: T` に流れて ctor を refine。 async に限らず **全 generic メソッド呼び出し**の enum-ctor 引数 refine 漏れを修正。 heap payload は await 跨ぎで ARC 厳密。 詳細は下の解決済み記録。
 - **第 64 弾**。 第 63 弾の明示診断が **enum-in-enum ctor の refine 漏れ**という実バグを表面化させ、 修正。 `Result.ok(Maybe.nope)` を `Result<Maybe<Box>, string>` に対して構築すると、 内側 `Maybe.nope` の T が refine されず (`refine_enum_ctor_args` が ctor の**自分の型引数**は埋めるのに **payload 引数へ再帰していなかった**)、 第 63 以前は Type::Any クラッシュ・第 63 以降は「cannot infer」診断が出ていた (が型は宣言から確定可能)。 `refine_enum_ctor_args` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) で (1) ネスト Any を含む slot (`Maybe<Any>`) を target の具体 arg で置換、 (2) **payload 引数を置換後の payload 型へ再帰 refine** するよう拡張。 let 注釈・map 値・fn 戻り・深い入れ子 (`Result<Maybe<Maybe<Box>>>`)・heap ARC で動作。 詳細は下の解決済み記録。
 - **第 63 弾** (ユーザー決定 = 第 62 弾の残る限界を明示診断に)。 **型引数を解決できない generic 呼び出し / enum ctor を、 lowering クラッシュでなく checker の明示診断にした**。 これまで `match f(Result.err("e")) { .. }` (bare scrutinee) や `let r = Result.ok(5)` (E 未決定) は型引数が `Any` のまま lowering に届き「Type::Any (variadic builtins)」で停止していた。 `check()` ([check.rs](../crates/ilang-types/src/checker/check.rs)) の末尾に `report_unresolved_type_args` を追加し、 `enum_ctor_type_args` / `fn_call_type_args` の stash で **型引数に `Type::Any` が残るエントリ**を span 付きで報告 (「cannot infer the type parameter(s) of ... — add a type annotation」)。 `TypeVar` (generic テンプレート本体) は除外。 **挙動変更**: 従来コンパイルが通っていた「未呼び出し fn 内の曖昧 ctor」も明示エラーになる (`let r = Result.ok(5)` は到達性に関わらず曖昧 = Rust の `let r = Ok(5)` と同じく注釈必須)。 既存 fixture は曖昧 ctor に依存しておらず全緑。 詳細は下の解決済み記録。
@@ -115,6 +116,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 66 弾: generic enum リテラルの covariance (2026-06-13、 ユーザー決定)
+
+generic enum の covariance を probe して、 配列/Map リテラルは covariant なのに generic enum リテラルは非対応という不整合を発見。 ユーザー判断 (= 配列/Map と一貫させる) で対応:
+
+- **背景**: `let r: Result<Animal, string> = Result.ok(new Dog())` が「type mismatch: expected Result<Animal, string>, got Result<Dog, any>」で拒否。 配列 (`Animal[] = [new Dog()]`) / Map リテラルは covariant (第 27/28 弾) なのに generic enum は非対応だった。 exact 一致 (`Result<Dog,string> = Result.ok(new Dog())`) は元から動く。
+- **修正**: (1) `value_assignable` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) に `enum_ctor_literal_covariant` を追加 — value が EnumCtor リテラル・target が同 base の generic enum のとき、 各 payload 引数を「宣言 payload 型 (subst 後)」に対して `literal_assignable_with` で covariant 検査 (ok=T 位置・err=E 位置とも)。 (2) `refine_enum_ctor_args` の slot 置換に **subtype upcast** (`is_covariant_upcast`: Object subtype / interface 実装) を追加 — 推論 slot が Dog でも target が Animal なら Animal へ upcast し、 ctor が `Result<Animal,string>` として記録される (monomorphizer が親型を構築)。 payload の Dog は Animal slot にそのまま格納 (オブジェクト表現共有なので coerce 不要)。
+- **リテラル限定で健全**: 別名 `Result<Dog,string>` 変数は `Result<Animal,string>` へ代入不可 (value が EnumCtor リテラルでないと covariance 句が効かない)。 enum は immutable 値なので親型越しの書き戻しが無く健全。
+- **検証**: ok/err 両位置・let/array/map・heap payload (`Dog` deinit)・親型越し仮想ディスパッチ (`val()` → Dog.val()=10) を網羅。 deinit 厳密 (300/round = 3/round × 100) + churn delta=0。 別名拒否を expect-error で pin。 fixture: `09_subtyping/generic_enum_literal_covariant.il` + `..._alias_error.il`。 syntax.md / syntax_ja.md の共変節を更新。 checker のみの変更。 workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 65 弾: generic メソッド引数の enum ctor が refine されず async fn が Result を返せない (2026-06-13)
 
