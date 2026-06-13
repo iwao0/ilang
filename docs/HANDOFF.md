@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 47 弾** (クリーンラウンド)。 第 46 弾で開いた interface 周辺の **covariance と downcast** を網羅 probe — **新規バグなし**。 interface 実装クラスを Optional wrap / enum payload / Map 値 / 入れ子コンテナ / generic 型引数 / tuple 要素 (wrap 込み) に流し込む covariance、 `as?` による interface→具象 downcast (成功=共有・失敗=none) を deinit 厳密 + delta=0 で確認。 subclass の wrap/covariance/downcast 機構が interface にも generalize。 詳細は下の確認済み記録。
 - **第 46 弾**。 interface dispatch を probe して、 **異なる interface 実装クラスの if/else・match・配列リテラルが共通 interface に合流できない**型推論バグを検出・修正 (ユーザー判断 = 「あるべき形に修正」)。 分岐 join が `common_ancestor` (クラス階層) しか見ず、 共通 interface を join 先にしていなかった (subclass は動くのに interface は不可)。 `common_object_join` を新設し全 object-join 箇所 (if / match / 配列 / Map リテラル) を切替。 唯一の共通 interface に合流、 複数共通 interface は曖昧として型エラー。 詳細は下の解決済み記録。
 - **第 45 弾** (クリーンラウンド)。 weak 参照と固定長配列 × wrap を probe — **新規バグなし**。 weak.get() の昇格 (生存=値 / 死後=none)・weak? back-ref サイクル・parent-owns-child cascade (二重解放なし)・weak 配列、 および **固定長配列 `T[N]` の要素 wrap** (`Box?[2]` リテラル/index store、 `(Box?, Box)[2]` への tuple index store) を deinit 厳密 + delta=0 で網羅。 wrap 修正 (第 36/41) が固定長表現にも generalize していることを確認。 詳細は下の確認済み記録。
 - **第 44 弾** (クリーンラウンド)。 第 43 弾の周辺を string/array ARC 全方位で probe — **新規バグなし**。 string メソッド連鎖の fresh 中間・template literal の heap 補間・`+=` desugar・**self-concat `s = s + s`** (aliased rhs を解放しない正しい挙動)・split・array push/unshift/map の fresh 要素・heap-kind 変数の fresh 再代入を、 `liveStringCount` / deinit 厳密で網羅。 string-ARC 形を pin。 詳細は下の確認済み記録。
@@ -96,6 +97,16 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [確認済み記録] 第 47 弾: interface covariance + downcast — 全て健全 (2026-06-13)
+
+第 46 弾で interface 分岐 join を直した後、 interface の **covariance (実装クラスを親 interface スロットへ)** と **downcast** を網羅 probe。 **新規バグなし** — subclass 用の wrap/covariance/downcast 機構が interface にも generalize:
+
+- **covariance**: `Circle → Shape?` (Optional wrap・bare field 代入)、 enum payload `shape: (Shape)` への Circle、 `Map<string, Shape>` への Circle/Square 混在リテラル、 `Circle[]/Square[] → Shape[]?` 入れ子コンテナ (第 28 の interface 版)、 `Map<string, Shape[]?>`、 generic `Holder<Shape>` への Circle、 `(Shape, i64)` tuple 要素、 `(Shape?, i64)[]` への tuple index store (slot0 wrap + interface)。 全て Optional/コンテナ越し dispatch で実体確認しつつ deinit 厳密。
+- **downcast**: `as?` (NOT `as` — `as` は upcast/プリミティブ専用で downcast は型エラー)。 `sh as? Circle` で interface→具象に downcast、 成功は `some(circle)` で**共有** (二重解放なし)、 失敗 (別実装) は `none` (leak なし)。 クラス源 `a as? Dog` も同様。 `is T` の型テストは動くが**フロー絞り込みは無い** (`if a is Dog { a.fetch() }` は不可・`a as? Dog` で明示 downcast する仕様)。
+- 計測の `delta=56` は §4-1 の `acc` 罠、 deinit は全形で厳密一致。
+
+fixture: `09_subtyping/interface_covariance_and_downcast.il` (Optional/enum/Map/tuple/generic covariance + `as?` downcast を厳密 deinit 700 + churn delta=0)。 **ソース変更なし**のため第 24 弾と同じく workspace / nested_generic 儀式は省略、 programs fixture を JIT・AOT 両経路で確認。
 
 ### [解決済み記録] 第 46 弾: 分岐 join が共通 interface に合流しない (2026-06-13、 ユーザー判断 = あるべき形に修正)
 
