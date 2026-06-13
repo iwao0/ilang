@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1280/1280) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1281/1281) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 56 弾**。 `?` 演算子 × enum ctor 型引数精緻化の継ぎ目を突き、 **`?` が呼び出し引数の中に入れ子になると Type::Any で lower 失敗**する既存バグを検出・修正。 `?` は `err(e) { return Result.err(e) }` (T=Any, E=string) を含むブロックに desugar されるが、 `Result.ok(take(g(ok)?))` のように `?` が tail 式の奥 (call 引数 / some / tuple / array 要素) に埋まると、 その `return Result.err` が refine されず T=Any のまま monomorphizer に届いていた。 原因: `refine_enum_ctor_args_in_block` が**文**の値は `refine_returns` で深く歩くのに、 **tail** は自身の値 ctor しか refine していなかった。 tail にも `refine_returns` を適用して修正。 `let b = g()?` (自前の文) は元から動いていた。 詳細は下の解決済み記録。
 - **第 55 弾** (ユーザー決定 = 第 54 弾の別件に対し「`{}` でも書けるように実装」)。 空マップリテラル `{}` を **型注釈が `Map<K,V>` の位置で空マップとして解釈**するようにした (JS 風の利便性。 `new Map<K,V>()` は従来どおり)。 パーサは `{}` を空ブロックとして出すので型情報の要る checker + lowering で対応: checker `value_assignable` が空ブロック (stmt/tail なし) を Map ターゲットへ受理、 lowering `lower_composite_with_hint` が `(Block 空, MirTy::Map)` を空 `NewMap` に、 `is_fresh_object_expr` が空ブロックを fresh 扱い (scope-exit 解放のため。 unit 文脈では no-op)。 let / 再代入 / field 代入 / fn 戻り値 / fn 引数 / ネスト map 値で動作、 unit 文脈の空ブロックは不変。 詳細は下の解決済み記録。
 - **第 54 弾**。 第 48〜50 弾の enum ctor 型引数精緻化の **残る store 位置 3 系統**を検出・修正。 (1) **enum payload 引数** (`Wrapper.wrap(Result.err(..))` tuple / `WrapperS.wrapS { r: Result.err(..) }` struct) — `check_enum_ctor` が自分の引数を payload 型へ refine していなかった。 (2) **built-in 配列メソッド引数** (`xs.push(Result.err(..))` / unshift / fill / remove / indexOf / includes) — ハードコード経路が element 型へ refine していなかった (Map.set / Set.add は check_args 経由で既に健全)。 (3) **index 代入** (`xs[0] = Result.err(..)` / `m["k"] = Result.err(..)`) — `check_assign_index` が element / value 型へ refine していなかった。 いずれも `Result<_, string>` 等の T=Any が monomorphizer に届き「Type::Any (variadic builtins)」で停止していた既存バグ。 詳細は下の解決済み記録。 **別件の既存ギャップを記録**: 空マップリテラル `{}` は型注釈に対して `()` (空ブロック) と推論され `let m: Map<K,V> = {}` が型エラー — パーサが `{}` を空ブロックとして出すため。 (※当初「空マップの構文が無い」と記したのは誤り。 `new Map<K,V>()` が既存の確立した形。 `{}` でも書けるようにする利便性として第 55 弾で対応。)
 - **第 53 弾** (クリーンラウンド)。 第 52 弾の slot 昇格修正の周辺と Map forEach の反復中 mutation を網羅 probe — **新規バグなし**。 メソッド内/accessor 内クロージャ・init・static メソッド・default 引数式からのグローバル参照は全て昇格される。 forEach の add-during / future-key-delete (snapshot が +1 で生存させ UAF なし) / nested forEach は deinit 厳密 + delta=0。 forEach mutation の ARC を pin。 詳細は下の確認済み記録。
@@ -105,6 +106,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 56 弾: tail 式の奥に入れ子の `?` の err return が refine されず Type::Any (2026-06-13)
+
+`?` 演算子 × enum ctor 型引数精緻化 (第 48〜54 弾) の継ぎ目を probe して発見:
+
+- **症状**: `Result.ok(take(g(ok)?))` のように `?` が **tail 式の奥** (call 引数 / `some(..)` / tuple 要素 / array 要素 / 二重ネスト call) に埋まると **「mir lower: unsupported in M1: Type::Any (variadic builtins)」**。 `let b = g(ok)?` のように `?` が**自前の文**にあるときや、 `let b = g()?; Result.ok(b.n)` は元から動いていた。
+- **原因**: `?` は [postfix.rs](../crates/ilang-parser/src/expr/postfix.rs) で `{ let __try = expr; match __try { ok(v) { v } err(e) { return Result.err(e) } } }` に desugar される。 この `return Result.err(e)` は E (=e の string) は埋まるが **T=Any** で、 enclosing fn の戻り型から refine される必要がある。 `refine_enum_ctor_args_in_block` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) は **block の文**の値式には `refine_returns` (全子孫を歩いて Return を refine) を呼ぶのに、 **tail** には自身の値 ctor を refine する `refine_enum_ctor_args` しか呼んでいなかった。 そのため tail 式の奥に埋まった `return Result.err` が見つからず T=Any のまま lower に届いていた。
+- **修正**: tail にも `refine_returns(self, t, target)` を適用 ([utils.rs](../crates/ilang-types/src/checker/utils.rs))。 `refine_returns` は式の全子孫を再帰的に歩くので、 call 引数 / some / tuple / array / 二重ネストのどの深さに `?` があってもその err return が refine される。 tail 自身の値 ctor refine (既存の `refine_enum_ctor_args`) と相補的 (前者は Return ノードのみ、 後者は tail 値)。
+- **検証**: `?` を call 引数 / some / tuple / array / 二重ネスト call に入れ子にした 4 形を、 ok 経路 (heap payload を `?` が unwrap → 解放) と err 経路 (入れ子位置から早期 return) の両方で deinit 厳密 (400/round = 4/round × 100) + churn delta=0。 値の正しさ (21) も確認。 fixture: `05_edge_cases/try_nested_in_call_arg_refine.il`。 checker のみの変更のため nested_generic 儀式は対象外。 workspace nextest 539/539、 AOT 全 fixture PASS。
 
 ### [解決済み記録] 第 55 弾: 空マップリテラル `{}` を型注釈ありで空マップと解釈 (2026-06-13、 ユーザー決定)
 

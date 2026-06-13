@@ -322,6 +322,13 @@ impl TypeChecker {
         // Tail produces the block's value — refine against target.
         if let Some(t) = &b.tail {
             self.refine_enum_ctor_args(t, target);
+            // A tail expression can also EMBED `return` statements — a
+            // `?` nested inside a call argument (`Result.ok(take(g()?))`)
+            // desugars to a block whose err arm does `return
+            // Result.err(e)`, buried below the tail's own value. Walk the
+            // tail for those nested returns too (statements get the same
+            // walk in the loop below).
+            refine_returns(self, t, target);
         }
         // Return statements anywhere in the block also produce the
         // function's return value — refine those too. Walk every
