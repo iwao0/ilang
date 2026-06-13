@@ -119,7 +119,9 @@ impl TypeChecker {
                 span: match_span,
             });
         }
-        Ok(result_ty.unwrap_or(Type::Unit))
+        let rt = result_ty.unwrap_or(Type::Unit);
+        self.refine_match_arm_ctors(arms, &rt);
+        Ok(rt)
     }
 
 }

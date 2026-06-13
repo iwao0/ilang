@@ -258,7 +258,27 @@ impl TypeChecker {
                 });
             }
         }
-        Ok(result_ty.unwrap_or(Type::Unit))
+        let rt = result_ty.unwrap_or(Type::Unit);
+        self.refine_match_arm_ctors(arms, &rt);
+        Ok(rt)
+    }
+
+    /// Push the match's joined result type back into each arm so an enum
+    /// ctor an arm YIELDS gets its type args refined. `match r { ok(v) {
+    /// Result.ok(v) } err(e) { Result.err(e) } }` joins to
+    /// `Result<i64, string>`, but each arm ctor only pins one of T / E on
+    /// its own — without this the unfilled param reaches the monomorphizer
+    /// as `Any` when the match value lands in an unannotated slot (a
+    /// `let res = match ...` with no type). The let / return / arg
+    /// positions already refine their own value; this covers the value
+    /// that a sibling arm completes.
+    pub(in crate::checker) fn refine_match_arm_ctors(&self, arms: &[ilang_ast::MatchArm], result_ty: &Type) {
+        if !matches!(result_ty, Type::Generic(_) | Type::Optional(_)) {
+            return;
+        }
+        for arm in arms {
+            self.refine_enum_ctor_args(&arm.body, result_ty);
+        }
     }
 }
 
@@ -384,7 +404,9 @@ impl TypeChecker {
                 span,
             });
         }
-        Ok(result_ty.unwrap_or(Type::Unit))
+        let rt = result_ty.unwrap_or(Type::Unit);
+        self.refine_match_arm_ctors(arms, &rt);
+        Ok(rt)
     }
 }
 

@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1285/1285) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1286/1286) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 61 弾** (第 60 弾の確認済み記録 (1) を解消)。 **match の arm が enum を yield し注釈なし let に束縛すると arm ctor が refine されず Type::Any** になる既存バグを修正 (非 generic でも再現)。 `let res = match r { ok(v) { Result.ok(v) } err(e) { Result.err(e) } }` は join で `Result<i64,string>` に解決するが、 各 arm の `Result.ok(v)` (E=Any) / `Result.err(e)` (T=Any) は片方しか pin せず、 `res` に注釈が無いため refine されなかった。 `check_match_expr` ([match_ctrl.rs](../crates/ilang-types/src/checker/expr/match_ctrl.rs)) / `check_match_optional` / `check_match_primitive` ([match_.rs](../crates/ilang-types/src/checker/match_.rs)) で join 後の結果型を各 arm に push する `refine_match_arm_ctors` を追加。 enum / Optional / primitive scrutinee の全 3 種に適用。 heap T ARC も健全。 詳細は下の解決済み記録。 **確認済み記録の (2)** (T を決める引数なしの generic 呼び出し) は未対応のまま。
 - **第 60 弾**。 `?` を generic fn 内で使う形 (`fn unwrapOr<T>(r: Result<T,string>, fallback: T) { let v = r?; Result.ok(v) }`) を probe して、 **generic fn の型引数推論が引数の最初の binding を優先し Any を残す**既存バグを検出・修正。 `unwrapOr(Result.err("boom"), 0)` は arg1 `Result.err` が T=Any を入れ、 arg2 `0: T` の i64 で上書きされず、 fn が `<Any>` で具体化され monomorphizer が Type::Any で停止 (`?` 非依存。 `pick<T>(a: Result<T,string>, b: T)` でも再現)。 原因: `collect_type_var_bindings` ([sigs.rs](../crates/ilang-types/src/checker/sigs.rs)) が `or_insert_with` で最初の binding を優先。 **具体型が既存の Any を上書きする** (具体同士は従来どおり最初優先) ように修正。 詳細は下の解決済み記録。 **2 件の別系統の既存バグを記録**: (1) `let res = match someResult { ok(v){Result.ok(v)} err(e){Result.err(e)} }; res` (match arm が enum を yield・let に注釈なし) は arm ctor の型引数が refine されず Type::Any (非 generic でも再現。 match の join 結果型を各 arm に refine する必要)。 (2) generic fn を T を決める引数なしで呼ぶ (`f(Result.err("e"))` only) と `<Any>` 具体化で失敗 (match 文脈からの双方向推論が要る)。
 - **第 59 弾** (第 57 弾の判断待ち記録 (2) を解消)。 **generic fn の型パラメータを戻り値位置から推論できる**ようにした。 `fn makeArr<T>(): T[]` / `fn wrapErr<T>(): Result<T,string>` など T が戻り型にしか現れない fn は引数から T を決められず Any のままだった (`let xs: i64[] = makeArr()` が「expected i64[], got any[]」、 enum 系は monomorphizer で Type::Any)。 `refine_fn_call_type_args(call, target)` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) を新設し、 fn の宣言戻り型を期待型に対して unify して残りの型パラメータを解き、 stash (`fn_call_type_args`) を更新して補正後の戻り型を返す。 期待型が分かる 3 位置 — let 注釈 ([stmt.rs](../crates/ilang-types/src/checker/stmt.rs))・fn 戻り位置 ([decls.rs](../crates/ilang-types/src/checker/decls.rs))・呼び出し引数 ([method.rs](../crates/ilang-types/src/checker/method.rs)) — で適用。 部分推論 (片方を引数・片方を注釈) ・heap T の ARC も健全。 詳細は下の解決済み記録。 **これで第 57 弾の判断待ち記録 2 件は両方解消。**
 - **第 58 弾** (第 57 弾の判断待ち記録 (1) を解消)。 **generic class メソッドが generic enum を構築すると「unknown enum 〜」で lower 失敗**する既存バグを修正。 class 単一化 ([class.rs](../crates/ilang-mir/src/monomorphize/class.rs)) の `subst_expr` は specialized method body の型を置換するが **enum ctor の `enum_name` を再 mangle しなかった**ため、 `class Wrap<T> { asSome(): Maybe<T> { Maybe.some(this.v) } }` を `Wrap<i64>` で使うと `Maybe.some` が bare のまま (builtin Result も同症状)。 fn 経路 (fns.rs) は再 mangle するが class 経路に無かった。 checker の `enum_ctor_type_args` を thread-local 経由で class pass に渡し、 `subst_expr` が span 記録の型引数を class の T→具体で置換して mangle (fn 経路と同形)。 builtin Result・user enum・入れ子 (`Result.ok(Maybe.some(this.v))`)・複数インスタンス化・match 消費・heap T payload ARC を網羅。 詳細は下の解決済み記録。 **判断待ち記録の (2)** (generic fn 戻り型のみからの型推論) は未対応のまま。
@@ -111,12 +112,20 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### [確認済み記録] 第 60 弾の周辺で見つけた未対応バグ 2 件 (2026-06-13)
+### [確認済み記録] generic fn を型を決める引数なしで呼ぶと `<Any>` 具体化 (2026-06-13、 第 60 弾で発見・未対応)
 
-第 60 弾の probe 中に切り分けた別系統の既存バグ。 独立した round で扱う:
+第 60 弾で切り分けた既存制約。 第 61 弾で (1) (match arm yield の refine) は解消済み:
 
-1. **match の arm が enum を yield し注釈なし let に束縛すると arm ctor が refine されない**。 `let res = match someResult { ok(v) { Result.ok(v) } err(e) { Result.err(e) } }` の後 `res` を返す形で、 各 arm の `Result.ok(v)` (E=Any) / `Result.err(e)` (T=Any) が refine されず **Type::Any**。 **非 generic でも再現** (`Result<i64,string>` で固定でも失敗)。 match の結果型は join で正しく出る (`Result<i64,string>`) が、 stash (`enum_ctor_type_args`) が更新されない。 対応するなら `check_match_expr` ([match_ctrl.rs](../crates/ilang-types/src/checker/expr/match_ctrl.rs)) で join 後に各 arm body を結果型に対して `refine_enum_ctor_args` する (戻り点が match 種別ごとに複数あるため数箇所)。
-2. **generic fn を型パラメータを決める引数なしで呼ぶと `<Any>` 具体化で失敗**。 `fn f<T>(r: Result<T,string>): Result<T,string>` を `f(Result.err("e"))` だけで呼ぶ (T を決める他引数なし) と T=Any。 第 60 弾は「具体引数があれば Any に勝つ」までで、 T を決める引数が皆無の場合は未対応。 match 文脈 (`match f(..) { ok(v) { v as i64 } .. }`) からの双方向推論が要る (より大きな型推論機能)。 実用上は具体的な Result を渡すので稀。
+- **generic fn を型パラメータを決める引数なしで呼ぶと `<Any>` 具体化で失敗**。 `fn f<T>(r: Result<T,string>): Result<T,string>` を `f(Result.err("e"))` だけで呼ぶ (T を決める他引数なし) と T=Any。 第 60 弾は「具体引数があれば Any に勝つ」までで、 T を決める引数が皆無の場合は未対応。 match 文脈 (`match f(..) { ok(v) { v as i64 } .. }`) からの双方向推論が要る (より大きな型推論機能)。 実用上は具体的な Result を渡すので稀。
+
+### [解決済み記録] 第 61 弾: match の arm が yield する enum ctor が refine されず Type::Any (2026-06-13)
+
+第 60 弾の確認済み記録 (1) を解消:
+
+- **症状**: `let res = match r { ok(v) { Result.ok(v) } err(e) { Result.err(e) } }` の後 `res` を返す/使う形で **「mir lower: unsupported in M1: Type::Any (variadic builtins)」**。 **非 generic でも再現** (`r: Result<i64,string>` 固定でも失敗)。 primitive scrutinee (`match flag { 0 { Result.ok(..) } _ { Result.err(..) } }`) も同様。
+- **原因**: match の各 arm が enum ctor を yield するとき、 `Result.ok(v)` は T のみ・`Result.err(e)` は E のみ pin し、 自分では片方を Any のまま残す。 match の結果型は arm の join で `Result<i64,string>` と正しく出るが、 その型は各 arm ctor の stash (`enum_ctor_type_args`) に **push back されない**。 let / return / 引数位置の refine は「値そのもの」を対象にするが、 ここでは値が **兄弟 arm によって補完される** ため、 注釈なし let に束縛すると refine の入口が無かった。
+- **修正**: `refine_match_arm_ctors(arms, result_ty)` ([match_ctrl.rs](../crates/ilang-types/src/checker/expr/match_ctrl.rs)) を新設し、 join 後の結果型 (Generic / Optional のときのみ) を各 arm body に `refine_enum_ctor_args` で push。 match の 3 種の検査経路すべてに適用: enum scrutinee (`check_match_expr`)・Optional scrutinee (`check_match_optional`)・primitive scrutinee (`check_match_primitive` [match_.rs](../crates/ilang-types/src/checker/match_.rs))。 arm body が Block でも `refine_enum_ctor_args` が tail を辿る。
+- **検証**: enum scrutinee の rewrap (heap `Box`)・generic 版 (`rewrapG<T>`)・primitive scrutinee の classify を網羅。 値の正しさ + deinit 厳密 (200/round = 2/round × 100) + churn delta=0。 fixture: `05_edge_cases/match_arm_yields_enum_refine.il`。 checker のみの変更。 workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 60 弾: generic fn の引数型推論が Any を具体型より優先 (2026-06-13)
 
