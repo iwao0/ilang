@@ -106,6 +106,26 @@ pub(crate) fn collect_fn_free_var_refs(
                     sm.params.iter().map(|p| p.name).collect();
                 walk_block(&sm.body, top_lets, &mut locals, out);
             }
+            // Property getter / setter bodies reference top-level lets
+            // the same way a method does (a getter that reads a global
+            // counter, etc.). Without descending here, such a reference
+            // never promotes the let to a slot, so it hits "unbound
+            // variable" at MIR lower time — methods worked, accessors
+            // didn't.
+            for prop in c.properties.iter() {
+                if let Some(g) = &prop.getter {
+                    let mut locals: Scope = std::iter::once(Symbol::intern("this"))
+                        .chain(g.params.iter().map(|p| p.name))
+                        .collect();
+                    walk_block(&g.body, top_lets, &mut locals, out);
+                }
+                if let Some(s) = &prop.setter {
+                    let mut locals: Scope = std::iter::once(Symbol::intern("this"))
+                        .chain(s.params.iter().map(|p| p.name))
+                        .collect();
+                    walk_block(&s.body, top_lets, &mut locals, out);
+                }
+            }
         };
     for item in &prog.items {
         match item {

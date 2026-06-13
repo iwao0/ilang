@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 52 弾**。 property accessor を probe して、 **getter/setter 本体から top-level let (グローバル) を参照すると「unbound variable」で lower 失敗**する既存バグを検出・修正。 slot 昇格判定 (`build_slot_table` → `collect_fn_free_var_refs`) がクラスの method / static method は走査するのに **property accessor body を走査していなかった**ため、 getter/setter だけが参照する let が host slot に昇格されなかった (method は動くのに accessor は不可)。 `collect_fn_free_var_refs` の `walk_class` に getter/setter body 走査を追加。 詳細は下の解決済み記録。
 - **第 51 弾**。 static フィールドを probe して、 **heap (string) static フィールド代入が値を retain せず use-after-free**する既存バグを検出・修正。 `Cls.s = arg` (借用 param に fresh string) が static slot を所有せず、 源の transient +1 解放後に slot が dangling → 後続 read が解放済みバッファ (fresh string が空印字)。 `StoreStatic` に instance field 同様の retain-new (非 fresh) / release-old を追加。 詳細は下の解決済み記録。
 - **第 50 弾**。 第 48/49 弾の enum ctor 型引数精緻化の **最後の穴 = クロージャ本体の戻り値**を是正。 top-level fn の戻り値は refine していたが、 `fn(): Result<i64,string> { Result.err(..) }` や `array.map(fn -> Result<...>)` のクロージャ tail / 早期 return が未配線で Type::Any だった。 `check_fn_expr` に `refine_enum_ctor_args_in_block` を追加。 詳細は下の解決済み記録。
 - **第 49 弾**。 第 48 弾の enum ctor 型引数精緻化の **残る store 位置**を是正。 引数位置 (fn / method / init)・`some(..)`・tuple 要素でも `Result.err(..)` 等が Type::Any で失敗していた。 `refine_enum_ctor_args` を some / tuple / array へ**再帰**させ (入れ子も伝播)、 call-arg checker (`check_args` / generic fn arg / fn 型 call) に refine を追加。 詳細は下の解決済み記録。
@@ -101,6 +102,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 52 弾: property accessor body から top-level let を参照すると unbound (2026-06-13)
+
+property accessor を probe して発見:
+
+- **症状**: property getter / setter の本体から **top-level let (グローバル)** を読み書きすると **「mir lower: unbound variable: g」**。 同じ body を **regular method** に書けば動く (`deinit() { deinits[0] = .. }` が全 probe で効いていたのと同じ機構)。 getter/setter だけが参照する let で発生。
+- **原因**: CLI の slot 昇格パス `build_slot_table` ([main.rs](../crates/ilang-cli/src/main.rs)) が `collect_fn_free_var_refs` ([walk.rs](../crates/ilang-cli/src/walk.rs)) で「fn / method body から参照される top-level let」を集めて host slot に昇格するが、 `walk_class` が `c.methods` / `c.static_methods` は走査するのに **`c.properties` (getter/setter) を走査していなかった**。 結果、 getter/setter からしか参照されない let は `slot_table` → `repl_slots` に入らず、 lowering の `lower_var_expr` が repl_slots でも解決できず unbound。 debug で getter を持つプログラムの `repl_slots` が空 (=昇格漏れ) と確認。
+- **修正**: `walk_class` に `c.properties` の getter/setter body 走査を追加 (`this` + params を locals に、 method と同形)。 これで accessor 内のグローバル参照が昇格される。
+- **検証**: getter がグローバル配列を read / write (counter インクリメント)、 setter がグローバルを参照、 getter の副作用が 1 アクセス 1 評価 (getCalls=3)・setter 呼び出し回数 (setCalls=2) を確認。 scalar グローバルも (昇格漏れで repl_slots 空だったのが) 解消。 fixture: `08_properties/property_accessor_reads_global.il`。 workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 51 弾: heap static フィールド代入が retain せず use-after-free (2026-06-13)
 
