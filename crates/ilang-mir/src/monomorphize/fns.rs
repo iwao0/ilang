@@ -13,8 +13,13 @@ pub fn monomorphize_fns(
     enum_ctor_type_args: &HashMap<Span, (Symbol, Vec<Type>)>,
 ) -> Program {
     // Collect generic enum decls so the post-specialize EnumCtor
-    // rewrite (below) knows which enum_names to mangle.
-    let generic_enums: HashMap<Symbol, ilang_ast::EnumDecl> = prog
+    // rewrite (below) knows which enum_names to mangle. Built-in
+    // `Result<T, E>` has no source decl but is mangled per instantiation
+    // like any generic enum — without it, a `Result.ok(x)` inside a
+    // specialized generic fn body keeps `enum_name="Result"` and MIR
+    // lower fails with "unknown enum Result" (the `monomorphize_enums`
+    // pass adds the same entry for the same reason).
+    let mut generic_enums: HashMap<Symbol, ilang_ast::EnumDecl> = prog
         .items
         .iter()
         .filter_map(|i| match i {
@@ -22,6 +27,9 @@ pub fn monomorphize_fns(
             _ => None,
         })
         .collect();
+    generic_enums
+        .entry("Result".into())
+        .or_insert_with(super::enums::result_template);
     // Catalog generic fns. After class monomorphization every fn is a
     // top-level `Item::Fn` (methods live inside their class's items),
     // so we don't need to look at class methods here.

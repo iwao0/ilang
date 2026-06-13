@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1281/1281) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1282/1282) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 57 弾**。 generic fn × enum ctor の継ぎ目を突き、 **generic fn が builtin `Result` を構築/返却すると「unknown enum Result」で lower 失敗**する既存バグを検出・修正。 `Result<T,E>` は宣言が無く call site ごとに monomorphize されるが、 `monomorphize_fns` は specialize 時に generic-enum の `EnumCtor.enum_name` を mangle する判定材料 (`generic_enums`) を**プログラム宣言の enum だけ**から作っていたため builtin Result が漏れ、 `fn wrapOk<T>(x: T): Result<T, string> { Result.ok(x) }` の `Result.ok` が `enum_name="Result"` のまま残った (user 宣言の `Maybe<T>` は含まれるので動く)。 `monomorphize_fns` の `generic_enums` に Result テンプレートを seed して修正 (monomorphize_enums パスと同じ対処)。 型パラメータが引数で決まる形 (ok arg / err arg / 両腕) で動作・heap payload ARC 厳密。 詳細は下の解決済み記録。 **2 件の別系統の既存バグを記録** (本弾では未対応): (1) generic **class メソッド**が generic enum (user の `Maybe<T>` も builtin `Result` も) を構築すると「unknown enum 〜」 — class 単一化経路が method body の enum ctor を mangle しない別バグ。 (2) generic fn の型パラメータを**戻り値注釈のみ**から推論できない (`let xs: i64[] = makeArr<T>()` も `Maybe`/`Result` も同様) — generic-fn 戻り型推論一般の制約。
 - **第 56 弾**。 `?` 演算子 × enum ctor 型引数精緻化の継ぎ目を突き、 **`?` が呼び出し引数の中に入れ子になると Type::Any で lower 失敗**する既存バグを検出・修正。 `?` は `err(e) { return Result.err(e) }` (T=Any, E=string) を含むブロックに desugar されるが、 `Result.ok(take(g(ok)?))` のように `?` が tail 式の奥 (call 引数 / some / tuple / array 要素) に埋まると、 その `return Result.err` が refine されず T=Any のまま monomorphizer に届いていた。 原因: `refine_enum_ctor_args_in_block` が**文**の値は `refine_returns` で深く歩くのに、 **tail** は自身の値 ctor しか refine していなかった。 tail にも `refine_returns` を適用して修正。 `let b = g()?` (自前の文) は元から動いていた。 詳細は下の解決済み記録。
 - **第 55 弾** (ユーザー決定 = 第 54 弾の別件に対し「`{}` でも書けるように実装」)。 空マップリテラル `{}` を **型注釈が `Map<K,V>` の位置で空マップとして解釈**するようにした (JS 風の利便性。 `new Map<K,V>()` は従来どおり)。 パーサは `{}` を空ブロックとして出すので型情報の要る checker + lowering で対応: checker `value_assignable` が空ブロック (stmt/tail なし) を Map ターゲットへ受理、 lowering `lower_composite_with_hint` が `(Block 空, MirTy::Map)` を空 `NewMap` に、 `is_fresh_object_expr` が空ブロックを fresh 扱い (scope-exit 解放のため。 unit 文脈では no-op)。 let / 再代入 / field 代入 / fn 戻り値 / fn 引数 / ネスト map 値で動作、 unit 文脈の空ブロックは不変。 詳細は下の解決済み記録。
 - **第 54 弾**。 第 48〜50 弾の enum ctor 型引数精緻化の **残る store 位置 3 系統**を検出・修正。 (1) **enum payload 引数** (`Wrapper.wrap(Result.err(..))` tuple / `WrapperS.wrapS { r: Result.err(..) }` struct) — `check_enum_ctor` が自分の引数を payload 型へ refine していなかった。 (2) **built-in 配列メソッド引数** (`xs.push(Result.err(..))` / unshift / fill / remove / indexOf / includes) — ハードコード経路が element 型へ refine していなかった (Map.set / Set.add は check_args 経由で既に健全)。 (3) **index 代入** (`xs[0] = Result.err(..)` / `m["k"] = Result.err(..)`) — `check_assign_index` が element / value 型へ refine していなかった。 いずれも `Result<_, string>` 等の T=Any が monomorphizer に届き「Type::Any (variadic builtins)」で停止していた既存バグ。 詳細は下の解決済み記録。 **別件の既存ギャップを記録**: 空マップリテラル `{}` は型注釈に対して `()` (空ブロック) と推論され `let m: Map<K,V> = {}` が型エラー — パーサが `{}` を空ブロックとして出すため。 (※当初「空マップの構文が無い」と記したのは誤り。 `new Map<K,V>()` が既存の確立した形。 `{}` でも書けるようにする利便性として第 55 弾で対応。)
@@ -106,6 +107,22 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [判断待ち記録] generic class メソッド / generic fn 戻り型推論の enum 2 件 (2026-06-13、 第 57 弾で発見・未対応)
+
+第 57 弾で generic fn × Result を直す過程で切り分けた、 **別系統の既存バグ 2 件**。 どちらも Result 固有でなく user enum でも再現するため、 第 57 弾とは独立した round で扱う:
+
+1. **generic class メソッドが generic enum を構築すると「unknown enum 〜」**。 `class Wrap<T> { ...; asSome(): Maybe<T> { Maybe.some(this.v) } }` を `Wrap<i64>` で使うと `Maybe.some` が `enum_name="Maybe"` のまま lower に届く (`Result` でも同症状)。 原因: class 単一化 ([class.rs](../crates/ilang-mir/src/monomorphize/class.rs)) の `subst_expr` は method body の型変数を置換するが、 **enum ctor の `enum_name` を (置換した型引数で) mangle しない**。 fn 経路 ([fns.rs](../crates/ilang-mir/src/monomorphize/fns.rs)) は `rewrite_calls_and_enums_in_expr` で再 mangle するが、 class 経路に同等が無い。 `generic_enum_names` に Result は入っている (class.rs:55) のに使われていない。 対応するなら class method body の specialize 時に enum_ctor_type_args を threading して enum ctor を再 mangle する必要がある。
+2. **generic fn の型パラメータを戻り値注釈のみから推論できない**。 `fn makeArr<T>(): T[] { [] }` に `let xs: i64[] = makeArr()` で「expected i64[], got any[]」、 `fn makeNope<T>(): Maybe<T>` / `Result<T,string>` も同様に Type::Any。 引数で T が決まらず戻り型注釈からしか決まらない呼び出しで T=any のまま。 generic-fn 戻り型推論一般の制約 (Result 固有でない)。 対応するなら call の期待型から型パラメータを解く逆方向推論が要る。
+
+### [解決済み記録] 第 57 弾: generic fn が builtin Result を構築すると「unknown enum Result」 (2026-06-13)
+
+generic fn × enum ctor 型引数精緻化 (第 48〜56 弾) の継ぎ目を probe して発見:
+
+- **症状**: `fn wrapOk<T>(x: T): Result<T, string> { Result.ok(x) }` を `wrapOk(5)` で呼ぶと **「mir lower: unknown enum Result」**。 `Result.err(e)` 構築も同様。 user 宣言の generic enum (`fn wrapM<T>(x: T): Maybe<T> { Maybe.some(x) }`) は動く。
+- **原因**: builtin `Result<T,E>` は宣言が無く call site ごとに monomorphize される (`monomorphize_enums` が `Result<i64,string>` 等の `Item::Enum` を合成)。 `monomorphize_fns` ([fns.rs](../crates/ilang-mir/src/monomorphize/fns.rs)) は generic fn を specialize する際、 body 内の generic-enum `EnumCtor.enum_name` を具体形 (`Result.ok` → `Result<i64,string>.ok`) に再 mangle するが、 「どの enum 名が generic か」の集合 `generic_enums` を**プログラム宣言の `Item::Enum` だけ**から作っていた。 builtin Result はそこに無いため mangle されず、 specialized body の `Result.ok` が `enum_name="Result"` のまま lower に届き、 resolve_ty が bare `Type::Enum("Result")` を引けず失敗。
+- **修正**: `monomorphize_fns` の `generic_enums` 構築後に `result_template()` ([enums.rs](../crates/ilang-mir/src/monomorphize/enums.rs)、 `pub(super)`) を seed (`monomorphize_enums` が line 66 で行うのと同じ対処)。 これで specialized body の Result ctor が enum_table (enum_ctor_type_args) + outer 置換から `Result<i64,string>` に mangle される。
+- **検証**: T を ok arg / err arg / 両腕で決める形を i64 と heap (`Box`) payload で網羅し、 値の正しさ + deinit 厳密 (300/round = 3/round × 100) + churn delta=0 (err 腕が破棄する heap arg の解放も確認)。 fixture: `05_edge_cases/generic_fn_returns_result.il`。 monomorphize (lowering pipeline) を触ったので nested_generic 儀式も実施。 workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 56 弾: tail 式の奥に入れ子の `?` の err return が refine されず Type::Any (2026-06-13)
 
