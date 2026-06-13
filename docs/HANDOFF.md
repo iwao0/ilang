@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 48 弾**。 Result `?` を probe する過程で、 **型パラメータを引数から推論できない enum コンストラクタ (`Result.err(..)` は T、 `Maybe.nope` は両方) を field / 配列リテラル / Map 値に格納すると Type::Any で lower 失敗**する既存バグを検出・修正。 `let f: T = ctor` は注釈で enum ctor の型引数を精緻化 (`refine_enum_ctor_args`) するのに、 field 代入 (明示 + bare)・配列リテラル要素・Map 値・local 再代入は精緻化していなかった。 結果 2 型パラメータ enum (Result / Either) を field/配列に置けなかった。 5 箇所に refine を追加。 詳細は下の解決済み記録。
 - **第 47 弾** (クリーンラウンド)。 第 46 弾で開いた interface 周辺の **covariance と downcast** を網羅 probe — **新規バグなし**。 interface 実装クラスを Optional wrap / enum payload / Map 値 / 入れ子コンテナ / generic 型引数 / tuple 要素 (wrap 込み) に流し込む covariance、 `as?` による interface→具象 downcast (成功=共有・失敗=none) を deinit 厳密 + delta=0 で確認。 subclass の wrap/covariance/downcast 機構が interface にも generalize。 詳細は下の確認済み記録。
 - **第 46 弾**。 interface dispatch を probe して、 **異なる interface 実装クラスの if/else・match・配列リテラルが共通 interface に合流できない**型推論バグを検出・修正 (ユーザー判断 = 「あるべき形に修正」)。 分岐 join が `common_ancestor` (クラス階層) しか見ず、 共通 interface を join 先にしていなかった (subclass は動くのに interface は不可)。 `common_object_join` を新設し全 object-join 箇所 (if / match / 配列 / Map リテラル) を切替。 唯一の共通 interface に合流、 複数共通 interface は曖昧として型エラー。 詳細は下の解決済み記録。
 - **第 45 弾** (クリーンラウンド)。 weak 参照と固定長配列 × wrap を probe — **新規バグなし**。 weak.get() の昇格 (生存=値 / 死後=none)・weak? back-ref サイクル・parent-owns-child cascade (二重解放なし)・weak 配列、 および **固定長配列 `T[N]` の要素 wrap** (`Box?[2]` リテラル/index store、 `(Box?, Box)[2]` への tuple index store) を deinit 厳密 + delta=0 で網羅。 wrap 修正 (第 36/41) が固定長表現にも generalize していることを確認。 詳細は下の確認済み記録。
@@ -97,6 +98,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 48 弾: enum ctor の型引数が store 位置で精緻化されず Type::Any (2026-06-13)
+
+Result `?` を probe する過程で発見した型推論バグ:
+
+- **症状**: `Result<i64, string>` や `Either<A, B>` (= **2 型パラメータ enum**) を **class field 型 / 配列要素型 / Map 値型**に使うと **「mir lower: unsupported in M1: Type::Any (variadic builtins)」**。 1 型パラメータ enum (`Maybe<T>`) は field/配列とも動く。 **local / 戻り値**はどちらも動く。 array リテラルでは `[Result.ok(1), Result.err("e")]` のように **`err`/`nope` 等パラメータを埋めない variant** を混ぜると 1 型パラメータでも失敗。
+- **原因**: enum コンストラクタ `check_enum_ctor` ([match_ctrl.rs](../crates/ilang-types/src/checker/expr/match_ctrl.rs)) は引数から型パラメータを推論し、 **埋まらない param は `Any`** として span キーの `enum_ctor_type_args` に stash する (monomorphize がこれを読む)。 `Result.err("e")` は E しか埋まらず T=Any、 `Maybe.nope` は何も埋まらない。 `let f: T = ctor` と fn return は `refine_enum_ctor_args` で**注釈から Any slot を埋め直す**が、 **field 代入 (明示 `check_assign_field` / bare implicit-this)・配列リテラル要素 (`check_array_with_hint`)・Map 値 (`check_map_lit_with_hint`)・local 再代入**は refine を呼んでおらず Any が残ったまま lower に届いていた。
+- **修正**: 5 箇所すべてで宣言型を target に `refine_enum_ctor_args(value, &decl_ty)` を呼ぶ — `check_assign_field` ([access.rs](../crates/ilang-types/src/checker/expr/access.rs))、 bare field 代入と local 再代入 ([expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs) の Assign arm 2 経路)、 `check_array_with_hint` 各要素、 `check_map_lit_with_hint` 各値 ([casts.rs](../crates/ilang-types/src/checker/expr/casts.rs))。 これで 2 型パラメータ enum を field/配列/Map に格納でき、 `err`/`nope` 混在配列も通る。
+- **検証**: Result/Either を field (明示+bare init+再代入)・配列リテラル (ok+err 混在)・Map 値に heap payload 込みで格納し deinit 厳密 (400/round) + churn delta=0。 1 型パラメータ enum・local/return は回帰なし。 fixture: `05_edge_cases/enum_ctor_type_arg_refine_in_stores.il`。 workspace nextest 539/539、 ilang-types 75/75、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [確認済み記録] 第 47 弾: interface covariance + downcast — 全て健全 (2026-06-13)
 

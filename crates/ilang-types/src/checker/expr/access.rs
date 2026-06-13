@@ -383,6 +383,14 @@ impl TypeChecker {
         // Mirrors the substitution done by the Field read path.
         let field_ty = subst_type(&raw_field_ty, &cls.type_params, type_args_of(&ot));
         let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+        // Refine a generic enum constructor's stashed type args from the
+        // field's declared type — same as `let f: T = ctor` does. Without
+        // this, `this.r = Result.ok(7)` against `r: Result<i64, string>`
+        // left the err-side `E` param as `Any` (the ctor can't infer it
+        // from `ok(7)` alone), and the monomorphizer then hit
+        // "Type::Any" lowering the field. The let path already refines;
+        // the field-assign path did not.
+        self.refine_enum_ctor_args(value, &field_ty);
         if !self.value_assignable(value, &v_ty, &field_ty) {
             return Err(TypeError::Mismatch {
                 expected: field_ty,

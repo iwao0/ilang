@@ -609,6 +609,10 @@ impl TypeChecker {
                         });
                     }
                     let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+                    // Refine a generic enum constructor's stashed type
+                    // args from the binding's type (a `r = Result.err(..)`
+                    // reassign needs the same treatment as `let r: T = ..`).
+                    self.refine_enum_ctor_args(value, &var_ty);
                     if !self.value_assignable(value, &v_ty, &var_ty) {
                         return Err(TypeError::Mismatch {
                             expected: var_ty,
@@ -622,6 +626,10 @@ impl TypeChecker {
                     if let Some(cls) = self.classes.get(&class_name) {
                         if let Some(field_ty) = cls.fields.get(target).cloned() {
                             let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+                            // Bare implicit-`this` field write — refine the
+                            // enum ctor from the field's declared type, as
+                            // the explicit `this.f = ..` path does.
+                            self.refine_enum_ctor_args(value, &field_ty);
                             if !self.value_assignable(value, &v_ty, &field_ty) {
                                 return Err(TypeError::Mismatch {
                                     expected: field_ty,

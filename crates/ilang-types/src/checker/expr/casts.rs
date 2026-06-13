@@ -380,6 +380,12 @@ impl TypeChecker {
         if let Some(target_elem) = hint_elem {
             for e in elements {
                 let et = self.check_expr(e, env, ret_ty, in_class, loop_depth)?;
+                // Refine a generic enum constructor element from the
+                // declared element type — `[Result.ok(1), Result.err("e")]`
+                // against `Result<i64, string>[]` leaves each ctor with an
+                // `Any` param it can't infer alone; without this the
+                // monomorphizer hits "Type::Any" lowering the array.
+                self.refine_enum_ctor_args(e, target_elem);
                 if !self.value_assignable(e, &et, target_elem) {
                     return Err(TypeError::Mismatch {
                         expected: target_elem.clone(),
@@ -566,6 +572,9 @@ impl TypeChecker {
                 });
             }
             let vt = self.check_expr(v, env, ret_ty, in_class, loop_depth)?;
+            // Refine a generic enum constructor value from the declared V
+            // (same reason as the array-literal / field-assign paths).
+            self.refine_enum_ctor_args(v, hint_val);
             if !self.value_assignable(v, &vt, hint_val) {
                 return Err(TypeError::Mismatch {
                     expected: hint_val.clone(),
