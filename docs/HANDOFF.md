@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1297/1297) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1298/1298) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 72 弾**。 第 71 弾に続き panic 経路を probe して **無効な enum 値 (int から cast) を wildcard 無しの match にかけると SIGILL** になるバグを検出・修正。 `pub enum Msg: u32` に `99 as Msg` で宣言外の値を作り、 `match m { quit { } close { } }` (全 variant 網羅で checker は exhaustive と判断・`_` 無し) にかけると、 合成 default の `Terminator::Unreachable` が illegal-instruction trap (exit 132) を踏む。 match lowering ([match_.rs](../crates/ilang-mir/src/lower/match_.rs)) の no-wildcard default で Unreachable の前に `$ilang.panic("panic: no matching enum variant")` を emit (`Inst::Const` の `MirConst::Str` + builtin Call)。 codegen の builtin dispatch ([calls.rs](../crates/ilang-mir-codegen/src/compile/lower_inst/calls.rs)) の `$xxx.yyy` 直接解決リストに `$ilang.panic` を追加 (既に declare 済み)。 非 repr enum では default は到達不能なので dead code。 `_` を使う安全形は無影響。 詳細は下の解決済み記録。
 - **第 71 弾**。 panic / ランタイムエラー経路を probe して **`m[missing]` (Map の欠落キー index 読み) が docs と裏腹に panic せず default 値を返す**バグを検出・修正。 配列 OOB (`panic: index out of bounds`) ・unwrap none ・ゼロ除算は明確に panic するのに、 `m["missing"]` は i64 で 0 ・string で空文字 ・**object で null ポインタ**を返し、 後者は後続の使用で誤動作 (出力すら出ない)。 syntax.md は元から「missing key panics at runtime」と明記、 `m.get(k)` が安全版 (Optional)。 runtime `__map_get` ([maps.rs](../crates/ilang-runtime/src/maps.rs)) の `unwrap_or(0)` を、 欠落時に `rt_panic` ([print.rs](../crates/ilang-runtime/src/print.rs) 新設の Rust 呼び出し可能 panic ヘルパー) を呼ぶよう変更 — 配列 OOB と同じ exit 1。 詳細は下の解決済み記録。
 - **第 70 弾** (クリーンラウンド)。 第 68/69 弾で直した repr/flags enum の周辺を網羅 probe — **新規バグなし**。 repr enum を Map キー / Set 要素 (int repr backing)・repr enum 算術 (`Color.red + 1`)・plain enum (repr なし) を Map キー・変異名 match・**u32→enum キャスト経由の match** (`match raw as Msg { quit ... }` = Win32 ディスパッチ形) が全て健全。 拒否される形 (enum を int リテラルで match / 生 u32 を変異 pattern で match) は明確な診断 + 動く代替 (変異名 / `==` / `as` キャスト) がある意図的制約。 未 fixture だった実用形を pin。 fixture 追加のみのため第 24/53 弾と同じく workspace / nested_generic 儀式は省略、 JIT・AOT 両経路で確認。 fixture: `06_enums/repr_enum_patterns.il`。
 - **第 69 弾**。 `@repr` enum のビット演算周辺を probe して **repr enum を int リテラルと比較できない非対称**を検出・修正。 `msg == WindowMessage.destroy` (msg: u32) は enum-repr promotion で通るのに、 `Msg.close == 18` (enum == int リテラル) は「cannot apply binary op between Msg and i64」で拒否されていた (リテラルは i64 既定で、 promotion が「相手が repr に厳密一致」のときだけ発火するため u32 と一致せず)。 enum-repr promotion ([expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs)) に「repr enum vs repr に収まる int リテラル → enum を repr へ promote + リテラル採用」の 2 arm を追加。 両方向・全比較演算で動作、 変数比較は無影響。 詳細は下の解決済み記録。
@@ -121,6 +122,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 72 弾: 無効 enum 値の wildcard 無し match が SIGILL (2026-06-13)
+
+panic 経路の継続 probe で発見:
+
+- **症状**: `pub enum Msg: u32` に `let m = 99 as Msg` (宣言外の値) を作り、 `match m { quit { } close { } }` (全 variant 網羅・`_` 無し) にかけると **SIGILL (exit 132)**。 trace すると match 直前まで実行され、 マッチで illegal-instruction trap。 `_` wildcard 付き (Win32 ディスパッチ形) や valid な値なら正常。
+- **原因**: repr enum は `n as E` で任意 int を cast でき宣言外の値を持てるが、 checker は全 variant 網羅の match を exhaustive と見なし `_` を要求しない。 その合成 default ブロックの terminator が `Terminator::Unreachable` ([match_.rs](../crates/ilang-mir/src/lower/match_.rs)) で、 codegen が `trap` (TrapCode) を emit する。 無効値がこの「到達不能」ブロックに到達 → SIGILL。
+- **修正**: no-wildcard default で Unreachable の前に **クリーンな panic を emit**: `Inst::Const { MirConst::Str("panic: no matching enum variant") }` + `$ilang.panic` への builtin Call。 `$ilang.panic` は program_decl で declare 済みだが MIR builtin dispatch 未配線だったので、 codegen の `$xxx.yyy` 直接解決リスト (`$enum.box` 等と同じ、 [calls.rs](../crates/ilang-mir-codegen/src/compile/lower_inst/calls.rs)) に `$ilang.panic` を追加。 非 repr enum では default は genuine に到達不能なので dead code (害なし)。
+- **検証**: `classify(99)` が `panic: no matching enum variant` + exit 1 (SIGILL でなく)、 valid 値・`_` 付き・非 repr enum の match は無変更で正常。 fixture: `06_enums/enum_match_invalid_value_panics.il` (`// expect-error` でランタイム panic を pin)。 lowering + codegen を触ったので AOT・nested_generic 儀式も実施。 workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 71 弾: `m[missing]` が panic せず default を返す (2026-06-13)
 

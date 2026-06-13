@@ -348,6 +348,7 @@ pub(super) fn lower_call<M: Module>(
                 "$array.dataPtr"
                     | "$array.copyShallow"
                     | "$enum.box"
+                    | "$ilang.panic"
                     | "$ffi.arrayFromCArray"
                     | "$repl.loadSlot"
                     | "$repl.storeSlot"

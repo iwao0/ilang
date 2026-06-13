@@ -11,7 +11,7 @@
 
 use ilang_ast::{self as ast, Block as AstBlock, Expr, ExprKind, StmtKind, Symbol};
 
-use crate::inst::{BinOp, BlockId, Inst, MirConst, Terminator, ValueId};
+use crate::inst::{BinOp, BlockId, FuncRef, Inst, MirConst, Terminator, ValueId};
 use crate::types::MirTy;
 
 use super::{BodyCx, LowerError, VariantPayloadMeta};
@@ -519,8 +519,23 @@ impl<'a> BodyCx<'a> {
                 joins.push((self.fb.current_block(), bv));
             }
         } else {
-            // No user wildcard: the synthesised default is unreachable.
+            // No user wildcard. A non-repr enum can't reach the default
+            // (the switch covers every variant), but a `pub enum E: T`
+            // value can hold an out-of-range int cast in via `n as E` —
+            // matching that here would hit `Terminator::Unreachable`'s
+            // trap (SIGILL). Emit a clean runtime panic instead; for the
+            // genuinely-exhaustive non-repr case this block is dead code.
             self.fb.switch_to(default);
+            let msg = self.fb.new_value(MirTy::Str);
+            self.fb.push_inst(Inst::Const {
+                dst: msg,
+                value: MirConst::Str(Symbol::intern("panic: no matching enum variant")),
+            });
+            self.fb.push_inst(Inst::Call {
+                dst: None,
+                callee: FuncRef::Builtin(Symbol::intern("$ilang.panic")),
+                args: Box::new([msg]),
+            });
             self.fb.set_terminator(Terminator::Unreachable);
         }
 
