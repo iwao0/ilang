@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 45 弾** (クリーンラウンド)。 weak 参照と固定長配列 × wrap を probe — **新規バグなし**。 weak.get() の昇格 (生存=値 / 死後=none)・weak? back-ref サイクル・parent-owns-child cascade (二重解放なし)・weak 配列、 および **固定長配列 `T[N]` の要素 wrap** (`Box?[2]` リテラル/index store、 `(Box?, Box)[2]` への tuple index store) を deinit 厳密 + delta=0 で網羅。 wrap 修正 (第 36/41) が固定長表現にも generalize していることを確認。 詳細は下の確認済み記録。
 - **第 44 弾** (クリーンラウンド)。 第 43 弾の周辺を string/array ARC 全方位で probe — **新規バグなし**。 string メソッド連鎖の fresh 中間・template literal の heap 補間・`+=` desugar・**self-concat `s = s + s`** (aliased rhs を解放しない正しい挙動)・split・array push/unshift/map の fresh 要素・heap-kind 変数の fresh 再代入を、 `liveStringCount` / deinit 厳密で網羅。 string-ARC 形を pin。 詳細は下の確認済み記録。
 - **第 43 弾**。 string バッファ ARC を probe して、 **inplace concat `s = s + n.toString()` が fresh な rhs 文字列を 1/iter リーク**する既存バグを検出・修正。 `StrConcatInplace` は rhs を `s` のバッファに**コピー**するだけで消費しないため、 fresh rhs (`toString()` / fresh concat) の +1 が宙に浮く。 リテラル rhs (intern 済み) や借用 var rhs は無事。 op 後に fresh rhs を Release。 詳細は下の解決済み記録。
 - **第 42 弾** (クリーンラウンド)。 composite 要素 wrap の **残る store サイト**を網羅 probe — **新規バグなし**。 return 位置・`some(tuple)`・enum payload・引数位置・local 再代入・明示 field 代入・入れ子 `((Box?, Box), Box?)`・tuple 内 weak 要素を、 Optional 越し match で実体確認しつつ deinit 厳密 + delta=0。 第 36 (bare field) / 第 41 (index store) で未 pin の位置を 1 本に pin。 詳細は下の確認済み記録。
@@ -94,6 +95,18 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [確認済み記録] 第 45 弾: weak 参照 + 固定長配列 × wrap — 全て健全 (2026-06-13)
+
+weak と固定長配列 (第 19 弾の rc 表現) を、 最近の wrap 修正と交差させて probe。 **新規バグなし**:
+
+- **weak.get() の昇格**: strong 生存中は `some(値)`、 死後は `none` (dangling weak の .get() は crash せず死を検知)。
+- **weak? back-ref サイクル** (child が parent を weak 参照): 両ノード解放・サイクル leak なし。
+- **parent-owns-child (strong) + child-weak-parent**: parent 死亡カスケードが child を解放する最中に child の weak-parent 解放が走っても **二重解放しない** (d3b1d2cf の修正が保持)。
+- **weak 配列** `Box.weak[]`: strong は所有者の scope で死に、 weak 配列 drop は strong を release しない (deinit 厳密)。
+- **固定長配列 × 要素 wrap**: `Box?[2]` のリテラル (`[some(box), none]`) と index store (`arr[i] = box` の `Box → Box?`)、 `(Box?, Box)[2]` への tuple index store (slot0 wrap)。 第 36/41 の wrap 修正が **固定長配列の rc 表現にも generalize** していることを Optional 越し match で実体確認しつつ deinit 厳密 (700/round) + delta=0。
+
+fixture: `05_edge_cases/fixed_array_optional_tuple_wrap.il` (固定長 Optional/tuple 要素 wrap を厳密 deinit 700 + churn delta=0)。 weak 系は既存 fixture (`arc_cycle_via_weak` / `weak_backref_cascade_release_order` / `leak_weak_*`) が pin 済みのため追加せず。 **ソース変更なし**のため第 24 弾と同じく workspace / nested_generic 儀式は省略、 programs fixture を JIT・AOT 両経路で確認。
 
 ### [確認済み記録] 第 44 弾: string / array ARC 全方位 — 第 43 弾以外は健全 (2026-06-13)
 
