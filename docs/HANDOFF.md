@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1294/1294) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1295/1295) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 69 弾**。 `@repr` enum のビット演算周辺を probe して **repr enum を int リテラルと比較できない非対称**を検出・修正。 `msg == WindowMessage.destroy` (msg: u32) は enum-repr promotion で通るのに、 `Msg.close == 18` (enum == int リテラル) は「cannot apply binary op between Msg and i64」で拒否されていた (リテラルは i64 既定で、 promotion が「相手が repr に厳密一致」のときだけ発火するため u32 と一致せず)。 enum-repr promotion ([expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs)) に「repr enum vs repr に収まる int リテラル → enum を repr へ promote + リテラル採用」の 2 arm を追加。 両方向・全比較演算で動作、 変数比較は無影響。 詳細は下の解決済み記録。
 - **第 68 弾**。 `@flags` enum のビット演算を probe して **2 件の lowering バグ**を検出・修正。 (1) **`f.has(other)`** — checker は合成 bool メソッド (`(f & other) == other`) として受理するのに **MIR lowering が無く**「method call on this type / unhandled builtin」。 `try_lower_flags_method` ([calls/mod.rs](../crates/ilang-mir/src/lower/calls/mod.rs)) を新設、 両 tag を `EnumTag` で抽出し AND して queried flag の tag と比較。 (2) **`~f` (BitNot)** — flags enum の **boxed 値 (ポインタ) に直接 `UnOp::Not`** し結果を enum 型にしていたため、 後続の tag 読み (`~f as u32`) が garbage を deref して **SIGSEGV**。 `~f as i64` 等で確定クラッシュ。 二項 `|`/`&`/`^` と同様に tag 抽出 → NOT → `$enum.box` で再 box ([ops.rs](../crates/ilang-mir/src/lower/ops.rs))。 詳細は下の解決済み記録。
 - **第 67 弾**。 第 66 弾の covariance が **`some(..)` / tuple 等の入れ子降下では効かない**取りこぼしを是正。 第 66 は covariance を `value_assignable` (メソッド) に入れたが、 `some(Result.ok(new Dog()))` を `Result<Animal,string>?` へ入れる際の降下は `literal_assignable_with` (self を持たない自由関数) で起きるため未到達だった (配列/Map は hint-checker が要素ごとに value_assignable を呼ぶので元から動いていた)。 vt が既に推論済み型引数を持つことを利用し、 **型レベルの covariance 検査** (`type_covariant_to`: equal / Any / Object subtype / 構造的再帰) を `literal_assignable_with` の EnumCtor arm に追加。 これで some/tuple/array/深い入れ子 (`Result<Animal,string>?[]`) の全降下で合成。 第 66 のメソッド版 `enum_ctor_literal_covariant` は冗長になり削除。 詳細は下の解決済み記録。
 - **第 66 弾** (ユーザー決定 = generic enum リテラルを covariant に)。 **generic enum のコンストラクタリテラルを型引数に対して covariant** にした (配列/Map リテラル covariance と一貫)。 `Result.ok(new Dog())` (`Result<Dog,_>`) を `Result<Animal, string>` へ、 `Result.err(new Dog())` を `Result<i64, Animal>` へ入れられる (ok=T 位置・err=E 位置の両方)。 ctor は宣言 enum (`Result<Animal,string>`) として記録され、 monomorphizer が親型を構築・payload は upcast 格納・親型越しの仮想ディスパッチが動く。 **リテラル限定** (別名の `Result<Dog,string>` 変数は `Result<Animal,string>` へ代入不可 — enum は immutable 値なので健全)。 value_assignable に `enum_ctor_literal_covariant`、 refine に subtype upcast (`is_covariant_upcast`) を追加。 詳細は下の解決済み記録。
@@ -118,6 +119,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 69 弾: repr enum を int リテラルと比較できない非対称 (2026-06-13)
+
+`@flags`/`@repr` enum のビット演算周辺を probe して発見:
+
+- **症状**: `pub enum Msg: u32` で `Msg.close == 18` (enum == **int リテラル**) が「cannot apply binary op between Msg and i64」。 一方 `m == Msg.close` / `Msg.close == m` (m: u32 **変数**) は通る。 両方向のリテラル比較 (`18 == Msg.close` も) が失敗。 `Msg.close as u32 == 18` (明示キャスト) は回避できていた。
+- **原因**: enum-repr promotion ([expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs)) は「enum の repr が**相手側の型に厳密一致**するとき」だけ enum を repr に promote する。 int リテラル `18` は既定で **i64** なので u32-repr とは一致せず promote されない。 さらに後段の「リテラル採用」は両辺が int のときだけ発火するが、 enum 側が Object のままなので発火せず、 `bin_result(==, Msg, i64)` が拒否。
+- **修正**: promotion の match に「**repr enum vs repr に収まる int リテラル**」の 2 arm を追加 (`(Some(lr), None) if lr.is_int() && numeric_literal_fits(rhs, &lr)` とその左右逆)。 enum を repr へ promote し、 リテラルもその repr 型に採用する。 これで変数比較と同じ経路に乗る。
+- **検証**: 両方向 (`Msg.close == 18` / `18 == Msg.close`) ・全比較演算 (`==`/`!=`/`<`/`<=`/`>`/`>`) ・変数比較 (回帰なし) ・tag 値の正しさを網羅。 fixture: `05_edge_cases/repr_enum_int_literal_compare.il`。 checker のみの変更。 workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 68 弾: `@flags` enum の `has` 未 lower と `~` の SIGSEGV (2026-06-13)
 

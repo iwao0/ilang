@@ -396,6 +396,16 @@ impl TypeChecker {
                     (Some(lr), _) if lr == r => (lr, r),
                     (_, Some(rr)) if rr == l => (l, rr),
                     (Some(lr), Some(rr)) if lr == rr => (lr, rr),
+                    // Repr enum vs an int literal that fits the repr:
+                    // promote the enum to its repr AND adopt the literal,
+                    // so `Msg.close == 18` works like `Msg.close == m`
+                    // (where `m: u32`) already does.
+                    (Some(lr), None) if lr.is_int() && numeric_literal_fits(rhs, &lr) => {
+                        (lr.clone(), lr)
+                    }
+                    (None, Some(rr)) if rr.is_int() && numeric_literal_fits(lhs, &rr) => {
+                        (rr.clone(), rr)
+                    }
                     _ => (l, r),
                 };
                 // Literal-side adoption: when one operand is a
