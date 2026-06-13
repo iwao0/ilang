@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 51 弾**。 static フィールドを probe して、 **heap (string) static フィールド代入が値を retain せず use-after-free**する既存バグを検出・修正。 `Cls.s = arg` (借用 param に fresh string) が static slot を所有せず、 源の transient +1 解放後に slot が dangling → 後続 read が解放済みバッファ (fresh string が空印字)。 `StoreStatic` に instance field 同様の retain-new (非 fresh) / release-old を追加。 詳細は下の解決済み記録。
 - **第 50 弾**。 第 48/49 弾の enum ctor 型引数精緻化の **最後の穴 = クロージャ本体の戻り値**を是正。 top-level fn の戻り値は refine していたが、 `fn(): Result<i64,string> { Result.err(..) }` や `array.map(fn -> Result<...>)` のクロージャ tail / 早期 return が未配線で Type::Any だった。 `check_fn_expr` に `refine_enum_ctor_args_in_block` を追加。 詳細は下の解決済み記録。
 - **第 49 弾**。 第 48 弾の enum ctor 型引数精緻化の **残る store 位置**を是正。 引数位置 (fn / method / init)・`some(..)`・tuple 要素でも `Result.err(..)` 等が Type::Any で失敗していた。 `refine_enum_ctor_args` を some / tuple / array へ**再帰**させ (入れ子も伝播)、 call-arg checker (`check_args` / generic fn arg / fn 型 call) に refine を追加。 詳細は下の解決済み記録。
 - **第 48 弾**。 Result `?` を probe する過程で、 **型パラメータを引数から推論できない enum コンストラクタ (`Result.err(..)` は T、 `Maybe.nope` は両方) を field / 配列リテラル / Map 値に格納すると Type::Any で lower 失敗**する既存バグを検出・修正。 `let f: T = ctor` は注釈で enum ctor の型引数を精緻化 (`refine_enum_ctor_args`) するのに、 field 代入 (明示 + bare)・配列リテラル要素・Map 値・local 再代入は精緻化していなかった。 結果 2 型パラメータ enum (Result / Either) を field/配列に置けなかった。 5 箇所に refine を追加。 詳細は下の解決済み記録。
@@ -100,6 +101,17 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 51 弾: heap static フィールド代入が retain せず use-after-free (2026-06-13)
+
+static フィールドを probe して発見した ARC バグ:
+
+- **症状**: `Cls.s = arg` (s が string static フィールド、 arg が fresh string を持つ借用 param) の後 `Cls.s` を読むと **空文字を印字するのに length は正しい** = 解放済みバッファを参照する **UAF**。 fresh string を **直接** (`Cls.s = "a" + b`) なら動く (fresh が +1 を所有)、 リテラルや束縛 local も動く (長生き)。 fresh を**パラメータ経由**で渡したときだけ壊れる。
+- **原因**: static フィールド代入の lowering ([expr.rs](../crates/ilang-mir/src/lower/expr.rs) の `StoreStatic` 経路) が **retain も release もしていなかった**。 instance field (`StoreField`) は retain-new / release-old するのに、 static slot は値をそのまま store。 借用源は slot が +1 を所有しないため、 源 (caller の fresh arg transient) が解放されると slot が dangling。
+- **修正**: heap static slot (`is_arc_slot`) のとき instance field と同じ **retain-new (非 fresh) / release-old (init store は除く — const-baked 初期値を持つため)** を `StoreStatic` の前に追加。 fresh 源は +1 を slot の share に流用、 借用源は retain。 旧値 (前回の文字列 or const-init "init") を release (interned リテラルの release は安全と churn で確認)。
+- **検証**: fresh 直接・fresh via param (旧 UAF)・借用 local を string static に代入し、 値の非破壊 (`hello` が `hello` のまま) と `liveStringCount` churn 600 で flat (retain/release 均衡)・read が生きたバッファを返すことを確認。 fixture: `02_classes/static_string_field_arc.il`。
+- **別の既存制限を記録** (バグでなく codegen ギャップ): **数値配列の static フィールド** (`static data: i64[]`) は checker が許可するのに **codegen が「unsupported in M1: static slot type」で拒否**。 string static のみ実用。 対応するなら static slot codegen に array 型を追加。
+- workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 50 弾: クロージャ戻り値の enum ctor 型引数を精緻化 (2026-06-13)
 

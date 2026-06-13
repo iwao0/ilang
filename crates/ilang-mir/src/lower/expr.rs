@@ -374,7 +374,32 @@ impl<'a> BodyCx<'a> {
                                         "cannot assign to const {field}"
                                     )));
                                 }
-                                let (coerced, _) = self.lower_arg_to(value, Some(&s.ty))?;
+                                let sty = s.ty.clone();
+                                let value_is_fresh = self.is_fresh_object_expr(value);
+                                let (coerced, _) = self.lower_arg_to(value, Some(&sty))?;
+                                // A heap-typed static slot (string / dynamic
+                                // array) must take ownership of the stored
+                                // value and drop the previous occupant —
+                                // same rule as an instance field. Without
+                                // the retain, `Cls.s = arg` (a borrowed
+                                // param / var) stored a value the slot
+                                // didn't own, so when the source's transient
+                                // +1 was released the slot dangled and reads
+                                // came back freed (a fresh string printed
+                                // empty). Skip the release on the `init`
+                                // store — the slot still holds its zeroed /
+                                // const-baked initial value, not a heap
+                                // pointer this code owns.
+                                if self.is_arc_slot(&sty) {
+                                    if !value_is_fresh {
+                                        self.fb.push_inst(Inst::Retain { value: coerced });
+                                    }
+                                    if !*is_init {
+                                        let old = self.fb.new_value(sty.clone());
+                                        self.fb.push_inst(Inst::LoadStatic { dst: old, slot });
+                                        self.fb.push_inst(Inst::Release { value: old });
+                                    }
+                                }
                                 self.fb.push_inst(Inst::StoreStatic { slot, value: coerced });
                                 return Ok((self.const_unit(), MirTy::Unit));
                             }
