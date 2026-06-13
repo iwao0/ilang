@@ -1093,6 +1093,14 @@ render(s)                                  // "square"
   the receiver's actual class (same `__virt_dispatch` path the
   inheritance vtable uses; interface methods occupy a separate
   slot range so they can't collide with class method slots).
+- **Branch join**: when the arms of an `if` / `match`, an array
+  literal `[..]`, or a map literal's values produce *different*
+  classes, the result joins to their common parent class if one
+  exists, and otherwise to a *unique* common interface they both
+  implement (`if c { new Circle() } else { new Square() }` joins to
+  `Shape` when both implement it). If the classes share more than
+  one interface the join is ambiguous and is a type error — annotate
+  or restructure.
 
 ---
 

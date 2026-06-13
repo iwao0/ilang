@@ -662,7 +662,7 @@ impl TypeChecker {
             // if/else path's rule.
             let class_join = match (&then_ty, &else_ty) {
                 (Type::Object(t), Type::Object(e)) => {
-                    self.common_ancestor(*t, *e).map(Type::Object)
+                    self.common_object_join(*t, *e).map(Type::Object)
                 }
                 _ => None,
             };
@@ -761,7 +761,7 @@ impl TypeChecker {
                 if let (Type::Object(a), Type::Object(b)) =
                     (&then_ty, &else_ty)
                 {
-                    if let Some(anc) = self.common_ancestor(*a, *b) {
+                    if let Some(anc) = self.common_object_join(*a, *b) {
                         return Ok(Type::Object(anc));
                     }
                 }
@@ -821,7 +821,7 @@ impl TypeChecker {
                 Some(Type::Optional(Box::new(inner)))
             }
             (Type::Object(ca), Type::Object(cb)) => {
-                self.common_ancestor(*ca, *cb).map(Type::Object)
+                self.common_object_join(*ca, *cb).map(Type::Object)
             }
             _ => None,
         }

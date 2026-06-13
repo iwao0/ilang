@@ -120,6 +120,34 @@ impl TypeChecker {
         None
     }
 
+    /// Join two object types for an `if` / `match` branch result. First
+    /// tries a common class ancestor (`common_ancestor`); if the two
+    /// classes share no class ancestor, falls back to a common
+    /// INTERFACE that both implement. So `if c { new Circle() } else {
+    /// new Square() }` — where `Circle` and `Square` both implement
+    /// `Shape` but share no parent class — joins to `Shape`, mirroring
+    /// how subclasses of a common parent already join.
+    ///
+    /// A unique common interface is required: when the two classes share
+    /// more than one interface the join is ambiguous (no expected type
+    /// is available at this point to pick), so this returns `None` and
+    /// the caller reports a mismatch — annotate or restructure.
+    pub(super) fn common_object_join(&self, a: Symbol, b: Symbol) -> Option<Symbol> {
+        if let Some(anc) = self.common_ancestor(a, b) {
+            return Some(anc);
+        }
+        let mut shared: Vec<Symbol> = self
+            .interfaces
+            .keys()
+            .copied()
+            .filter(|i| self.class_implements(a, *i) && self.class_implements(b, *i))
+            .collect();
+        match shared.len() {
+            1 => shared.pop(),
+            _ => None,
+        }
+    }
+
     /// Object-aware extension of `assignable`: returns true if the
     /// plain assignable check passes OR `from` is an object whose
     /// class is a (transitive) subclass of `to`'s class, OR `to`
@@ -316,7 +344,7 @@ impl TypeChecker {
             return Ok(a);
         }
         if let (Type::Object(ca), Type::Object(cb)) = (&a, &b) {
-            if let Some(anc) = self.common_ancestor(*ca, *cb) {
+            if let Some(anc) = self.common_object_join(*ca, *cb) {
                 return Ok(Type::Object(anc));
             }
         }

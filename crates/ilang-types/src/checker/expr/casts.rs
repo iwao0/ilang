@@ -407,7 +407,7 @@ impl TypeChecker {
             // checked against the lifted type so any further
             // siblings still join cleanly.
             if let (Type::Object(a), Type::Object(b)) = (&elem_ty, &et) {
-                if let Some(anc) = self.common_ancestor(*a, *b) {
+                if let Some(anc) = self.common_object_join(*a, *b) {
                     elem_ty = Type::Object(anc);
                     continue;
                 }
@@ -429,7 +429,7 @@ impl TypeChecker {
                     Type::Object(cb),
                 ) = (ea.as_ref(), eb.as_ref())
                 {
-                    self.common_ancestor(*ca, *cb).map(Type::Object)
+                    self.common_object_join(*ca, *cb).map(Type::Object)
                 } else {
                     None
                 };
@@ -511,7 +511,7 @@ impl TypeChecker {
             // matches the array-literal / branch unification
             // behaviour.
             if let (Type::Object(a), Type::Object(b)) = (&v_ty, &vt) {
-                if let Some(anc) = self.common_ancestor(*a, *b) {
+                if let Some(anc) = self.common_object_join(*a, *b) {
                     v_ty = Type::Object(anc);
                     continue;
                 }
