@@ -39,6 +39,30 @@ impl<'a> BodyCx<'a> {
                 Ok((dst, MirTy::Bool))
             }
             AstUnOp::BitNot => {
+                // `@flags` enum: extract the tag, NOT it, re-box — the
+                // same shape as the binary flags ops. Operating on the
+                // boxed value directly would NOT the pointer and the next
+                // tag read (`~f as u32`) would dereference garbage.
+                if let MirTy::Enum(eid) = &ty {
+                    if self.enums[eid.0 as usize].is_flags {
+                        let eid = *eid;
+                        let tag = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::EnumTag { dst: tag, value: v });
+                        let notted = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::UnOp {
+                            dst: notted,
+                            op: UnOp::Not,
+                            src: tag,
+                        });
+                        let dst = self.fb.new_value(MirTy::Enum(eid));
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(dst),
+                            callee: FuncRef::Builtin(Symbol::intern("$enum.box")),
+                            args: Box::new([notted]),
+                        });
+                        return Ok((dst, MirTy::Enum(eid)));
+                    }
+                }
                 let dst = self.fb.new_value(ty.clone());
                 self.fb.push_inst(Inst::UnOp { dst, op: UnOp::Not, src: v });
                 Ok((dst, ty))

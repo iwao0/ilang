@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1293/1293) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1294/1294) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 68 弾**。 `@flags` enum のビット演算を probe して **2 件の lowering バグ**を検出・修正。 (1) **`f.has(other)`** — checker は合成 bool メソッド (`(f & other) == other`) として受理するのに **MIR lowering が無く**「method call on this type / unhandled builtin」。 `try_lower_flags_method` ([calls/mod.rs](../crates/ilang-mir/src/lower/calls/mod.rs)) を新設、 両 tag を `EnumTag` で抽出し AND して queried flag の tag と比較。 (2) **`~f` (BitNot)** — flags enum の **boxed 値 (ポインタ) に直接 `UnOp::Not`** し結果を enum 型にしていたため、 後続の tag 読み (`~f as u32`) が garbage を deref して **SIGSEGV**。 `~f as i64` 等で確定クラッシュ。 二項 `|`/`&`/`^` と同様に tag 抽出 → NOT → `$enum.box` で再 box ([ops.rs](../crates/ilang-mir/src/lower/ops.rs))。 詳細は下の解決済み記録。
 - **第 67 弾**。 第 66 弾の covariance が **`some(..)` / tuple 等の入れ子降下では効かない**取りこぼしを是正。 第 66 は covariance を `value_assignable` (メソッド) に入れたが、 `some(Result.ok(new Dog()))` を `Result<Animal,string>?` へ入れる際の降下は `literal_assignable_with` (self を持たない自由関数) で起きるため未到達だった (配列/Map は hint-checker が要素ごとに value_assignable を呼ぶので元から動いていた)。 vt が既に推論済み型引数を持つことを利用し、 **型レベルの covariance 検査** (`type_covariant_to`: equal / Any / Object subtype / 構造的再帰) を `literal_assignable_with` の EnumCtor arm に追加。 これで some/tuple/array/深い入れ子 (`Result<Animal,string>?[]`) の全降下で合成。 第 66 のメソッド版 `enum_ctor_literal_covariant` は冗長になり削除。 詳細は下の解決済み記録。
 - **第 66 弾** (ユーザー決定 = generic enum リテラルを covariant に)。 **generic enum のコンストラクタリテラルを型引数に対して covariant** にした (配列/Map リテラル covariance と一貫)。 `Result.ok(new Dog())` (`Result<Dog,_>`) を `Result<Animal, string>` へ、 `Result.err(new Dog())` を `Result<i64, Animal>` へ入れられる (ok=T 位置・err=E 位置の両方)。 ctor は宣言 enum (`Result<Animal,string>`) として記録され、 monomorphizer が親型を構築・payload は upcast 格納・親型越しの仮想ディスパッチが動く。 **リテラル限定** (別名の `Result<Dog,string>` 変数は `Result<Animal,string>` へ代入不可 — enum は immutable 値なので健全)。 value_assignable に `enum_ctor_literal_covariant`、 refine に subtype upcast (`is_covariant_upcast`) を追加。 詳細は下の解決済み記録。
 - **第 65 弾**。 **async fn が generic enum を返すと型引数が refine されない**実バグを検出・修正 (第 63 弾の診断が表面化)。 `async fn getR(): Result<Box, string> { Result.ok(new Box(5)) }` は注釈なしだと「cannot infer the type parameter(s) of \`Result\`」。 async desugar は return 値を `Promise.$promise.settleResolve(p, Result.ok(..))` (generic static method `settleResolve<T>(p: Promise<T>, v: T)`) の引数に包むが、 **`resolve_method_call` ([method.rs](../crates/ilang-types/src/checker/method.rs)) の generic メソッド経路が引数の enum ctor を refine していなかった** (generic fn 経路・check_args は refine するのに)。 そのため `Result.ok(..)` の E=Any が残った。 検証ループに `refine_enum_ctor_args(arg, &actual)` を追加 — promise の要素型 `Result<Box,string>` が `v: T` に流れて ctor を refine。 async に限らず **全 generic メソッド呼び出し**の enum-ctor 引数 refine 漏れを修正。 heap payload は await 跨ぎで ARC 厳密。 詳細は下の解決済み記録。
@@ -117,6 +118,14 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 68 弾: `@flags` enum の `has` 未 lower と `~` の SIGSEGV (2026-06-13)
+
+`@flags` enum のビット演算を probe して発見した 2 件の lowering バグ:
+
+- **(1) `f.has(other)` が lower 未実装**: checker ([calls.rs](../crates/ilang-types/src/checker/expr/calls.rs):757) は `@flags` enum に `has(other): bool` (= `(f & other) == other`) を合成して受理するが、 MIR lowering に対応する handler が無く `method call on this type / unhandled builtin`。 既存 fixture (`flags_enum_bitwise.il`) は `|`/`&`/`^` のみで has 未テストだった。 修正: `try_lower_flags_method` ([calls/mod.rs](../crates/ilang-mir/src/lower/calls/mod.rs)) を method-call lowering の末尾 (Err 直前) に追加。 receiver と arg の tag を `Inst::EnumTag` で抽出、 `IAnd` して arg の tag と `IEq` 比較し bool を返す。
+- **(2) `~f` (BitNot) が boxed 値を直接 NOT して SIGSEGV**: `lower_unary` の `BitNot` arm ([ops.rs](../crates/ilang-mir/src/lower/ops.rs):41) が flags enum の **boxed 値 (ポインタ) に `UnOp::Not` を直接適用**し、 結果を `MirTy::Enum` 型にしていた。 そのため `~Perm.read as u32` のような後続の tag 読み (`EnumTag`) がポインタを NOT した garbage を deref して **確定 SIGSEGV** (`~f as i64` で 139)。 `~f & flag` 経由は偶然動いていた。 修正: 二項 flags op と同形に、 `EnumTag` で tag 抽出 → `UnOp::Not` (i64) → `$enum.box` で再 box。 値は二項 ops と一貫 (`~read as u32` = 0xFFFFFFFE = 4294967294、 `~read & all` = write|exec = 6)。
+- **検証**: has (基本 / compound flag / self / 空交差) ・ `~` (値 6 / 4294967294 ・ `~f` を has に再投入) を網羅。 fixture: `05_edge_cases/flags_enum_has_and_not.il`。 **両方とも flags enum の lowering 漏れ** (checker は元から正しい)。 lowering を触ったので nested_generic 儀式も実施。 workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 67 弾: enum covariance を入れ子降下 (some/tuple) でも効かせる (2026-06-13)
 

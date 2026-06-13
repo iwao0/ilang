@@ -11,7 +11,7 @@
 
 use ilang_ast::{Expr, ExprKind, Span, Symbol};
 
-use crate::inst::{FuncId, FuncRef, Inst, ValueId};
+use crate::inst::{BinOp, FuncId, FuncRef, Inst, ValueId};
 use crate::program::ClassLayout;
 use crate::types::MirTy;
 
@@ -282,9 +282,53 @@ impl<'a> BodyCx<'a> {
         {
             return Ok(out);
         }
+        if let Some(out) = self.try_lower_flags_method(ov, &oty, method, args)? {
+            return Ok(out);
+        }
         Err(LowerError::Unsupported(
             "method call on this type / unhandled builtin",
         ))
+    }
+
+    /// `@flags` enum `f.has(other)` — synthetic bool method the checker
+    /// accepts (`(f & other) == other`). Extract both tags, AND them, and
+    /// compare against the queried flag's tag.
+    fn try_lower_flags_method(
+        &mut self,
+        ov: ValueId,
+        oty: &MirTy,
+        method: Symbol,
+        args: &[Expr],
+    ) -> Result<Option<(ValueId, MirTy)>, LowerError> {
+        let MirTy::Enum(eid) = oty else {
+            return Ok(None);
+        };
+        if method.as_str() != "has" || !self.enums[eid.0 as usize].is_flags {
+            return Ok(None);
+        }
+        if args.len() != 1 {
+            return Ok(None);
+        }
+        let (av, _) = self.lower_expr(&args[0])?;
+        let lt = self.fb.new_value(MirTy::I64);
+        self.fb.push_inst(Inst::EnumTag { dst: lt, value: ov });
+        let rt = self.fb.new_value(MirTy::I64);
+        self.fb.push_inst(Inst::EnumTag { dst: rt, value: av });
+        let combined = self.fb.new_value(MirTy::I64);
+        self.fb.push_inst(Inst::BinOp {
+            dst: combined,
+            op: BinOp::IAnd,
+            lhs: lt,
+            rhs: rt,
+        });
+        let out = self.fb.new_value(MirTy::Bool);
+        self.fb.push_inst(Inst::BinOp {
+            dst: out,
+            op: BinOp::IEq,
+            lhs: combined,
+            rhs: rt,
+        });
+        Ok(Some((out, MirTy::Bool)))
     }
 
     /// Reflection methods on a `Type` handle: `fieldType(name)`,
