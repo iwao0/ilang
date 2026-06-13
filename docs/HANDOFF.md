@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1296/1296) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1297/1297) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 71 弾**。 panic / ランタイムエラー経路を probe して **`m[missing]` (Map の欠落キー index 読み) が docs と裏腹に panic せず default 値を返す**バグを検出・修正。 配列 OOB (`panic: index out of bounds`) ・unwrap none ・ゼロ除算は明確に panic するのに、 `m["missing"]` は i64 で 0 ・string で空文字 ・**object で null ポインタ**を返し、 後者は後続の使用で誤動作 (出力すら出ない)。 syntax.md は元から「missing key panics at runtime」と明記、 `m.get(k)` が安全版 (Optional)。 runtime `__map_get` ([maps.rs](../crates/ilang-runtime/src/maps.rs)) の `unwrap_or(0)` を、 欠落時に `rt_panic` ([print.rs](../crates/ilang-runtime/src/print.rs) 新設の Rust 呼び出し可能 panic ヘルパー) を呼ぶよう変更 — 配列 OOB と同じ exit 1。 詳細は下の解決済み記録。
 - **第 70 弾** (クリーンラウンド)。 第 68/69 弾で直した repr/flags enum の周辺を網羅 probe — **新規バグなし**。 repr enum を Map キー / Set 要素 (int repr backing)・repr enum 算術 (`Color.red + 1`)・plain enum (repr なし) を Map キー・変異名 match・**u32→enum キャスト経由の match** (`match raw as Msg { quit ... }` = Win32 ディスパッチ形) が全て健全。 拒否される形 (enum を int リテラルで match / 生 u32 を変異 pattern で match) は明確な診断 + 動く代替 (変異名 / `==` / `as` キャスト) がある意図的制約。 未 fixture だった実用形を pin。 fixture 追加のみのため第 24/53 弾と同じく workspace / nested_generic 儀式は省略、 JIT・AOT 両経路で確認。 fixture: `06_enums/repr_enum_patterns.il`。
 - **第 69 弾**。 `@repr` enum のビット演算周辺を probe して **repr enum を int リテラルと比較できない非対称**を検出・修正。 `msg == WindowMessage.destroy` (msg: u32) は enum-repr promotion で通るのに、 `Msg.close == 18` (enum == int リテラル) は「cannot apply binary op between Msg and i64」で拒否されていた (リテラルは i64 既定で、 promotion が「相手が repr に厳密一致」のときだけ発火するため u32 と一致せず)。 enum-repr promotion ([expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs)) に「repr enum vs repr に収まる int リテラル → enum を repr へ promote + リテラル採用」の 2 arm を追加。 両方向・全比較演算で動作、 変数比較は無影響。 詳細は下の解決済み記録。
 - **第 68 弾**。 `@flags` enum のビット演算を probe して **2 件の lowering バグ**を検出・修正。 (1) **`f.has(other)`** — checker は合成 bool メソッド (`(f & other) == other`) として受理するのに **MIR lowering が無く**「method call on this type / unhandled builtin」。 `try_lower_flags_method` ([calls/mod.rs](../crates/ilang-mir/src/lower/calls/mod.rs)) を新設、 両 tag を `EnumTag` で抽出し AND して queried flag の tag と比較。 (2) **`~f` (BitNot)** — flags enum の **boxed 値 (ポインタ) に直接 `UnOp::Not`** し結果を enum 型にしていたため、 後続の tag 読み (`~f as u32`) が garbage を deref して **SIGSEGV**。 `~f as i64` 等で確定クラッシュ。 二項 `|`/`&`/`^` と同様に tag 抽出 → NOT → `$enum.box` で再 box ([ops.rs](../crates/ilang-mir/src/lower/ops.rs))。 詳細は下の解決済み記録。
@@ -120,6 +121,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 71 弾: `m[missing]` が panic せず default を返す (2026-06-13)
+
+panic / ランタイムエラー経路を probe して発見:
+
+- **症状**: 配列 OOB read/write (`panic: index out of bounds`) ・`o.unwrap()` on none (`panic: unwrap of None`) ・ゼロ除算 (`panic: division by zero`) はいずれも明確に panic + exit 1 するのに、 **`m["missing"]` (Map の欠落キーを index `[]` で読む) が panic せず default を返す**。 i64 マップで 0 ・string マップで空文字 ・**object マップで null ポインタ** (後続の `b.n` 等で誤動作・出力すら出ない)。 syntax.md は `m["a"] // read (missing key panics at runtime)` と元から明記し、 `m.get(k): V?` が安全版。 つまり実装が docs/意図と不一致。
+- **原因**: runtime `__map_get` ([maps.rs](../crates/ilang-runtime/src/maps.rs)) が欠落キーで `unwrap_or(0)` / `unwrap_or(&0)` し、 0 を返していた。 `MapGet` inst は borrowed read で、 codegen の OOB/div/unwrap のような panic チェックが無い (それらは codegen 側で条件分岐 emit)。
+- **修正**: print.rs に **Rust 呼び出し可能な panic ヘルパー `rt_panic(&str) -> !`** を新設 (`__ilang_panic` と同じ出力形 = `<msg>\n` を stderr + exit 1)。 `__map_get` の 3 arm (Int/Str/Object) すべてで欠落時に `rt_panic("panic: key not found in map")` を呼ぶ。 `m == 0` (null マップ) は別扱いで 0 を維持。 `m.get(k)` (`__map_get_optional`) は無変更 (安全版)。
+- **検証**: `m["nope"]` が `panic: key not found in map` + exit 1、 present key は無変更で正常。 既存 fixture は `m[missing]` の default 返しに依存しておらず全緑。 fixture: `05_edge_cases/map_index_missing_key_panics.il` (`// expect-error: key not found in map` でランタイム panic を pin、 `division_by_zero_int.il` と同形式)。 runtime を触ったので AOT 経路でも確認。 workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 69 弾: repr enum を int リテラルと比較できない非対称 (2026-06-13)
 

@@ -72,6 +72,16 @@ pub extern "C" fn __print_newline() {
 // Panic
 // --------------------------------------------------------------------
 
+/// Rust-callable runtime panic with a static message — same output shape
+/// as `__ilang_panic` (`<msg>\n` on stderr, exit 1). For runtime helpers
+/// that detect an error condition directly (e.g. a missing map key).
+pub fn rt_panic(msg: &str) -> ! {
+    let mut err = std::io::stderr().lock();
+    let _ = err.write_all(msg.as_bytes());
+    let _ = err.write_all(b"\n");
+    std::process::exit(1)
+}
+
 #[unsafe(export_name = "$ilang.panic")]
 pub extern "C" fn __ilang_panic(msg: i64) -> ! {
     let bytes = if msg == 0 {

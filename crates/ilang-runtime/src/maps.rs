@@ -267,10 +267,17 @@ pub extern "C" fn __map_get(map: i64, key: i64) -> i64 {
     // so nothing ever released it and every overwritten entry
     // leaked (`m["a"] = new Box(..)` in a loop). `arc_peephole`
     // also relies on `MapGet` never bumping refcounts on its own.
+    // A missing key is a panic — `m[k]` is the unchecked read; `m.get(k)`
+    // is the safe variant that returns an Optional. Silently returning 0
+    // handed back a wrong scalar / empty string and, for object values, a
+    // null pointer that misbehaves downstream.
+    const MISSING: &str = "panic: key not found in map";
     match &m.store {
-        MapStore::Int(t) => *t.get(&key).unwrap_or(&0),
-        MapStore::Str(t) => *t.get(&*unsafe { key_str(key) }).unwrap_or(&0),
-        MapStore::Object(t) => t.get(key).unwrap_or(0),
+        MapStore::Int(t) => *t.get(&key).unwrap_or_else(|| crate::print::rt_panic(MISSING)),
+        MapStore::Str(t) => {
+            *t.get(&*unsafe { key_str(key) }).unwrap_or_else(|| crate::print::rt_panic(MISSING))
+        }
+        MapStore::Object(t) => t.get(key).unwrap_or_else(|| crate::print::rt_panic(MISSING)),
     }
 }
 
