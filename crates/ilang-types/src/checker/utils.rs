@@ -318,6 +318,55 @@ impl TypeChecker {
         }
     }
 
+    /// When a generic fn call couldn't pin all its type params from the
+    /// arguments — a param that appears only in the return type, e.g.
+    /// `fn makeArr<T>(): T[]` or `fn wrapErr<T>(): Result<T, string>` —
+    /// solve the leftover params by unifying the declared return type
+    /// against the expected type from context (a `let` annotation, a
+    /// return position, or a call argument's param type). Updates the
+    /// stashed `fn_call_type_args` and returns the corrected (fully
+    /// substituted) return type, or `None` if nothing was newly solved.
+    pub(super) fn refine_fn_call_type_args(&self, expr: &Expr, target: &Type) -> Option<Type> {
+        let ExprKind::Call { callee, .. } = &expr.kind else {
+            return None;
+        };
+        let sigs = self.fns.get(callee)?;
+        if sigs.len() != 1 || sigs[0].type_params.is_empty() {
+            return None;
+        }
+        let sig = &sigs[0];
+        let mut tbl = self.fn_call_type_args.borrow_mut();
+        let (cn, cur_args) = tbl.get(&expr.span)?;
+        if cn != callee || cur_args.len() != sig.type_params.len() {
+            return None;
+        }
+        // Only act when a param is still unresolved (`Any`).
+        if !cur_args.iter().any(|t| matches!(t, Type::Any)) {
+            return None;
+        }
+        let cur_args = cur_args.clone();
+        // Seed with what the args already pinned, then solve the rest by
+        // unifying the declared return type against the expected type.
+        let mut bindings: HashMap<Symbol, Type> = HashMap::new();
+        for (p, a) in sig.type_params.iter().zip(cur_args.iter()) {
+            if !matches!(a, Type::Any) {
+                bindings.insert(p.clone(), a.clone());
+            }
+        }
+        collect_type_var_bindings(&sig.ret, target, &mut bindings);
+        let new_args: Vec<Type> = sig
+            .type_params
+            .iter()
+            .map(|p| bindings.get(p).cloned().unwrap_or(Type::Any))
+            .collect();
+        if new_args == cur_args {
+            return None;
+        }
+        let ret = subst_type(&sig.ret, &sig.type_params, &new_args);
+        tbl.insert(expr.span, (callee.clone(), new_args));
+        Some(ret)
+    }
+
     pub(super) fn refine_enum_ctor_args_in_block(&self, b: &ilang_ast::Block, target: &Type) {
         // Tail produces the block's value — refine against target.
         if let Some(t) = &b.tail {

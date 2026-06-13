@@ -591,7 +591,17 @@ impl TypeChecker {
         let saved_loops = std::mem::take(&mut *self.loop_stack.borrow_mut());
         let body_res = self.check_block(&f.body, &env, Some(&expected), in_class, 0);
         *self.loop_stack.borrow_mut() = saved_loops;
-        let body_ty = body_res?;
+        let mut body_ty = body_res?;
+        // A generic fn call in tail position whose type param is fixed
+        // only by the return type (`fn f(): i64[] { makeArr() }`) infers
+        // `Any` from its args alone — solve it from the declared return
+        // type so the tail check passes and the stashed type-args become
+        // concrete.
+        if let Some(tail) = f.body.tail.as_deref() {
+            if let Some(corrected) = self.refine_fn_call_type_args(tail, &expected) {
+                body_ty = corrected;
+            }
+        }
         // Prefer the tail-expression check via `value_assignable`
         // when the body has a tail expression — that path catches
         // literal-int-doesn't-fit-target ergonomically (`fn f():

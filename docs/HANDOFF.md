@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1283/1283) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1284/1284) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 59 弾** (第 57 弾の判断待ち記録 (2) を解消)。 **generic fn の型パラメータを戻り値位置から推論できる**ようにした。 `fn makeArr<T>(): T[]` / `fn wrapErr<T>(): Result<T,string>` など T が戻り型にしか現れない fn は引数から T を決められず Any のままだった (`let xs: i64[] = makeArr()` が「expected i64[], got any[]」、 enum 系は monomorphizer で Type::Any)。 `refine_fn_call_type_args(call, target)` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) を新設し、 fn の宣言戻り型を期待型に対して unify して残りの型パラメータを解き、 stash (`fn_call_type_args`) を更新して補正後の戻り型を返す。 期待型が分かる 3 位置 — let 注釈 ([stmt.rs](../crates/ilang-types/src/checker/stmt.rs))・fn 戻り位置 ([decls.rs](../crates/ilang-types/src/checker/decls.rs))・呼び出し引数 ([method.rs](../crates/ilang-types/src/checker/method.rs)) — で適用。 部分推論 (片方を引数・片方を注釈) ・heap T の ARC も健全。 詳細は下の解決済み記録。 **これで第 57 弾の判断待ち記録 2 件は両方解消。**
 - **第 58 弾** (第 57 弾の判断待ち記録 (1) を解消)。 **generic class メソッドが generic enum を構築すると「unknown enum 〜」で lower 失敗**する既存バグを修正。 class 単一化 ([class.rs](../crates/ilang-mir/src/monomorphize/class.rs)) の `subst_expr` は specialized method body の型を置換するが **enum ctor の `enum_name` を再 mangle しなかった**ため、 `class Wrap<T> { asSome(): Maybe<T> { Maybe.some(this.v) } }` を `Wrap<i64>` で使うと `Maybe.some` が bare のまま (builtin Result も同症状)。 fn 経路 (fns.rs) は再 mangle するが class 経路に無かった。 checker の `enum_ctor_type_args` を thread-local 経由で class pass に渡し、 `subst_expr` が span 記録の型引数を class の T→具体で置換して mangle (fn 経路と同形)。 builtin Result・user enum・入れ子 (`Result.ok(Maybe.some(this.v))`)・複数インスタンス化・match 消費・heap T payload ARC を網羅。 詳細は下の解決済み記録。 **判断待ち記録の (2)** (generic fn 戻り型のみからの型推論) は未対応のまま。
 - **第 57 弾**。 generic fn × enum ctor の継ぎ目を突き、 **generic fn が builtin `Result` を構築/返却すると「unknown enum Result」で lower 失敗**する既存バグを検出・修正。 `Result<T,E>` は宣言が無く call site ごとに monomorphize されるが、 `monomorphize_fns` は specialize 時に generic-enum の `EnumCtor.enum_name` を mangle する判定材料 (`generic_enums`) を**プログラム宣言の enum だけ**から作っていたため builtin Result が漏れ、 `fn wrapOk<T>(x: T): Result<T, string> { Result.ok(x) }` の `Result.ok` が `enum_name="Result"` のまま残った (user 宣言の `Maybe<T>` は含まれるので動く)。 `monomorphize_fns` の `generic_enums` に Result テンプレートを seed して修正 (monomorphize_enums パスと同じ対処)。 型パラメータが引数で決まる形 (ok arg / err arg / 両腕) で動作・heap payload ARC 厳密。 詳細は下の解決済み記録。 **2 件の別系統の既存バグを記録** (本弾では未対応): (1) generic **class メソッド**が generic enum (user の `Maybe<T>` も builtin `Result` も) を構築すると「unknown enum 〜」 — class 単一化経路が method body の enum ctor を mangle しない別バグ。 (2) generic fn の型パラメータを**戻り値注釈のみ**から推論できない (`let xs: i64[] = makeArr<T>()` も `Maybe`/`Result` も同様) — generic-fn 戻り型推論一般の制約。
 - **第 56 弾**。 `?` 演算子 × enum ctor 型引数精緻化の継ぎ目を突き、 **`?` が呼び出し引数の中に入れ子になると Type::Any で lower 失敗**する既存バグを検出・修正。 `?` は `err(e) { return Result.err(e) }` (T=Any, E=string) を含むブロックに desugar されるが、 `Result.ok(take(g(ok)?))` のように `?` が tail 式の奥 (call 引数 / some / tuple / array 要素) に埋まると、 その `return Result.err` が refine されず T=Any のまま monomorphizer に届いていた。 原因: `refine_enum_ctor_args_in_block` が**文**の値は `refine_returns` で深く歩くのに、 **tail** は自身の値 ctor しか refine していなかった。 tail にも `refine_returns` を適用して修正。 `let b = g()?` (自前の文) は元から動いていた。 詳細は下の解決済み記録。
@@ -109,11 +110,14 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### [判断待ち記録] generic fn 戻り型のみからの型推論 (2026-06-13、 第 57 弾で発見・未対応)
+### [解決済み記録] 第 59 弾: generic fn の型パラメータを戻り値位置から推論 (2026-06-13)
 
-第 57 弾で切り分けた既存の制約 (Result 固有でなく user enum / 配列でも再現)。 第 58 弾で (1) (generic class メソッドの enum ctor mangle) は解消済み:
+第 57 弾の判断待ち記録 (2) を解消 (これで判断待ち 2 件とも解決):
 
-- **generic fn の型パラメータを戻り値注釈のみから推論できない**。 `fn makeArr<T>(): T[] { [] }` に `let xs: i64[] = makeArr()` で「expected i64[], got any[]」、 `fn makeNope<T>(): Maybe<T>` / `Result<T,string>` も同様に Type::Any。 引数で T が決まらず戻り型注釈からしか決まらない呼び出しで T=any のまま。 generic-fn 戻り型推論一般の制約 (Result 固有でない)。 対応するなら call の期待型から型パラメータを解く逆方向推論が要る。
+- **症状**: 型パラメータが戻り型にしか現れない generic fn は引数から T を決められず、 期待型から解かれなかった。 `fn makeArr<T>(): T[] { [] }` に `let xs: i64[] = makeArr()` で「expected i64[], got any[]」、 `fn makeNope<T>(): Maybe<T>` / `fn wrapErr<T>(): Result<T,string>` は (value_assignable は通るが) monomorphizer で Type::Any。 配列・user enum・builtin Result すべてで再現。
+- **原因**: generic fn 呼び出しの型推論 ([calls.rs](../crates/ilang-types/src/checker/expr/calls.rs) `check_call_expr`) は **引数からのみ** 型パラメータを bind し、 残りを `Type::Any` にして stash + 戻り型に subst する。 期待型 (let 注釈等) を使う経路が無かった。
+- **修正**: `refine_fn_call_type_args(call_expr, target)` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) を新設。 generic fn 呼び出しの stash に Any が残るとき、 引数で既に決まった bind を seed し、 宣言戻り型 `sig.ret` を target に `collect_type_var_bindings` で unify して残りを解き、 `fn_call_type_args` を更新して補正後の戻り型を返す (enum-ctor の `refine_enum_ctor_args` と同じ post-hoc 方式)。 期待型が分かる 3 位置で適用: **let 注釈** ([stmt.rs](../crates/ilang-types/src/checker/stmt.rs)、 vt を補正)・**fn 戻り位置** ([decls.rs](../crates/ilang-types/src/checker/decls.rs)、 tail を expected に対して解き body_ty を補正)・**呼び出し引数** ([method.rs](../crates/ilang-types/src/checker/method.rs) `check_args`、 at を param 型で補正)。 引数で T が既に決まる呼び出し (`wrapOk(5)`) は stash に Any が無いので無影響。
+- **検証**: let (配列 / Maybe / Result)・return 位置・引数位置・**部分推論** (`pair<A,B>(a: A): (A,B)[]` で A=引数・B=注釈)・heap T (`emptyBoxes<T>(): T[]` に Box) を網羅。 値の正しさ + deinit 厳密 (200/round = 2/round × 100) + churn delta=0。 fixture: `05_edge_cases/generic_fn_return_type_inference.il`。 checker のみの変更。 workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 58 弾: generic class メソッドが generic enum を構築すると「unknown enum 〜」 (2026-06-13)
 

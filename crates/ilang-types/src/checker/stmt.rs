@@ -83,7 +83,7 @@ impl TypeChecker {
                     }
                     _ => None,
                 };
-                let vt = if let (Some(Type::Array { elem, .. }), ExprKind::Array(items)) =
+                let mut vt = if let (Some(Type::Array { elem, .. }), ExprKind::Array(items)) =
                     (ty.as_ref(), &value.kind)
                 {
                     if items.is_empty() {
@@ -191,6 +191,16 @@ impl TypeChecker {
                             rewrite_type_params(ann, &tps)
                         };
                         drop(tps);
+                        // A generic fn call whose type param is fixed only
+                        // by the return position (`let xs: i64[] =
+                        // makeArr()`) infers `Any` from the args alone —
+                        // solve it from the annotation so both the value
+                        // type and the stashed type-args become concrete.
+                        if let Some(corrected) =
+                            self.refine_fn_call_type_args(value, &ann_rewritten)
+                        {
+                            vt = corrected;
+                        }
                         if !self.value_assignable(value, &vt, &ann_rewritten) {
                             return Err(TypeError::Mismatch {
                                 expected: ann_rewritten.clone(),
