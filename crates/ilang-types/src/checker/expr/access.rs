@@ -501,6 +501,10 @@ impl TypeChecker {
                         span: value.span,
                     });
                 }
+                // Refine an enum ctor stored via `m[k] = Result.err(..)`
+                // from the declared value type so the monomorphizer sees
+                // a concrete instantiation instead of `Any`.
+                self.refine_enum_ctor_args(value, &g.args[1]);
                 return Ok(Type::Unit);
             }
         }
@@ -532,6 +536,7 @@ impl TypeChecker {
                 span: value.span,
             });
         }
+        self.refine_enum_ctor_args(value, &elem_ty);
         Ok(Type::Unit)
     }
 }

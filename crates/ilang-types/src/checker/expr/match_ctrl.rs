@@ -500,6 +500,12 @@ impl TypeChecker {
                             span: e.span,
                         });
                     }
+                    // An enum ctor passed as a payload arg (e.g.
+                    // `Wrapper.wrap(Result.err("e"))`) may carry `Any`
+                    // type-args it couldn't infer from its own args.
+                    // Refine them from the declared payload type so the
+                    // monomorphizer sees a concrete instantiation.
+                    self.refine_enum_ctor_args(e, &actual);
                 }
             }
             (VariantPayloadSig::Struct(fields), CtorArgs::Struct(provided)) => {
@@ -518,6 +524,7 @@ impl TypeChecker {
                             span: supplied.1.span,
                         });
                     }
+                    self.refine_enum_ctor_args(&supplied.1, &actual);
                 }
             }
             _ => {}

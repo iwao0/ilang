@@ -468,6 +468,10 @@ impl TypeChecker {
                         span: args[0].span,
                     });
                 }
+                // Refine an enum ctor arg (e.g. `xs.push(Result.err("e"))`)
+                // from the element type so the monomorphizer sees a
+                // concrete instantiation instead of `Any`.
+                self.refine_enum_ctor_args(&args[0], elem);
                 return Ok(Type::Unit);
             }
             if method == "pop" {
@@ -526,6 +530,7 @@ impl TypeChecker {
                         span: args[0].span,
                     });
                 }
+                self.refine_enum_ctor_args(&args[0], elem);
                 return Ok(Type::Bool);
             }
             if method == "indexOf" || method == "includes" {
@@ -538,6 +543,7 @@ impl TypeChecker {
                         span: args[0].span,
                     });
                 }
+                self.refine_enum_ctor_args(&args[0], elem);
                 return Ok(if method == "indexOf" {
                     Type::I64
                 } else {
@@ -691,6 +697,7 @@ impl TypeChecker {
                         span: args[0].span,
                     });
                 }
+                self.refine_enum_ctor_args(&args[0], elem);
                 return Ok(Type::Unit);
             }
             if method == "fill" {
@@ -703,6 +710,7 @@ impl TypeChecker {
                         span: args[0].span,
                     });
                 }
+                self.refine_enum_ctor_args(&args[0], elem);
                 return Ok(Type::Unit);
             }
             if method == "sort" {
