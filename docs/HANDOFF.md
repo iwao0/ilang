@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1286/1286) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1287/1287) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 62 弾** (第 60 弾の確認済み記録 (2) を大部分解消)。 **型を決める引数を持たない generic fn 呼び出し** (`f(Result.err("e"))`、 `fn f<T>(r: Result<T,string>)`) を、 **期待型が分かる位置 (let 注釈 / fn 戻り / 引数) で解ける**ようにした。 第 59 弾の `refine_fn_call_type_args` は fn の T を期待型から解いていたが、 **インライン引数 `Result.err("e")` 自身の stash が `[Any, string]` のまま**残り (まだ generic な param に対して check されたため) 引数が Type::Any で lower 失敗していた。 `refine_fn_call_type_args` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) に、 T を解いた後**各引数を具体化した param 型で再 `refine_enum_ctor_args`** する処理を追加 (引数は fn の T を共有するため)。 let 注釈・return・引数位置で動作、 heap T ARC 健全。 詳細は下の解決済み記録。 **残る限界**: 期待型が皆無の bare match scrutinee (`match f(Result.err("e")) { .. }`) は依然 Type::Any (本質的に曖昧・注釈が必要)。
 - **第 61 弾** (第 60 弾の確認済み記録 (1) を解消)。 **match の arm が enum を yield し注釈なし let に束縛すると arm ctor が refine されず Type::Any** になる既存バグを修正 (非 generic でも再現)。 `let res = match r { ok(v) { Result.ok(v) } err(e) { Result.err(e) } }` は join で `Result<i64,string>` に解決するが、 各 arm の `Result.ok(v)` (E=Any) / `Result.err(e)` (T=Any) は片方しか pin せず、 `res` に注釈が無いため refine されなかった。 `check_match_expr` ([match_ctrl.rs](../crates/ilang-types/src/checker/expr/match_ctrl.rs)) / `check_match_optional` / `check_match_primitive` ([match_.rs](../crates/ilang-types/src/checker/match_.rs)) で join 後の結果型を各 arm に push する `refine_match_arm_ctors` を追加。 enum / Optional / primitive scrutinee の全 3 種に適用。 heap T ARC も健全。 詳細は下の解決済み記録。 **確認済み記録の (2)** (T を決める引数なしの generic 呼び出し) は未対応のまま。
 - **第 60 弾**。 `?` を generic fn 内で使う形 (`fn unwrapOr<T>(r: Result<T,string>, fallback: T) { let v = r?; Result.ok(v) }`) を probe して、 **generic fn の型引数推論が引数の最初の binding を優先し Any を残す**既存バグを検出・修正。 `unwrapOr(Result.err("boom"), 0)` は arg1 `Result.err` が T=Any を入れ、 arg2 `0: T` の i64 で上書きされず、 fn が `<Any>` で具体化され monomorphizer が Type::Any で停止 (`?` 非依存。 `pick<T>(a: Result<T,string>, b: T)` でも再現)。 原因: `collect_type_var_bindings` ([sigs.rs](../crates/ilang-types/src/checker/sigs.rs)) が `or_insert_with` で最初の binding を優先。 **具体型が既存の Any を上書きする** (具体同士は従来どおり最初優先) ように修正。 詳細は下の解決済み記録。 **2 件の別系統の既存バグを記録**: (1) `let res = match someResult { ok(v){Result.ok(v)} err(e){Result.err(e)} }; res` (match arm が enum を yield・let に注釈なし) は arm ctor の型引数が refine されず Type::Any (非 generic でも再現。 match の join 結果型を各 arm に refine する必要)。 (2) generic fn を T を決める引数なしで呼ぶ (`f(Result.err("e"))` only) と `<Any>` 具体化で失敗 (match 文脈からの双方向推論が要る)。
 - **第 59 弾** (第 57 弾の判断待ち記録 (2) を解消)。 **generic fn の型パラメータを戻り値位置から推論できる**ようにした。 `fn makeArr<T>(): T[]` / `fn wrapErr<T>(): Result<T,string>` など T が戻り型にしか現れない fn は引数から T を決められず Any のままだった (`let xs: i64[] = makeArr()` が「expected i64[], got any[]」、 enum 系は monomorphizer で Type::Any)。 `refine_fn_call_type_args(call, target)` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) を新設し、 fn の宣言戻り型を期待型に対して unify して残りの型パラメータを解き、 stash (`fn_call_type_args`) を更新して補正後の戻り型を返す。 期待型が分かる 3 位置 — let 注釈 ([stmt.rs](../crates/ilang-types/src/checker/stmt.rs))・fn 戻り位置 ([decls.rs](../crates/ilang-types/src/checker/decls.rs))・呼び出し引数 ([method.rs](../crates/ilang-types/src/checker/method.rs)) — で適用。 部分推論 (片方を引数・片方を注釈) ・heap T の ARC も健全。 詳細は下の解決済み記録。 **これで第 57 弾の判断待ち記録 2 件は両方解消。**
@@ -112,11 +113,20 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### [確認済み記録] generic fn を型を決める引数なしで呼ぶと `<Any>` 具体化 (2026-06-13、 第 60 弾で発見・未対応)
+### [確認済み記録] 期待型が皆無の bare match scrutinee での generic 呼び出し (2026-06-13、 第 62 弾で大部分解消)
 
-第 60 弾で切り分けた既存制約。 第 61 弾で (1) (match arm yield の refine) は解消済み:
+第 62 弾で「期待型が分かる位置 (let 注釈 / return / 引数)」は解消。 **残るのは期待型が皆無のケースのみ**:
 
-- **generic fn を型パラメータを決める引数なしで呼ぶと `<Any>` 具体化で失敗**。 `fn f<T>(r: Result<T,string>): Result<T,string>` を `f(Result.err("e"))` だけで呼ぶ (T を決める他引数なし) と T=Any。 第 60 弾は「具体引数があれば Any に勝つ」までで、 T を決める引数が皆無の場合は未対応。 match 文脈 (`match f(..) { ok(v) { v as i64 } .. }`) からの双方向推論が要る (より大きな型推論機能)。 実用上は具体的な Result を渡すので稀。
+- `match f(Result.err("e")) { ok(v) { .. } err(s) { .. } }` のように generic fn 呼び出しを **bare match scrutinee** に置くと、 呼び出しに期待型が無く T=Any のまま (match の arm 使用からの双方向推論が要る)。 実用上は `let x: Result<i64,string> = f(..)` と注釈するか具体 Result を渡せば解決。 対応するなら match scrutinee 位置にも期待型推論を入れるか、 「型パラメータが解決できない」旨の明示診断にする (現状は lower で Type::Any クラッシュ)。
+
+### [解決済み記録] 第 62 弾: 期待型から generic 呼び出しの T を解いた後に引数も再 refine (2026-06-13)
+
+第 60 弾の確認済み記録 (2) を大部分解消:
+
+- **症状**: `fn f<T>(r: Result<T,string>): Result<T,string>` を `f(Result.err("e"))` (T を決める引数なし) で呼び、 結果に**期待型がある**形 — `let x: Result<i64,string> = f(Result.err("e"))`、 fn 戻り位置、 引数位置 — でも **Type::Any** で lower 失敗。
+- **原因**: 第 59 弾の `refine_fn_call_type_args` は fn の T を期待型から解いて呼び出しの stash を更新するが、 **インライン引数 `Result.err("e")` 自身の `enum_ctor_type_args` stash は `[Any, string]` のまま**だった。 引数は check 時にまだ generic な param 型 (`Result<Any,string>`、 inferred_args が Any) に対して refine されたため。 fn の T が後から i64 に解けても引数の stash は更新されず、 引数の lowering が Type::Any。
+- **修正**: `refine_fn_call_type_args` ([utils.rs](../crates/ilang-types/src/checker/utils.rs)) で T を解いた後、 **各引数を「解いた型引数で具体化した param 型」に対して `refine_enum_ctor_args` で再 refine** する処理を追加 (引数は fn の T を共有する)。 これで `Result.err("e")` の T も i64 に埋まる。 borrow 衝突回避のため sig.params / type_params を clone し tbl を drop してから実施。
+- **検証**: let 注釈・fn 戻り・引数位置で `f(Result.err(..))` / `f(Result.ok(Box))` を heap T 込みで網羅。 値の正しさ + deinit 厳密 (300/round = 3/round × 100) + churn delta=0。 fixture: `05_edge_cases/generic_fn_call_solved_from_context.il`。 **core 推論変更**のため workspace nextest 539/539 で回帰なし確認。 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。 **残る限界**: 期待型が皆無の bare match scrutinee は未対応 (上の確認済み記録)。
 
 ### [解決済み記録] 第 61 弾: match の arm が yield する enum ctor が refine されず Type::Any (2026-06-13)
 

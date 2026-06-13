@@ -363,7 +363,22 @@ impl TypeChecker {
             return None;
         }
         let ret = subst_type(&sig.ret, &sig.type_params, &new_args);
-        tbl.insert(expr.span, (callee.clone(), new_args));
+        let type_params = sig.type_params.clone();
+        let params = sig.params.clone();
+        tbl.insert(expr.span, (callee.clone(), new_args.clone()));
+        drop(tbl);
+        // An inline enum-ctor argument shares the fn's type params: a call
+        // `f(Result.err("e"))` against `fn f<T>(r: Result<T,string>)`
+        // stashed the arg's `Result.err` as `[Any, string]` (checked while
+        // the param was still `Result<Any,string>`). Now that `T` is
+        // solved from context, re-refine each arg against the concrete
+        // param type so the arg's own type args are filled too.
+        if let ExprKind::Call { args, .. } = &expr.kind {
+            for (param, arg) in params.iter().zip(args.iter()) {
+                let concrete = subst_type(param, &type_params, &new_args);
+                self.refine_enum_ctor_args(arg, &concrete);
+            }
+        }
         Some(ret)
     }
 
