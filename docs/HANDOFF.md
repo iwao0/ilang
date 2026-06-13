@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 53 弾** (クリーンラウンド)。 第 52 弾の slot 昇格修正の周辺と Map forEach の反復中 mutation を網羅 probe — **新規バグなし**。 メソッド内/accessor 内クロージャ・init・static メソッド・default 引数式からのグローバル参照は全て昇格される。 forEach の add-during / future-key-delete (snapshot が +1 で生存させ UAF なし) / nested forEach は deinit 厳密 + delta=0。 forEach mutation の ARC を pin。 詳細は下の確認済み記録。
 - **第 52 弾**。 property accessor を probe して、 **getter/setter 本体から top-level let (グローバル) を参照すると「unbound variable」で lower 失敗**する既存バグを検出・修正。 slot 昇格判定 (`build_slot_table` → `collect_fn_free_var_refs`) がクラスの method / static method は走査するのに **property accessor body を走査していなかった**ため、 getter/setter だけが参照する let が host slot に昇格されなかった (method は動くのに accessor は不可)。 `collect_fn_free_var_refs` の `walk_class` に getter/setter body 走査を追加。 詳細は下の解決済み記録。
 - **第 51 弾**。 static フィールドを probe して、 **heap (string) static フィールド代入が値を retain せず use-after-free**する既存バグを検出・修正。 `Cls.s = arg` (借用 param に fresh string) が static slot を所有せず、 源の transient +1 解放後に slot が dangling → 後続 read が解放済みバッファ (fresh string が空印字)。 `StoreStatic` に instance field 同様の retain-new (非 fresh) / release-old を追加。 詳細は下の解決済み記録。
 - **第 50 弾**。 第 48/49 弾の enum ctor 型引数精緻化の **最後の穴 = クロージャ本体の戻り値**を是正。 top-level fn の戻り値は refine していたが、 `fn(): Result<i64,string> { Result.err(..) }` や `array.map(fn -> Result<...>)` のクロージャ tail / 早期 return が未配線で Type::Any だった。 `check_fn_expr` に `refine_enum_ctor_args_in_block` を追加。 詳細は下の解決済み記録。
@@ -102,6 +103,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [確認済み記録] 第 53 弾: slot 昇格 edge + Map forEach mutation — 全て健全 (2026-06-13)
+
+第 52 弾 (accessor の slot 昇格) の周辺と、 Map forEach の反復中 mutation を probe。 **新規バグなし**:
+
+- **slot 昇格の他経路**: メソッド内クロージャ (`makeReader(): fn(){ g[0] }`)・accessor 内クロージャ (`get reader(): fn(){ g[0] }`)・init (`init() { g[0] = g[0]+1 }`)・static メソッド内クロージャ・default 引数式 (`fn f(x = g+1)`) からのグローバル参照が全て host slot に昇格され動作。 `walk_block` がクロージャ本体へ再帰し、 第 52 弾の accessor 走査と合わせて漏れなし。
+- **Map.forEach の反復中 mutation**: forEach は callback ループ開始時に entry 順を **snapshot** するため安全。 (1) **add-during**: 反復中に `m.set(..)` した値は map drop 時に解放、 当該反復では未訪問。 (2) **future-key delete**: 反復中に未訪問キーを delete しても snapshot の +1 が callback 終了まで値を生存させ **UAF なし**・なお訪問される (sum に含まれる)。 (3) **nested forEach** (同一 map 二重反復): 二重計上も leak も無し。 全形 deinit 厳密 (800/round) + churn delta=0。
+
+fixture: `03_collections/map_foreach_mutation_arc.il` (add/future-delete/nested を厳密 deinit + churn delta=0)。 slot 昇格 edge は第 52 弾 fixture と本ラウンドの probe で確認済みのため fixture 追加なし。 **ソース変更なし**のため第 24 弾と同じく workspace / nested_generic 儀式は省略、 programs fixture を JIT・AOT 両経路で確認。
 
 ### [解決済み記録] 第 52 弾: property accessor body から top-level let を参照すると unbound (2026-06-13)
 
