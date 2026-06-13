@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, FnDecl, Item, Param, Program, Symbol, Type,
+    Block, ClassDecl, Expr, ExprKind, FnDecl, Item, Param, Program, Span, Symbol, Type,
 };
 
 use super::*;
@@ -11,8 +11,11 @@ use super::*;
 /// Run the pass. Returns a new `Program` where every reference to a
 /// generic class has been replaced by a concrete monomorphized
 /// instantiation. Non-generic items pass through unchanged.
-pub fn monomorphize(prog: &Program) -> Program {
-    monomorphize_with_requests(prog, &[])
+pub fn monomorphize(
+    prog: &Program,
+    enum_ctor_type_args: &HashMap<Span, (Symbol, Vec<Type>)>,
+) -> Program {
+    monomorphize_with_requests(prog, &[], enum_ctor_type_args)
 }
 
 /// Like [`monomorphize`], with extra instantiation requests that
@@ -25,7 +28,13 @@ pub fn monomorphize(prog: &Program) -> Program {
 pub fn monomorphize_with_requests(
     prog: &Program,
     extra_request_types: &[Type],
+    enum_ctor_type_args: &HashMap<Span, (Symbol, Vec<Type>)>,
 ) -> Program {
+    // Stash the enum-ctor type-arg table so `subst_expr` can re-mangle a
+    // generic-enum ctor inside a specialized generic-class method body.
+    ENUM_CTOR_TYPE_ARGS.with(|tbl| {
+        *tbl.borrow_mut() = enum_ctor_type_args.clone();
+    });
     // Index original (generic) class decls by name so we can clone +
     // substitute on demand.
     let generic_classes: HashMap<Symbol, &ClassDecl> = prog
@@ -317,12 +326,65 @@ pub(super) fn subst_block(b: &Block, params: &[Symbol], args: &[Type]) -> Block 
 }
 
 pub(super) fn subst_expr(e: &Expr, params: &[Symbol], args: &[Type]) -> Expr {
+    // A generic-enum ctor inside a specialized method body keeps its bare
+    // `enum_name` ("Maybe" / "Result") unless re-mangled to the concrete
+    // instantiation. Mirror `monomorphize_fns`: look the ctor's recorded
+    // type args up by span, substitute this class's T -> concrete, and
+    // mangle when fully concrete. (The args are still substituted via the
+    // recursive walk below.)
+    if let ExprKind::EnumCtor { enum_name, variant, args: ctor_args } = &e.kind {
+        let new_name = remangle_generic_enum_ctor(enum_name, e.span, params, args);
+        if new_name != *enum_name {
+            let new_args = match ctor_args {
+                ilang_ast::CtorArgs::Unit => ilang_ast::CtorArgs::Unit,
+                ilang_ast::CtorArgs::Tuple(es) => ilang_ast::CtorArgs::Tuple(
+                    es.iter().map(|x| subst_expr(x, params, args)).collect(),
+                ),
+                ilang_ast::CtorArgs::Struct(fs) => ilang_ast::CtorArgs::Struct(
+                    fs.iter().map(|(n, x)| (n.clone(), subst_expr(x, params, args))).collect(),
+                ),
+            };
+            return Expr {
+                kind: ExprKind::EnumCtor { enum_name: new_name, variant: variant.clone(), args: new_args },
+                span: e.span,
+            };
+        }
+    }
     let kind = super::walk::map_expr_children(
         e,
         &mut |c| subst_expr(c, params, args),
         &mut |t: &Type| subst_type(t, params, args),
     );
     Expr { kind, span: e.span }
+}
+
+/// Re-mangle a generic-enum ctor's `enum_name` from its span-keyed
+/// recorded type args, substituting this class's type params -> concrete.
+/// Returns the bare name unchanged when the enum isn't generic, has no
+/// recorded args, or the args don't fully concretize (a later
+/// monomorphize round picks those up).
+fn remangle_generic_enum_ctor(
+    enum_name: &Symbol,
+    span: Span,
+    params: &[Symbol],
+    args: &[Type],
+) -> Symbol {
+    if !is_generic_enum(enum_name) {
+        return enum_name.clone();
+    }
+    ENUM_CTOR_TYPE_ARGS.with(|tbl| {
+        let tbl = tbl.borrow();
+        if let Some((tn, raw_args)) = tbl.get(&span) {
+            if tn == enum_name {
+                let concrete: Vec<Type> =
+                    raw_args.iter().map(|t| subst_type(t, params, args)).collect();
+                if !concrete.iter().any(contains_type_var) {
+                    return super::enums::mangle_enum(enum_name.as_str(), &concrete);
+                }
+            }
+        }
+        enum_name.clone()
+    })
 }
 
 pub(super) fn subst_type(t: &Type, params: &[Symbol], args: &[Type]) -> Type {

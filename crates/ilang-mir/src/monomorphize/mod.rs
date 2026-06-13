@@ -15,10 +15,10 @@
 //! original generic class declarations with the synthesized concrete
 //! ones.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
-    Symbol, Type,
+    Span, Symbol, Type,
 };
 
 mod class;
@@ -81,6 +81,14 @@ impl InstKey {
 thread_local! {
     static GENERIC_ENUM_NAMES: std::cell::RefCell<HashSet<Symbol>> =
         std::cell::RefCell::new(HashSet::new());
+    // The checker's `enum_ctor_type_args` (span -> (enum, [type args])),
+    // stashed so `subst_expr` can re-mangle a generic-enum `EnumCtor`
+    // inside a specialized generic-class method body the same way
+    // `monomorphize_fns` does for generic-fn bodies. Without it, a
+    // `Maybe.some(this.v)` / `Result.ok(this.v)` inside `Wrap<T>` keeps
+    // its bare `enum_name` and MIR lower fails with "unknown enum ...".
+    static ENUM_CTOR_TYPE_ARGS: std::cell::RefCell<HashMap<Span, (Symbol, Vec<Type>)>> =
+        std::cell::RefCell::new(HashMap::new());
 }
 
 //

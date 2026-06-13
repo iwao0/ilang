@@ -264,7 +264,7 @@ fn monomorphize_with_template_reattach(
             _ => None,
         })
         .collect();
-    let prog = ilang_mir::monomorphize::monomorphize(&prog);
+    let prog = ilang_mir::monomorphize::monomorphize(&prog, &tc.enum_ctor_type_args());
     let prog = ilang_mir::monomorphize::monomorphize_enums(&prog, &tc.enum_ctor_type_args());
     // Re-attach templates BEFORE fn-spec so `monomorphize_fns`
     // sees `generic_enums` populated and can mangle EnumCtor refs
@@ -294,7 +294,7 @@ fn monomorphize_with_template_reattach(
     // synthesized from `fn make<T>(v: T): Box<T> { new Box<T>(v) }`)
     // can contain previously-unseen class / enum instantiations.
     // Templates are still present from the re-attach above.
-    let prog = ilang_mir::monomorphize::monomorphize(&prog);
+    let prog = ilang_mir::monomorphize::monomorphize(&prog, &tc.enum_ctor_type_args());
     ilang_mir::monomorphize::monomorphize_enums(&prog, &tc.enum_ctor_type_args())
 }
 
@@ -1027,6 +1027,7 @@ impl ReplSession {
         let prog = ilang_mir::monomorphize::monomorphize_with_requests(
             &prog,
             &slot_request_types,
+            &tc.enum_ctor_type_args(),
         );
         let prog = ilang_mir::monomorphize::monomorphize_enums_with_requests(
             &prog,

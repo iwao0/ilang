@@ -17,10 +17,11 @@
 
 ## 現在地
 
-`run_all_program_fixtures` (1282/1282) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
+`run_all_program_fixtures` (1283/1283) + `cocoa_foundation` + `cocoa_appkit` + workspace 全 539 test 全緑。 `crepr_struct_field_discard.il` (a6e9310e で意図的に赤いまま追加されていた fixture) は緑。 `examples/sdl_breakout/main.il` の起動も実機確認済み (`playing — ESC to quit`)。
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 58 弾** (第 57 弾の判断待ち記録 (1) を解消)。 **generic class メソッドが generic enum を構築すると「unknown enum 〜」で lower 失敗**する既存バグを修正。 class 単一化 ([class.rs](../crates/ilang-mir/src/monomorphize/class.rs)) の `subst_expr` は specialized method body の型を置換するが **enum ctor の `enum_name` を再 mangle しなかった**ため、 `class Wrap<T> { asSome(): Maybe<T> { Maybe.some(this.v) } }` を `Wrap<i64>` で使うと `Maybe.some` が bare のまま (builtin Result も同症状)。 fn 経路 (fns.rs) は再 mangle するが class 経路に無かった。 checker の `enum_ctor_type_args` を thread-local 経由で class pass に渡し、 `subst_expr` が span 記録の型引数を class の T→具体で置換して mangle (fn 経路と同形)。 builtin Result・user enum・入れ子 (`Result.ok(Maybe.some(this.v))`)・複数インスタンス化・match 消費・heap T payload ARC を網羅。 詳細は下の解決済み記録。 **判断待ち記録の (2)** (generic fn 戻り型のみからの型推論) は未対応のまま。
 - **第 57 弾**。 generic fn × enum ctor の継ぎ目を突き、 **generic fn が builtin `Result` を構築/返却すると「unknown enum Result」で lower 失敗**する既存バグを検出・修正。 `Result<T,E>` は宣言が無く call site ごとに monomorphize されるが、 `monomorphize_fns` は specialize 時に generic-enum の `EnumCtor.enum_name` を mangle する判定材料 (`generic_enums`) を**プログラム宣言の enum だけ**から作っていたため builtin Result が漏れ、 `fn wrapOk<T>(x: T): Result<T, string> { Result.ok(x) }` の `Result.ok` が `enum_name="Result"` のまま残った (user 宣言の `Maybe<T>` は含まれるので動く)。 `monomorphize_fns` の `generic_enums` に Result テンプレートを seed して修正 (monomorphize_enums パスと同じ対処)。 型パラメータが引数で決まる形 (ok arg / err arg / 両腕) で動作・heap payload ARC 厳密。 詳細は下の解決済み記録。 **2 件の別系統の既存バグを記録** (本弾では未対応): (1) generic **class メソッド**が generic enum (user の `Maybe<T>` も builtin `Result` も) を構築すると「unknown enum 〜」 — class 単一化経路が method body の enum ctor を mangle しない別バグ。 (2) generic fn の型パラメータを**戻り値注釈のみ**から推論できない (`let xs: i64[] = makeArr<T>()` も `Maybe`/`Result` も同様) — generic-fn 戻り型推論一般の制約。
 - **第 56 弾**。 `?` 演算子 × enum ctor 型引数精緻化の継ぎ目を突き、 **`?` が呼び出し引数の中に入れ子になると Type::Any で lower 失敗**する既存バグを検出・修正。 `?` は `err(e) { return Result.err(e) }` (T=Any, E=string) を含むブロックに desugar されるが、 `Result.ok(take(g(ok)?))` のように `?` が tail 式の奥 (call 引数 / some / tuple / array 要素) に埋まると、 その `return Result.err` が refine されず T=Any のまま monomorphizer に届いていた。 原因: `refine_enum_ctor_args_in_block` が**文**の値は `refine_returns` で深く歩くのに、 **tail** は自身の値 ctor しか refine していなかった。 tail にも `refine_returns` を適用して修正。 `let b = g()?` (自前の文) は元から動いていた。 詳細は下の解決済み記録。
 - **第 55 弾** (ユーザー決定 = 第 54 弾の別件に対し「`{}` でも書けるように実装」)。 空マップリテラル `{}` を **型注釈が `Map<K,V>` の位置で空マップとして解釈**するようにした (JS 風の利便性。 `new Map<K,V>()` は従来どおり)。 パーサは `{}` を空ブロックとして出すので型情報の要る checker + lowering で対応: checker `value_assignable` が空ブロック (stmt/tail なし) を Map ターゲットへ受理、 lowering `lower_composite_with_hint` が `(Block 空, MirTy::Map)` を空 `NewMap` に、 `is_fresh_object_expr` が空ブロックを fresh 扱い (scope-exit 解放のため。 unit 文脈では no-op)。 let / 再代入 / field 代入 / fn 戻り値 / fn 引数 / ネスト map 値で動作、 unit 文脈の空ブロックは不変。 詳細は下の解決済み記録。
@@ -108,12 +109,20 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### [判断待ち記録] generic class メソッド / generic fn 戻り型推論の enum 2 件 (2026-06-13、 第 57 弾で発見・未対応)
+### [判断待ち記録] generic fn 戻り型のみからの型推論 (2026-06-13、 第 57 弾で発見・未対応)
 
-第 57 弾で generic fn × Result を直す過程で切り分けた、 **別系統の既存バグ 2 件**。 どちらも Result 固有でなく user enum でも再現するため、 第 57 弾とは独立した round で扱う:
+第 57 弾で切り分けた既存の制約 (Result 固有でなく user enum / 配列でも再現)。 第 58 弾で (1) (generic class メソッドの enum ctor mangle) は解消済み:
 
-1. **generic class メソッドが generic enum を構築すると「unknown enum 〜」**。 `class Wrap<T> { ...; asSome(): Maybe<T> { Maybe.some(this.v) } }` を `Wrap<i64>` で使うと `Maybe.some` が `enum_name="Maybe"` のまま lower に届く (`Result` でも同症状)。 原因: class 単一化 ([class.rs](../crates/ilang-mir/src/monomorphize/class.rs)) の `subst_expr` は method body の型変数を置換するが、 **enum ctor の `enum_name` を (置換した型引数で) mangle しない**。 fn 経路 ([fns.rs](../crates/ilang-mir/src/monomorphize/fns.rs)) は `rewrite_calls_and_enums_in_expr` で再 mangle するが、 class 経路に同等が無い。 `generic_enum_names` に Result は入っている (class.rs:55) のに使われていない。 対応するなら class method body の specialize 時に enum_ctor_type_args を threading して enum ctor を再 mangle する必要がある。
-2. **generic fn の型パラメータを戻り値注釈のみから推論できない**。 `fn makeArr<T>(): T[] { [] }` に `let xs: i64[] = makeArr()` で「expected i64[], got any[]」、 `fn makeNope<T>(): Maybe<T>` / `Result<T,string>` も同様に Type::Any。 引数で T が決まらず戻り型注釈からしか決まらない呼び出しで T=any のまま。 generic-fn 戻り型推論一般の制約 (Result 固有でない)。 対応するなら call の期待型から型パラメータを解く逆方向推論が要る。
+- **generic fn の型パラメータを戻り値注釈のみから推論できない**。 `fn makeArr<T>(): T[] { [] }` に `let xs: i64[] = makeArr()` で「expected i64[], got any[]」、 `fn makeNope<T>(): Maybe<T>` / `Result<T,string>` も同様に Type::Any。 引数で T が決まらず戻り型注釈からしか決まらない呼び出しで T=any のまま。 generic-fn 戻り型推論一般の制約 (Result 固有でない)。 対応するなら call の期待型から型パラメータを解く逆方向推論が要る。
+
+### [解決済み記録] 第 58 弾: generic class メソッドが generic enum を構築すると「unknown enum 〜」 (2026-06-13)
+
+第 57 弾の判断待ち記録 (1) を解消:
+
+- **症状**: `class Wrap<T> { v: T; asSome(): Maybe<T> { Maybe.some(this.v) }; asOk(): Result<T,string> { Result.ok(this.v) } }` を `Wrap<i64>` で使うと **「mir lower: unknown enum Maybe」 / 「unknown enum Result」**。 user enum も builtin Result も同症状。
+- **原因**: class 単一化 ([class.rs](../crates/ilang-mir/src/monomorphize/class.rs)) の `subst_expr` は specialized method body の式の**型**を T→具体に置換するが、 **enum ctor の `enum_name` を再 mangle しなかった**。 そのため `Maybe.some(this.v)` の `enum_name="Maybe"` がそのまま lower に届き、 resolve_ty が bare `Type::Enum("Maybe")` を引けず失敗。 generic fn 経路 ([fns.rs](../crates/ilang-mir/src/monomorphize/fns.rs)) は `rewrite_calls_and_enums_in_expr` で enum_ctor_type_args + outer 置換から再 mangle するが、 class 経路に同等が無かった (span 記録の型引数は generic で [TypeVar(T), ..]、 specialize の clone は span を共有するので、 置換は specialize 時にしかできない)。
+- **修正**: checker の `enum_ctor_type_args` を **thread-local** (`ENUM_CTOR_TYPE_ARGS` [mod.rs](../crates/ilang-mir/src/monomorphize/mod.rs)、 既存の `GENERIC_ENUM_NAMES` と同パターン) 経由で class pass に渡す。 `monomorphize` / `monomorphize_with_requests` に `enum_ctor_type_args` 引数を追加し、 pass 開始時に thread-local へ stash。 `subst_expr` が EnumCtor を見たら `remangle_generic_enum_ctor` で span 記録の型引数を class の params→args で置換し、 concrete なら `mangle_enum` で `Maybe<i64>` / `Result<i64,string>` に (fn 経路と同形)。 ctor 引数は再帰 subst で内側 ctor も処理 (`Result.ok(Maybe.some(this.v))`)。 非 generic class は `subst_expr` を通らない (rewrite_item 経由) ので無影響。 caller 3 箇所 (main.rs 通常 2 + REPL 1) に `tc.enum_ctor_type_args()` を渡す。
+- **検証**: builtin Result・user enum Maybe を generic class メソッドで構築 (heap T `Box` 込み)、 複数インスタンス化 (`Wrap<i64>` / `Wrap<string>` / `Wrap<Box>`)、 入れ子 (`Result<Maybe<T>, string>`)、 explicit pattern での match 消費を網羅。 値の正しさ + deinit 厳密 (200/round = 2/round × 100) + churn delta=0。 fixture: `05_edge_cases/generic_class_method_builds_enum.il`。 **別の既存制限を記録**: generic class の **static メンバ**は checker が「static members on generic classes are not supported」で拒否 (本バグと無関係の意図的制限)。 monomorphize pipeline を触ったので nested_generic 儀式も実施。 workspace nextest 539/539、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 57 弾: generic fn が builtin Result を構築すると「unknown enum Result」 (2026-06-13)
 
