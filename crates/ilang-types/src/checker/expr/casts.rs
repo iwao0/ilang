@@ -305,6 +305,11 @@ impl TypeChecker {
         let expected = rewrite(&ret.clone().unwrap_or(Type::Unit));
         let body_ty =
             self.check_block(body, &inner, Some(&expected), in_class, 0)?;
+        // Refine a generic enum ctor in the closure's tail / returns from
+        // the declared return type — same as the top-level fn body does
+        // (decls.rs). Without it a closure `fn(): Result<i64,string> {
+        // Result.err("e") }` left T as Any and the monomorphizer failed.
+        self.refine_enum_ctor_args_in_block(body, &expected);
         let tail_check = body
             .tail
             .as_deref()

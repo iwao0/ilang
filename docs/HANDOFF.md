@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 50 弾**。 第 48/49 弾の enum ctor 型引数精緻化の **最後の穴 = クロージャ本体の戻り値**を是正。 top-level fn の戻り値は refine していたが、 `fn(): Result<i64,string> { Result.err(..) }` や `array.map(fn -> Result<...>)` のクロージャ tail / 早期 return が未配線で Type::Any だった。 `check_fn_expr` に `refine_enum_ctor_args_in_block` を追加。 詳細は下の解決済み記録。
 - **第 49 弾**。 第 48 弾の enum ctor 型引数精緻化の **残る store 位置**を是正。 引数位置 (fn / method / init)・`some(..)`・tuple 要素でも `Result.err(..)` 等が Type::Any で失敗していた。 `refine_enum_ctor_args` を some / tuple / array へ**再帰**させ (入れ子も伝播)、 call-arg checker (`check_args` / generic fn arg / fn 型 call) に refine を追加。 詳細は下の解決済み記録。
 - **第 48 弾**。 Result `?` を probe する過程で、 **型パラメータを引数から推論できない enum コンストラクタ (`Result.err(..)` は T、 `Maybe.nope` は両方) を field / 配列リテラル / Map 値に格納すると Type::Any で lower 失敗**する既存バグを検出・修正。 `let f: T = ctor` は注釈で enum ctor の型引数を精緻化 (`refine_enum_ctor_args`) するのに、 field 代入 (明示 + bare)・配列リテラル要素・Map 値・local 再代入は精緻化していなかった。 結果 2 型パラメータ enum (Result / Either) を field/配列に置けなかった。 5 箇所に refine を追加。 詳細は下の解決済み記録。
 - **第 47 弾** (クリーンラウンド)。 第 46 弾で開いた interface 周辺の **covariance と downcast** を網羅 probe — **新規バグなし**。 interface 実装クラスを Optional wrap / enum payload / Map 値 / 入れ子コンテナ / generic 型引数 / tuple 要素 (wrap 込み) に流し込む covariance、 `as?` による interface→具象 downcast (成功=共有・失敗=none) を deinit 厳密 + delta=0 で確認。 subclass の wrap/covariance/downcast 機構が interface にも generalize。 詳細は下の確認済み記録。
@@ -99,6 +100,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 50 弾: クロージャ戻り値の enum ctor 型引数を精緻化 (2026-06-13)
+
+第 48/49 弾で enum ctor 型引数精緻化を store / 引数 / some / tuple へ広げたが、 **クロージャ本体の戻り値**だけ未配線だった:
+
+- **症状**: `let f: fn(): Result<i64,string> = fn(): Result<i64,string> { Result.err("e") }` や `xs.map(fn(x): Result<...> { ... Result.err(..) })` が **「Type::Any (variadic builtins)」**。 早期 return (`fn() { if .. { return Result.err(..) } .. }`) も同様。 top-level fn `fn f(): Result<..> { Result.err(..) }` は decls.rs:637 で refine 済みなので動いていた。
+- **原因**: top-level fn 本体は [decls.rs](../crates/ilang-types/src/checker/decls.rs) の `refine_enum_ctor_args_in_block(&f.body, &expected)` で戻り値型から refine するが、 **クロージャ (`check_fn_expr` [casts.rs](../crates/ilang-types/src/checker/expr/casts.rs)) は同等の refine を呼んでいなかった**。 クロージャ本体の tail / return の `Result.err(..)` が T=Any のまま lower に届いた。
+- **修正**: `check_fn_expr` の body 検査後に `self.refine_enum_ctor_args_in_block(body, &expected)` を追加 (`expected` = クロージャの宣言戻り値型)。 `refine_enum_ctor_args_in_block` は tail と全 return を走査するので tail / 早期 return の両方をカバー。
+- **検証**: クロージャ tail err・早期 return err・`map` コールバックが Result を返す形を heap payload 込みで deinit 厳密 (300/round) + churn delta=0。 第 48/49 弾と既存 fixture の回帰なし。 fixture: `10_closures_arc/enum_ctor_refine_closure_return.il`。 **これで enum ctor 型引数精緻化は let / field (明示+bare) / 配列 / Map / 再代入 / 引数 (fn/method/init/default) / some / tuple / 入れ子 / top-level fn 戻り値 / クロージャ戻り値の全位置で揃った。** workspace nextest 539/539、 ilang-types 75/75、 AOT 全 fixture PASS、 nested_generic 100 並列 0 fail。
 
 ### [解決済み記録] 第 49 弾: enum ctor 型引数精緻化を引数 / some / tuple 位置へ拡張 (2026-06-13)
 
