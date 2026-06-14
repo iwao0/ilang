@@ -851,9 +851,17 @@ pub(super) fn class_signature(
         sig.ret = rewrite_type_params(&sig.ret, &c.type_params);
         static_methods.entry(m.name.clone()).or_default().push(sig);
     }
-    let mut static_fields: HashMap<Symbol, Type> = HashMap::new();
-    let mut static_field_pub: HashMap<Symbol, bool> = HashMap::new();
-    let mut static_const_fields: HashSet<Symbol> = HashSet::new();
+    // Inherit the parent's static fields so a subclass reaches them by
+    // its own name (`Derived.count` == `Base.count` — there is one
+    // shared slot). Mirrors how static methods / static properties
+    // already inherit; without it `Derived.count` was rejected as an
+    // "undefined variable".
+    let mut static_fields: HashMap<Symbol, Type> =
+        parent.map(|p| p.static_fields.clone()).unwrap_or_default();
+    let mut static_field_pub: HashMap<Symbol, bool> =
+        parent.map(|p| p.static_field_pub.clone()).unwrap_or_default();
+    let mut static_const_fields: HashSet<Symbol> =
+        parent.map(|p| p.static_const_fields.clone()).unwrap_or_default();
     for sf in &c.static_fields {
         if static_fields.contains_key(&sf.name)
             || fields.contains_key(&sf.name)

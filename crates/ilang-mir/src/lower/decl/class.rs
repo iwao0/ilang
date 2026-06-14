@@ -253,6 +253,20 @@ impl Lower {
                     meta.static_property_setter.insert(name, s);
                 }
             }
+            // Inherit the parent's static-field slots so `Derived.count`
+            // resolves to the SAME shared slot as `Base.count` (the
+            // checker already inherited the field's type). A redeclared
+            // child slot — rejected by the checker — would keep its own
+            // via `or_insert`.
+            let parent_static_slots: Vec<(Symbol, crate::inst::StaticSlotId)> = self
+                .class_meta
+                .get(&pid)
+                .map(|m| m.static_slots.iter().map(|(n, s)| (*n, *s)).collect())
+                .unwrap_or_default();
+            let meta = self.class_meta.get_mut(&class_id).unwrap();
+            for (name, slot) in parent_static_slots {
+                meta.static_slots.entry(name).or_insert(slot);
+            }
         }
 
         for m in cd.methods.iter() {
