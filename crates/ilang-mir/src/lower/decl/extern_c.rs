@@ -46,6 +46,7 @@ impl Lower {
                     flex_elem_size: 0,
                     is_com_interface: false,
                     is_handle: false,
+                    implements: Vec::new(),
                         });
                         self.class_meta.insert(id, ClassMeta::default());
                     }

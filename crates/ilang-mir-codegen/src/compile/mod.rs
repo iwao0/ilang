@@ -485,10 +485,19 @@ pub(super) fn emit_is_subclass(
     loop {
         let before = accept.len();
         for c in &prog.classes {
-            if let Some(p) = c.parent {
-                if !accept.contains(&c.id.0) && accept.contains(&p.0) {
-                    accept.push(c.id.0);
-                }
+            if accept.contains(&c.id.0) {
+                continue;
+            }
+            // A class is-a target if its parent class is (class
+            // inheritance, and the first interface base which lives in
+            // `parent`), or if any interface it conforms to is — this
+            // covers additional interfaces (the `interfaces` list) and
+            // inherited ones (`interface B: A`), neither of which the
+            // single `parent` field records.
+            let via_parent = c.parent.is_some_and(|p| accept.contains(&p.0));
+            let via_iface = c.implements.iter().any(|i| accept.contains(&i.0));
+            if via_parent || via_iface {
+                accept.push(c.id.0);
             }
         }
         if accept.len() == before {

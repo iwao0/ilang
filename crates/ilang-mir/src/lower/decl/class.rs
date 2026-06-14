@@ -64,6 +64,7 @@ impl Lower {
                     flex_elem_size: 0,
                     is_com_interface: false,
                     is_handle: false,
+                    implements: Vec::new(),
                 });
                 id
             }
@@ -665,8 +666,18 @@ impl Lower {
                 None => true,
             });
         }
+        // Record the transitive interface conformance set (own declared
+        // interfaces + their `interface B: A` ancestors, already expanded
+        // in `declared_ifaces`) as class-ids, so `is` / `as?` recognise
+        // additional and inherited interfaces — `parent` only holds the
+        // first base. Interfaces share the `class_ids` namespace.
+        let implements: Vec<crate::types::ClassId> = declared_ifaces
+            .iter()
+            .filter_map(|n| self.class_ids.get(n).copied())
+            .collect();
         let layout = &mut self.classes[class_id.0 as usize];
         layout.methods = method_decls;
+        layout.implements = implements;
         Ok(())
     }
 }

@@ -146,6 +146,13 @@ pub struct ClassLayout {
     /// (no rc header, no ARC plumbing) and accepts the same
     /// `↔ *void` flow at the type-checker level.
     pub is_handle: bool,
+    /// Interface class-ids this class conforms to, transitively: its own
+    /// declared interfaces plus every interface those inherit from
+    /// (`interface B: A`). Empty for interfaces / classes with none. The
+    /// `parent` field only records the FIRST base, so `is` / `as?` use
+    /// this to recognise additional and inherited interfaces (a class
+    /// ancestor's interfaces are reached through the `parent` chain).
+    pub implements: Vec<ClassId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

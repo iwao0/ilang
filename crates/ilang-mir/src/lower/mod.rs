@@ -147,6 +147,7 @@ pub fn lower_program_with_slots_opts(
                     flex_elem_size: 0,
                     is_com_interface: false,
                     is_handle: false,
+                    implements: Vec::new(),
                 });
                 lower.class_meta.insert(id, ClassMeta::default());
             }
@@ -212,6 +213,7 @@ pub fn lower_program_with_slots_opts(
                     flex_elem_size: 0,
                     is_com_interface: false,
                     is_handle: false,
+                    implements: Vec::new(),
                 });
                 let mut meta = ClassMeta::default();
                 if i.is_objc {
