@@ -389,6 +389,47 @@ impl<'a> BodyCx<'a> {
                 }
             }
         }
+        // Comparison between two values of the SAME enum compares the
+        // discriminant tags, NOT the boxed pointers. The checker permits
+        // `==` / `!=` on any unit-variant / `@flags` enum and ordering
+        // (`<` `<=` `>` `>=`) on repr enums (whose tag carries a natural
+        // order). Falling through to `cmp_op` over the raw operands would
+        // compare heap addresses: bit-identical values read unequal, and
+        // ordering returns garbage (pointer order is meaningless — the
+        // `(eid, disc)` intern cache canonicalises pointers for `==` but
+        // can never make their addresses ordered). Extract both tags and
+        // compare as the repr integer (its signedness picks `cmp_op`).
+        if matches!(
+            op,
+            AstBinOp::Eq
+                | AstBinOp::Ne
+                | AstBinOp::Lt
+                | AstBinOp::Le
+                | AstBinOp::Gt
+                | AstBinOp::Ge
+        ) {
+            if let (MirTy::Enum(le), MirTy::Enum(re)) = (&lty0, &rty0) {
+                if le == re {
+                    let repr_ty = self.enums[le.0 as usize].repr.clone();
+                    let lt = self.fb.new_value(MirTy::I64);
+                    self.fb.push_inst(Inst::EnumTag { dst: lt, value: lv0 });
+                    let rt = self.fb.new_value(MirTy::I64);
+                    self.fb.push_inst(Inst::EnumTag { dst: rt, value: rv0 });
+                    let bop = match op {
+                        AstBinOp::Eq => BinOp::IEq,
+                        AstBinOp::Ne => BinOp::INe,
+                        AstBinOp::Lt => cmp_op(&repr_ty, Cmp::Lt),
+                        AstBinOp::Le => cmp_op(&repr_ty, Cmp::Le),
+                        AstBinOp::Gt => cmp_op(&repr_ty, Cmp::Gt),
+                        AstBinOp::Ge => cmp_op(&repr_ty, Cmp::Ge),
+                        _ => unreachable!(),
+                    };
+                    let dst = self.fb.new_value(MirTy::Bool);
+                    self.fb.push_inst(Inst::BinOp { dst, op: bop, lhs: lt, rhs: rt });
+                    return Ok((dst, MirTy::Bool));
+                }
+            }
+        }
         let (lv, lty) = (lv0, lty0.clone());
         let (rv, rty) = (rv0, rty0.clone());
         // Numeric promotion (i64+f64 etc.) — pick the wider/float side.

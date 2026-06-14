@@ -1513,6 +1513,13 @@ let p: u32 = Priority.high as u32   // 10
   enum has no payloaded variants — payloaded enums have no integer
   representation. Lets C-side return values flow back into the typed
   enum (`SDL_GetKeyFromScancode(...) as Keycode`).
+- Two values of a repr enum compare by their discriminant — both
+  equality (`==` / `!=`) and ordering (`<` `<=` `>` `>=`), against
+  each other or against an int literal of the repr
+  (`Priority.low < Priority.high`, `Priority.high == 10`). A signed
+  repr (`: i32`) orders by signed value. Plain enums without a `:`
+  repr support only `==` / `!=` (over the variant tag); ordering them
+  is a type error.
 
 ### `@flags` enums
 
