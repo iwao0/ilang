@@ -112,6 +112,42 @@ pub(super) fn lower_call<M: Module>(
             }
             return Ok(());
         }
+        if sym.as_str() == "$enum.box" {
+            // Re-box a runtime-computed discriminant — a `@flags`
+            // bitwise / `~` result, or an `int as EnumName` cast —
+            // through the SAME process-wide `(global_eid, disc)` cache
+            // that `EnumName.variant` literals resolve to. Sharing the
+            // cache makes a boxed value pointer-identical to the
+            // equivalent named variant (and to any other box of the
+            // same bits), so the existing boxed-pointer `==`, and
+            // `Set` / `Map` keying, stay correct for combined flags;
+            // it also bounds the allocation to one cell per distinct
+            // value instead of leaking a fresh rc-less cell per box.
+            // `enum_global` performs the local→global eid remap that
+            // `NewEnum`'s unit path uses; the result enum type carries
+            // the local id.
+            let Some(d) = *dst else {
+                return Err(CompileError::Other(
+                    "$enum.box must have a result value".to_string(),
+                ));
+            };
+            let eid = match func.ty_of(d) {
+                MirTy::Enum(eid) => *eid,
+                _ => {
+                    return Err(CompileError::Other(
+                        "$enum.box result must be an enum type".to_string(),
+                    ))
+                }
+            };
+            let disc = extend_to_i64(fb, vmap[&args[0]]);
+            let global = enum_global[eid.0 as usize] as i64;
+            let global_v = fb.ins().iconst(types::I64, global);
+            let f = module.declare_func_in_func(panic_aux.enum_unit_get, fb.func);
+            let call = fb.ins().call(f, &[global_v, disc]);
+            let boxed = fb.inst_results(call)[0];
+            vmap.insert(d, boxed);
+            return Ok(());
+        }
     }
     let mut arg_vs: Vec<Value> = Vec::with_capacity(args.len());
     // Resolve callee FuncId early so the by-value chunk schema
@@ -347,7 +383,6 @@ pub(super) fn lower_call<M: Module>(
                 sym.as_str(),
                 "$array.dataPtr"
                     | "$array.copyShallow"
-                    | "$enum.box"
                     | "$ilang.panic"
                     | "$ffi.arrayFromCArray"
                     | "$repl.loadSlot"

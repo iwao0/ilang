@@ -561,7 +561,7 @@ pub(crate) fn alloc_global_enum_id() -> u32 {
 /// REPL session bootstrap.
 pub use ilang_runtime::reset_repl_slots;
 
-// `__enum_box`, `__enum_unit_get`, `__enum_unit_get_checked`,
+// `__enum_unit_get`, `__enum_unit_get_checked`,
 // `__enum_alloc`, `__retain_enum`, `__release_enum` all live in
 // `ilang-runtime` (along with `ENUM_REGISTRY` / `ENUM_PAYLOAD_KINDS`
 // / `ENUM_UNIT_CACHE`). Both backends feed

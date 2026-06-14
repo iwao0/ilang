@@ -272,7 +272,6 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             Ok(())
         };
         decl_unary("$array.dataPtr", false)?;
-        decl_unary("$enum.box", false)?;
     }
     // `arrayFromCArray<T>` — user-facing surface lives in
     // `libs/std/ffi.il` as `@intrinsic("ffi.arrayFromCArray")` with a

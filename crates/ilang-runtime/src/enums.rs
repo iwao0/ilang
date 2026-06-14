@@ -1,6 +1,5 @@
-//! Enum cell layout — every enum allocation (heap-tracked, interned
-//! unit, or `__enum_box` re-box) carries a 24-byte header before the
-//! body:
+//! Enum cell layout — every enum allocation (heap-tracked or
+//! interned unit) carries a 24-byte header before the body:
 //!
 //! ```text
 //! [ i64 cap | i64 rc | i64 eid | i64 tag | payload_0 | payload_1 | ... ]
@@ -60,20 +59,6 @@ pub extern "C" fn __register_enum_payload_kind(
         v.push(0);
     }
     v[idx] = kind;
-}
-
-#[unsafe(export_name = "$enum.box")]
-pub extern "C" fn __enum_box(disc: i64) -> i64 {
-    // Used by bitwise-on-flags-enum lowering. The result is treated
-    // as a unit cell (rc-less): rc=-1 makes retain / release no-ops,
-    // and eid=0 is never read because release short-circuits.
-    let total = ENUM_HEADER + 8;
-    let base = __mir_alloc(total);
-    unsafe {
-        write_enum_header(base, 0, -1, 0);
-        *((base + ENUM_HEADER) as *mut i64) = disc;
-    }
-    base + ENUM_HEADER
 }
 
 static ENUM_UNIT_CACHE: OnceLock<RwLock<HashMap<(u32, i64), i64>>> = OnceLock::new();
