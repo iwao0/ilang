@@ -13,9 +13,9 @@ use cranelift_module::Module;
 use ilang_mir::{MirTy, ValueId};
 
 use super::super::abi::{
-    celem_clif_type_with_enum, chunk_max_for, elem_byte_stride, elem_clif_type, extend_to_i64,
-    ireduce_or_pass, reduce_from_i64, struct_byval_size_with_max, struct_chunks_with_max,
-    struct_hfa,
+    bitfield_storage_clif_type, celem_clif_type_with_enum, chunk_max_for, elem_byte_stride,
+    elem_clif_type, extend_to_i64, ireduce_or_pass, reduce_from_i64, struct_byval_size_with_max,
+    struct_chunks_with_max, struct_hfa,
 };
 use super::super::print_kind::kind_tag_of;
 use super::super::{CompileError, OBJECT_HEADER_BYTES};
@@ -301,10 +301,7 @@ pub(super) fn lower_load_field<M: Module>(
     // Bitfield read: load the storage unit, shift right by
     // bit_offset, mask off the high bits beyond `width`.
     if let (Some(c_off), Some(bf)) = (crepr, bit_info) {
-        let storage_ct = match elem_clif_type(&dst_ty_mir) {
-            Some(t) if t.bits() <= 32 => t,
-            _ => types::I32,
-        };
+        let storage_ct = bitfield_storage_clif_type(&dst_ty_mir);
         let raw = fb.ins().load(
             storage_ct,
             MemFlags::trusted(),
@@ -520,12 +517,17 @@ pub(super) fn lower_store_field<M: Module>(
     // off the field's bits, OR in the new value's bits at
     // the right offset, store back.
     if let (Some(c_off), Some(bf)) = (crepr, bit_info) {
-        let val_ty_mir = func.ty_of(*value).clone();
         let raw_val = vmap[value];
-        let storage_ct = match elem_clif_type(&val_ty_mir) {
-            Some(t) if t.bits() <= 32 => t,
-            _ => types::I32,
+        // The storage unit width is driven by the FIELD's declared
+        // type (matching the read path), not the assigned value's —
+        // otherwise a narrower RHS would read-modify-write the wrong
+        // number of bytes.
+        let field_ty = if let MirTy::Object(cid) = &obj_ty_mir {
+            prog.classes[cid.0 as usize].fields[field.0 as usize].ty.clone()
+        } else {
+            func.ty_of(*value).clone()
         };
+        let storage_ct = bitfield_storage_clif_type(&field_ty);
         let cur = fb.ins().load(
             storage_ct,
             MemFlags::trusted(),

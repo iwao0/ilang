@@ -478,6 +478,27 @@ pub(super) fn elem_clif_type(t: &MirTy) -> Option<cranelift::prelude::Type> {
     }
 }
 
+/// Storage-unit CLIF type for a `@bits(N)` field. Bitfields are
+/// validated to be unsigned integers (u8/u16/u32/u64). Unlike
+/// `elem_clif_type`, the 64-bit case maps to `I64` here — that path is
+/// deliberately omitted from `elem_clif_type` (i64 cells use the
+/// catch-all elsewhere), but a `u64` bitfield's storage unit is a full
+/// 8 bytes, so reads/writes must use `I64` or `@bits(33..=64)` fields
+/// truncate to 32 bits.
+pub(super) fn bitfield_storage_clif_type(
+    t: &MirTy,
+) -> cranelift::prelude::Type {
+    use cranelift::prelude::types as ct;
+    match t {
+        MirTy::I8 | MirTy::U8 | MirTy::CChar | MirTy::Bool => ct::I8,
+        MirTy::I16 | MirTy::U16 => ct::I16,
+        MirTy::I64 | MirTy::U64 => ct::I64,
+        // u32 and any unexpected type fall back to a 32-bit unit
+        // (matches the historical default).
+        _ => ct::I32,
+    }
+}
+
 /// Cranelift scalar type for a single SIMD lane. Unlike
 /// `elem_clif_type`, this covers `i64` / `u64` lanes (used by
 /// `simd.i64x2`) — those are deliberately left out of the array-cell
