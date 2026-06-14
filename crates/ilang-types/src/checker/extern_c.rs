@@ -239,6 +239,14 @@ impl TypeChecker {
                         super::decls::validate_bitfield(name, f)?;
                     }
                 }
+                ilang_ast::ExternCItem::Union { name, fields, span, .. } => {
+                    // Same gap as the struct arm: the union body validation
+                    // (no heap fields under shared storage) lived only in
+                    // `check_class`, which this path skips — so a `Box` /
+                    // string union field compiled and SIGSEGV'd when a
+                    // sibling field overwrote the shared storage.
+                    super::decls::validate_union(name, fields, *span)?;
+                }
                 _ => {}
             }
         }

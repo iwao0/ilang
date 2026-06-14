@@ -262,52 +262,7 @@ impl TypeChecker {
             // dangle when the storage is reused, so reject them.
             // FAM / bitfields don't make sense for unions.
             if c.is_union {
-                if c.fields.is_empty() {
-                    return Err(TypeError::Unsupported {
-                        what: format!(
-                            "@extern(C) union {:?}: union must have at \
-                             least one field",
-                            c.name
-                        ),
-                        span: c.span,
-                    });
-                }
-                for f in &c.fields {
-                    if f.bits.is_some() {
-                        return Err(TypeError::Unsupported {
-                            what: format!(
-                                "@bits on union field {:?}: bitfields aren't \
-                                 supported inside `@extern(C) union` classes",
-                                f.name
-                            ),
-                            span: f.span,
-                        });
-                    }
-                    let union_ok = matches!(
-                        &f.ty,
-                        Type::I8 | Type::I16 | Type::I32 | Type::I64
-                        | Type::U8 | Type::U16 | Type::U32 | Type::U64
-                        | Type::F32 | Type::F64
-                        | Type::Bool
-                    ) || matches!(&f.ty, Type::Array { elem, fixed: Some(_) }
-                        if matches!(elem.as_ref(),
-                            Type::I8 | Type::I16 | Type::I32 | Type::I64
-                            | Type::U8 | Type::U16 | Type::U32 | Type::U64
-                            | Type::F32 | Type::F64 | Type::Bool));
-                    if !union_ok {
-                        return Err(TypeError::Unsupported {
-                            what: format!(
-                                "@extern(C) union {:?} field {:?}: type {} \
-                                 not supported (allowed inside a union: numeric \
-                                 primitives / bool / fixed-length numeric array \
-                                 `T[N]`. Heap types and nested aggregates aren't \
-                                 safe under shared storage)",
-                                c.name, f.name, f.ty
-                            ),
-                            span: f.span,
-                        });
-                    }
-                }
+                validate_union(&c.name, &c.fields, c.span)?;
             }
             for (i, f) in c.fields.iter().enumerate() {
                 let is_last = i + 1 == c.fields.len();
@@ -674,6 +629,66 @@ pub(in crate::checker) fn validate_bitfield(
             ),
             span: f.span,
         });
+    }
+    Ok(())
+}
+
+/// Validate `@extern(C) union` fields: at least one field, no `@bits`,
+/// and every field a value type safe under shared storage (numeric /
+/// bool / fixed-length numeric array). Heap fields (string / object /
+/// array-of-heap) would dangle when a sibling field overwrites the
+/// shared offset-0 storage — reading the stale pointer SIGSEGVs.
+/// Shared by `check_class` and the `@extern(C) { union ... }` body check;
+/// the union body pass used to skip it, so a `Box`/string field compiled
+/// and crashed at runtime.
+pub(in crate::checker) fn validate_union(
+    name: &Symbol,
+    fields: &[FieldDecl],
+    span: Span,
+) -> Result<(), TypeError> {
+    if fields.is_empty() {
+        return Err(TypeError::Unsupported {
+            what: format!(
+                "@extern(C) union {:?}: union must have at least one field",
+                name
+            ),
+            span,
+        });
+    }
+    for f in fields {
+        if f.bits.is_some() {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "@bits on union field {:?}: bitfields aren't supported \
+                     inside `@extern(C) union` classes",
+                    f.name
+                ),
+                span: f.span,
+            });
+        }
+        let union_ok = matches!(
+            &f.ty,
+            Type::I8 | Type::I16 | Type::I32 | Type::I64
+                | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                | Type::F32 | Type::F64
+                | Type::Bool
+        ) || matches!(&f.ty, Type::Array { elem, fixed: Some(_) }
+            if matches!(elem.as_ref(),
+                Type::I8 | Type::I16 | Type::I32 | Type::I64
+                | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                | Type::F32 | Type::F64 | Type::Bool));
+        if !union_ok {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "@extern(C) union {:?} field {:?}: type {} not supported \
+                     (allowed inside a union: numeric primitives / bool / \
+                     fixed-length numeric array `T[N]`. Heap types and nested \
+                     aggregates aren't safe under shared storage)",
+                    name, f.name, f.ty
+                ),
+                span: f.span,
+            });
+        }
     }
     Ok(())
 }
