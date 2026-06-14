@@ -36,3 +36,17 @@ let f: f32 = 2.5
 test.expectStr(f.toString(), "2.5")
 let g: f32 = -0.5
 test.expectStr(g.toString(), "-0.5")
+
+// Shortest round-trippable digits: the formatter prints exactly the
+// significant digits needed to parse back to the same f64, so the
+// classic 0.1 + 0.2 shows its full 17-digit error rather than "0.3".
+test.expectStr((0.1 + 0.2).toString(), "0.30000000000000004")
+test.expectStr((1.0 / 3.0).toString(), "0.3333333333333333")
+
+// Negative zero drops its sign (JS-consistent: `(-0).toString()` is "0").
+let nz: f64 = -0.0
+test.expectStr(nz.toString(), "0.0")
+
+// 2^53 + 1 isn't representable, so it rounds to 2^53 before formatting.
+let two53p1: f64 = 9007199254740993.0
+test.expectStr(two53p1.toString(), "9007199254740992.0")
