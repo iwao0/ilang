@@ -37,6 +37,7 @@ pub mod classes;
 pub mod crash_handler;
 pub mod closures;
 pub mod enums;
+pub mod equality;
 pub mod fs;
 pub mod kind;
 pub mod maps;

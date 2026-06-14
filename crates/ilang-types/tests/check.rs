@@ -463,10 +463,20 @@ fn array_index_must_be_int() {
 }
 
 #[test]
-fn array_equality_rejected() {
-    // Arrays don't support `==` at the type level (no deep equality yet).
+fn dynamic_array_equality_is_structural() {
+    // Dynamic arrays support structural `==` (element-wise) — the runtime
+    // routes it through `value_structural_eq`.
     let src = "let a: i32[] = [1]; let b: i32[] = [1]; a == b";
-    assert!(matches!(ty(src), Err(TypeError::BadBinary { .. })));
+    assert_eq!(ty(src).unwrap(), Type::Bool);
+    // `!=` too.
+    let src_ne = "let a: i32[] = [1]; let b: i32[] = [1]; a != b";
+    assert_eq!(ty(src_ne).unwrap(), Type::Bool);
+}
+
+#[test]
+fn tuple_and_optional_equality_is_structural() {
+    assert_eq!(ty("(1, 2) == (1, 2)").unwrap(), Type::Bool);
+    assert_eq!(ty("let o: i32? = some(1); o == none").unwrap(), Type::Bool);
 }
 
 #[test]

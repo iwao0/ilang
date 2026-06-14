@@ -236,6 +236,17 @@ signatures is reference equality on the closure pointer (two
 distinct `let f = fn(...)` bindings always compare unequal).
 `%` is unsupported on floats.
 
+`==`/`!=` on tuples, dynamic arrays (`T[]`), and optionals (`T?`)
+is **structural**: elements compare element-wise, recursing into
+nested tuples/arrays/optionals and using the value equality of each
+slot's kind — numbers/bools by value, strings and enums structurally,
+objects (and other reference kinds) by reference. So `(1, "a") == (1,
+"a")` and `[1, 2] == [1, 2]` are `true`, while `(p, 1) == (q, 1)` for
+two distinct objects `p`/`q` is `false`. An optional pairs with `none`
+(`x == none`). Ordering (`<` etc.) on these stays a type error.
+The array `indexOf` / `includes` / `remove` element match uses the
+same structural equality.
+
 ### Built-in string methods
 
 ```rust

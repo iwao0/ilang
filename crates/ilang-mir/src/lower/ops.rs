@@ -461,6 +461,44 @@ impl<'a> BodyCx<'a> {
                 }
             }
         }
+        // Structural `==` / `!=` on heap value containers — same-typed
+        // tuples, dynamic arrays, and optionals compare element-wise via
+        // a runtime helper (the checker allows only these shapes). The
+        // comparison borrows its operands, so a fresh temporary is
+        // released afterwards (mirrors the enum case above).
+        if matches!(op, AstBinOp::Eq | AstBinOp::Ne) {
+            let structural_builtin = match (&lty0, &rty0) {
+                (MirTy::Tuple(_), MirTy::Tuple(_)) => Some("tuple_structural_eq"),
+                (MirTy::Array { len: None, .. }, MirTy::Array { len: None, .. }) => {
+                    Some("array_structural_eq")
+                }
+                (MirTy::Optional(_), MirTy::Optional(_)) => Some("optional_structural_eq"),
+                _ => None,
+            };
+            if let Some(builtin) = structural_builtin {
+                let eqv = self.fb.new_value(MirTy::Bool);
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(eqv),
+                    callee: FuncRef::Builtin(Symbol::intern(builtin)),
+                    args: Box::new([lv0, rv0]),
+                });
+                let dst = if matches!(op, AstBinOp::Eq) {
+                    eqv
+                } else {
+                    let d = self.fb.new_value(MirTy::Bool);
+                    let zero = self.const_int(MirTy::Bool, 0);
+                    self.fb.push_inst(Inst::BinOp { dst: d, op: BinOp::IEq, lhs: eqv, rhs: zero });
+                    d
+                };
+                if lhs_fresh {
+                    self.fb.push_inst(Inst::Release { value: lv0 });
+                }
+                if rhs_fresh {
+                    self.fb.push_inst(Inst::Release { value: rv0 });
+                }
+                return Ok((dst, MirTy::Bool));
+            }
+        }
         let (lv, lty) = (lv0, lty0.clone());
         let (rv, rty) = (rv0, rty0.clone());
         // Numeric promotion (i64+f64 etc.) — pick the wider/float side.

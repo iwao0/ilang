@@ -39,8 +39,14 @@ unsafe fn cell_matches(stored: i64, needle: i64, elem_tag: i64) -> bool {
     if elem_tag == crate::kind::KIND_STR && stored != 0 && needle != 0 {
         return unsafe { crate::strings::cstr_bytes(stored) == crate::strings::cstr_bytes(needle) };
     }
-    if elem_tag == crate::kind::KIND_ENUM {
-        return crate::enums::__enum_structural_eq(stored, needle) != 0;
+    if matches!(
+        elem_tag,
+        crate::kind::KIND_ENUM
+            | crate::kind::KIND_TUPLE
+            | crate::kind::KIND_ARRAY
+            | crate::kind::KIND_OPTIONAL
+    ) {
+        return crate::equality::value_structural_eq(stored, needle, elem_tag);
     }
     false
 }
@@ -86,7 +92,7 @@ unsafe fn store_packed(data: i64, idx: i64, stride: i64, value: i64) {
 }
 
 #[inline]
-unsafe fn load_packed(data: i64, idx: i64, stride: i64) -> i64 {
+pub(crate) unsafe fn load_packed(data: i64, idx: i64, stride: i64) -> i64 {
     unsafe {
         let addr = (data + idx * stride) as *const u8;
         match stride {

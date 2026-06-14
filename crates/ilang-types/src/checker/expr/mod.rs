@@ -375,6 +375,25 @@ impl TypeChecker {
                             return Ok(Type::Bool);
                         }
                     }
+                    // Structural value equality on heap value containers:
+                    // same-typed tuples, dynamic arrays, and optionals
+                    // compare element-wise at runtime (the same
+                    // value-equality `==` on string / enum already has).
+                    // An optional pairs with `none` (inner `Any`).
+                    let structural_eq_pair = match (&l, &r) {
+                        (Type::Tuple(_), Type::Tuple(_)) => l == r,
+                        (
+                            Type::Array { elem: e1, fixed: None },
+                            Type::Array { elem: e2, fixed: None },
+                        ) => e1 == e2,
+                        (Type::Optional(i1), Type::Optional(i2)) => {
+                            i1 == i2 || **i1 == Type::Any || **i2 == Type::Any
+                        }
+                        _ => false,
+                    };
+                    if structural_eq_pair {
+                        return Ok(Type::Bool);
+                    }
                 }
                 // Enum-side promotion: `pub enum E: T { ... }`
                 // values pair freely with a `T`-typed operand

@@ -21,7 +21,6 @@ use std::sync::{Arc, OnceLock, RwLock};
 use crate::alloc::{__mir_alloc, __mir_free};
 use crate::cascade::release_field_by_kind;
 use crate::print_dispatch::format_kind_id;
-use crate::kind::{KIND_ENUM, KIND_STR};
 use crate::strings::{cstr_to_str, leak_cstring};
 
 const ENUM_HEADER: i64 = 24;
@@ -216,17 +215,10 @@ pub extern "C" fn __enum_structural_eq(a: i64, b: i64) -> i64 {
         let off = 8 + (i as i64) * 8;
         let pa = unsafe { *((a + off) as *const i64) };
         let pb = unsafe { *((b + off) as *const i64) };
-        let eq = if kind == KIND_STR {
-            crate::strings::__str_eq(pa, pb) != 0
-        } else if kind == KIND_ENUM {
-            __enum_structural_eq(pa, pb) != 0
-        } else {
-            // KIND_NONE (raw word) and every heap kind (object / array /
-            // map / set / tuple / optional / weak / closure / promise):
-            // bit / reference compare.
-            pa == pb
-        };
-        if !eq {
+        // String / enum / tuple / array / optional payloads compare
+        // structurally; numbers and reference kinds bit / pointer
+        // compare. The shared dispatcher keeps this in step with `==`.
+        if !crate::equality::value_structural_eq(pa, pb, kind) {
             return 0;
         }
     }
