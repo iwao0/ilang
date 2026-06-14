@@ -1068,16 +1068,38 @@ impl<'a> BodyCx<'a> {
                 }
             }
         }
-        // Property getter on an instance.
+        // Property getter on an instance. Dispatch through the vtable
+        // (like a method) so an overridden getter accessed via a
+        // base-typed reference runs the override; fall back to a direct
+        // call when the getter has no slot (shouldn't happen for
+        // instance getters, but keeps a non-virtual path).
         if let MirTy::Object(cid) = &oty {
-            let meta = self.class_meta.get(cid).expect("class meta");
-            if let Some((mid, prop_ty)) = meta.property_getter.get(&name).cloned() {
+            let getter = self
+                .class_meta
+                .get(cid)
+                .and_then(|m| m.property_getter.get(&name).cloned());
+            if let Some((mid, prop_ty)) = getter {
+                let key = Symbol::intern(&format!("{name}::get"));
+                let slot = self.classes[cid.0 as usize]
+                    .methods
+                    .iter()
+                    .find(|m| m.name == key)
+                    .and_then(|m| m.slot);
                 let v = self.fb.new_value(prop_ty.clone());
-                self.fb.push_inst(Inst::Call {
-                    dst: Some(v),
-                    callee: FuncRef::Local(mid),
-                    args: Box::new([ov]),
-                });
+                if let Some(slot) = slot {
+                    self.fb.push_inst(Inst::VirtCall {
+                        dst: Some(v),
+                        recv: ov,
+                        slot,
+                        args: Box::new([]),
+                    });
+                } else {
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(v),
+                        callee: FuncRef::Local(mid),
+                        args: Box::new([ov]),
+                    });
+                }
                 return Ok((v, prop_ty));
             }
         }

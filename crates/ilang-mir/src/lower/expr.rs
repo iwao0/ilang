@@ -436,16 +436,36 @@ impl<'a> BodyCx<'a> {
                         )))
                     }
                 };
-                // Property setter on instance.
-                let meta = self.class_meta.get(&class_id).expect("class meta");
-                if let Some((fid, prop_ty)) = meta.property_setter.get(field).cloned() {
+                // Property setter on instance — dispatch through the
+                // vtable (like a method) so an overridden setter reached
+                // via a base-typed reference runs the override.
+                let setter = self
+                    .class_meta
+                    .get(&class_id)
+                    .and_then(|m| m.property_setter.get(field).cloned());
+                if let Some((fid, prop_ty)) = setter {
                     let value_is_fresh = self.is_fresh_object_expr(value);
                     let (coerced, vty) = self.lower_arg_to(value, Some(&prop_ty))?;
-                    self.fb.push_inst(Inst::Call {
-                        dst: None,
-                        callee: FuncRef::Local(fid),
-                        args: Box::new([ov, coerced]),
-                    });
+                    let key = Symbol::intern(&format!("{field}::set"));
+                    let slot = self.classes[class_id.0 as usize]
+                        .methods
+                        .iter()
+                        .find(|m| m.name == key)
+                        .and_then(|m| m.slot);
+                    if let Some(slot) = slot {
+                        self.fb.push_inst(Inst::VirtCall {
+                            dst: None,
+                            recv: ov,
+                            slot,
+                            args: Box::new([coerced]),
+                        });
+                    } else {
+                        self.fb.push_inst(Inst::Call {
+                            dst: None,
+                            callee: FuncRef::Local(fid),
+                            args: Box::new([ov, coerced]),
+                        });
+                    }
                     // The setter body stores its borrowed param
                     // through AssignField, which takes its own retain
                     // — a fresh value's transient +1 drops here, or
@@ -455,6 +475,7 @@ impl<'a> BodyCx<'a> {
                     }
                     return Ok((self.const_unit(), MirTy::Unit));
                 }
+                let meta = self.class_meta.get(&class_id).expect("class meta");
                 let fid = *meta
                     .field_ix
                     .get(field)

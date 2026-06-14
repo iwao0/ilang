@@ -456,6 +456,19 @@ impl Lower {
                     let key = Symbol::intern(&format!("{}::get", prop.name));
                     meta.property_getter.insert(prop.name, (id, prop_ty.clone()));
                     meta.add_method(key, id, FnSig { params, ret });
+                    // Make the getter a virtual method: replace any
+                    // MethodDecl inherited under this key and push this
+                    // class's own, so the slot loop gives it a vtable
+                    // slot and a subclass override lands in the
+                    // inherited slot (mirrors regular-method override).
+                    method_decls.retain(|d| d.name != key);
+                    method_decls.push(crate::program::MethodDecl {
+                        name: key,
+                        is_override: false,
+                        is_static: false,
+                        func: id,
+                        slot: None,
+                    });
                 }
             }
             let mangle_setter = if prop.is_static { "set_static" } else { "set" };
@@ -486,6 +499,15 @@ impl Lower {
                     let key = Symbol::intern(&format!("{}::set", prop.name));
                     meta.property_setter.insert(prop.name, (id, prop_ty.clone()));
                     meta.add_method(key, id, FnSig { params, ret });
+                    // Virtual setter — see the getter case above.
+                    method_decls.retain(|d| d.name != key);
+                    method_decls.push(crate::program::MethodDecl {
+                        name: key,
+                        is_override: false,
+                        is_static: false,
+                        func: id,
+                        slot: None,
+                    });
                 }
             }
         }

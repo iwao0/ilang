@@ -460,8 +460,10 @@ fn class_property_get_set() {
         t.fahrenheit
     "#;
     let dump = lower(src);
-    // The setter and getter are calls on the instance.
-    assert!(dump.contains("call func#"), "expected call to property fn:\n{dump}");
+    // The setter and getter dispatch virtually (through the receiver's
+    // vtable) so an overridden accessor reached via a base-typed
+    // reference runs the override, exactly like a regular method.
+    assert!(dump.contains("virt_call"), "expected virtual dispatch for property fn:\n{dump}");
 }
 
 #[test]
