@@ -173,6 +173,46 @@ impl<'a> BodyCx<'a> {
         key_ty: &MirTy,
         val_ty: &MirTy,
     ) -> Result<(ValueId, MirTy), LowerError> {
+        // A value-equality class key must build the `$map.newObject`
+        // store (keyed on `equals` / `hashCode`), exactly as
+        // `new Map<MyClass, V>()` does — `NewMap` would key on the boxed
+        // pointer and drop value-equal keys into separate buckets. Map
+        // literals can't spell a class-instance key (keys are literal
+        // tokens), so this only fires for the `let m: Map<C, V> = {}`
+        // empty-shorthand, but inserting any entries via `map_set` keeps
+        // it correct regardless.
+        if let MirTy::Object(class_id) = key_ty {
+            let ty = MirTy::Map {
+                key: Box::new(key_ty.clone()),
+                val: Box::new(val_ty.clone()),
+            };
+            let map = self.build_object_keyed_map(*class_id, val_ty, &ty)?;
+            for (k, v) in entries {
+                let key_is_fresh = self.is_fresh_object_expr(k);
+                let val_is_fresh = self.is_fresh_object_expr(v);
+                let (kv, _) = self.lower_arg_to(k, Some(key_ty))?;
+                let (vv_raw, vty_raw) = self.lower_expr(v)?;
+                let vv = if &vty_raw != val_ty {
+                    self.coerce(vv_raw, &vty_raw, val_ty, v.span)?
+                } else {
+                    vv_raw
+                };
+                self.fb.push_inst(Inst::Call {
+                    dst: None,
+                    callee: FuncRef::Builtin(Symbol::intern("map_set")),
+                    args: Box::new([map, kv, vv]),
+                });
+                // `map_set` retains both cells; release the literal's
+                // fresh transients now that the map owns its own +1.
+                if key_is_fresh && self.is_arc_heap(key_ty) {
+                    self.fb.push_inst(Inst::Release { value: kv });
+                }
+                if val_is_fresh && self.is_arc_heap(val_ty) {
+                    self.fb.push_inst(Inst::Release { value: vv });
+                }
+            }
+            return Ok((map, ty));
+        }
         let mut pairs = Vec::with_capacity(entries.len());
         let mut fresh_transients: Vec<ValueId> = Vec::new();
         for (k, v) in entries {

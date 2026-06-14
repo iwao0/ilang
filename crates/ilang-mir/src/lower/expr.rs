@@ -53,8 +53,72 @@ fn kind_id_for(ty: &MirTy) -> i64 {
 }
 
 use super::{Binding, BodyCx, LowerError};
+use crate::types::ClassId;
 
 impl<'a> BodyCx<'a> {
+    /// Build an object-keyed map for a value-equality class key:
+    /// `$map.newObject(equals, hashCode)` plus the key/value print-kind
+    /// and value-kind tags, mirroring `new Set<MyClass>()`. The
+    /// `new Map<MyClass, V>()` constructor and the `{}` map-literal path
+    /// share this so a class-keyed map always keys on `equals` /
+    /// `hashCode`, never the boxed pointer — the regular `NewMap`
+    /// codegen assumes the primitive Int/Str store and would otherwise
+    /// key on pointer identity. Returns the constructed map value
+    /// (typed `ty`, a `Map<Object(class_id), val>`).
+    pub(super) fn build_object_keyed_map(
+        &mut self,
+        class_id: ClassId,
+        val: &MirTy,
+        ty: &MirTy,
+    ) -> Result<ValueId, LowerError> {
+        let (eq_id, hash_id) = {
+            let meta = self
+                .class_meta
+                .get(&class_id)
+                .expect("Map<MyClass, V>: missing class meta");
+            let eq_id = meta
+                .method_ids
+                .get(&Symbol::intern("equals"))
+                .copied()
+                .expect("Map<MyClass, V>: missing `equals` method id");
+            let hash_id = meta
+                .method_ids
+                .get(&Symbol::intern("hashCode"))
+                .copied()
+                .expect("Map<MyClass, V>: missing `hashCode` method id");
+            (eq_id, hash_id)
+        };
+        let dst = self.fb.new_value(ty.clone());
+        let eq_addr = self.fb.new_value(MirTy::I64);
+        self.fb.push_inst(Inst::FuncAddr { dst: eq_addr, func: eq_id });
+        let hash_addr = self.fb.new_value(MirTy::I64);
+        self.fb.push_inst(Inst::FuncAddr { dst: hash_addr, func: hash_id });
+        self.fb.push_inst(Inst::Call {
+            dst: Some(dst),
+            callee: FuncRef::Builtin(Symbol::intern("map_new_object")),
+            args: Box::new([eq_addr, hash_addr]),
+        });
+        // Value-side print kind + val_kind so `console.log` / cascade-
+        // release find the right shape. Key side is hard-coded to
+        // PK_OBJECT (12) inside the runtime.
+        let val_pk = print_kind_id_for(val);
+        let key_pk_v = self.const_int(MirTy::I64, 12);
+        let val_pk_v = self.const_int(MirTy::I64, val_pk);
+        self.fb.push_inst(Inst::Call {
+            dst: None,
+            callee: FuncRef::Builtin(Symbol::intern("map_set_print_kinds")),
+            args: Box::new([dst, key_pk_v, val_pk_v]),
+        });
+        let val_kind = kind_id_for(val);
+        let val_kind_v = self.const_int(MirTy::I64, val_kind);
+        self.fb.push_inst(Inst::Call {
+            dst: None,
+            callee: FuncRef::Builtin(Symbol::intern("map_set_value_kind")),
+            args: Box::new([dst, val_kind_v]),
+        });
+        Ok(dst)
+    }
+
     pub(super) fn lower_expr(&mut self, expr: &Expr) -> Result<(ValueId, MirTy), LowerError> {
         match &expr.kind {
             ExprKind::Int(n) => {
@@ -206,58 +270,15 @@ impl<'a> BodyCx<'a> {
                         key: Box::new(key.clone()),
                         val: Box::new(val.clone()),
                     };
-                    let dst = self.fb.new_value(ty.clone());
                     // Object key: take the parallel path Set uses —
-                    // materialise the class's `equals` / `hashCode`
-                    // addresses and call `$map.newObject(eq, hash)`.
-                    // Skips the regular `NewMap` codegen which assumes
-                    // the primitive Int/Str store layout.
+                    // build a `$map.newObject(equals, hashCode)` store
+                    // instead of the regular `NewMap` codegen, which
+                    // assumes the primitive Int/Str store layout.
                     if let MirTy::Object(class_id) = &key {
-                        let meta = self
-                            .class_meta
-                            .get(class_id)
-                            .expect("Map<MyClass, V>: missing class meta");
-                        let eq_id = meta
-                            .method_ids
-                            .get(&Symbol::intern("equals"))
-                            .copied()
-                            .expect("Map<MyClass, V>: missing `equals` method id");
-                        let hash_id = meta
-                            .method_ids
-                            .get(&Symbol::intern("hashCode"))
-                            .copied()
-                            .expect("Map<MyClass, V>: missing `hashCode` method id");
-                        let eq_addr = self.fb.new_value(MirTy::I64);
-                        self.fb.push_inst(Inst::FuncAddr { dst: eq_addr, func: eq_id });
-                        let hash_addr = self.fb.new_value(MirTy::I64);
-                        self.fb.push_inst(Inst::FuncAddr { dst: hash_addr, func: hash_id });
-                        self.fb.push_inst(Inst::Call {
-                            dst: Some(dst),
-                            callee: FuncRef::Builtin(Symbol::intern("map_new_object")),
-                            args: Box::new([eq_addr, hash_addr]),
-                        });
-                        // Set the value-side print kind + val_kind so
-                        // `console.log` / cascade-release can find the
-                        // right shape. Key side is hard-coded to
-                        // PK_OBJECT inside the runtime.
-                        let val_pk = print_kind_id_for(&val);
-                        // PK_OBJECT = 12. Mirrors `runtime/src/kind.rs`.
-                        let key_pk_v = self.const_int(MirTy::I64, 12);
-                        let val_pk_v = self.const_int(MirTy::I64, val_pk);
-                        self.fb.push_inst(Inst::Call {
-                            dst: None,
-                            callee: FuncRef::Builtin(Symbol::intern("map_set_print_kinds")),
-                            args: Box::new([dst, key_pk_v, val_pk_v]),
-                        });
-                        let val_kind = kind_id_for(&val);
-                        let val_kind_v = self.const_int(MirTy::I64, val_kind);
-                        self.fb.push_inst(Inst::Call {
-                            dst: None,
-                            callee: FuncRef::Builtin(Symbol::intern("map_set_value_kind")),
-                            args: Box::new([dst, val_kind_v]),
-                        });
+                        let dst = self.build_object_keyed_map(*class_id, &val, &ty)?;
                         return Ok((dst, ty));
                     }
+                    let dst = self.fb.new_value(ty.clone());
                     self.fb.push_inst(Inst::NewMap {
                         dst,
                         key,
