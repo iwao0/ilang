@@ -225,18 +225,15 @@ impl TypeChecker {
                 }
                 ilang_ast::ExternCItem::Struct { name, fields, .. } => {
                     // Pass 1 only registered this struct's signature, and
-                    // the body pass below skips non-`Class` items, so the
-                    // `@bits(N)` constraints went entirely unchecked for an
-                    // `@extern(C) { struct ... }` — `@bits(4) x: i32`
-                    // (signed) and `@bits(40) x: u32` (over-width) both
-                    // compiled and read back wrong (no sign-extension /
-                    // silent over-width). Run the same per-field bitfield
-                    // validation the class path uses. (The broader
-                    // field-type rules legitimately differ — a struct may
-                    // hold repr-C enum fields a class can't — so only the
-                    // bitfield check is shared.)
-                    for f in fields.iter() {
-                        super::decls::validate_bitfield(name, f)?;
+                    // the body pass below skipped non-`Class` items, so a
+                    // `@extern(C) { struct ... }` got NO field validation:
+                    // signed / over-width `@bits`, and inline-unsafe field
+                    // types (a heap object leaked, a dynamic array
+                    // panicked). Run the same per-field check the class
+                    // path uses.
+                    for (i, f) in fields.iter().enumerate() {
+                        let is_last = i + 1 == fields.len();
+                        self.check_repr_c_struct_field(name, f, is_last)?;
                     }
                 }
                 ilang_ast::ExternCItem::Union { name, fields, span, .. } => {

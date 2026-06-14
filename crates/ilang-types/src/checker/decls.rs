@@ -266,58 +266,7 @@ impl TypeChecker {
             }
             for (i, f) in c.fields.iter().enumerate() {
                 let is_last = i + 1 == c.fields.len();
-                let primitive_ok = |t: &Type| {
-                    matches!(
-                        t,
-                        Type::I8 | Type::I16 | Type::I32 | Type::I64
-                        | Type::U8 | Type::U16 | Type::U32 | Type::U64
-                        | Type::F32 | Type::F64
-                        | Type::Bool
-                    )
-                };
-                let ok = match &f.ty {
-                    t if primitive_ok(t) => true,
-                    Type::Object(name) => self
-                        .classes
-                        .get(name)
-                        .map(|cs| cs.is_repr_c)
-                        .unwrap_or(false),
-                    // Fixed-length numeric arrays — `u8[64]`,
-                    // `i32[4]` etc — are laid out inline (no
-                    // heap allocation, no ARC).
-                    Type::Array { elem, fixed: Some(_) } if primitive_ok(elem) => true,
-                    // C99 flexible array member: `T[]` (no length) as
-                    // the **last** field. Allocation size is set by
-                    // `new ClassName(n)`. Bounds checks are skipped
-                    // (the user maintains the count, just like in C).
-                    Type::Array { elem, fixed: None } if is_last && primitive_ok(elem) => true,
-                    // Owned C-string slot (`char *`) — class manages
-                    // the malloc'd buffer on assign / drop.
-                    Type::Str => true,
-                    // Raw C pointer — `*T` / `*const T`. 8 bytes on
-                    // 64-bit targets. Used for handle / opaque-struct
-                    // / byte-buffer fields that mirror C structs.
-                    Type::RawPtr { .. } => true,
-                    // Bare C function pointer — `fn(T1, ...): R`.
-                    // Stored as the raw 8-byte code address (no
-                    // closure box / ARC). The StructLit lowering
-                    // emits `func_addr` instead of `MakeClosure`
-                    // when the destination field has this shape.
-                    Type::Fn(_) => true,
-                    _ => false,
-                };
-                validate_bitfield(&c.name, f)?;
-                if !ok {
-                    return Err(TypeError::Unsupported {
-                        what: format!(
-                            "@extern(C) struct {:?} field {:?}: type {} not supported \
-                             (allowed: numeric primitives / bool / str (owned C-string) / \
-                             other @extern(C) struct / fixed-length primitive array `T[N]`)",
-                            c.name, f.name, f.ty
-                        ),
-                        span: f.span,
-                    });
-                }
+                self.check_repr_c_struct_field(&c.name, f, is_last)?;
             }
         }
         for m in &c.methods {
@@ -584,6 +533,74 @@ impl TypeChecker {
         // declared return type. See the equivalent in `check_stmt`'s
         // Let arm.
         self.refine_enum_ctor_args_in_block(&f.body, &expected);
+        Ok(())
+    }
+
+    /// Is `ty` a valid `@extern(C)` struct field type — laid out inline
+    /// with no heap allocation / ARC tracking? Numeric / bool, a nested
+    /// repr-C struct, a `repr` enum (stored as its inline integer), a
+    /// fixed-length primitive array (or a flexible array member as the
+    /// last field), an owned C-string, a raw pointer, or a bare C
+    /// function pointer. Everything else (a non-repr-C heap object, a
+    /// dynamic array, tuple, optional, ...) would either leak — the
+    /// struct never releases it — or crash, so it is rejected.
+    pub(in crate::checker) fn repr_c_field_ok(&self, ty: &Type, is_last: bool) -> bool {
+        let primitive_ok = |t: &Type| {
+            matches!(
+                t,
+                Type::I8 | Type::I16 | Type::I32 | Type::I64
+                    | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                    | Type::F32 | Type::F64
+                    | Type::Bool
+                    // C scalar integers — `char` / `size_t` / `ssize_t`.
+                    // Pointer-width / byte-width inline values, nameable
+                    // only inside `@extern(C)`.
+                    | Type::CChar | Type::Size | Type::SSize
+            )
+        };
+        match ty {
+            t if primitive_ok(t) => true,
+            // A nested repr-C struct, OR a `repr` enum (`enum E: u32`):
+            // both lay out inline. A plain (non-repr) enum is heap-boxed,
+            // so it is rejected like any other heap object.
+            Type::Object(name) => {
+                self.classes.get(name).map(|cs| cs.is_repr_c).unwrap_or(false)
+                    || self.enums.get(name).and_then(|e| e.repr.as_ref()).is_some()
+            }
+            Type::Array { elem, fixed: Some(_) } if primitive_ok(elem) => true,
+            // C99 flexible array member: `T[]` as the LAST field only.
+            Type::Array { elem, fixed: None } if is_last && primitive_ok(elem) => true,
+            Type::Str => true,
+            Type::RawPtr { .. } => true,
+            Type::Fn(_) => true,
+            _ => false,
+        }
+    }
+
+    /// Validate one `@extern(C)` struct field — its `@bits` constraints
+    /// and that its type is inline-layout-safe. Shared by `check_class`
+    /// and the `@extern(C) { struct ... }` body check, which used to skip
+    /// the type rule entirely (so a heap object field leaked and a
+    /// dynamic array field panicked at runtime).
+    pub(in crate::checker) fn check_repr_c_struct_field(
+        &self,
+        struct_name: &Symbol,
+        f: &FieldDecl,
+        is_last: bool,
+    ) -> Result<(), TypeError> {
+        validate_bitfield(struct_name, f)?;
+        if !self.repr_c_field_ok(&f.ty, is_last) {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "@extern(C) struct {:?} field {:?}: type {} not supported \
+                     (allowed: numeric primitives / bool / str (owned C-string) / \
+                     other @extern(C) struct / `repr` enum / fixed-length primitive \
+                     array `T[N]`)",
+                    struct_name, f.name, f.ty
+                ),
+                span: f.span,
+            });
+        }
         Ok(())
     }
 
