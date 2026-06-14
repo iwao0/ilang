@@ -416,7 +416,7 @@ impl<'a> BodyCx<'a> {
                     // the helper, so `@flags` / repr / unit enums are
                     // unaffected. Ordering keeps the tag-only path (repr
                     // enums order by their discriminant).
-                    if matches!(op, AstBinOp::Eq | AstBinOp::Ne) {
+                    let dst = if matches!(op, AstBinOp::Eq | AstBinOp::Ne) {
                         let eqv = self.fb.new_value(MirTy::Bool);
                         self.fb.push_inst(Inst::Call {
                             dst: Some(eqv),
@@ -424,27 +424,39 @@ impl<'a> BodyCx<'a> {
                             args: Box::new([lv0, rv0]),
                         });
                         if matches!(op, AstBinOp::Eq) {
-                            return Ok((eqv, MirTy::Bool));
+                            eqv
+                        } else {
+                            let d = self.fb.new_value(MirTy::Bool);
+                            let zero = self.const_int(MirTy::Bool, 0);
+                            self.fb.push_inst(Inst::BinOp { dst: d, op: BinOp::IEq, lhs: eqv, rhs: zero });
+                            d
                         }
-                        let dst = self.fb.new_value(MirTy::Bool);
-                        let zero = self.const_int(MirTy::Bool, 0);
-                        self.fb.push_inst(Inst::BinOp { dst, op: BinOp::IEq, lhs: eqv, rhs: zero });
-                        return Ok((dst, MirTy::Bool));
-                    }
-                    let repr_ty = self.enums[le.0 as usize].repr.clone();
-                    let lt = self.fb.new_value(MirTy::I64);
-                    self.fb.push_inst(Inst::EnumTag { dst: lt, value: lv0 });
-                    let rt = self.fb.new_value(MirTy::I64);
-                    self.fb.push_inst(Inst::EnumTag { dst: rt, value: rv0 });
-                    let bop = match op {
-                        AstBinOp::Lt => cmp_op(&repr_ty, Cmp::Lt),
-                        AstBinOp::Le => cmp_op(&repr_ty, Cmp::Le),
-                        AstBinOp::Gt => cmp_op(&repr_ty, Cmp::Gt),
-                        AstBinOp::Ge => cmp_op(&repr_ty, Cmp::Ge),
-                        _ => unreachable!(),
+                    } else {
+                        let repr_ty = self.enums[le.0 as usize].repr.clone();
+                        let lt = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::EnumTag { dst: lt, value: lv0 });
+                        let rt = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::EnumTag { dst: rt, value: rv0 });
+                        let bop = match op {
+                            AstBinOp::Lt => cmp_op(&repr_ty, Cmp::Lt),
+                            AstBinOp::Le => cmp_op(&repr_ty, Cmp::Le),
+                            AstBinOp::Gt => cmp_op(&repr_ty, Cmp::Gt),
+                            AstBinOp::Ge => cmp_op(&repr_ty, Cmp::Ge),
+                            _ => unreachable!(),
+                        };
+                        let d = self.fb.new_value(MirTy::Bool);
+                        self.fb.push_inst(Inst::BinOp { dst: d, op: bop, lhs: lt, rhs: rt });
+                        d
                     };
-                    let dst = self.fb.new_value(MirTy::Bool);
-                    self.fb.push_inst(Inst::BinOp { dst, op: bop, lhs: lt, rhs: rt });
+                    // The comparison only borrows its operands; release a
+                    // fresh enum temporary (heap cell + its payload
+                    // cascade) so `E.holds(new Obj()) == …` doesn't leak.
+                    if lhs_fresh {
+                        self.fb.push_inst(Inst::Release { value: lv0 });
+                    }
+                    if rhs_fresh {
+                        self.fb.push_inst(Inst::Release { value: rv0 });
+                    }
                     return Ok((dst, MirTy::Bool));
                 }
             }

@@ -54,3 +54,25 @@ let o = new Obj(1)
 test.expectBool(Holds.obj(o) == Holds.obj(o), true)
 test.expectBool(Holds.obj(new Obj(1)) == Holds.obj(new Obj(1)), false)
 console.log("ok")
+
+// Fresh enum operands (heap cells + heap payloads) in `==` are released
+// — the comparison only borrows them.
+class Counted {
+    pub v: i64
+    init(v: i64) { this.v = v }
+    deinit() { bump() }
+}
+let deinits = new Tally2()
+fn bump() { deinits.n = deinits.n + 1 }
+class Tally2 { n: i64; init() { this.n = 0 } }
+enum Wrap {
+    box: (Counted)
+    nil
+}
+fn churn() {
+    let _ = Wrap.box(new Counted(1)) == Wrap.box(new Counted(2))   // 2 fresh
+    let o = new Counted(3)
+    let _ = Wrap.box(o) == Wrap.box(o)                             // 1 fresh + shared
+}
+churn()
+test.expect(deinits.n, 3)
