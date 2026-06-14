@@ -49,18 +49,15 @@ pub(super) fn placeholder_function(name: Symbol) -> Function {
 }
 
 pub(super) fn retain_if_heap(fb: &mut FunctionBuilder, v: ValueId, ty: &MirTy) {
-    let heap = matches!(
-        ty,
-        MirTy::Object(_)
-            | MirTy::Fn(_)
-            | MirTy::Array { .. }
-            | MirTy::Optional(_)
-            | MirTy::Tuple(_)
-            | MirTy::Map { .. }
-            | MirTy::Str
-            | MirTy::Enum(_)
-    );
-    if heap {
+    // Use the canonical heap predicate, not a hand-copied list — this
+    // copy had diverged, omitting `Set` / `Weak` / `Promise`. So
+    // wrapping a `Set` into an `Optional` (e.g. `return s` against a
+    // `Set<T>?` return) never retained it, and the source local's
+    // scope-exit release then freed the set out from under the returned
+    // Optional — the caller saw an empty / dangling set. `Inst::Retain`
+    // already dispatches per-type (`__retain_set` / `__retain_weak` /
+    // `__retain_promise`), so every heap shape is safe to retain here.
+    if ty.is_heap() {
         fb.push_inst(Inst::Retain { value: v });
     }
 }
