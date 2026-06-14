@@ -125,8 +125,16 @@ where
     }
     // Object → Object subtype, Object → Weak (same-class or
     // subclass) — shared with overload scoring via `class_pair_coercion`.
-    if let Type::Object(c) = vt {
-        if coercion::class_pair_coercion(*c, target, is_sub).is_some() {
+    // A generic-class instantiation (`Box<i64>`) conforms to whatever
+    // parent / interface its BASE class (`Box`) declares — the relation
+    // lives on the base and is independent of the type args.
+    let from_cid = match vt {
+        Type::Object(c) => Some(*c),
+        Type::Generic(g) => Some(g.base),
+        _ => None,
+    };
+    if let Some(c) = from_cid {
+        if coercion::class_pair_coercion(c, target, is_sub).is_some() {
             return true;
         }
     }
