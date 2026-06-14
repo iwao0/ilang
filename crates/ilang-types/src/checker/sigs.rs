@@ -799,12 +799,19 @@ pub(super) fn class_signature(
                 });
             }
         }
+        // Merge the accessor presence with any inherited entry: a
+        // subclass that overrides only the getter (or only the setter)
+        // keeps the parent's accessor for the other direction, instead
+        // of turning the property read-only / write-only.
+        let inherited = properties.get(&prop.name);
+        let has_get = prop.getter.is_some() || inherited.is_some_and(|p| p.has_get);
+        let has_set = prop.setter.is_some() || inherited.is_some_and(|p| p.has_set);
         properties.insert(
             prop.name.clone(),
             PropertySig {
                 ty: prop_ty,
-                has_get: prop.getter.is_some(),
-                has_set: prop.setter.is_some(),
+                has_get,
+                has_set,
                 is_pub: prop.is_pub,
                 is_static: prop.is_static,
             },
