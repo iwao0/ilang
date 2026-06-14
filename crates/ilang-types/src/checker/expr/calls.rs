@@ -102,7 +102,7 @@ impl TypeChecker {
                         )?;
                         let chosen = self.resolve_method_call(
                             *name, *method, &sigs, args, env, ret_ty, in_class,
-                            loop_depth, span,
+                            loop_depth, span, &[],
                         )?;
                         return Ok(chosen.ret);
                     }
@@ -848,7 +848,7 @@ impl TypeChecker {
                 };
                 let chosen = self.resolve_method_call(
                     class_name.into(), *method, &[sig], args, env, ret_ty, in_class,
-                    loop_depth, span,
+                    loop_depth, span, &[],
                 )?;
                 return Ok(chosen.ret);
             }
@@ -919,6 +919,7 @@ impl TypeChecker {
         // surface a precise error.
         let chosen = self.resolve_method_call(
             class_name_owned, *method, &substituted, args, env, ret_ty, in_class, loop_depth, span,
+            &inst_args,
         )?;
         let cmod = cls.module.clone();
         self.require_visible(
@@ -1026,7 +1027,7 @@ impl TypeChecker {
                     // Implicit-this method call. Resolve overload
                     // exactly like a top-level fn call.
                     let chosen = self.resolve_method_call(
-                        class_name, *callee, sigs, args, env, ret_ty, in_class, loop_depth, span,
+                        class_name, *callee, sigs, args, env, ret_ty, in_class, loop_depth, span, &[],
                     )?;
                     return Ok(chosen.ret);
                 }
@@ -1309,7 +1310,7 @@ impl TypeChecker {
                 })
                 .collect();
             let chosen = self.resolve_method_call(
-                *class, "init".into(), &substituted, args, env, ret_ty, in_class, loop_depth, span,
+                *class, "init".into(), &substituted, args, env, ret_ty, in_class, loop_depth, span, &[],
             )?;
             let cmod = cls.module.clone();
             self.require_visible(

@@ -15,6 +15,24 @@ use crate::ops::{assignable, bin_result, int_literal_fits};
 
 use super::*;
 
+/// Mangle a generic-class instantiation to the name the MIR
+/// monomorphizer assigns the specialized class. MUST match
+/// `ilang_mir::monomorphize::mangle` byte-for-byte (`Base<arg, arg>`,
+/// args via `Type::Display`) so the recorded method call site resolves
+/// against the specialized class.
+fn mangle_generic_class_name(base: &str, args: &[Type]) -> Symbol {
+    let mut s = base.to_string();
+    s.push('<');
+    for (i, a) in args.iter().enumerate() {
+        if i > 0 {
+            s.push_str(", ");
+        }
+        s.push_str(&a.to_string());
+    }
+    s.push('>');
+    Symbol::intern(&s)
+}
+
 impl TypeChecker {
     #[allow(clippy::too_many_arguments)]
     /// Resolve which method overload (or init) a call site invokes.
@@ -32,6 +50,14 @@ impl TypeChecker {
         in_class: Option<Symbol>,
         loop_depth: u32,
         span: Span,
+        // The receiver's concrete class type args (`[i64]` for a
+        // `Box<i64>` receiver, empty for a non-generic class). A
+        // generic method on a generic class must record the call under
+        // the MANGLED class name (`Box<i64>`), because class
+        // monomorphization renames the class before the method
+        // monomorphizer looks it up — keying the record on the bare
+        // `Box` would leave the call dangling.
+        recv_class_args: &[Type],
     ) -> Result<Signature, TypeError> {
         // Single overload: keep the precise check_args path so error
         // variants (Mismatch / ArityMismatch) match what users expect.
@@ -70,10 +96,18 @@ impl TypeChecker {
                 // Stash the inferred type args so the AST
                 // monomorphizer (`monomorphize_methods`) can specialize
                 // the method body and rewrite this call's method
-                // symbol to the mangled name.
+                // symbol to the mangled name. For a generic-class
+                // receiver, record the mangled class name so the lookup
+                // matches the specialized class that class
+                // monomorphization produces.
+                let record_class = if recv_class_args.is_empty() {
+                    class_name
+                } else {
+                    mangle_generic_class_name(class_name.as_str(), recv_class_args)
+                };
                 self.method_call_type_args
                     .borrow_mut()
-                    .insert(span, (class_name, method, inferred_args.clone()));
+                    .insert(span, (record_class, method, inferred_args.clone()));
                 for ((param_ty, arg), at) in
                     sig.params.iter().zip(args.iter()).zip(arg_tys.iter())
                 {
