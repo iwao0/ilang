@@ -536,6 +536,11 @@ impl TypeChecker {
     pub(super) fn is_covariant_join_literal(&self, e: &Expr) -> bool {
         match &e.kind {
             ExprKind::EnumCtor { .. } => true,
+            // A fresh array literal covaries in its element type; an aliased
+            // array variable does not. `some(lit)` covaries when its inner
+            // does (the Optional shell is immutable).
+            ExprKind::Array(_) => true,
+            ExprKind::Some(inner) => self.is_covariant_join_literal(inner),
             ExprKind::Block(b) => b
                 .tail
                 .as_ref()
@@ -601,17 +606,33 @@ impl TypeChecker {
     /// covariant arm already does. Returns `None` when the bases differ
     /// or an arg pair has no common supertype.
     pub(super) fn common_generic_join(&self, a: &Type, b: &Type) -> Option<Type> {
-        let (Type::Generic(ga), Type::Generic(gb)) = (a, b) else {
-            return None;
-        };
-        if ga.base != gb.base || ga.args.len() != gb.args.len() {
-            return None;
+        match (a, b) {
+            (Type::Generic(ga), Type::Generic(gb))
+                if ga.base == gb.base && ga.args.len() == gb.args.len() =>
+            {
+                let mut merged = Vec::with_capacity(ga.args.len());
+                for (x, y) in ga.args.iter().zip(gb.args.iter()) {
+                    merged.push(self.join_type_arg(x, y)?);
+                }
+                Some(Type::generic(ga.base.clone(), merged))
+            }
+            // `Dog[]` ⊔ `Cat[]` = `Animal[]` (same length kind). Sound for
+            // the same reason as `Box<Dog>` ⊔ `Box<Cat>`: the caller gates
+            // on both arms being fresh literals, so no aliased array can be
+            // mutated through the widened element face.
+            (
+                Type::Array { elem: e1, fixed: f1 },
+                Type::Array { elem: e2, fixed: f2 },
+            ) if f1 == f2 => self
+                .join_type_arg(e1, e2)
+                .map(|e| Type::Array { elem: Box::new(e), fixed: *f1 }),
+            // `Box<Dog>?` ⊔ `Box<Cat>?` = `Box<Animal>?` — the join through a
+            // `some(..)`-wrapped covariant literal.
+            (Type::Optional(i1), Type::Optional(i2)) => self
+                .join_type_arg(i1, i2)
+                .map(|i| Type::Optional(Box::new(i))),
+            _ => None,
         }
-        let mut merged = Vec::with_capacity(ga.args.len());
-        for (x, y) in ga.args.iter().zip(gb.args.iter()) {
-            merged.push(self.join_type_arg(x, y)?);
-        }
-        Some(Type::generic(ga.base.clone(), merged))
     }
 
     fn join_type_arg(&self, x: &Type, y: &Type) -> Option<Type> {

@@ -11,12 +11,19 @@
 // (see generic_enum_literal_covariant_alias_error.il), so this stays
 // sound for mutable generics.
 
+// The same join covariance covers fresh ARRAY literals (`[Dog]` ⊔
+// `[Cat]` = `Animal[]`) and `some(..)`-wrapped covariant literals
+// (`some(Box<Dog>)` ⊔ `some(Box<Cat>)` = `Box<Animal>?`) — still
+// literal-only.
+
 // expect: if dog
 // expect: if cat
 // expect: match dog
 // expect: match cat
 // expect: same-subclass dog
 // expect: two-param dog
+// expect: array dog cat
+// expect: opt dog
 
 use std.test as test
 
@@ -79,3 +86,19 @@ let lbl = match pickEither(true) {
     right(_) { "?" }
 }
 console.log("two-param " + lbl)
+
+// fresh array literals join to the common-ancestor element type.
+fn pickArr(b: bool): Animal[] {
+    if b { [new Dog()] } else { [new Cat()] }
+}
+console.log("array " + pickArr(true)[0].name + " " + pickArr(false)[0].name)
+
+// `some(..)`-wrapped generic-enum literals join through the Optional.
+fn pickOpt(b: bool): Box<Animal>? {
+    if b { some(Box.hold(new Dog())) } else { some(Box.hold(new Cat())) }
+}
+let on = match pickOpt(true) {
+    some(bx) { name(bx) }
+    none { "none" }
+}
+console.log("opt " + on)
