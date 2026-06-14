@@ -529,25 +529,48 @@ impl Lower {
         // Assign vtable slots: inherit parent slots for same-named
         // methods, append new slots otherwise. Init / deinit aren't
         // dispatched virtually.
-        let parent_slots: HashMap<Symbol, crate::inst::VTableSlot> = match parent_id {
-            Some(pid) => self.classes[pid.0 as usize]
-                .methods
-                .iter()
-                .filter_map(|m| m.slot.map(|s| (m.name, s)))
-                .collect(),
-            None => HashMap::new(),
-        };
+        //
+        // A method that satisfies an interface lives in the parent's
+        // vtable under TWO slots: its class slot (< IFACE_SLOT_BASE) and
+        // the interface's high slot. Collect ALL of a name's parent
+        // slots — a name-keyed single-slot map kept only one (the
+        // interface slot won, being appended last), so a subclass lost
+        // the class slot and a `Base`-typed call on a subclass instance
+        // dispatched through an empty class slot and segfaulted.
+        const IFACE_SLOT_BASE: u32 = 1 << 20;
+        let mut parent_slots: HashMap<Symbol, Vec<crate::inst::VTableSlot>> = HashMap::new();
+        if let Some(pid) = parent_id {
+            for m in self.classes[pid.0 as usize].methods.iter() {
+                if let Some(s) = m.slot {
+                    parent_slots.entry(m.name).or_default().push(s);
+                }
+            }
+        }
+        // New methods take the next free CLASS slot — interface slots
+        // (which live in a far-above range) must not push it there.
         let mut next_slot: u32 = parent_slots
             .values()
-            .map(|s| s.0 + 1)
+            .flatten()
+            .map(|s| s.0)
+            .filter(|s| *s < IFACE_SLOT_BASE)
+            .map(|s| s + 1)
             .max()
             .unwrap_or(0);
+        // Interface slots inherited from the parent need a fresh
+        // MethodDecl in this class pointing at its (possibly overridden)
+        // implementation, so interface dispatch on a subclass instance
+        // finds the method. Recorded during the loop, pushed after.
+        let mut inherited_iface_slots: Vec<(Symbol, FuncId, crate::inst::VTableSlot)> =
+            Vec::new();
         for d in method_decls.iter_mut() {
             if matches!(d.name.as_str(), "init" | "deinit") {
                 continue;
             }
-            let slot = match parent_slots.get(&d.name) {
-                Some(s) => *s,
+            let inherited = parent_slots.get(&d.name);
+            let class_slot = inherited
+                .and_then(|v| v.iter().find(|s| s.0 < IFACE_SLOT_BASE).copied());
+            let slot = match class_slot {
+                Some(s) => s,
                 None => {
                     let s = crate::inst::VTableSlot(next_slot);
                     next_slot += 1;
@@ -555,6 +578,20 @@ impl Lower {
                 }
             };
             d.slot = Some(slot);
+            if let Some(v) = inherited {
+                for s in v.iter().filter(|s| s.0 >= IFACE_SLOT_BASE) {
+                    inherited_iface_slots.push((d.name, d.func, *s));
+                }
+            }
+        }
+        for (name, func, slot) in inherited_iface_slots {
+            method_decls.push(crate::program::MethodDecl {
+                name,
+                is_override: false,
+                is_static: false,
+                func,
+                slot: Some(slot),
+            });
         }
         // Interface dispatch: for every interface this class declares
         // (including the parser's first base if it's actually an
@@ -616,6 +653,17 @@ impl Lower {
                     slot: Some(crate::inst::VTableSlot(slot)),
                 });
             }
+        }
+        // Drop any duplicate (name, slot) entries — a class can reach the
+        // same interface slot both by inheriting it from a parent class
+        // and by re-declaring the interface itself. Keep the first.
+        {
+            let mut seen: std::collections::HashSet<(Symbol, u32)> =
+                std::collections::HashSet::new();
+            method_decls.retain(|d| match d.slot {
+                Some(s) => seen.insert((d.name, s.0)),
+                None => true,
+            });
         }
         let layout = &mut self.classes[class_id.0 as usize];
         layout.methods = method_decls;
