@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 88 弾**。 SIMD 構築を probe して **float リテラルが整数 SIMD レーンに無検査で通る**バグを検出・修正。 スカラ `let x: i32 = 1.0` は拒否されるのに `simd.i32x4 = [1.0, 2.0, 3.0, 4.0]` がコンパイルできた(レーンアクセス未公開なので値は観測不能だが、 公開時に garbage になる soundness 漏れ)。 原因は SIMD 構築検証([mod.rs](../crates/ilang-types/src/checker/mod.rs))が要素の「自身の型」に **lane 型を渡していた**(`dummy_vt = lane_ty`)ため、 全要素が自明に fit していた。 配列ケースと同じく `vt`(値の実型 `Array { elem }`)の要素型を `literal_assignable_with` に渡すよう修正。 副次的に over-wide 整数リテラル(`300` を i8 レーンへ)も正しく拒否されるように。 valid な構築(`i32x4` from int、 `f32x4` from float/int)は無変更。 fixture: `04_modules/simd_int_lane_float_literal_error.il`。 詳細は下の解決済み記録。
 - **第 87 弾** (クリーンラウンド)。 @extern(C) 完了確認(全 `ExternCItem` 種別が pass 2 で検証されることを確認)と複数領域を sweep — **新規バグなし**。 メソッド/関数オーバーロード解決(型/サブクラス/兄弟曖昧拒否/引数数/幅/covariant-join arg/no-match 診断)、 `?` 演算子(Result ok/err 伝播・Optional・heap payload)、 Promise.all/race(型制約は仕様どおり)、 が全て健全。 唯一未カバーだった **`?` で heap payload の Result を伝播し err early-return が生きた Box 束縛を跨ぐ ARC**(`try_operator.il` は i32 のみ)を churn 厳密 deinit で pin。 fixture 追加のみのため重い儀式は省略(JIT harness + 個別 AOT)。 fixture: `05_edge_cases/try_op_heap_result_arc.il`。
 - **第 86 弾**。 第 84/85 弾の続きで **`@extern(C) struct` の field-type 検証**(第 84 弾は @bits のみ追加していた)の漏れを是正。 inline レイアウト不可の型 — 非 repr-c heap object・非最後の動的配列・tuple・optional・plain(非 repr)enum — が struct フィールドに通り、 heap object は **leak**(churn delta=2400, deinit=0)、 動的配列使用時は **panic**。 class 経路の field-type `ok` ロジックを `repr_c_field_ok` + `check_repr_c_struct_field` メソッド([decls.rs](../crates/ilang-types/src/checker/decls.rs))に抽出し、 `check_class` と extern_c の Struct arm([extern_c.rs](../crates/ilang-types/src/checker/extern_c.rs))で共有。 ただし **repr enum を許可型に追加**(struct は repr enum フィールドを許可 = `repr_c_flags_enum_field.il`、 class の旧 `ok` は未対応だった)。 非 repr-c object/tuple/optional/plain enum/非最後動的配列を明確な診断で拒否、 repr enum・nested repr-c struct・FAM(最後の動的配列)は維持。 fixture: `04_modules/extern_struct_heap_field_error.il`。 詳細は下の解決済み記録。
 - **第 85 弾**。 第 84 弾(@extern(C) struct の @bits 検証漏れ)の同族として **`@extern(C) { union ... }` のフィールド検証が完全に抜けている**バグを検出・修正。 union は offset 0 を全フィールドで共有するため heap フィールド(object/string)は不正で `check_class` が拒否するが、 `ExternCItem::Union` 経路は Struct 同様 body 検証をスキップ。 結果 `union U { a: u64  b: Box }` がコンパイルでき、 `u.b = new Box(); u.a = 999; u.b.n` で stale ポインタを deref して **SIGSEGV**(実害あり)。 union 検証を free 関数 `validate_union`([decls.rs](../crates/ilang-types/src/checker/decls.rs))に抽出し、 `check_class` と `check_extern_c_bodies` の Union arm([extern_c.rs](../crates/ilang-types/src/checker/extern_c.rs))から共有。 heap union フィールド・空 union が明確な診断で拒否、 valid な数値 union(type punning)は無変更。 fixture: `04_modules/extern_union_heap_field_error.il`。 詳細は下の解決済み記録。
@@ -137,6 +138,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 88 弾: float リテラルが整数 SIMD レーンに無検査で通る (2026-06-14)
+
+未踏の SIMD を probe して発見。
+
+- **症状**: スカラ `let x: i32 = 1.0` / `let x: i32[] = [1.0]` は「expected i32, got f64」で拒否されるのに、 `let v: simd.i32x4 = [1.0, 2.0, 3.0, 4.0]`(整数レーンに float リテラル)はコンパイルできた。 SIMD はレーンアクセス・演算が未公開なので値は観測できないが、 公開時に garbage を生む型 soundness の漏れ(ilang の no-implicit-float-to-int 規則違反)。
+- **原因**: SIMD 構築の literal 検証([mod.rs](../crates/ilang-types/src/checker/mod.rs))が `let dummy_vt = lane_ty.clone()` として、 各要素の「自身の型(vt)」に **lane 型を渡していた**。 そのため `literal_assignable_with(e, i32, i32)` となり全要素が自明に fit。 配列ケース(直上)は `vt`(値の実型 `Array { elem }`)の要素型を渡しており、 これと非対称だった。
+- **修正**: 配列ケースと同形に、 `vt` から要素型を取り出して `literal_assignable_with(e, &vt_elem, &lane_ty, is_sub)` を呼ぶ。 float リテラル(f64)→ 整数レーン(i32)は narrow 不可で拒否、 int リテラル → 整数レーンは narrow 可、 float リテラル → float レーンは f64→f32 coerce、 int リテラル → float レーンは int→float で許可。 副次的に over-wide 整数リテラル(`300` を i8 レーンへ)も literal-fits 検査で拒否されるように。
+- **検証**: `simd.i32x4 = [1.0,...]` / `simd.i8x16 = [300,...]` が拒否、 valid 構築(`i32x4` from int、 `f32x4` from float/int、 `i64x2` from int)・SIMD 配列・関数受け渡しは無変更で動作。 既存 `simd_vector_types.il` 緑。 fixture: `04_modules/simd_int_lane_float_literal_error.il`(expect-error)。 checker を触ったので AOT 儀式も実施。 workspace nextest 539/539、 program fixtures harness JIT + AOT PASS。 docs は元から「各要素はレーンのスカラ型に収まる」と正しく記載。
 
 ### [解決済み記録] 第 86 弾: `@extern(C) struct` の field-type 検証が抜けていた (leak/panic) (2026-06-14)
 

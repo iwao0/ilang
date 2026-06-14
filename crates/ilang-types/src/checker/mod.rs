@@ -193,13 +193,18 @@ where
             return false;
         }
         let lane_ty = elem.as_scalar_type();
-        // Elements may carry any natural type (i64 from `1`, f64
-        // from `2.0`); each one is literal-assignable to the lane
-        // when its own bit-width / sign convention fits.
-        let dummy_vt = lane_ty.clone();
+        // Check each element's OWN inferred type against the lane scalar,
+        // exactly like the array case above — passing the lane type as the
+        // source type would make every element trivially "fit" and let a
+        // float literal land in an integer lane (`simd.i32x4 = [1.0, ...]`),
+        // which scalar assignment (`let x: i32 = 1.0`) rejects.
+        let vt_elem = match vt {
+            Type::Array { elem, .. } => elem.clone(),
+            _ => return false,
+        };
         return elements
             .iter()
-            .all(|e| literal_assignable_with(e, &dummy_vt, &lane_ty, is_sub));
+            .all(|e| literal_assignable_with(e, &vt_elem, &lane_ty, is_sub));
     }
     // Map literal → `Map<K, V>`. Each key / value is checked against
     // the annotation's K / V with the same literal coercions + class
