@@ -106,6 +106,34 @@ The postfix modifiers `[]` `[N]` `?` `.weak` stack: `Foo[]?`,
 don't allow implicit numeric widening (integer literals are the
 only thing coerced to the other arm's type).
 
+#### Integer overflow
+
+Integer arithmetic never panics; results wrap two's-complement. The
+**width** at which a result wraps depends on where the value lives:
+
+- **`i64` / `u64`** wrap at 64 bits — `i64::MAX + 1 == i64::MIN`.
+- An **unsigned narrow** type (`u8` / `u16` / `u32`) wraps at its
+  declared width on every operation:
+  `let x: u32 = 4_000_000_000_u32 + 500_000_000` holds `205_032_704`.
+- **Signed narrow** arithmetic (`i8` / `i16` / `i32`) is computed and
+  held at 64-bit width and is *not* re-wrapped to the declared width.
+  This is observable only when both operands are already that signed
+  narrow type, since a bare integer literal is `i64`:
+  - `let a: i32 = 2_000_000_000; let b: i32 = 500_000_000; let c: i32
+    = a + b` leaves `c` holding `2_500_000_000` — outside the i32 range,
+    and `c < 0` is *false*.
+  - `let x: i32 = 2_000_000_000 + 500_000_000` *does* wrap to
+    `-1_794_967_296`, because the bare literals make the sum an `i64`
+    that then narrows to `i32`.
+
+A value wraps to a narrow signed width whenever it crosses one of these
+boundaries: a narrowing `as`-cast **from a wider type** (`big_i64 as
+i32`, or `(2_000_000_000 + 500_000_000) as i32`), an implicit narrowing
+assignment from `i64`, or a store into a narrow cell (array element,
+struct field, FFI field). Note that `(a + b) as i32` is a no-op when
+`a + b` is *already* `i32` — round-trip through `i64` (`(a as i64 + b)
+as i32`) to force the wrap.
+
 A **fresh composite literal** is covariant in its element / value
 type: `[new Dog()]` flows into `Animal[]`, and `{"a": new Dog()}`
 into `Map<string, Animal>` (and a mix like `{"a": new Dog(), "b":
