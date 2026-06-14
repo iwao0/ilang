@@ -171,11 +171,15 @@ impl<'a> BodyCx<'a> {
         &mut self,
         args: &[Expr],
     ) -> Result<(ValueId, MirTy), LowerError> {
-        let p_is_fresh = self.is_fresh_object_expr(&args[0]);
+        // The promise arg is a BORROW: `settle_resolve` locks it,
+        // transitions its state, and queues continuations without
+        // taking ownership of the reference. Retaining it here added a
+        // +1 that nothing ever released, leaking the result promise of
+        // every suspended async fn — and with it the heap value stored
+        // in its resolved state (the `await`-then-return path always
+        // passes `state_ref.__async_promise`, a non-fresh field access,
+        // so the old `if !p_is_fresh` guard always fired).
         let (pv, _) = self.lower_expr(&args[0])?;
-        if !p_is_fresh {
-            self.fb.push_inst(Inst::Retain { value: pv });
-        }
         let v_is_fresh = self.is_fresh_object_expr(&args[1]);
         let (vv, vty) = self.lower_expr(&args[1])?;
         let vv = match self.copy_fixed_for_cell(vv, &vty, v_is_fresh) {
@@ -201,11 +205,10 @@ impl<'a> BodyCx<'a> {
         &mut self,
         args: &[Expr],
     ) -> Result<(ValueId, MirTy), LowerError> {
-        let p_is_fresh = self.is_fresh_object_expr(&args[0]);
+        // The promise arg is a BORROW (see `lower_promise_settle_resolve`)
+        // — retaining it leaked the promise. Only `msg` is owned by the
+        // settle (stored in the rejected state), so only it is retained.
         let (pv, _) = self.lower_expr(&args[0])?;
-        if !p_is_fresh {
-            self.fb.push_inst(Inst::Retain { value: pv });
-        }
         let msg_is_fresh = self.is_fresh_object_expr(&args[1]);
         let (mv, _) = self.lower_expr(&args[1])?;
         // The type checker pins msg to `string` for this builtin
