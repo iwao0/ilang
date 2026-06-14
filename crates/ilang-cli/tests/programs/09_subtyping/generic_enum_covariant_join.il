@@ -27,6 +27,7 @@
 // expect: opt dog
 // expect: map dog cat
 // expect: tuple dog cat
+// expect: struct dog
 
 use std.test as test
 
@@ -43,6 +44,12 @@ class Cat: Animal {
 
 enum Box<T> {
     hold: (T)
+}
+// struct-shaped payload — a distinct ctor-literal AST form (`Wrap.one {
+// item: ... }`) from the tuple `Box.hold(..)`; the join must recognise it
+// the same way.
+enum Wrap<T> {
+    one: { item: T }
 }
 enum Either<L, R> {
     left: (L)
@@ -119,3 +126,12 @@ fn pickTup(b: bool): (Animal, i64) {
 let ta = pickTup(true)
 let tb = pickTup(false)
 console.log("tuple " + ta[0].name + " " + tb[0].name)
+
+// struct-payload ctor literals join the same way as tuple-payload ones.
+fn pickWrap(b: bool): Wrap<Animal> {
+    if b { Wrap.one { item: new Dog() } } else { Wrap.one { item: new Cat() } }
+}
+let wn = match pickWrap(true) {
+    one { item } { item.name }
+}
+console.log("struct " + wn)
