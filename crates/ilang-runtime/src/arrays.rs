@@ -26,7 +26,11 @@ pub(crate) unsafe fn array_header(arr: i64) -> (i64, i64, i64) {
 /// (`==` on classes is reference equality). String elements compare
 /// by content — ilang's `==` on strings is structural, so a needle
 /// built at runtime (`"b" + suffix`) must match a stored literal even
-/// though their registry pointers differ.
+/// though their registry pointers differ. Enum elements compare
+/// structurally (discriminant + payload), matching `==` on enums — a
+/// payload variant (`circle(5)`) is freshly boxed at each construction,
+/// so a needle would never match a stored one by pointer (interned unit
+/// variants do, which is why they alone used to work).
 #[inline]
 unsafe fn cell_matches(stored: i64, needle: i64, elem_tag: i64) -> bool {
     if stored == needle {
@@ -34,6 +38,9 @@ unsafe fn cell_matches(stored: i64, needle: i64, elem_tag: i64) -> bool {
     }
     if elem_tag == crate::kind::KIND_STR && stored != 0 && needle != 0 {
         return unsafe { crate::strings::cstr_bytes(stored) == crate::strings::cstr_bytes(needle) };
+    }
+    if elem_tag == crate::kind::KIND_ENUM {
+        return crate::enums::__enum_structural_eq(stored, needle) != 0;
     }
     false
 }
