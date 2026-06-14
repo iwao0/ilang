@@ -201,7 +201,16 @@ impl TypeChecker {
                         {
                             vt = corrected;
                         }
-                        if !self.value_assignable(value, &vt, &ann_rewritten) {
+                        // A covariant LITERAL value (an if/match of ctor
+                        // literals that all built the same subclass, e.g.
+                        // `Box<Dog>`, into a `let r: Box<Animal>`) is a real
+                        // widening `value_assignable` doesn't model. Gated on
+                        // the literal check so an aliased generic stays
+                        // invariant; numeric narrowing stays rejected.
+                        if !self.value_assignable(value, &vt, &ann_rewritten)
+                            && !(self.is_covariant_join_literal(value)
+                                && self.covariant_widening(&vt, &ann_rewritten))
+                        {
                             return Err(TypeError::Mismatch {
                                 expected: ann_rewritten.clone(),
                                 got: vt,

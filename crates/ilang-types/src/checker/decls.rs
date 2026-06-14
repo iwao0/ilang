@@ -626,7 +626,19 @@ impl TypeChecker {
                 .map(|t| self.value_assignable(t, &body_ty, &expected));
             match tail_check {
                 Some(true) => true,
-                Some(false) => false,
+                // `value_assignable` stays strict for numeric narrowing,
+                // but a covariant LITERAL tail — an if/match whose arms are
+                // all ctor literals that happened to build the SAME
+                // subclass (`Box<Dog>`), flowing into a `Box<Animal>`
+                // return — is a real widening it doesn't model. Gated on
+                // the literal check so an aliased generic can't covary.
+                Some(false) => {
+                    f.body
+                        .tail
+                        .as_deref()
+                        .is_some_and(|t| self.is_covariant_join_literal(t))
+                        && self.covariant_widening(&body_ty, &expected)
+                }
                 None => {
                     assignable(&body_ty, &expected)
                         || self.assignable_obj(&body_ty, &expected)

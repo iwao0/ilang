@@ -109,6 +109,10 @@ impl TypeChecker {
             std::collections::HashSet::new();
         let mut has_wildcard = false;
         let mut result_ty: Option<Type> = None;
+        // Generic-enum covariance is literal-only: only let arms join to a
+        // common-ancestor instantiation when every arm body is a ctor
+        // literal (an aliased generic value must not covary).
+        let arms_covary = arms.iter().all(|a| self.is_covariant_join_literal(&a.body));
         for arm in arms {
             if has_wildcard {
                 return Err(TypeError::Unsupported {
@@ -236,7 +240,7 @@ impl TypeChecker {
             if !arm_body_diverges(&arm.body) {
                 result_ty = Some(match result_ty {
                     None => bt,
-                    Some(prev) => self.unify_branch_obj(prev, bt, arm.body.span)?,
+                    Some(prev) => self.unify_branch_obj(prev, bt, arms_covary, arm.body.span)?,
                 });
             }
         }
@@ -298,6 +302,10 @@ impl TypeChecker {
         let mut has_none = false;
         let mut has_wildcard = false;
         let mut result_ty: Option<Type> = None;
+        // Generic-enum covariance is literal-only: only let arms join to a
+        // common-ancestor instantiation when every arm body is a ctor
+        // literal (an aliased generic value must not covary).
+        let arms_covary = arms.iter().all(|a| self.is_covariant_join_literal(&a.body));
         for arm in arms {
             if has_wildcard {
                 return Err(TypeError::Unsupported {
@@ -384,7 +392,7 @@ impl TypeChecker {
             if !arm_body_diverges(&arm.body) {
                 result_ty = Some(match result_ty {
                     None => bt,
-                    Some(prev) => self.unify_branch_obj(prev, bt, arm.body.span)?,
+                    Some(prev) => self.unify_branch_obj(prev, bt, arms_covary, arm.body.span)?,
                 });
             }
         }
@@ -792,6 +800,20 @@ impl TypeChecker {
                 {
                     if let Some(anc) = self.common_object_join(*a, *b) {
                         return Ok(Type::Object(anc));
+                    }
+                }
+                // Same-base generic enums at different subclass args —
+                // `if b { Box.hold(new Dog()) } else { Box.hold(new
+                // Cat()) }` joins to `Box<Animal>`, matching the single
+                // covariant arm and the match-expr join. LITERAL-only:
+                // both arms must be ctor literals (an aliased `Box<Dog>`
+                // doesn't covary).
+                let then_tail = then_branch.tail.as_deref();
+                if then_tail.is_some_and(|t| self.is_covariant_join_literal(t))
+                    && self.is_covariant_join_literal(else_e)
+                {
+                    if let Some(joined) = self.common_generic_join(&then_ty, &else_ty) {
+                        return Ok(joined);
                     }
                 }
                 // Optional unification: a bare `none` arm has

@@ -488,6 +488,7 @@ impl TypeChecker {
         &self,
         a: Type,
         b: Type,
+        allow_generic_join: bool,
         span: Span,
     ) -> Result<Type, TypeError> {
         if a == b {
@@ -507,11 +508,126 @@ impl TypeChecker {
                 return Ok(Type::Object(anc));
             }
         }
+        // Same-base generic instantiations at different subclass args
+        // (`Box<Dog>` ⊔ `Box<Cat>`) join to the common-ancestor
+        // instantiation (`Box<Animal>`). Gated on `allow_generic_join`:
+        // generic-enum covariance is LITERAL-only (a `Box<Dog>` ctor
+        // literal covaries, an aliased `Box<Dog>` variable does not — see
+        // `generic_enum_literal_covariant_alias_error.il`), so the caller
+        // only allows it when every arm is a ctor literal.
+        if allow_generic_join {
+            if let Some(joined) = self.common_generic_join(&a, &b) {
+                return Ok(joined);
+            }
+        }
         Err(TypeError::Mismatch {
             expected: a,
             got: b,
             span,
         })
+    }
+
+    /// Is `e` a generic-enum ctor LITERAL (or an `if`/`match` whose every
+    /// arm tail is one)? Such a value covaries at its binding site, so two
+    /// arms building the same generic enum at different subclasses can be
+    /// joined to the common-ancestor instantiation. An aliased variable of
+    /// the same type does NOT covary (it could be mutated / shared), so it
+    /// must not enable the covariant join.
+    pub(super) fn is_covariant_join_literal(&self, e: &Expr) -> bool {
+        match &e.kind {
+            ExprKind::EnumCtor { .. } => true,
+            ExprKind::Block(b) => b
+                .tail
+                .as_ref()
+                .is_some_and(|t| self.is_covariant_join_literal(t)),
+            ExprKind::If { then_branch, else_branch, .. } => {
+                let Some(else_e) = else_branch else { return false };
+                then_branch
+                    .tail
+                    .as_ref()
+                    .is_some_and(|t| self.is_covariant_join_literal(t))
+                    && self.is_covariant_join_literal(else_e)
+            }
+            ExprKind::Match { arms, .. } => {
+                arms.iter().all(|a| self.is_covariant_join_literal(&a.body))
+            }
+            _ => false,
+        }
+    }
+
+    /// Class / generic / composite covariant WIDENING — `Child` into
+    /// `Parent`, `Box<Dog>` into `Box<Animal>`, the same under `?` / `[]`.
+    /// Excludes numeric narrowing. Callers gate this on the value being a
+    /// covariant LITERAL (`is_covariant_join_literal`) so an aliased
+    /// generic value can't covary — it's the boundary analogue of the
+    /// `common_generic_join` arm-merge, used when an if/match of ctor
+    /// literals all produced the SAME subclass (`Box<Dog>`) and so was
+    /// never widened by the join itself.
+    pub(super) fn covariant_widening(&self, from: &Type, to: &Type) -> bool {
+        if from == to {
+            return true;
+        }
+        match (from, to) {
+            (Type::Object(c), Type::Object(p)) => {
+                self.is_subclass(*c, *p)
+                    || (self.interfaces.contains_key(p) && self.class_implements(*c, *p))
+            }
+            (Type::Generic(ga), Type::Generic(gb)) => {
+                ga.base == gb.base
+                    && ga.args.len() == gb.args.len()
+                    && ga
+                        .args
+                        .iter()
+                        .zip(gb.args.iter())
+                        .all(|(x, y)| self.covariant_widening(x, y))
+            }
+            (Type::Optional(a), Type::Optional(b)) => self.covariant_widening(a, b),
+            (Type::Array { elem: a, fixed: fa }, Type::Array { elem: b, fixed: fb }) => {
+                fa == fb && self.covariant_widening(a, b)
+            }
+            _ => false,
+        }
+    }
+
+    /// Covariant join of two same-base generic instantiations: join each
+    /// type argument to its common supertype (objects → nearest common
+    /// ancestor, nested generics recurse, an `Any` hole yields to the
+    /// concrete side). `Box<Dog>` ⊔ `Box<Cat>` = `Box<Animal>`. This
+    /// mirrors `assignable`, which already accepts a generic whose args
+    /// are pairwise-assignable (so `Box<Dog>` is assignable to
+    /// `Box<Animal>`); the join just lets an `if`/`match` build that
+    /// supertype bottom-up, so two arms constructing the same generic
+    /// enum at different subclass instantiations unify the way a single
+    /// covariant arm already does. Returns `None` when the bases differ
+    /// or an arg pair has no common supertype.
+    pub(super) fn common_generic_join(&self, a: &Type, b: &Type) -> Option<Type> {
+        let (Type::Generic(ga), Type::Generic(gb)) = (a, b) else {
+            return None;
+        };
+        if ga.base != gb.base || ga.args.len() != gb.args.len() {
+            return None;
+        }
+        let mut merged = Vec::with_capacity(ga.args.len());
+        for (x, y) in ga.args.iter().zip(gb.args.iter()) {
+            merged.push(self.join_type_arg(x, y)?);
+        }
+        Some(Type::generic(ga.base.clone(), merged))
+    }
+
+    fn join_type_arg(&self, x: &Type, y: &Type) -> Option<Type> {
+        if x == y {
+            return Some(x.clone());
+        }
+        if matches!(x, Type::Any) {
+            return Some(y.clone());
+        }
+        if matches!(y, Type::Any) {
+            return Some(x.clone());
+        }
+        if let (Type::Object(ca), Type::Object(cb)) = (x, y) {
+            return self.common_object_join(*ca, *cb).map(Type::Object);
+        }
+        self.common_generic_join(x, y)
     }
 
 }

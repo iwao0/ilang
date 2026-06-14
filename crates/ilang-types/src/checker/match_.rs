@@ -36,6 +36,7 @@ impl TypeChecker {
         let mut bool_true_covered = false;
         let mut bool_false_covered = false;
         let mut result_ty: Option<Type> = None;
+        let arms_covary = arms.iter().all(|a| self.is_covariant_join_literal(&a.body));
         for arm in arms {
             if has_wildcard {
                 return Err(TypeError::Unsupported {
@@ -103,7 +104,7 @@ impl TypeChecker {
             let bt = self.check_expr(&arm.body, env, ret_ty, in_class, loop_depth)?;
             result_ty = Some(match result_ty {
                 None => bt,
-                Some(prev) => self.unify_branch_obj(prev, bt, arm.body.span)?,
+                Some(prev) => self.unify_branch_obj(prev, bt, arms_covary, arm.body.span)?,
             });
         }
         // Bool is the only primitive whose value space is enumerable
