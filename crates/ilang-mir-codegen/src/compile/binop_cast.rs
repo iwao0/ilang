@@ -136,11 +136,15 @@ pub(super) fn lower_cast(
             // ilang code expects (alpha * 255 → 0..255).
             //
             // Cranelift's x64 backend only supports I32/I64 as the
-            // destination for saturating float→int instructions.
-            // For narrower targets (i8/i16) we convert to I32 first
-            // then truncate, which preserves the saturation semantics
-            // (e.g. f64→i16 saturates at ±32767 because the I32
-            // result is in range and ireduce just takes the low bits).
+            // destination for saturating float→int instructions, so
+            // for narrower targets (i8/i16/u8/u16) we convert to I32
+            // first. That only clamps at the I32 boundary, though — a
+            // plain `ireduce` afterward takes the low bits and WRAPS
+            // (300.0 as u8 → 44, 40000.0 as i16 → -25536). Re-clamp the
+            // I32 result to the destination type's range in the integer
+            // domain before truncating so the saturation is honoured at
+            // the narrow width (300.0 as u8 → 255, 40000.0 as i16 →
+            // 32767, -200.0 as i8 → -128).
             let effective_ct = if dst_ct.bits() < 32 { types::I32 } else { dst_ct };
             let converted = if dst_ty.is_unsigned_int() {
                 fb.ins().fcvt_to_uint_sat(effective_ct, src)
@@ -148,7 +152,20 @@ pub(super) fn lower_cast(
                 fb.ins().fcvt_to_sint_sat(effective_ct, src)
             };
             if dst_ct.bits() < 32 {
-                fb.ins().ireduce(dst_ct, converted)
+                let bits = dst_ct.bits();
+                let clamped = if dst_ty.is_unsigned_int() {
+                    // [0, 2^bits - 1] — the unsigned convert is already
+                    // ≥ 0, so an unsigned min against the max suffices.
+                    let max = fb.ins().iconst(effective_ct, (1i64 << bits) - 1);
+                    fb.ins().umin(converted, max)
+                } else {
+                    // [-2^(bits-1), 2^(bits-1) - 1]
+                    let max = fb.ins().iconst(effective_ct, (1i64 << (bits - 1)) - 1);
+                    let min = fb.ins().iconst(effective_ct, -(1i64 << (bits - 1)));
+                    let hi = fb.ins().smin(converted, max);
+                    fb.ins().smax(hi, min)
+                };
+                fb.ins().ireduce(dst_ct, clamped)
             } else {
                 converted
             }
