@@ -99,10 +99,20 @@ pub fn monomorphize_with_requests(
                     seed(&f.ty, &mut needed, &mut worklist);
                 }
                 for m in &c.methods {
-                    scan_fn(m, &mut needed, &mut worklist);
+                    // A generic method's body references its own type
+                    // params (`new Box<U>` in `remap<U>: Box<U>`); those
+                    // aren't substituted yet, so scanning here would
+                    // synthesize a bogus `Box<U>` class. Skip generic
+                    // methods — `monomorphize_methods` specializes them
+                    // and the concrete body is scanned in the next round.
+                    if m.type_params.is_empty() {
+                        scan_fn(m, &mut needed, &mut worklist);
+                    }
                 }
                 for m in &c.static_methods {
-                    scan_fn(m, &mut needed, &mut worklist);
+                    if m.type_params.is_empty() {
+                        scan_fn(m, &mut needed, &mut worklist);
+                    }
                 }
                 for p in &c.properties {
                     seed(&p.ty, &mut needed, &mut worklist);
@@ -179,10 +189,15 @@ pub fn monomorphize_with_requests(
             scan_type(&f.ty, &mut needed, &mut worklist);
         }
         for m in &new_class.methods {
-            scan_fn(m, &mut needed, &mut worklist);
+            // Skip generic methods — see the template-scan note above.
+            if m.type_params.is_empty() {
+                scan_fn(m, &mut needed, &mut worklist);
+            }
         }
         for m in &new_class.static_methods {
-            scan_fn(m, &mut needed, &mut worklist);
+            if m.type_params.is_empty() {
+                scan_fn(m, &mut needed, &mut worklist);
+            }
         }
         for p in &new_class.properties {
             scan_type(&p.ty, &mut needed, &mut worklist);
@@ -316,11 +331,47 @@ pub(super) fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> C
     let mut map_block = |b: &Block| subst_block(b, &params, args);
     let mut map_type = |t: &Type| subst_type(t, &params, args);
     let mut out = super::walk::map_class_decl(c, &mut map_expr, &mut map_block, &mut map_type);
+    // A GENERIC method (`remap<U>: Box<U>`) references its own type
+    // params, which the uniform substitution above leaves as
+    // `Object("U")`. `subst_type` then mangles `Box<U>` into a phantom
+    // `Object("Box<U>")` because `contains_type_var` doesn't see
+    // `Object("U")` as a variable, and `monomorphize_methods` can't fix
+    // a baked class name. Re-substitute each generic method from the
+    // template with the class params AND the method's own params mapped
+    // to `TypeVar` — that keeps `Box<U>` un-mangled (a `TypeVar` IS
+    // caught), so method specialization later substitutes U → concrete
+    // and mangles the real form.
+    for (i, m) in c.methods.iter().enumerate() {
+        if !m.type_params.is_empty() {
+            out.methods[i] = specialize_generic_method(m, &params, args);
+        }
+    }
+    for (i, m) in c.static_methods.iter().enumerate() {
+        if !m.type_params.is_empty() {
+            out.static_methods[i] = specialize_generic_method(m, &params, args);
+        }
+    }
     // map_class_decl preserves the generic class's type_params and
     // drops `is_pub`; specialize emits a concrete non-generic class
     // bound to `mangled` instead.
     out.name = mangled.into();
     out.type_params = Box::new([]);
+    out
+}
+
+/// Substitute the class params into a still-generic method, mapping the
+/// method's OWN type params to `TypeVar` so generic types referencing
+/// them (`Box<U>`) stay un-mangled until method specialization fills U.
+fn specialize_generic_method(m: &FnDecl, class_params: &[Symbol], class_args: &[Type]) -> FnDecl {
+    let mut params: Vec<Symbol> = class_params.to_vec();
+    let mut args: Vec<Type> = class_args.to_vec();
+    for p in m.type_params.iter() {
+        params.push(*p);
+        args.push(Type::TypeVar(*p));
+    }
+    let mut out = specialize_fn(m, &params, &args);
+    // specialize_fn strips type_params; this method is still generic.
+    out.type_params = m.type_params.clone();
     out
 }
 
