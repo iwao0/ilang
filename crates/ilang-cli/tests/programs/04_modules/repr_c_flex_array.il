@@ -16,6 +16,15 @@ use std.test as test
         n: u32
         items: i32[]
     }
+
+    // 8-byte element stride — the FAM ArrayLoad/ArrayStore must use the
+    // full element width (a u64 truncated to 32 bits would corrupt the
+    // high half of every slot and overlap neighbours).
+    struct u64_buf {
+        tag: u8
+        n: u32
+        items: u64[]
+    }
 }
 
 let p = new packet(8)
@@ -60,3 +69,20 @@ small.data[1] = 0xBB as u8
 test.expect(p.data[0] as i64, 100)        // p still has its 8 bytes
 test.expect(small.data[0] as i64, 0xAA)   // small has its own 2
 test.expect(small.data[1] as i64, 0xBB)
+
+// 8-byte FAM stride: every slot round-trips all 64 bits and stays
+// independent of its neighbours and of the fixed area.
+let ub = new u64_buf(3)
+ub.tag = 0xAB as u8
+ub.n = 3 as u32
+ub.items[0] = 0xFFFFFFFFFFFFFFFF as u64
+ub.items[1] = 0x123456789ABCDEF0 as u64
+ub.items[2] = 0x8000000000000001 as u64
+test.expectTrue((ub.items[0] as i64) == (-1 as i64))
+test.expect(ub.items[1] as i64, 1311768467463790320)
+test.expectTrue((ub.items[2] as i64) == (0x8000000000000001 as i64))
+// writing the fixed fields must not disturb the FAM, and vice versa
+test.expect(ub.tag as i64, 0xAB)
+test.expect(ub.n as i64, 3)
+ub.tag = 0x11 as u8
+test.expectTrue((ub.items[0] as i64) == (-1 as i64))
