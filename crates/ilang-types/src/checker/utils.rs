@@ -536,10 +536,11 @@ impl TypeChecker {
     pub(super) fn is_covariant_join_literal(&self, e: &Expr) -> bool {
         match &e.kind {
             ExprKind::EnumCtor { .. } => true,
-            // A fresh array literal covaries in its element type; an aliased
-            // array variable does not. `some(lit)` covaries when its inner
-            // does (the Optional shell is immutable).
-            ExprKind::Array(_) => true,
+            // A fresh array / map / tuple literal covaries in its element /
+            // value type; an aliased container variable does not.
+            // `some(lit)` covaries when its inner does (the Optional shell
+            // is immutable).
+            ExprKind::Array(_) | ExprKind::MapLit(_) | ExprKind::Tuple(_) => true,
             ExprKind::Some(inner) => self.is_covariant_join_literal(inner),
             ExprKind::Block(b) => b
                 .tail
@@ -590,6 +591,10 @@ impl TypeChecker {
             (Type::Array { elem: a, fixed: fa }, Type::Array { elem: b, fixed: fb }) => {
                 fa == fb && self.covariant_widening(a, b)
             }
+            (Type::Tuple(ea), Type::Tuple(eb)) => {
+                ea.len() == eb.len()
+                    && ea.iter().zip(eb.iter()).all(|(a, b)| self.covariant_widening(a, b))
+            }
             _ => false,
         }
     }
@@ -631,6 +636,15 @@ impl TypeChecker {
             (Type::Optional(i1), Type::Optional(i2)) => self
                 .join_type_arg(i1, i2)
                 .map(|i| Type::Optional(Box::new(i))),
+            // `(Dog, i64)` ⊔ `(Cat, i64)` = `(Animal, i64)` — covary each
+            // element of two same-arity tuple literals.
+            (Type::Tuple(e1), Type::Tuple(e2)) if e1.len() == e2.len() => {
+                let mut merged = Vec::with_capacity(e1.len());
+                for (x, y) in e1.iter().zip(e2.iter()) {
+                    merged.push(self.join_type_arg(x, y)?);
+                }
+                Some(Type::Tuple(merged.into()))
+            }
             _ => None,
         }
     }

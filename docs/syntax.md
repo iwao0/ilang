@@ -119,15 +119,14 @@ because mutating through the parent face would be unsound (enum values
 are immutable, so the literal form stays sound).
 
 The covariance also flows through an `if` / `match` whose every arm is
-such a fresh literal — a ctor literal, an array literal, or a
-`some(..)` wrapping one: `if c { Box.hold(new Dog()) } else {
+such a fresh literal — a ctor literal, an array / map / tuple literal,
+or a `some(..)` wrapping one: `if c { Box.hold(new Dog()) } else {
 Box.hold(new Cat()) }` joins to `Box<Animal>`, `if c { [new Dog()] }
-else { [new Cat()] }` to `Animal[]`, and `if c { some(Box.hold(new
-Dog())) } else { some(Box.hold(new Cat())) }` to `Box<Animal>?` (the
-common-ancestor instantiation), the way a plain-object if-join already
-takes the classes' common ancestor. The literal-only rule still
-applies — if any arm is an aliased generic / array variable, the join
-stays invariant.
+else { [new Cat()] }` to `Animal[]`, `if c { (new Dog(), 1) } else {
+(new Cat(), 2) }` to `(Animal, i64)`, the way a plain-object if-join
+already takes the classes' common ancestor. The literal-only rule
+still applies — if any arm is an aliased generic / array / map / tuple
+variable, the join stays invariant.
 
 ---
 
