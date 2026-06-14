@@ -152,24 +152,31 @@ impl<'a> BodyCx<'a> {
         method: Symbol,
         args: &[Expr],
     ) -> Result<(ValueId, MirTy), LowerError> {
-        let slot = self
-            .iface_method_slots
-            .get(&(ifn, method))
-            .copied()
-            .ok_or_else(|| {
-                LowerError::Other(format!(
-                    "interface `{ifn}` has no method `{method}`"
-                ))
-            })?;
-        let sig = self
-            .iface_method_sigs
-            .get(&(ifn, method))
-            .cloned()
-            .ok_or_else(|| {
-                LowerError::Other(format!(
-                    "interface `{ifn}` method `{method}` has no recorded signature"
-                ))
-            })?;
+        // Resolve the method's global slot and signature, walking the
+        // `interface B: A` parent chain so an inherited method declared
+        // on an ancestor resolves through the ancestor's `(iface,
+        // method)` entry (a `visited` guard bounds an unchecked cycle).
+        let mut owner = Some(ifn);
+        let mut visited: std::collections::HashSet<Symbol> = std::collections::HashSet::new();
+        let mut resolved: Option<(u32, super::super::meta::FnSig)> = None;
+        while let Some(cur) = owner {
+            if !visited.insert(cur) {
+                break;
+            }
+            if let (Some(slot), Some(sig)) = (
+                self.iface_method_slots.get(&(cur, method)).copied(),
+                self.iface_method_sigs.get(&(cur, method)).cloned(),
+            ) {
+                resolved = Some((slot, sig));
+                break;
+            }
+            owner = self.iface_parents.get(&cur).copied();
+        }
+        let (slot, sig) = resolved.ok_or_else(|| {
+            LowerError::Other(format!(
+                "interface `{ifn}` has no method `{method}`"
+            ))
+        })?;
         let mut user_args: Vec<ValueId> = Vec::with_capacity(args.len());
         for (i, a) in args.iter().enumerate() {
             let (coerced, _) = self.lower_arg_to(a, sig.params.get(i))?;

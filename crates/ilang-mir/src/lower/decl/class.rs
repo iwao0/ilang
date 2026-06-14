@@ -565,13 +565,29 @@ impl Lower {
         // the class-method slot range, so `__virt_dispatch` can be
         // shared.
         let mut declared_ifaces: Vec<Symbol> = Vec::new();
+        let mut push_iface_chain = |start: Symbol, parents: &std::collections::HashMap<Symbol, Symbol>, out: &mut Vec<Symbol>| {
+            // Include the interface and every ancestor it inherits from
+            // (`interface B: A`) so the class registers inherited
+            // methods at the ancestor's slot too. Bounded by `seen`.
+            let mut seen: std::collections::HashSet<Symbol> = std::collections::HashSet::new();
+            let mut cur = Some(start);
+            while let Some(name) = cur {
+                if !seen.insert(name) {
+                    break;
+                }
+                if !out.contains(&name) {
+                    out.push(name);
+                }
+                cur = parents.get(&name).copied();
+            }
+        };
         if let Some(p) = cd.parent {
             if self.interface_ids.contains_key(&p) {
-                declared_ifaces.push(p);
+                push_iface_chain(p, &self.iface_parents, &mut declared_ifaces);
             }
         }
         for ifn in cd.interfaces.iter() {
-            declared_ifaces.push(*ifn);
+            push_iface_chain(*ifn, &self.iface_parents, &mut declared_ifaces);
         }
         for ifn in declared_ifaces.iter() {
             let methods = self

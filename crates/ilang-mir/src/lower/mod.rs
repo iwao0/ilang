@@ -233,6 +233,11 @@ pub fn lower_program_with_slots_opts(
                 names.push(m.name);
             }
             lower.iface_methods_by_name.insert(i.name, names);
+            // Record `interface B: A` so plain interface inheritance can
+            // resolve an inherited method through the parent's slot.
+            if let Some(p) = i.parent {
+                lower.iface_parents.insert(i.name, p);
+            }
             if i.is_com {
                 lower.com_interfaces.insert(i.name);
                 // Also stamp the matching ClassLayout so codegen

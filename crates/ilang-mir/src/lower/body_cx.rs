@@ -36,6 +36,7 @@ pub(in crate::lower) struct BodyCx<'a> {
     pub(in crate::lower) class_meta: &'a HashMap<crate::types::ClassId, ClassMeta>,
     pub(in crate::lower) interface_ids: &'a HashMap<Symbol, crate::types::ClassId>,
     pub(in crate::lower) iface_method_slots: &'a HashMap<(Symbol, Symbol), u32>,
+    pub(in crate::lower) iface_parents: &'a HashMap<Symbol, Symbol>,
     pub(in crate::lower) iface_method_sigs: &'a HashMap<(Symbol, Symbol), FnSig>,
     pub(in crate::lower) com_interfaces: &'a std::collections::HashSet<Symbol>,
     pub(in crate::lower) com_iface_slots: &'a HashMap<(Symbol, Symbol), u32>,

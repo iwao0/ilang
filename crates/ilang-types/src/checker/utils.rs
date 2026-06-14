@@ -187,10 +187,33 @@ impl TypeChecker {
             let Some(cs) = self.classes.get(&name) else {
                 return false;
             };
-            if cs.implements.contains(&iface) {
-                return true;
+            // A directly-declared interface, or one its `interface B: A`
+            // ancestor chain leads up to (transitive conformance: a
+            // class implementing `B` also satisfies `A`).
+            for decl in cs.implements.iter() {
+                if self.iface_inherits_from(*decl, iface) {
+                    return true;
+                }
             }
             cur = cs.parent;
+        }
+        false
+    }
+
+    /// Whether `iface` is `start` itself or any interface reachable by
+    /// walking `start`'s `interface _: Parent` chain. A `visited` guard
+    /// bounds a malformed cyclic chain.
+    pub(super) fn iface_inherits_from(&self, start: Symbol, iface: Symbol) -> bool {
+        let mut cur = Some(start);
+        let mut visited: std::collections::HashSet<Symbol> = std::collections::HashSet::new();
+        while let Some(name) = cur {
+            if name == iface {
+                return true;
+            }
+            if !visited.insert(name) {
+                break;
+            }
+            cur = self.interfaces.get(&name).and_then(|s| s.parent);
         }
         false
     }

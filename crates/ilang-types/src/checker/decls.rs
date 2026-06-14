@@ -193,13 +193,29 @@ impl TypeChecker {
         // interface entry exists and that the class implements every
         // method the interface requires with a matching signature.
         let mut declared_ifaces: Vec<Symbol> = Vec::new();
+        // Include each declared interface and every ancestor it inherits
+        // from (`interface B: A`), so a class implementing `B` must also
+        // satisfy `A`'s method contract. Bounded by a `visited` guard.
+        let mut push_chain = |start: Symbol, out: &mut Vec<Symbol>| {
+            let mut seen: std::collections::HashSet<Symbol> = std::collections::HashSet::new();
+            let mut cur = Some(start);
+            while let Some(name) = cur {
+                if !seen.insert(name) {
+                    break;
+                }
+                if !out.contains(&name) {
+                    out.push(name);
+                }
+                cur = self.interfaces.get(&name).and_then(|s| s.parent);
+            }
+        };
         if let Some(p) = &c.parent {
             if self.interfaces.contains_key(p) {
-                declared_ifaces.push(p.clone());
+                push_chain(p.clone(), &mut declared_ifaces);
             }
         }
         for ifn in c.interfaces.iter() {
-            declared_ifaces.push(ifn.clone());
+            push_chain(ifn.clone(), &mut declared_ifaces);
         }
         for ifn in declared_ifaces.iter() {
             let Some(isig) = self.interfaces.get(ifn) else {

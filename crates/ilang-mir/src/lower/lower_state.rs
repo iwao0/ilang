@@ -44,6 +44,13 @@ pub(in crate::lower) struct Lower {
     /// Captures the per-interface method list so call sites can look
     /// up the slot for a method name without re-scanning the AST.
     pub(in crate::lower) iface_methods_by_name: HashMap<Symbol, Vec<Symbol>>,
+    /// Per-interface parent (from `interface B: A`). Plain (non-@com)
+    /// interface inheritance reuses the parent's global method slots:
+    /// dispatch on a `B`-typed receiver walks this chain to find an
+    /// inherited method's `(ancestor, method)` slot and signature, and
+    /// an implementing class registers inherited methods at those same
+    /// ancestor slots (see the `declared_ifaces` expansion).
+    pub(in crate::lower) iface_parents: HashMap<Symbol, Symbol>,
     /// Method signature per (interface, method) — call sites need
     /// `params` for arg coercion and `ret` for the dst value type.
     pub(in crate::lower) iface_method_sigs: HashMap<(Symbol, Symbol), FnSig>,
@@ -112,6 +119,7 @@ impl Lower {
             interface_ids: HashMap::new(),
             iface_method_slots: HashMap::new(),
             iface_methods_by_name: HashMap::new(),
+            iface_parents: HashMap::new(),
             iface_method_sigs: HashMap::new(),
             com_interfaces: std::collections::HashSet::new(),
             com_iface_slots: HashMap::new(),
