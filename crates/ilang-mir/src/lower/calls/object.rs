@@ -178,8 +178,19 @@ impl<'a> BodyCx<'a> {
             ))
         })?;
         let mut user_args: Vec<ValueId> = Vec::with_capacity(args.len());
+        // Mirror the direct-call path (`lower_class_method_call`): a fresh
+        // heap arg passed by value owns a transient +1 that the borrowed
+        // callee never consumes, so the caller must release it after the
+        // call. Without this, `iface.method(new Box())` leaked one cell
+        // per call (interface VirtCall reaches only ilang classes).
+        let mut fresh_obj_args: Vec<ValueId> = Vec::new();
         for (i, a) in args.iter().enumerate() {
-            let (coerced, _) = self.lower_arg_to(a, sig.params.get(i))?;
+            let arg_is_fresh = self.is_fresh_object_expr(a);
+            let (coerced, vty) = self.lower_arg_to(a, sig.params.get(i))?;
+            let needs_post_release = Self::fresh_arg_needs_post_release(&vty);
+            if (arg_is_fresh || self.last_arg_wrapped) && needs_post_release {
+                fresh_obj_args.push(coerced);
+            }
             user_args.push(coerced);
         }
         let dst = if matches!(sig.ret, MirTy::Unit) {
@@ -193,6 +204,9 @@ impl<'a> BodyCx<'a> {
             slot: crate::inst::VTableSlot(slot),
             args: user_args.into_boxed_slice(),
         });
+        for fv in fresh_obj_args {
+            self.fb.push_inst(Inst::Release { value: fv });
+        }
         // Release a fresh intermediate receiver (`mkHolder().grab()` in
         // a chain) — including Object returns, which are owned (+1) just
         // like the direct-method path. No `@objc` exemption: an
@@ -221,8 +235,18 @@ impl<'a> BodyCx<'a> {
             field: fid,
         });
         let mut arg_vals = Vec::with_capacity(args.len());
+        // Same fresh-arg transfer rule as the direct-call path: a fresh
+        // heap arg owns a transient +1 the borrowed callee never consumes.
+        // Without the post-call release, `obj.fnField(new Box())` leaked
+        // one cell per call.
+        let mut fresh_obj_args: Vec<ValueId> = Vec::new();
         for (i, a) in args.iter().enumerate() {
-            let (coerced, _) = self.lower_arg_to(a, ft.params.get(i))?;
+            let arg_is_fresh = self.is_fresh_object_expr(a);
+            let (coerced, vty) = self.lower_arg_to(a, ft.params.get(i))?;
+            let needs_post_release = Self::fresh_arg_needs_post_release(&vty);
+            if (arg_is_fresh || self.last_arg_wrapped) && needs_post_release {
+                fresh_obj_args.push(coerced);
+            }
             arg_vals.push(coerced);
         }
         let dst = if matches!(ft.ret, MirTy::Unit) {
@@ -241,6 +265,9 @@ impl<'a> BodyCx<'a> {
             sig: call_sig,
             args: arg_vals.into_boxed_slice(),
         });
+        for fv in fresh_obj_args {
+            self.fb.push_inst(Inst::Release { value: fv });
+        }
         // Release a fresh receiver whose closure-field we just called
         // (`makeObj().fnField()`). The result is the CLOSURE's return —
         // an owned (+1) value, never an alias of the receiver — so this
