@@ -596,6 +596,20 @@ impl<'a> BodyCx<'a> {
 
     pub(in crate::lower) fn emit_callee_retain(&mut self, tail: &Option<(ValueId, MirTy)>) {
         if let Some((v, ty)) = tail.as_ref() {
+            // A borrowed `Object` tail returned as a weak / optional-weak
+            // gets StrongToWeak-coerced by `finalise_return`. A STRONG
+            // borrow-retain here would be orphaned — the returned weak
+            // carries no strong share, and the coercion's owned-source
+            // release only fires for a fresh/owned tail — so the strong
+            // +1 leaks (deinit never runs). The weak side manages its own
+            // rc: a bare `let w: Node.weak = s` balances with no retain,
+            // and the `Object → Optional<Weak>` coerce takes the weak +1
+            // itself. So skip the strong retain for this shape.
+            let weak_ret = matches!(self.ret_ty, MirTy::Weak(_))
+                || matches!(&self.ret_ty, MirTy::Optional(i) if matches!(**i, MirTy::Weak(_)));
+            if weak_ret && matches!(ty, MirTy::Object(_)) {
+                return;
+            }
             if self.is_arc_slot(ty) {
                 self.fb.push_inst(Inst::Retain { value: *v });
             }

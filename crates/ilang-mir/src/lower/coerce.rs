@@ -176,6 +176,31 @@ impl<'a> BodyCx<'a> {
                 return Ok(dst);
             }
         }
+        // `Object → Optional<Weak>`: the bare strong→weak auto-downgrade
+        // composed with the `T → T?` wrap. An explicit `some(x)` against
+        // a `Node.weak?` slot works (it coerces the inner to `Weak` then
+        // wraps), but the implicit/bare form — `let w: Node.weak? =
+        // strongRef`, the same as an argument or an `obj.f = strongRef`
+        // field store — reached here with the whole step and matched no
+        // rule: the `obj_shape` wrap arm above and the `Optional →
+        // Optional` widen below both omit `Weak`. So `let` / argument
+        // failed to compile ("no coercion from obj to weak?"), and the
+        // field store dropped a RAW STRONG pointer into the weak Optional
+        // slot — SIGSEGV on upgrade / release. Decompose it like
+        // `lower_some_with_hint`: downgrade the inner to `Weak`
+        // (`StrongToWeak`), take the Optional's weak-rc share (`Retain`
+        // dispatches to `__retain_weak` on the weak-typed value), then
+        // box. An owned/fresh source's transfer +1 is dropped by the
+        // caller's `release_owned_wrap_source`, matching the wrap arm.
+        if let MirTy::Optional(inner) = to {
+            if matches!(**inner, MirTy::Weak(_)) && matches!(from, MirTy::Object(_)) {
+                let weak_v = self.coerce(v, from, inner, _span)?;
+                self.fb.push_inst(Inst::Retain { value: weak_v });
+                let dst = self.fb.new_value(to.clone());
+                self.fb.push_inst(Inst::NewOptional { dst, value: weak_v });
+                return Ok(dst);
+            }
+        }
         // `@handle pub struct H {}` ↔ `i64` / `*void` — pointer-sized
         // opaque, retag via PtrIntCast (identity at the clif level) so
         // the print-kind machinery sees I64 instead of Object(H). Must

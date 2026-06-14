@@ -1450,6 +1450,13 @@ impl<'a> BodyCx<'a> {
                     || (obj_shape(inner)
                         && obj_shape(&vty)
                         && !matches!(vty, MirTy::Optional(_)))
+                    // `obj.f = strongRef` against a `Node.weak?` field —
+                    // the strong→weak downgrade composed with the wrap.
+                    // `coerce` does the StrongToWeak + weak-rc share;
+                    // without this the raw strong pointer was stored into
+                    // the weak Optional slot and crashed on release.
+                    || (matches!(**inner, MirTy::Weak(_))
+                        && matches!(vty, MirTy::Object(_)))
         );
         // Object → Weak: clif-level identity but the value's MIR type
         // must switch BEFORE the retain below, otherwise `Retain`
