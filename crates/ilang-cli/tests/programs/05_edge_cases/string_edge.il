@@ -17,12 +17,22 @@ test.expectStr("hi".slice(5, 10), "")        // start past end → empty
 test.expectStr("hi".slice(1, 0), "")         // start > end → empty
 test.expectStr("あいう".slice(1, 3), "いう") // multibyte slice
 
-// replace on empty needle leaves the string unchanged (Rust's
-// str::replace inserts the replacement between every codepoint and at
-// both ends, so empty.replace("", X) == X repeated len+1 times). For
-// a non-empty string the result depends on the runtime; just exercise
-// the safe shape: replace where needle isn't present.
+// replace where the needle isn't present leaves the string unchanged.
 test.expectStr("hello".replace("xyz", "_"), "hello")
+
+// replace substitutes EVERY occurrence (Rust's str::replace), unlike
+// JS's `String.replace(str, ...)` which only swaps the first.
+test.expectStr("aXbXcX".replace("X", "-"), "a-b-c-")
+
+// Indexing is by Unicode code point, not UTF-16 code unit: slicing
+// around a non-BMP character (😀 is one code point, two UTF-16 units)
+// never splits it into a lone surrogate the way JS's `slice` would.
+test.expectStr("a😀b".slice(0, 2), "a😀")
+test.expectStr("a😀b".slice(1, 2), "😀")
+test.expectStr("a😀b".charAt(1), "😀")
+// indexOf returns a code-point offset (2 here), not the UTF-16 unit 3.
+test.expect("a😀b".indexOf("b"), 2)
+test.expect("a😀b".indexOf("😀"), 1)
 
 // split with no separator match returns the whole string in one slot.
 let parts = "abc".split(",")
