@@ -143,7 +143,25 @@ pub fn monomorphize_with_requests(
     // with T=i64 yields a `Box<i64>` ref) — those go back on the
     // worklist.
     let mut synthesized: HashMap<Symbol, ClassDecl> = HashMap::new();
+    // Guard against non-terminating monomorphization: a generic class
+    // whose method body / return type names a STRICTLY DEEPER
+    // instantiation of itself (`class Wrap<T> { f(): Wrap<Wrap<T>> { ...
+    // } }`) expands forever — each level is a distinct mangled name the
+    // `synthesized` dedup can't collapse, so the worklist never drains.
+    // The substitution is eager (every method of an instantiated class is
+    // scanned even if never called), so just constructing `new Wrap<i64>`
+    // triggers it. Bail with a clear message instead of hanging. The cap
+    // is far above any realistic program's instantiation count.
+    const MONO_CLASS_LIMIT: usize = 1_000;
     while let Some(key) = worklist.pop() {
+        if synthesized.len() >= MONO_CLASS_LIMIT {
+            panic!(
+                "monomorphization limit exceeded ({MONO_CLASS_LIMIT} generic class \
+                 instantiations) — this usually means a generic class is recursively \
+                 instantiated at ever-deeper type arguments (e.g. a method returning \
+                 `Wrap<Wrap<T>>`), which can never terminate"
+            );
+        }
         let mangled = key.mangled();
         if synthesized.contains_key(&mangled) {
             continue;
