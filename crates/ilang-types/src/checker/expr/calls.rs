@@ -229,6 +229,35 @@ impl TypeChecker {
             check_arity(args.len(), 0, method.clone(), span)?;
             return Ok(Type::Bool);
         }
+        // `.hashCode(): i64` and `.equals(other): bool` on enum values —
+        // structural over discriminant + payload (round 105 / 127). This
+        // lets a class with an enum field `@derive(Eq, Hash)` (the
+        // synthesised methods call `field.equals` / `field.hashCode`) and
+        // be a Set / Map key. The MIR lowering routes these to the
+        // `__enum_structural_eq` / `__enum_structural_hash` runtime
+        // helpers.
+        // Enum values are typed `Type::Object(name)` with an entry in
+        // `self.enums` (not `Type::Enum`).
+        if let Type::Object(name) = &ot {
+            if self.enums.get(name).is_some() {
+                if method.as_str() == "hashCode" {
+                    check_arity(args.len(), 0, method.clone(), span)?;
+                    return Ok(Type::I64);
+                }
+                if method.as_str() == "equals" {
+                    check_arity(args.len(), 1, method.clone(), span)?;
+                    let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                    if at != ot && at != Type::Error {
+                        return Err(TypeError::Mismatch {
+                            expected: ot.clone(),
+                            got: at,
+                            span,
+                        });
+                    }
+                    return Ok(Type::Bool);
+                }
+            }
+        }
         // `.hashCode(): i64` on every numeric primitive and `bool`.
         // The same protocol `Set<MyClass>` / `Map<MyClass, V>` use
         // — having it on every primitive lets `@derive(Hash)`

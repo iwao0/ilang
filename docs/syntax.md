@@ -347,6 +347,13 @@ semantics). `@derive(Hash)` on a class routes every supported
 field through the same method, so every primitive plus `string`
 flows through this entry point.
 
+Enum values also expose `.equals(other): bool` and `.hashCode():
+i64`, both **structural** over the discriminant + payload (matching
+enum `==`). A class with an enum field can therefore `@derive(Eq,
+Hash)` and be a `Set` element / `Map` key — the synthesised methods
+route the enum field through these. (Tuple / array / optional fields
+still need a manual `hashCode`.)
+
 ### Integer associated constants
 
 ```rust

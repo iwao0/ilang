@@ -337,6 +337,10 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
         ilang_runtime::__enum_structural_eq as *const u8,
     );
     jit_builder.symbol(
+        "$enum.structuralHash",
+        ilang_runtime::enums::__enum_structural_hash as *const u8,
+    );
+    jit_builder.symbol(
         "$tuple.structuralEq",
         ilang_runtime::equality::__tuple_structural_eq as *const u8,
     );

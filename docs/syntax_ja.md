@@ -249,6 +249,8 @@ true.hashCode()             // 1
 
 全数値プリミティブ・`bool`・`string` が `hashCode(): i64` を持つ。整数 / bool は宣言された符号性に従って拡張、浮動小数はビットパターンを再解釈するので、別ビットパターンの NaN は別ハッシュになる (`Set<f64>` の dedup と整合)。`@derive(Hash)` のフィールド経路もすべてこのメソッド経由なので、プリミティブと `string` は同じ入り口を通る。
 
+enum 値も `.equals(other): bool` と `.hashCode(): i64` を持ち、 どちらも判別子 + payload に対して **構造的** (enum `==` と整合)。 そのため enum フィールドを持つクラスは `@derive(Eq, Hash)` でき、 `Set` 要素 / `Map` キーになれる (合成メソッドが enum フィールドをこれら経由で処理する)。 (tuple / array / optional フィールドは手動 `hashCode` が必要。)
+
 ### 整数の associated 定数
 
 ```rust

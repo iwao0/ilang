@@ -347,6 +347,7 @@ pub(super) struct PanicAux {
     pub(super) enum_disc_str: cranelift_module::FuncId,
     pub(super) enum_alloc: cranelift_module::FuncId,
     pub(super) enum_structural_eq: cranelift_module::FuncId,
+    pub(super) enum_structural_hash: cranelift_module::FuncId,
     pub(super) tuple_structural_eq: cranelift_module::FuncId,
     pub(super) array_structural_eq: cranelift_module::FuncId,
     pub(super) optional_structural_eq: cranelift_module::FuncId,

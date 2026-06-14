@@ -69,6 +69,37 @@ impl<'a> BodyCx<'a> {
                 return Ok(Some((v, MirTy::I64)));
             }
         }
+        // `.hashCode(): i64` and `.equals(other): bool` on enum values —
+        // structural over discriminant + payload, routed to the runtime
+        // helpers (the same `@derive(Eq, Hash)` protocol used for nested
+        // class fields, so an enum field works too). The receiver is
+        // borrowed; the dispatcher releases a fresh receiver, and a fresh
+        // `equals` argument is released here.
+        if let MirTy::Enum(_) = oty {
+            if args.is_empty() && method.as_str() == "hashCode" {
+                let v = self.fb.new_value(MirTy::I64);
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Builtin(Symbol::intern("enum_structural_hash")),
+                    args: Box::new([ov]),
+                });
+                return Ok(Some((v, MirTy::I64)));
+            }
+            if args.len() == 1 && method.as_str() == "equals" {
+                let arg_is_fresh = self.is_fresh_object_expr(&args[0]);
+                let (other, _) = self.lower_expr(&args[0])?;
+                let v = self.fb.new_value(MirTy::Bool);
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Builtin(Symbol::intern("enum_structural_eq")),
+                    args: Box::new([ov, other]),
+                });
+                if arg_is_fresh {
+                    self.fb.push_inst(Inst::Release { value: other });
+                }
+                return Ok(Some((v, MirTy::Bool)));
+            }
+        }
         // `.isFinite()` / `.isNaN()` on f32 / f64. Per-width entry
         // points because cranelift's float-arg ABI distinguishes
         // the two; result is i64 (0/1) reduced to language-level

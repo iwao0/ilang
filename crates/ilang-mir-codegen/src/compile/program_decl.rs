@@ -506,6 +506,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     };
     let enum_alloc_id = declare_ternary_i64(module, "$enum.alloc")?;
     let enum_structural_eq_id = declare_binary_i64(module, "$enum.structuralEq")?;
+    let enum_structural_hash_id = declare_unary_i64(module, "$enum.structuralHash")?;
     let tuple_structural_eq_id = declare_binary_i64(module, "$tuple.structuralEq")?;
     let array_structural_eq_id = declare_binary_i64(module, "$array.structuralEq")?;
     let optional_structural_eq_id = declare_binary_i64(module, "$optional.structuralEq")?;
@@ -979,6 +980,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 enum_unit_get: enum_unit_get_id,
                 enum_unit_get_checked: enum_unit_get_checked_id,
                 enum_structural_eq: enum_structural_eq_id,
+                enum_structural_hash: enum_structural_hash_id,
                 tuple_structural_eq: tuple_structural_eq_id,
                 array_structural_eq: array_structural_eq_id,
                 optional_structural_eq: optional_structural_eq_id,

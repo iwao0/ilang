@@ -276,9 +276,9 @@ fn field_as_i64(
                 "@derive(Hash) on class {class:?}: field {field:?} has type \
                  {ty} which is not supported by auto-derived `hashCode`. \
                  Supported field types: every primitive (i*/u*/bool/f32/f64), \
-                 string, and classes that derive (or define) `hashCode`. \
-                 Implement `hashCode` manually for this class to handle \
-                 the unsupported field type.",
+                 string, enums, and classes that derive (or define) \
+                 `hashCode`. Implement `hashCode` manually for this class \
+                 to handle the unsupported field type.",
                 class = class_name,
             ),
             span,

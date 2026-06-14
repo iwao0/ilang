@@ -10,6 +10,66 @@
 
 use crate::kind::{KIND_ARRAY, KIND_ENUM, KIND_OPTIONAL, KIND_STR, KIND_TUPLE};
 
+/// Hash a cell value of the given `kind`, consistent with
+/// `value_structural_eq`: two structurally-equal values hash equal.
+/// Numbers/bools hash to themselves; reference kinds hash by pointer
+/// (matching their reference equality); container kinds fold their
+/// elements' hashes (the classic `h * 31 + e` accumulator).
+pub(crate) fn value_structural_hash(v: i64, kind: i64) -> i64 {
+    match kind {
+        KIND_STR => crate::strings::__str_hash_code(v),
+        KIND_ENUM => crate::enums::__enum_structural_hash(v),
+        KIND_TUPLE => tuple_structural_hash(v),
+        KIND_ARRAY => array_structural_hash(v),
+        KIND_OPTIONAL => optional_structural_hash(v),
+        _ => v,
+    }
+}
+
+pub(crate) fn tuple_structural_hash(a: i64) -> i64 {
+    if a == 0 {
+        return 0;
+    }
+    let packed = unsafe { *((a - 8) as *const i64) } as u64;
+    let arity = (packed & 0xFFFF) as i64;
+    let mut h: i64 = 17;
+    for i in 0..arity {
+        let e = unsafe { *((a + i * 8) as *const i64) };
+        let kind = if i < 12 {
+            ((packed >> (16 + (i as u64) * 4)) & 0xF) as i64
+        } else {
+            0
+        };
+        h = h.wrapping_mul(31).wrapping_add(value_structural_hash(e, kind));
+    }
+    h
+}
+
+pub(crate) fn array_structural_hash(a: i64) -> i64 {
+    if a == 0 {
+        return 0;
+    }
+    let len = unsafe { *(a as *const i64) };
+    let data = unsafe { *((a as *const i64).add(2)) };
+    let kind = unsafe { *((a as *const i64).add(4)) };
+    let stride = unsafe { *((a as *const i64).add(5)) };
+    let mut h: i64 = 17;
+    for i in 0..len {
+        let e = unsafe { crate::arrays::load_packed(data, i, stride) };
+        h = h.wrapping_mul(31).wrapping_add(value_structural_hash(e, kind));
+    }
+    h
+}
+
+pub(crate) fn optional_structural_hash(a: i64) -> i64 {
+    if a == 0 {
+        return 0; // none
+    }
+    let val = unsafe { *(a as *const i64) };
+    let kind = unsafe { *((a + 16) as *const i64) };
+    17i64.wrapping_mul(31).wrapping_add(value_structural_hash(val, kind))
+}
+
 /// Compare two cell values that share the static `kind`.
 pub(crate) fn value_structural_eq(a: i64, b: i64, kind: i64) -> bool {
     match kind {

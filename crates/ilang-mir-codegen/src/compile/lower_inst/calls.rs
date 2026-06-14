@@ -452,6 +452,7 @@ pub(super) fn lower_call<M: Module>(
                 "array_sort" => Some(str_ids.array_sort),
                 "str_split" => Some(str_ids.str_split),
                 "enum_structural_eq" => Some(panic_aux.enum_structural_eq),
+                "enum_structural_hash" => Some(panic_aux.enum_structural_hash),
                 "tuple_structural_eq" => Some(panic_aux.tuple_structural_eq),
                 "array_structural_eq" => Some(panic_aux.array_structural_eq),
                 "optional_structural_eq" => Some(panic_aux.optional_structural_eq),

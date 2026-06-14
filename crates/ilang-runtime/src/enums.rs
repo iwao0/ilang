@@ -225,6 +225,36 @@ pub extern "C" fn __enum_structural_eq(a: i64, b: i64) -> i64 {
     1
 }
 
+/// Structural hash of an enum value, consistent with
+/// `__enum_structural_eq`: equal values hash equal. Folds the enum id,
+/// the discriminant tag, and each payload slot's structural hash so a
+/// class with an enum field can `@derive(Eq, Hash)` and be a Set / Map
+/// key. Unit / `@flags` / repr enums reduce to a tag-only hash.
+#[unsafe(export_name = "$enum.structuralHash")]
+pub extern "C" fn __enum_structural_hash(a: i64) -> i64 {
+    if a == 0 {
+        return 0;
+    }
+    let tag = unsafe { *(a as *const i64) };
+    let eid = unsafe { *((a - 8) as *const i64) };
+    let mut h: i64 = 17i64.wrapping_mul(31).wrapping_add(eid);
+    h = h.wrapping_mul(31).wrapping_add(tag);
+    let kinds = {
+        let t = enum_payload_kinds().read().expect("enum payload kinds poisoned");
+        t.get(&(eid as u32, tag)).cloned()
+    };
+    if let Some(kinds) = kinds {
+        for (i, &kind) in kinds.iter().enumerate() {
+            let off = 8 + (i as i64) * 8;
+            let p = unsafe { *((a + off) as *const i64) };
+            h = h
+                .wrapping_mul(31)
+                .wrapping_add(crate::equality::value_structural_hash(p, kind));
+        }
+    }
+    h
+}
+
 // --------------------------------------------------------------------
 // Print info + `enum as string` cast
 // --------------------------------------------------------------------

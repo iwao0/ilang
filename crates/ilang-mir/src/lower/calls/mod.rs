@@ -222,6 +222,13 @@ impl<'a> BodyCx<'a> {
             return Ok(out);
         }
         if let Some(out) = self.try_lower_scalar_method(ov, &oty, method, args)? {
+            // Primitive/string receivers aren't ARC heap, so this is a
+            // no-op for them; an enum receiver (`.hashCode()` /
+            // `.equals()`) is heap and only borrowed, so a fresh one is
+            // released here.
+            if obj_is_fresh && self.is_arc_heap(&oty) {
+                self.fb.push_inst(Inst::Release { value: ov });
+            }
             return Ok(out);
         }
         // Optional / array / string builtins never hand back a value
