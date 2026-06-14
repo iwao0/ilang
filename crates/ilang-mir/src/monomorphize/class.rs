@@ -520,12 +520,31 @@ pub(super) fn subst_type(t: &Type, params: &[Symbol], args: &[Type]) -> Type {
 
 pub(super) fn rewrite_item(item: &Item) -> Item {
     match item {
-        Item::Class(c) => Item::Class(super::walk::map_class_decl(
-            c,
-            &mut rewrite_expr,
-            &mut rewrite_block,
-            &mut rewrite_type,
-        )),
+        Item::Class(c) => {
+            let mut rewritten = super::walk::map_class_decl(
+                c,
+                &mut rewrite_expr,
+                &mut rewrite_block,
+                &mut rewrite_type,
+            );
+            // Preserve generic methods un-rewritten (like the generic-fn
+            // skip below): their bodies reference their own type params
+            // (`new Box<U>`), which the rewrite would mangle into a
+            // phantom `Box<U>` class. `monomorphize_methods` specializes
+            // them per call site, and a later fixed-point round mangles
+            // the resulting concrete bodies.
+            for (i, m) in c.methods.iter().enumerate() {
+                if !m.type_params.is_empty() {
+                    rewritten.methods[i] = m.clone();
+                }
+            }
+            for (i, m) in c.static_methods.iter().enumerate() {
+                if !m.type_params.is_empty() {
+                    rewritten.static_methods[i] = m.clone();
+                }
+            }
+            Item::Class(rewritten)
+        }
         Item::Fn(f) => {
             // Skip rewrite for generic fns — their bodies reference
             // their own type params (as `Object("T")`), and

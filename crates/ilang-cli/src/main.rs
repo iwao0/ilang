@@ -270,31 +270,74 @@ fn monomorphize_with_template_reattach(
     // sees `generic_enums` populated and can mangle EnumCtor refs
     // in specialized bodies (e.g. `MyOpt.some(v)` inside
     // `wrap_i64` becomes `MyOpt<i64>.some(v)`).
+    let reattach_templates = |p: &mut AstProgram| {
+        // Strip any template copy first so re-attaching never duplicates.
+        p.items.retain(|it| match it {
+            Item::Class(c) => c.type_params.is_empty(),
+            Item::Enum(e) => e.type_params.is_empty(),
+            _ => true,
+        });
+        for c in &generic_class_templates {
+            p.items.push(Item::Class(c.clone()));
+        }
+        for e in &generic_enum_templates {
+            p.items.push(Item::Enum(e.clone()));
+        }
+    };
     let mut prog = prog;
-    for c in generic_class_templates {
-        prog.items.push(ilang_ast::Item::Class(c));
-    }
-    for e in generic_enum_templates {
-        prog.items.push(ilang_ast::Item::Enum(e));
-    }
+    reattach_templates(&mut prog);
     let prog = ilang_mir::monomorphize::monomorphize_fns(
         &prog,
         &tc.fn_call_type_args(),
         &tc.enum_ctor_type_args(),
     );
-    // Specialize generic class methods (instance + static). Runs
-    // after fn-spec so that generic methods called from inside a
-    // specialized free fn are also picked up. The pass mirrors the
-    // fn-spec strategy at the class level.
-    let prog = ilang_mir::monomorphize::monomorphize_methods(
-        &prog,
-        &tc.method_call_type_args(),
-    );
-    // Second round: specialized generic fn bodies (e.g. `make<i64>`
-    // synthesized from `fn make<T>(v: T): Box<T> { new Box<T>(v) }`)
-    // can contain previously-unseen class / enum instantiations.
-    // Templates are still present from the re-attach above.
-    let prog = ilang_mir::monomorphize::monomorphize(&prog, &tc.enum_ctor_type_args());
+    // Specialize generic class methods, then iterate class + method
+    // monomorphization to a FIXED POINT. Each round can mint new class
+    // instantiations whose specialized bodies mint further ones — a
+    // chained `a.remap(f).remap(g)` walks `Box<i64>` -> `Box<string>`
+    // -> `Box<i64>`, and only the round that synthesizes `Box<string>`
+    // can specialize its `remap<i64>`. Re-attach the generic templates
+    // each round so class-mono can synthesize the newly-discovered
+    // instantiations, and stop once the program stops growing. Bounded
+    // for safety; genuine infinite instantiation is caught earlier by
+    // class-mono's recursion limit.
+    // Structural fingerprint: concrete class names plus their method
+    // names. A bare count would miss a same-count specialization (a
+    // `remap<U>` template replaced by `remap<string>`) that hasn't yet
+    // minted a new class — stopping before the round that would.
+    let fingerprint = |p: &AstProgram| -> String {
+        let mut rows: Vec<String> = Vec::new();
+        for it in &p.items {
+            if let Item::Class(c) = it {
+                if c.type_params.is_empty() {
+                    let mut names: Vec<&str> = c
+                        .methods
+                        .iter()
+                        .chain(c.static_methods.iter())
+                        .map(|m| m.name.as_str())
+                        .collect();
+                    names.sort_unstable();
+                    rows.push(format!("{}:{}", c.name, names.join(",")));
+                }
+            }
+        }
+        rows.sort_unstable();
+        rows.join(";")
+    };
+    let mut prog = prog;
+    let mut prev = fingerprint(&prog);
+    for _ in 0..64 {
+        reattach_templates(&mut prog);
+        let next = ilang_mir::monomorphize::monomorphize(&prog, &tc.enum_ctor_type_args());
+        let next =
+            ilang_mir::monomorphize::monomorphize_methods(&next, &tc.method_call_type_args());
+        let fp = fingerprint(&next);
+        prog = next;
+        if fp == prev {
+            break;
+        }
+        prev = fp;
+    }
     ilang_mir::monomorphize::monomorphize_enums(&prog, &tc.enum_ctor_type_args())
 }
 
