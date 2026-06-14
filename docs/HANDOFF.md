@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-11) で main に landing した変更:
 
+- **第 89 弾**。 static フィールドを probe して **動的配列の static フィールドが checker を通るのに codegen で crash する**不整合を是正。 `static arr: i64[] = [1,2,3]` は checker が許可(メッセージも「dynamic arrays of numeric primitives」と明記)するのに、 読み出し/再代入で「mir-codegen: unsupported in M1: static slot type」、 init-then-use では **SIGSEGV**。 `LoadStatic`/`StoreStatic` は単語値(数値/bool/string ポインタ)しか扱わない。 codegen で Array を Str 同様 raw として扱う完全対応を試みたが SIGSEGV(init/ARC がより複雑で単純な Load/Store 追加では足りない)、 保守的に **checker 側で動的配列 static を拒否**([sigs.rs](../crates/ilang-types/src/checker/sigs.rs))— `array_of_prim_ok` を外し、 混乱する codegen crash を clean な診断に。 数値/bool/string static は無変更。 fixture: `05_edge_cases/static_array_field_error.il`。 詳細は下の解決済み記録。
 - **第 88 弾**。 SIMD 構築を probe して **float リテラルが整数 SIMD レーンに無検査で通る**バグを検出・修正。 スカラ `let x: i32 = 1.0` は拒否されるのに `simd.i32x4 = [1.0, 2.0, 3.0, 4.0]` がコンパイルできた(レーンアクセス未公開なので値は観測不能だが、 公開時に garbage になる soundness 漏れ)。 原因は SIMD 構築検証([mod.rs](../crates/ilang-types/src/checker/mod.rs))が要素の「自身の型」に **lane 型を渡していた**(`dummy_vt = lane_ty`)ため、 全要素が自明に fit していた。 配列ケースと同じく `vt`(値の実型 `Array { elem }`)の要素型を `literal_assignable_with` に渡すよう修正。 副次的に over-wide 整数リテラル(`300` を i8 レーンへ)も正しく拒否されるように。 valid な構築(`i32x4` from int、 `f32x4` from float/int)は無変更。 fixture: `04_modules/simd_int_lane_float_literal_error.il`。 詳細は下の解決済み記録。
 - **第 87 弾** (クリーンラウンド)。 @extern(C) 完了確認(全 `ExternCItem` 種別が pass 2 で検証されることを確認)と複数領域を sweep — **新規バグなし**。 メソッド/関数オーバーロード解決(型/サブクラス/兄弟曖昧拒否/引数数/幅/covariant-join arg/no-match 診断)、 `?` 演算子(Result ok/err 伝播・Optional・heap payload)、 Promise.all/race(型制約は仕様どおり)、 が全て健全。 唯一未カバーだった **`?` で heap payload の Result を伝播し err early-return が生きた Box 束縛を跨ぐ ARC**(`try_operator.il` は i32 のみ)を churn 厳密 deinit で pin。 fixture 追加のみのため重い儀式は省略(JIT harness + 個別 AOT)。 fixture: `05_edge_cases/try_op_heap_result_arc.il`。
 - **第 86 弾**。 第 84/85 弾の続きで **`@extern(C) struct` の field-type 検証**(第 84 弾は @bits のみ追加していた)の漏れを是正。 inline レイアウト不可の型 — 非 repr-c heap object・非最後の動的配列・tuple・optional・plain(非 repr)enum — が struct フィールドに通り、 heap object は **leak**(churn delta=2400, deinit=0)、 動的配列使用時は **panic**。 class 経路の field-type `ok` ロジックを `repr_c_field_ok` + `check_repr_c_struct_field` メソッド([decls.rs](../crates/ilang-types/src/checker/decls.rs))に抽出し、 `check_class` と extern_c の Struct arm([extern_c.rs](../crates/ilang-types/src/checker/extern_c.rs))で共有。 ただし **repr enum を許可型に追加**(struct は repr enum フィールドを許可 = `repr_c_flags_enum_field.il`、 class の旧 `ok` は未対応だった)。 非 repr-c object/tuple/optional/plain enum/非最後動的配列を明確な診断で拒否、 repr enum・nested repr-c struct・FAM(最後の動的配列)は維持。 fixture: `04_modules/extern_struct_heap_field_error.il`。 詳細は下の解決済み記録。
@@ -138,6 +139,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 89 弾: 動的配列 static フィールドが checker を通り codegen で crash (2026-06-14)
+
+未踏の static フィールドを probe して発見。
+
+- **症状**: `class C { static arr: i64[] = [1,2,3] }` が checker を通り(メッセージも「dynamic arrays of numeric primitives は許可」と明記)、 宣言+init のみなら compile も成功するが、 `C.arr` を読む / `C.arr = [...]` で再代入すると「mir-codegen: unsupported in M1: static slot type」、 init-then-use(`C.arr.length` の後に再代入して読む)では **SIGSEGV**。 一方 object static は checker で明確に拒否、 string static は動作。
+- **原因**: checker([sigs.rs](../crates/ilang-types/src/checker/sigs.rs))の static 許可型に `array_of_prim_ok`(numeric primitive の動的配列)が含まれるが、 codegen の `LoadStatic`/`StoreStatic`([static_slot.rs](../crates/ilang-mir-codegen/src/compile/lower_inst/static_slot.rs))は単語値(I*/U*/F*/Bool/Str)しか扱わず `_ => Unsupported`。 string は heap ポインタだが単語として load/store され動くのに、 動的配列は対象外。 checker の意図(コメントが ARC retain/release 共有を謳う)に codegen が追いついていない半実装。
+- **修正の試行と判断**: codegen で `MirTy::Array` を Str 同様 `raw`/`v` として Load/Store に追加してみたが、 init/ARC がより複雑で **SIGSEGV**(完全対応は Load/Store 追加だけでは不足)。 リスクが高く不確実なので codegen 変更は撤回し、 **保守的に checker 側で動的配列 static を拒否**(`array_of_prim_ok` を削除、 メッセージを「numeric primitives, bool, string」に修正)。 これで late crash が clean な checker 診断になる。
+- **検証**: `static arr: i64[]` が明確な診断で拒否、 数値/bool/string static は無変更で動作(`Counter.total` 等の既存 fixture 緑)。 既存 fixture に動的配列 static を使うものは無し(workspace 539/539 で確認)。 fixture: `05_edge_cases/static_array_field_error.il`(expect-error)。 checker を触ったので AOT 儀式も実施。 workspace nextest 539/539、 program fixtures harness JIT + AOT PASS。 (将来 codegen が heap-array static slot を実装したら checker の許可を戻せる。)
 
 ### [解決済み記録] 第 88 弾: float リテラルが整数 SIMD レーンに無検査で通る (2026-06-14)
 

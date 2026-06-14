@@ -863,33 +863,25 @@ pub(super) fn class_signature(
                 span: sf.span,
             });
         }
-        // Allowed static-field types: numeric primitives (any
-        // width) + bool, and dynamic arrays of those primitives
-        // (the ARC retain/release on the slot uses the same
-        // helpers as instance fields). Heap types beyond arrays
-        // (objects, strings, optionals, …) still need a slot-init
-        // phase; reject those for now with a clearer message.
+        // Allowed static-field types: numeric primitives (any width),
+        // bool, and string — all single-word slot values. A dynamic
+        // array was previously accepted here, but the `LoadStatic` /
+        // `StoreStatic` codegen only handles single-word values, so
+        // reading or reassigning such a field hit "static slot type" at
+        // codegen (and an init-then-use path SIGSEGV'd). Reject it at the
+        // checker until the slot machinery grows real heap-array support,
+        // so the user gets a clean diagnostic instead of a late crash.
         let prim_ok = matches!(
             sf.ty,
             Type::I8 | Type::I16 | Type::I32 | Type::I64
             | Type::U8 | Type::U16 | Type::U32 | Type::U64
             | Type::F32 | Type::F64 | Type::Bool | Type::Str
         );
-        let array_of_prim_ok = matches!(
-            &sf.ty,
-            Type::Array { elem, fixed: None } if matches!(
-                elem.as_ref(),
-                Type::I8 | Type::I16 | Type::I32 | Type::I64
-                | Type::U8 | Type::U16 | Type::U32 | Type::U64
-                | Type::F32 | Type::F64 | Type::Bool
-            )
-        );
-        if !prim_ok && !array_of_prim_ok {
+        if !prim_ok {
             return Err(TypeError::Unsupported {
                 what: format!(
                     "static field {:?} in class {:?}: type {} not yet \
-                     supported (allowed: numeric primitives, bool, \
-                     string, or dynamic arrays of numeric primitives)",
+                     supported (allowed: numeric primitives, bool, string)",
                     sf.name, c.name, sf.ty
                 ),
                 span: sf.span,
