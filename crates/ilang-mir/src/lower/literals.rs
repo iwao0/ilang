@@ -760,11 +760,21 @@ impl<'a> BodyCx<'a> {
                 }
                 Ok((v, elem_ty))
             }
-            MirTy::Map { val, .. } => {
+            MirTy::Map { key, val } => {
+                let key_ty = (**key).clone();
                 let val_ty = (**val).clone();
+                let key_is_fresh = self.is_fresh_object_expr(index);
                 let (kv, _) = self.lower_expr(index)?;
                 let v = self.fb.new_value(val_ty.clone());
                 self.fb.push_inst(Inst::MapGet { dst: v, map: av, key: kv });
+                // `__map_get` only BORROWS the key (hash + equals) —
+                // it doesn't take ownership. A fresh heap key
+                // (`m[new K(1)]`, `m[a + b]`) carries a transient +1
+                // the lookup never consumes, so release it now or it
+                // leaks. (The set / has / delete paths already do this.)
+                if key_is_fresh && self.is_arc_heap(&key_ty) {
+                    self.fb.push_inst(Inst::Release { value: kv });
+                }
                 // `__map_get` is a borrowed read (same convention
                 // as `ArrayLoad`) — the map's slot keeps the only
                 // share, and consumers retain when they store the
