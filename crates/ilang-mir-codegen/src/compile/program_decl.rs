@@ -505,6 +505,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         module.declare_function("$enum.discStr", Linkage::Import, &sig)?
     };
     let enum_alloc_id = declare_ternary_i64(module, "$enum.alloc")?;
+    let enum_structural_eq_id = declare_binary_i64(module, "$enum.structuralEq")?;
     let release_enum_id = declare_unit_i64(module, "$enum.release")?;
     let retain_enum_id = declare_unit_i64(module, "$enum.retain")?;
     let release_promise_id = declare_unit_i64(module, "$promise.release")?;
@@ -974,6 +975,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 retain_string: retain_string_id,
                 enum_unit_get: enum_unit_get_id,
                 enum_unit_get_checked: enum_unit_get_checked_id,
+                enum_structural_eq: enum_structural_eq_id,
                 enum_disc_str: enum_disc_str_id,
                 enum_alloc: enum_alloc_id,
                 release_enum: release_enum_id,

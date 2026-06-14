@@ -410,14 +410,33 @@ impl<'a> BodyCx<'a> {
         ) {
             if let (MirTy::Enum(le), MirTy::Enum(re)) = (&lty0, &rty0) {
                 if le == re {
+                    // `==` / `!=` compare STRUCTURALLY (tags + payloads)
+                    // via the runtime helper, so `circle(5) != circle(9)`.
+                    // Payload-less variants reduce to a tag compare inside
+                    // the helper, so `@flags` / repr / unit enums are
+                    // unaffected. Ordering keeps the tag-only path (repr
+                    // enums order by their discriminant).
+                    if matches!(op, AstBinOp::Eq | AstBinOp::Ne) {
+                        let eqv = self.fb.new_value(MirTy::Bool);
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(eqv),
+                            callee: FuncRef::Builtin(Symbol::intern("enum_structural_eq")),
+                            args: Box::new([lv0, rv0]),
+                        });
+                        if matches!(op, AstBinOp::Eq) {
+                            return Ok((eqv, MirTy::Bool));
+                        }
+                        let dst = self.fb.new_value(MirTy::Bool);
+                        let zero = self.const_int(MirTy::Bool, 0);
+                        self.fb.push_inst(Inst::BinOp { dst, op: BinOp::IEq, lhs: eqv, rhs: zero });
+                        return Ok((dst, MirTy::Bool));
+                    }
                     let repr_ty = self.enums[le.0 as usize].repr.clone();
                     let lt = self.fb.new_value(MirTy::I64);
                     self.fb.push_inst(Inst::EnumTag { dst: lt, value: lv0 });
                     let rt = self.fb.new_value(MirTy::I64);
                     self.fb.push_inst(Inst::EnumTag { dst: rt, value: rv0 });
                     let bop = match op {
-                        AstBinOp::Eq => BinOp::IEq,
-                        AstBinOp::Ne => BinOp::INe,
                         AstBinOp::Lt => cmp_op(&repr_ty, Cmp::Lt),
                         AstBinOp::Le => cmp_op(&repr_ty, Cmp::Le),
                         AstBinOp::Gt => cmp_op(&repr_ty, Cmp::Gt),

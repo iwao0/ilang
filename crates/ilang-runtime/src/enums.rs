@@ -21,6 +21,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use crate::alloc::{__mir_alloc, __mir_free};
 use crate::cascade::release_field_by_kind;
 use crate::print_dispatch::format_kind_id;
+use crate::kind::{KIND_ENUM, KIND_STR};
 use crate::strings::{cstr_to_str, leak_cstring};
 
 const ENUM_HEADER: i64 = 24;
@@ -171,6 +172,65 @@ pub extern "C" fn __release_enum(p: i64) {
     }
     let cap = unsafe { *((p - 24) as *const i64) };
     __mir_free(p - ENUM_HEADER, cap);
+}
+
+/// Structural `==` for two values of the SAME enum type. Equal iff the
+/// variant tags match AND every payload slot compares equal by its
+/// kind:
+///   - raw words (numeric / bool, `KIND_NONE`) compare bit-for-bit
+///     (so an f64 payload follows the `Set<f64>` convention: NaN == NaN,
+///     +0.0 != -0.0);
+///   - strings compare structurally;
+///   - nested enum payloads recurse (terminating on recursive enums,
+///     since this is a call, not inline expansion);
+///   - objects and every other heap payload compare by reference, the
+///     same pointer-identity rule `Object` / array / map `==` use.
+/// The MIR lowering routes enum `==` / `!=` here; ordering (`<` etc.)
+/// stays tag-only.
+#[unsafe(export_name = "$enum.structuralEq")]
+pub extern "C" fn __enum_structural_eq(a: i64, b: i64) -> i64 {
+    // Same pointer (covers interned unit variants and aliasing).
+    if a == b {
+        return 1;
+    }
+    // Exactly one null — the both-null case was handled above.
+    if a == 0 || b == 0 {
+        return 0;
+    }
+    let tag_a = unsafe { *(a as *const i64) };
+    let tag_b = unsafe { *(b as *const i64) };
+    if tag_a != tag_b {
+        return 0;
+    }
+    let eid = unsafe { *((a - 8) as *const i64) } as u32;
+    let kinds = {
+        let t = enum_payload_kinds().read().expect("enum payload kinds poisoned");
+        t.get(&(eid, tag_a)).cloned()
+    };
+    // No registered payload slots → a payload-less variant; equal tags
+    // already settled it.
+    let Some(kinds) = kinds else {
+        return 1;
+    };
+    for (i, &kind) in kinds.iter().enumerate() {
+        let off = 8 + (i as i64) * 8;
+        let pa = unsafe { *((a + off) as *const i64) };
+        let pb = unsafe { *((b + off) as *const i64) };
+        let eq = if kind == KIND_STR {
+            crate::strings::__str_eq(pa, pb) != 0
+        } else if kind == KIND_ENUM {
+            __enum_structural_eq(pa, pb) != 0
+        } else {
+            // KIND_NONE (raw word) and every heap kind (object / array /
+            // map / set / tuple / optional / weak / closure / promise):
+            // bit / reference compare.
+            pa == pb
+        };
+        if !eq {
+            return 0;
+        }
+    }
+    1
 }
 
 // --------------------------------------------------------------------

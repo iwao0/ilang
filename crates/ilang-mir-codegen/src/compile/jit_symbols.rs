@@ -332,6 +332,10 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
         ilang_runtime::__enum_unit_get_checked as *const u8,
     );
     jit_builder.symbol("$enum.discStr", ilang_runtime::__enum_disc_str as *const u8);
+    jit_builder.symbol(
+        "$enum.structuralEq",
+        ilang_runtime::__enum_structural_eq as *const u8,
+    );
     jit_builder.symbol("$map.setValueKind", ilang_runtime::__map_set_value_kind as *const u8);
     jit_builder.symbol("$map.setPrintKinds", ilang_runtime::__map_set_print_kinds as *const u8);
     jit_builder.symbol("$print.map", ilang_runtime::__print_map as *const u8);

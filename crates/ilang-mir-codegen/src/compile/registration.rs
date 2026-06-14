@@ -528,15 +528,19 @@ pub(crate) fn emit_enum_registrations<S, PK, KT>(
                 v.name.as_str(),
             );
             for (i, ty) in payload_tys.iter().enumerate() {
+                // Register EVERY slot, including non-heap ones
+                // (`KIND_NONE`). The release cascade skips 0-kinds, but
+                // the structural-`==` helper needs the full slot vector
+                // — otherwise a variant whose payloads are all numeric
+                // registers no entry and compares as payload-less
+                // (`circle(5) == circle(9)`).
                 let cascade = payload_kind(ty);
-                if cascade != 0 {
-                    sink.enum_payload_kind(
-                        gid,
-                        v.discriminant,
-                        i as i64,
-                        cascade,
-                    );
-                }
+                sink.enum_payload_kind(
+                    gid,
+                    v.discriminant,
+                    i as i64,
+                    cascade,
+                );
                 let pk = print_kind(ty);
                 sink.enum_print_variant_payload_pk(
                     gid,

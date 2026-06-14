@@ -451,6 +451,7 @@ pub(super) fn lower_call<M: Module>(
                 "array_fill_copy" => Some(str_ids.array_fill_copy),
                 "array_sort" => Some(str_ids.array_sort),
                 "str_split" => Some(str_ids.str_split),
+                "enum_structural_eq" => Some(panic_aux.enum_structural_eq),
                 "map_new_object" => Some(map_ids.new_object),
                 "map_set_print_kinds" => Some(panic_aux.map_set_print_kinds),
                 "map_set_value_kind" => Some(panic_aux.map_set_val_kind),
