@@ -223,6 +223,22 @@ impl TypeChecker {
                     *self.current_module.borrow_mut() = saved_module;
                     result?;
                 }
+                ilang_ast::ExternCItem::Struct { name, fields, .. } => {
+                    // Pass 1 only registered this struct's signature, and
+                    // the body pass below skips non-`Class` items, so the
+                    // `@bits(N)` constraints went entirely unchecked for an
+                    // `@extern(C) { struct ... }` — `@bits(4) x: i32`
+                    // (signed) and `@bits(40) x: u32` (over-width) both
+                    // compiled and read back wrong (no sign-extension /
+                    // silent over-width). Run the same per-field bitfield
+                    // validation the class path uses. (The broader
+                    // field-type rules legitimately differ — a struct may
+                    // hold repr-C enum fields a class can't — so only the
+                    // bitfield check is shared.)
+                    for f in fields.iter() {
+                        super::decls::validate_bitfield(name, f)?;
+                    }
+                }
                 _ => {}
             }
         }

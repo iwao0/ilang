@@ -351,35 +351,7 @@ impl TypeChecker {
                     Type::Fn(_) => true,
                     _ => false,
                 };
-                if let Some(bits) = f.bits {
-                    let max = match &f.ty {
-                        Type::U8 => 8u32,
-                        Type::U16 => 16,
-                        Type::U32 => 32,
-                        Type::U64 => 64,
-                        _ => {
-                            return Err(TypeError::Unsupported {
-                                what: format!(
-                                    "@bits on field {:?} of class {:?}: bitfields are \
-                                     only supported on unsigned integer types \
-                                     (u8/u16/u32/u64), got {}",
-                                    f.name, c.name, f.ty
-                                ),
-                                span: f.span,
-                            });
-                        }
-                    };
-                    if bits == 0 || bits > max {
-                        return Err(TypeError::Unsupported {
-                            what: format!(
-                                "@bits({}) on field {:?} of class {:?}: width must be \
-                                 in 1..={} for {}",
-                                bits, f.name, c.name, max, f.ty
-                            ),
-                            span: f.span,
-                        });
-                    }
-                }
+                validate_bitfield(&c.name, f)?;
                 if !ok {
                     return Err(TypeError::Unsupported {
                         what: format!(
@@ -660,4 +632,48 @@ impl TypeChecker {
         Ok(())
     }
 
+}
+
+/// Validate a `@bits(N)` field against the documented constraints:
+/// unsigned integer type only (`u8` / `u16` / `u32` / `u64`) and a
+/// width in `1..=<underlying width>`. Shared by `check_class` (the
+/// repr-C class path) and the `@extern(C) { struct ... }` body check —
+/// the struct path used to skip it entirely, so `@bits(4) x: i32`
+/// (signed) and `@bits(40) x: u32` (over-width) compiled and read back
+/// wrong. A no-op for non-bitfield fields.
+pub(in crate::checker) fn validate_bitfield(
+    struct_name: &Symbol,
+    f: &FieldDecl,
+) -> Result<(), TypeError> {
+    let Some(bits) = f.bits else {
+        return Ok(());
+    };
+    let max = match &f.ty {
+        Type::U8 => 8u32,
+        Type::U16 => 16,
+        Type::U32 => 32,
+        Type::U64 => 64,
+        _ => {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "@bits on field {:?} of class {:?}: bitfields are \
+                     only supported on unsigned integer types \
+                     (u8/u16/u32/u64), got {}",
+                    f.name, struct_name, f.ty
+                ),
+                span: f.span,
+            });
+        }
+    };
+    if bits == 0 || bits > max {
+        return Err(TypeError::Unsupported {
+            what: format!(
+                "@bits({}) on field {:?} of class {:?}: width must be \
+                 in 1..={} for {}",
+                bits, f.name, struct_name, max, f.ty
+            ),
+            span: f.span,
+        });
+    }
+    Ok(())
 }
