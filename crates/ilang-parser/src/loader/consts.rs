@@ -55,7 +55,17 @@ pub(super) fn inline_constants(prog: Program) -> Result<Program, LoadError> {
         let fold_result = fold_const_expr(&c.value, consts);
         let folded = match fold_result {
             Ok(f) => f,
-            Err(_reason) => {
+            // A statically ill-formed constant (e.g. `const X = 10 / 0`)
+            // can never be computed — a hard compile error, not something
+            // to demote to a runtime init that would panic at startup.
+            Err(FoldErr::Invalid(reason)) => {
+                return Err(LoadError::BadConst {
+                    name: c.name.clone(),
+                    reason,
+                    span: c.value.span,
+                });
+            }
+            Err(FoldErr::NotConst(_reason)) => {
                 let span = c.value.span;
                 let const_mod = c
                     .name
@@ -140,7 +150,7 @@ pub(super) fn inline_constants(prog: Program) -> Result<Program, LoadError> {
                 // the value is a literal.
                 let force_runtime = matches!(sf.ty, ilang_ast::Type::Str);
                 let fold_result = if force_runtime {
-                    Err(String::new())
+                    Err(FoldErr::NotConst(String::new()))
                 } else {
                     fold_const_expr(&sf.value, &consts)
                 };
@@ -148,7 +158,16 @@ pub(super) fn inline_constants(prog: Program) -> Result<Program, LoadError> {
                     Ok(folded) => {
                         sf.value = folded;
                     }
-                    Err(_reason) => {
+                    // Ill-formed constant init (`static x: i64 = 1 / 0`)
+                    // is a hard compile error, like the top-level case.
+                    Err(FoldErr::Invalid(reason)) => {
+                        return Err(LoadError::BadConst {
+                            name: sf.name.clone(),
+                            reason,
+                            span: sf.value.span,
+                        });
+                    }
+                    Err(FoldErr::NotConst(_reason)) => {
                         // Non-foldable initializer — emit a runtime
                         // assignment that fills in the real value at
                         // program startup. `is_init: true` exempts
@@ -251,7 +270,21 @@ fn int_literal_fits(n: i64, t: &ilang_ast::Type) -> bool {
     }
 }
 
-fn fold_const_expr(e: &Expr, consts: &HashMap<Symbol, Expr>) -> Result<Expr, String> {
+/// Why a const RHS didn't fold to a literal. The two cases are handled
+/// differently by the caller:
+/// * `NotConst` — the expression isn't a compile-time constant (a call,
+///   field access, control flow, an unresolved name, …); defer it to the
+///   runtime module-init path, exactly as before.
+/// * `Invalid` — the expression IS constant but statically ill-formed
+///   (division / modulo by zero, an out-of-range shift). The value can
+///   never be computed, so it's a hard compile error rather than a
+///   runtime panic at module init.
+enum FoldErr {
+    NotConst(String),
+    Invalid(String),
+}
+
+fn fold_const_expr(e: &Expr, consts: &HashMap<Symbol, Expr>) -> Result<Expr, FoldErr> {
     let span = e.span;
     let lit = |k: ExprKind| Expr { kind: k, span };
     match &e.kind {
@@ -261,7 +294,7 @@ fn fold_const_expr(e: &Expr, consts: &HashMap<Symbol, Expr>) -> Result<Expr, Str
         ExprKind::Var(name) => consts
             .get(name)
             .cloned()
-            .ok_or_else(|| format!("unknown identifier `{name}` in const expression")),
+            .ok_or_else(|| FoldErr::NotConst(format!("unknown identifier `{name}` in const expression"))),
         ExprKind::Unary { op, expr } => {
             let v = fold_const_expr(expr, consts)?;
             match (op, &v.kind) {
@@ -269,7 +302,7 @@ fn fold_const_expr(e: &Expr, consts: &HashMap<Symbol, Expr>) -> Result<Expr, Str
                 (UnOp::Neg, ExprKind::Float(x)) => Ok(lit(ExprKind::Float(-x))),
                 (UnOp::Not, ExprKind::Bool(b)) => Ok(lit(ExprKind::Bool(!b))),
                 (UnOp::BitNot, ExprKind::Int(n)) => Ok(lit(ExprKind::Int(!n))),
-                _ => Err(format!("unary {op:?} not supported in const expression")),
+                _ => Err(FoldErr::NotConst(format!("unary {op:?} not supported in const expression"))),
             }
         }
         ExprKind::Binary { op, lhs, rhs } => {
@@ -281,7 +314,7 @@ fn fold_const_expr(e: &Expr, consts: &HashMap<Symbol, Expr>) -> Result<Expr, Str
             let l = fold_const_expr(lhs, consts)?;
             let lb = match l.kind {
                 ExprKind::Bool(b) => b,
-                _ => return Err("logical operands must be bool".into()),
+                _ => return Err(FoldErr::NotConst("logical operands must be bool".into())),
             };
             // Short-circuit, like the runtime would.
             match op {
@@ -291,7 +324,7 @@ fn fold_const_expr(e: &Expr, consts: &HashMap<Symbol, Expr>) -> Result<Expr, Str
                     let r = fold_const_expr(rhs, consts)?;
                     match r.kind {
                         ExprKind::Bool(b) => Ok(lit(ExprKind::Bool(b))),
-                        _ => Err("logical operands must be bool".into()),
+                        _ => Err(FoldErr::NotConst("logical operands must be bool".into())),
                     }
                 }
             }
@@ -303,14 +336,14 @@ fn fold_const_expr(e: &Expr, consts: &HashMap<Symbol, Expr>) -> Result<Expr, Str
         // Anything else (calls, fields, control flow, ...) is not a
         // constant expression. Be specific in the error so the user
         // knows what to fix.
-        other => Err(format!(
+        other => Err(FoldErr::NotConst(format!(
             "expression {} is not allowed in `const`",
             describe_expr_kind(other)
-        )),
+        ))),
     }
 }
 
-fn fold_binary(op: BinOp, l: &Expr, r: &Expr, span: Span) -> Result<Expr, String> {
+fn fold_binary(op: BinOp, l: &Expr, r: &Expr, span: Span) -> Result<Expr, FoldErr> {
     let lit = |k: ExprKind| Expr { kind: k, span };
     use ExprKind::*;
     match (&l.kind, &r.kind) {
@@ -320,7 +353,7 @@ fn fold_binary(op: BinOp, l: &Expr, r: &Expr, span: Span) -> Result<Expr, String
             BinOp::Mul => Int(a.wrapping_mul(*b)),
             BinOp::Div => {
                 if *b == 0 {
-                    return Err("division by zero in const expression".into());
+                    return Err(FoldErr::Invalid("division by zero in const expression".into()));
                 }
                 // `wrapping_div` so `i64::MIN / -1` doesn't panic;
                 // matches the wrapping behaviour of `+` / `-` / `*`.
@@ -328,7 +361,7 @@ fn fold_binary(op: BinOp, l: &Expr, r: &Expr, span: Span) -> Result<Expr, String
             }
             BinOp::Rem => {
                 if *b == 0 {
-                    return Err("modulo by zero in const expression".into());
+                    return Err(FoldErr::Invalid("modulo by zero in const expression".into()));
                 }
                 Int(a.wrapping_rem(*b))
             }
@@ -337,17 +370,13 @@ fn fold_binary(op: BinOp, l: &Expr, r: &Expr, span: Span) -> Result<Expr, String
             BinOp::BitXor => Int(a ^ b),
             BinOp::Shl => {
                 if *b < 0 || *b >= 64 {
-                    return Err(format!(
-                        "shift amount {b} out of range 0..64 in const expression"
-                    ));
+                    return Err(FoldErr::Invalid(format!("shift amount {b} out of range 0..64 in const expression")));
                 }
                 Int(a.wrapping_shl(*b as u32))
             }
             BinOp::Shr => {
                 if *b < 0 || *b >= 64 {
-                    return Err(format!(
-                        "shift amount {b} out of range 0..64 in const expression"
-                    ));
+                    return Err(FoldErr::Invalid(format!("shift amount {b} out of range 0..64 in const expression")));
                 }
                 Int(a.wrapping_shr(*b as u32))
             }
@@ -369,13 +398,13 @@ fn fold_binary(op: BinOp, l: &Expr, r: &Expr, span: Span) -> Result<Expr, String
             BinOp::Le => Bool(a <= b),
             BinOp::Gt => Bool(a > b),
             BinOp::Ge => Bool(a >= b),
-            _ => return Err(format!("operator {op:?} not supported on float in const")),
+            _ => return Err(FoldErr::NotConst(format!("operator {op:?} not supported on float in const"))),
         })),
         (Str(a), Str(b)) => Ok(lit(match op {
             BinOp::Add => Str(format!("{a}{b}")),
             BinOp::Eq => Bool(a == b),
             BinOp::Ne => Bool(a != b),
-            _ => return Err(format!("operator {op:?} not supported on string in const")),
+            _ => return Err(FoldErr::NotConst(format!("operator {op:?} not supported on string in const"))),
         })),
         (Bool(a), Bool(b)) => Ok(lit(match op {
             BinOp::Eq => Bool(a == b),
@@ -383,17 +412,17 @@ fn fold_binary(op: BinOp, l: &Expr, r: &Expr, span: Span) -> Result<Expr, String
             BinOp::BitAnd => Bool(a & b),
             BinOp::BitOr => Bool(a | b),
             BinOp::BitXor => Bool(a ^ b),
-            _ => return Err(format!("operator {op:?} not supported on bool in const")),
+            _ => return Err(FoldErr::NotConst(format!("operator {op:?} not supported on bool in const"))),
         })),
-        _ => Err(format!(
+        _ => Err(FoldErr::NotConst(format!(
             "type mismatch in const binary {op:?} ({} vs {})",
             describe_expr_kind(&l.kind),
             describe_expr_kind(&r.kind)
-        )),
+        ))),
     }
 }
 
-fn cast_const(v: &Expr, ty: &Type, span: Span) -> Result<Expr, String> {
+fn cast_const(v: &Expr, ty: &Type, span: Span) -> Result<Expr, FoldErr> {
     let lit = |k: ExprKind| Expr { kind: k, span };
     use ExprKind::*;
     match (&v.kind, ty) {
@@ -424,7 +453,7 @@ fn cast_const(v: &Expr, ty: &Type, span: Span) -> Result<Expr, String> {
         // `n as <ty>`, which the type checker validates under
         // the @extern(C) scope where the use site sits.
         (Int(n), Type::RawPtr { .. }) => Ok(lit(Int(*n))),
-        _ => Err(format!("cast to {ty} not supported in const expression")),
+        _ => Err(FoldErr::NotConst(format!("cast to {ty} not supported in const expression"))),
     }
 }
 
