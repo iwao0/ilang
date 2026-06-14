@@ -92,6 +92,7 @@ pub fn monomorphize_methods(
             method_call_type_args,
             &empty_params,
             &empty_args,
+            None,
             &mut |class, method, args| enqueue(class, method, args, &mut worklist, &mut requested),
         );
     });
@@ -112,23 +113,28 @@ pub fn monomorphize_methods(
         let mut new_method = specialize_fn(&template, &outer_params, &outer_args);
         new_method.name = mangled;
         new_method.type_params = Box::new([]);
-        // Rewrite generic-method calls in the freshly specialized
-        // body so the inner call refers to the mangled callee.
-        new_method.body = rewrite_method_calls_in_block(
-            &new_method.body,
-            method_call_type_args,
-            &outer_params,
-            &outer_args,
-            &generic_methods,
-        );
-
-        // Re-scan the substituted body for further generic calls.
+        // Re-scan the substituted body for further generic calls FIRST,
+        // while the inner calls still carry their recorded method names —
+        // the rewrite below renames them to the mangled callee, which
+        // would then no longer match `recorded_method` in the seed.
         seed_in_block(
             &new_method.body,
             method_call_type_args,
             &outer_params,
             &outer_args,
+            Some(class),
             &mut |c, m, a| enqueue(c, m, a, &mut worklist, &mut requested),
+        );
+
+        // Now rewrite generic-method calls in the specialized body so the
+        // inner call refers to the mangled callee.
+        new_method.body = rewrite_method_calls_in_block(
+            &new_method.body,
+            method_call_type_args,
+            &outer_params,
+            &outer_args,
+            Some(class),
+            &generic_methods,
         );
 
         specializations
@@ -157,6 +163,7 @@ pub fn monomorphize_methods(
                 method_call_type_args,
                 &empty_params,
                 &empty_args,
+                None,
                 &generic_methods,
             )),
             other => other.clone(),
@@ -174,6 +181,7 @@ pub fn monomorphize_methods(
                 method_call_type_args,
                 &empty_params,
                 &empty_args,
+                None,
                 &generic_methods,
             )
         },
@@ -202,13 +210,13 @@ fn rewrite_class(
         .methods
         .iter()
         .filter(|m| m.type_params.is_empty())
-        .map(|m| rewrite_fn(m, table, outer_params, outer_args, generic_methods))
+        .map(|m| rewrite_fn(m, table, outer_params, outer_args, Some(c.name), generic_methods))
         .collect();
     let mut new_static_methods: Vec<FnDecl> = c
         .static_methods
         .iter()
         .filter(|m| m.type_params.is_empty())
-        .map(|m| rewrite_fn(m, table, outer_params, outer_args, generic_methods))
+        .map(|m| rewrite_fn(m, table, outer_params, outer_args, Some(c.name), generic_methods))
         .collect();
     if let Some(specs) = class_specs {
         for (_mangled, fn_decl, is_static) in specs.iter() {
@@ -232,11 +240,11 @@ fn rewrite_class(
             getter: p
                 .getter
                 .as_ref()
-                .map(|g| rewrite_fn(g, table, outer_params, outer_args, generic_methods)),
+                .map(|g| rewrite_fn(g, table, outer_params, outer_args, Some(c.name), generic_methods)),
             setter: p
                 .setter
                 .as_ref()
-                .map(|s| rewrite_fn(s, table, outer_params, outer_args, generic_methods)),
+                .map(|s| rewrite_fn(s, table, outer_params, outer_args, Some(c.name), generic_methods)),
             span: p.span,
         })
         .collect();
@@ -266,9 +274,11 @@ fn rewrite_fn(
     table: &HashMap<Span, (Symbol, Symbol, Vec<Type>)>,
     outer_params: &[Symbol],
     outer_args: &[Type],
+    enclosing: Option<Symbol>,
     generic_methods: &HashMap<(Symbol, Symbol), (FnDecl, bool)>,
 ) -> FnDecl {
-    let body = rewrite_method_calls_in_block(&f.body, table, outer_params, outer_args, generic_methods);
+    let body =
+        rewrite_method_calls_in_block(&f.body, table, outer_params, outer_args, enclosing, generic_methods);
     FnDecl {
         is_pub: f.is_pub,
         attrs: f.attrs.clone(),
@@ -289,11 +299,14 @@ fn rewrite_method_calls_in_block(
     table: &HashMap<Span, (Symbol, Symbol, Vec<Type>)>,
     outer_params: &[Symbol],
     outer_args: &[Type],
+    enclosing: Option<Symbol>,
     generic_methods: &HashMap<(Symbol, Symbol), (FnDecl, bool)>,
 ) -> Block {
     map_block_children(
         b,
-        &mut |e| rewrite_method_calls_in_expr(e, table, outer_params, outer_args, generic_methods),
+        &mut |e| {
+            rewrite_method_calls_in_expr(e, table, outer_params, outer_args, enclosing, generic_methods)
+        },
         &mut |t: &Type| t.clone(),
     )
 }
@@ -303,16 +316,18 @@ fn rewrite_method_calls_in_expr(
     table: &HashMap<Span, (Symbol, Symbol, Vec<Type>)>,
     outer_params: &[Symbol],
     outer_args: &[Type],
+    enclosing: Option<Symbol>,
     generic_methods: &HashMap<(Symbol, Symbol), (FnDecl, bool)>,
 ) -> Expr {
-    let recurse = |c: &Expr| rewrite_method_calls_in_expr(c, table, outer_params, outer_args, generic_methods);
+    let recurse = |c: &Expr| rewrite_method_calls_in_expr(c, table, outer_params, outer_args, enclosing, generic_methods);
     let kind = match &e.kind {
         ExprKind::MethodCall { obj, method, args } => {
             let new_obj = Box::new(recurse(obj));
             let new_args: Box<[Expr]> = args.iter().map(&recurse).collect();
             let new_method = match table.get(&e.span) {
                 Some((class, recorded_method, raw_args)) if recorded_method == method => {
-                    if generic_methods.contains_key(&(*class, *method)) {
+                    let cls = self_class(*class, enclosing);
+                    if generic_methods.contains_key(&(cls, *method)) {
                         let concrete: Vec<Type> = raw_args
                             .iter()
                             .map(|t| subst_type(t, outer_params, outer_args))
@@ -343,6 +358,21 @@ fn rewrite_method_calls_in_expr(
     Expr { kind, span: e.span }
 }
 
+/// A `this`-call inside a specialized class method is recorded under the
+/// GENERIC base name (`Box`) — at check time the class was still generic.
+/// Remap it to the specialized class (`Box<i64>`) currently being
+/// processed so the generic-method lookup matches.
+fn self_class(recorded: Symbol, enclosing: Option<Symbol>) -> Symbol {
+    if let Some(enc) = enclosing {
+        let es = enc.as_str();
+        let base = es.split('<').next().unwrap_or(es);
+        if recorded.as_str() == base {
+            return enc;
+        }
+    }
+    recorded
+}
+
 fn seed_in_item(
     item: &Item,
     table: &HashMap<Span, (Symbol, Symbol, Vec<Type>)>,
@@ -351,20 +381,21 @@ fn seed_in_item(
     visit: &mut dyn FnMut(Symbol, Symbol, &[Type]),
 ) {
     match item {
-        Item::Fn(f) => seed_in_block(&f.body, table, outer_params, outer_args, visit),
+        Item::Fn(f) => seed_in_block(&f.body, table, outer_params, outer_args, None, visit),
         Item::Class(c) => {
+            let enc = Some(c.name);
             for m in c.methods.iter() {
-                seed_in_block(&m.body, table, outer_params, outer_args, visit);
+                seed_in_block(&m.body, table, outer_params, outer_args, enc, visit);
             }
             for m in c.static_methods.iter() {
-                seed_in_block(&m.body, table, outer_params, outer_args, visit);
+                seed_in_block(&m.body, table, outer_params, outer_args, enc, visit);
             }
             for p in c.properties.iter() {
                 if let Some(g) = &p.getter {
-                    seed_in_block(&g.body, table, outer_params, outer_args, visit);
+                    seed_in_block(&g.body, table, outer_params, outer_args, enc, visit);
                 }
                 if let Some(s) = &p.setter {
-                    seed_in_block(&s.body, table, outer_params, outer_args, visit);
+                    seed_in_block(&s.body, table, outer_params, outer_args, enc, visit);
                 }
             }
         }
@@ -377,9 +408,12 @@ fn seed_in_block(
     table: &HashMap<Span, (Symbol, Symbol, Vec<Type>)>,
     outer_params: &[Symbol],
     outer_args: &[Type],
+    enclosing: Option<Symbol>,
     visit: &mut dyn FnMut(Symbol, Symbol, &[Type]),
 ) {
-    walk_block_children(b, &mut |e| seed_in_expr(e, table, outer_params, outer_args, visit));
+    walk_block_children(b, &mut |e| {
+        seed_in_expr(e, table, outer_params, outer_args, enclosing, visit)
+    });
 }
 
 fn seed_in_expr(
@@ -387,6 +421,7 @@ fn seed_in_expr(
     table: &HashMap<Span, (Symbol, Symbol, Vec<Type>)>,
     outer_params: &[Symbol],
     outer_args: &[Type],
+    enclosing: Option<Symbol>,
     visit: &mut dyn FnMut(Symbol, Symbol, &[Type]),
 ) {
     if let ExprKind::MethodCall { method, .. } = &e.kind {
@@ -396,9 +431,11 @@ fn seed_in_expr(
                     .iter()
                     .map(|t| subst_type(t, outer_params, outer_args))
                     .collect();
-                visit(*class, *method, &concrete);
+                visit(self_class(*class, enclosing), *method, &concrete);
             }
         }
     }
-    walk_expr_children(e, &mut |c| seed_in_expr(c, table, outer_params, outer_args, visit));
+    walk_expr_children(e, &mut |c| {
+        seed_in_expr(c, table, outer_params, outer_args, enclosing, visit)
+    });
 }
