@@ -816,6 +816,27 @@ impl TypeChecker {
                         return Ok(joined);
                     }
                 }
+                // A generic-class instantiation (`Box<i64>`) that doesn't
+                // unify with the other arm (`Empty`, or a `Box<string>`
+                // with an incompatible type arg) still joins through its
+                // BASE class's common ancestor / interface — the
+                // parent/interface relation lives on the base, not the
+                // type args. Runs after the covariant join so that
+                // `Box<Dog> ⊔ Box<Cat>` still becomes `Box<Animal>`.
+                let obj_base = |t: &Type| -> Option<Symbol> {
+                    match t {
+                        Type::Object(c) => Some(*c),
+                        Type::Generic(g) => Some(g.base),
+                        _ => None,
+                    }
+                };
+                if matches!(then_ty, Type::Generic(_)) || matches!(else_ty, Type::Generic(_)) {
+                    if let (Some(a), Some(b)) = (obj_base(&then_ty), obj_base(&else_ty)) {
+                        if let Some(anc) = self.common_object_join(a, b) {
+                            return Ok(Type::Object(anc));
+                        }
+                    }
+                }
                 // Optional unification: a bare `none` arm has
                 // inferred type `any?`, while a `some(v)` arm
                 // has `T?`. Prefer the concrete side at every

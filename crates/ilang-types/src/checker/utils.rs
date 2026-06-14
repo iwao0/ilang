@@ -136,6 +136,16 @@ impl TypeChecker {
         if let Some(anc) = self.common_ancestor(a, b) {
             return Some(anc);
         }
+        // One side is already an interface the other implements — that
+        // interface IS the join. This is how folding match arms
+        // (`arm0 ⊔ arm1` may yield an interface, then joined with
+        // `arm2`) and an interface-typed annotation converge.
+        if self.interfaces.contains_key(&a) && self.class_implements(b, a) {
+            return Some(a);
+        }
+        if self.interfaces.contains_key(&b) && self.class_implements(a, b) {
+            return Some(b);
+        }
         let mut shared: Vec<Symbol> = self
             .interfaces
             .keys()
@@ -518,6 +528,25 @@ impl TypeChecker {
         if allow_generic_join {
             if let Some(joined) = self.common_generic_join(&a, &b) {
                 return Ok(joined);
+            }
+        }
+        // A generic-class instantiation that doesn't unify with the
+        // other arm still joins through its BASE class's common ancestor
+        // / interface (the parent / interface relation lives on the
+        // base). Runs after the covariant join above so
+        // `Box<Dog> ⊔ Box<Cat>` still becomes `Box<Animal>`.
+        if matches!(a, Type::Generic(_)) || matches!(b, Type::Generic(_)) {
+            let obj_base = |t: &Type| -> Option<Symbol> {
+                match t {
+                    Type::Object(c) => Some(*c),
+                    Type::Generic(g) => Some(g.base),
+                    _ => None,
+                }
+            };
+            if let (Some(ca), Some(cb)) = (obj_base(&a), obj_base(&b)) {
+                if let Some(anc) = self.common_object_join(ca, cb) {
+                    return Ok(Type::Object(anc));
+                }
             }
         }
         Err(TypeError::Mismatch {
