@@ -1537,6 +1537,13 @@ impl<'a> BodyCx<'a> {
             let coerced = self.coerce(vv0, &vty, fty, span)?;
             self.release_owned_wrap_source(vv0, &vty, fty, src_owned);
             (coerced, src_is_fresh)
+        } else if vty != *fty && vty.is_numeric() && fty.is_numeric() {
+            // Numeric field of a different type than the value (most
+            // commonly an `f64` literal stored into an `f32` field):
+            // coerce so the right width / representation reaches the
+            // slot. Without this, an f64 was stored whole into an f32
+            // field and read back as the low 32 bits — `1.5` → `0.0`.
+            (self.coerce(vv0, &vty, fty, span)?, src_is_fresh)
         } else {
             (vv0, src_is_fresh)
         };
