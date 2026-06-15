@@ -97,15 +97,19 @@ impl<'a> BodyCx<'a> {
         }
         let value_is_fresh = self.is_fresh_object_expr(&args[0]);
         let (coerced, _) = self.lower_arg_to(&args[0], Some(elem))?;
+        // `lower_arg_to` already took the +1 when it coerced the source
+        // into the element type (a `T → T?` / Object → Weak wrap owns its
+        // share) — flagged via `last_arg_wrapped`. Don't retain again.
+        let already_owned = value_is_fresh || self.last_arg_wrapped;
         // Bump rc on borrowed heap values — `array_push` stores the
         // cell verbatim, but `__release_array`'s cascade will
         // eventually release every stored element. Fixed-length-
         // array elements take a value COPY instead: the copy's own
         // +1 is what the array stores.
-        let coerced = match self.copy_fixed_for_cell(coerced, elem, value_is_fresh) {
+        let coerced = match self.copy_fixed_for_cell(coerced, elem, already_owned) {
             Some(copy) => copy,
             None => {
-                if !value_is_fresh {
+                if !already_owned {
                     retain_if_heap(&mut self.fb, coerced, elem);
                 }
                 coerced

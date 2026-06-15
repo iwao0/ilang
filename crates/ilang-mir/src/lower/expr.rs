@@ -1531,11 +1531,14 @@ impl<'a> BodyCx<'a> {
                     // this the raw f64 went into the f32? slot -> SIGSEGV.
                     || (inner.is_numeric() && vty.is_numeric() && **inner != vty)
         );
-        // Object → Weak: clif-level identity but the value's MIR type
-        // must switch BEFORE the retain below, otherwise `Retain`
-        // lowers to `__retain_object` and we leak a strong +1 onto a
-        // weak-counted slot. Pre-coerce, then let the generic retain
-        // path dispatch via `__retain_weak`.
+        // Object → Weak field store. The weak slot must own a weak share
+        // so the box survives as a zombie for `WeakUpgrade`. Pre-coerce
+        // (the cast is a clif-level identity but flips the MIR type so the
+        // retain dispatches via `__retain_weak`, not `__retain_object`),
+        // then take the weak +1 — BEFORE `release_owned_wrap_source` drops
+        // the source's strong +1, since a fresh source has no other strong
+        // holder and releasing first would free the box first. Mark the
+        // result fresh so the generic store retain below doesn't double it.
         let needs_strong_to_weak =
             matches!((&vty, fty), (MirTy::Object(_), MirTy::Weak(_)));
         let (vv, value_is_fresh) = if needs_optional_wrap {
@@ -1550,8 +1553,9 @@ impl<'a> BodyCx<'a> {
             (coerced, true)
         } else if needs_strong_to_weak {
             let coerced = self.coerce(vv0, &vty, fty, span)?;
+            self.fb.push_inst(Inst::Retain { value: coerced });
             self.release_owned_wrap_source(vv0, &vty, fty, src_owned);
-            (coerced, src_is_fresh)
+            (coerced, true)
         } else if vty != *fty && vty.is_numeric() && fty.is_numeric() {
             // Numeric field of a different type than the value (most
             // commonly an `f64` literal stored into an `f32` field):

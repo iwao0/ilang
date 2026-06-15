@@ -323,6 +323,12 @@ impl<'a> BodyCx<'a> {
             // source's share. Without this, `[box]: T?[]` leaked the
             // source (fresh) or double-counted the cell (borrowed).
             let wrapped = coerced != vv;
+            // Unlike the `T → T?` wrap, a bare `Object → Weak` downgrade
+            // mints no +1 — take the weak share here (before the source
+            // release below) so a fresh element survives as a zombie.
+            if wrapped && matches!(target, MirTy::Weak(_)) {
+                self.fb.push_inst(Inst::Retain { value: coerced });
+            }
             // Fixed-length-array elements take a value copy (the
             // copy is the array's owned +1; skip the retain below).
             let (coerced, fixed_copied) = match self.copy_fixed_for_cell(coerced, &target, elem_is_fresh) {
@@ -555,6 +561,12 @@ impl<'a> BodyCx<'a> {
             // +1, so skip the aliased retain and drop the owned
             // source's share instead.
             let wrapped = v != v0;
+            // Bare `Object → Weak` mints no +1 (unlike the `T → T?` wrap)
+            // — take the weak share here, before the source release below,
+            // so a fresh element survives as a zombie.
+            if wrapped && matches!(t, MirTy::Weak(_)) {
+                self.fb.push_inst(Inst::Retain { value: v });
+            }
             // Fixed-length-array slots take a value copy.
             let (v, copied) = match self.copy_fixed_for_cell(v, &t, elem_is_fresh) {
                 Some(copy) => (copy, true),
@@ -615,6 +627,14 @@ impl<'a> BodyCx<'a> {
                 let owned =
                     self.is_fresh_object_expr(a) || self.last_block_tail_owned;
                 let coerced = self.coerce(v, &vty, t, a.span)?;
+                // Object → Weak arg: take the weak +1 BEFORE dropping the
+                // strong source below, so a fresh source (no other strong
+                // holder) keeps the box alive as a zombie for the callee.
+                // `last_arg_wrapped` (set below) tells the caller this arg
+                // already owns its share, so it isn't retained twice.
+                if matches!(t, MirTy::Weak(_)) && coerced != v {
+                    self.fb.push_inst(Inst::Retain { value: coerced });
+                }
                 // Owned source wrapped into T? / T.weak — drop its
                 // share (see release_owned_wrap_source).
                 self.release_owned_wrap_source(v, &vty, t, owned);

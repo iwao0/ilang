@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-14 / 2026-06-11) で main に landing した変更:
 
+- **第 148 弾** (weak 強制を全消費サイトで完了)。 第 145〜147 は let/再代入/return を直したが、 **コンテナ/引数の消費サイト**(field store・array.push・array/tuple リテラル・`T.weak` 引数)が fresh ソースでまだ UAF だった。 coerce 集約を試みたが、 サイトにより「coerce が retain 済みと仮定(リテラル)」「自前 retain(field/array/arg)」が混在し二重 retain でリーク(fixture 2 件回帰)→ `e0edf298` へ戻し、 ユーザー合意で **per-site 順序修正**(retain を release より前に足すのみ・除去なし)へ。 全消費サイトに適用、 fixture `weak_fresh_into_container_and_arg.il` 追加、 網羅スイープ全緑、 全儀式緑。 詳細は下の解決済み記録。
 - **第 147 弾** (weak 強制の残り経路を完了)。 第 145/146 は borrowed ソースだけ直しており、 **fresh ソース**(`new T()`・if/else / match join)と **return** がまだ UAF だった。 原因は (a) `is_fresh_object_expr` が If/Match/New を fresh 分類するため第 145 弾の Weak 除外が短絡されたこと、 (b) weak retain を strong 解放より後に出す**順序バグ**。 修正: `StrongToWeak` ではソースの fresh/borrowed を問わず **strong 解放より前に weak +1 を取得**(let/再代入/return の 3 経路)。 fixture 2 件追加(通常モードで決定的)、 網羅スイープ全緑、 全儀式緑。 詳細は下の解決済み記録。
 - **第 146 弾** (weak 再代入 UAF + 一時 weak レシーバのリーク)。 第 145 弾が露呈した兄弟問題 2 件。 (1) 再代入 `w = strongRef` も同じ「coercion=fresh」で weak retain を省き UAF([expr.rs](../crates/ilang-mir/src/lower/expr.rs))。 (2) **第 145 弾の回帰**: `mkWeak().get()` の一時 weak レシーバが解放されずリーク([calls/mod.rs](../crates/ilang-mir/src/lower/calls/mod.rs) に fresh-release ガード追加)。 fixture 2 件追加。 詳細は下の解決済み記録。
 - **第 145 弾** (weak 束縛の UAF を修正)。 `let w: T.weak = strongRef` が weak 共有を retain せず、 zombie box が weak 生存中に解放され `w.get()` が解放済みメモリを読む UAF(通常は偶然 0 を読み `none`、 HEAP_GUARD で `some` に化ける)。 原因は `let` 束縛の retain 判定が「coercion=新セル +1 の wrap」と決め打ちし、 +1 を作らない bare な `StrongToWeak` まで fresh 扱いして束縛 retain を省いたこと([stmt.rs](../crates/ilang-mir/src/lower/stmt.rs))。 修正は判定から bare `Weak` 標的を除外(`StrongToWeak` のみ該当、 Optional<Weak> は別経路で不変)。 修正案 3 種を比較し局所案を採用。 fixture `05_edge_cases/weak_bind_keeps_zombie_alive.il`(解放スロット再利用で通常モードでも決定的に落ちる)追加、 リーク無し確認、 workspace 546/546 + JIT/AOT + nested_generic 100/100 緑。 詳細は下の解決済み記録。
@@ -197,6 +198,19 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 148 弾: weak 強制を全消費サイトで完了(field/array/tuple/arg)(2026-06-15) — ユーザー決定
+
+第 145〜147 弾は **let / 再代入 / return** の weak 強制を直したが、 **コンテナ/引数の消費サイト**(field store・array.push・array/tuple リテラル・`T.weak` 引数)は **fresh ソースでまだ UAF** だった(borrowed は strong 保持者頼みで動いていた)。 ユーザー「残り全部直す」方針で完了。
+
+- **検討と却下(coerce 集約)**: ユーザーは当初 coerce 集約を選択。 試したところ **field store / array.push / lower_arg_to は元々 slot 所有のため自前 weak retain しており、 coerce の retain と二重→リーク**(`weak_backref_cascade_release_order` と `leak_fresh_weak_arg` が回帰)。 一方 **array/tuple リテラルは coerce が retain 済みと仮定**して自前 retain しない(コメントは誤りで実際は bare)。 つまりサイトごとに前提が不一致で、 集約は全解放側の対称化が必要な大工事。 `e0edf298` へ戻し、 より安全な **per-site 順序修正**(retain を足すだけ・除去しない)へ切替(ユーザー合意)。
+- **修正(per-site 順序修正)**: 各消費サイトで「`StrongToWeak` の weak retain を `release_owned_wrap_source` の**前**に・fresh/borrowed 問わず」。
+  - field store([expr.rs](../crates/ilang-mir/src/lower/expr.rs) `store_value_to_field`): coerce 後に retain、 結果を fresh 扱いして汎用 retain と二重回避。
+  - 引数([literals.rs](../crates/ilang-mir/src/lower/literals.rs) `lower_arg_to`): Object→Weak で retain、 `last_arg_wrapped` で呼び出し側に所有を伝達。 array.push([calls/array.rs](../crates/ilang-mir/src/lower/calls/array.rs))は `last_arg_wrapped` を見て自前 retain をスキップ。
+  - array/tuple リテラル([literals.rs](../crates/ilang-mir/src/lower/literals.rs)): `wrapped && target==Weak` のときだけ retain(Optional は coerce が retain 済みなので除外)。
+  - map リテラルは元から正常(coerce 後の release が elem_is_fresh ベースで釣り合っていた)。
+- **検証**: fixture `weak_fresh_into_container_and_arg.il`(push/literal/tuple/arg は通常モードで決定的に `BAD` vs `none`、 field は HEAP_GUARD + 個別 churn で担保)。 網羅スイープ: let/再代入/return/field/array.push/literal/tuple/map/arg × borrowed/fresh + 一時レシーバ、 全て none/正値 かつ leak churn 全 leakfree、 HEAP_GUARD 破損無し、 全 weak fixture(20 個超)JIT+guard 緑、 workspace 546/546、 programs JIT+AOT、 nested_generic 100/100。
+- **教訓**: weak rc は「strong 解放より前に weak +1・消費/scope 退出で release」を**全サイト**で揃える必要がある。 サイトにより「coerce が retain 済みと仮定」「自前 retain」が混在しており、 集約は両者の対称化が前提。 per-site は retain 追加のみで二重化せず安全だった。
 
 ### [解決済み記録] 第 147 弾: weak 強制の残り経路(fresh / join / return)と順序バグを完了 (2026-06-15) — ユーザー決定
 
