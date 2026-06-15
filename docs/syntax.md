@@ -1317,19 +1317,21 @@ s.isDisjointFrom(other)             // bool
 
 - Element types: `string` / `i*` / `u*` / `bool` / `f32` / `f64`,
   plus classes that satisfy the value-equality protocol (see below)
-  and `enum`s whose variants are all unit-payload (or the whole
-  enum is `@flags`). Floats compare by bit pattern, so distinct
-  NaN payloads stay as separate entries. Enum equality / hashing
-  is over the discriminant tag, so unit-variant / `@flags` enums
-  fit the existing primitive store without extra machinery.
+  and any `enum`. Floats compare by bit pattern, so distinct NaN
+  payloads stay as separate entries. Unit-variant / `@flags` enums
+  use the primitive i64-tag store; **payload-carrying** enums use an
+  object-keyed store wired to the enum's structural `equals` /
+  `hashCode`, so `circle(5)` and `circle(5)` dedup while `circle(9)`
+  stays distinct (object payloads compare by reference).
 - No literal syntax yet (`{1, 2, 3}` is reserved for a future
   extension). Empty / pre-populated sets always use `new Set<T>()`
   followed by `add` calls.
 
 - Key types: `string` / `i*` / `u*` / `bool`, plus classes that
-  satisfy the value-equality protocol (see below) and unit-variant
-  (or `@flags`) `enum`s — same gate as Set elements. Floats are
-  rejected (NaN ≠ NaN breaks the `Eq` contract).
+  satisfy the value-equality protocol (see below) and any `enum`
+  (payload enums via their structural `equals` / `hashCode`) — same
+  gate as Set elements. Floats are rejected (NaN ≠ NaN breaks the
+  `Eq` contract).
 - `K` is inferred from the first key, `V` from the first value in
   the literal.
 - Empty maps need `new Map<K, V>()` — `{}` is parsed as an empty

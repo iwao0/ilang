@@ -98,6 +98,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let free_id = declare_binary_i64_void(module, "$alloc.free")?;
     // Map runtime imports.
     let map_new_id = declare_returns_i64(module, "$map.new")?;
+    let map_new_enum_id = declare_returns_i64(module, "$map.newEnum")?;
     let map_new_object_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
@@ -127,6 +128,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     // Set runtime imports — mirror Map's shape but every entry-side
     // op is a 2-arg `(set, raw_elem)` instead of `(set, key, value)`.
     let set_new_id = declare_returns_i64(module, "$set.new")?;
+    let set_new_enum_id = declare_returns_i64(module, "$set.newEnum")?;
     // `$set.newObject(eq_fn, hash_fn) -> i64` — two i64 fn-pointer args,
     // returns the set ptr. Used by `new Set<MyClass>()` lowering.
     let set_new_object_id = {
@@ -899,6 +901,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             let map_ids = MapIds {
                 new: map_new_id,
                 new_object: map_new_object_id,
+                new_enum: map_new_enum_id,
                 get: map_get_id,
                 get_optional: map_get_optional_id,
                 set: map_set_id,
@@ -914,6 +917,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             let set_ids = SetIds {
                 new: set_new_id,
                 new_object: set_new_object_id,
+                new_enum: set_new_enum_id,
                 add: set_add_id,
                 has: set_has_id,
                 delete: set_delete_id,

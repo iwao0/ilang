@@ -37,6 +37,11 @@ enum MapStore {
 struct ObjectMapStore {
     eq_fn: extern "C" fn(i64, i64) -> i64,
     hash_fn: extern "C" fn(i64) -> i64,
+    /// ARC kind of the stored keys — `KIND_OBJECT` for class keys,
+    /// `KIND_ENUM` for payload-enum keys (their rc lives at a different
+    /// offset). Key retain / release route through the cascade
+    /// dispatchers keyed on this.
+    key_kind: i64,
     /// `hash → Vec of (key_ptr, value_cell)`. Bucket walks compare
     /// with the user's `eq_fn`.
     buckets: HashMap<i64, Vec<(i64, i64)>>,
@@ -71,7 +76,7 @@ impl ObjectMapStore {
                 return Some(prev);
             }
         }
-        crate::classes::__retain_object(key);
+        crate::cascade::retain_field_by_kind(key, self.key_kind);
         bucket.push((key, value));
         self.count += 1;
         None
@@ -107,7 +112,7 @@ impl ObjectMapStore {
                     self.buckets.remove(&hash);
                 }
                 self.count -= 1;
-                crate::classes::__release_object(k);
+                crate::cascade::release_field_by_kind(k, self.key_kind);
                 return Some((k, v));
             }
         }
@@ -120,7 +125,7 @@ impl ObjectMapStore {
         let mut values: Vec<i64> = Vec::with_capacity(self.count);
         for bucket in self.buckets.values_mut() {
             for &(k, v) in bucket.iter() {
-                crate::classes::__release_object(k);
+                crate::cascade::release_field_by_kind(k, self.key_kind);
                 values.push(v);
             }
         }
@@ -210,6 +215,30 @@ pub extern "C" fn __map_new_object(eq_fn: i64, hash_fn: i64) -> i64 {
         store: MapStore::Object(ObjectMapStore {
             eq_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64, i64) -> i64>(eq_fn) },
             hash_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64) -> i64>(hash_fn) },
+            key_kind: crate::kind::KIND_OBJECT,
+            buckets: HashMap::new(),
+            count: 0,
+        }),
+        str_key_origs: HashMap::new(),
+        order: Vec::new(),
+    });
+    Box::into_raw(m) as i64
+}
+
+/// Payload-enum key map constructor. Counterpart to `$set.newEnum` —
+/// the object store carries the enum structural eq / hash helpers and
+/// `KIND_ENUM` key ARC; keys print via `format_enum_into`.
+#[unsafe(export_name = "$map.newEnum")]
+pub extern "C" fn __map_new_enum() -> i64 {
+    let m = Box::new(ManagedMap {
+        rc: AtomicI64::new(1),
+        val_kind: 0,
+        key_print_kind: crate::kind::PK_ENUM,
+        val_print_kind: PK_OTHER,
+        store: MapStore::Object(ObjectMapStore {
+            eq_fn: crate::enums::__enum_structural_eq,
+            hash_fn: crate::enums::__enum_structural_hash,
+            key_kind: crate::kind::KIND_ENUM,
             buckets: HashMap::new(),
             count: 0,
         }),
@@ -444,6 +473,8 @@ pub extern "C" fn __map_keys(map: i64) -> i64 {
         KIND_STR
     } else if m.key_print_kind == crate::kind::PK_OBJECT {
         crate::kind::KIND_OBJECT
+    } else if m.key_print_kind == crate::kind::PK_ENUM {
+        crate::kind::KIND_ENUM
     } else {
         KIND_NONE
     };
@@ -453,9 +484,9 @@ pub extern "C" fn __map_keys(map: i64) -> i64 {
         for k in &keys {
             __retain_string(*k);
         }
-    } else if elem_kind == crate::kind::KIND_OBJECT {
+    } else if elem_kind == crate::kind::KIND_OBJECT || elem_kind == crate::kind::KIND_ENUM {
         for k in &keys {
-            crate::classes::__retain_object(*k);
+            retain_field_by_kind(*k, elem_kind);
         }
     }
     build_i64_array(&keys, elem_kind)
@@ -555,13 +586,15 @@ pub extern "C" fn __map_entries(map: i64) -> i64 {
         KIND_STR
     } else if m.key_print_kind == crate::kind::PK_OBJECT {
         crate::kind::KIND_OBJECT
+    } else if m.key_print_kind == crate::kind::PK_ENUM {
+        crate::kind::KIND_ENUM
     } else {
         KIND_NONE
     };
     let val_kind = m.val_kind;
     // Snapshot (key_raw, value) pairs; string keys take a +1 registry rc
-    // up-front so the tuple array owns its own share. Object keys
-    // mirror the same pattern via `__retain_object`.
+    // up-front so the tuple array owns its own share. Object / enum keys
+    // mirror the same pattern via their kind's retain.
     // Insertion order (see `ManagedMap::order`).
     let pairs: Vec<(i64, i64)> = m
         .order
@@ -570,8 +603,8 @@ pub extern "C" fn __map_entries(map: i64) -> i64 {
         .map(|(k, v)| {
             if key_kind == KIND_STR {
                 __retain_string(k);
-            } else if key_kind == crate::kind::KIND_OBJECT {
-                crate::classes::__retain_object(k);
+            } else if key_kind == crate::kind::KIND_OBJECT || key_kind == crate::kind::KIND_ENUM {
+                retain_field_by_kind(k, key_kind);
             }
             (k, v)
         })
@@ -677,11 +710,15 @@ pub extern "C" fn __map_for_each(map: i64, closure: i64, key_fk: i64, val_fk: i6
     }
     let m = unsafe { &*(map as *const ManagedMap) };
     let key_is_str = m.key_print_kind == PK_STR;
-    let key_is_object = matches!(&m.store, MapStore::Object(_));
+    // Object / enum key stores keep heap keys; retain each by its kind.
+    let heap_key_kind = match &m.store {
+        MapStore::Object(t) => Some(t.key_kind),
+        _ => None,
+    };
     let val_kind = m.val_kind;
     // Snapshot as raw (key, value) pairs so the callback can mutate
-    // the map without aliasing our iterator. String / object keys
-    // AND heap-typed values keep a +1 rc through the call — a
+    // the map without aliasing our iterator. String / object / enum
+    // keys AND heap-typed values keep a +1 rc through the call — a
     // mid-iteration `delete` / overwrite releases the entry's value,
     // and without the value retain the callback's later visits read
     // freed memory.
@@ -693,8 +730,8 @@ pub extern "C" fn __map_for_each(map: i64, closure: i64, key_fk: i64, val_fk: i6
         .map(|(k, v)| {
             if key_is_str {
                 __retain_string(k);
-            } else if key_is_object {
-                crate::classes::__retain_object(k);
+            } else if let Some(kk) = heap_key_kind {
+                retain_field_by_kind(k, kk);
             }
             (k, v)
         })
@@ -708,8 +745,8 @@ pub extern "C" fn __map_for_each(map: i64, closure: i64, key_fk: i64, val_fk: i6
         unsafe { call_closure_kv(closure, key_raw, v, key_fk, val_fk) };
         if key_is_str {
             crate::strings::__release_string(key_raw);
-        } else if key_is_object {
-            crate::classes::__release_object(key_raw);
+        } else if let Some(kk) = heap_key_kind {
+            release_field_by_kind(key_raw, kk);
         }
         if val_kind != KIND_NONE {
             release_field_by_kind(v, val_kind);

@@ -22,6 +22,7 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     // map). Keys / values flow through as i64 cells (heap pointers
     // share identity when interned).
     jit_builder.symbol("$map.new", ilang_runtime::__map_new as *const u8);
+    jit_builder.symbol("$map.newEnum", ilang_runtime::maps::__map_new_enum as *const u8);
     jit_builder.symbol("$map.get", ilang_runtime::__map_get as *const u8);
     jit_builder.symbol("$map.getOptional", ilang_runtime::__map_get_optional as *const u8);
     jit_builder.symbol("$map.set", ilang_runtime::__map_set as *const u8);
@@ -36,6 +37,7 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     // Set runtime.
     jit_builder.symbol("$set.new", ilang_runtime::__set_new as *const u8);
     jit_builder.symbol("$set.newObject", ilang_runtime::__set_new_object as *const u8);
+    jit_builder.symbol("$set.newEnum", ilang_runtime::sets::__set_new_enum as *const u8);
     jit_builder.symbol("$map.newObject", ilang_runtime::__map_new_object as *const u8);
     jit_builder.symbol("$set.add", ilang_runtime::__set_add as *const u8);
     jit_builder.symbol("$set.has", ilang_runtime::__set_has as *const u8);

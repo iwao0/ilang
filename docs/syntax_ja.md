@@ -986,10 +986,10 @@ s.isSupersetOf(other)               // bool
 s.isDisjointFrom(other)             // bool
 ```
 
-- 要素型は `string` / `i*` / `u*` / `bool` / `f32` / `f64`、値等価プロトコルを実装したクラス (下記参照)、および全 variant が unit (またはクラス全体が `@flags`) の `enum`。enum は判別子タグでの等価/ハッシュなので既存のプリミティブ store に追加機構なしで載る。浮動小数はビットパターン比較なので、別ビットパターンの NaN は別エントリとして残る
+- 要素型は `string` / `i*` / `u*` / `bool` / `f32` / `f64`、値等価プロトコルを実装したクラス (下記参照)、および任意の `enum`。unit-variant / `@flags` enum は判別子タグの i64 store に載り、**payload を持つ** enum は enum の構造的 `equals` / `hashCode` に配線した object-keyed store を使う (`circle(5)` と `circle(5)` は重複排除され `circle(9)` は別エントリ。オブジェクト payload は参照比較)。浮動小数はビットパターン比較なので、別ビットパターンの NaN は別エントリとして残る
 - リテラル構文は未提供 (`{1, 2, 3}` は将来の拡張用として予約)。空 / 初期値付きの Set は `new Set<T>()` + `add` で作る
 
-- キー型は `string` / `i*` / `u*` / `bool`、値等価プロトコルを実装したクラス (下記参照)、unit-variant (または `@flags`) `enum` — Set 要素と同じゲート。float は不可 (NaN ≠ NaN が `Eq` 契約を壊す)
+- キー型は `string` / `i*` / `u*` / `bool`、値等価プロトコルを実装したクラス (下記参照)、任意の `enum` (payload enum は構造的 `equals` / `hashCode` 経由) — Set 要素と同じゲート。float は不可 (NaN ≠ NaN が `Eq` 契約を壊す)
 - リテラル `{ key: value, ... }` の最初のキーから K を、最初の値から V を推論
 - 空マップは `new Map<K, V>()` で構築 (`{}` は空ブロック扱い)
 - パーサは `{<key-token> :` の 2 トークン先読みで map literal とブロックを区別 (ID/Str/Int/Bool + `:` で map)

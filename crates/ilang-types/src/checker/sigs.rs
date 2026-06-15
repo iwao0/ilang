@@ -126,25 +126,17 @@ pub(super) fn is_valid_map_key_type(
     }
 }
 
-/// `Set<MyEnum>` / `Map<MyEnum, _>` are supported when every
-/// variant is unit-payload (or the whole enum is `@flags`). Those
-/// variants compile to a single i64 tag, so the existing Int store
-/// + tag-equality semantics give consistent dedup. Payload-carrying
-/// variants would need structural comparison through a hashCode /
-/// equals protocol the language doesn't yet offer for enums.
+/// Every enum is a valid `Set<MyEnum>` element / `Map<MyEnum, _>` key.
+/// Unit-only (and `@flags`) enums compile to a single i64 tag and reuse
+/// the Int store with tag equality. Payload-carrying enums use the
+/// object-keyed store wired to the enum's structural `equals` / `hashCode`
+/// (`__enum_structural_eq` / `__enum_structural_hash`) — the lowering
+/// picks the store based on whether the enum has any payload variant.
 pub(super) fn enum_is_value_keyable(
     enum_name: Symbol,
     enums: &std::collections::HashMap<Symbol, super::EnumSig>,
 ) -> bool {
-    let Some(sig) = enums.get(&enum_name) else {
-        return false;
-    };
-    if sig.flags {
-        return true;
-    }
-    sig.variants
-        .iter()
-        .all(|v| matches!(v.payload, super::VariantPayloadSig::Unit))
+    enums.contains_key(&enum_name)
 }
 
 /// `Set<T>` / `Map<T, _>` accept primitive `T`s by built-in hashing

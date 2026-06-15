@@ -40,6 +40,12 @@ enum SetStore {
 struct ObjectStore {
     eq_fn: extern "C" fn(i64, i64) -> i64,
     hash_fn: extern "C" fn(i64) -> i64,
+    /// ARC kind of the stored keys — `KIND_OBJECT` for class elements,
+    /// `KIND_ENUM` for payload-enum elements. Key retain / release
+    /// route through `retain_field_by_kind` / `release_field_by_kind`
+    /// so an enum element's rc (at a different offset than an object's)
+    /// is touched correctly.
+    key_kind: i64,
     /// `hash → vector of object pointers that hashed there`. Bucket
     /// length is the only thing the size counter needs to know about.
     /// Stored pointers carry the set's +1 ARC share — `__retain_object`
@@ -68,6 +74,7 @@ impl ObjectStore {
         ObjectStore {
             eq_fn: self.eq_fn,
             hash_fn: self.hash_fn,
+            key_kind: self.key_kind,
             buckets: HashMap::new(),
             count: 0,
         }
@@ -102,7 +109,7 @@ impl ObjectStore {
                 return false;
             }
         }
-        crate::classes::__retain_object(obj);
+        crate::cascade::retain_field_by_kind(obj, self.key_kind);
         bucket.push(obj);
         self.count += 1;
         true
@@ -125,7 +132,7 @@ impl ObjectStore {
                     self.buckets.remove(&hash);
                 }
                 self.count -= 1;
-                crate::classes::__release_object(removed);
+                crate::cascade::release_field_by_kind(removed, self.key_kind);
                 return Some(removed);
             }
         }
@@ -135,7 +142,7 @@ impl ObjectStore {
     fn clear(&mut self) {
         for bucket in self.buckets.values_mut() {
             for &obj in bucket.iter() {
-                crate::classes::__release_object(obj);
+                crate::cascade::release_field_by_kind(obj, self.key_kind);
             }
         }
         self.buckets.clear();
@@ -220,6 +227,28 @@ pub extern "C" fn __set_new_object(eq_fn: i64, hash_fn: i64) -> i64 {
         store: SetStore::Object(ObjectStore {
             eq_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64, i64) -> i64>(eq_fn) },
             hash_fn: unsafe { std::mem::transmute::<i64, extern "C" fn(i64) -> i64>(hash_fn) },
+            key_kind: crate::kind::KIND_OBJECT,
+            buckets: HashMap::new(),
+            count: 0,
+        }),
+        str_origs: HashMap::new(),
+        order: Vec::new(),
+    });
+    Box::into_raw(s) as i64
+}
+
+/// Payload-enum element set constructor. Reuses the object store with
+/// the enum structural eq / hash helpers and `KIND_ENUM` key ARC. No
+/// function pointers are passed — the runtime owns the enum helpers.
+#[unsafe(export_name = "$set.newEnum")]
+pub extern "C" fn __set_new_enum() -> i64 {
+    let s = Box::new(ManagedSet {
+        rc: AtomicI64::new(1),
+        elem_print_kind: crate::kind::PK_ENUM,
+        store: SetStore::Object(ObjectStore {
+            eq_fn: crate::enums::__enum_structural_eq,
+            hash_fn: crate::enums::__enum_structural_hash,
+            key_kind: crate::kind::KIND_ENUM,
             buckets: HashMap::new(),
             count: 0,
         }),
@@ -500,6 +529,8 @@ pub extern "C" fn __set_values(set: i64) -> i64 {
         KIND_STR
     } else if s.elem_print_kind == crate::kind::PK_OBJECT {
         crate::kind::KIND_OBJECT
+    } else if s.elem_print_kind == crate::kind::PK_ENUM {
+        crate::kind::KIND_ENUM
     } else {
         KIND_NONE
     };
@@ -510,10 +541,12 @@ pub extern "C" fn __set_values(set: i64) -> i64 {
         .map(|&h| {
             if elem_kind == KIND_STR {
                 __retain_string(h);
-            } else if elem_kind == crate::kind::KIND_OBJECT {
+            } else if elem_kind == crate::kind::KIND_OBJECT
+                || elem_kind == crate::kind::KIND_ENUM
+            {
                 // Array element takes its own +1 share; the set
                 // retains a separate share that stays put.
-                crate::classes::__retain_object(h);
+                crate::cascade::retain_field_by_kind(h, elem_kind);
             }
             h
         })
@@ -562,8 +595,13 @@ pub extern "C" fn __set_for_each(set: i64, closure: i64) {
     }
     let s = unsafe { &*(set as *const ManagedSet) };
     let is_str = s.elem_print_kind == PK_STR;
-    let is_object = matches!(&s.store, SetStore::Object(_));
-    // Snapshot as raw i64 — for string and object elements we retain
+    // Object / enum element stores both keep heap keys; retain each by
+    // its kind so an enum's rc is touched at the right offset.
+    let heap_key_kind = match &s.store {
+        SetStore::Object(t) => Some(t.key_kind),
+        _ => None,
+    };
+    // Snapshot as raw i64 — for string and heap elements we retain
     // the corresponding share up-front so each entry survives any
     // mutation the callback may perform on the set (e.g. delete
     // during iteration).
@@ -574,8 +612,8 @@ pub extern "C" fn __set_for_each(set: i64, closure: i64) {
         .map(|&h| {
             if is_str {
                 __retain_string(h);
-            } else if is_object {
-                crate::classes::__retain_object(h);
+            } else if let Some(k) = heap_key_kind {
+                crate::cascade::retain_field_by_kind(h, k);
             }
             h
         })
@@ -584,8 +622,8 @@ pub extern "C" fn __set_for_each(set: i64, closure: i64) {
         unsafe { call_closure_1_i64(closure, arg) };
         if is_str {
             __release_string(arg);
-        } else if is_object {
-            crate::classes::__release_object(arg);
+        } else if let Some(k) = heap_key_kind {
+            crate::cascade::release_field_by_kind(arg, k);
         }
     }
     crate::closures::__release_closure(closure);
@@ -645,7 +683,10 @@ fn make_object_set_like(src: &ManagedSet) -> i64 {
     };
     let s = Box::new(ManagedSet {
         rc: AtomicI64::new(1),
-        elem_print_kind: crate::kind::PK_OBJECT,
+        // Inherit the source's element print kind so an enum set's
+        // union / intersection / difference still prints + ARC-tracks
+        // its elements as enums.
+        elem_print_kind: src.elem_print_kind,
         store: SetStore::Object(ot.empty_like()),
         str_origs: HashMap::new(),
         order: Vec::new(),

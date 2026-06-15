@@ -5,7 +5,7 @@
 
 use crate::classes::format_object_into;
 use crate::kind::{
-    PK_ARRAY_I64_SIG, PK_BOOL, PK_F32, PK_F64, PK_I16_SIG, PK_I16_UNS,
+    PK_ARRAY_I64_SIG, PK_BOOL, PK_ENUM, PK_F32, PK_F64, PK_I16_SIG, PK_I16_UNS,
     PK_I32_SIG, PK_I32_UNS, PK_I64_SIG, PK_I64_UNS, PK_I8_SIG,
     PK_I8_UNS, PK_OBJECT, PK_STR,
 };
@@ -54,6 +54,15 @@ pub(crate) fn format_kind_id(out: &mut String, kind: i64, raw: i64) {
                 out.push_str("<null>");
             } else {
                 format_object_into(out, raw);
+            }
+        }
+        PK_ENUM => {
+            if raw == 0 {
+                out.push_str("<null>");
+            } else {
+                // The enum id is stored just below the value pointer.
+                let eid = unsafe { *((raw - 8) as *const i64) };
+                crate::enums::format_enum_into(out, eid, raw);
             }
         }
         PK_ARRAY_I64_SIG => {

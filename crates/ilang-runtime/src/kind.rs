@@ -35,5 +35,9 @@ pub const PK_F64: i64 = 9;
 pub const PK_F32: i64 = 10;
 pub const PK_STR: i64 = 11;
 pub const PK_OBJECT: i64 = 12;
+/// Enum element / key in a `Set` / `Map` — the cell is a heap enum
+/// (structural eq / hash via `__enum_structural_*`); printed via
+/// `format_enum_into` (the eid lives at `ptr - 8`).
+pub const PK_ENUM: i64 = 13;
 pub const PK_ARRAY_I64_SIG: i64 = 100;
 pub const PK_OTHER: i64 = -1;

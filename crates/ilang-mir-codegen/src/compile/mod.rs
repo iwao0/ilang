@@ -45,6 +45,7 @@ use ilang_mir::{ClassId, MirTy, Program};
 pub(super) struct MapIds {
     pub(super) new: cranelift_module::FuncId,
     pub(super) new_object: cranelift_module::FuncId,
+    pub(super) new_enum: cranelift_module::FuncId,
     pub(super) get: cranelift_module::FuncId,
     pub(super) get_optional: cranelift_module::FuncId,
     pub(super) set: cranelift_module::FuncId,
@@ -65,6 +66,7 @@ pub(super) struct MapIds {
 pub(super) struct SetIds {
     pub(super) new: cranelift_module::FuncId,
     pub(super) new_object: cranelift_module::FuncId,
+    pub(super) new_enum: cranelift_module::FuncId,
     pub(super) add: cranelift_module::FuncId,
     pub(super) has: cranelift_module::FuncId,
     pub(super) delete: cranelift_module::FuncId,

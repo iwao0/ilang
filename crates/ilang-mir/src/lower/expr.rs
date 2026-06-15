@@ -63,6 +63,16 @@ impl<'a> BodyCx<'a> {
     /// share this so a class-keyed map always keys on `equals` /
     /// `hashCode`, never the boxed pointer — the regular `NewMap`
     /// codegen assumes the primitive Int/Str store and would otherwise
+    /// True when the enum `eid` has at least one payload-carrying
+    /// variant — those need the object-keyed Set / Map store (structural
+    /// eq / hash); unit-only / `@flags` enums use the Int tag store.
+    pub(super) fn enum_has_payload(&self, eid: crate::types::EnumId) -> bool {
+        self.enums[eid.0 as usize]
+            .variants
+            .iter()
+            .any(|v| !matches!(v.payload, crate::program::VariantPayload::Unit))
+    }
+
     /// key on pointer identity. Returns the constructed map value
     /// (typed `ty`, a `Map<Object(class_id), val>`).
     pub(super) fn build_object_keyed_map(
@@ -278,6 +288,20 @@ impl<'a> BodyCx<'a> {
                         let dst = self.build_object_keyed_map(*class_id, &val, &ty)?;
                         return Ok((dst, ty));
                     }
+                    // Payload-carrying enum key: object-keyed store wired
+                    // to the enum's structural eq / hash. Unit / @flags
+                    // enums fall through to `NewMap` (Int tag store).
+                    if let MirTy::Enum(eid) = &key {
+                        if self.enum_has_payload(*eid) {
+                            let dst = self.fb.new_value(ty.clone());
+                            self.fb.push_inst(Inst::Call {
+                                dst: Some(dst),
+                                callee: FuncRef::Builtin(Symbol::intern("map_new_enum")),
+                                args: Box::new([]),
+                            });
+                            return Ok((dst, ty));
+                        }
+                    }
                     let dst = self.fb.new_value(ty.clone());
                     self.fb.push_inst(Inst::NewMap {
                         dst,
@@ -297,6 +321,19 @@ impl<'a> BodyCx<'a> {
                     let elem = self.resolve_ty(&type_args[0])?;
                     let ty = MirTy::Set { elem: Box::new(elem.clone()) };
                     let set_ptr = self.fb.new_value(ty.clone());
+                    // Payload-carrying enum element: object-keyed store
+                    // wired to the enum's structural eq / hash. Unit /
+                    // @flags enums fall through to the Int tag store.
+                    if let MirTy::Enum(eid) = &elem {
+                        if self.enum_has_payload(*eid) {
+                            self.fb.push_inst(Inst::Call {
+                                dst: Some(set_ptr),
+                                callee: FuncRef::Builtin(Symbol::intern("set_new_enum")),
+                                args: Box::new([]),
+                            });
+                            return Ok((set_ptr, ty));
+                        }
+                    }
                     // Object element: route through `$set.newObject`
                     // with the class's `equals` / `hashCode` method
                     // addresses. ARC retain / release on stored
