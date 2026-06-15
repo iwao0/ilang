@@ -59,7 +59,15 @@ pub(super) fn emit_print_value<M: Module>(
             } else {
                 fb.ins().uextend(types::I64, av)
             };
-            let r = module.declare_func_in_func(print_ids.int, fb.func);
+            // u64 can set the i64 sign bit — print it unsigned. Narrower
+            // unsigned types zero-extend to a positive i64, so the signed
+            // printer renders them correctly.
+            let printer = if matches!(t, MirTy::U64) {
+                print_ids.uint
+            } else {
+                print_ids.int
+            };
+            let r = module.declare_func_in_func(printer, fb.func);
             fb.ins().call(r, &[v]);
         }
         MirTy::F32 => {

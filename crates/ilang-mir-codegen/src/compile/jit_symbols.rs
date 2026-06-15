@@ -152,6 +152,7 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     );
     jit_builder.symbol("$string.eq", ilang_runtime::__str_eq as *const u8);
     jit_builder.symbol("$string.fromInt", ilang_runtime::__int_to_string as *const u8);
+    jit_builder.symbol("$string.fromUint", ilang_runtime::__uint_to_string as *const u8);
     jit_builder.symbol("$string.fromBool", ilang_runtime::__bool_to_string as *const u8);
     jit_builder.symbol(
         "$string.fromF32",
@@ -188,6 +189,7 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     // dispatch in `fmt_emit::emit_format_value`; each one returns a
     // newly-allocated ilang string.
     jit_builder.symbol("$fmt.int", ilang_runtime::__fmt_int as *const u8);
+    jit_builder.symbol("$fmt.uint", ilang_runtime::__fmt_uint as *const u8);
     jit_builder.symbol("$fmt.bool", ilang_runtime::__fmt_bool as *const u8);
     jit_builder.symbol("$fmt.f64", ilang_runtime::__fmt_f64 as *const u8);
     jit_builder.symbol("$fmt.str", ilang_runtime::__fmt_str as *const u8);
@@ -552,6 +554,7 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     // and AOT share the same `extern "C"` bodies. We feed JIT the
     // pointer; AOT links against the `.a` facet at build time.
     jit_builder.symbol("$print.int", ilang_runtime::__print_int as *const u8);
+    jit_builder.symbol("$print.uint", ilang_runtime::__print_uint as *const u8);
     jit_builder.symbol("$print.bool", ilang_runtime::__print_bool as *const u8);
     jit_builder.symbol("$print.f64", ilang_runtime::__print_f64 as *const u8);
     jit_builder.symbol("$print.str", ilang_runtime::__print_str as *const u8);

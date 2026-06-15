@@ -325,7 +325,16 @@ n.toString()                // "255"
 
 Available on every numeric primitive (`i8`..`u64`, `f32`, `f64`)
 plus `bool`. Float formatting matches `console.log` (integral
-values print as `N.0`).
+values print as `N.0`). `u64` values ≥ 2^63 format as unsigned
+decimal (`18000000000000000000`, not the negative two's-complement
+reading) — in `toString`, `console.log`, array printing, and `${}`
+interpolation alike.
+
+A bare integer literal adopts the other operand's integer type, so
+`u64_val / 2`, `% 2`, and `>> 2` use the unsigned div / rem / logical
+shift (signed operations on a `u64` whose top bit is set would be
+wrong). Genuine cross-sign arithmetic between two *variables* still
+follows the promote-to-wider, prefer-signed-on-a-tie rule.
 
 ### Built-in `.hashCode(): i64` on every primitive
 

@@ -501,6 +501,27 @@ impl<'a> BodyCx<'a> {
         }
         let (lv, lty) = (lv0, lty0.clone());
         let (rv, rty) = (rv0, rty0.clone());
+        // Mirror the checker's literal adoption: a bare integer literal
+        // takes the OTHER operand's integer type (including signedness)
+        // when they're the same width. Without this, `unify_numeric`'s
+        // cross-sign tie-break prefers the signed side, so `u64_val / 2`
+        // (`% 2`, `>> 2`, …) used the SIGNED op on an unsigned value —
+        // wrong once the value's top bit is set. The bit pattern is
+        // unchanged (same width), so only the type is adjusted; genuine
+        // cross-sign arithmetic between two variables is left alone.
+        let lhs_is_int_lit = matches!(lhs.kind, AstExprKind::Int(_));
+        let rhs_is_int_lit = matches!(rhs.kind, AstExprKind::Int(_));
+        let same_width_cross_sign = lty.is_int()
+            && rty.is_int()
+            && lty.is_signed_int() != rty.is_signed_int()
+            && lty.int_width() == rty.int_width();
+        let (lty, rty) = if same_width_cross_sign && rhs_is_int_lit && !lhs_is_int_lit {
+            (lty.clone(), lty.clone())
+        } else if same_width_cross_sign && lhs_is_int_lit && !rhs_is_int_lit {
+            (rty.clone(), rty.clone())
+        } else {
+            (lty, rty)
+        };
         // Numeric promotion (i64+f64 etc.) — pick the wider/float side.
         let (lv, rv, ty) = self.unify_numeric(lv, lty, rv, rty)?;
 

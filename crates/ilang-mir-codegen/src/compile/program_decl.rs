@@ -342,6 +342,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         concat_inplace: declare_binary_i64(module, "$string.concatInplace")?,
         eq: declare_binary_i64(module, "$string.eq")?,
         int_to_string: declare_unary_i64(module, "$string.fromInt")?,
+        uint_to_string: declare_unary_i64(module, "$string.fromUint")?,
         bool_to_string: declare_unary_i64(module, "$string.fromBool")?,
         to_upper: declare_unary_i64(module, "$string.toUpper")?,
         to_lower: declare_unary_i64(module, "$string.toLower")?,
@@ -541,6 +542,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     };
     let print_ids = PrintIds {
         int: declare_unit_i64(module, "$print.int")?,
+        uint: declare_unit_i64(module, "$print.uint")?,
         bool_: declare_unit_i64(module, "$print.bool")?,
         f64_: declare_unit_f64(module, "$print.f64")?,
         str_: declare_unit_i64(module, "$print.str")?,
@@ -557,6 +559,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     };
     let fmt_ids = FmtIds {
         int: declare_unary_i64(module, "$fmt.int")?,
+        uint: declare_unary_i64(module, "$fmt.uint")?,
         bool_: declare_unary_i64(module, "$fmt.bool")?,
         f64_: {
             // f64 → string. Signature differs from the unary-i64 helper.

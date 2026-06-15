@@ -117,6 +117,7 @@ pub(super) struct StrIds {
     pub(super) concat_inplace: cranelift_module::FuncId,
     pub(super) eq: cranelift_module::FuncId,
     pub(super) int_to_string: cranelift_module::FuncId,
+    pub(super) uint_to_string: cranelift_module::FuncId,
     pub(super) bool_to_string: cranelift_module::FuncId,
     pub(super) to_upper: cranelift_module::FuncId,
     pub(super) to_lower: cranelift_module::FuncId,
@@ -277,6 +278,7 @@ pub(super) fn declare_n_i64_void<M: Module>(
 #[derive(Clone, Copy)]
 pub(super) struct PrintIds {
     pub(super) int: cranelift_module::FuncId,
+    pub(super) uint: cranelift_module::FuncId,
     pub(super) bool_: cranelift_module::FuncId,
     pub(super) f64_: cranelift_module::FuncId,
     pub(super) str_: cranelift_module::FuncId,
@@ -299,6 +301,7 @@ pub(super) struct PrintIds {
 #[derive(Clone, Copy)]
 pub(super) struct FmtIds {
     pub(super) int: cranelift_module::FuncId,
+    pub(super) uint: cranelift_module::FuncId,
     pub(super) bool_: cranelift_module::FuncId,
     pub(super) f64_: cranelift_module::FuncId,
     pub(super) str_: cranelift_module::FuncId,

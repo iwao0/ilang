@@ -413,6 +413,7 @@ pub(super) fn lower_call<M: Module>(
                 "str_concat" => Some(str_ids.concat),
                 "str_eq" => Some(str_ids.eq),
                 "int_to_string" => Some(str_ids.int_to_string),
+                "uint_to_string" => Some(str_ids.uint_to_string),
                 "bool_to_string" => Some(str_ids.bool_to_string),
                 "str_to_upper" => Some(str_ids.to_upper),
                 "str_to_lower" => Some(str_ids.to_lower),

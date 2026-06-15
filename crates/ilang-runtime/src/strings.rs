@@ -272,6 +272,16 @@ pub extern "C" fn __int_to_string(n: i64) -> i64 {
     leak_cstring(n.to_string())
 }
 
+/// `(u64).toString()` — format the bit pattern as an UNSIGNED decimal so
+/// values ≥ 2^63 print as e.g. `18000000000000000000` rather than their
+/// negative two's-complement reading. Narrower unsigned types (u8/u16/
+/// u32) zero-extend into a positive i64, so they keep using
+/// `__int_to_string`; only u64 can set the i64 sign bit.
+#[unsafe(export_name = "$string.fromUint")]
+pub extern "C" fn __uint_to_string(n: i64) -> i64 {
+    leak_cstring((n as u64).to_string())
+}
+
 #[unsafe(export_name = "$string.fromBool")]
 pub extern "C" fn __bool_to_string(b: i64) -> i64 {
     leak_cstr_bytes(if b != 0 { b"true" } else { b"false" })

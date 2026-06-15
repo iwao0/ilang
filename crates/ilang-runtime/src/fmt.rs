@@ -12,6 +12,12 @@ pub extern "C" fn __fmt_int(n: i64) -> i64 {
     leak_cstring(n.to_string())
 }
 
+/// `${u64}` interpolation — unsigned decimal (see `__uint_to_string`).
+#[unsafe(export_name = "$fmt.uint")]
+pub extern "C" fn __fmt_uint(n: i64) -> i64 {
+    leak_cstring((n as u64).to_string())
+}
+
 #[unsafe(export_name = "$fmt.bool")]
 pub extern "C" fn __fmt_bool(b: i64) -> i64 {
     leak_cstring(if b != 0 { "true".to_string() } else { "false".to_string() })

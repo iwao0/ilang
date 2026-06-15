@@ -72,7 +72,13 @@ pub(super) fn emit_format_value<M: Module>(
             } else {
                 fb.ins().uextend(types::I64, av)
             };
-            let r = module.declare_func_in_func(fmt_ids.int, fb.func);
+            // u64 can set the i64 sign bit — interpolate it unsigned.
+            let formatter = if matches!(t, MirTy::U64) {
+                fmt_ids.uint
+            } else {
+                fmt_ids.int
+            };
+            let r = module.declare_func_in_func(formatter, fb.func);
             let call = fb.ins().call(r, &[v]);
             fb.inst_results(call)[0]
         }

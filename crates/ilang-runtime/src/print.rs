@@ -14,6 +14,15 @@ pub extern "C" fn __print_int(n: i64) {
     let _ = write!(out, "{n}");
 }
 
+/// `console.log` / array-element printer for `u64` — formats the bit
+/// pattern as unsigned so values ≥ 2^63 print correctly (narrower
+/// unsigned types zero-extend to a positive i64 and stay on `$print.int`).
+#[unsafe(export_name = "$print.uint")]
+pub extern "C" fn __print_uint(n: i64) {
+    let mut out = std::io::stdout().lock();
+    let _ = write!(out, "{}", n as u64);
+}
+
 #[unsafe(export_name = "$print.bool")]
 pub extern "C" fn __print_bool(b: i64) {
     let mut out = std::io::stdout().lock();

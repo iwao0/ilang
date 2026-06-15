@@ -28,6 +28,10 @@ impl<'a> BodyCx<'a> {
                     MirTy::Str => "str_to_string",
                     MirTy::F32 => "float_to_string_f32",
                     MirTy::F64 => "float_to_string_f64",
+                    // u64 can set the i64 sign bit; format it unsigned.
+                    // Narrower unsigned types zero-extend to a positive
+                    // i64, so they stay on the signed formatter.
+                    MirTy::U64 => "uint_to_string",
                     _ => "int_to_string",
                 };
                 self.fb.push_inst(Inst::Call {
