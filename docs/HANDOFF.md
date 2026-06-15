@@ -21,7 +21,8 @@
 
 直近のセッション (2026-06-14 / 2026-06-11) で main に landing した変更:
 
-- **第 149 弾** (zero-await async fn の `return` 型エラー)。 `async fn one(): i64 { return 1 }`(await 無し + `return` 文)が `expected Promise<i64>, got i64` で拒否。 原因は zero-await desugar が tail 式しか `Promise.resolve` で包まず `return X` 文を包まないこと([async_desugar/mod.rs](../crates/ilang-parser/src/normalize/async_desugar/mod.rs))。 修正: 全 `return` を再帰的に wrap(ネスト FnExpr は除外)+ tail は diverge 判定で「1 回だけ包む/包まない」を選択(`Result.ok/err` の arm 跨ぎ推論を保持)。 fixture `async_zero_await_return.il` 追加、 全儀式緑。 残: break 無し loop tail の checker 制限(別件・上の[未解決]参照)。 詳細は下の解決済み記録。
+- **第 149 弾** (zero-await async fn の `return` 型エラー)。 `async fn one(): i64 { return 1 }`(await 無し + `return` 文)が `expected Promise<i64>, got i64` で拒否。 原因は zero-await desugar が tail 式しか `Promise.resolve` で包まず `return X` 文を包まないこと([async_desugar/mod.rs](../crates/ilang-parser/src/normalize/async_desugar/mod.rs))。 修正: 全 `return` を再帰的に wrap(ネスト FnExpr は除外)+ tail は diverge 判定で「1 回だけ包む/包まない」を選択(`Result.ok/err` の arm 跨ぎ推論を保持)。 fixture `async_zero_await_return.il` 追加、 全儀式緑。 詳細は下の解決済み記録。
+- **第 150 弾** (break 無し loop tail の divergence)。 `fn f(): i64 { loop { ...return... } }` が「body produces ()」で拒否されていた(checker が break 皆無の loop を divergent でなく `()` 扱い)。 第 149 弾で表面化した async/非 async 共通の制限。 修正: `Loop(None)`(break 皆無)を `ret_ty` として型付け([checker/expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs)、 第 144 弾と同じ近似)。 無限ループ `loop {}` も Rust 同様に通る。 fixture `loop_no_break_diverges.il` 追加、 全儀式緑。 詳細は下の解決済み記録。
 - **第 148 弾** (weak 強制を全消費サイトで完了)。 第 145〜147 は let/再代入/return を直したが、 **コンテナ/引数の消費サイト**(field store・array.push・array/tuple リテラル・`T.weak` 引数)が fresh ソースでまだ UAF だった。 coerce 集約を試みたが、 サイトにより「coerce が retain 済みと仮定(リテラル)」「自前 retain(field/array/arg)」が混在し二重 retain でリーク(fixture 2 件回帰)→ `e0edf298` へ戻し、 ユーザー合意で **per-site 順序修正**(retain を release より前に足すのみ・除去なし)へ。 全消費サイトに適用、 fixture `weak_fresh_into_container_and_arg.il` 追加、 網羅スイープ全緑、 全儀式緑。 詳細は下の解決済み記録。
 - **第 147 弾** (weak 強制の残り経路を完了)。 第 145/146 は borrowed ソースだけ直しており、 **fresh ソース**(`new T()`・if/else / match join)と **return** がまだ UAF だった。 原因は (a) `is_fresh_object_expr` が If/Match/New を fresh 分類するため第 145 弾の Weak 除外が短絡されたこと、 (b) weak retain を strong 解放より後に出す**順序バグ**。 修正: `StrongToWeak` ではソースの fresh/borrowed を問わず **strong 解放より前に weak +1 を取得**(let/再代入/return の 3 経路)。 fixture 2 件追加(通常モードで決定的)、 網羅スイープ全緑、 全儀式緑。 詳細は下の解決済み記録。
 - **第 146 弾** (weak 再代入 UAF + 一時 weak レシーバのリーク)。 第 145 弾が露呈した兄弟問題 2 件。 (1) 再代入 `w = strongRef` も同じ「coercion=fresh」で weak retain を省き UAF([expr.rs](../crates/ilang-mir/src/lower/expr.rs))。 (2) **第 145 弾の回帰**: `mkWeak().get()` の一時 weak レシーバが解放されずリーク([calls/mod.rs](../crates/ilang-mir/src/lower/calls/mod.rs) に fresh-release ガード追加)。 fixture 2 件追加。 詳細は下の解決済み記録。
@@ -200,9 +201,13 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### [未解決] break の無い `loop` を関数 tail にすると `body produces ()` (2026-06-15)
+### [解決済み記録] 第 150 弾: break の無い `loop` を関数 tail にすると `body produces ()` (2026-06-15)
 
-`fn f(): i64 { ...; loop { if c { return v } ... } }`(`loop` が tail で break 無し・return のみ)が「body produces ()」で拒否される。 checker が break 無し `loop` を divergent でなく `()` 値として扱うため。 **async/非 async 共通の checker の divergence 制限**(第 144 弾の match-all-return と同系)。 回避策: `return loop { ...; break v }` と書く。 第 149 弾の async desugar 修正はこの制限の影響を受けるが原因ではない(非 async でも同じ)。 修正するなら checker の loop 型付けで「break 到達不能 = divergent」を導入。
+`fn f(): i64 { ...; loop { if c { return v } ... } }`(`loop` が tail で break 無し・return のみ)が「body produces ()」で拒否されていた。 第 149 弾の async 修正で表面化したが、 **async/非 async 共通の checker の divergence 制限**(第 144 弾の match-all-return と同系)。
+
+- **原因**([checker/expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs) の `ExprKind::Loop`): loop の型は「`break v` の型、 無ければ `Unit`」。 だが **break が全く無い loop は値に落ちない**(`return` でしか抜けない・または無限ループ)= divergent なのに `Unit` 扱いしていた。 LoopFrame は `Loop(None)` で「break 皆無」を、 `Loop(Some(t))`(bare break は Some(Unit))で「break あり」を区別できる。
+- **修正**: `Loop(None)`(break 皆無)のとき `ret_ty`(関数戻り型)を返す。 `return` / 第 144 弾の all-arms-return と同じ近似。 これで `fn f(): i64 { loop { ...return... } }` も `fn f(): i64 { loop {} }`(無限ループ・Rust の `fn f() -> i32 { loop {} }` 同様)も通る。 `break v` あり(`Some(t)`→t)・bare break(`Some(Unit)`→Unit)は不変。
+- **検証**: fixture `loop_no_break_diverges.il`(loop tail の return・`return loop{break}`・ネスト loop の return)。 第 149 弾の async firstEven(break 無し loop)もこれで解消。 programs JIT(1709 件)+AOT、 workspace 546/546、 nested_generic 100/100。
 
 ### [解決済み記録] 第 149 弾: await を含まない async fn の `return` が Promise にラップされず型エラー (2026-06-15)
 

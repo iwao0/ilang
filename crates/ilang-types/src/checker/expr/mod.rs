@@ -504,10 +504,18 @@ impl TypeChecker {
                 // value is discarded (only `break v` produces the
                 // loop's overall value).
                 let _body_ty = body_res?;
-                // The loop's own type is the unified break-value type, or
-                // Unit if no `break v` was seen.
+                // The loop's own type is the unified break-value type. A
+                // bare `break` makes it `Unit`. With NO `break` at all the
+                // loop never falls through to a value — it exits only via
+                // `return` (or runs forever), so it DIVERGES: type it as
+                // the fn's return type, the same way `return` and an
+                // all-arms-return `match` do (第144弾). Without this,
+                // `fn f(): i64 { loop { ...; return v } }` and a bare
+                // `fn f(): i64 { loop {} }` were wrongly rejected as
+                // "body produces ()".
                 let break_ty = match frame {
                     Some(LoopFrame::Loop(Some(t))) => t,
+                    Some(LoopFrame::Loop(None)) => ret_ty.cloned().unwrap_or(Type::Unit),
                     _ => Type::Unit,
                 };
                 self.loop_break_type
