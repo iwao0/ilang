@@ -109,6 +109,13 @@ impl TypeChecker {
             std::collections::HashSet::new();
         let mut has_wildcard = false;
         let mut result_ty: Option<Type> = None;
+        // A diverging arm (`return` / `break` / `continue`) is skipped for
+        // the value join, but its "pretended" type (a `return` types as the
+        // fn return type — see `Return` in expr/mod.rs) is kept here. If
+        // EVERY arm diverges the match itself diverges, so the whole `match`
+        // adopts this type instead of `()` — mirroring how `if { return }
+        // else { return }` type-checks as a function tail.
+        let mut diverged_ty: Option<Type> = None;
         // Generic-enum covariance is literal-only: only let arms join to a
         // common-ancestor instantiation when every arm body is a ctor
         // literal (an aliased generic value must not covary).
@@ -242,6 +249,8 @@ impl TypeChecker {
                     None => bt,
                     Some(prev) => self.unify_branch_obj(prev, bt, arms_covary, arm.body.span)?,
                 });
+            } else {
+                diverged_ty = Some(bt);
             }
         }
         if !has_wildcard {
@@ -262,7 +271,7 @@ impl TypeChecker {
                 });
             }
         }
-        let rt = result_ty.unwrap_or(Type::Unit);
+        let rt = result_ty.or(diverged_ty).unwrap_or(Type::Unit);
         self.refine_match_arm_ctors(arms, &rt);
         Ok(rt)
     }
@@ -302,6 +311,9 @@ impl TypeChecker {
         let mut has_none = false;
         let mut has_wildcard = false;
         let mut result_ty: Option<Type> = None;
+        // See the enum-match path: when every arm diverges the match adopts
+        // a diverging arm's pretended type instead of `()`.
+        let mut diverged_ty: Option<Type> = None;
         // Generic-enum covariance is literal-only: only let arms join to a
         // common-ancestor instantiation when every arm body is a ctor
         // literal (an aliased generic value must not covary).
@@ -394,6 +406,8 @@ impl TypeChecker {
                     None => bt,
                     Some(prev) => self.unify_branch_obj(prev, bt, arms_covary, arm.body.span)?,
                 });
+            } else {
+                diverged_ty = Some(bt);
             }
         }
         if !has_wildcard && !(has_some && has_none) {
@@ -412,7 +426,7 @@ impl TypeChecker {
                 span,
             });
         }
-        let rt = result_ty.unwrap_or(Type::Unit);
+        let rt = result_ty.or(diverged_ty).unwrap_or(Type::Unit);
         self.refine_match_arm_ctors(arms, &rt);
         Ok(rt)
     }
