@@ -1,0 +1,5 @@
+# Grants `os` only. The std.fs sink lives inside an `async fn`, whose
+# body the compiler splits into a generated poll state machine. The gate
+# must survive that lowering — a regression there would silently un-gate
+# every async sink.
+capabilities = ["os"]

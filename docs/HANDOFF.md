@@ -203,6 +203,7 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 - **修正**([cap_gate.rs](../crates/ilang-mir/src/passes/cap_gate.rs)): `call_cap` に `Inst::MakeClosure { func }` / `Inst::FuncAddr { func }` を追加し、 **func が extern シンクならアドレス materialize 地点で cap を課す**。 C 関数へのポインタを手に入れた時点が capability 上の「使用」なので、 そこでゲートすれば直接・間接・コールバック渡しの全形を JIT/AOT 一致で塞げる。 非 extern wrapper(`std.fs` ヘルパー等)のアドレスは exempt — その本体が内側の intrinsic 呼び出しでゲートを持つため二重にならない。
 - **過剰ゲートしないこと**を確認: `ffi` 付与時は間接呼び出しが実行され `abs(-7)==7` を出力。 qsort/bsearch のコールバックに渡すユーザー ilang 関数(非 extern)はゲートされない。
 - **検証**: fixture `11_capabilities/ffi_indirect_{denied,granted}/`(自己完結 extern で libc 巻き添えを排除)を追加。 workspace nextest 546/546、 programs harness JIT + `ILANG_TEST_AOT=1` 緑、 std.fs 間接(第 142 弾の堅牢ケース)・ffi 直接の回帰も確認。
+- **ゲートの網羅性を追加検証**: 修正後にゲートが各種 lowering 変換を生き残ることを probe で確認 — 間接呼び出し(make_closure)・仮想ディスパッチ(override メソッド本体)・**async desugar**(await をまたぐ std.fs 呼び出しが生成 poll 関数の第2 resume point に落ちても発火)すべて deny。 数値(負数除算/剰余・i64 wrap・float→int 飽和・int キャスト wrap)・文字列(unicode 長さ/charAt/slice clamp)・Map/Set・クロージャ(per-iteration capture)・optional/Result も併せて probe したが、 いずれも仕様どおりで bug 無し。 async 経路の回帰ガードとして fixture `11_capabilities/file_denied_async/` を追加(複雑な状態機械分割を経てもゲートが残ることを pin)。
 
 ### [解決済み記録] 第 142 弾: capability enforcement (ilang.toml) を実装 (2026-06-15) — ユーザー決定
 
