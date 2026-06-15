@@ -36,7 +36,8 @@
 use std::collections::HashMap;
 
 use ilang_ast::{
-    Block, ClassDecl, EnumDecl, Expr, ExprKind, FnDecl, Item, Program, Span, Symbol, Type,
+    Block, ClassDecl, EnumDecl, Expr, ExprKind, FnDecl, Item, MatchArm, Program, Span, Stmt,
+    StmtKind, Symbol, Type,
 };
 
 use super::state_machine;
@@ -62,27 +63,235 @@ fn wrap_in_promise_resolve(expr: Expr) -> Expr {
     )
 }
 
-/// Rewrite the body so its result is wrapped in `Promise.resolve`.
-/// Used for the trivial (zero-await) lowering.
+/// Unit-valued placeholder expression (`{}`).
+fn unit_expr(span: Span) -> Expr {
+    Expr::new(ExprKind::Block(Block { stmts: Vec::new(), tail: None }), span)
+}
+
+/// Rewrite the body so EVERY exit hands back a `Promise<T>` — the wrapped
+/// return type. The trivial (zero-await) lowering used this; wrapping only
+/// the tail left `async fn f(): i64 { return 1 }` with a bare `return 1`
+/// that mismatched `Promise<i64>`.
+///
+/// `Promise.resolve` is pushed to the VALUE positions (the tail of each
+/// block, each `if` / `match` arm) and onto every `return X` — never
+/// around a divergent expression, so a `return`-tail or an all-arms-return
+/// `if`/`match` tail isn't double-wrapped into `Promise<Promise<T>>`.
 fn wrap_body_in_promise_resolve(body: Block) -> Block {
-    let span = body
-        .tail
-        .as_ref()
-        .map(|t| t.span)
-        .unwrap_or_else(Span::dummy);
-    let value_expr: Expr = body.tail.map(|t| *t).unwrap_or_else(|| {
-        // No tail expression — body's value is `()`. Wrap an empty
-        // block as a unit-valued expression.
-        Expr::new(
-            ExprKind::Block(Block { stmts: Vec::new(), tail: None }),
-            span,
-        )
-    });
-    let wrapped = wrap_in_promise_resolve(value_expr);
+    promise_wrap_block(body)
+}
+
+/// Wrap a block's value: its `return` statements are Promise-wrapped, and
+/// its tail value is Promise-wrapped at the leaves (or `Promise.resolve(())`
+/// when there is no tail).
+fn promise_wrap_block(b: Block) -> Block {
     Block {
-        stmts: body.stmts,
-        tail: Some(Box::new(wrapped)),
+        stmts: b.stmts.into_iter().map(wrap_returns_in_stmt).collect(),
+        tail: Some(Box::new(match b.tail {
+            Some(t) => promise_wrap_tail(*t),
+            None => wrap_in_promise_resolve(unit_expr(Span::dummy())),
+        })),
     }
+}
+
+/// Wrap an expression used in TAIL (value) position so it yields a
+/// `Promise<T>`. Every `return` it nests is wrapped first (those are the
+/// fn's own exits). Then, if the tail still produces a value, the whole
+/// value is wrapped ONCE — not pushed into `if`/`match` arms, which would
+/// split a generic join (`if c { Result.ok(..) } else { Result.err(..) }`)
+/// and lose the cross-arm type-arg inference. A tail that DIVERGES (every
+/// path `return`s/`break`s) produces no value, so the already-wrapped
+/// returns suffice and no outer wrap is added (avoids `Promise<Promise<T>>`).
+fn promise_wrap_tail(e: Expr) -> Expr {
+    let span = e.span;
+    // A `loop` tail: its value comes from `break V` (or it only `return`s).
+    // Wrap this loop's break values and nested returns at the leaves; the
+    // loop is its own value / diverges, so no outer wrap.
+    if let ExprKind::Loop { body } = e.kind {
+        return Expr::new(ExprKind::Loop { body: wrap_exits_in_block(body, false) }, span);
+    }
+    let e = wrap_returns_in_expr(e);
+    if expr_diverges(&e) {
+        e
+    } else {
+        wrap_in_promise_resolve(e)
+    }
+}
+
+/// `true` when every control-flow path through `e` exits via `return` /
+/// `break` / `continue` — i.e. `e` never falls through to a value.
+fn expr_diverges(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Return(_) | ExprKind::Break(_) | ExprKind::Continue => true,
+        ExprKind::Block(b) => block_diverges(b),
+        ExprKind::If { then_branch, else_branch, .. }
+        | ExprKind::IfLet { then_branch, else_branch, .. } => match else_branch {
+            Some(e) => block_diverges(then_branch) && expr_diverges(e),
+            None => false,
+        },
+        ExprKind::Match { arms, .. } => {
+            !arms.is_empty() && arms.iter().all(|a| expr_diverges(&a.body))
+        }
+        _ => false,
+    }
+}
+
+fn block_diverges(b: &Block) -> bool {
+    b.tail.as_ref().map(|t| expr_diverges(t)).unwrap_or(false)
+        || b.stmts.iter().any(|s| matches!(&s.kind, StmtKind::Expr(e) if expr_diverges(e)))
+}
+
+/// Wrap every `return X` inside an expression's control-flow body in
+/// `Promise.resolve(X)` (a bare `return` becomes `Promise.resolve(())`).
+/// Recurses through the constructs a return can sit in — blocks, `if` /
+/// `match` / `if let` arms, loops, `let` RHS — but NOT into a nested
+/// `FnExpr` / closure, whose returns belong to it.
+fn wrap_returns_in_expr(e: Expr) -> Expr {
+    let span = e.span;
+    let kind = match e.kind {
+        ExprKind::Return(opt) => {
+            let inner = opt
+                .map(|x| *x)
+                .unwrap_or_else(|| Expr::new(ExprKind::Block(Block { stmts: Vec::new(), tail: None }), span));
+            ExprKind::Return(Some(Box::new(wrap_in_promise_resolve(inner))))
+        }
+        ExprKind::Block(b) => ExprKind::Block(wrap_returns_in_block(b)),
+        ExprKind::If { cond, then_branch, else_branch } => ExprKind::If {
+            cond,
+            then_branch: wrap_returns_in_block(then_branch),
+            else_branch: else_branch.map(|e| Box::new(wrap_returns_in_expr(*e))),
+        },
+        ExprKind::IfLet { name, expr, then_branch, else_branch } => ExprKind::IfLet {
+            name,
+            expr,
+            then_branch: wrap_returns_in_block(then_branch),
+            else_branch: else_branch.map(|e| Box::new(wrap_returns_in_expr(*e))),
+        },
+        ExprKind::While { cond, body } => {
+            ExprKind::While { cond, body: wrap_returns_in_block(body) }
+        }
+        ExprKind::ForIn { var, iter, body } => {
+            ExprKind::ForIn { var, iter, body: wrap_returns_in_block(body) }
+        }
+        ExprKind::Loop { body } => ExprKind::Loop { body: wrap_returns_in_block(body) },
+        ExprKind::Match { scrutinee, arms } => ExprKind::Match {
+            scrutinee,
+            arms: arms
+                .into_vec()
+                .into_iter()
+                .map(|a| MatchArm { pattern: a.pattern, body: wrap_returns_in_expr(a.body), span: a.span })
+                .collect(),
+        },
+        other => other,
+    };
+    Expr::new(kind, span)
+}
+
+fn wrap_returns_in_block(b: Block) -> Block {
+    Block {
+        stmts: b.stmts.into_iter().map(wrap_returns_in_stmt).collect(),
+        tail: b.tail.map(|t| Box::new(wrap_returns_in_expr(*t))),
+    }
+}
+
+fn wrap_returns_in_stmt(s: Stmt) -> Stmt {
+    let kind = match s.kind {
+        StmtKind::Expr(e) => StmtKind::Expr(wrap_returns_in_expr(e)),
+        StmtKind::Let { is_pub, is_const, name, ty, value } => StmtKind::Let {
+            is_pub,
+            is_const,
+            name,
+            ty,
+            value: wrap_returns_in_expr(value),
+        },
+        StmtKind::LetTuple { elems, value } => {
+            StmtKind::LetTuple { elems, value: wrap_returns_in_expr(value) }
+        }
+        StmtKind::LetStruct { class, fields, value } => {
+            StmtKind::LetStruct { class, fields, value: wrap_returns_in_expr(value) }
+        }
+    };
+    Stmt { kind, span: s.span, source_module: s.source_module }
+}
+
+/// Like `wrap_returns_in_*` but for a `loop` whose value is the function
+/// tail: every `return X` (function exit) is wrapped, and every `break X`
+/// that targets THIS loop (`in_nested_loop == false`) is wrapped too — it
+/// is the loop's value. Nested loops set the flag so their own `break`s
+/// stay untouched.
+fn wrap_exits_in_block(b: Block, in_nested_loop: bool) -> Block {
+    Block {
+        stmts: b.stmts.into_iter().map(|s| wrap_exits_in_stmt(s, in_nested_loop)).collect(),
+        tail: b.tail.map(|t| Box::new(wrap_exits_in_expr(*t, in_nested_loop))),
+    }
+}
+
+fn wrap_exits_in_stmt(s: Stmt, in_nested_loop: bool) -> Stmt {
+    let kind = match s.kind {
+        StmtKind::Expr(e) => StmtKind::Expr(wrap_exits_in_expr(e, in_nested_loop)),
+        StmtKind::Let { is_pub, is_const, name, ty, value } => StmtKind::Let {
+            is_pub,
+            is_const,
+            name,
+            ty,
+            value: wrap_exits_in_expr(value, in_nested_loop),
+        },
+        StmtKind::LetTuple { elems, value } => {
+            StmtKind::LetTuple { elems, value: wrap_exits_in_expr(value, in_nested_loop) }
+        }
+        StmtKind::LetStruct { class, fields, value } => {
+            StmtKind::LetStruct { class, fields, value: wrap_exits_in_expr(value, in_nested_loop) }
+        }
+    };
+    Stmt { kind, span: s.span, source_module: s.source_module }
+}
+
+fn wrap_exits_in_expr(e: Expr, in_nested_loop: bool) -> Expr {
+    let span = e.span;
+    let kind = match e.kind {
+        ExprKind::Return(opt) => {
+            let inner = opt.map(|x| *x).unwrap_or_else(|| unit_expr(span));
+            ExprKind::Return(Some(Box::new(wrap_in_promise_resolve(inner))))
+        }
+        ExprKind::Break(Some(v)) if !in_nested_loop => {
+            ExprKind::Break(Some(Box::new(wrap_in_promise_resolve(*v))))
+        }
+        ExprKind::Block(b) => ExprKind::Block(wrap_exits_in_block(b, in_nested_loop)),
+        ExprKind::If { cond, then_branch, else_branch } => ExprKind::If {
+            cond,
+            then_branch: wrap_exits_in_block(then_branch, in_nested_loop),
+            else_branch: else_branch.map(|e| Box::new(wrap_exits_in_expr(*e, in_nested_loop))),
+        },
+        ExprKind::IfLet { name, expr, then_branch, else_branch } => ExprKind::IfLet {
+            name,
+            expr,
+            then_branch: wrap_exits_in_block(then_branch, in_nested_loop),
+            else_branch: else_branch.map(|e| Box::new(wrap_exits_in_expr(*e, in_nested_loop))),
+        },
+        // A nested loop owns its own `break`s — flip the flag so they are
+        // left alone, but `return`s inside it still exit the fn.
+        ExprKind::Loop { body } => ExprKind::Loop { body: wrap_exits_in_block(body, true) },
+        ExprKind::While { cond, body } => {
+            ExprKind::While { cond, body: wrap_exits_in_block(body, true) }
+        }
+        ExprKind::ForIn { var, iter, body } => {
+            ExprKind::ForIn { var, iter, body: wrap_exits_in_block(body, true) }
+        }
+        ExprKind::Match { scrutinee, arms } => ExprKind::Match {
+            scrutinee,
+            arms: arms
+                .into_vec()
+                .into_iter()
+                .map(|a| MatchArm {
+                    pattern: a.pattern,
+                    body: wrap_exits_in_expr(a.body, in_nested_loop),
+                    span: a.span,
+                })
+                .collect(),
+        },
+        other => other,
+    };
+    Expr::new(kind, span)
 }
 
 /// Wrap a type `T` into `Promise<T>`. If `T` is already
