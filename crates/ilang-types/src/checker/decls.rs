@@ -196,7 +196,7 @@ impl TypeChecker {
         // Include each declared interface and every ancestor it inherits
         // from (`interface B: A`), so a class implementing `B` must also
         // satisfy `A`'s method contract. Bounded by a `visited` guard.
-        let mut push_chain = |start: Symbol, out: &mut Vec<Symbol>| {
+        let push_chain = |start: Symbol, out: &mut Vec<Symbol>| {
             let mut seen: std::collections::HashSet<Symbol> = std::collections::HashSet::new();
             let mut cur = Some(start);
             while let Some(name) = cur {

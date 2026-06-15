@@ -603,7 +603,7 @@ impl Lower {
         // the class-method slot range, so `__virt_dispatch` can be
         // shared.
         let mut declared_ifaces: Vec<Symbol> = Vec::new();
-        let mut push_iface_chain = |start: Symbol, parents: &std::collections::HashMap<Symbol, Symbol>, out: &mut Vec<Symbol>| {
+        let push_iface_chain = |start: Symbol, parents: &std::collections::HashMap<Symbol, Symbol>, out: &mut Vec<Symbol>| {
             // Include the interface and every ancestor it inherits from
             // (`interface B: A`) so the class registers inherited
             // methods at the ancestor's slot too. Bounded by `seen`.
