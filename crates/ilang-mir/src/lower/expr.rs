@@ -695,9 +695,12 @@ impl<'a> BodyCx<'a> {
                     None => (v, vty.clone()),
                 };
                 // Mirror stmt-let: a wrap coerce minted a fresh
-                // cell — don't retain it a second time.
-                let value_is_fresh =
-                    value_is_fresh || (v_slot != v && self.is_arc_slot(&slot_ty));
+                // cell — don't retain it a second time. `StrongToWeak`
+                // is the exception (bare downgrade, no +1) — see stmt.rs.
+                let value_is_fresh = value_is_fresh
+                    || (v_slot != v
+                        && self.is_arc_slot(&slot_ty)
+                        && !matches!(slot_ty, MirTy::Weak(_)));
                 if self.assign_var(*target, v_slot, slot_ty.clone()) {
                     if self.is_arc_slot(&slot_ty) {
                         if !value_is_fresh {

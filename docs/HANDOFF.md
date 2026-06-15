@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-14 / 2026-06-11) で main に landing した変更:
 
+- **第 146 弾** (weak 再代入 UAF + 一時 weak レシーバのリーク)。 第 145 弾が露呈した兄弟問題 2 件。 (1) 再代入 `w = strongRef` も同じ「coercion=fresh」で weak retain を省き UAF([expr.rs](../crates/ilang-mir/src/lower/expr.rs)、 bare `Weak` 除外)。 (2) **第 145 弾の回帰**: weak 束縛が +1 を持つようになった結果、 `mkWeak().get()` の一時 weak レシーバが解放されずリーク(weak メソッド dispatch だけ fresh-release ガードを欠いていた、 [calls/mod.rs](../crates/ilang-mir/src/lower/calls/mod.rs))。 fixture 2 件追加、 全儀式緑。 残り 2 経路(return-as-weak / join-into-weak)は未解決(上の[未解決]参照)。 詳細は下の解決済み記録。
 - **第 145 弾** (weak 束縛の UAF を修正)。 `let w: T.weak = strongRef` が weak 共有を retain せず、 zombie box が weak 生存中に解放され `w.get()` が解放済みメモリを読む UAF(通常は偶然 0 を読み `none`、 HEAP_GUARD で `some` に化ける)。 原因は `let` 束縛の retain 判定が「coercion=新セル +1 の wrap」と決め打ちし、 +1 を作らない bare な `StrongToWeak` まで fresh 扱いして束縛 retain を省いたこと([stmt.rs](../crates/ilang-mir/src/lower/stmt.rs))。 修正は判定から bare `Weak` 標的を除外(`StrongToWeak` のみ該当、 Optional<Weak> は別経路で不変)。 修正案 3 種を比較し局所案を採用。 fixture `05_edge_cases/weak_bind_keeps_zombie_alive.il`(解放スロット再利用で通常モードでも決定的に落ちる)追加、 リーク無し確認、 workspace 546/546 + JIT/AOT + nested_generic 100/100 緑。 詳細は下の解決済み記録。
 - **第 144 弾** (match の divergence 解析を if/else と整合)。 全 arm が `return`(/`break`/`continue`)する網羅的 match を関数末尾に置くと `body produces ()` で誤って拒否されていた(if/else 同等形は通る)。 原因は match 結果型が diverge arm を join からスキップし、 全 arm diverge 時に `result_ty=None`→`Type::Unit` に落ちていたこと。 修正: diverge arm の見せかけ型を保持し非 diverge arm が無ければ採用([match_ctrl.rs](../crates/ilang-types/src/checker/expr/match_ctrl.rs)、 enum/Optional 両 path)。 `?` desugar の混在ケースは不変。 fixture `06_enums/match_all_arms_return_tail.il` 追加、 workspace 546/546 + programs JIT/AOT 緑。 詳細は下の解決済み記録。
 - **第 143 弾** (capability の抜け穴を塞いだ)。 第 142 弾の enforcement に bypass: `let f = abs` で `@extern(C)` 関数(ffi シンク)を値に束ね `f(-7)` と**間接呼び出し**すると ffi ゲートを回避できた(`make_closure`+`call_indirect` に lower され、 直接 `Inst::Call` だけ見ていたゲートを素通り)。 当時 AOT がたまたまコンパイルエラーになったのは無関係な `libc.doAbort` を拾った巻き添えで、 自己完結 extern では JIT・AOT 両方が素通り。 修正: `call_cap` に `MakeClosure`/`FuncAddr` を追加し、 **extern のアドレス materialize 地点で cap を課す**(非 extern wrapper は exempt)。 過剰ゲート無しを確認(`ffi` 付与で間接呼び出しが実行)。 fixture `11_capabilities/ffi_indirect_{denied,granted}/` 追加、 workspace 546/546 + programs JIT/AOT 緑。 詳細は下の解決済み記録。
@@ -195,6 +196,24 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [未解決] weak 強制の残り 2 経路(return-as-weak / if-else・match join)が UAF (2026-06-15)
+
+第 145〜146 弾で weak 束縛・再代入・一時レシーバを直したが、 **strong を weak に降格する残り 2 経路**がまだ UAF:
+
+- `fn f(): T.weak { return new Tag() }` — fresh strong を weak で返す退化ケース。 `w.get()` が解放済みスロットを読む(`maybe-some v=999`)。 lower_return / finalise_return / body_cx の tail-var-return が絡む。
+- `let w: T.weak = if c { a } else { b }` — strong 分岐を weak へ。 if/else join(control.rs:106-148)が分岐値を strong +1 retain し、 その後の weak 降格と会計が干渉して box が解放される。 match join も同様(control.rs)。 単純な `let w: T.weak = a`(join 無し)は第 145 弾で修正済みなので、 **join の retain が原因**。
+
+借用 strong を weak で返す生存中ケース(`fn f(n): T.weak { return n }` で n が生存)は正常。 ユーザーは「残り全部直す」方針。 次セッションは control.rs の if/else・match join と return 経路の StrongToWeak 会計を、 第 145/146 弾と同じ「weak は束縛/消費で retain・release を釣り合わせる」原則で直す。 再現: `/tmp/ilw/ret.il`(return)・`/tmp/ilw/ife.il`(if/else)に相当するものを作って HEAP_GUARD で確認。
+
+### [解決済み記録] 第 146 弾: weak 再代入の UAF と一時 weak レシーバのリーク (2026-06-15)
+
+第 145 弾(weak 束縛 retain)が **2 つの兄弟問題**を露呈した。 ユーザー要望で weak 強制の全経路を網羅 probe した結果:
+
+- **再代入 `w = strongRef` の UAF**([expr.rs](../crates/ilang-mir/src/lower/expr.rs) の `ExprKind::Assign`): let 束縛と同じ「coercion=fresh」ヒューリスティックを共有しており、 `StrongToWeak` を fresh 扱いして weak retain を省いていた。 第 145 弾と同じく bare `Weak` 標的を除外。
+- **一時 weak レシーバのリーク(第 145 弾の回帰)**([calls/mod.rs](../crates/ilang-mir/src/lower/calls/mod.rs)): `mkWeak().get()` のように**関数が返した fresh な weak をメソッドが消費する**とき、 weak メソッド dispatch だけが他(optional/array/string/promise)にある `if obj_is_fresh { Release }` ガードを欠いていた。 第 145 弾で weak 束縛が +1 を持つようになり、 この解放漏れが顕在化(24 bytes/iter リーク)。 weak dispatch にも同ガードを追加。 **テストスイートに `fnReturningWeak().method()` の churn が無かったため第 145 弾で見逃した**反省点。
+- **切り分け**: 名前付き `let r = mk(); r.get()` はリークせず(scope 解放で釣り合う)、 一時 `mk().get()` だけ漏れた。 計測(`__retain_weak`/`__release_weak` に env-gated トレース)で「再代入自体はリークせず、 一時レシーバが原因」と確定。 最初に試した素朴な再代入 retain は return と組み合わせるとリークに見えたが、 真因は一時レシーバ側だった。
+- **検証**: fixture 2 件追加 — `weak_reassign_keeps_zombie_alive.il`(スロット再利用で通常モードでも `BAD some` vs `ok none` と決定的)・`weak_temp_receiver_release.il`(`mkWeak().get()` を 300 回 churn し `liveAllocBytes` で leak 検出)。 stash で各修正 off にして両 fixture が落ちることを実証。 広範 leak/UAF スイープ(arc 系・named・temp 全て leakfree かつ none)、 既存 weak fixture 8 件が JIT+HEAP_GUARD 緑、 workspace 546/546、 programs JIT+AOT、 nested_generic 100/100。
 
 ### [解決済み記録] 第 145 弾: `let w: T.weak = strongRef` が weak 共有を retain せず UAF (2026-06-15) — ユーザー決定(修正案の比較)
 

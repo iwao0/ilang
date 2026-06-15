@@ -282,6 +282,14 @@ impl<'a> BodyCx<'a> {
             return Ok(out);
         }
         if let Some(out) = self.try_lower_weak_method(ov, &oty, method, args)? {
+            // `WeakUpgrade` reads the receiver and takes its own strong
+            // +1 on the upgraded value — it doesn't consume the weak
+            // share. A fresh receiver (e.g. `mkWeak().get()`) owns a
+            // weak +1 that nothing else will drop, so release it here,
+            // mirroring the optional/array/string/promise rules above.
+            if obj_is_fresh && self.is_arc_heap(&oty) {
+                self.fb.push_inst(Inst::Release { value: ov });
+            }
             return Ok(out);
         }
         if let Some(out) =
