@@ -114,9 +114,24 @@ impl<'a> BodyCx<'a> {
                 let bind_ty = bind_hint.unwrap_or_else(|| mty.clone());
                 let bound = if bind_ty != mty {
                     let coerced = self.coerce(v, &mty, &bind_ty, stmt.span)?;
+                    let owned = value_is_fresh_object || self.last_block_tail_owned;
+                    // A bare `StrongToWeak` (Object → `T.weak`) mints no
+                    // weak +1, so the binding has to acquire one — and it
+                    // must do so BEFORE `release_owned_wrap_source` drops
+                    // the source's strong +1. Order matters: a fresh
+                    // source (`let w: T.weak = new T()`) has no other
+                    // strong holder, so releasing first takes rc to 0 with
+                    // no weak share and `__release_object` frees the box
+                    // before the weak retain runs. With the weak share in
+                    // hand first, the box survives as a zombie for
+                    // `WeakUpgrade`. `Object → Optional<Weak>` takes its
+                    // weak +1 inside `coerce`, so only the bare `Weak`
+                    // target needs it here.
+                    if matches!(bind_ty, MirTy::Weak(_)) && coerced != v {
+                        self.fb.push_inst(Inst::Retain { value: coerced });
+                    }
                     // Owned source wrapped into T? / T.weak — drop
                     // its share (see release_owned_wrap_source).
-                    let owned = value_is_fresh_object || self.last_block_tail_owned;
                     self.release_owned_wrap_source(v, &mty, &bind_ty, owned);
                     coerced
                 } else {
@@ -126,23 +141,12 @@ impl<'a> BodyCx<'a> {
                 // — for the binding-retain decision below it is
                 // fresh even when the SOURCE expression was a
                 // borrow (`let o: Box? = h.b` retained the fresh
-                // wrapper a second time and leaked it per call).
-                //
-                // `StrongToWeak` (Object → bare `T.weak`) is the
-                // exception: it is a pointer DOWNGRADE, not a wrap, so
-                // it mints no +1 cell. Treating it as fresh skipped the
-                // binding's weak retain while the scope-exit release
-                // still fired — the weak local was released once but
-                // never retained, so the zombie box got freed while the
-                // weak still pointed at it (UAF, masked in normal runs
-                // but surfaced as a stale `some` under ILANG_HEAP_GUARD).
-                // The `Object → Optional<Weak>` wrap stays fresh (it
-                // mints an Optional cell); only the bare `Weak` target
-                // is excluded.
+                // wrapper a second time and leaked it per call). A bare
+                // `StrongToWeak` counts here too: the coerce block above
+                // already took its weak +1, so the generic retain below
+                // must NOT fire a second time.
                 let value_is_fresh_object = value_is_fresh_object
-                    || (bound != v
-                        && self.is_arc_heap(&bind_ty)
-                        && !matches!(bind_ty, MirTy::Weak(_)));
+                    || (bound != v && self.is_arc_heap(&bind_ty));
                 // For an aliased heap value (anything that isn't a
                 // freshly-constructed `new T(...)` / closure expr /
                 // literal), bump refcount — the binding shares

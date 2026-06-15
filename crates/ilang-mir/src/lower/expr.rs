@@ -682,11 +682,20 @@ impl<'a> BodyCx<'a> {
                         let coerced = self
                             .coerce(v, &vty, t, value.span)
                             .unwrap_or(v);
-                        // Owned source wrapped into T? / T.weak —
-                        // drop its share (see
-                        // release_owned_wrap_source).
                         if coerced != v {
                             let owned = value_is_fresh || self.last_block_tail_owned;
+                            // A bare `StrongToWeak` mints no weak +1, so
+                            // acquire one BEFORE dropping the strong
+                            // source — order matters, same as the
+                            // let-binding path (a fresh source has no
+                            // other strong holder, so releasing first
+                            // frees the box before the weak retain runs).
+                            if matches!(t, MirTy::Weak(_)) {
+                                self.fb.push_inst(Inst::Retain { value: coerced });
+                            }
+                            // Owned source wrapped into T? / T.weak —
+                            // drop its share (see
+                            // release_owned_wrap_source).
                             self.release_owned_wrap_source(v, &vty, t, owned);
                         }
                         (coerced, t.clone())
@@ -694,13 +703,12 @@ impl<'a> BodyCx<'a> {
                     Some(t) => (v, t.clone()),
                     None => (v, vty.clone()),
                 };
-                // Mirror stmt-let: a wrap coerce minted a fresh
-                // cell — don't retain it a second time. `StrongToWeak`
-                // is the exception (bare downgrade, no +1) — see stmt.rs.
-                let value_is_fresh = value_is_fresh
-                    || (v_slot != v
-                        && self.is_arc_slot(&slot_ty)
-                        && !matches!(slot_ty, MirTy::Weak(_)));
+                // Mirror stmt-let: a wrap coerce minted a fresh cell —
+                // don't retain it a second time. A bare `StrongToWeak`
+                // counts here too: the coerce arm above already took its
+                // weak +1, so the generic retain below must not double it.
+                let value_is_fresh =
+                    value_is_fresh || (v_slot != v && self.is_arc_slot(&slot_ty));
                 if self.assign_var(*target, v_slot, slot_ty.clone()) {
                     if self.is_arc_slot(&slot_ty) {
                         if !value_is_fresh {

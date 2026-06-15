@@ -382,6 +382,22 @@ impl<'a> BodyCx<'a> {
                     } else {
                         self.coerce(vv, &vty, &ret_ty, e.span).unwrap_or(vv)
                     };
+                    // A bare `StrongToWeak` return (`return strongExpr`
+                    // from a `: T.weak` fn): the cast mints no weak +1, so
+                    // acquire one — BEFORE dropping the source's strong +1
+                    // below. Order matters: releasing the strong first
+                    // takes its rc to 0 with no outstanding weak share, so
+                    // `__release_object` would free the box before the
+                    // weak retain runs. With the weak share in hand first,
+                    // the box survives as a zombie for the caller's
+                    // `WeakUpgrade`. Same rule as the let-binding path;
+                    // `Optional<Weak>` takes its weak +1 inside `coerce`,
+                    // so only the bare `Weak` target needs it here.
+                    let is_strong_to_weak =
+                        coerced != vv && matches!(ret_ty, MirTy::Weak(_));
+                    if is_strong_to_weak {
+                        self.fb.push_inst(Inst::Retain { value: coerced });
+                    }
                     // Owned source wrapped into T? / T.weak — drop
                     // its share (see release_owned_wrap_source).
                     if coerced != vv {

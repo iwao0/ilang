@@ -21,7 +21,8 @@
 
 直近のセッション (2026-06-14 / 2026-06-11) で main に landing した変更:
 
-- **第 146 弾** (weak 再代入 UAF + 一時 weak レシーバのリーク)。 第 145 弾が露呈した兄弟問題 2 件。 (1) 再代入 `w = strongRef` も同じ「coercion=fresh」で weak retain を省き UAF([expr.rs](../crates/ilang-mir/src/lower/expr.rs)、 bare `Weak` 除外)。 (2) **第 145 弾の回帰**: weak 束縛が +1 を持つようになった結果、 `mkWeak().get()` の一時 weak レシーバが解放されずリーク(weak メソッド dispatch だけ fresh-release ガードを欠いていた、 [calls/mod.rs](../crates/ilang-mir/src/lower/calls/mod.rs))。 fixture 2 件追加、 全儀式緑。 残り 2 経路(return-as-weak / join-into-weak)は未解決(上の[未解決]参照)。 詳細は下の解決済み記録。
+- **第 147 弾** (weak 強制の残り経路を完了)。 第 145/146 は borrowed ソースだけ直しており、 **fresh ソース**(`new T()`・if/else / match join)と **return** がまだ UAF だった。 原因は (a) `is_fresh_object_expr` が If/Match/New を fresh 分類するため第 145 弾の Weak 除外が短絡されたこと、 (b) weak retain を strong 解放より後に出す**順序バグ**。 修正: `StrongToWeak` ではソースの fresh/borrowed を問わず **strong 解放より前に weak +1 を取得**(let/再代入/return の 3 経路)。 fixture 2 件追加(通常モードで決定的)、 網羅スイープ全緑、 全儀式緑。 詳細は下の解決済み記録。
+- **第 146 弾** (weak 再代入 UAF + 一時 weak レシーバのリーク)。 第 145 弾が露呈した兄弟問題 2 件。 (1) 再代入 `w = strongRef` も同じ「coercion=fresh」で weak retain を省き UAF([expr.rs](../crates/ilang-mir/src/lower/expr.rs))。 (2) **第 145 弾の回帰**: `mkWeak().get()` の一時 weak レシーバが解放されずリーク([calls/mod.rs](../crates/ilang-mir/src/lower/calls/mod.rs) に fresh-release ガード追加)。 fixture 2 件追加。 詳細は下の解決済み記録。
 - **第 145 弾** (weak 束縛の UAF を修正)。 `let w: T.weak = strongRef` が weak 共有を retain せず、 zombie box が weak 生存中に解放され `w.get()` が解放済みメモリを読む UAF(通常は偶然 0 を読み `none`、 HEAP_GUARD で `some` に化ける)。 原因は `let` 束縛の retain 判定が「coercion=新セル +1 の wrap」と決め打ちし、 +1 を作らない bare な `StrongToWeak` まで fresh 扱いして束縛 retain を省いたこと([stmt.rs](../crates/ilang-mir/src/lower/stmt.rs))。 修正は判定から bare `Weak` 標的を除外(`StrongToWeak` のみ該当、 Optional<Weak> は別経路で不変)。 修正案 3 種を比較し局所案を採用。 fixture `05_edge_cases/weak_bind_keeps_zombie_alive.il`(解放スロット再利用で通常モードでも決定的に落ちる)追加、 リーク無し確認、 workspace 546/546 + JIT/AOT + nested_generic 100/100 緑。 詳細は下の解決済み記録。
 - **第 144 弾** (match の divergence 解析を if/else と整合)。 全 arm が `return`(/`break`/`continue`)する網羅的 match を関数末尾に置くと `body produces ()` で誤って拒否されていた(if/else 同等形は通る)。 原因は match 結果型が diverge arm を join からスキップし、 全 arm diverge 時に `result_ty=None`→`Type::Unit` に落ちていたこと。 修正: diverge arm の見せかけ型を保持し非 diverge arm が無ければ採用([match_ctrl.rs](../crates/ilang-types/src/checker/expr/match_ctrl.rs)、 enum/Optional 両 path)。 `?` desugar の混在ケースは不変。 fixture `06_enums/match_all_arms_return_tail.il` 追加、 workspace 546/546 + programs JIT/AOT 緑。 詳細は下の解決済み記録。
 - **第 143 弾** (capability の抜け穴を塞いだ)。 第 142 弾の enforcement に bypass: `let f = abs` で `@extern(C)` 関数(ffi シンク)を値に束ね `f(-7)` と**間接呼び出し**すると ffi ゲートを回避できた(`make_closure`+`call_indirect` に lower され、 直接 `Inst::Call` だけ見ていたゲートを素通り)。 当時 AOT がたまたまコンパイルエラーになったのは無関係な `libc.doAbort` を拾った巻き添えで、 自己完結 extern では JIT・AOT 両方が素通り。 修正: `call_cap` に `MakeClosure`/`FuncAddr` を追加し、 **extern のアドレス materialize 地点で cap を課す**(非 extern wrapper は exempt)。 過剰ゲート無しを確認(`ffi` 付与で間接呼び出しが実行)。 fixture `11_capabilities/ffi_indirect_{denied,granted}/` 追加、 workspace 546/546 + programs JIT/AOT 緑。 詳細は下の解決済み記録。
@@ -197,14 +198,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 
 ## 未解決の引き継ぎ事項
 
-### [未解決] weak 強制の残り 2 経路(return-as-weak / if-else・match join)が UAF (2026-06-15)
+### [解決済み記録] 第 147 弾: weak 強制の残り経路(fresh / join / return)と順序バグを完了 (2026-06-15) — ユーザー決定
 
-第 145〜146 弾で weak 束縛・再代入・一時レシーバを直したが、 **strong を weak に降格する残り 2 経路**がまだ UAF:
+第 145/146 弾は **borrowed ソース**の weak 強制しか直しておらず、 **fresh ソース**(`new T()` 直接・if/else / match の join)と **return** 経路がまだ UAF だった。 ユーザー「残り全部直す」方針で完了。
 
-- `fn f(): T.weak { return new Tag() }` — fresh strong を weak で返す退化ケース。 `w.get()` が解放済みスロットを読む(`maybe-some v=999`)。 lower_return / finalise_return / body_cx の tail-var-return が絡む。
-- `let w: T.weak = if c { a } else { b }` — strong 分岐を weak へ。 if/else join(control.rs:106-148)が分岐値を strong +1 retain し、 その後の weak 降格と会計が干渉して box が解放される。 match join も同様(control.rs)。 単純な `let w: T.weak = a`(join 無し)は第 145 弾で修正済みなので、 **join の retain が原因**。
-
-借用 strong を weak で返す生存中ケース(`fn f(n): T.weak { return n }` で n が生存)は正常。 ユーザーは「残り全部直す」方針。 次セッションは control.rs の if/else・match join と return 経路の StrongToWeak 会計を、 第 145/146 弾と同じ「weak は束縛/消費で retain・release を釣り合わせる」原則で直す。 再現: `/tmp/ilw/ret.il`(return)・`/tmp/ilw/ife.il`(if/else)に相当するものを作って HEAP_GUARD で確認。
+- **見落としの構造**: `is_fresh_object_expr` は `If`/`Match`/`New` を **fresh** と分類する(body_cx.rs:1003/1023)。 第 145 弾の「bare `Weak` を fresh 判定から除外」は `||` の**後段**にあり、 ソースが既に fresh のとき短絡されて束縛 weak retain がスキップされていた。 つまり borrowed(`let w = n`)だけ直り、 fresh(`let w = if…` / `let w = new T()`)は素通り。
+- **順序バグ**: weak retain を `release_owned_wrap_source`(strong +1 を落とす)より**後**に出していた。 fresh ソースは他に strong 保持者がいないので、 先に strong を 0 にすると weak 共有が無いまま `__release_object` が box を解放し、 後の weak retain が手遅れになる。 if/else が偶然動いていたのは分岐値がローカルに保持され strong が 0 に落ちなかったため。
+- **修正(統一原則)**: `StrongToWeak`(Object→bare `T.weak`)では **ソースの fresh/borrowed を問わず、 strong 解放より前に weak +1 を取得する**。 適用箇所: let([stmt.rs](../crates/ilang-mir/src/lower/stmt.rs))・再代入([expr.rs](../crates/ilang-mir/src/lower/expr.rs) `ExprKind::Assign`)・return([control.rs](../crates/ilang-mir/src/lower/control.rs) `lower_return`)。 いずれも coerce 直後・`release_owned_wrap_source` の前に weak retain を挿入し、 後段の汎用 retain と二重にならないよう調整。 `Object→Optional<Weak>` は coerce 内で weak +1 を取るので対象外。
+- **検証**: fixture 2 件追加 — `weak_join_and_fresh_into_weak.il`(if/else・match・`new` を weak へ)・`weak_return_strong_as_weak.il`(fresh return は none・borrowed 生存 return は some)。 どちらもスロット再利用で**通常モードでも決定的**(修正 off で `BAD some v=999`、 on で none)。 stash で実証。 網羅スイープ: let/再代入/return × borrowed/fresh/if-else/match/new + 一時レシーバ、 全て none/正値かつ leak churn 全 leakfree、 HEAP_GUARD 破損無し、 既存 weak fixture 8 件 guard 緑。 workspace 546/546、 programs JIT+AOT、 nested_generic 100/100。
+- **教訓**: 第 145 弾を「named 束縛の churn」だけで検証して `fnReturningWeak().method()` の一時リークと fresh ソースの UAF を見逃した。 weak は **束縛・再代入・return・一時消費の各サイト**で「strong を落とす前に weak +1 を取り、 消費・scope 退出で必ず release」を揃える必要がある。
 
 ### [解決済み記録] 第 146 弾: weak 再代入の UAF と一時 weak レシーバのリーク (2026-06-15)
 
