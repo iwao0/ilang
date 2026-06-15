@@ -1515,6 +1515,10 @@ impl<'a> BodyCx<'a> {
                     // the weak Optional slot and crashed on release.
                     || (matches!(**inner, MirTy::Weak(_))
                         && matches!(vty, MirTy::Object(_)))
+                    // `obj.f = 8.5` against an `f32?` field — demote the
+                    // numeric value to the inner type, then wrap. Without
+                    // this the raw f64 went into the f32? slot -> SIGSEGV.
+                    || (inner.is_numeric() && vty.is_numeric() && **inner != vty)
         );
         // Object → Weak: clif-level identity but the value's MIR type
         // must switch BEFORE the retain below, otherwise `Retain`

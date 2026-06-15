@@ -151,7 +151,24 @@ impl<'a> BodyCx<'a> {
             let subtype_wrap = obj_shape(inner)
                 && obj_shape(from)
                 && !matches!(from, MirTy::Optional(_));
-            if **inner == *from || matches!(**inner, MirTy::Unit) || subtype_wrap {
+            // A numeric value boxed into a differently-typed numeric
+            // Optional (`f64` literal → `f32?`, `i32` → `i64?`) must be
+            // converted to the inner type before boxing — otherwise the
+            // raw value lands in the Optional slot and the f64/f32 width
+            // mismatch crashes on read / release.
+            let numeric_wrap =
+                inner.is_numeric() && from.is_numeric() && **inner != *from;
+            if **inner == *from
+                || matches!(**inner, MirTy::Unit)
+                || subtype_wrap
+                || numeric_wrap
+            {
+                if numeric_wrap {
+                    let demoted = self.coerce(v, from, inner, _span)?;
+                    let dst = self.fb.new_value(to.clone());
+                    self.fb.push_inst(Inst::NewOptional { dst, value: demoted });
+                    return Ok(dst);
+                }
                 // For a heap-typed inner the new Optional cell owns a
                 // share of `v`; without bumping rc here, the source
                 // binding's eventual release would drop the only
