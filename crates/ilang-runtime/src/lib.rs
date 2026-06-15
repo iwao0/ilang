@@ -32,6 +32,7 @@
 
 pub mod alloc;
 pub mod arrays;
+pub mod caps;
 pub mod cascade;
 pub mod classes;
 pub mod crash_handler;

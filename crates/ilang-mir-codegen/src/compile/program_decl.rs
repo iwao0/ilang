@@ -960,6 +960,10 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             };
             let panic_aux = PanicAux {
                 fn_id: panic_fn_id,
+                cap_require_file: declare_unit_void(module, "$cap.requireFile")?,
+                cap_require_os: declare_unit_void(module, "$cap.requireOs")?,
+                cap_require_ffi: declare_unit_void(module, "$cap.requireFfi")?,
+                cap_require_net: declare_unit_void(module, "$cap.requireNet")?,
                 drop_dispatch: drop_dispatch_id,
                 release_obj: release_obj_id,
                 retain_obj: retain_obj_id,

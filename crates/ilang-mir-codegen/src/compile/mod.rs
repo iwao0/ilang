@@ -319,6 +319,10 @@ pub(super) struct FmtIds {
 #[allow(dead_code)] // `drop_dispatch` / `print_map` are only consumed via runtime symbol resolution today, but kept on this aggregate so future codegen sites can reach for them without re-plumbing.
 pub(super) struct PanicAux {
     pub(super) fn_id: cranelift_module::FuncId,
+    pub(super) cap_require_file: cranelift_module::FuncId,
+    pub(super) cap_require_os: cranelift_module::FuncId,
+    pub(super) cap_require_ffi: cranelift_module::FuncId,
+    pub(super) cap_require_net: cranelift_module::FuncId,
     pub(super) drop_dispatch: cranelift_module::FuncId,
     pub(super) release_obj: cranelift_module::FuncId,
     pub(super) retain_obj: cranelift_module::FuncId,

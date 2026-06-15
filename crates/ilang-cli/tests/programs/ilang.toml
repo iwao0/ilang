@@ -1,3 +1,6 @@
+# Capabilities (std.fs/os + FFI/ObjC bridges) — see manifest.rs.
+capabilities = ["file", "os", "ffi", "net"]
+
 [package]
 name = "ilang_programs_fixtures"
 

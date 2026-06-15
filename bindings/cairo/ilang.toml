@@ -1,2 +1,5 @@
+# Capabilities (FFI / std bindings) — see crates/ilang-cli/src/manifest.rs.
+capabilities = ["file", "os", "ffi", "net"]
+
 [package]
 name = "cairo"

@@ -723,10 +723,45 @@ used to be dropped silently). The known attributes:
 - `@embed("path/to/file")` on `const` declarations (compile-time file inclusion)
 - `@target("os")` on `fn` / `class` / methods — host-OS filter (details below)
 - `@derive(Eq, Hash)` on `class` declarations — auto-synthesise `equals` / `hashCode` for value-equality use in `Set<MyClass>` / `Map<MyClass, V>` (details in the Maps / Sets section)
-- `@deprecated(note)`, `@intrinsic`, `@handle`, `@requires(...)` (capabilities — parsed, not yet enforced)
+- `@deprecated(note)`, `@intrinsic`, `@handle`, `@requires(...)` (`@requires` is an intent annotation — parsed but not the enforcement mechanism; capability **enforcement** is driven by the `ilang.toml` manifest, see below)
 
 (`override` is a keyword, not an attribute — see the Classes
 section.)
+
+### Capabilities (`ilang.toml`)
+
+Capability-based security is enforced by an `ilang.toml` **manifest**, not
+by code annotations. A program may reach a privileged operation only when
+the matching capability is granted; an ungranted one aborts at runtime
+under `ilang run` (JIT) and **fails the build** under `ilang build` (AOT).
+
+```toml
+# ilang.toml — found by walking up from the entry .il's directory
+capabilities = ["file", "os", "ffi"]
+```
+
+| capability | gates |
+| --- | --- |
+| `file` | `std.fs` (read / write / exists / …) |
+| `os`   | `std.os` (errno / process / env) |
+| `ffi`  | any user `@extern(C)` / `@lib(...)` call — the universal C escape hatch |
+| `net`  | networking (reserved; today networking goes through `ffi`) |
+
+- **Deny by default.** A capability not listed — or no manifest at all —
+  is denied. A program that touches no privileged operation (pure
+  computation, `std.math`, collections, …) needs no manifest.
+- **Where the sink's capability comes from.** `std.fs` / `std.os`
+  operations carry `file` / `os`; a user `@extern(C)` call carries `ffi`.
+  Trusted runtime infrastructure (`std.math` / `std.time` / `std.regex` /
+  `std.events`) is exempt. The requirement is decided at the call site, so
+  inlining a `std.fs` wrapper into your code doesn't change its `file`
+  requirement.
+- **Lookup.** The manifest is the first `ilang.toml` found walking up from
+  the entry file's directory, so one manifest at a project root covers
+  every `.il` under it. (`ilang.toml` is also the project manifest for
+  `[deps]` bindings — capabilities live alongside.)
+- `@requires(...)` on a function is parsed as an **intent annotation**;
+  it does not grant or enforce anything — the manifest does.
 
 #### `@target` — same-name declarations dispatched by OS
 

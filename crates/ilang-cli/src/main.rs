@@ -1,3 +1,4 @@
+mod manifest;
 mod project;
 mod walk;
 
@@ -889,12 +890,49 @@ fn link_windows(
 // Subcommand entry points
 // ============================================================
 
+/// AOT static capability check: every capability the program's extern
+/// calls require must be granted. Returns the first missing one's name.
+fn check_caps(mir: &ilang_mir::Program, granted: u32) -> Result<(), &'static str> {
+    use ilang_mir::passes::cap_gate::CapKind;
+    use ilang_runtime::caps::{CAP_FFI, CAP_FILE, CAP_NET, CAP_OS};
+    for cap in ilang_mir::passes::cap_gate::required_caps(mir) {
+        let bit = match cap {
+            CapKind::File => CAP_FILE,
+            CapKind::Os => CAP_OS,
+            CapKind::Ffi => CAP_FFI,
+            CapKind::Net => CAP_NET,
+        };
+        if granted & bit == 0 {
+            return Err(cap.manifest_name());
+        }
+    }
+    Ok(())
+}
+
 fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     let (mut mir, display_path) = match lower_to_mir(path, /*wrap_print=*/ false) {
         Ok(a) => a,
         Err(code) => return code,
     };
     run_mir_opt_passes(&mut mir, &display_path);
+    // Capability enforcement (AOT): every extern call's capability must be
+    // granted by `ilang.toml`, verified statically so the produced binary
+    // is known-safe at build time (a denied capability fails the build).
+    let granted = match manifest::granted_caps(path) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("{display_path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Err(missing) = check_caps(&mir, granted) {
+        eprintln!(
+            "{display_path}: capability '{missing}' is required but not \
+             granted — add it to ilang.toml (e.g. `capabilities = \
+             [\"{missing}\"]`)"
+        );
+        return ExitCode::FAILURE;
+    }
     let object_bytes = match ilang_mir_codegen::compile_program_to_object(&mir) {
         Ok(b) => b,
         Err(e) => {
@@ -1186,6 +1224,18 @@ fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
         let n_insts: usize = mir.functions.iter().flat_map(|f| f.blocks.iter()).map(|b| b.insts.len()).sum();
         eprintln!("[timing] mir opt passes: {:?} (post-opt fns={}, extern={}, insts={})", t_opt.elapsed(), n_fn, n_extern, n_insts);
     }
+    // Capability enforcement (JIT): grant from `ilang.toml`, then insert
+    // a runtime gate before every extern call. A denied capability aborts
+    // at runtime when the gated sink is actually reached.
+    let granted = match manifest::granted_caps(path) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("{display_path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    ilang_runtime::caps::set_granted(granted);
+    ilang_mir::passes::cap_gate::insert_gates(&mut mir);
     let t_cg = std::time::Instant::now();
     let compiled = match ilang_mir_codegen::compile_program(&mir) {
         Ok(c) => c,

@@ -1,0 +1,10 @@
+# Capability manifest for the ilang repository itself.
+#
+# Capabilities granted to every `.il` under this directory (found by the
+# CLI walking up from the entry file). A program may use `std.fs`
+# (`file`), `std.os` (`os`), or a user `@extern(C)` block (`ffi`) only
+# when the matching capability is listed here; an absent capability
+# aborts at runtime (JIT) or fails the build (AOT). The test suite and
+# the bundled examples/cocoa/SDL bindings exercise all of these, so the
+# repo grants the full set.
+capabilities = ["file", "os", "ffi", "net"]

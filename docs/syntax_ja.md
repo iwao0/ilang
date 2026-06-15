@@ -514,9 +514,30 @@ fn download(url: string, path: string) { ... }
 - `const` 宣言に付ける `@embed("path/to/file")` (コンパイル時ファイル取り込み)
 - `fn` / `class` / メソッドに付ける `@target("os")` — ホスト OS フィルタ (詳細は次節)
 - `class` 宣言に付ける `@derive(Eq, Hash)` — `Set<MyClass>` / `Map<MyClass, V>` の値等価プロトコル用に `equals` / `hashCode` を自動合成 (詳細は Map / Set 節)
-- `@deprecated(note)`、`@intrinsic`、`@handle`、`@requires(...)` (capability — パースのみ、未 enforce)
+- `@deprecated(note)`、`@intrinsic`、`@handle`、`@requires(...)` (`@requires` は意図注釈 — パースのみで enforce はしない。 capability の **enforcement は `ilang.toml` マニフェスト**が担う。下記参照)
 
 (`override` はキーワードであり属性ではありません — Classes 節を参照。)
+
+### capability (`ilang.toml`)
+
+capability ベースのセキュリティは、コードの注釈ではなく **`ilang.toml` マニフェスト**で enforce する。プログラムは対応する capability が許可されているときだけ特権操作に到達でき、未許可なら `ilang run`(JIT)では**実行時に abort**、`ilang build`(AOT)では**ビルドが失敗**する。
+
+```toml
+# ilang.toml — エントリ .il のディレクトリから上方探索で発見
+capabilities = ["file", "os", "ffi"]
+```
+
+| capability | ゲートする対象 |
+| --- | --- |
+| `file` | `std.fs`(read / write / exists / …) |
+| `os`   | `std.os`(errno / process / env) |
+| `ffi`  | ユーザーの `@extern(C)` / `@lib(...)` 呼び出し — C への万能の抜け穴 |
+| `net`  | ネットワーク(予約。 現状は `ffi` 経由) |
+
+- **デフォルト deny。** リストに無い capability(またはマニフェスト自体が無い)は拒否。 特権操作に触れないプログラム(純粋計算・`std.math`・コレクション等)はマニフェスト不要。
+- **cap の決まり方。** `std.fs`/`std.os` の操作は `file`/`os`、 ユーザーの `@extern(C)` 呼び出しは `ffi` を要求する。 信頼された runtime インフラ(`std.math`/`std.time`/`std.regex`/`std.events`)は exempt。 要求は呼び出し地点で決まるので、 `std.fs` ラッパーを自分のコードへインライン化しても `file` 要求は変わらない。
+- **探索。** エントリファイルのディレクトリから上方へ最初に見つかった `ilang.toml` を使う。 プロジェクトルートに 1 つ置けば配下の全 `.il` に効く。(`ilang.toml` は `[deps]` バインディング解決のプロジェクトマニフェストでもあり、 capabilities はそこに同居する。)
+- 関数に付けた `@requires(...)` は**意図注釈**としてパースされるだけで、 許可も enforce もしない — マニフェストが担う。
 
 #### `@target` — OS 別の同名宣言
 
