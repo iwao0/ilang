@@ -127,8 +127,22 @@ impl<'a> BodyCx<'a> {
                 // fresh even when the SOURCE expression was a
                 // borrow (`let o: Box? = h.b` retained the fresh
                 // wrapper a second time and leaked it per call).
-                let value_is_fresh_object =
-                    value_is_fresh_object || (bound != v && self.is_arc_heap(&bind_ty));
+                //
+                // `StrongToWeak` (Object → bare `T.weak`) is the
+                // exception: it is a pointer DOWNGRADE, not a wrap, so
+                // it mints no +1 cell. Treating it as fresh skipped the
+                // binding's weak retain while the scope-exit release
+                // still fired — the weak local was released once but
+                // never retained, so the zombie box got freed while the
+                // weak still pointed at it (UAF, masked in normal runs
+                // but surfaced as a stale `some` under ILANG_HEAP_GUARD).
+                // The `Object → Optional<Weak>` wrap stays fresh (it
+                // mints an Optional cell); only the bare `Weak` target
+                // is excluded.
+                let value_is_fresh_object = value_is_fresh_object
+                    || (bound != v
+                        && self.is_arc_heap(&bind_ty)
+                        && !matches!(bind_ty, MirTy::Weak(_)));
                 // For an aliased heap value (anything that isn't a
                 // freshly-constructed `new T(...)` / closure expr /
                 // literal), bump refcount — the binding shares
