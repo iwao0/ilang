@@ -1,0 +1,5 @@
+# Grants `file` but NOT `ffi`. The sibling program never calls the C
+# function directly — it binds it to a value and calls indirectly. The
+# capability must still be charged (the gate rides the address-of, not
+# only the call site), so this must be refused.
+capabilities = ["file"]

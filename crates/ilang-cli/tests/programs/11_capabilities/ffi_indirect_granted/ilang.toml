@@ -1,0 +1,4 @@
+# The granted counterpart: with `ffi` the same indirect C call runs.
+# Guards against the address-of gate over-charging — a granted program
+# must still execute the indirect call (abs(-7) == 7).
+capabilities = ["ffi"]

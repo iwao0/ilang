@@ -86,12 +86,24 @@ fn extern_caps(prog: &Program) -> HashMap<u32, Option<CapKind>> {
         .collect()
 }
 
-/// The capability the call `inst` requires, or `None` (not a sink, or a
-/// trusted intrinsic).
+/// The capability `inst` requires, or `None` (not a sink, or a trusted
+/// intrinsic).
+///
+/// Two ways a sink is reached:
+/// - a **direct call** to an `@extern(C)` / `@intrinsic` declaration; and
+/// - **materializing the address** of an extern sink as a value
+///   (`let f = abs`, passing a bare C fn as a callback). Once code holds a
+///   pointer to a C function it can call it indirectly, past any
+///   call-site gate, so the capability must be charged here. The address
+///   of a non-extern wrapper (e.g. a `std.fs` helper) is exempt — its own
+///   body still carries the gate at the inner intrinsic call.
 fn call_cap(inst: &Inst, caps: &HashMap<u32, Option<CapKind>>) -> Option<CapKind> {
     match inst {
         Inst::Call { callee: FuncRef::Extern { sym, .. }, .. } => cap_for_symbol(sym.as_str()),
         Inst::Call { callee: FuncRef::Local(id), .. } => caps.get(&id.0).copied().flatten(),
+        Inst::MakeClosure { func, .. } | Inst::FuncAddr { func, .. } => {
+            caps.get(&func.0).copied().flatten()
+        }
         _ => None,
     }
 }
