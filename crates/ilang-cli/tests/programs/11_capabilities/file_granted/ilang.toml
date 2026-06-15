@@ -1,0 +1,4 @@
+# Grants `file`, so the same std.fs sink that file_denied refuses
+# runs here. The contrast guards against a manifest change silently
+# denying everything (a passing deny test alone can't catch that).
+capabilities = ["file"]

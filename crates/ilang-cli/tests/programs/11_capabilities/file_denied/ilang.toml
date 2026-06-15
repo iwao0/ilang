@@ -1,0 +1,4 @@
+# This manifest is the closest one above the sibling `.il`, so the
+# upward search stops here instead of at tests/programs/ilang.toml.
+# It grants `os` but NOT `file`, so a std.fs sink must be denied.
+capabilities = ["os"]

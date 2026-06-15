@@ -1,0 +1,2 @@
+# Grants `file` but NOT `os`, so a std.os sink must be denied.
+capabilities = ["file"]
