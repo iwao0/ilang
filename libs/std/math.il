@@ -115,9 +115,8 @@ pub fn abs(x: f64): f64
 pub fn random(): f64
 
 /// Sign of `x`: `1.0` when positive, `-1.0` when negative, `0.0` when
-/// `±0.0`, and `NaN` when `x` is NaN. Mirrors Rust's `f64::signum`,
-/// which differs from JS's `Math.sign` only by returning `NaN`
-/// instead of `NaN` (same behaviour) — values match.
+/// `±0.0`, and `NaN` when `x` is NaN. Matches JS's `Math.sign` (NOT
+/// Rust's `f64::signum`, which returns `±1.0` for `±0.0`).
 @intrinsic("math.sign")
 pub fn sign(x: f64): f64
 
@@ -166,14 +165,18 @@ pub fn atanh(x: f64): f64
 // Pure-ilang helpers — composed from the primitives above. No host
 // dispatch needed; the JIT inlines / folds these alongside user code.
 
-/// Smaller of `a` and `b`. NaN inputs propagate from whichever side.
+/// Smaller of `a` and `b`. A NaN input propagates (matching JS
+/// `Math.min`), from EITHER side — `min(nan, x) == min(x, nan) == nan`.
+/// The bare `a < b` form was order-dependent: it propagated a NaN `b`
+/// but silently returned `a` for a NaN `a`.
 pub fn min(a: f64, b: f64): f64 {
-    if a < b { a } else { b }
+    if a.isNaN() { a } elif b.isNaN() { b } elif a < b { a } else { b }
 }
 
-/// Larger of `a` and `b`. NaN inputs propagate from whichever side.
+/// Larger of `a` and `b`. A NaN input propagates (matching JS
+/// `Math.max`), from EITHER side — `max(nan, x) == max(x, nan) == nan`.
 pub fn max(a: f64, b: f64): f64 {
-    if a > b { a } else { b }
+    if a.isNaN() { a } elif b.isNaN() { b } elif a > b { a } else { b }
 }
 
 /// Clamp `v` to the closed interval `[lo, hi]`. Returns `lo` when

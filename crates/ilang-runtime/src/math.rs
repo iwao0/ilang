@@ -33,7 +33,6 @@ math_unary!(math_floor, "$math.floor", f64::floor);
 math_unary!(math_ceil,  "$math.ceil",  f64::ceil);
 math_unary!(math_round, "$math.round", f64::round);
 math_unary!(math_abs,   "$math.abs",   f64::abs);
-math_unary!(math_sign,  "$math.sign",  f64::signum);
 math_unary!(math_trunc, "$math.trunc", f64::trunc);
 math_unary!(math_cbrt,  "$math.cbrt",  f64::cbrt);
 math_unary!(math_sinh,  "$math.sinh",  f64::sinh);
@@ -42,6 +41,23 @@ math_unary!(math_tanh,  "$math.tanh",  f64::tanh);
 math_unary!(math_asinh, "$math.asinh", f64::asinh);
 math_unary!(math_acosh, "$math.acosh", f64::acosh);
 math_unary!(math_atanh, "$math.atanh", f64::atanh);
+
+/// Sign of `x`, matching JS `Math.sign` and the stdlib doc: `0.0` for
+/// `±0.0`, `1.0` / `-1.0` for positive / negative, `NaN` for `NaN`. NOT
+/// `f64::signum`, which returns `±1.0` for `±0.0` (so `sign(0.0)` would
+/// be `1.0`, contradicting the documented `0.0`).
+#[unsafe(export_name = "$math.sign")]
+pub extern "C" fn math_sign(x: f64) -> f64 {
+    if x.is_nan() {
+        f64::NAN
+    } else if x > 0.0 {
+        1.0
+    } else if x < 0.0 {
+        -1.0
+    } else {
+        x // ±0.0 → 0.0 / -0.0 (JS-exact)
+    }
+}
 
 #[unsafe(export_name = "$math.atan2")]
 pub extern "C" fn math_atan2(y: f64, x: f64) -> f64 { y.atan2(x) }

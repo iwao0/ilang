@@ -22,6 +22,7 @@
 直近のセッション (2026-06-14 / 2026-06-11) で main に landing した変更:
 
 - **第 149 弾** (zero-await async fn の `return` 型エラー)。 `async fn one(): i64 { return 1 }`(await 無し + `return` 文)が `expected Promise<i64>, got i64` で拒否。 原因は zero-await desugar が tail 式しか `Promise.resolve` で包まず `return X` 文を包まないこと([async_desugar/mod.rs](../crates/ilang-parser/src/normalize/async_desugar/mod.rs))。 修正: 全 `return` を再帰的に wrap(ネスト FnExpr は除外)+ tail は diverge 判定で「1 回だけ包む/包まない」を選択(`Result.ok/err` の arm 跨ぎ推論を保持)。 fixture `async_zero_await_return.il` 追加、 全儀式緑。 詳細は下の解決済み記録。
+- **第 151 弾** (std.math の probe)。 薄い領域 std.math を probe して 2 件修正: (1) `sign(±0.0)` が doc の `0.0` でなく `1.0`(`f64::signum` マップ)→ JS `Math.sign` 準拠の専用実装に([math.rs](../crates/ilang-runtime/src/math.rs))。 (2) `min`/`max` の NaN が順序依存・非可換 → doc 通り両側伝播に([math.il](../../libs/std/math.il))。 clamp/lerp/smoothstep/remap・定義域外 intrinsic は健全。 fixture `04_modules/math_sign_and_nan.il`。 `math.il` 変更は再ビルド必須。 詳細は下の解決済み記録。
 - **第 150 弾** (break 無し loop tail の divergence)。 `fn f(): i64 { loop { ...return... } }` が「body produces ()」で拒否されていた(checker が break 皆無の loop を divergent でなく `()` 扱い)。 第 149 弾で表面化した async/非 async 共通の制限。 修正: `Loop(None)`(break 皆無)を `ret_ty` として型付け([checker/expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs)、 第 144 弾と同じ近似)。 無限ループ `loop {}` も Rust 同様に通る。 fixture `loop_no_break_diverges.il` 追加、 全儀式緑。 詳細は下の解決済み記録。
 - **第 148 弾** (weak 強制を全消費サイトで完了)。 第 145〜147 は let/再代入/return を直したが、 **コンテナ/引数の消費サイト**(field store・array.push・array/tuple リテラル・`T.weak` 引数)が fresh ソースでまだ UAF だった。 coerce 集約を試みたが、 サイトにより「coerce が retain 済みと仮定(リテラル)」「自前 retain(field/array/arg)」が混在し二重 retain でリーク(fixture 2 件回帰)→ `e0edf298` へ戻し、 ユーザー合意で **per-site 順序修正**(retain を release より前に足すのみ・除去なし)へ。 全消費サイトに適用、 fixture `weak_fresh_into_container_and_arg.il` 追加、 網羅スイープ全緑、 全儀式緑。 詳細は下の解決済み記録。
 - **第 147 弾** (weak 強制の残り経路を完了)。 第 145/146 は borrowed ソースだけ直しており、 **fresh ソース**(`new T()`・if/else / match join)と **return** がまだ UAF だった。 原因は (a) `is_fresh_object_expr` が If/Match/New を fresh 分類するため第 145 弾の Weak 除外が短絡されたこと、 (b) weak retain を strong 解放より後に出す**順序バグ**。 修正: `StrongToWeak` ではソースの fresh/borrowed を問わず **strong 解放より前に weak +1 を取得**(let/再代入/return の 3 経路)。 fixture 2 件追加(通常モードで決定的)、 網羅スイープ全緑、 全儀式緑。 詳細は下の解決済み記録。
@@ -200,6 +201,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 151 弾: std.math の `sign(±0)` と `min`/`max` の NaN (2026-06-15)
+
+バグ抽出が薄い領域(fixture 2 件・HANDOFF 言及 0)として **std.math** を probe し、 2 件の実バグを検出・修正。
+
+- **`sign(±0.0)` が `1.0`**: doc は「`0.0` when `±0.0`」(JS `Math.sign` 準拠)と明記しているのに、 intrinsic が `f64::signum`(Rust の signum は `+0.0→1.0`・`-0.0→-1.0`)にマップされ `sign(0.0)=1.0` を返していた = **doc と実装の矛盾**。 修正([math.rs](../crates/ilang-runtime/src/math.rs)): `math_sign` を専用実装に(NaN→NaN・正→1・負→-1・`±0`→そのまま=0/-0、 JS-exact)。 doc の壊れた一文(「NaN instead of NaN」)も修正。
+- **`min`/`max` の NaN が非対称**: ilang 実装 `if a<b {a} else {b}` は `min(nan,5)=5`(NaN 第1引数を伝播せず)だが `min(5,nan)=NaN` = **順序依存・非可換**。 doc は「NaN はどちらからでも伝播」とあるので doc 通りに修正([math.il](../../libs/std/math.il)): `if a.isNaN() { a } elif b.isNaN() { b } elif a<b {a} else {b}`。 両側で NaN 伝播・可換。 perf 影響は isNaN 2 回(軽微)。
+- **クリーン確認**: clamp/lerp/smoothstep/remap・定義域外 intrinsic(`sqrt(-1)=NaN`・`asin(2)=NaN`・`ln(0)=-Inf`・`pow(0,0)=1`・`cbrt(-8)=-2`・`hypot(3,4)=5`)・丸め(`round` は half-away-from-zero=Rust 準拠)は全て正しい。
+- **検証**: fixture `04_modules/math_sign_and_nan.il`。 programs harness JIT+AOT、 workspace 546/546。 **注意**: `math.il` は `include_str!` 埋め込みなので変更後は `cargo build -p ilang` 再ビルド必須(再ビルド前は旧 math.il が走り誤判定する)。
 
 ### [解決済み記録] 第 150 弾: break の無い `loop` を関数 tail にすると `body produces ()` (2026-06-15)
 
