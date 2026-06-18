@@ -22,6 +22,7 @@
 直近のセッション (2026-06-14 / 2026-06-11) で main に landing した変更:
 
 - **第 149 弾** (zero-await async fn の `return` 型エラー)。 `async fn one(): i64 { return 1 }`(await 無し + `return` 文)が `expected Promise<i64>, got i64` で拒否。 原因は zero-await desugar が tail 式しか `Promise.resolve` で包まず `return X` 文を包まないこと([async_desugar/mod.rs](../crates/ilang-parser/src/normalize/async_desugar/mod.rs))。 修正: 全 `return` を再帰的に wrap(ネスト FnExpr は除外)+ tail は diverge 判定で「1 回だけ包む/包まない」を選択(`Result.ok/err` の arm 跨ぎ推論を保持)。 fixture `async_zero_await_return.il` 追加、 全儀式緑。 詳細は下の解決済み記録。
+- **第 152 弾** (std.events の probe)。 薄い領域 std.events を probe して **emit 中にリスナを `off`/`remove` すると `index out of bounds` で panic** を修正。 `emit` が cached length で生配列を反復していたため、 リスナが emit 中に配列を縮めると範囲外。 両 emit を発火前スナップショット(`slice`)反復に([events.il](../../libs/std/events.il)、 Node.js 準拠)。 fixture `04_modules/events_emit_reentrancy.il`。 詳細は下の解決済み記録。
 - **第 151 弾** (std.math の probe)。 薄い領域 std.math を probe して 2 件修正: (1) `sign(±0.0)` が doc の `0.0` でなく `1.0`(`f64::signum` マップ)→ JS `Math.sign` 準拠の専用実装に([math.rs](../crates/ilang-runtime/src/math.rs))。 (2) `min`/`max` の NaN が順序依存・非可換 → doc 通り両側伝播に([math.il](../../libs/std/math.il))。 clamp/lerp/smoothstep/remap・定義域外 intrinsic は健全。 fixture `04_modules/math_sign_and_nan.il`。 `math.il` 変更は再ビルド必須。 詳細は下の解決済み記録。
 - **第 150 弾** (break 無し loop tail の divergence)。 `fn f(): i64 { loop { ...return... } }` が「body produces ()」で拒否されていた(checker が break 皆無の loop を divergent でなく `()` 扱い)。 第 149 弾で表面化した async/非 async 共通の制限。 修正: `Loop(None)`(break 皆無)を `ret_ty` として型付け([checker/expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs)、 第 144 弾と同じ近似)。 無限ループ `loop {}` も Rust 同様に通る。 fixture `loop_no_break_diverges.il` 追加、 全儀式緑。 詳細は下の解決済み記録。
 - **第 148 弾** (weak 強制を全消費サイトで完了)。 第 145〜147 は let/再代入/return を直したが、 **コンテナ/引数の消費サイト**(field store・array.push・array/tuple リテラル・`T.weak` 引数)が fresh ソースでまだ UAF だった。 coerce 集約を試みたが、 サイトにより「coerce が retain 済みと仮定(リテラル)」「自前 retain(field/array/arg)」が混在し二重 retain でリーク(fixture 2 件回帰)→ `e0edf298` へ戻し、 ユーザー合意で **per-site 順序修正**(retain を release より前に足すのみ・除去なし)へ。 全消費サイトに適用、 fixture `weak_fresh_into_container_and_arg.il` 追加、 網羅スイープ全緑、 全儀式緑。 詳細は下の解決済み記録。
@@ -201,6 +202,15 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 152 弾: std.events の emit 中リスナ削除で index out of bounds (2026-06-15)
+
+薄い領域 std.events([events.il](../../libs/std/events.il)・fixture 1 件)を probe して **emit 中にリスナを `off`/`remove` すると `panic: index out of bounds`** を検出・修正。
+
+- **原因**: `EventEmitter.emit`/`Signal.emit` が `n = arr.length` を先に取り、 **生のリスナ配列を `arr[i]` で反復**。 リスナが emit 中に `off`(= `arr.remove`)を呼ぶと配列が縮み、 cached `n` のままなので次の `arr[i]` が範囲外 → panic。 古典的な concurrent-modification バグ。
+- **修正**: 両 emit で発火前に **スナップショット**(`arr.slice(0, arr.length)`)を取り、 それを反復。 emit 中の追加/削除は当該 emit の走査を壊さない(Node.js 準拠: 発火対象は emit 開始時点の集合・削除は次回 emit に反映)。
+- **クリーン確認**: 基本 on/emit/off・listenerCount・emit 中 on(追加は当該 emit で未発火)・removeAllListeners(ARC で配列生存)・空 emit は健全。 HEAP_GUARD 破損なし。
+- **検証**: fixture `04_modules/events_emit_reentrancy.il`。 programs JIT+AOT、 workspace 546/546。 `events.il` も `include_str!` 埋め込みなので再ビルド必須。
 
 ### [解決済み記録] 第 151 弾: std.math の `sign(±0)` と `min`/`max` の NaN (2026-06-15)
 

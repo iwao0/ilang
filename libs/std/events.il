@@ -60,12 +60,19 @@ pub class EventEmitter<T> {
     /// Synchronously invoke every listener registered for
     /// `event`, passing `value` as the single argument.
     /// Listeners fire in registration order.
+    ///
+    /// Iterates a SNAPSHOT taken before firing, so a listener that
+    /// `on`s / `off`s during the emit doesn't corrupt the walk —
+    /// removing a listener mid-emit would otherwise shrink the live
+    /// array under the cached length and index out of bounds.
+    /// (Matches Node.js: the set fired is the one present at emit.)
     pub emit(event: string, value: T) {
         if let some(arr) = this.listeners.get(event) {
-            let n = arr.length
+            let snapshot = arr.slice(0, arr.length)
+            let n = snapshot.length
             let i = 0
             while i < n {
-                let f = arr[i]
+                let f = snapshot[i]
                 f(value)
                 i = i + 1
             }
@@ -123,11 +130,17 @@ pub class Signal<T> {
 
     /// Synchronously fire every registered listener in
     /// registration order, passing `value` as the single argument.
+    ///
+    /// Iterates a SNAPSHOT taken before firing, so a listener that
+    /// `add`s / `remove`s during the emit doesn't corrupt the walk
+    /// (a mid-emit `remove` would otherwise shrink the live array
+    /// under the cached length and index out of bounds).
     pub emit(value: T) {
-        let n = this.listeners.length
+        let snapshot = this.listeners.slice(0, this.listeners.length)
+        let n = snapshot.length
         let i = 0
         while i < n {
-            let f = this.listeners[i]
+            let f = snapshot[i]
             f(value)
             i = i + 1
         }
