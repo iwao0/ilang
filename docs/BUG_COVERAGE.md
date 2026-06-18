@@ -379,7 +379,7 @@
 | [use_two_aliases_same_module.il](crates/ilang-cli/tests/programs/04_modules/use_two_aliases_same_module.il) | (ヘッダ無し) |
 | [use_whole_module.il](crates/ilang-cli/tests/programs/04_modules/use_whole_module.il) | `use lib_helpers` brings the whole module in under its name; access each member via `lib_helpers.member`. |
 
-## 05_edge_cases (385)
+## 05_edge_cases (386)
 
 | fixture | pin している内容 |
 |---|---|
@@ -537,6 +537,7 @@
 | [generic_method_this_call.il](crates/ilang-cli/tests/programs/05_edge_cases/generic_method_this_call.il) | A generic method on a generic class that calls ANOTHER generic method through `this` (`twice<U> { this.apply(f) }`) failed at MIR lowering ("no method apply<string> on class"). Th… |
 | [generic_stack_with_optional_t.il](crates/ilang-cli/tests/programs/05_edge_cases/generic_stack_with_optional_t.il) | Generic class whose methods both consume and return `T?`. The monomorphized `Stack<i64>` and `Stack<string>` each get distinct concrete code, and the `T?` return type has to round… |
 | [generic_tuple_type_param.il](crates/ilang-cli/tests/programs/05_edge_cases/generic_tuple_type_param.il) | Regression guard: monomorphization must substitute a generic type parameter nested inside a TUPLE type. `subst_type` recursed into Array / Optional / Weak / Generic / Fn but had n… |
+| [if_diverging_branch_value.il](crates/ilang-cli/tests/programs/05_edge_cases/if_diverging_branch_value.il) | An `if` used in value position where ONE branch diverges (`return` / `break` / `todo()` / a nested all-paths-diverging if) must take the join type from the live branch alone, and … |
 | [if_else_as_expression.il](crates/ilang-cli/tests/programs/05_edge_cases/if_else_as_expression.il) | `if`/`else` is an expression — it produces a value, the two arm types must unify, and it can nest arbitrarily deep. The basics fixtures only use `if` for control flow; this one pi… |
 | [index_store_tuple_element_wrap.il](crates/ilang-cli/tests/programs/05_edge_cases/index_store_tuple_element_wrap.il) | Regression guard: an index-assignment `coll[i] = <composite literal>` must build the literal with the container's declared element/value type, so a tuple whose element needs wrapp… |
 | [inheritance_no_override_keyword_error.il](crates/ilang-cli/tests/programs/05_edge_cases/inheritance_no_override_keyword_error.il) | Hiding a parent's method without `override` is an error. |
@@ -946,4 +947,4 @@
 
 ---
 
-**合計 863 fixture**(自動生成)。
+**合計 864 fixture**(自動生成)。

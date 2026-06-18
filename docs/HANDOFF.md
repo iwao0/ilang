@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-14 / 2026-06-11) で main に landing した変更:
 
+- **第 158 弾** (if 式の発散分岐が codegen を壊す既存バグ)。 第 157 弾(int/bool match)の同型を **if 式の値 join** で probe して検出。 `let x = if c { 9 } else { return 1 }` という基本形でも `mismatched argument count for jump` でクラッシュ(片分岐が値・片分岐が発散)。 heap・elif 中段発散・引数位置の if でも同様。 原因: `lower_if`([control.rs](../crates/ilang-mir/src/lower/control.rs))が分岐の発散を見ず、 join 型を両分岐の tail から選び両分岐とも join へジャンプ。 発散分岐の死にブロックが `()` を渡し arity 不一致。 **既存バグ**(match と同じく lower_if は発散分岐を一度も扱っていなかった)。 修正: `block_diverges`/`arm_body_diverges` で各分岐の発散を判定し、 join 型は live 分岐のみから選び、 発散分岐は `Unreachable` で閉じて join へジャンプさせない。 fixture `if_diverging_branch_value.il`。 全儀式緑。 詳細は下の解決済み記録。
 - **第 157 弾** (int/bool match の発散 arm が codegen を壊す既存バグ)。 第 156 弾の隣接面(発散 × match)を probe して **整数・bool の `match` に発散 arm(`return`/`todo` 等)があると codegen がクラッシュ**を検出。 `match s { 0 { 9 } _ { return 1 } }` という基本形でも `mismatched argument count for jump`。 原因: `lower_match_int`/`lower_match_bool`([match_.rs](../crates/ilang-mir/src/lower/match_.rs))が enum/string 経路と違い `arm_body_diverges` を見ず、 全 arm を無条件で join に push。 発散 arm の死にブロックが `()` プレースホルダを join へ渡し arity 不一致。 **私の変更と独立の既存バグ**(両経路は発散 arm を一度も扱っていなかった、 string 経路のみ正しかった)。 修正: 両経路の各 arm で `arm_body_diverges` を見て発散 arm を join から除外(enum/string と同じ規則)。 fixture `match_int_bool_diverging_arm.il`(int scalar/heap・bool heap・churn deinits=100)。 全儀式緑。 詳細は下の解決済み記録。
 - **第 156 弾** (発散値の break が codegen を壊す)。 第 155 弾の隣接。 `break (return 1)` や `break (if c { return 1 } else { return 2 })`(値自体が発散)を実値 break と混ぜると **MIR codegen が Cranelift verifier エラーでクラッシュ**(`mismatched argument count for jump`)。 第 155 は checker を直したが、 MIR の `lower_break` が発散 break 値を Unit プレースホルダとして lower し loop exit param を `()` に固定、 実値 break が i64 を渡して arity 不一致。 修正: (1) `lower_break`([control.rs](../crates/ilang-mir/src/lower/control.rs))で break 値が `arm_body_diverges` なら値を lower 後に死にブロックを `Unreachable` で閉じ、 exit param もジャンプ値も付けない。 (2) MIR の `arm_body_diverges`([match_.rs](../crates/ilang-mir/src/lower/match_.rs))に「else 付き全分岐発散 if」「全 arm 発散 match」を追加。 fixture `loop_break_diverging_value_codegen.il`。 全儀式緑。 詳細は下の解決済み記録。
 - **第 155 弾** (`break todo()` が loop 型を Any に固定)。 第 154 弾の同族。 `loop` 内で `break todo()` と実値の `break v` を混ぜると `expected any, got i64`(heap でも `got Box`)でコンパイル不能。 第 154 弾は `todo()` の divergence を match arm と if-join にだけ配線し、 **`loop` の break 値型 join が取り残されていた**。 修正: `Break` 処理([checker/expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs))で break 値が `arm_body_diverges` を満たすなら loop 型に積まない(match/if と同じ規則)。 fixture `loop_break_todo_diverges.il`(scalar/heap 混在 + churn deinits=100)。 全儀式緑。 詳細は下の解決済み記録。
@@ -207,6 +208,16 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 158 弾: if 式の発散分岐が MIR codegen を verifier エラーで落とす (2026-06-19)
+
+第 157 弾(int/bool match の発散 arm)の同型構造を **if 式の値 join** で BUG_COVERAGE.md を見ながら probe して検出。 既存バグ。
+
+- **症状**: `fn f(c: bool): i64 { let x = if c { 9 } else { return 1 }; x + 100 }` が **`mismatched argument count for jump block4: got 0, expected 1`** でクラッシュ。 then 発散/else 発散の双方向、 heap 値(`if c { new Box(1) } else { return new Box(2) }`)、 elif 中段の発散、 引数位置の if(`g(if c { 9 } else { return 1 })`)でも同様。 `if c { return 1 } else { 7 }` は `cannot unify () and i64` の型風エラー(同根)。
+- **原因**([control.rs](../crates/ilang-mir/src/lower/control.rs) `lower_if`): join 型を then/else 両分岐の tail から選び(発散分岐は body lowering でプレースホルダ `MirTy::Unit` を返す)、 両分岐とも `cont` へ `Br` を発行。 発散分岐の死にブロックが `br cont(())` を出し、 live 分岐の型(i64/obj)を持つ join param と clif で arity 不一致(Unit=0 幅)。 match と同じく `lower_if` は発散分岐を一度も特別扱いしていなかった **既存バグ**(第 155〜157 とは独立)。
+- **修正**: `block_diverges`(then は AstBlock)/`arm_body_diverges`(else は Expr)で各分岐の発散を判定。 (1) join 型(`result_ty`)は **live 分岐のみ**から選ぶ(片方発散ならもう片方の型、 両方発散なら Unit)。 (2) 発散分岐の末尾ブロックは join へジャンプせず `Terminator::Unreachable` で閉じる。 `block_diverges` を `pub(super)` 化して control.rs から使用。
+- **fixture**: `05_edge_cases/if_diverging_branch_value.il`(else 発散 / then 発散 / heap else 発散 / 発散経路 100 回 churn deinits=100・`ILANG_HEAP_GUARD=1` クリーン)。
+- **検証**: ilang-types + ilang-mir 134/134、 programs JIT PASS、 programs AOT 1298/1298 PASS、 nested_generic 100/100。
 
 ### [解決済み記録] 第 157 弾: int/bool match の発散 arm が MIR codegen を verifier エラーで落とす (2026-06-19)
 

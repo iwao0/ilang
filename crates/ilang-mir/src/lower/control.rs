@@ -9,7 +9,7 @@ use ilang_ast::{Block as AstBlock, Expr, Span, Symbol};
 use crate::inst::{Inst, MirConst, Terminator, ValueId};
 use crate::types::MirTy;
 
-use super::match_::arm_body_diverges;
+use super::match_::{arm_body_diverges, block_diverges};
 use super::{Binding, BodyCx, LoopFrame, LowerError};
 
 impl<'a> BodyCx<'a> {
@@ -31,6 +31,17 @@ impl<'a> BodyCx<'a> {
             else_block: else_blk,
             else_args: Box::new([]),
         });
+
+        // A branch whose body diverges (`return` / `break` / `todo()`
+        // / a nested all-paths-diverging if/match) never reaches the
+        // join: it must not pick the join type nor jump to `cont` with
+        // a placeholder `()`. Without this a value-producing branch
+        // mismatched the diverging branch's unit arg and codegen
+        // aborted ("mismatched argument count for jump") — the same gap
+        // the int/bool/enum/string match paths handle via
+        // `arm_body_diverges`.
+        let then_div = block_diverges(then_branch);
+        let else_div = else_branch.map(arm_body_diverges).unwrap_or(false);
 
         self.fb.switch_to(then_blk);
         self.last_block_tail_owned = false;
@@ -74,12 +85,19 @@ impl<'a> BodyCx<'a> {
         //     Optional, corrupting cross-function return values.
         //   * symmetrically prefer else's type when else is the
         //     none arm and then carries the value.
-        let result_ty = match (else_branch, &then_tail, &else_tail) {
-            (None, _, _) => MirTy::Unit,
-            (Some(_), Some((_, tt)), Some((_, et))) => widen_optional(tt, et),
-            (Some(_), Some((_, t)), None) => t.clone(),
-            (Some(_), None, Some((_, t))) => t.clone(),
-            (Some(_), None, None) => MirTy::Unit,
+        // Pick the join type from the NON-diverging branch(es) only —
+        // a diverging branch contributes no value.
+        let result_ty = match (else_branch, then_div, else_div, &then_tail, &else_tail) {
+            (None, ..) => MirTy::Unit,
+            // Both branches live: widen across the two.
+            (Some(_), false, false, Some((_, tt)), Some((_, et))) => widen_optional(tt, et),
+            (Some(_), false, false, Some((_, t)), None) => t.clone(),
+            (Some(_), false, false, None, Some((_, t))) => t.clone(),
+            // One branch diverges: the live branch alone decides the type.
+            (Some(_), true, false, _, Some((_, et))) => et.clone(),
+            (Some(_), false, true, Some((_, tt)), _) => tt.clone(),
+            // Both diverge (or no tails): the whole `if` diverges.
+            _ => MirTy::Unit,
         };
 
         let cont = self.fb.new_block();
@@ -96,6 +114,13 @@ impl<'a> BodyCx<'a> {
         // pushed the result to i64 but one branch's value stayed
         // narrower.
         self.fb.switch_to(then_end_blk);
+        if then_div {
+            // Diverging branch: its real terminator (return / etc.)
+            // already fired; this trailing block is dead. Close it as
+            // Unreachable rather than jumping to the join with a `()`
+            // placeholder (which would mismatch the join param arity).
+            self.fb.set_terminator(Terminator::Unreachable);
+        } else {
         // Normalize the branch result to OWNED before the join (see
         // `last_block_tail_owned`): a non-owned heap value (param
         // var, borrow outside the block-tail pairing) gets a Retain
@@ -126,8 +151,17 @@ impl<'a> BodyCx<'a> {
             (_, None) => Box::new([self.const_unit()]),
         };
         self.fb.set_terminator(Terminator::Br { dst: cont, args: then_arg });
+        }
 
         self.fb.switch_to(else_end_blk);
+        if else_div {
+            self.fb.set_terminator(Terminator::Unreachable);
+            self.fb.switch_to(cont);
+            return Ok(match result_val {
+                Some(v) => (v, result_ty),
+                None => (self.const_unit(), MirTy::Unit),
+            });
+        }
         let else_arg: Box<[ValueId]> = match (else_branch, else_tail) {
             (Some(_), Some((v, vty))) => {
                 if matches!(result_ty, MirTy::Unit) {

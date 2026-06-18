@@ -46,7 +46,7 @@ pub(super) fn arm_body_diverges(e: &Expr) -> bool {
 }
 
 /// A block diverges if any statement-expression or its tail does.
-fn block_diverges(b: &AstBlock) -> bool {
+pub(super) fn block_diverges(b: &AstBlock) -> bool {
     for s in &b.stmts {
         if let StmtKind::Expr(inner) = &s.kind {
             if arm_body_diverges(inner) {
