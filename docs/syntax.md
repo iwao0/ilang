@@ -49,6 +49,8 @@ shadowing them at top-level is rejected:
 
 - `console` — built-in singleton.
 - `Result` — built-in two-variant enum.
+- `todo` — built-in diverging placeholder (see [§5](#5-control-flow)).
+- `typeof` — built-in operator (see [§13a](#13a-rtti-typeof-and-type)).
 
 ## 1. Literals
 
@@ -507,6 +509,37 @@ if rc < 0 {
 
 The trailing expression still serves as the return value; an
 explicit `return` is optional.
+
+### `todo()` — unimplemented placeholder
+
+Built-in diverging placeholder, the equivalent of Rust's `todo!()`.
+Takes no arguments. It type-checks in **any** position (it has type
+`Any`, so the surrounding expression accepts whatever type is
+expected) and **diverges** — reaching it at runtime aborts the
+process, printing `not yet implemented (todo)` to stderr and exiting
+with a non-zero status. No caller ever reads a value from it.
+
+```rust
+fn area(s: Shape): i64 {
+    match s {
+        circle(r) { r }
+        square(_, _) { todo() }   // stub: compiles, panics only if reached
+    }
+}
+
+fn stub(): string {
+    if true { "ok" } else { todo() }   // type-checks against `string`
+}
+```
+
+Because `todo()` diverges, a `match` arm whose body is `{ todo() }`
+doesn't contribute to the match's result type — so the example above
+still infers `i64` from the `circle` arm alone. This is what lets the
+editor's *fill match arms* code action emit `todo()` for each
+generated arm and still produce code that compiles.
+
+`todo` is a reserved identifier: it can't be shadowed at top level,
+but remains usable as an enum-variant / member name.
 
 ---
 

@@ -33,6 +33,8 @@ super     this      true      use       while
 
 - `console` — 組み込みシングルトン
 - `Result` — 組み込み 2-variant enum
+- `todo` — 組み込みの発散プレースホルダ ([§5](#5-制御フロー) 参照)
+- `typeof` — 組み込み演算子 ([§13a](#13a-rtti-typeof-と-type) 参照)
 
 ## 1. リテラル
 
@@ -367,6 +369,35 @@ fn maybe_bump(c: Counter, n: i64) {
 ```
 
 末尾式は今までどおり戻り値として使える。`return` を書かなくても良い。
+
+### `todo()` — 未実装プレースホルダ
+
+Rust の `todo!()` に相当する、組み込みの発散プレースホルダ。引数は
+取らない。型は `Any` なので **どの位置でも** 期待される型として型検査
+を通り、実行時に到達すると **発散** する — プロセスを中断し、stderr に
+`not yet implemented (todo)` を出力して非ゼロ終了する。呼び出し側が値を
+読むことはない。
+
+```rust
+fn area(s: Shape): i64 {
+    match s {
+        circle(r) { r }
+        square(_, _) { todo() }   // スタブ: コンパイルは通り、到達時のみ中断
+    }
+}
+
+fn stub(): string {
+    if true { "ok" } else { todo() }   // `string` として型検査を通る
+}
+```
+
+`todo()` は発散するため、本体が `{ todo() }` の `match` アームは
+match の結果型に寄与しない — 上の例は `circle` アームだけから `i64` を
+推論する。これにより、エディタの *fill match arms* コード補完が各アームに
+`todo()` を埋めても、生成コードはそのままコンパイルが通る。
+
+`todo` は予約識別子で、トップレベルで上書きするとエラーになるが、
+enum variant 名 / メンバ名としては引き続き使える。
 
 ---
 
