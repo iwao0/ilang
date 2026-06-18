@@ -456,6 +456,7 @@ pub(super) fn lower_call<M: Module>(
                 "cap_require_os" => Some(panic_aux.cap_require_os),
                 "cap_require_ffi" => Some(panic_aux.cap_require_ffi),
                 "cap_require_net" => Some(panic_aux.cap_require_net),
+                "builtin_todo" => Some(panic_aux.builtin_todo),
                 "enum_structural_eq" => Some(panic_aux.enum_structural_eq),
                 "enum_structural_hash" => Some(panic_aux.enum_structural_hash),
                 "tuple_structural_eq" => Some(panic_aux.tuple_structural_eq),

@@ -964,6 +964,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 cap_require_os: declare_unit_void(module, "$cap.requireOs")?,
                 cap_require_ffi: declare_unit_void(module, "$cap.requireFfi")?,
                 cap_require_net: declare_unit_void(module, "$cap.requireNet")?,
+                builtin_todo: declare_returns_i64(module, "$builtin.todo")?,
                 drop_dispatch: drop_dispatch_id,
                 release_obj: release_obj_id,
                 retain_obj: retain_obj_id,

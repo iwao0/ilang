@@ -21,6 +21,7 @@ pub(super) fn register_runtime_symbols(jit_builder: &mut JITBuilder) {
     jit_builder.symbol("$cap.requireOs", ilang_runtime::caps::__cap_require_os as *const u8);
     jit_builder.symbol("$cap.requireFfi", ilang_runtime::caps::__cap_require_ffi as *const u8);
     jit_builder.symbol("$cap.requireNet", ilang_runtime::caps::__cap_require_net as *const u8);
+    jit_builder.symbol("$builtin.todo", ilang_runtime::__builtin_todo as *const u8);
     jit_builder.symbol("$alloc.free", ilang_runtime::__mir_free as *const u8);
     // Map runtime backed by Rust's HashMap<i64, i64> (one box per
     // map). Keys / values flow through as i64 cells (heap pointers

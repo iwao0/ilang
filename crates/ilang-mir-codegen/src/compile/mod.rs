@@ -323,6 +323,7 @@ pub(super) struct PanicAux {
     pub(super) cap_require_os: cranelift_module::FuncId,
     pub(super) cap_require_ffi: cranelift_module::FuncId,
     pub(super) cap_require_net: cranelift_module::FuncId,
+    pub(super) builtin_todo: cranelift_module::FuncId,
     pub(super) drop_dispatch: cranelift_module::FuncId,
     pub(super) release_obj: cranelift_module::FuncId,
     pub(super) retain_obj: cranelift_module::FuncId,

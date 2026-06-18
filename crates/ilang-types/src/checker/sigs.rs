@@ -221,7 +221,7 @@ pub(super) fn is_reserved_class(name: &str) -> bool {
 }
 
 pub(super) fn is_reserved_global(name: &str) -> bool {
-    matches!(name, "console" | "typeof")
+    matches!(name, "console" | "typeof" | "todo")
 }
 
 /// Score how well an actual arg type fits a parameter type. `None`

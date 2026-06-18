@@ -7,7 +7,7 @@
 
 use ilang_ast::{Expr, ExprKind, Span, Symbol};
 
-use crate::inst::{FuncRef, Inst, ValueId};
+use crate::inst::{FuncRef, Inst, Terminator, ValueId};
 use crate::program::FunctionKind;
 use crate::types::MirTy;
 
@@ -49,6 +49,21 @@ impl<'a> BodyCx<'a> {
             let dst = self.fb.new_value(MirTy::TypeHandle);
             self.fb.push_inst(Inst::TypeOf { dst, value: v });
             return Ok((dst, MirTy::TypeHandle));
+        }
+        // `todo()` builtin — abort with "not yet implemented". Emit the
+        // diverging runtime call and terminate the block as Unreachable
+        // so nothing after it (and no match-arm `Br` to the join — see
+        // `arm_body_diverges`) executes. The `i64` dst is a never-read
+        // placeholder; the call doesn't return.
+        if callee.as_str() == "todo" && args.is_empty() {
+            let dst = self.fb.new_value(MirTy::I64);
+            self.fb.push_inst(Inst::Call {
+                dst: Some(dst),
+                callee: FuncRef::Builtin(Symbol::intern("builtin_todo")),
+                args: Box::new([]),
+            });
+            self.fb.set_terminator(Terminator::Unreachable);
+            return Ok((dst, MirTy::I64));
         }
         // `ffi.arrayFromCArray<T>(p: *const T, n: size_t)` —
         // declared as `@intrinsic("ffi.arrayFromCArray")` inside

@@ -44,6 +44,8 @@ fn is_addr_path(e: &Expr) -> bool {
 pub(super) fn arm_body_diverges(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::Return(_) | ExprKind::Break(_) | ExprKind::Continue => true,
+        // `todo()` aborts — see check_call_expr / the MIR lowering.
+        ExprKind::Call { callee, args } if callee.as_str() == "todo" && args.is_empty() => true,
         ExprKind::Block(b) => {
             for s in &b.stmts {
                 if let StmtKind::Expr(inner) = &s.kind {

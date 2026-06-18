@@ -91,6 +91,15 @@ pub fn rt_panic(msg: &str) -> ! {
     std::process::exit(1)
 }
 
+/// `todo()` builtin — a placeholder that aborts with "not yet
+/// implemented". The declared `-> i64` return never happens (the
+/// process exits); the lowering marks the call site as diverging so
+/// no caller reads a value.
+#[unsafe(export_name = "$builtin.todo")]
+pub extern "C" fn __builtin_todo() -> i64 {
+    rt_panic("not yet implemented (todo)")
+}
+
 #[unsafe(export_name = "$ilang.panic")]
 pub extern "C" fn __ilang_panic(msg: i64) -> ! {
     let bytes = if msg == 0 {

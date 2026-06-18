@@ -1010,6 +1010,17 @@ impl TypeChecker {
             self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
             return Ok(Type::Object("Type".into()));
         }
+        // Built-in `todo(): never` — aborts at runtime ("not yet
+        // implemented") and type-checks in any position. Returns `Any`
+        // so the containing expression / match arm is compatible with
+        // whatever type is expected; it also counts as diverging (see
+        // `arm_body_diverges`), so a `match` whose only stub arm is
+        // `{ todo() }` doesn't force its result type. Used by the
+        // fill-match-arms code action's generated arm bodies.
+        if callee == "todo" {
+            check_arity(args.len(), 0, callee.clone(), span)?;
+            return Ok(Type::Any);
+        }
         // `$ffi.cstrFromString(s: string): *const char` — parser-
         // synthesised by the @objc desugar. The `$` prefix is
         // unreachable from user code (lex rejects it), so this only
