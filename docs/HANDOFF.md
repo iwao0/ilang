@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-14 / 2026-06-11) で main に landing した変更:
 
+- **第 159 弾** (ユーザー決定 = 発散式を消費位置で checker 拒否)。 155〜158 の発散系統の探索中に、 `f(return 5)`・`1 + (return 2)`・`[1, return 2, 3]` のように **発散式(return/break/continue)を値消費位置**(引数・オペランド・要素等)に置くと、 checker を素通りし `mir lower: no coercion from () to i64` という内部的なメッセージで落ちることを発見。 根は「ilang に never 型が無く `return X` の checker 型が関数戻り値型」(`todo() + 1` と同根)。 ユーザー判断で **never 型は入れず checker で素直に拒否**を選択。 実装: `reject_control_transfer_value`([checker/expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs))を新設し、 二項/単項オペランド・call 引数(`check_call_expr`/`check_args`)・配列/タプル/Map 要素・index・some・template の各消費位置で呼ぶ。 `break`/`continue` はループ外、 `return` はトップレベルでは専用エラーに譲るため `loop_depth`/`ret_ty` を見て well-formed な時だけ拒否。 fixture `control_transfer_not_a_value.il`。 checker のみ・lowering 不変。 詳細は下の解決済み記録。
 - **第 158 弾** (if 式の発散分岐が codegen を壊す既存バグ)。 第 157 弾(int/bool match)の同型を **if 式の値 join** で probe して検出。 `let x = if c { 9 } else { return 1 }` という基本形でも `mismatched argument count for jump` でクラッシュ(片分岐が値・片分岐が発散)。 heap・elif 中段発散・引数位置の if でも同様。 原因: `lower_if`([control.rs](../crates/ilang-mir/src/lower/control.rs))が分岐の発散を見ず、 join 型を両分岐の tail から選び両分岐とも join へジャンプ。 発散分岐の死にブロックが `()` を渡し arity 不一致。 **既存バグ**(match と同じく lower_if は発散分岐を一度も扱っていなかった)。 修正: `block_diverges`/`arm_body_diverges` で各分岐の発散を判定し、 join 型は live 分岐のみから選び、 発散分岐は `Unreachable` で閉じて join へジャンプさせない。 fixture `if_diverging_branch_value.il`。 全儀式緑。 詳細は下の解決済み記録。
 - **第 157 弾** (int/bool match の発散 arm が codegen を壊す既存バグ)。 第 156 弾の隣接面(発散 × match)を probe して **整数・bool の `match` に発散 arm(`return`/`todo` 等)があると codegen がクラッシュ**を検出。 `match s { 0 { 9 } _ { return 1 } }` という基本形でも `mismatched argument count for jump`。 原因: `lower_match_int`/`lower_match_bool`([match_.rs](../crates/ilang-mir/src/lower/match_.rs))が enum/string 経路と違い `arm_body_diverges` を見ず、 全 arm を無条件で join に push。 発散 arm の死にブロックが `()` プレースホルダを join へ渡し arity 不一致。 **私の変更と独立の既存バグ**(両経路は発散 arm を一度も扱っていなかった、 string 経路のみ正しかった)。 修正: 両経路の各 arm で `arm_body_diverges` を見て発散 arm を join から除外(enum/string と同じ規則)。 fixture `match_int_bool_diverging_arm.il`(int scalar/heap・bool heap・churn deinits=100)。 全儀式緑。 詳細は下の解決済み記録。
 - **第 156 弾** (発散値の break が codegen を壊す)。 第 155 弾の隣接。 `break (return 1)` や `break (if c { return 1 } else { return 2 })`(値自体が発散)を実値 break と混ぜると **MIR codegen が Cranelift verifier エラーでクラッシュ**(`mismatched argument count for jump`)。 第 155 は checker を直したが、 MIR の `lower_break` が発散 break 値を Unit プレースホルダとして lower し loop exit param を `()` に固定、 実値 break が i64 を渡して arity 不一致。 修正: (1) `lower_break`([control.rs](../crates/ilang-mir/src/lower/control.rs))で break 値が `arm_body_diverges` なら値を lower 後に死にブロックを `Unreachable` で閉じ、 exit param もジャンプ値も付けない。 (2) MIR の `arm_body_diverges`([match_.rs](../crates/ilang-mir/src/lower/match_.rs))に「else 付き全分岐発散 if」「全 arm 発散 match」を追加。 fixture `loop_break_diverging_value_codegen.il`。 全儀式緑。 詳細は下の解決済み記録。
@@ -208,6 +209,18 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 159 弾: 発散式を値消費位置に置くと内部的な lower エラー → checker で拒否 (2026-06-19) — ユーザー決定
+
+155〜158 の発散系統を掃いた後、 **発散式を「値として消費する位置」**(値 join でない所)に置いた場合を probe して検出。
+
+- **症状**: `f(return 5)`・`1 + (return 2)`・`[1, return 2, 3]` が checker を通り、 `mir lower: no coercion from () to i64` / `cannot unify i64 and ()` という内部的な見た目のメッセージで exit 1(パニックや verifier クラッシュではない graceful なエラー)。
+- **原因**([checker/expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs) `ExprKind::Return`): `return X` の checker 型を **関数の戻り値型**(`Ok(expected)`)にしている — これは `fn f(): T { return X }` や `if c { return X }` を never 型なしで型検査するための意図的設計。 そのため `f(return 5)`(引数位置)等も型が合致して素通りし、 MIR lowering で発散式のプレースホルダ `()` を要求型へ coerce できず落ちる。 `todo() + 1`(別途保留)と同じ「never 型不在」が根。
+- **判断**: never 型導入(Rust 風に coerce で通す)は型システムへの本格追加で `Any`/`Unit` との相互作用検証が大きい。 ユーザー決定で **never 型は入れず、 消費位置で checker が綺麗な診断で拒否**。
+- **修正**: `reject_control_transfer_value(e, loop_depth, ret_ty)` を新設(`pub(in crate::checker)`)。 値消費位置で呼ぶ: 二項/単項オペランド・自由関数 call 引数(`check_call_expr`)・メソッド/ctor/overload 引数(`check_args`)・配列要素(`check_array_with_hint`)・タプル要素・Map キー/値(`check_map_lit_with_hint`)・index(`check_index`)・`some(..)`・template parts。 **well-formed な control-transfer のみ拒否**: `break`/`continue` は `loop_depth>0` の時だけ(ループ外は既存の「used outside of a loop」に譲る)、 `return` は `ret_ty.is_some()` の時だけ(トップレベル return の専用エラーに譲る)。 これで `break_outside_loop_error.il`/`continue_outside_loop_error.il` の期待メッセージを保つ。
+- **fixture**: `05_edge_cases/control_transfer_not_a_value.il`(`g(return 5)` を expect-error で pin)。
+- **残課題**: `todo() + 1`(`todo()` は `Type::Any` でオペランド位置の演算を受けない)は同系統だが別件で保留(優先度低)。
+- **検証**: ilang-types 76/76、 programs JIT PASS、 programs AOT 1298/1298 PASS。 checker のみ・lowering 不変のため nested_generic 儀式は非対象。
 
 ### [解決済み記録] 第 158 弾: if 式の発散分岐が MIR codegen を verifier エラーで落とす (2026-06-19)
 

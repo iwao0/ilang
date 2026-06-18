@@ -368,6 +368,9 @@ impl TypeChecker {
         loop_depth: u32,
         _span: Span,
     ) -> Result<Type, TypeError> {
+        for e in elements {
+            super::reject_control_transfer_value(e, loop_depth, ret_ty)?;
+        }
         if elements.is_empty() {
             // Element type is unknown; surface a marker
             // (`Any`-element array) and let `literal_assignable`
@@ -568,6 +571,8 @@ impl TypeChecker {
             });
         }
         for (k, v) in entries {
+            super::reject_control_transfer_value(k, loop_depth, ret_ty)?;
+            super::reject_control_transfer_value(v, loop_depth, ret_ty)?;
             let kt = self.check_expr(k, env, ret_ty, in_class, loop_depth)?;
             if !self.value_assignable(k, &kt, hint_key) {
                 return Err(TypeError::Mismatch {

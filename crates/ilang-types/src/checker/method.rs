@@ -202,6 +202,9 @@ impl TypeChecker {
         loop_depth: u32,
         call_span: Span,
     ) -> Result<(), TypeError> {
+        for a in args {
+            crate::checker::expr::reject_control_transfer_value(a, loop_depth, ret_ty)?;
+        }
         if sig.variadic {
             // Variadic: the declared params are the **fixed prefix**;
             // each arg before that index is type-checked against the

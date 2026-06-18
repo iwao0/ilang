@@ -379,7 +379,7 @@
 | [use_two_aliases_same_module.il](crates/ilang-cli/tests/programs/04_modules/use_two_aliases_same_module.il) | (ヘッダ無し) |
 | [use_whole_module.il](crates/ilang-cli/tests/programs/04_modules/use_whole_module.il) | `use lib_helpers` brings the whole module in under its name; access each member via `lib_helpers.member`. |
 
-## 05_edge_cases (386)
+## 05_edge_cases (387)
 
 | fixture | pin している内容 |
 |---|---|
@@ -453,6 +453,7 @@
 | [const_no_init_error.il](crates/ilang-cli/tests/programs/05_edge_cases/const_no_init_error.il) | `const` requires an initializer expression — the parser rejects bare `const NAME: T` (no `= …`) at decl time. |
 | [const_runtime_expression.il](crates/ilang-cli/tests/programs/05_edge_cases/const_runtime_expression.il) | `const` accepts any expression for its initializer (not just compile-time literals). When the RHS isn't constant-foldable the loader demotes it to a runtime one-shot init that run… |
 | [continue_outside_loop_error.il](crates/ilang-cli/tests/programs/05_edge_cases/continue_outside_loop_error.il) | `continue` is only meaningful inside a `while` / `loop` / `for` body. Using it outside any loop must be a compile-time error. |
+| [control_transfer_not_a_value.il](crates/ilang-cli/tests/programs/05_edge_cases/control_transfer_not_a_value.il) | `return` / `break` / `continue` transfer control and yield no value, so using one as a sub-expression in a value-combining position (here a function argument) is rejected with a c… |
 | [crepr_struct_assign_index_field.il](crates/ilang-cli/tests/programs/05_edge_cases/crepr_struct_assign_index_field.il) | `arr[i].kind = Mode.active` — AssignIndex の対象が CRepr struct で、 その内側 inline enum field を更新する path。 lower 経路は `let tmp = arr[i]; tmp.kind = ...` に等価か、 構文として直接の 連鎖を許すかは試して確認する。 |
 | [crepr_struct_enum_field_as_by_value_param.il](crates/ilang-cli/tests/programs/05_edge_cases/crepr_struct_enum_field_as_by_value_param.il) | CRepr struct を fn の by-value 引数として受け、 fn 内部で inline enum field を read する。 caller 側が新規に作って渡す (fresh) のと、 既存 Local を渡す (borrowed) の両方を試す。  extern C ABI で CRepr struct を by-value 渡しす… |
 | [crepr_struct_enum_field_assign.il](crates/ilang-cli/tests/programs/05_edge_cases/crepr_struct_enum_field_assign.il) | CRepr struct (`@extern(C)` block 内) の unit-only enum field を `field = Enum.variant` で書き込み、 同じ field を読み戻して値が 一致することを確認。  pre-fix (df51064a): `ExprKind::AssignField` の `is_heap` 判定… |
@@ -947,4 +948,4 @@
 
 ---
 
-**合計 864 fixture**(自動生成)。
+**合計 865 fixture**(自動生成)。

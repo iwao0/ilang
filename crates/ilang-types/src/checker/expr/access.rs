@@ -412,6 +412,8 @@ impl TypeChecker {
         loop_depth: u32,
         _span: Span,
     ) -> Result<Type, TypeError> {
+        super::reject_control_transfer_value(obj, loop_depth, ret_ty)?;
+        super::reject_control_transfer_value(index, loop_depth, ret_ty)?;
         let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
         let it = self.check_expr(index, env, ret_ty, in_class, loop_depth)?;
         // Map<K, V> indexing: `m[k]` returns V (panics at runtime

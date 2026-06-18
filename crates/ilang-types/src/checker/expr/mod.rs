@@ -60,6 +60,41 @@ pub(super) fn arm_body_diverges(e: &Expr) -> bool {
     }
 }
 
+/// `return` / `break` / `continue` transfer control and yield no
+/// value. They are legal as a statement, a block tail, a branch / arm
+/// body, or a `loop` break value (all handled structurally), but NOT
+/// combined with other values (operand, argument, element). The
+/// checker otherwise assigns `return X` the enclosing fn's return type
+/// (so `fn f(): T { return X }` and `if c { return X }` type-check
+/// without a Never type), which let those degenerate forms slip
+/// through and only fail later as an internal MIR lowering error.
+/// Reject them here with a clear diagnostic instead.
+pub(in crate::checker) fn reject_control_transfer_value(
+    e: &Expr,
+    loop_depth: u32,
+    ret_ty: Option<&Type>,
+) -> Result<(), TypeError> {
+    // Only reject a control-transfer that is well-formed in isolation —
+    // otherwise the more specific diagnostic should win: `break` /
+    // `continue` outside any loop reports "used outside of a loop", and
+    // a top-level `return` has its own message. Deferring there keeps
+    // those errors intact.
+    let reject = match &e.kind {
+        ExprKind::Break(_) | ExprKind::Continue => loop_depth > 0,
+        ExprKind::Return(_) => ret_ty.is_some(),
+        _ => false,
+    };
+    if reject {
+        return Err(TypeError::Unsupported {
+            what: "a `return` / `break` / `continue` expression cannot be used as a \
+                   value here — it transfers control and produces no value"
+                .into(),
+            span: e.span,
+        });
+    }
+    Ok(())
+}
+
 impl TypeChecker {
     pub(super) fn check_expr(
         &self,
@@ -329,6 +364,7 @@ impl TypeChecker {
                         inner: Box::new(inner_ty),
                     });
                 }
+                reject_control_transfer_value(inner, loop_depth, ret_ty)?;
                 let t = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
                 match op {
                     // Unary `-` is only meaningful on signed numerics.
@@ -349,6 +385,8 @@ impl TypeChecker {
                 }
             }
             ExprKind::Binary { op, lhs, rhs } => {
+                reject_control_transfer_value(lhs, loop_depth, ret_ty)?;
+                reject_control_transfer_value(rhs, loop_depth, ret_ty)?;
                 let l = self.check_expr(lhs, env, ret_ty, in_class, loop_depth)?;
                 let r = self.check_expr(rhs, env, ret_ty, in_class, loop_depth)?;
                 // `@flags` enum: `Flag op Flag` for `|` `&` `^` returns Flag.
@@ -702,6 +740,7 @@ impl TypeChecker {
             ExprKind::Tuple(elements) => {
                 let mut tys = Vec::with_capacity(elements.len());
                 for e in elements {
+                    reject_control_transfer_value(e, loop_depth, ret_ty)?;
                     tys.push(self.check_expr(e, env, ret_ty, in_class, loop_depth)?);
                 }
                 Ok(Type::Tuple(tys.into()))
@@ -736,6 +775,7 @@ impl TypeChecker {
             }
             ExprKind::None => Ok(Type::Optional(Box::new(Type::Any))),
             ExprKind::Some(inner) => {
+                reject_control_transfer_value(inner, loop_depth, ret_ty)?;
                 let it = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
                 Ok(Type::Optional(Box::new(it)))
             }
@@ -800,6 +840,7 @@ impl TypeChecker {
                 // checking.
                 for part in parts.iter() {
                     if let ilang_ast::TemplatePart::Expr(e) = part {
+                        reject_control_transfer_value(e, loop_depth, ret_ty)?;
                         self.check_expr(e, env, ret_ty, in_class, loop_depth)?;
                     }
                 }

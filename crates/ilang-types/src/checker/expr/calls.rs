@@ -1002,6 +1002,11 @@ impl TypeChecker {
         if callee == "deinit" {
             return Err(TypeError::CannotCallDeinit { span });
         }
+        // A call argument is a value position — a bare `return` /
+        // `break` / `continue` there yields no value.
+        for a in args {
+            super::reject_control_transfer_value(a, loop_depth, ret_ty)?;
+        }
         // Built-in `typeof(x): Type` — RTTI introspection.
         // Accepts any single value; the JIT / interpreter
         // synthesise the right Type metadata at runtime.
