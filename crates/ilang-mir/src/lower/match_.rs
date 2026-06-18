@@ -28,18 +28,33 @@ pub(super) fn arm_body_diverges(e: &Expr) -> bool {
         // `todo()` aborts — its lowering terminates the block as
         // Unreachable, so the arm reaches no join.
         ExprKind::Call { callee, args } if callee.as_str() == "todo" && args.is_empty() => true,
-        ExprKind::Block(b) => {
-            for s in &b.stmts {
-                if let StmtKind::Expr(inner) = &s.kind {
-                    if arm_body_diverges(inner) {
-                        return true;
-                    }
-                }
-            }
-            b.tail.as_ref().map(|t| arm_body_diverges(t)).unwrap_or(false)
+        ExprKind::Block(b) => block_diverges(b),
+        // An `if` diverges only with an `else` whose every path
+        // diverges — then there is no fall-through that yields a
+        // value. `elif` nests as `else_branch = If`.
+        ExprKind::If {
+            then_branch,
+            else_branch: Some(els),
+            ..
+        } => block_diverges(then_branch) && arm_body_diverges(els),
+        // A `match` diverges when it has arms and all of them do.
+        ExprKind::Match { arms, .. } => {
+            !arms.is_empty() && arms.iter().all(|a| arm_body_diverges(&a.body))
         }
         _ => false,
     }
+}
+
+/// A block diverges if any statement-expression or its tail does.
+fn block_diverges(b: &AstBlock) -> bool {
+    for s in &b.stmts {
+        if let StmtKind::Expr(inner) = &s.kind {
+            if arm_body_diverges(inner) {
+                return true;
+            }
+        }
+    }
+    b.tail.as_ref().map(|t| arm_body_diverges(t)).unwrap_or(false)
 }
 
 impl<'a> BodyCx<'a> {

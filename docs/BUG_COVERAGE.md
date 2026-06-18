@@ -379,7 +379,7 @@
 | [use_two_aliases_same_module.il](crates/ilang-cli/tests/programs/04_modules/use_two_aliases_same_module.il) | (ヘッダ無し) |
 | [use_whole_module.il](crates/ilang-cli/tests/programs/04_modules/use_whole_module.il) | `use lib_helpers` brings the whole module in under its name; access each member via `lib_helpers.member`. |
 
-## 05_edge_cases (383)
+## 05_edge_cases (384)
 
 | fixture | pin している内容 |
 |---|---|
@@ -645,6 +645,7 @@
 | [linked_list_via_optional_field.il](crates/ilang-cli/tests/programs/05_edge_cases/linked_list_via_optional_field.il) | `next: Self?` field forms a linked list. Walking it via `if let some(n) = node.next` recurses cleanly; reassigning `next` to `none` detaches the rest of the chain (the original ta… |
 | [live_alloc_probe_nonblocking.il](crates/ilang-cli/tests/programs/05_edge_cases/live_alloc_probe_nonblocking.il) | `test.liveAllocBytes()` pumps the event loop (queued continuations  already-due timers) and returns — it must NOT sleep until a pending timer's due time. With an armed interval a … |
 | [loop_and_iflet_shadowing.il](crates/ilang-cli/tests/programs/05_edge_cases/loop_and_iflet_shadowing.il) | A for-loop variable, an inner block's `let`, and `if let some(v)` each introduce a fresh binding scoped to the loop / block / arm that shadows but never overwrites a same-named ou… |
+| [loop_break_diverging_value_codegen.il](crates/ilang-cli/tests/programs/05_edge_cases/loop_break_diverging_value_codegen.il) | A `break <diverging-expr>` whose VALUE transfers control — `break (return v)`, or `break (if ... else ...)` where every path returns — must not pin the loop's exit-block param to … |
 | [loop_break_todo_diverges.il](crates/ilang-cli/tests/programs/05_edge_cases/loop_break_todo_diverges.il) | A `break <diverging-expr>` (e.g. `break todo()`) must NOT pin the `loop`'s break-value type. The diverging break never actually breaks — control aborts while evaluating `todo()` —… |
 | [loop_break_value_ownership.il](crates/ilang-cli/tests/programs/05_edge_cases/loop_break_value_ownership.il) | `loop { break v }` evaluates to v, and `lower_break` guarantees the exit-block value owns a 1 (borrowed break values get a retain, fresh ones keep their own). The loop expression … |
 | [loop_no_break_diverges.il](crates/ilang-cli/tests/programs/05_edge_cases/loop_no_break_diverges.il) | A `loop` with NO `break` never falls through to a value — it exits only via `return` (or runs forever). It must type as the fn's return type (divergent), not `()`. Without this, `… |
@@ -944,4 +945,4 @@
 
 ---
 
-**合計 861 fixture**(自動生成)。
+**合計 862 fixture**(自動生成)。

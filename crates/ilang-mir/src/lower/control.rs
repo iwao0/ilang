@@ -9,6 +9,7 @@ use ilang_ast::{Block as AstBlock, Expr, Span, Symbol};
 use crate::inst::{Inst, MirConst, Terminator, ValueId};
 use crate::types::MirTy;
 
+use super::match_::arm_body_diverges;
 use super::{Binding, BodyCx, LoopFrame, LowerError};
 
 impl<'a> BodyCx<'a> {
@@ -242,6 +243,25 @@ impl<'a> BodyCx<'a> {
             .ok_or_else(|| LowerError::Other("break outside loop".into()))?;
         let target = frame.break_target;
         let frame_depth = frame.env_depth_at_entry;
+
+        // `break <diverging-expr>` (e.g. `break (return 1)` / `break
+        // todo()`): lowering the value terminates real control, so the
+        // break never reaches the loop's exit block — exactly as the
+        // type checker skips it from the break-value join. Lower it for
+        // its side effect (the return / abort), then close the now-dead
+        // block as Unreachable. It must NOT attach an exit-block param
+        // or jump with a value: doing so pinned the exit param to the
+        // diverging value's placeholder type (`()`), so a genuine
+        // `break v` later mismatched it (codegen verifier error).
+        if let Some(e) = value {
+            if arm_body_diverges(e) {
+                let _ = self.lower_expr(e)?;
+                self.fb.set_terminator(Terminator::Unreachable);
+                let dead = self.fb.new_block();
+                self.fb.switch_to(dead);
+                return Ok((self.const_unit(), MirTy::Unit));
+            }
+        }
 
         let args: Box<[ValueId]> = match value {
             Some(e) => {
