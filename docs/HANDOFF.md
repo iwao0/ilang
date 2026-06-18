@@ -22,6 +22,7 @@
 直近のセッション (2026-06-14 / 2026-06-11) で main に landing した変更:
 
 - **第 149 弾** (zero-await async fn の `return` 型エラー)。 `async fn one(): i64 { return 1 }`(await 無し + `return` 文)が `expected Promise<i64>, got i64` で拒否。 原因は zero-await desugar が tail 式しか `Promise.resolve` で包まず `return X` 文を包まないこと([async_desugar/mod.rs](../crates/ilang-parser/src/normalize/async_desugar/mod.rs))。 修正: 全 `return` を再帰的に wrap(ネスト FnExpr は除外)+ tail は diverge 判定で「1 回だけ包む/包まない」を選択(`Result.ok/err` の arm 跨ぎ推論を保持)。 fixture `async_zero_await_return.il` 追加、 全儀式緑。 詳細は下の解決済み記録。
+- **第 153 弾** (REPL の bare 式 echo)。 ユーザー決定で、 REPL の bare 式表示が i64 のみ(`42` は出るが `"hello"`/`true`/`3.14`/配列は無出力)を全型 auto-print に改善。 原因は `run_chunk` が `__main` の i64 戻り値を表示していたこと。 修正: `run` と同じ `wrap_trailing_print`(`console.log(tail)`)を REPL にも適用・i64 echo 撤去([main.rs](../crates/ilang-cli/src/main.rs))。 `console.log(x)` tail は内側 Unit で二重 print せず。 REPL テスト 2 件追加、 14 件回帰なし、 workspace 548/548。 詳細は下の解決済み記録。
 - **第 152 弾** (std.events の probe)。 薄い領域 std.events を probe して **emit 中にリスナを `off`/`remove` すると `index out of bounds` で panic** を修正。 `emit` が cached length で生配列を反復していたため、 リスナが emit 中に配列を縮めると範囲外。 両 emit を発火前スナップショット(`slice`)反復に([events.il](../../libs/std/events.il)、 Node.js 準拠)。 fixture `04_modules/events_emit_reentrancy.il`。 詳細は下の解決済み記録。
 - **第 151 弾** (std.math の probe)。 薄い領域 std.math を probe して 2 件修正: (1) `sign(±0.0)` が doc の `0.0` でなく `1.0`(`f64::signum` マップ)→ JS `Math.sign` 準拠の専用実装に([math.rs](../crates/ilang-runtime/src/math.rs))。 (2) `min`/`max` の NaN が順序依存・非可換 → doc 通り両側伝播に([math.il](../../libs/std/math.il))。 clamp/lerp/smoothstep/remap・定義域外 intrinsic は健全。 fixture `04_modules/math_sign_and_nan.il`。 `math.il` 変更は再ビルド必須。 詳細は下の解決済み記録。
 - **第 150 弾** (break 無し loop tail の divergence)。 `fn f(): i64 { loop { ...return... } }` が「body produces ()」で拒否されていた(checker が break 皆無の loop を divergent でなく `()` 扱い)。 第 149 弾で表面化した async/非 async 共通の制限。 修正: `Loop(None)`(break 皆無)を `ret_ty` として型付け([checker/expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs)、 第 144 弾と同じ近似)。 無限ループ `loop {}` も Rust 同様に通る。 fixture `loop_no_break_diverges.il` 追加、 全儀式緑。 詳細は下の解決済み記録。
@@ -202,6 +203,14 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 153 弾: REPL の bare 式 echo が i64 のみ (2026-06-15) — ユーザー決定
+
+REPL を probe して **bare 式の値表示が i64 のみ**(`42` は出るが `"hello"`/`true`/`3.14`/配列等は無出力)を検出。 ユーザー判断で「全型 auto-print に改善」を選択。
+
+- **原因**([main.rs](../crates/ilang-cli/src/main.rs) `run_chunk`): チャンク結果は `__main` の **i64 戻り値 `r`** を表示していた(`if r != 0 { r.to_string() }`)。 bare 式が i64 のときだけ tail 値が `r` に乗るので、 他型は `r=0` で何も出ない。 REPL テストは全て明示 `console.log(...)` を使い auto-print に非依存だったため見逃されていた。
+- **修正**: `run` と同じ `wrap_trailing_print`(tail を `console.log(tail)` で包む)を REPL チャンクにも適用し、 i64 echo を撤去。 console.log は全型を整形表示。 **二重 print 回避**: `console.log(x)` tail は `console.log(console.log(x))` になるが、 内側が Unit を返し `console.log(())` は何も出さないので二重にならない(`run` で実証済み)。 statement-only チャンク(`let x=5`)は tail 無しなので無出力。 `run_repl` は元々空出力を抑制済み。
+- **検証**: REPL テスト 2 件追加(`repl_bare_expr_echoes_all_types`・`repl_console_log_tail_not_doubled`)。 既存 14 件回帰なし、 workspace 548/548。 REPL は JIT 専用・`run_chunk` 局所変更なので programs harness/AOT は非対象。
 
 ### [解決済み記録] 第 152 弾: std.events の emit 中リスナ削除で index out of bounds (2026-06-15)
 

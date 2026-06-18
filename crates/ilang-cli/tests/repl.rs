@@ -54,6 +54,37 @@ fn repl_primitive_slots_round_trip() {
     assert_eq!(out, vec!["42"]);
 }
 
+// A bare trailing expression echoes its value for ANY type — not just
+// i64. The old REPL printed only `__main`'s i64 return, so `"hello"` /
+// `true` / `3.14` / arrays silently produced nothing.
+#[test]
+fn repl_bare_expr_echoes_all_types() {
+    let out = repl(&[
+        "42",
+        "\"hello\"",
+        "true",
+        "3.14",
+        "5 > 3",
+        "[1, 2, 3]",
+        "(1, 2)",
+        "some(7)",
+    ]);
+    assert_eq!(
+        out,
+        vec!["42", "hello", "true", "3.14", "true", "[1, 2, 3]", "(1, 2)", "some(7)"]
+    );
+}
+
+// A `console.log(x)` tail must not double-print (the wrap is
+// `console.log(console.log(x))`, but the inner returns Unit and
+// `console.log(())` prints nothing), and a statement-only chunk echoes
+// nothing.
+#[test]
+fn repl_console_log_tail_not_doubled() {
+    let out = repl(&["let x = 41", "console.log(x + 1)", "x + 1"]);
+    assert_eq!(out, vec!["42", "42"]);
+}
+
 #[test]
 fn repl_array_slot_survives_chunks() {
     let out = repl(&[

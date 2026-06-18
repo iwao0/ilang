@@ -1033,6 +1033,18 @@ impl ReplSession {
         let per_chunk = ilang_parser::loader::normalize_repl_chunk(per_chunk)
             .map_err(|e| format!("<repl> {e}"))?;
 
+        // Echo a bare trailing expression's value, whatever its type —
+        // `console.log(tail)` prints i64 / string / bool / float / array
+        // / tuple / optional / object uniformly (the old path printed
+        // only `__main`'s i64 return, so `"hello"` / `true` / `3.14`
+        // silently produced nothing). Unconditional like `run`'s
+        // wrap_trailing_print: a `console.log(x)` tail becomes
+        // `console.log(console.log(x))`, but the inner returns Unit and
+        // `console.log(())` prints nothing, so it doesn't double up.
+        // A statement-only chunk (`let x = 5`) has no tail and is left
+        // alone.
+        let per_chunk = wrap_trailing_print(per_chunk);
+
         // Fresh TypeChecker per chunk over the whole merged program.
         // (Re-checking accumulated items with a persistent checker
         // trips the duplicate-overload guard.) Prior chunks' lets
@@ -1139,18 +1151,16 @@ impl ReplSession {
         ilang_mir::passes::arc_peephole::run_program(&mut mir);
         let compiled = ilang_mir_codegen::compile_program(&mir)
             .map_err(|e| format!("<repl> mir-codegen: {e}"))?;
-        let r = ilang_mir_codegen::run_main(&compiled);
+        let _ = ilang_mir_codegen::run_main(&compiled);
 
         // Commit the chunk's definitions to the accumulated state
         // only after a successful run — partial failures don't
         // pollute future chunks.
         self.accumulated_items.extend(chunk_prog.items.into_iter());
 
-        if r != 0 {
-            Ok(r.to_string())
-        } else {
-            Ok(String::new())
-        }
+        // Any value to show was already printed by the wrapped trailing
+        // `console.log` above; nothing for `run_repl` to echo.
+        Ok(String::new())
     }
 }
 
