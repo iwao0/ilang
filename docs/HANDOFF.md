@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-14 / 2026-06-11) で main に landing した変更:
 
+- **第 155 弾** (`break todo()` が loop 型を Any に固定)。 第 154 弾の同族。 `loop` 内で `break todo()` と実値の `break v` を混ぜると `expected any, got i64`(heap でも `got Box`)でコンパイル不能。 第 154 弾は `todo()` の divergence を match arm と if-join にだけ配線し、 **`loop` の break 値型 join が取り残されていた**。 修正: `Break` 処理([checker/expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs))で break 値が `arm_body_diverges` を満たすなら loop 型に積まない(match/if と同じ規則)。 fixture `loop_break_todo_diverges.il`(scalar/heap 混在 + churn deinits=100)。 全儀式緑。 詳細は下の解決済み記録。
 - **第 154 弾** (ユーザー決定 = `todo()` 組み込みを追加)。 LSP の match-arm fill code action が未実装 arm 本体に `todo()` を生成するのに `todo()` が言語に存在せず、 生成コードがコンパイルできなかった。 ユーザー判断で Rust の `todo!()` 相当 — **発散する組み込み・実行時に panic・型検査ではどの期待型にも適合** — を追加。 実装: runtime に `$builtin.todo`(`rt_panic("not yet implemented (todo)")`、 [print.rs](../crates/ilang-runtime/src/print.rs))、 MIR lower で `todo()` を `Inst::Call`(builtin)+ `Terminator::Unreachable` に下げ([call_fn.rs](../crates/ilang-mir/src/lower/call_fn.rs))、 checker は arity 0 を検査し `Type::Any` を返す([calls.rs](../crates/ilang-types/src/checker/expr/calls.rs))、 両 `arm_body_diverges`([checker expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs)・[mir match_.rs](../crates/ilang-mir/src/lower/match_.rs))に `todo()` arm を追加して match join からスキップ、 codegen の PanicAux に builtin を 4 箇所配線(struct・program_decl・jit_symbols・lower_inst/calls)。 `todo` を `is_reserved_global` に追加([sigs.rs](../crates/ilang-types/src/checker/sigs.rs))し再定義を拒否。 match arm 本体・fn body・if/else 分岐・let RHS で発散として通り、 到達すると exit 1 で panic。 fixture `todo_unreached_compiles.il`(到達せず compile + 実行)+ `todo_reached_panics.il`(到達して panic)。 全儀式緑(workspace 548/548・JIT/AOT harness・nested_generic 100/100)。
 - **第 149 弾** (zero-await async fn の `return` 型エラー)。 `async fn one(): i64 { return 1 }`(await 無し + `return` 文)が `expected Promise<i64>, got i64` で拒否。 原因は zero-await desugar が tail 式しか `Promise.resolve` で包まず `return X` 文を包まないこと([async_desugar/mod.rs](../crates/ilang-parser/src/normalize/async_desugar/mod.rs))。 修正: 全 `return` を再帰的に wrap(ネスト FnExpr は除外)+ tail は diverge 判定で「1 回だけ包む/包まない」を選択(`Result.ok/err` の arm 跨ぎ推論を保持)。 fixture `async_zero_await_return.il` 追加、 全儀式緑。 詳細は下の解決済み記録。
 - **第 153 弾** (REPL の bare 式 echo)。 ユーザー決定で、 REPL の bare 式表示が i64 のみ(`42` は出るが `"hello"`/`true`/`3.14`/配列は無出力)を全型 auto-print に改善。 原因は `run_chunk` が `__main` の i64 戻り値を表示していたこと。 修正: `run` と同じ `wrap_trailing_print`(`console.log(tail)`)を REPL にも適用・i64 echo 撤去([main.rs](../crates/ilang-cli/src/main.rs))。 `console.log(x)` tail は内側 Unit で二重 print せず。 REPL テスト 2 件追加、 14 件回帰なし、 workspace 548/548。 詳細は下の解決済み記録。
@@ -204,6 +205,17 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [解決済み記録] 第 155 弾: `break todo()` が loop 型を Any に固定し実値 break と衝突 (2026-06-19)
+
+第 154 弾(`todo()` 追加)の同族を BUG_COVERAGE.md で「`todo()` の未 probe 配置」を見ながら突いて検出。 `loop` 内で `break todo()` と実値の `break v` を混ぜるとコンパイルできない。
+
+- **症状**: `loop { if c { break todo() } break 5 }` が `type mismatch: expected any, got i64`。 順序を入れ替えても(`break 5` → `break todo()`)`expected i64, got any`、 heap 値でも `expected any, got Box`。 `break todo()` が唯一の break なら(実値 break 無し)通る。
+- **原因**([checker/expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs) の `ExprKind::Break`): break 値型を `LoopFrame::Loop(acc)` に積む際、 値が diverge するかを見ていなかった。 `break todo()` の値 `todo()` は `Type::Any` を返すため loop 型を Any に固定し、 後続の実値 break が unify 失敗。 第 154 弾は `todo()` の divergence を `arm_body_diverges` 経由で **match arm と if-join にだけ**配線し、 **`loop` の break 値 join は取り残し**ていた(「1 つ直して同族を見落とす」§8-6 の典型)。 `todo()` 以前は `break todo()` を書けないので 154 弾が持ち込んだ穴(HEAD 比較不要)。
+- **修正**: `Break` 処理の `LoopFrame::Loop` 分岐に「値が `arm_body_diverges` を満たすなら acc に積まない」ガードを追加。 `break <diverging-expr>` は実際には break せず abort/return するので、 match の diverging arm と同様 break 値 join に寄与させない。 新しい意味論ではなく match/if と同じ規則の loop への適用。
+- **fixture**: `05_edge_cases/loop_break_todo_diverges.il`(scalar `break 5` と heap `break new Box(7)` を `break todo()` と混在 + 100 回 churn で deinit 厳密=100・到達しない経路は実値を返す)。 到達 abort は既存 `todo_reached_panics.il` が pin 済み。
+- **未判断で残した別件**: `todo() + 1` は `cannot apply binary op between any and i64` で拒否される。 Rust の `todo!()` は never 型で i64 へ coerce するが ilang の `todo()` は `Type::Any` でオペランド位置の演算を受けない。 never 型化するか Any を演算位置で特別扱いするかは意味論の選択(§2 停止条件)でユーザー判断待ち。 実用上 `todo()` 単体が主用途のため優先度低。
+- **検証**: ilang-types 76/76、 programs JIT PASS、 programs AOT 1298/1298 PASS(152s)。 checker のみの変更で lowering は不変のため nested_generic 儀式は非対象。
 
 ### [解決済み記録] 第 153 弾: REPL の bare 式 echo が i64 のみ (2026-06-15) — ユーザー決定
 

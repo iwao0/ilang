@@ -549,6 +549,17 @@ impl TypeChecker {
                             });
                         }
                     }
+                    LoopFrame::Loop(acc) if value.as_deref().is_some_and(arm_body_diverges) => {
+                        // `break <diverging-expr>` (e.g. `break todo()`)
+                        // never actually breaks — control aborts while
+                        // evaluating the value — so it contributes no type
+                        // to the loop's break-value join, exactly like a
+                        // diverging match arm (see `arm_body_diverges`).
+                        // Without this, mixing `break todo()` with a real
+                        // `break v` pinned the loop type to `Any` and the
+                        // real break mismatched.
+                        let _ = acc;
+                    }
                     LoopFrame::Loop(acc) => {
                         let new_ty = val_ty.as_ref().map(|(t, _)| t.clone()).unwrap_or(Type::Unit);
                         match acc {
