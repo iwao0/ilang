@@ -599,15 +599,24 @@ impl<'a> BodyCx<'a> {
             match &arm.pattern.kind {
                 ast::PatternKind::Wildcard => {
                     // Body unconditionally.
+                    let diverges = arm_body_diverges(&arm.body);
                     self.last_block_tail_owned = false;
                     let (bv, bty) = self.lower_expr(&arm.body)?;
                     let owned = self.last_block_tail_owned
                         || self.is_fresh_object_expr(&arm.body);
-                    self.ensure_join_owned(bv, &bty, owned);
-                    if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
-                        result_ty = Some(bty.clone());
+                    // A diverging arm (`return` / `break` / `todo()` /
+                    // all-paths-diverging if/match) never reaches the
+                    // join — skip it, exactly like the enum / string
+                    // paths. Otherwise its dead block jumped to the
+                    // join with a `()` placeholder and codegen rejected
+                    // the arg-count mismatch.
+                    if !diverges {
+                        self.ensure_join_owned(bv, &bty, owned);
+                        if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
+                            result_ty = Some(bty.clone());
+                        }
+                        joins.push((self.fb.current_block(), bv));
                     }
-                    joins.push((self.fb.current_block(), bv));
                     break;
                 }
                 ast::PatternKind::IntLit(n) => {
@@ -629,15 +638,18 @@ impl<'a> BodyCx<'a> {
                         else_args: Box::new([]),
                     });
                     self.fb.switch_to(body_blk);
+                    let diverges = arm_body_diverges(&arm.body);
                     self.last_block_tail_owned = false;
                     let (bv, bty) = self.lower_expr(&arm.body)?;
                     let owned = self.last_block_tail_owned
                         || self.is_fresh_object_expr(&arm.body);
-                    self.ensure_join_owned(bv, &bty, owned);
-                    if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
-                        result_ty = Some(bty.clone());
+                    if !diverges {
+                        self.ensure_join_owned(bv, &bty, owned);
+                        if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
+                            result_ty = Some(bty.clone());
+                        }
+                        joins.push((self.fb.current_block(), bv));
                     }
-                    joins.push((self.fb.current_block(), bv));
                     self.fb.switch_to(next_blk);
                     if is_last {
                         // No more arms — unreachable (type-checker
@@ -695,15 +707,18 @@ impl<'a> BodyCx<'a> {
                         else_args: Box::new([]),
                     });
                     self.fb.switch_to(body_blk);
+                    let diverges = arm_body_diverges(&arm.body);
                     self.last_block_tail_owned = false;
                     let (bv, bty) = self.lower_expr(&arm.body)?;
                     let owned = self.last_block_tail_owned
                         || self.is_fresh_object_expr(&arm.body);
-                    self.ensure_join_owned(bv, &bty, owned);
-                    if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
-                        result_ty = Some(bty.clone());
+                    if !diverges {
+                        self.ensure_join_owned(bv, &bty, owned);
+                        if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
+                            result_ty = Some(bty.clone());
+                        }
+                        joins.push((self.fb.current_block(), bv));
                     }
-                    joins.push((self.fb.current_block(), bv));
                     self.fb.switch_to(next_blk);
                     if is_last {
                         self.fb.set_terminator(Terminator::Unreachable);
@@ -786,30 +801,37 @@ impl<'a> BodyCx<'a> {
         let mut result_ty: Option<MirTy> = None;
         if let Some(arm) = true_arm {
             self.fb.switch_to(then_blk);
+            let diverges = arm_body_diverges(&arm.body);
             self.last_block_tail_owned = false;
             let (bv, bty) = self.lower_expr(&arm.body)?;
             let owned = self.last_block_tail_owned
                 || self.is_fresh_object_expr(&arm.body);
-            self.ensure_join_owned(bv, &bty, owned);
-            if !matches!(bty, MirTy::Unit) {
-                result_ty.get_or_insert(bty.clone());
+            // Skip a diverging arm from the join (see lower_match_int).
+            if !diverges {
+                self.ensure_join_owned(bv, &bty, owned);
+                if !matches!(bty, MirTy::Unit) {
+                    result_ty.get_or_insert(bty.clone());
+                }
+                joins.push((self.fb.current_block(), bv));
             }
-            joins.push((self.fb.current_block(), bv));
         } else {
             self.fb.switch_to(then_blk);
             self.fb.set_terminator(Terminator::Unreachable);
         }
         if let Some(arm) = false_arm {
             self.fb.switch_to(else_blk);
+            let diverges = arm_body_diverges(&arm.body);
             self.last_block_tail_owned = false;
             let (bv, bty) = self.lower_expr(&arm.body)?;
             let owned = self.last_block_tail_owned
                 || self.is_fresh_object_expr(&arm.body);
-            self.ensure_join_owned(bv, &bty, owned);
-            if !matches!(bty, MirTy::Unit) {
-                result_ty.get_or_insert(bty.clone());
+            if !diverges {
+                self.ensure_join_owned(bv, &bty, owned);
+                if !matches!(bty, MirTy::Unit) {
+                    result_ty.get_or_insert(bty.clone());
+                }
+                joins.push((self.fb.current_block(), bv));
             }
-            joins.push((self.fb.current_block(), bv));
         } else {
             self.fb.switch_to(else_blk);
             self.fb.set_terminator(Terminator::Unreachable);

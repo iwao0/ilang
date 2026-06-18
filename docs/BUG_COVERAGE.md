@@ -379,7 +379,7 @@
 | [use_two_aliases_same_module.il](crates/ilang-cli/tests/programs/04_modules/use_two_aliases_same_module.il) | (ヘッダ無し) |
 | [use_whole_module.il](crates/ilang-cli/tests/programs/04_modules/use_whole_module.il) | `use lib_helpers` brings the whole module in under its name; access each member via `lib_helpers.member`. |
 
-## 05_edge_cases (384)
+## 05_edge_cases (385)
 
 | fixture | pin している内容 |
 |---|---|
@@ -660,6 +660,7 @@
 | [match_arm_yields_enum_refine.il](crates/ilang-cli/tests/programs/05_edge_cases/match_arm_yields_enum_refine.il) | A `match` whose arms YIELD enum ctors, bound to an unannotated `let`, left each arm ctor's type args `Any`. `let res = match r { ok(v) { Result.ok(v) } err(e) { Result.err(e) } }`… |
 | [match_enum_payload_binding_str_str_repr.il](crates/ilang-cli/tests/programs/05_edge_cases/match_enum_payload_binding_str_str_repr.il) | `: string` repr の enum を CRepr 親じゃない (= 通常 ARC heap) として持つ class field を match で分解する。 string repr enum は CReprEnum 化対象外 (`is_inline_repr_enum` で int_repr = false) なので、 通常の Enum he… |
 | [match_exhaustive.il](crates/ilang-cli/tests/programs/05_edge_cases/match_exhaustive.il) | Match must cover every case. Wildcard `_` catches the rest; explicit per-variant arms work too. |
+| [match_int_bool_diverging_arm.il](crates/ilang-cli/tests/programs/05_edge_cases/match_int_bool_diverging_arm.il) | An integer or bool `match` arm that diverges (`return` / `break` / `todo()` / an all-paths-diverging if) must be skipped from the match's value join — like the enum and string mat… |
 | [match_int_range_needs_wildcard.il](crates/ilang-cli/tests/programs/05_edge_cases/match_int_range_needs_wildcard.il) | Exhaustiveness on an integer scrutinee is value-range-UNAWARE: even when open-ended range arms (`..0`, `1..`) plus the literal `0` between them mathematically cover every i64, the… |
 | [match_on_int_and_string_literal.il](crates/ilang-cli/tests/programs/05_edge_cases/match_on_int_and_string_literal.il) | Match arms on int and string literals — the discriminator is a value, not an enum tag. Wildcard `_` is mandatory since the value space is open. The basics fixtures only exercise e… |
 | [match_optional_int_arm_fresh_widening.il](crates/ilang-cli/tests/programs/05_edge_cases/match_optional_int_arm_fresh_widening.il) | 023a0ccb の Match fresh 判定は arm body が `Str` literal の場合 にだけ「fresh-equivalent」として許容する。 int / bool literal も rc=-1 相当 (= release-safe) なので、 同じ扱いで良いはず。 現状の判定では int literal の arm が混じる… |
@@ -945,4 +946,4 @@
 
 ---
 
-**合計 862 fixture**(自動生成)。
+**合計 863 fixture**(自動生成)。
