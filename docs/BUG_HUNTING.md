@@ -2,7 +2,7 @@
 
 「さらに fixture を追加してバグをあぶり出す」ラウンド(第 8〜23 弾、2026-06)で確立した手法の手順書。**文脈の薄いエージェントが単独で 1 ラウンドを完遂できること**を目的に書いてある。各節の手順は実績に基づき、コマンド・ヘルパー名はすべて実機確認済み。
 
-実装レベルの個別の落とし穴は [HANDOFF.md](HANDOFF.md) の各ラウンド記録と「既知の細かい落とし穴」節を参照(本書は手順、HANDOFF は履歴と教訓の蓄積、と役割を分ける)。
+実装レベルの個別の落とし穴は [HANDOFF.md](HANDOFF.md) の各ラウンド記録と「既知の細かい落とし穴」節を参照。**確認済みの攻撃面は [BUG_COVERAGE.md](BUG_COVERAGE.md) から組合せ側で引ける**(本書は手順、HANDOFF は履歴と教訓、BUG_COVERAGE は攻撃面索引、と役割を分ける)。
 
 ## 1. 目的と 1 ラウンドの定義
 
@@ -136,6 +136,8 @@ probe する組合せは次の 3 軸から選ぶ:
 
 **優先順位は「直近のコミットが触った継ぎ目 × まだ probe していない組合せ」。** 例: 第 20 弾は join 正規化を入れた直後に「join の値 × 全消費位置(return・break・破棄・入れ子・field・tuple)」を突いて 2 系統を発見した。第 22 弾は wrap coerce 修正の直後に「wrap × 全セル格納」を突いて 4 系統を発見した。新機能や修正は必ずその周辺に同族の穴を持っている。
 
+**狙う交点を決めたら、必ず [BUG_COVERAGE.md](BUG_COVERAGE.md) の該当領域を見てから probe を書く。** 既に行があれば確認済みなので別の交点へ移る — 同じ場所の再 probe を防ぐための索引である。表に無い交点が次の候補。HANDOFF を全部読まずに「まだ probe していない組合せ」を判定できるのが本表の目的。
+
 特に効率が良かった形:
 
 - **混合 freshness**: 片腕が `new`、片腕が借用の if / match join(第 20 弾)
@@ -216,6 +218,7 @@ echo "nested_generic 100 runs: fails=$fails"   # 期待: fails=0
 - **HANDOFF.md** に 2 箇所書く:
   1. 「現在地」の直近変更リストに 1 行(「第 N 弾。〜を検出・修正。詳細は下の解決済み記録」)
   2. 解決済み記録セクション(`### [解決済み記録] 第 N 弾: ...` / クリーンなら `[確認済み記録]`)。様式: 検出した症状 → 原因 → 修正(ファイルへの相対リンク付き)→ fixture 名 → 検証結果(nextest / AOT / 儀式)。設計判断待ちが発生したら `[判断待ち記録]` で選択肢ごと書く。
+- **[BUG_COVERAGE.md](BUG_COVERAGE.md) の該当領域に 1 行追記する。** 確認した交点・弾・結果(修正/健全/仕様)・代表 fixture を「追記規約」の列で残す。これを怠ると索引が実態とズレて再 probe を招くため、HANDOFF への記録と同格の必須作業とする。
 - 挙動が変わったら **docs/syntax.md と docs/syntax_ja.md を同じコミットで更新**する。
 - コミット: PR は作らず **main へ直接コミット**。メッセージは英語で、1 行目に変更の本質、本文に症状・原因・修正・検証を書き、末尾を `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>` で締める。
 
@@ -223,6 +226,7 @@ echo "nested_generic 100 runs: fails=$fails"   # 期待: fails=0
 
 ```
 [ ] 直近コミットの継ぎ目から攻撃面を選んだ (§6)
+[ ] 狙う交点を BUG_COVERAGE.md で確認した (既出なら別の交点へ) (§6)
 [ ] probe の期待 deinit 数・churn 合計を実行前に手計算した (§2)
 [ ] 単発 3 点セット + churn + (独立性/共有) を probe した (§5)
 [ ] exit code を毎回確認した (silent pass / 終了時 abort の双方を見る)
@@ -235,6 +239,7 @@ echo "nested_generic 100 runs: fails=$fails"   # 期待: fails=0
 [ ] ILANG_TEST_AOT=1 ... run_all_program_fixtures (期待値更新「後」に)
 [ ] nested_generic 並列儀式 (lowering を触った場合)
 [ ] HANDOFF に記録した (現在地 1 行 + ラウンド記録)
+[ ] BUG_COVERAGE.md に確認した交点を 1 行追記した (§11)
 [ ] syntax docs を更新した (挙動が変わった場合)
 [ ] main へコミットした (Co-Authored-By を付けて)
 ```
