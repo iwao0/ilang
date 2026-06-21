@@ -26,6 +26,7 @@ impl TypeChecker {
         loop_depth: u32,
         span: Span,
     ) -> Result<Type, TypeError> {
+        super::reject_control_transfer_value(inner, loop_depth, ret_ty)?;
         let from = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
         self.validate_type(ty, span, &[])?;
         // Numeric → numeric (any width) and `bool → int`

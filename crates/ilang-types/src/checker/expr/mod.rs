@@ -685,6 +685,7 @@ impl TypeChecker {
                 Ok(expected)
             }
             ExprKind::Assign { target, value } => {
+                reject_control_transfer_value(value, loop_depth, ret_ty)?;
                 if let Some(var_ty) = env.get(target).cloned() {
                     if self.const_names.borrow().contains(target)
                         || self.top_level_consts.borrow().contains(target)

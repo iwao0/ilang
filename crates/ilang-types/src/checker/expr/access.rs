@@ -263,6 +263,7 @@ impl TypeChecker {
         loop_depth: u32,
         span: Span,
     ) -> Result<Type, TypeError> {
+        super::reject_control_transfer_value(value, loop_depth, ret_ty)?;
         // Static getter / static field write: `ClassName.name = v`.
         // A `pub static set name(v: T)` takes precedence; a read-only
         // static property rejects the assignment up front.
@@ -483,6 +484,9 @@ impl TypeChecker {
         loop_depth: u32,
         _span: Span,
     ) -> Result<Type, TypeError> {
+        super::reject_control_transfer_value(obj, loop_depth, ret_ty)?;
+        super::reject_control_transfer_value(index, loop_depth, ret_ty)?;
+        super::reject_control_transfer_value(value, loop_depth, ret_ty)?;
         let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
         let it = self.check_expr(index, env, ret_ty, in_class, loop_depth)?;
         // Map<K, V>: `m[k] = v` desugars to `set(k, v)`.
