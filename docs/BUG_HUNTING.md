@@ -230,7 +230,7 @@ echo "nested_generic 100 runs: fails=$fails"   # 期待: fails=0
 - **HANDOFF.md** に 2 箇所書く:
   1. 「現在地」の直近変更リストに 1 行(「第 N 弾。〜を検出・修正。詳細は下の解決済み記録」)
   2. 解決済み記録セクション(`### [解決済み記録] 第 N 弾: ...` / クリーンなら `[確認済み記録]`)。様式: 検出した症状 → 原因 → 修正(ファイルへの相対リンク付き)→ fixture 名 → 検証結果(nextest / AOT / 儀式)。設計判断待ちが発生したら `[判断待ち記録]` で選択肢ごと書く。
-- **`scripts/gen_bug_coverage.sh` を実行して [BUG_COVERAGE.md](BUG_COVERAGE.md) を再生成する。** fixture を追加したら索引も更新する(fixture のヘッダが唯一の真実なので手動編集せず再生成で追従させる)。これを怠ると索引が実態とズレて再 probe を招くため、HANDOFF への記録と同格の必須作業とする。
+- **毎ラウンド必ず `scripts/gen_bug_coverage.sh` を実行して [BUG_COVERAGE.md](BUG_COVERAGE.md) を再生成し、同じコミットに含める。** fixture を 1 個も増やさないラウンド(クリーンラウンド・docs のみの変更)でも実行する — その場合は差分ゼロ(冪等)で、 「索引が実態と一致している」ことの確認になる。 fixture を追加・変更・削除したラウンドでは再生成しないと索引がズレて再 probe を招くため、 これは **HANDOFF への記録と同格の必須作業**。 fixture のヘッダが唯一の真実なので手動編集はしない。 再生成後は `git diff --stat docs/BUG_COVERAGE.md` で件数の増減が想定どおりか一目で確認する。
 - 挙動が変わったら **docs/syntax.md と docs/syntax_ja.md を同じコミットで更新**する。
 - コミット: PR は作らず **main へ直接コミット**。メッセージは英語で、1 行目に変更の本質、本文に症状・原因・修正・検証を書き、末尾を `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>` で締める。
 
@@ -251,7 +251,7 @@ echo "nested_generic 100 runs: fails=$fails"   # 期待: fails=0
 [ ] ILANG_TEST_AOT=1 ... run_all_program_fixtures (期待値更新「後」に)
 [ ] nested_generic 並列儀式 (lowering を触った場合)
 [ ] HANDOFF に記録した (現在地 1 行 + ラウンド記録)
-[ ] fixture を追加したら gen_bug_coverage.sh で BUG_COVERAGE.md を再生成した (§11)
+[ ] 毎ラウンド gen_bug_coverage.sh で BUG_COVERAGE.md を再生成し同じコミットに含めた (§11)
 [ ] syntax docs を更新した (挙動が変わった場合)
 [ ] main へコミットした (Co-Authored-By を付けて)
 ```
