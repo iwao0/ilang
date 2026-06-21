@@ -1120,6 +1120,14 @@ impl<'a> BodyCx<'a> {
                         args: Box::new([ov]),
                     });
                 }
+                // A fresh receiver (`mkOuter().prop`, `o.inner.prop`
+                // where `inner` is itself a getter) owns a transient +1
+                // the getter only borrows — drop it after the call, the
+                // same way the `.length` path below does. Without this
+                // the intermediate object leaked once per read.
+                if obj_is_fresh && self.is_arc_heap(&oty) {
+                    self.fb.push_inst(Inst::Release { value: ov });
+                }
                 return Ok((v, prop_ty));
             }
         }

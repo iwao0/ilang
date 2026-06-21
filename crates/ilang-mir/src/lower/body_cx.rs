@@ -412,23 +412,35 @@ impl<'a> BodyCx<'a> {
                 return true;
             }
         }
-        let obj_cid = match &obj.kind {
+        // Class-name receiver (no shadowing binding / slot) — static
+        // property read.
+        if let ExprKind::Var(n) = &obj.kind {
+            if self.env.lookup_binding(*n).is_none() && !self.repl_slots.contains_key(n) {
+                if let Some(cid) = super::class_id_by_name(self.classes, self.class_meta, *n) {
+                    return self
+                        .class_meta
+                        .get(&cid)
+                        .is_some_and(|m| m.static_property_getter.contains_key(&name));
+                }
+            }
+        }
+        self.resolve_static_class_id(obj)
+            .and_then(|cid| self.class_meta.get(&cid))
+            .is_some_and(|m| m.property_getter.contains_key(&name))
+    }
+
+    /// Resolve the static class id of a receiver expression when it can
+    /// be determined syntactically: `this`, a Var binding / repl slot
+    /// typed as an object, or a **chain of field / property-getter
+    /// reads** (`o.inner.boxed`) whose member types resolve to object
+    /// classes. Returns None for shapes we can't resolve statically
+    /// (call results, index, …). The chained-Field case is what lets a
+    /// getter read on `a.b` be classified owned — without it the
+    /// getter's +1 leaked (it fell to the borrow default).
+    fn resolve_static_class_id(&self, obj: &Expr) -> Option<crate::types::ClassId> {
+        match &obj.kind {
             ExprKind::This => self.this_class,
             ExprKind::Var(n) => {
-                // Class-name receiver (no shadowing binding / slot)
-                // — static property read.
-                if self.env.lookup_binding(*n).is_none()
-                    && !self.repl_slots.contains_key(n)
-                {
-                    if let Some(cid) =
-                        super::class_id_by_name(self.classes, self.class_meta, *n)
-                    {
-                        return self
-                            .class_meta
-                            .get(&cid)
-                            .is_some_and(|m| m.static_property_getter.contains_key(&name));
-                    }
-                }
                 let ty = self
                     .peek_var_ty(*n)
                     .or_else(|| self.repl_slots.get(n).map(|(_, t)| t.clone()));
@@ -437,11 +449,27 @@ impl<'a> BodyCx<'a> {
                     _ => None,
                 }
             }
+            ExprKind::Field { obj: inner, name } => {
+                let cid = self.resolve_static_class_id(inner)?;
+                let meta = self.class_meta.get(&cid)?;
+                // The member's static type: a property getter's return
+                // type, else a plain field's type.
+                let mty = meta
+                    .property_getter
+                    .get(name)
+                    .map(|(_, t)| t.clone())
+                    .or_else(|| {
+                        meta.field_ix
+                            .get(name)
+                            .and_then(|fid| meta.field_ty.get(fid).cloned())
+                    })?;
+                match mty {
+                    MirTy::Object(cid2) => Some(cid2),
+                    _ => None,
+                }
+            }
             _ => None,
-        };
-        obj_cid
-            .and_then(|cid| self.class_meta.get(&cid))
-            .is_some_and(|m| m.property_getter.contains_key(&name))
+        }
     }
 
     /// Type-only peek for a binding — no SSA materialisation, so it

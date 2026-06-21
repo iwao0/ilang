@@ -824,10 +824,11 @@
 | [static_overload.il](crates/ilang-cli/tests/programs/07_method_overloading/static_overload.il) | `static` methods can be overloaded — same arity/type rules as instance methods, mangled to `name__<param_types>` after type checking. Per syntax.md §7 `static` methods. |
 | [subclass_overload.il](crates/ilang-cli/tests/programs/07_method_overloading/subclass_overload.il) | Method overloading is now allowed on subclasses too — earlier it was root-class only ("overloading is not supported in inheritance hierarchies"). The check is: overloads are fine … |
 
-## 08_properties (13)
+## 08_properties (14)
 
 | fixture | pin している内容 |
 |---|---|
+| [chained_getter_receiver_arc.il](crates/ilang-cli/tests/programs/08_properties/chained_getter_receiver_arc.il) | A property getter read whose receiver is itself a field / property access — `o.inner.boxed`, the everyday `a.b.getter` chain — leaked two ways:   (1) the leaf getter's owned 1 was… |
 | [getter_only.il](crates/ilang-cli/tests/programs/08_properties/getter_only.il) | Read-only computed property (getter, no setter). |
 | [getter_setter_basic.il](crates/ilang-cli/tests/programs/08_properties/getter_setter_basic.il) | Computed property: read goes through getter, write through setter. |
 | [getter_tail_bare_var_heap.il](crates/ilang-cli/tests/programs/08_properties/getter_tail_bare_var_heap.il) | Property getter body returning the bare field name (`inner`) of a heap-typed field. Same desugar shape as the `Box<T>.get(): T { x }` regression that ~16% race-aborted under paral… |
@@ -951,4 +952,4 @@
 
 ---
 
-**合計 868 fixture**(自動生成)。
+**合計 869 fixture**(自動生成)。
