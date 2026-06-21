@@ -782,7 +782,7 @@
 | [repr_enum_comparison.il](crates/ilang-cli/tests/programs/06_enums/repr_enum_comparison.il) | Ordering (`<` `<=` `>` `>=`) between two values of the SAME repr enum must compare the discriminant tags, NOT the boxed pointers. The checker permits the comparison (a repr enum's… |
 | [repr_enum_patterns.il](crates/ilang-cli/tests/programs/06_enums/repr_enum_patterns.il) | Confirms the working repr-enum (`enum E: T`) idioms that lacked a fixture, probed in the bit-ops rounds (第68/69弾 fixed the broken neighbours: `~`, flags `has`, and `enum == int-li… |
 
-## 06_overloading (18)
+## 06_overloading (19)
 
 | fixture | pin している内容 |
 |---|---|
@@ -801,11 +801,12 @@
 | [no_match_error.il](crates/ilang-cli/tests/programs/06_overloading/no_match_error.il) | No viable overload — typechecker rejects. |
 | [optional_arg_overload.il](crates/ilang-cli/tests/programs/06_overloading/optional_arg_overload.il) | `fn f(x: T)` vs `fn f(x: T?)` — overload resolution picks the exact non-optional one for a bare `T` value, the Optional one for `none` / `some(x)` / a `T?` slot. Per syntax.md §6 … |
 | [optional_wrap_score.il](crates/ilang-cli/tests/programs/06_overloading/optional_wrap_score.il) | `T → T?` auto-wrap costs 3 in overload scoring. An exact-`T` candidate (cost 0) wins decisively over a `T?` candidate; passing the optional explicitly picks the `T?` overload. Per… |
+| [overload_selection_heap_arc.il](crates/ilang-cli/tests/programs/06_overloading/overload_selection_heap_arc.il) | Overload resolution must hand the chosen overload its heap argument (and heap return value) with correct ARC — the existing overloading fixtures only check that the right overload… |
 | [return_type_only_dup_error.il](crates/ilang-cli/tests/programs/06_overloading/return_type_only_dup_error.il) | Two overloads with the same parameter types but different return types are rejected — overload resolution looks at the call-site argument types only, so a return-type-only duplica… |
 | [static_method_by_arg_type.il](crates/ilang-cli/tests/programs/06_overloading/static_method_by_arg_type.il) | Static method overloading: same name, different signatures, dispatched at the call site like instance / top-level overloads. |
 | [unit_return_overload.il](crates/ilang-cli/tests/programs/06_overloading/unit_return_overload.il) | Overload on parameter types where every variant returns `()` (no return-type annotation). The dispatcher still walks the arg signatures, the matching body executes for its side ef… |
 
-## 07_method_overloading (11)
+## 07_method_overloading (12)
 
 | fixture | pin している内容 |
 |---|---|
@@ -816,6 +817,7 @@
 | [defaults_with_overload.il](crates/ilang-cli/tests/programs/07_method_overloading/defaults_with_overload.il) | Default arguments coexist with method overloading — a candidate whose arity matches the call exactly wins over a default-filled candidate (the latter takes a 1000 score penalty pe… |
 | [deinit_overload_error.il](crates/ilang-cli/tests/programs/07_method_overloading/deinit_overload_error.il) | deinit cannot be overloaded — there is exactly one deinit per class. |
 | [generic_class_conflict_error.il](crates/ilang-cli/tests/programs/07_method_overloading/generic_class_conflict_error.il) | Methods on a generic class cannot be overloaded (keeps mono+overload resolution paths separate). |
+| [init_method_overload_heap_arc.il](crates/ilang-cli/tests/programs/07_method_overloading/init_method_overload_heap_arc.il) | `init` and method overload resolution must pass the chosen overload its heap arguments with correct ARC. The existing method-overloading fixtures check which overload is picked, n… |
 | [init_overload.il](crates/ilang-cli/tests/programs/07_method_overloading/init_overload.il) | init() can be overloaded; `new C(...)` picks the best match. |
 | [parent_method_overload_error.il](crates/ilang-cli/tests/programs/07_method_overloading/parent_method_overload_error.il) | A child class can overload methods the *parent doesn't* declare (covered by `subclass_overload.il`), but it can't introduce a new overload sharing a name with a parent method — `o… |
 | [static_overload.il](crates/ilang-cli/tests/programs/07_method_overloading/static_overload.il) | `static` methods can be overloaded — same arity/type rules as instance methods, mangled to `name__<param_types>` after type checking. Per syntax.md §7 `static` methods. |
@@ -948,4 +950,4 @@
 
 ---
 
-**合計 865 fixture**(自動生成)。
+**合計 867 fixture**(自動生成)。

@@ -21,6 +21,7 @@
 
 直近のセッション (2026-06-14 / 2026-06-11) で main に landing した変更:
 
+- **第 160 弾** (クリーンラウンド / 最古領域 overloading の ARC 補強)。 BUG_COVERAGE の追加日を集計し、 最も長く fixture 化されていない **06_overloading / 07_method_overloading**(2026-06-07 以降未更新)を **オーバーロード選択 × heap 引数/戻り値の ARC** で probe — **新規バグなし**。 free-fn overload(param 型・subclass・`T` vs `T?`・heap 返却)も init/method overload(`init(Box)`/`init(Box,Box)`・`add(Box)`/`add(Box,Box)`)も、 選択が正しく heap 引数/戻り値を過不足なく 1 回ずつ deinit(churn で厳密・`ILANG_HEAP_GUARD=1` クリーン)。 既存 overloading fixture は選択の正しさのみで ARC 未検証だったため pin。 また第 107 弾で「壊れている既知の制限」とした **implicit-this generic メソッド**と **generic 返却メソッド**が現在は正常動作する(`generic_method_this_call.il`/`generic_method_returns_generic.il` で pin 済み)ことを確認 — 第 107 弾記録は古い。 fixture 追加のみのため重い儀式は省略(コード変更なし、 JIT 全 fixture + 新 fixture を JIT/AOT で確認)。 fixture: `06_overloading/overload_selection_heap_arc.il`・`07_method_overloading/init_method_overload_heap_arc.il`。
 - **第 159 弾** (ユーザー決定 = 発散式を消費位置で checker 拒否)。 155〜158 の発散系統の探索中に、 `f(return 5)`・`1 + (return 2)`・`[1, return 2, 3]` のように **発散式(return/break/continue)を値消費位置**(引数・オペランド・要素等)に置くと、 checker を素通りし `mir lower: no coercion from () to i64` という内部的なメッセージで落ちることを発見。 根は「ilang に never 型が無く `return X` の checker 型が関数戻り値型」(`todo() + 1` と同根)。 ユーザー判断で **never 型は入れず checker で素直に拒否**を選択。 実装: `reject_control_transfer_value`([checker/expr/mod.rs](../crates/ilang-types/src/checker/expr/mod.rs))を新設し、 二項/単項オペランド・call 引数(`check_call_expr`/`check_args`)・配列/タプル/Map 要素・index・some・template の各消費位置で呼ぶ。 `break`/`continue` はループ外、 `return` はトップレベルでは専用エラーに譲るため `loop_depth`/`ret_ty` を見て well-formed な時だけ拒否。 fixture `control_transfer_not_a_value.il`。 checker のみ・lowering 不変。 詳細は下の解決済み記録。
 - **第 158 弾** (if 式の発散分岐が codegen を壊す既存バグ)。 第 157 弾(int/bool match)の同型を **if 式の値 join** で probe して検出。 `let x = if c { 9 } else { return 1 }` という基本形でも `mismatched argument count for jump` でクラッシュ(片分岐が値・片分岐が発散)。 heap・elif 中段発散・引数位置の if でも同様。 原因: `lower_if`([control.rs](../crates/ilang-mir/src/lower/control.rs))が分岐の発散を見ず、 join 型を両分岐の tail から選び両分岐とも join へジャンプ。 発散分岐の死にブロックが `()` を渡し arity 不一致。 **既存バグ**(match と同じく lower_if は発散分岐を一度も扱っていなかった)。 修正: `block_diverges`/`arm_body_diverges` で各分岐の発散を判定し、 join 型は live 分岐のみから選び、 発散分岐は `Unreachable` で閉じて join へジャンプさせない。 fixture `if_diverging_branch_value.il`。 全儀式緑。 詳細は下の解決済み記録。
 - **第 157 弾** (int/bool match の発散 arm が codegen を壊す既存バグ)。 第 156 弾の隣接面(発散 × match)を probe して **整数・bool の `match` に発散 arm(`return`/`todo` 等)があると codegen がクラッシュ**を検出。 `match s { 0 { 9 } _ { return 1 } }` という基本形でも `mismatched argument count for jump`。 原因: `lower_match_int`/`lower_match_bool`([match_.rs](../crates/ilang-mir/src/lower/match_.rs))が enum/string 経路と違い `arm_body_diverges` を見ず、 全 arm を無条件で join に push。 発散 arm の死にブロックが `()` プレースホルダを join へ渡し arity 不一致。 **私の変更と独立の既存バグ**(両経路は発散 arm を一度も扱っていなかった、 string 経路のみ正しかった)。 修正: 両経路の各 arm で `arm_body_diverges` を見て発散 arm を join から除外(enum/string と同じ規則)。 fixture `match_int_bool_diverging_arm.il`(int scalar/heap・bool heap・churn deinits=100)。 全儀式緑。 詳細は下の解決済み記録。
@@ -209,6 +210,16 @@ regression fixture 9 件 (`05_edge_cases/method_tail_bare_var_if_arm.il`、 `05_
 次のフェーズ候補: **capability の enforce** (`@requires` はパース済み・未 enforce)、 **未実装の言語機能 (Iterator プロトコル、 `?` の Optional 対応など — タプルと Result 用 `?` は実装済みと第 15 弾で確認)**、 **C ヘッダから .il 自動生成のミニ bindgen**、 **REPL の `use` 対応 (loader overlay 方式の素案は第 15 弾の記録参照)**。
 
 ## 未解決の引き継ぎ事項
+
+### [確認済み記録] 第 160 弾: overloading 選択 × heap ARC — 全て健全 (2026-06-19)
+
+「最近 fixture 化されていない領域」を BUG_COVERAGE の追加日集計で特定し、 最古の **06_overloading / 07_method_overloading**(共に 2026-06-07 以降未更新)を probe。 **新規バグなし。**
+
+- **確認した形**: free-fn overload を heap 引数(`f(Box)` vs `f(i64)`)・subclass(`label(Animal)` vs `label(Dog)` に `Dog` を渡すと Dog 版選択、 `Animal` 型変数だと Animal 版)・heap 返却(`make(i64)`/`make(string)` が `Box` 返却)・`T` vs `T?`(exact 優先)で選択し、 init/method overload(`init(Box)`/`init(Box,Box)`、 `add(Box)`/`add(Box,Box)`)に heap 引数を渡す。 全て選択正当 + 選んだ overload が heap を過不足なく 1 回 deinit(churn 厳密=300 / 600・`ILANG_HEAP_GUARD=1` クリーン)。
+- **既存 fixture との差**: 既存 overloading fixture は scoring / 選択の正しさのみで **ARC が未検証**だった。 オーバーロード dispatch 経路が heap 引数/戻り値の retain/release を壊さないことを pin。
+- **副次確認**: 第 107 弾が「壊れている既知の制限」と記録した **implicit-this generic メソッド呼び出し**と **generic 返却メソッド**は現在正常動作する(`generic_method_this_call.il` / `generic_method_returns_generic.il` で pin 済み)。 第 107 弾の当該記述は古い。 明示型引数 `id<i64>(5)` は依然 parser 未対応(`<` を比較とパースし `undefined variable "i64"`、 graceful)。
+- **fixture**: `06_overloading/overload_selection_heap_arc.il`・`07_method_overloading/init_method_overload_heap_arc.il`。
+- **検証**: programs JIT PASS、 新 fixture を JIT/AOT で確認(コード変更なしのため nested_generic 儀式は非対象)。
 
 ### [解決済み記録] 第 159 弾: 発散式を値消費位置に置くと内部的な lower エラー → checker で拒否 (2026-06-19) — ユーザー決定
 
